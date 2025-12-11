@@ -300,6 +300,14 @@ class LocalLibraryClient:
             self.similarity_calc.close()
         logger.debug("Closed LocalLibraryClient connections")
 
+    def __enter__(self):
+        """Context manager entry."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit: ensure resources are closed."""
+        self.close()
+
 
 # Example usage
 if __name__ == "__main__":

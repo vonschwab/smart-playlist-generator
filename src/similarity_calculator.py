@@ -885,6 +885,14 @@ class SimilarityCalculator:
         if self.conn:
             self.conn.close()
 
+    def __enter__(self):
+        """Context manager support."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Ensure connection is closed on context exit."""
+        self.close()
+
 
 # Example usage
 if __name__ == "__main__":
