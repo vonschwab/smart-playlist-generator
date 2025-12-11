@@ -19,6 +19,8 @@ PLAYLIST GENERATOR/
 │   ├── similarity_calculator.py         # Hybrid sonic + genre similarity
 │   ├── genre_similarity_v2.py           # Advanced genre similarity (7 methods)
 │   ├── genre_similarity.py              # Legacy genre similarity
+│   ├── string_utils.py                  # Shared string normalization helpers
+│   ├── artist_utils.py                  # Shared artist normalization helpers
 │   ├── local_library_client.py          # Local library interface
 │   ├── metadata_client.py               # Database interface
 │   ├── lastfm_client.py                 # Last.FM API client

@@ -8,7 +8,9 @@ import logging
 import time
 import numpy as np
 from .artist_cache import ArtistSimilarityCache
+from .artist_utils import extract_primary_artist
 from .similarity_calculator import SimilarityCalculator
+from .string_utils import normalize_genre, normalize_song_title
 
 logger = logging.getLogger(__name__)
 
@@ -26,57 +28,6 @@ def sanitize_for_logging(text: str) -> str:
         return text.encode('cp1252', errors='replace').decode('cp1252')
 
 
-def normalize_song_title(title: str) -> str:
-    """
-    Normalize song title by removing common variations like remaster info, live versions, etc.
-
-    Args:
-        title: Original song title
-
-    Returns:
-        Normalized title (lowercase, stripped of common suffixes)
-    """
-    if not title:
-        return ""
-
-    # Convert to lowercase for comparison
-    normalized = title.lower().strip()
-
-    # Remove common suffixes/variations (in parentheses or brackets)
-    import re
-    # Pattern to match things like: (Remaster), (2010 Remaster), (Live), (Demo), etc.
-    patterns = [
-        r'\s*\(.*remaster.*\)',
-        r'\s*\[.*remaster.*\]',
-        r'\s*\(.*live.*\)',
-        r'\s*\[.*live.*\]',
-        r'\s*\(.*demo.*\)',
-        r'\s*\[.*demo.*\]',
-        r'\s*\(.*remix.*\)',
-        r'\s*\[.*remix.*\]',
-        r'\s*\(.*version.*\)',
-        r'\s*\[.*version.*\]',
-        r'\s*\(.*edit.*\)',
-        r'\s*\[.*edit.*\]',
-        r'\s*\(.*mix.*\)',
-        r'\s*\[.*mix.*\]',
-        r'\s*\(mono\)',
-        r'\s*\[mono\]',
-        r'\s*\(stereo\)',
-        r'\s*\[stereo\]',
-        r'\s*\(\d{4}\)',  # Year in parentheses like (2010)
-        r'\s*\[\d{4}\]',  # Year in brackets like [2010]
-    ]
-
-    for pattern in patterns:
-        normalized = re.sub(pattern, '', normalized, flags=re.IGNORECASE)
-
-    # Remove extra whitespace
-    normalized = ' '.join(normalized.split())
-
-    return normalized
-
-
 def safe_get_artist(track: Dict[str, Any], lowercase: bool = True) -> str:
     """
     Safely get artist name from a track dictionary with None-safe fallback
@@ -91,49 +42,6 @@ def safe_get_artist(track: Dict[str, Any], lowercase: bool = True) -> str:
     artist = track.get('artist') or ''
     return artist.lower() if lowercase and artist else artist
 
-
-def extract_primary_artist(artist: str, lowercase: bool = True) -> str:
-    """
-    Extract the primary/first artist from collaborative credits
-
-    Handles collaborations while preserving band names:
-    - "Pink Siifu & Fly Anakin" → "Pink Siifu" (collaboration)
-    - "Sonny & The Sunsets" → "Sonny & The Sunsets" (band name - preserved!)
-    - "Artist feat. Other" → "Artist"
-    - "Ahmad Jamal Trio" → "Ahmad Jamal" (jazz ensemble normalization)
-    - "The Ahmad Jamal Trio" → "Ahmad Jamal" (with "The" prefix)
-
-    Args:
-        artist: Artist string (may contain multiple artists)
-        lowercase: Whether to convert to lowercase
-
-    Returns:
-        Primary artist name (or full name if it's a band)
-    """
-    if not artist:
-        return ''
-
-    import re
-
-    # Remove anything after featuring/with/vs (clear collaboration markers)
-    artist = re.split(r'\s+(?:feat\.?|ft\.?|featuring|with|vs\.?|x)\s+', artist, flags=re.IGNORECASE)[0]
-
-    # Check if this has a jazz ensemble suffix that needs normalization
-    # Only handle clear jazz ensemble sizes (Trio, Quartet, Quintet, Sextet, Septet, Octet)
-    # DO NOT remove "Band", "Group", "Orchestra" as these are often actual band names
-    # (e.g., "The Band", "Band of Horses", "Naked Eyes Orchestra")
-    has_ensemble_suffix = re.search(r'\s+(?:Trio|Quartet|Quintet|Sextet|Septet|Octet)\s*$',
-                                   artist, flags=re.IGNORECASE)
-
-    if has_ensemble_suffix:
-        # This is a jazz ensemble - strip "The" prefix and ensemble suffix
-        # "The Ahmad Jamal Trio" → "Ahmad Jamal"
-        # "John Coltrane Quartet" → "John Coltrane"
-        artist = re.sub(r'^The\s+', '', artist, flags=re.IGNORECASE)
-        artist = re.sub(r'\s+(?:Trio|Quartet|Quintet|Sextet|Septet|Octet)\s*$',
-                       '', artist, flags=re.IGNORECASE)
-        artist = artist.strip()
-        return artist.lower() if lowercase and artist else artist
 
     # DON'T split if it looks like a band name:
     # - Contains "& The" (e.g., "Sonny & The Sunsets")
@@ -151,49 +59,6 @@ def extract_primary_artist(artist: str, lowercase: bool = True) -> str:
     artist = artist.strip()
     return artist.lower() if lowercase and artist else artist
 
-
-def normalize_genre(genre: str) -> str:
-    """
-    Aggressively normalize genre for better matching
-
-    Handles common variations like:
-    - Punctuation: "hip-hop" → "hip hop"
-    - Ampersands: "r&b" → "r and b"
-    - Slashes: "rock/pop" → "rock pop"
-    - Whitespace normalization
-    - Known abbreviations
-
-    Args:
-        genre: Raw genre string
-
-    Returns:
-        Normalized genre string
-    """
-    if not genre:
-        return ""
-
-    # Lowercase and strip
-    genre = genre.lower().strip()
-
-    # Remove/replace punctuation and special characters
-    genre = genre.replace('-', ' ')      # "hip-hop" → "hip hop"
-    genre = genre.replace('&', 'and')    # "r&b" → "r and b"
-    genre = genre.replace('/', ' ')      # "rock/pop" → "rock pop"
-    genre = genre.replace('_', ' ')      # "drum_bass" → "drum bass"
-
-    # Normalize whitespace (collapse multiple spaces)
-    genre = ' '.join(genre.split())
-
-    # Expand known abbreviations to their full forms
-    abbreviation_map = {
-        'rnb': 'rhythm and blues',
-        'r and b': 'rhythm and blues',
-        'dnb': 'drum and bass',
-        'edm': 'electronic dance music',
-        'idm': 'intelligent dance music',
-    }
-
-    return abbreviation_map.get(genre, genre)
 
 
 class PlaylistGenerator:

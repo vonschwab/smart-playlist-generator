@@ -3,10 +3,12 @@ Track Matcher - Matches Last.FM tracks to library
 """
 from typing import List, Dict, Any, Optional
 import logging
-import re
 import sqlite3
 from datetime import datetime, timedelta
 from difflib import SequenceMatcher
+
+from .artist_utils import get_artist_variations
+from .string_utils import normalize_match_string
 
 logger = logging.getLogger(__name__)
 
@@ -121,8 +123,8 @@ class TrackMatcher:
                 return dict(row), 'mbid'
 
         # Strategy 2: Exact match on normalized strings
-        norm_artist = self._normalize_string(artist, is_artist=True)
-        norm_title = self._normalize_string(title)
+        norm_artist = normalize_match_string(artist, is_artist=True)
+        norm_title = normalize_match_string(title)
 
         cursor.execute("""
             SELECT track_id as rating_key, title, artist, album,
@@ -135,8 +137,8 @@ class TrackMatcher:
             return dict(row), 'exact'
 
         # Strategy 3: Try alternate normalizations
-        for alt_artist in self._get_artist_variations(artist):
-            alt_norm = self._normalize_string(alt_artist, is_artist=True)
+        for alt_artist in get_artist_variations(artist):
+            alt_norm = normalize_match_string(alt_artist, is_artist=True)
             cursor.execute("""
                 SELECT track_id as rating_key, title, artist, album,
                        duration_ms as duration, musicbrainz_id as mbid
@@ -175,71 +177,6 @@ class TrackMatcher:
             return best_match, 'fuzzy'
 
         return None, None
-
-    def _get_artist_variations(self, artist: str) -> List[str]:
-        """Generate artist name variations for better matching"""
-        variations = []
-
-        # Handle "The Band" vs "Band, The"
-        if artist.lower().startswith('the '):
-            variations.append(artist[4:] + ', The')
-        elif artist.lower().endswith(', the'):
-            variations.append('The ' + artist[:-5])
-
-        # Handle "&" vs "and"
-        if ' & ' in artist:
-            variations.append(artist.replace(' & ', ' and '))
-        if ' and ' in artist.lower():
-            variations.append(artist.replace(' and ', ' & ').replace(' And ', ' & '))
-
-        return variations
-
-    def _normalize_string(self, s: str, is_artist: bool = False) -> str:
-        """
-        Normalize string for matching (lowercase, remove special chars, etc.)
-
-        Args:
-            s: String to normalize
-            is_artist: If True, applies artist-specific normalization (extracts primary artist)
-
-        Returns:
-            Normalized string
-        """
-        if not s:
-            return ""
-
-        # Lowercase
-        s = s.lower()
-
-        # Remove featuring/with artists
-        s = re.sub(r'\s+(feat|ft|featuring|with|vs)[\.\s]+.*$', '', s, flags=re.IGNORECASE)
-
-        # Remove content in parentheses/brackets (remixes, versions, etc.)
-        s = re.sub(r'\([^)]*\)', '', s)
-        s = re.sub(r'\[[^\]]*\]', '', s)
-
-        # Remove common prefixes
-        s = re.sub(r'^the\s+', '', s)
-
-        # Normalize common variations
-        s = s.replace('&', 'and')
-        s = s.replace('+', 'and')
-
-        # For artist names: extract primary artist if it's a collaboration
-        # BUT preserve band names like "Sonny and The Sunsets"
-        if is_artist:
-            # Don't split if it contains "and the" (likely a band name)
-            if not re.search(r'\s+and\s+the\s+', s, flags=re.IGNORECASE):
-                # Split on common separators and take first artist
-                s = re.split(r'\s*(?:and|,|;)\s+', s)[0]
-
-        # Remove special characters but keep spaces
-        s = re.sub(r'[^\w\s]', '', s)
-
-        # Collapse multiple spaces
-        s = re.sub(r'\s+', ' ', s)
-
-        return s.strip()
 
     def _similarity_score(self, s1: str, s2: str) -> float:
         """
