@@ -1,0 +1,41 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+
+# Logs and databases
+*.log
+*.db
+*.sqlite
+*.sqlite3
+logs/
+
+# Local data (keep genre_similarity.yaml)
+data/*
+!data/genre_similarity.yaml
+
+# Config (real keys stay local)
+config.yaml
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Python packaging / build
+build/
+dist/
+*.egg-info/
+
+# Other tooling artifacts
+.claude/
+
+# Generated playlists
+*.m3u

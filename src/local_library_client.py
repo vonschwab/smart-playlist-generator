@@ -1,0 +1,328 @@
+"""
+Local Library Client - Music library client using local database
+Provides the same interface as LibraryClient but queries metadata.db instead
+"""
+import sqlite3
+import json
+import logging
+from typing import List, Dict, Any, Optional
+from .similarity_calculator import SimilarityCalculator
+
+logger = logging.getLogger(__name__)
+
+
+class LocalLibraryClient:
+    """
+    Local library client that mimics LibraryClient interface
+    Uses metadata.db and SimilarityCalculator instead of local database
+    """
+
+    def __init__(self, db_path: str = "data/metadata.db"):
+        """
+        Initialize local library client
+
+        Args:
+            db_path: Path to metadata database
+        """
+        self.db_path = db_path
+        self.conn = None
+        self.similarity_calc = SimilarityCalculator(db_path)
+        self._init_db_connection()
+        logger.info("Initialized LocalLibraryClient (local library mode)")
+
+    def _init_db_connection(self):
+        """Initialize database connection"""
+        self.conn = sqlite3.connect(self.db_path)
+        self.conn.row_factory = sqlite3.Row
+        logger.debug(f"Connected to database: {self.db_path}")
+
+    def get_all_tracks(self, library_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Get all tracks from local library
+
+        Args:
+            library_id: Ignored (for compatibility with LibraryClient)
+
+        Returns:
+            List of track dictionaries
+        """
+        cursor = self.conn.cursor()
+
+        cursor.execute("""
+            SELECT
+                track_id as rating_key,
+                artist,
+                title,
+                album,
+                duration_ms,
+                file_path,
+                musicbrainz_id as mbid
+            FROM tracks
+            WHERE file_path IS NOT NULL
+            ORDER BY artist, album, title
+        """)
+
+        tracks = []
+        for row in cursor.fetchall():
+            track = {
+                'rating_key': row['rating_key'],
+                'artist': row['artist'] or '',
+                'title': row['title'] or '',
+                'album': row['album'] or '',
+                'duration': row['duration_ms'],  # Keep as milliseconds
+                'file_path': row['file_path'],
+                'mbid': row['mbid']
+            }
+            tracks.append(track)
+
+        logger.info(f"Retrieved {len(tracks)} tracks from local library")
+        return tracks
+
+    def get_track_by_key(self, rating_key: str) -> Optional[Dict[str, Any]]:
+        """
+        Get track by rating key
+
+        Args:
+            rating_key: Track ID (track_id)
+
+        Returns:
+            Track dictionary or None
+        """
+        cursor = self.conn.cursor()
+
+        cursor.execute("""
+            SELECT
+                track_id as rating_key,
+                artist,
+                title,
+                album,
+                duration_ms,
+                file_path,
+                musicbrainz_id as mbid
+            FROM tracks
+            WHERE track_id = ?
+        """, (rating_key,))
+
+        row = cursor.fetchone()
+        if not row:
+            logger.warning(f"Track {rating_key} not found in local library")
+            return None
+
+        track = {
+            'rating_key': row['rating_key'],
+            'artist': row['artist'] or '',
+            'title': row['title'] or '',
+            'album': row['album'] or '',
+            'duration': row['duration_ms'],
+            'file_path': row['file_path'],
+            'mbid': row['mbid']
+        }
+
+        return track
+
+    def get_similar_tracks(self, rating_key: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """
+        Get tracks similar to the given track using sonic analysis
+
+        Args:
+            rating_key: Seed track ID
+            limit: Maximum number of similar tracks to return
+
+        Returns:
+            List of similar track dictionaries with 'similarity_score'
+        """
+        # Use SimilarityCalculator to find similar tracks
+        similar_ids = self.similarity_calc.find_similar_tracks(
+            rating_key,
+            limit=limit,
+            min_similarity=0.3  # Lower threshold to allow more candidates for diversification
+        )
+
+        if not similar_ids:
+            logger.debug(f"No similar tracks found for {rating_key}")
+            return []
+
+        # Get full track data for similar tracks
+        similar_tracks = []
+        for track_id, similarity_score in similar_ids:
+            track = self.get_track_by_key(track_id)
+            if track:
+                track['similarity_score'] = similarity_score
+                similar_tracks.append(track)
+
+        logger.debug(f"Found {len(similar_tracks)} similar tracks for {rating_key}")
+        return similar_tracks
+
+    def get_similar_tracks_sonic_only(self, rating_key: str, limit: int = 50,
+                                      min_similarity: float = 0.1) -> List[Dict[str, Any]]:
+        """
+        Get sonically similar tracks (no genre weighting/filtering).
+
+        Args:
+            rating_key: Seed track ID
+            limit: Maximum number of tracks to return
+            min_similarity: Minimum sonic similarity threshold
+
+        Returns:
+            List of similar track dictionaries with 'similarity_score'
+        """
+        similar_ids = self.similarity_calc.find_similar_tracks_sonic_only(
+            rating_key,
+            limit=limit,
+            min_similarity=min_similarity
+        )
+
+        if not similar_ids:
+            logger.debug(f"No sonic-only similar tracks found for {rating_key}")
+            return []
+
+        similar_tracks = []
+        for track_id, similarity_score in similar_ids:
+            track = self.get_track_by_key(track_id)
+            if track:
+                track['similarity_score'] = similarity_score
+                similar_tracks.append(track)
+
+        logger.debug(f"Found {len(similar_tracks)} sonic-only similar tracks for {rating_key}")
+        return similar_tracks
+
+    def get_play_history(self, library_id: Optional[str] = None, days: int = 30) -> List[Dict[str, Any]]:
+        """
+        Get play history (PLACEHOLDER - returns empty list)
+
+        Note: Local library doesn't track play history. Use Last.FM instead.
+
+        Args:
+            library_id: Ignored
+            days: Ignored
+
+        Returns:
+            Empty list (use Last.FM for play history)
+        """
+        logger.info("Local library mode: Play history not available (use Last.FM only)")
+        return []
+
+    def get_playlists(self, name_prefix: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Get playlists (PLACEHOLDER - returns empty list)
+
+        Note: Local library mode doesn't manage playlists. Only M3U exports are used.
+
+        Args:
+            name_prefix: Ignored
+
+        Returns:
+            Empty list (no playlists in local mode)
+        """
+        logger.debug("Local library mode: No playlists to manage (M3U-only)")
+        return []
+
+    def get_track_file_path(self, rating_key: str) -> Optional[str]:
+        """
+        Get the file system path for a track
+
+        Args:
+            rating_key: Rating key of the track
+
+        Returns:
+            File path or None if not found
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT file_path FROM tracks WHERE track_id = ?", (rating_key,))
+        row = cursor.fetchone()
+        return row['file_path'] if row else None
+
+    def get_tracks_by_artist(self, artist_name: str, fuzzy: bool = True) -> List[Dict[str, Any]]:
+        """
+        Get all tracks by an artist
+
+        Args:
+            artist_name: Artist name to search for
+            fuzzy: If True, use LIKE matching (case-insensitive)
+
+        Returns:
+            List of track dictionaries
+        """
+        cursor = self.conn.cursor()
+
+        if fuzzy:
+            cursor.execute("""
+                SELECT
+                    track_id as rating_key,
+                    artist,
+                    title,
+                    album,
+                    duration_ms,
+                    file_path,
+                    musicbrainz_id as mbid
+                FROM tracks
+                WHERE artist LIKE ?
+                  AND file_path IS NOT NULL
+                ORDER BY album, title
+            """, (f"%{artist_name}%",))
+        else:
+            cursor.execute("""
+                SELECT
+                    track_id as rating_key,
+                    artist,
+                    title,
+                    album,
+                    duration_ms,
+                    file_path,
+                    musicbrainz_id as mbid
+                FROM tracks
+                WHERE artist = ?
+                  AND file_path IS NOT NULL
+                ORDER BY album, title
+            """, (artist_name,))
+
+        tracks = []
+        for row in cursor.fetchall():
+            track = {
+                'rating_key': row['rating_key'],
+                'artist': row['artist'] or '',
+                'title': row['title'] or '',
+                'album': row['album'] or '',
+                'duration': row['duration_ms'],
+                'file_path': row['file_path'],
+                'mbid': row['mbid']
+            }
+            tracks.append(track)
+
+        logger.debug(f"Found {len(tracks)} tracks for artist '{artist_name}'")
+        return tracks
+
+    def close(self):
+        """Close database connections"""
+        if self.conn:
+            self.conn.close()
+        if self.similarity_calc:
+            self.similarity_calc.close()
+        logger.debug("Closed LocalLibraryClient connections")
+
+
+# Example usage
+if __name__ == "__main__":
+    import sys
+    sys.path.insert(0, '..')
+
+    logging.basicConfig(level=logging.INFO)
+
+    client = LocalLibraryClient()
+
+    # Test getting all tracks
+    tracks = client.get_all_tracks()
+    print(f"Total tracks: {len(tracks)}")
+
+    if tracks:
+        # Test getting similar tracks
+        sample_track = tracks[0]
+        print(f"\nSample track: {sample_track['artist']} - {sample_track['title']}")
+
+        similar = client.get_similar_tracks(sample_track['rating_key'], limit=10)
+        print(f"\nSimilar tracks:")
+        for i, track in enumerate(similar, 1):
+            print(f"  {i}. {track['artist']} - {track['title']}")
+            print(f"     Similarity: {track.get('similarity_score', 0):.3f}")
+
+    client.close()

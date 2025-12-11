@@ -1,0 +1,141 @@
+library:
+  music_directory: E:/MUSIC  # Set to your music library path
+  database_path: metadata.db
+
+lastfm:
+  api_key: YOUR_LASTFM_API_KEY
+  username: your_username
+  history_days: 90
+
+openai:
+  api_key: YOUR_OPENAI_API_KEY
+  model: gpt-4o-mini
+
+playlists:
+  count: 8
+  tracks_per_playlist: 30
+  history_days: 14
+  seed_count: 5
+  similar_per_seed: 20
+  name_prefix: 'Auto:'
+  max_age_days: 14
+  export_m3u: true
+  m3u_export_path: E:/PLAYLISTS
+  cache_expiry_days: 30
+  name_format: artists
+  recently_played_filter:
+    enabled: true
+    lookback_days: 30
+    min_playcount_threshold: 0
+  min_duration_minutes: 90
+  min_track_duration_seconds: 46
+  max_tracks_per_artist: 4
+  artist_window_size: 8
+  max_artist_per_window: 1
+  min_seed_artist_ratio: 0.125
+  genre_similarity:
+    enabled: true
+    weight: 0.33
+    sonic_weight: 0.67
+    min_genre_similarity: 0.2
+    method: ensemble
+    similarity_file: data/genre_similarity.yaml
+    use_artist_tags: true
+    broad_filters:
+      - 50s
+      - 60s
+      - 70s
+      - 80s
+      - 90s
+      - 00s
+      - 10s
+      - '1950'
+      - '1960'
+      - '1970'
+      - '1980'
+      - '1990'
+      - '2000'
+      - '2010'
+      - '2020'
+      - 2000s
+      - 2010s
+      - 2020s
+      - rock
+      - pop
+      - indie
+      - alternative
+      - experimental
+      - instrumental
+      - ambient
+      - electronic
+      - underground
+      - classic
+      - modern
+      - contemporary
+      - male vocalists
+      - female vocalists
+      - male vocalist
+      - female vocalist
+      - british
+      - american
+      - canadian
+      - english
+      - uk
+      - usa
+      - nyc
+      - london
+      - lo-fi
+      - lofi
+      - chillout
+      - chill
+      - beautiful
+      - melancholy
+      - sad
+      - happy
+      - love
+      - mellow
+      - catchy
+      - awesome
+      - cool
+      - good
+      - great
+      - seen live
+      - favorites
+      - favourite
+      - my music
+      - owned
+      - liked
+      - to buy
+      - unknown
+      - various
+      - other
+      - misc
+      - soundtrack
+      - ost
+      - cover
+      - covers
+      - remix
+      - remixes
+      - live
+      - bootleg
+      - demo
+      - reissue
+      - compilation
+  similar_artists:
+    enabled: true
+    boost: 0.05
+  similarity:
+    min_threshold: 0.5
+    artist_direct_match: 0.9
+    artist_shared_base: 0.4
+    artist_shared_increment: 0.05
+    artist_shared_max: 0.7
+  limits:
+    similar_tracks: 50
+    similar_artists: 30
+    extension_base: 10
+    extension_increment: 20
+
+logging:
+  level: DEBUG
+  file: playlist_generator.log
