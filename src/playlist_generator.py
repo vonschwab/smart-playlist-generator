@@ -43,21 +43,14 @@ def safe_get_artist(track: Dict[str, Any], lowercase: bool = True) -> str:
     return artist.lower() if lowercase and artist else artist
 
 
-    # DON'T split if it looks like a band name:
-    # - Contains "& The" (e.g., "Sonny & The Sunsets")
-    # - Contains "and The" (e.g., "Florence and The Machine")
-    # - Contains "The" before separator (e.g., "The XX & The YY")
-    if re.search(r'(?:^The\s+|\s+(?:&|and)\s+The\s+)', artist, flags=re.IGNORECASE):
-        # This is likely a band name, keep it intact
-        artist = artist.strip()
-        return artist.lower() if lowercase and artist else artist
-
-    # Otherwise, split on common separators for collaborations
-    # Handle: &, and, ,, ;
-    artist = re.split(r'\s*[&,;]\s*|\s+and\s+', artist, flags=re.IGNORECASE)[0]
-
-    artist = artist.strip()
-    return artist.lower() if lowercase and artist else artist
+def _convert_seconds_to_ms(seconds: Optional[int]) -> int:
+    """Helper to convert seconds to milliseconds with None safety."""
+    if seconds is None:
+        return 0
+    try:
+        return int(seconds) * 1000
+    except (TypeError, ValueError):
+        return 0
 
 
 
@@ -87,6 +80,26 @@ class PlaylistGenerator:
 
         # Clean up expired entries on startup
         self.artist_cache.clear_expired()
+
+    def _ensure_similarity_calculator(self) -> None:
+        """Ensure similarity calculator exists (fallback to local init)."""
+        if getattr(self, 'similarity_calc', None):
+            return
+        self.similarity_calc = getattr(self.library, 'similarity_calc', None)
+        if self.similarity_calc is None:
+            try:
+                db_path = self.config.get('library', {}).get('database_path', 'data/metadata.db')
+            except Exception:
+                db_path = 'data/metadata.db'
+            self.similarity_calc = SimilarityCalculator(db_path=db_path, config=self.config)
+
+    def _filter_long_tracks(self, candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Remove tracks above maximum duration (seconds value from config)."""
+        max_duration_seconds = self.config.get('playlists', 'max_track_duration_seconds', default=720)
+        if not max_duration_seconds:
+            return candidates
+        max_duration_ms = _convert_seconds_to_ms(max_duration_seconds)
+        return [c for c in candidates if (c.get('duration') or 0) <= max_duration_ms]
     
     def analyze_listening_history(self, history: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
@@ -188,14 +201,7 @@ class PlaylistGenerator:
             List of similar tracks (deduplicated and filtered for duplicate titles)
         """
         # Ensure similarity calculator is available (fallback if not injected)
-        if not getattr(self, 'similarity_calc', None):
-            self.similarity_calc = getattr(self.library, 'similarity_calc', None)
-            if self.similarity_calc is None:
-                try:
-                    db_path = self.config.get('library', {}).get('database_path', 'data/metadata.db')
-                except Exception:
-                    db_path = 'data/metadata.db'
-                self.similarity_calc = SimilarityCalculator(db_path=db_path, config=self.config)
+        self._ensure_similarity_calculator()
 
         if dynamic:
             logger.info("Finding similar tracks (60% sonic, 40% genre-based)...")
@@ -211,6 +217,7 @@ class PlaylistGenerator:
         min_track_duration_ms = self.config.min_track_duration_seconds * 1000  # Convert to milliseconds
         all_candidates: Dict[str, Dict[str, Any]] = {}
         filtered_short_count = 0
+        filtered_long_count = 0
         filtered_dupe_title = 0
 
         # Per-artist cap for the candidate pool to avoid monopolization
@@ -230,6 +237,10 @@ class PlaylistGenerator:
 
             # Sonic-only discovery
             similar = self.library.get_similar_tracks_sonic_only(seed_id, limit=candidate_per_seed, min_similarity=0.1)
+            # Filter out overly long tracks before processing
+            before_long = len(similar)
+            similar = self._filter_long_tracks(similar)
+            filtered_long_count += max(0, before_long - len(similar))
 
             # Add weight based on seed's play count
             weight = seed.get('play_count', 1)
@@ -265,7 +276,13 @@ class PlaylistGenerator:
                 track['source'] = 'sonic'
                 all_candidates[track_key] = track
 
-        logger.info(f"Sonic-only pool: {len(all_candidates)} candidates (filtered {filtered_short_count} short, {filtered_dupe_title} duplicate titles)")
+        logger.info(
+            "Sonic-only pool: %s candidates (filtered %s short, %s long, %s duplicate titles)",
+            len(all_candidates),
+            filtered_short_count,
+            filtered_long_count,
+            filtered_dupe_title,
+        )
 
         # Sort by sonic similarity and apply artist cap + top pool_target
         sorted_candidates = sorted(all_candidates.values(), key=lambda t: t.get('similarity_score', 0), reverse=True)
@@ -351,6 +368,7 @@ class PlaylistGenerator:
         sonic_tracks = []
         seen_keys = set()
         filtered_short_count = 0
+        filtered_long_count = 0
 
         # Build set of normalized seed titles to filter out
         seed_titles = {normalize_song_title(seed.get('title', '')) for seed in seeds}
@@ -366,6 +384,9 @@ class PlaylistGenerator:
                 continue
 
             similar = self.library.get_similar_tracks(key, limit=sonic_per_seed)
+            before_long = len(similar)
+            similar = self._filter_long_tracks(similar)
+            filtered_long_count += max(0, before_long - len(similar))
             weight = seed.get('play_count', 1)
 
             for track in similar:
@@ -593,6 +614,8 @@ class PlaylistGenerator:
 
         if filtered_short_count > 0:
             logger.info(f"  Filtered out {filtered_short_count} short tracks (< {self.config.min_track_duration_seconds}s)")
+        if filtered_long_count > 0:
+            logger.info(f"  Filtered out {filtered_long_count} long tracks (> {self.config.max_track_duration_seconds}s)")
 
         logger.info(f"  Total: {len(all_tracks)} tracks ({len(sonic_tracks)} sonic + {len(genre_tracks)} genre)")
 

@@ -104,6 +104,11 @@ class Config:
         return self.config.get('playlists', {}).get('min_track_duration_seconds', 90)
 
     @property
+    def max_track_duration_seconds(self) -> int:
+        """Get maximum track duration in seconds (filter out overly long tracks)"""
+        return self.config.get('playlists', {}).get('max_track_duration_seconds', 720)
+
+    @property
     def recently_played_filter_enabled(self) -> bool:
         """Check if recently played filtering is enabled"""
         return self.config.get('playlists', {}).get('recently_played_filter', {}).get('enabled', True)

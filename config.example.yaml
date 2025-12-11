@@ -29,6 +29,7 @@ playlists:
     min_playcount_threshold: 0
   min_duration_minutes: 90
   min_track_duration_seconds: 46
+  max_track_duration_seconds: 720
   max_tracks_per_artist: 4
   artist_window_size: 8
   max_artist_per_window: 1

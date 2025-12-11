@@ -252,6 +252,11 @@ def _filter_short_tracks(self, candidates: List[Dict]) -> List[Dict]:
     min_duration = self.config.get('min_track_duration_seconds', 46)
     return [c for c in candidates if c.get('duration', 0) >= min_duration]
 
+def _filter_long_tracks(self, candidates: List[Dict]) -> List[Dict]:
+    """Remove tracks above maximum duration."""
+    max_duration = self.config.get('max_track_duration_seconds', 720)
+    return [c for c in candidates if c.get('duration', 0) <= max_duration]
+
 def _filter_duplicate_titles(self, candidates: List[Dict], seed_id: str) -> List[Dict]:
     """Remove tracks with duplicate normalized titles."""
     seen_titles = set()
