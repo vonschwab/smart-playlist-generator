@@ -1,7 +1,7 @@
 """
 Track Matcher - Matches Last.FM tracks to library
 """
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 import logging
 import sqlite3
 from datetime import datetime, timedelta
@@ -93,13 +93,7 @@ class TrackMatcher:
 
     def _find_best_match(self, lastfm_track: Dict[str, Any]):
         """
-        Find best matching track for a Last.FM track using database queries
-
-        Args:
-            lastfm_track: Last.FM track data
-
-        Returns:
-            Tuple of (Matching library track or None, match type)
+        Find best matching track for a Last.FM track using prioritized strategies.
         """
         artist = lastfm_track.get('artist', '')
         title = lastfm_track.get('title', '')
@@ -109,23 +103,40 @@ class TrackMatcher:
             return None, None
 
         cursor = self.conn.cursor()
-
-        # Strategy 1: MusicBrainz ID matching (highest confidence)
-        if lfm_mbid:
-            cursor.execute("""
-                SELECT track_id as rating_key, title, artist, album,
-                       duration_ms as duration, musicbrainz_id as mbid
-                FROM tracks
-                WHERE musicbrainz_id = ?
-            """, (lfm_mbid,))
-            row = cursor.fetchone()
-            if row:
-                return dict(row), 'mbid'
-
-        # Strategy 2: Exact match on normalized strings
         norm_artist = normalize_match_string(artist, is_artist=True)
         norm_title = normalize_match_string(title)
 
+        strategies = [
+            lambda: self._match_by_mbid(cursor, lfm_mbid),
+            lambda: self._match_exact(cursor, norm_artist, norm_title),
+            lambda: self._match_exact_with_variations(cursor, artist, norm_title),
+            lambda: self._match_fuzzy_within_artist(cursor, norm_artist, norm_title, artist, title),
+        ]
+
+        for strategy in strategies:
+            match = strategy()
+            if match[0]:
+                return match
+
+        return None, None
+
+    def _match_by_mbid(self, cursor, lfm_mbid: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        """Strategy 1: MusicBrainz ID matching (highest confidence)."""
+        if not lfm_mbid:
+            return None, None
+        cursor.execute("""
+            SELECT track_id as rating_key, title, artist, album,
+                   duration_ms as duration, musicbrainz_id as mbid
+            FROM tracks
+            WHERE musicbrainz_id = ?
+        """, (lfm_mbid,))
+        row = cursor.fetchone()
+        if row:
+            return dict(row), 'mbid'
+        return None, None
+
+    def _match_exact(self, cursor, norm_artist: str, norm_title: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        """Strategy 2: Exact match on normalized artist/title."""
         cursor.execute("""
             SELECT track_id as rating_key, title, artist, album,
                    duration_ms as duration, musicbrainz_id as mbid
@@ -135,8 +146,10 @@ class TrackMatcher:
         row = cursor.fetchone()
         if row:
             return dict(row), 'exact'
+        return None, None
 
-        # Strategy 3: Try alternate normalizations
+    def _match_exact_with_variations(self, cursor, artist: str, norm_title: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        """Strategy 3: Exact match using alternate artist normalizations."""
         for alt_artist in get_artist_variations(artist):
             alt_norm = normalize_match_string(alt_artist, is_artist=True)
             cursor.execute("""
@@ -148,8 +161,10 @@ class TrackMatcher:
             row = cursor.fetchone()
             if row:
                 return dict(row), 'exact'
+        return None, None
 
-        # Strategy 4: Fuzzy matching within same artist
+    def _match_fuzzy_within_artist(self, cursor, norm_artist: str, norm_title: str, artist: str, title: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        """Strategy 4: Fuzzy match within the same normalized artist."""
         cursor.execute("""
             SELECT track_id as rating_key, title, artist, album,
                    duration_ms as duration, musicbrainz_id as mbid, norm_title
@@ -165,13 +180,11 @@ class TrackMatcher:
             norm_title_db = track['norm_title']
             score = self._similarity_score(norm_title, norm_title_db)
 
-            # Require at least 80% similarity for fuzzy match
             if score > best_score and score >= 0.80:
                 best_score = score
                 best_match = dict(track)
 
         if best_match:
-            # Remove norm_title from result (internal field)
             best_match.pop('norm_title', None)
             logger.debug(f"Fuzzy match ({best_score:.2f}): {artist} - {title}")
             return best_match, 'fuzzy'
