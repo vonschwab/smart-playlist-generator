@@ -93,6 +93,20 @@ class PlaylistGenerator:
                 db_path = 'data/metadata.db'
             self.similarity_calc = SimilarityCalculator(db_path=db_path, config=self.config)
 
+    def _similarity_config(self, limit_per_seed: Optional[int]) -> Dict[str, Any]:
+        """Derive similarity generation settings (caps, pool sizes, per-seed limits)."""
+        target_playlist_size = self.config.get('playlists', 'tracks_per_playlist', default=30)
+        candidate_per_seed = limit_per_seed if limit_per_seed is not None else self.config.get('playlists', 'similar_per_seed', default=30)
+        buffer_size = max(2, int(target_playlist_size * 1.0))  # 100% buffer
+        pool_target = target_playlist_size + buffer_size
+        artist_cap = max(6, getattr(self.config, 'max_tracks_per_artist', 6))
+        return {
+            'target_playlist_size': target_playlist_size,
+            'candidate_per_seed': candidate_per_seed,
+            'pool_target': pool_target,
+            'artist_cap': artist_cap,
+        }
+
     def _filter_long_tracks(self, candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Remove tracks above maximum duration (seconds value from config)."""
         max_duration_seconds = self.config.get('playlists', 'max_track_duration_seconds', default=720)
@@ -100,6 +114,139 @@ class PlaylistGenerator:
             return candidates
         max_duration_ms = _convert_seconds_to_ms(max_duration_seconds)
         return [c for c in candidates if (c.get('duration') or 0) <= max_duration_ms]
+
+    def _build_seed_title_set(self, seeds: List[Dict[str, Any]]) -> set:
+        """Normalize seed titles once for duplicate-title filtering."""
+        seed_titles = {normalize_song_title(seed.get('title', '')) for seed in seeds}
+        seed_titles.discard('')
+        return seed_titles
+
+    def _cap_candidates_by_artist(
+        self, candidates: List[Dict[str, Any]], artist_cap: int, limit: int
+    ) -> List[Dict[str, Any]]:
+        """Apply artist cap and truncate to limit based on sonic score ordering."""
+        sorted_candidates = sorted(candidates, key=lambda t: t.get('similarity_score', 0), reverse=True)
+        capped = []
+        artist_counts = Counter()
+        for track in sorted_candidates:
+            artist = (track.get('artist') or '').lower()
+            if artist_counts[artist] >= artist_cap:
+                continue
+            artist_counts[artist] += 1
+            capped.append(track)
+            if len(capped) >= limit:
+                break
+        return capped
+
+    def _score_genre_and_hybrid(
+        self, candidates: List[Dict[str, Any]]
+    ) -> Tuple[List[Dict[str, Any]], List[Tuple[Dict[str, Any], float]]]:
+        """Compute genre and hybrid scores; partition into pass/fail."""
+        genre_pass = []
+        genre_fail = []
+        for track in candidates:
+            seed_id = track.get('seed_rating_key')
+            track_id = track.get('rating_key')
+            if not seed_id or not track_id:
+                continue
+
+            seed_genres = self.similarity_calc._get_combined_genres(seed_id)
+            cand_genres = self.similarity_calc._get_combined_genres(track_id)
+            genre_sim = (
+                self.similarity_calc.genre_calc.calculate_similarity(
+                    seed_genres, cand_genres, method=self.similarity_calc.genre_method
+                )
+                if seed_genres and cand_genres
+                else 0.0
+            )
+
+            hybrid = self.similarity_calc.calculate_hybrid_similarity(seed_id, track_id)
+            if hybrid is None or hybrid <= 0:
+                genre_fail.append((track, genre_sim))
+                continue
+
+            track['hybrid_score'] = hybrid
+            track['genre_sim'] = genre_sim
+            genre_pass.append(track)
+
+        return genre_pass, genre_fail
+
+    def _finalize_pool(
+        self, candidates: List[Dict[str, Any]], artist_cap: int, pool_target: int
+    ) -> List[Dict[str, Any]]:
+        """Sort by hybrid score, enforce artist cap, and trim to pool_target."""
+        final_pool = []
+        artist_counts = Counter()
+        for track in sorted(candidates, key=lambda t: t.get('hybrid_score', 0), reverse=True):
+            artist = (track.get('artist') or '').lower()
+            if artist_counts[artist] >= artist_cap:
+                continue
+            artist_counts[artist] += 1
+            final_pool.append(track)
+            if len(final_pool) >= pool_target:
+                break
+        return final_pool
+
+    def _collect_sonic_candidates(
+        self,
+        seeds: List[Dict[str, Any]],
+        seed_titles: set,
+        candidate_per_seed: int,
+    ) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+        """
+        Collect sonic-only candidates across seeds with basic filtering.
+
+        Returns:
+            (candidates, filtered_counts)
+        """
+        min_track_duration_ms = self.config.min_track_duration_seconds * 1000
+        all_candidates: Dict[str, Dict[str, Any]] = {}
+        filtered_short = 0
+        filtered_long = 0
+        filtered_dupe_title = 0
+
+        for seed in seeds:
+            seed_id = seed.get('rating_key')
+            if not seed_id:
+                continue
+
+            similar = self.library.get_similar_tracks_sonic_only(seed_id, limit=candidate_per_seed, min_similarity=0.1)
+            before_long = len(similar)
+            similar = self._filter_long_tracks(similar)
+            filtered_long += max(0, before_long - len(similar))
+
+            weight = seed.get('play_count', 1)
+
+            for track in similar:
+                track_key = track.get('rating_key')
+                # Skip tracks with same title as seed tracks (e.g., remasters, live versions)
+                track_title_normalized = normalize_song_title(track.get('title', ''))
+                if track_title_normalized in seed_titles:
+                    filtered_dupe_title += 1
+                    continue
+
+                # Filter out short tracks (interludes, skits, etc.)
+                track_duration = track.get('duration') or 0
+                if min_track_duration_ms > 0 and track_duration < min_track_duration_ms:
+                    filtered_short += 1
+                    continue
+
+                existing = all_candidates.get(track_key)
+                if existing and existing.get('similarity_score', 0) >= track.get('similarity_score', 0):
+                    continue
+
+                track['seed_artist'] = seed.get('artist')
+                track['seed_title'] = seed.get('title')
+                track['seed_rating_key'] = seed_id
+                track['weight'] = weight
+                track['source'] = 'sonic'
+                all_candidates[track_key] = track
+
+        return list(all_candidates.values()), {
+            'short': filtered_short,
+            'long': filtered_long,
+            'dupe_title': filtered_dupe_title,
+        }
     
     def analyze_listening_history(self, history: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
@@ -209,138 +356,34 @@ class PlaylistGenerator:
         else:
             logger.info("Finding similar tracks (sonic-first pipeline)...")
 
-        target_playlist_size = self.config.get('playlists', 'tracks_per_playlist', default=30)
-        candidate_per_seed = limit_per_seed if limit_per_seed is not None else self.config.get('playlists', 'similar_per_seed', default=30)
-        buffer_size = max(2, int(target_playlist_size * 1.0))  # 100% buffer
-        pool_target = target_playlist_size + buffer_size
+        sim_cfg = self._similarity_config(limit_per_seed)
 
-        min_track_duration_ms = self.config.min_track_duration_seconds * 1000  # Convert to milliseconds
-        all_candidates: Dict[str, Dict[str, Any]] = {}
-        filtered_short_count = 0
-        filtered_long_count = 0
-        filtered_dupe_title = 0
-
-        # Per-artist cap for the candidate pool to avoid monopolization
-        # Use a higher cap in the pool to preserve variety before filtering
-        pool_artist_cap = max(6, getattr(self.config, 'max_tracks_per_artist', 6))
-        artist_cap = pool_artist_cap
-        artist_counts = Counter()
-
-        # Build set of normalized seed titles to filter out
-        seed_titles = {normalize_song_title(seed.get('title', '')) for seed in seeds}
-        seed_titles.discard('')  # Remove empty string if present
-
-        for seed in seeds:
-            seed_id = seed.get('rating_key')
-            if not seed_id:
-                continue
-
-            # Sonic-only discovery
-            similar = self.library.get_similar_tracks_sonic_only(seed_id, limit=candidate_per_seed, min_similarity=0.1)
-            # Filter out overly long tracks before processing
-            before_long = len(similar)
-            similar = self._filter_long_tracks(similar)
-            filtered_long_count += max(0, before_long - len(similar))
-
-            # Add weight based on seed's play count
-            weight = seed.get('play_count', 1)
-
-            for track in similar:
-                track_key = track.get('rating_key')
-                track_artist = (track.get('artist') or '').lower()
-
-                # Skip tracks with same title as seed tracks (e.g., remasters, live versions)
-                track_title_normalized = normalize_song_title(track.get('title', ''))
-                if track_title_normalized in seed_titles:
-                    logger.debug(f"Skipping duplicate title: {track.get('title')} (matches seed)")
-                    filtered_dupe_title += 1
-                    continue
-
-                # Filter out short tracks (interludes, skits, etc.)
-                track_duration = track.get('duration') or 0
-                if min_track_duration_ms > 0 and track_duration < min_track_duration_ms:
-                    filtered_short_count += 1
-                    logger.debug(f"Skipping short track ({track_duration/1000:.0f}s): {track.get('artist')} - {track.get('title')}")
-                    continue
-
-                # Keep best sonic score per track_id
-                existing = all_candidates.get(track_key)
-                if existing and existing.get('similarity_score', 0) >= track.get('similarity_score', 0):
-                    continue
-
-                # Store candidate with seed reference
-                track['seed_artist'] = seed.get('artist')
-                track['seed_title'] = seed.get('title')
-                track['seed_rating_key'] = seed_id
-                track['weight'] = weight
-                track['source'] = 'sonic'
-                all_candidates[track_key] = track
+        seed_titles = self._build_seed_title_set(seeds)
+        candidates, filtered_counts = self._collect_sonic_candidates(
+            seeds, seed_titles, sim_cfg['candidate_per_seed']
+        )
 
         logger.info(
             "Sonic-only pool: %s candidates (filtered %s short, %s long, %s duplicate titles)",
-            len(all_candidates),
-            filtered_short_count,
-            filtered_long_count,
-            filtered_dupe_title,
+            len(candidates),
+            filtered_counts['short'],
+            filtered_counts['long'],
+            filtered_counts['dupe_title'],
         )
 
-        # Sort by sonic similarity and apply artist cap + top pool_target
-        sorted_candidates = sorted(all_candidates.values(), key=lambda t: t.get('similarity_score', 0), reverse=True)
-        capped_candidates = []
-        for track in sorted_candidates:
-            artist = (track.get('artist') or '').lower()
-            if artist_counts[artist] >= artist_cap:
-                continue
-            artist_counts[artist] += 1
-            capped_candidates.append(track)
-            if len(capped_candidates) >= pool_target * 2:  # keep a generous pool for genre filtering
-                break
-
+        capped_candidates = self._cap_candidates_by_artist(
+            candidates, sim_cfg['artist_cap'], sim_cfg['pool_target'] * 2
+        )
         logger.info(f"After artist cap: {len(capped_candidates)} candidates")
 
-        # Apply genre filter + hybrid scoring
-        genre_pass = []
-        genre_fail = []
-        for track in capped_candidates:
-            seed_id = track.get('seed_rating_key')
-            track_id = track.get('rating_key')
-            if not seed_id or not track_id:
-                continue
-
-            # Capture genre similarity for logging
-            seed_genres = self.similarity_calc._get_combined_genres(seed_id)
-            cand_genres = self.similarity_calc._get_combined_genres(track_id)
-            genre_sim = self.similarity_calc.genre_calc.calculate_similarity(
-                seed_genres, cand_genres, method=self.similarity_calc.genre_method
-            ) if seed_genres and cand_genres else 0.0
-
-            hybrid = self.similarity_calc.calculate_hybrid_similarity(seed_id, track_id)
-            if hybrid is None or hybrid <= 0:
-                genre_fail.append((track, genre_sim))
-                continue
-
-            track['hybrid_score'] = hybrid
-            track['genre_sim'] = genre_sim
-            genre_pass.append(track)
-
+        genre_pass, genre_fail = self._score_genre_and_hybrid(capped_candidates)
         logger.info(f"After genre filter/hybrid scoring: {len(genre_pass)} candidates")
         if genre_fail:
             for t, gsim in genre_fail[:5]:
                 logger.debug(f"Genre-filtered: {t.get('artist')} - {t.get('title')} (genre_sim={gsim:.3f})")
 
-        # Final pool: top hybrid scores with artist cap enforced again
-        final_pool = []
-        artist_counts_final = Counter()
-        for track in sorted(genre_pass, key=lambda t: t.get('hybrid_score', 0), reverse=True):
-            artist = (track.get('artist') or '').lower()
-            if artist_counts_final[artist] >= artist_cap:
-                continue
-            artist_counts_final[artist] += 1
-            final_pool.append(track)
-            if len(final_pool) >= pool_target:
-                break
-
-        logger.info(f"Selected {len(final_pool)} candidates for ordering (target pool: {pool_target})")
+        final_pool = self._finalize_pool(genre_pass, sim_cfg['artist_cap'], sim_cfg['pool_target'])
+        logger.info(f"Selected {len(final_pool)} candidates for ordering (target pool: {sim_cfg['pool_target']})")
         return final_pool
 
     def _generate_similar_tracks_dynamic(self, seeds: List[Dict[str, Any]], limit_per_seed: Optional[int] = None) -> List[Dict[str, Any]]:
