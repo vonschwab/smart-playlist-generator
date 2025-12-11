@@ -350,86 +350,103 @@ class PlaylistApp:
 
     def run_single_artist(self, artist_name: str, track_count: int = 30, dry_run: bool = False, dynamic: bool = False, verbose: bool = False):
         """
-        Generate a single playlist for a specific artist
-
-        Args:
-            artist_name: Name of the artist to create playlist for
-            track_count: Number of tracks in the playlist (default: 30)
-            dry_run: If True, skip creating playlist and exporting M3U
+        Generate a single playlist for a specific artist.
+        Splits business logic, presentation, and export for clarity.
         """
         try:
-            # Set logging level based on verbose flag
-            if verbose:
-                logging.getLogger('src.playlist_generator').setLevel(logging.DEBUG)
-                logging.getLogger('src.similarity_calculator').setLevel(logging.DEBUG)
-                self.logger.info("Verbose logging enabled")
-
-            self.logger.info("=" * 60)
-            if dry_run:
-                self.logger.info(f"Generating playlist for artist: {artist_name} (DRY RUN)")
-            else:
-                self.logger.info(f"Generating playlist for artist: {artist_name}")
-            self.logger.info("=" * 60)
+            self._configure_verbose_logging(verbose)
+            self._log_single_artist_header(artist_name, dry_run)
 
             print(f"Generating playlist for: {artist_name}")
             print(f"Target tracks: {track_count}\n")
 
-            # Generate the playlist
-            playlist_data = self.generator.create_playlist_for_artist(artist_name, track_count, dynamic=dynamic, verbose=verbose)
-
+            playlist_data = self._generate_single_artist_playlist(artist_name, track_count, dynamic, verbose)
             if not playlist_data:
-                print(f"\nCould not create playlist for '{artist_name}'")
-                print("Possible reasons:")
-                print("  - Artist not found in your library")
-                print("  - Artist has too few tracks")
-                print("  - No similar tracks available\n")
+                self._report_single_artist_failure(artist_name)
                 return
 
-            # Calculate duration
+            playlist_title = f"Auto: {artist_name}"
             total_duration_ms = sum(t.get('duration', 0) for t in playlist_data['tracks'])
             duration_minutes = total_duration_ms / 1000 / 60
 
-            playlist_title = f"Auto: {artist_name}"
-
             if dry_run:
-                # Dry run - show what would be created
-                self.logger.info(f"Would create playlist: {playlist_title} ({len(playlist_data['tracks'])} tracks, {duration_minutes:.1f} min)")
-                print(f"\n🔍 DRY RUN - Would create: {playlist_title}")
-                print(f"   Tracks: {len(playlist_data['tracks'])}")
-                print(f"   Duration: {duration_minutes:.1f} minutes")
-
-                # Show seed artist representation
-                seed_tracks = [t for t in playlist_data['tracks'] if t.get('artist') == artist_name]
-                seed_percentage = (len(seed_tracks) / len(playlist_data['tracks'])) * 100
-                print(f"   Seed artist ({artist_name}): {len(seed_tracks)} tracks ({seed_percentage:.1f}%)")
-
-                print("\n✓ Dry run complete - no playlists created")
+                self._handle_dry_run_output(playlist_title, playlist_data, artist_name, duration_minutes)
             else:
-                # Export playlist to M3U (local mode)
-                print(f"\n✓ Created: {playlist_title} ({len(playlist_data['tracks'])} tracks)")
-
-                # Show seed artist representation
-                seed_tracks = [t for t in playlist_data['tracks'] if t.get('artist') == artist_name]
-                seed_percentage = (len(seed_tracks) / len(playlist_data['tracks'])) * 100
-                print(f"  Seed artist ({artist_name}): {len(seed_tracks)} tracks ({seed_percentage:.1f}%)")
-
-                # Export to M3U
-                if self.m3u_exporter:
-                    m3u_path = self.m3u_exporter.export_playlist(playlist_title, playlist_data['tracks'], self.library)
-                    if m3u_path:
-                        self.logger.info(f"Exported to M3U: {m3u_path}")
-                        print(f"  Exported to: {m3u_path}")
-                        print("\nPlaylist exported! Import the M3U file to your music player.")
-                    else:
-                        print(f"\n✗ Failed to export M3U file")
-                else:
-                    print("\n⚠ M3U export not configured")
+                self._export_and_report_playlist(playlist_title, playlist_data, artist_name, duration_minutes)
 
         except Exception as e:
             self.logger.error(f"Error creating playlist for {artist_name}: {e}", exc_info=True)
             print(f"\nError: {e}")
             print("Check the log file for details.\n")
             sys.exit(1)
+
+    def _configure_verbose_logging(self, verbose: bool) -> None:
+        """Enable verbose logging for generator/similarity when requested."""
+        if not verbose:
+            return
+        logging.getLogger('src.playlist_generator').setLevel(logging.DEBUG)
+        logging.getLogger('src.similarity_calculator').setLevel(logging.DEBUG)
+        self.logger.info("Verbose logging enabled")
+
+    def _log_single_artist_header(self, artist_name: str, dry_run: bool) -> None:
+        """Log banner for single-artist generation."""
+        self.logger.info("=" * 60)
+        if dry_run:
+            self.logger.info(f"Generating playlist for artist: {artist_name} (DRY RUN)")
+        else:
+            self.logger.info(f"Generating playlist for artist: {artist_name}")
+        self.logger.info("=" * 60)
+
+    def _generate_single_artist_playlist(self, artist_name: str, track_count: int, dynamic: bool, verbose: bool) -> Optional[Dict[str, Any]]:
+        """Generate playlist data for a single artist."""
+        return self.generator.create_playlist_for_artist(artist_name, track_count, dynamic=dynamic, verbose=verbose)
+
+    def _report_single_artist_failure(self, artist_name: str) -> None:
+        """User-facing messaging when no playlist could be created."""
+        print(f"\nCould not create playlist for '{artist_name}'")
+        print("Possible reasons:")
+        print("  - Artist not found in your library")
+        print("  - Artist has too few tracks")
+        print("  - No similar tracks available\n")
+
+    def _compute_seed_stats(self, playlist_data: Dict[str, Any], artist_name: str) -> Tuple[int, float]:
+        """Return count and percentage of seed-artist tracks in playlist."""
+        seed_tracks = [t for t in playlist_data['tracks'] if t.get('artist') == artist_name]
+        seed_percentage = (len(seed_tracks) / len(playlist_data['tracks'])) * 100 if playlist_data['tracks'] else 0.0
+        return len(seed_tracks), seed_percentage
+
+    def _handle_dry_run_output(self, playlist_title: str, playlist_data: Dict[str, Any], artist_name: str, duration_minutes: float) -> None:
+        """Display dry-run output without side effects."""
+        track_count = len(playlist_data['tracks'])
+        seed_count, seed_pct = self._compute_seed_stats(playlist_data, artist_name)
+
+        self.logger.info(f"Would create playlist: {playlist_title} ({track_count} tracks, {duration_minutes:.1f} min)")
+        print(f"\nDRY RUN - Would create: {playlist_title}")
+        print(f"   Tracks: {track_count}")
+        print(f"   Duration: {duration_minutes:.1f} minutes")
+        print(f"   Seed artist ({artist_name}): {seed_count} tracks ({seed_pct:.1f}%)")
+        print("\nDry run complete - no playlists created")
+
+    def _export_and_report_playlist(self, playlist_title: str, playlist_data: Dict[str, Any], artist_name: str, duration_minutes: float) -> None:
+        """Export playlist and show summary to the user."""
+        track_count = len(playlist_data['tracks'])
+        seed_count, seed_pct = self._compute_seed_stats(playlist_data, artist_name)
+
+        print(f"\nCreated: {playlist_title} ({track_count} tracks)")
+        print(f"  Duration: {duration_minutes:.1f} minutes")
+        print(f"  Seed artist ({artist_name}): {seed_count} tracks ({seed_pct:.1f}%)")
+
+        if not self.m3u_exporter:
+            print("\nM3U export not configured")
+            return
+
+        m3u_path = self.m3u_exporter.export_playlist(playlist_title, playlist_data['tracks'], self.library)
+        if m3u_path:
+            self.logger.info(f"Exported to M3U: {m3u_path}")
+            print(f"  Exported to: {m3u_path}")
+            print("\nPlaylist exported! Import the M3U file to your music player.")
+        else:
+            print("\nFailed to export M3U file")
 
 
 def main():
