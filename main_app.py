@@ -4,7 +4,7 @@ Automatically generates AI-powered playlists based on listening history
 """
 import logging
 from datetime import datetime, timedelta
-from typing import List, Dict
+from typing import Any, Dict, List, Optional, Tuple
 import sys
 import argparse
 

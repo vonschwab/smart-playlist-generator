@@ -87,8 +87,9 @@ def analyze_track_worker(track_data: Tuple[str, str, str, str]) -> Optional[Tupl
         else:
             return None
 
-    except Exception:
-        # Don't use logger here as it's in a subprocess
+    except Exception as e:
+        # Avoid logger in subprocess; print minimal context for debugging
+        print(f"[worker] Failed to analyze track {track_id}: {e}", file=sys.stderr)
         return None
 
 
