@@ -47,12 +47,12 @@ logger = logging.getLogger(__name__)
 logger.info(f"Logging to: {log_file}")
 
 
-def analyze_track_worker(track_data: Tuple[str, str, str, str]) -> Optional[Tuple[str, Dict[str, Any], str, str]]:
+def analyze_track_worker(track_data: Tuple[str, str, str, str, bool]) -> Optional[Tuple[str, Dict[str, Any], str, str]]:
     """
     Worker function for parallel track analysis
 
     Args:
-        track_data: Tuple of (track_id, file_path, artist, title)
+        track_data: Tuple of (track_id, file_path, artist, title, use_beat_sync)
 
     Returns:
         Tuple of (track_id, features, artist, title) or None on failure
@@ -60,6 +60,7 @@ def analyze_track_worker(track_data: Tuple[str, str, str, str]) -> Optional[Tupl
     import sys
     import logging
     from pathlib import Path
+    import os
 
     # Suppress worker subprocess logging spam
     logging.getLogger().setLevel(logging.WARNING)
@@ -69,7 +70,8 @@ def analyze_track_worker(track_data: Tuple[str, str, str, str]) -> Optional[Tupl
 
     from src.hybrid_sonic_analyzer import HybridSonicAnalyzer
 
-    track_id, file_path, artist, title = track_data
+    track_id, file_path, artist, title = track_data[:4]
+    use_beat_sync = track_data[4] if len(track_data) > 4 else False
 
     try:
         # Check file exists
@@ -77,7 +79,7 @@ def analyze_track_worker(track_data: Tuple[str, str, str, str]) -> Optional[Tupl
             return None
 
         # Create analyzer instance (each worker needs its own)
-        analyzer = HybridSonicAnalyzer()
+        analyzer = HybridSonicAnalyzer(use_beat_sync=use_beat_sync)
 
         # Analyze track
         features = analyzer.analyze_track(file_path, artist, title)
@@ -96,21 +98,25 @@ def analyze_track_worker(track_data: Tuple[str, str, str, str]) -> Optional[Tupl
 class SonicFeaturePipeline:
     """Pipeline for analyzing tracks and storing sonic features"""
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: Optional[str] = None, use_beat_sync: bool = False):
         """
         Initialize pipeline
 
         Args:
             db_path: Path to metadata database
+            use_beat_sync: If True, use beat-synchronized feature extraction (Phase 2)
+                          If False, use fixed-window extraction (legacy)
         """
         from src.hybrid_sonic_analyzer import HybridSonicAnalyzer
 
         default_db = ROOT_DIR / "data" / "metadata.db"
         self.db_path = str(Path(db_path)) if db_path else str(default_db)
         self.conn = None
-        self.analyzer = HybridSonicAnalyzer()
+        self.use_beat_sync = use_beat_sync
+        self.analyzer = HybridSonicAnalyzer(use_beat_sync=use_beat_sync)
         self._init_db_connection()
-        logger.info("Initialized SonicFeaturePipeline")
+        mode = "beat-sync" if use_beat_sync else "windowed"
+        logger.info(f"Initialized SonicFeaturePipeline (mode={mode})")
 
     def _init_db_connection(self):
         """Initialize database connection"""
@@ -268,7 +274,7 @@ class SonicFeaturePipeline:
 
         # Prepare track data for workers
         track_data_list = [
-            (track['track_id'], track['file_path'], track['artist'], track['title'])
+            (track['track_id'], track['file_path'], track['artist'], track['title'], self.use_beat_sync)
             for track in pending
         ]
 
@@ -285,7 +291,7 @@ class SonicFeaturePipeline:
                 completed += 1
                 idx = future_to_index[future]
                 track_data = track_data_list[idx]
-                track_id, file_path, artist, title = track_data
+                track_id, file_path, artist, title = track_data[:4]
 
                 try:
                     result = future.result()
@@ -380,9 +386,10 @@ if __name__ == "__main__":
     parser.add_argument('--workers', type=int, help='Number of parallel workers (default: CPU count - 2)')
     parser.add_argument('--stats', action='store_true', help='Show statistics only')
     parser.add_argument('--force', action='store_true', help='Re-analyze ALL tracks (converts old format to multi-segment)')
+    parser.add_argument('--beat-sync', action='store_true', help='Use beat-synchronized feature extraction (Phase 2)')
     args = parser.parse_args()
 
-    pipeline = SonicFeaturePipeline()
+    pipeline = SonicFeaturePipeline(use_beat_sync=args.beat_sync)
 
     if args.stats:
         # Show statistics

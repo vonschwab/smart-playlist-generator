@@ -14,16 +14,19 @@ class HybridSonicAnalyzer:
     Sonic analyzer using Librosa for local audio feature extraction
     """
 
-    def __init__(self, spotify_client_id: Optional[str] = None, spotify_client_secret: Optional[str] = None):
+    def __init__(self, spotify_client_id: Optional[str] = None, spotify_client_secret: Optional[str] = None, use_beat_sync: bool = False):
         """
         Initialize analyzer
 
         Args:
             spotify_client_id: Unused (kept for compatibility)
             spotify_client_secret: Unused (kept for compatibility)
+            use_beat_sync: If True, use beat-synchronized feature extraction (Phase 2)
+                          If False, use fixed-window extraction (legacy)
         """
-        self.librosa = LibrosaAnalyzer()
-        logger.info("Initialized SonicAnalyzer (Librosa)")
+        self.librosa = LibrosaAnalyzer(use_beat_sync=use_beat_sync)
+        mode = "beat-sync" if use_beat_sync else "windowed"
+        logger.info(f"Initialized SonicAnalyzer (Librosa, mode={mode})")
 
     def analyze_track(self, file_path: str, artist: Optional[str] = None,
                      title: Optional[str] = None, spotify_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
