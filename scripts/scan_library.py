@@ -6,17 +6,32 @@ Scans the local music library and updates the metadata database.
 
 Features:
 - Scans for audio files (MP3, FLAC, M4A, OGG, OPUS, WMA, WAV)
-- Extracts metadata from file tags (artist, title, album, genres, etc.)
+- Extracts metadata from file tags (artist, title, album, genres, duration, etc.)
 - Adds new tracks to database
 - Updates existing tracks if metadata has changed
 - Tracks file modifications via mtime
-- Multi-threaded for performance
+- Automatically extracts track duration via Mutagen
+- Optional: removes tracks with missing files from database
+- Comprehensive logging for duration and fallback extraction
 
 Usage:
-    python scan_library.py                  # Full library scan
-    python scan_library.py --quick          # Only scan new/modified files
-    python scan_library.py --stats          # Show statistics only
-    python scan_library.py --limit 100      # Scan up to 100 files
+    python scan_library.py                          # Full library scan
+    python scan_library.py --quick                  # Only scan new/modified files
+    python scan_library.py --cleanup                # Remove missing files first, then scan
+    python scan_library.py --cleanup --quick        # Clean up, then quick scan
+    python scan_library.py --stats                  # Show statistics only
+    python scan_library.py --limit 100              # Scan up to 100 files
+
+Duration Extraction:
+    - Automatically extracted for all supported audio formats
+    - Stored in milliseconds (duration_ms) in database
+    - If extraction fails, logs warning and stores NULL
+    - Use scripts/backfill_duration.py to fix missing durations
+
+File Cleanup:
+    - Use --cleanup to remove tracks from database if files are deleted
+    - Useful after external file deletion to keep DB in sync
+    - Always runs before new scan to prevent re-adding deleted tracks
 """
 import sys
 import sqlite3
@@ -112,7 +127,7 @@ class LibraryScanner:
         try:
             audio = self.mutagen.File(file_path, easy=True)
             if audio is None:
-                logger.debug(f"Could not read file: {file_path}")
+                logger.warning(f"Could not read file format: {file_path}")
                 return None
 
             # Extract common tags
@@ -128,6 +143,10 @@ class LibraryScanner:
                 'file_modified': int(file_path.stat().st_mtime)
             }
 
+            # Warn if duration is missing
+            if metadata['duration'] is None:
+                logger.warning(f"Could not extract duration from {file_path} - audio info missing")
+
             # If no artist or title, try to parse from filename
             if not metadata['artist'] or not metadata['title']:
                 fallback = self._parse_filename(file_path)
@@ -137,7 +156,7 @@ class LibraryScanner:
             return metadata
 
         except Exception as e:
-            logger.debug(f"Error extracting metadata from {file_path}: {e}")
+            logger.warning(f"Error extracting metadata from {file_path}: {e}")
             return self._extract_metadata_fallback(file_path)
 
     def _get_tag(self, audio, tag_names: List[str]) -> Optional[str]:
@@ -181,6 +200,7 @@ class LibraryScanner:
     def _extract_metadata_fallback(self, file_path: Path) -> Dict:
         """Fallback metadata extraction without mutagen"""
         parsed = self._parse_filename(file_path)
+        logger.warning(f"Using fallback extraction for {file_path} - duration not available")
         return {
             'artist': parsed['artist'],
             'title': parsed['title'],
@@ -224,22 +244,19 @@ class LibraryScanner:
         cursor = self.conn.cursor()
         modified = []
 
+        # Preload file modification times to avoid per-file queries
+        cursor.execute("SELECT file_path, file_modified FROM tracks WHERE file_path IS NOT NULL")
+        db_mtimes = {row['file_path']: row['file_modified'] for row in cursor.fetchall()}
+
         for file_path in files:
             file_str = str(file_path)
             file_modified = int(file_path.stat().st_mtime)
 
-            # Check if file exists in database
-            cursor.execute("""
-                SELECT file_modified FROM tracks WHERE file_path = ?
-            """, (file_str,))
-
-            row = cursor.fetchone()
-            if row is None:
-                # New file
-                modified.append(file_path)
-            elif row['file_modified'] is None or row['file_modified'] < file_modified:
-                # Modified file
-                modified.append(file_path)
+            db_mtime = db_mtimes.get(file_str)
+            if db_mtime is None:
+                modified.append(file_path)  # New file
+            elif db_mtime is None or db_mtime < file_modified:
+                modified.append(file_path)  # Modified file
 
         return modified
 
@@ -347,17 +364,57 @@ class LibraryScanner:
                     VALUES (?, ?, 'file')
                 """, (track_id, genre))
 
-    def run(self, quick: bool = False, limit: Optional[int] = None):
+    def cleanup_missing_files(self) -> int:
+        """
+        Remove tracks from database if their files no longer exist in the filesystem.
+
+        Returns:
+            Number of tracks removed
+        """
+        logger.info("\nCleaning up missing files...")
+        cursor = self.conn.cursor()
+
+        # Get all tracks with file paths
+        cursor.execute("SELECT track_id, file_path FROM tracks WHERE file_path IS NOT NULL")
+        rows = cursor.fetchall()
+
+        removed_count = 0
+        for row in rows:
+            track_id = row['track_id']
+            file_path = row['file_path']
+
+            # Check if file exists
+            if not Path(file_path).exists():
+                # Remove track and associated genres
+                cursor.execute("DELETE FROM track_genres WHERE track_id = ?", (track_id,))
+                cursor.execute("DELETE FROM tracks WHERE track_id = ?", (track_id,))
+                removed_count += 1
+                logger.info(f"  Removed: {file_path}")
+
+        if removed_count > 0:
+            self.conn.commit()
+            logger.info(f"Removed {removed_count} orphaned track(s) from database")
+        else:
+            logger.info("No missing files found")
+
+        return removed_count
+
+    def run(self, quick: bool = False, limit: Optional[int] = None, cleanup: bool = False):
         """
         Run the library scan
 
         Args:
             quick: If True, only scan new/modified files
             limit: Maximum number of files to process
+            cleanup: If True, remove tracks with missing files
         """
         logger.info("=" * 70)
         logger.info("Music Library Scanner")
         logger.info("=" * 70)
+
+        # Cleanup missing files first if requested
+        if cleanup:
+            self.cleanup_missing_files()
 
         # Scan for files
         files = self.scan_files(quick=quick)
@@ -460,6 +517,8 @@ if __name__ == "__main__":
                        help='Only scan new/modified files')
     parser.add_argument('--limit', type=int,
                        help='Maximum number of files to process')
+    parser.add_argument('--cleanup', action='store_true',
+                       help='Remove tracks with missing files before scanning')
     parser.add_argument('--stats', action='store_true',
                        help='Show statistics only')
     args = parser.parse_args()
@@ -469,6 +528,6 @@ if __name__ == "__main__":
     if args.stats:
         scanner.get_stats()
     else:
-        scanner.run(quick=args.quick, limit=args.limit)
+        scanner.run(quick=args.quick, limit=args.limit, cleanup=args.cleanup)
 
     scanner.close()

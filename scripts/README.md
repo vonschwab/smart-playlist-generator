@@ -6,26 +6,60 @@ This directory contains utility scripts for maintaining and updating the music l
 
 ### `scan_library.py` - Music Library Scanner
 
-Scans your music directory and populates the database with track metadata.
+Scans your music directory and populates the database with track metadata, including duration extraction and file cleanup.
 
 ```bash
-# Scan the music library
+# Full library scan (extracts duration automatically)
 python scan_library.py
+
+# Quick scan (only new/modified files)
+python scan_library.py --quick
+
+# Remove missing files, then scan
+python scan_library.py --cleanup
+
+# Remove missing files, then quick scan
+python scan_library.py --cleanup --quick
+
+# Show statistics only
+python scan_library.py --stats
+
+# Limit to 100 files (for testing)
+python scan_library.py --limit 100
 ```
 
 **What it does:**
 - Scans the music directory specified in `config.yaml`
-- Extracts metadata from audio files (MP3, FLAC, M4A, OGG, WMA, etc.)
+- Extracts metadata from audio files (MP3, FLAC, M4A, OGG, WMA, WAV, AAC, OPUS, etc.)
+- **Automatically extracts track duration** (in milliseconds)
 - Generates unique track IDs (MD5 hash of file_path|artist|title)
 - Creates album records with unique album IDs
 - Prevents duplicates by checking file paths
 - Extracts embedded genres from file tags
+- **Optional: Removes tracks with missing files** from database (--cleanup)
 
 **Features:**
-- Supports multiple audio formats via mutagen
+- Supports multiple audio formats via Mutagen (metadata-only, no decoding)
+- **Duration extraction** from all supported formats
 - Duplicate prevention (checks by file_path)
 - Handles track metadata changes (updates track_id)
-- Progress reporting
+- File cleanup to remove deleted tracks from database
+- Comprehensive logging of issues (missing duration, fallback extraction)
+- Progress reporting with per-file status
+
+**Duration Support:**
+- Automatically extracted for all audio formats
+- Stored as `duration_ms` in database (milliseconds)
+- Fallback logging if extraction fails (helps diagnose issues)
+- Use `scripts/backfill_duration.py` to fix missing durations
+- Use `scripts/check_duration_health.py` to monitor duration health
+
+**File Cleanup:**
+- `--cleanup` removes tracks if files are deleted/missing
+- Prevents stale database entries
+- Useful after external file deletion or drive disconnection
+- Always safe to run - only removes non-existent files
+- Cleanup runs BEFORE scanning to prevent re-adding deleted files
 
 ---
 
