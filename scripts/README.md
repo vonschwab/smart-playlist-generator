@@ -31,7 +31,7 @@ python scan_library.py
 
 ### `update_genres_v3_normalized.py` - Genre Data Updater (Normalized Schema)
 
-Fetches and updates genre data from Last.FM and MusicBrainz using the normalized database schema.
+Fetches and updates genre data from MusicBrainz using the normalized database schema (Last.FM genres removed).
 
 ```bash
 # Update artist genres (most efficient - ~2,100 artists)
@@ -56,16 +56,14 @@ python update_genres_v3_normalized.py --stats
 **Features:**
 - **Normalized schema**: Artist and album genres fetched once, not per-track
 - **60% fewer API calls** vs per-track approach
-- **Multi-source data**:
-  - Last.FM artist tags
-  - Last.FM album tags
-  - Last.FM track tags
+- **Sources**:
   - MusicBrainz artist genres
   - MusicBrainz release genres
+  - File tags (tracks)
 - **Source tracking**: Stores which API provided each genre
 - **Incremental updates**: Only fetches missing data
 - **Empty markers**: Distinguishes "never checked" from "checked but empty"
-- **Rate limiting**: Built-in delays (1.5s Last.FM, 1.1s MusicBrainz)
+- **Rate limiting**: Built-in delays (1.1s MusicBrainz)
 - **Resumable**: Can stop and restart without losing progress
 
 **Efficiency:**
@@ -140,6 +138,93 @@ python validate_metadata.py
 - Missing data
 - Anomalies
 
+---
+
+### `backfill_duration.py` - Track Duration Backfiller
+
+Extracts and backfills missing track duration values from audio files.
+
+```bash
+# Backfill all tracks with missing duration
+python backfill_duration.py
+
+# Preview changes without committing
+python backfill_duration.py --dry-run
+
+# Backfill specific track
+python backfill_duration.py --track-id cffa7649...
+
+# Limit to first 50 tracks (for testing)
+python backfill_duration.py --limit 50
+```
+
+**What it does:**
+- Reads audio file metadata using Mutagen (no decoding)
+- Extracts track duration in milliseconds
+- Updates database with extracted values
+- Marks unreadable/deleted files with `duration_ms = -1`
+- Supports all audio formats (MP3, FLAC, M4A, OGG, WMA, WAV, AAC, OPUS)
+
+**Why needed:**
+- Some tracks may have been scanned before duration extraction was implemented
+- Tracks with missing/corrupt duration metadata need special handling
+- Duration is required for playlist filtering (min/max track length)
+
+**Status:**
+- Used during initial implementation to populate 34,164 tracks
+- Marked 100 orphaned tracks with -1 (files no longer exist)
+- Typically only needed after major database changes
+
+---
+
+### `validate_duration.py` - Duration Support Validator
+
+Comprehensive validation of duration support implementation.
+
+```bash
+# Run all validations
+python validate_duration.py
+```
+
+**What it validates:**
+1. **Database Schema** - Verifies `duration_ms` column exists and is populated
+2. **Library Client** - Confirms duration is returned in all query methods
+3. **Filtering Logic** - Tests min/max duration filtering on actual library
+4. **Config Settings** - Validates config has proper duration settings
+
+**Output includes:**
+- Track count statistics
+- Duration distribution (min, max, average)
+- Filtering retention (how many tracks pass filters)
+- Health status for each component
+
+---
+
+### `check_duration_health.py` - Quick Duration Health Check
+
+Fast script to check duration data integrity.
+
+```bash
+# Show health statistics
+python check_duration_health.py
+
+# Find tracks with zero duration
+python check_duration_health.py --find-zero
+
+# Find orphaned tracks (marked with -1)
+python check_duration_health.py --find-orphaned
+```
+
+**Output:**
+- Quick summary of duration status
+- Min/max/average duration statistics
+- List of problematic tracks if any
+
+**Use when:**
+- Adding new music to library
+- After upgrading the application
+- During troubleshooting playlist generation issues
+
 ## Workflow
 
 ### Complete Setup Workflow
@@ -147,20 +232,25 @@ python validate_metadata.py
 ```bash
 # 1. Configure settings
 cd "C:\Users\Dylan\Desktop\PLAYLIST GENERATOR"
-edit config.yaml  # Set music_directory, Last.FM API key, etc.
+edit config.yaml  # Set music_directory (Last.FM API key only if using history)
 
-# 2. Scan local music library
+# 2. Scan local music library (duration extracted automatically)
 python scripts/scan_library.py
 
-# 3. Fetch genre data (normalized schema - most efficient order)
+# 3. Verify duration backfill (if upgrading existing database)
+python scripts/backfill_duration.py  # Backfills any missing durations
+python scripts/validate_duration.py  # Validates duration support
+
+# 4. Fetch genre data (normalized schema - most efficient order)
 python scripts/update_genres_v3_normalized.py --artists  # ~2,100 artists
 python scripts/update_genres_v3_normalized.py --albums   # ~3,757 albums
 python scripts/update_genres_v3_normalized.py --tracks   # ~33,636 tracks
 
-# 4. Analyze sonic features (multi-segment)
+# 5. Analyze sonic features (multi-segment)
 python scripts/update_sonic.py --workers 6  # Adjust workers for your disk type
 
-# 5. Generate playlists
+# 6. Check health and generate playlists
+python scripts/check_duration_health.py  # Quick health check
 python main_app.py
 ```
 
@@ -215,13 +305,13 @@ Genre Coverage Statistics (Normalized Schema)
 ======================================================================
 Artists:
   Total: 2,100
-  With Last.FM data: 1,850 (88.1%)
+  With MusicBrainz data: 1,920 (91.4%)
   With MusicBrainz data: 1,920 (91.4%)
   Pending: 180 (8.6%)
 
 Albums:
   Total: 3,757
-  With Last.FM data: 3,200 (85.2%)
+  With MusicBrainz data: 3,400 (90.5%)
   With MusicBrainz data: 3,400 (90.5%)
   Pending: 357 (9.5%)
 
