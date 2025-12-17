@@ -1,2 +1,0 @@
-seed_track_id,seed_artist,seed_title,sonic_flatness,sonic_topk_gap,sonic_intra_artist_coherence,sonic_intra_album_coherence,genre_flatness,genre_topk_gap
-ac056e4b6b1bcdc36e576ee13659900f,TOPS,Way to be Loved,0.021885094651991253,0.010638023347671388,0.018039117178319852,0.0059652382763608625,1.0904462337493896,0.59618079662323

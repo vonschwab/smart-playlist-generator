@@ -1,3 +1,0 @@
-jaccard_raw_z,raw_base_variant,raw_below_floor,raw_distinct_artists,raw_evaluation_mode,raw_max_artist_share,raw_order_source,raw_playlist_len,raw_runtime_sec,raw_seed,raw_track_ids,raw_variant,seed,z_base_variant,z_below_floor,z_distinct_artists,z_evaluation_mode,z_max_artist_share,z_order_source,z_playlist_len,z_runtime_sec,z_seed,z_track_ids,z_variant
-1.0,raw,,,fixed_order,,raw,,0.002227500022854656,t3,t3,raw,t3,raw,,,fixed_order,,raw,,0.0,t3,t3,z
-1.0,raw,,,fixed_order,,raw,,0.0014395000180229545,t4,t4,raw,t4,raw,,,fixed_order,,raw,,0.0,t4,t4,z

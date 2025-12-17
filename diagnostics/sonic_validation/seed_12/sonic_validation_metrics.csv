@@ -1,2 +1,0 @@
-seed_track_id,seed_artist,seed_title,sonic_flatness,sonic_topk_gap,sonic_intra_artist_coherence,sonic_intra_album_coherence,genre_flatness,genre_topk_gap
-245605408d2c8a532b13ca6a71b1352f,Built to Spill,Carry the Zero,0.042487508515345745,0.009969669162638195,0.010567405076445824,0.02691524057224448,1.4881234169006348,0.5281366109848022

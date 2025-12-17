@@ -1,2 +1,0 @@
-seed_track_id,seed_artist,seed_title,sonic_flatness,sonic_topk_gap,sonic_intra_artist_coherence,sonic_intra_album_coherence,genre_flatness,genre_topk_gap
-370b83ca5f025ddf99d67c885df37cef,Beach House,Once Twice Melody,0.028439440746674836,0.013120834810080861,0.015808580004593953,0.00025588451708102866,1.2857545614242554,0.5476993918418884

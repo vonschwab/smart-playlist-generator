@@ -1,2 +1,0 @@
-seed_track_id,seed_artist,seed_title,sonic_flatness,sonic_topk_gap,sonic_intra_artist_coherence,sonic_intra_album_coherence,genre_flatness,genre_topk_gap
-217ca230e96b4ce9597469be5e6e84a9,Marvin Gaye,Let's Get It On,0.03367184858891477,0.011503926734925951,0.011541033755537278,0.03581641011764425,1.9397252798080444,0.7903048396110535

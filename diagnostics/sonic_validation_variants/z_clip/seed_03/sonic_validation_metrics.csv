@@ -1,2 +1,0 @@
-seed_track_id,seed_artist,seed_title,sonic_flatness,sonic_topk_gap,sonic_intra_artist_coherence,sonic_intra_album_coherence,genre_flatness,genre_topk_gap
-33f74d3e1cd2667cb332161fd86998eb,Sonic Youth,Silver Rocket,0.04087321306267125,0.017034393044923157,0.013000627628445671,0.009406569378140994,3.4539334774017334,0.8338966369628906

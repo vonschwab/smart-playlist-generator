@@ -1,2 +1,0 @@
-seed_track_id,seed_artist,seed_title,sonic_flatness,sonic_topk_gap,sonic_intra_artist_coherence,sonic_intra_album_coherence,genre_flatness,genre_topk_gap
-5b78debacd8a7adfc6476fb4c2ad3315,Sufjan Stevens,Casimir Pulaski Day,0.01835977505305804,0.014412346551851307,0.0033881495021841346,0.002248872757737219,1.2782918214797974,0.6292191743850708

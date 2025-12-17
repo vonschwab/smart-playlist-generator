@@ -1,2 +1,0 @@
-seed_track_id,seed_artist,seed_title,sonic_flatness,sonic_topk_gap,sonic_intra_artist_coherence,sonic_intra_album_coherence,genre_flatness,genre_topk_gap
-5a363d4ef1cc05132b5577b93caddb96,Jonny Nash,Eternal Life,0.04035006752259658,0.026288966987658813,0.0229581823020113,0.03128160164509808,0.9182477593421936,0.5109313726425171
