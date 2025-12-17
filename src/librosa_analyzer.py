@@ -98,30 +98,45 @@ class LibrosaAnalyzer:
             spec_contrast_median = np.median(spectral_contrast_per_beat, axis=0)
             spec_contrast_iqr = np.percentile(spectral_contrast_per_beat, 75, axis=0) - np.percentile(spectral_contrast_per_beat, 25, axis=0)
 
-            # Store beat-sync features
-            features['mfcc_median'] = mfcc_median.tolist()  # 13
-            features['mfcc_iqr'] = mfcc_iqr.tolist()  # 13
-            features['chroma_median'] = chroma_median.tolist()  # 12
-            features['chroma_iqr'] = chroma_iqr.tolist()  # 12
-            features['spectral_contrast_median'] = spec_contrast_median.tolist()  # 7
-            features['spectral_contrast_iqr'] = spec_contrast_iqr.tolist()  # 7
+            # TIMBRE FEATURES: MFCC (Mel-Frequency Cepstral Coefficients)
+            # 13 coefficients represent the "color" or texture of sound
+            # Median aggregation is more robust to outliers than mean
+            features['mfcc_median'] = mfcc_median.tolist()  # 13 dims: timbre central tendency
+            features['mfcc_iqr'] = mfcc_iqr.tolist()  # 13 dims: timbre variability
 
-            # Rhythm features
-            features['bpm'] = float(tempo)
+            # HARMONIC FEATURES: Chroma (pitch class distribution)
+            # 12 pitch classes (C, C#, D, ..., B) represent harmonic content
+            features['chroma_median'] = chroma_median.tolist()  # 12 dims: harmonic central tendency
+            features['chroma_iqr'] = chroma_iqr.tolist()  # 12 dims: harmonic variability
 
-            # Onset detection
+            # SPECTRAL CONTRAST: Peak-to-valley ratio in frequency bands
+            # High contrast = bright/punchy; low contrast = smooth/blended
+            features['spectral_contrast_median'] = spec_contrast_median.tolist()  # 7 dims: brightness central tendency
+            features['spectral_contrast_iqr'] = spec_contrast_iqr.tolist()  # 7 dims: brightness variability
+
+            # RHYTHM FEATURES: BPM (Beats Per Minute)
+            # Represents tempo; important for transition compatibility
+            features['bpm'] = float(tempo)  # 1 dim: tempo in BPM
+
+            # RHYTHM DESCRIPTORS: Onset strength (percussiveness)
+            # Measures attack sharpness and rhythmic clarity
             onset_env = librosa.onset.onset_strength(y=y, sr=sr)
-            features['onset_strength_mean'] = float(np.mean(onset_env))
-            features['onset_strength_std'] = float(np.std(onset_env))
+            features['onset_strength_mean'] = float(np.mean(onset_env))  # 1 dim: average percussiveness
+            features['onset_strength_std'] = float(np.std(onset_env))  # 1 dim: percussiveness variability
 
-            # Spectral centroid & rolloff (global)
+            # BRIGHTNESS FEATURE: Spectral Centroid
+            # Frequency (Hz) at center of mass of spectrum
+            # High value = bright (more high frequencies); low value = dark
             spectral_centroids = librosa.feature.spectral_centroid(y=y, sr=sr)[0]
-            features['spectral_centroid_mean'] = float(np.mean(spectral_centroids))
-            features['spectral_centroid_std'] = float(np.std(spectral_centroids))
+            features['spectral_centroid_mean'] = float(np.mean(spectral_centroids))  # 1 dim: brightness (Hz)
+            features['spectral_centroid_std'] = float(np.std(spectral_centroids))  # 1 dim: brightness variability
 
+            # HIGH-FREQUENCY EXTENT: Spectral Rolloff
+            # Frequency (Hz) where 85% of energy is below
+            # Distinguishes clean vs. distorted sounds
             spectral_rolloff = librosa.feature.spectral_rolloff(y=y, sr=sr)[0]
-            features['spectral_rolloff_mean'] = float(np.mean(spectral_rolloff))
-            features['spectral_rolloff_std'] = float(np.std(spectral_rolloff))
+            features['spectral_rolloff_mean'] = float(np.mean(spectral_rolloff))  # 1 dim: high-freq extent (Hz)
+            features['spectral_rolloff_std'] = float(np.std(spectral_rolloff))  # 1 dim: high-freq extent variability
 
             # Mark as beat-sync
             features['extraction_method'] = 'beat_sync'
@@ -149,47 +164,59 @@ class LibrosaAnalyzer:
         """
         features = {}
 
-        # 1. Timbre features (MFCCs - Mel-frequency cepstral coefficients)
-        # PHASE 1: Store both mean and std, will be normalized during aggregation
+        # TIMBRE FEATURES: MFCC (Mel-Frequency Cepstral Coefficients)
+        # 13 coefficients represent the "color" or texture of sound (most important for similarity)
         mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
-        features['mfcc_mean'] = np.mean(mfcc, axis=1).tolist()
-        features['mfcc_std'] = np.std(mfcc, axis=1).tolist()
+        features['mfcc_mean'] = np.mean(mfcc, axis=1).tolist()  # 13 dims: average timbre
+        features['mfcc_std'] = np.std(mfcc, axis=1).tolist()  # 13 dims: timbre variability
 
-        # 2. Spectral features
+        # BRIGHTNESS FEATURE: Spectral Centroid
+        # Frequency (Hz) at center of mass of spectrum (high = bright, low = dark)
         spectral_centroids = librosa.feature.spectral_centroid(y=y, sr=sr)[0]
-        features['spectral_centroid'] = float(np.mean(spectral_centroids))
+        features['spectral_centroid'] = float(np.mean(spectral_centroids))  # 1 dim: brightness (Hz)
 
+        # HIGH-FREQUENCY EXTENT: Spectral Rolloff
+        # Frequency (Hz) where 85% of energy is below
         spectral_rolloff = librosa.feature.spectral_rolloff(y=y, sr=sr)[0]
-        features['spectral_rolloff'] = float(np.mean(spectral_rolloff))
+        features['spectral_rolloff'] = float(np.mean(spectral_rolloff))  # 1 dim: high-freq extent (Hz)
 
+        # SPECTRAL BANDWIDTH: Width of spectrum
+        # Broader bandwidth = more complex harmonic structure
         spectral_bandwidth = librosa.feature.spectral_bandwidth(y=y, sr=sr)[0]
-        features['spectral_bandwidth'] = float(np.mean(spectral_bandwidth))
+        features['spectral_bandwidth'] = float(np.mean(spectral_bandwidth))  # 1 dim: spectral width (Hz)
 
+        # SPECTRAL CONTRAST: Peak-to-valley ratio per frequency band
+        # High contrast = bright/punchy; low contrast = smooth/blended (7 bands)
         spectral_contrast = librosa.feature.spectral_contrast(y=y, sr=sr)
-        features['spectral_contrast_mean'] = np.mean(spectral_contrast, axis=1).tolist()
+        features['spectral_contrast_mean'] = np.mean(spectral_contrast, axis=1).tolist()  # 7 dims: brightness profile (dB)
 
-        # 3. Rhythm features
+        # RHYTHM FEATURES: BPM (Beats Per Minute)
+        # Tempo; important for transition compatibility and energy matching
         tempo, beats = librosa.beat.beat_track(y=y, sr=sr)
-        features['bpm'] = float(tempo)
+        features['bpm'] = float(tempo)  # 1 dim: tempo (BPM)
 
-        # 4. Harmonic/tonal features
+        # HARMONIC FEATURES: Chroma (pitch class distribution)
+        # 12 pitch classes (C, C#, D, ..., B) represent harmonic/melodic content
         chroma = librosa.feature.chroma_stft(y=y, sr=sr)
-        features['chroma_mean'] = np.mean(chroma, axis=1).tolist()
+        features['chroma_mean'] = np.mean(chroma, axis=1).tolist()  # 12 dims: average pitch distribution
 
-        # Estimate key (simple approach using chroma)
+        # ESTIMATED KEY: Musical key inferred from chroma distribution
+        # Informational only (not used in similarity calculation)
         chroma_mean = np.mean(chroma, axis=1)
         key_idx = np.argmax(chroma_mean)
         keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-        features['estimated_key'] = keys[key_idx]
+        features['estimated_key'] = keys[key_idx]  # String: estimated musical key
 
-        # 5. Energy/dynamics
+        # ENERGY/DYNAMICS FEATURES: RMS (Root Mean Square) energy
+        # Loudness/intensity of audio; captures volume envelope
         rms = librosa.feature.rms(y=y)[0]
-        features['rms_energy'] = float(np.mean(rms))
-        features['rms_std'] = float(np.std(rms))
+        features['rms_energy'] = float(np.mean(rms))  # 1 dim: average loudness (amplitude)
+        features['rms_std'] = float(np.std(rms))  # 1 dim: loudness variability
 
-        # Zero-crossing rate (percussiveness indicator)
+        # PERCUSSIVENESS INDICATOR: Zero-Crossing Rate
+        # Rate of sign changes in amplitude; high ZCR = noisy/percussive, low ZCR = tonal
         zcr = librosa.feature.zero_crossing_rate(y)[0]
-        features['zero_crossing_rate'] = float(np.mean(zcr))
+        features['zero_crossing_rate'] = float(np.mean(zcr))  # 1 dim: noisiness (crossings/sec)
 
         return features
 
