@@ -32,7 +32,7 @@ class M3UExporter:
             logger.error(f"Failed to create export directory: {e}")
             raise
 
-    def export_playlist(self, title: str, tracks: List[Dict[str, Any]], library_client) -> str:
+    def export_playlist(self, title: str, tracks: List[Dict[str, Any]], library_client, *, sonic_variant: str = "raw") -> str:
         """
         Export a playlist to M3U format
 
@@ -47,7 +47,8 @@ class M3UExporter:
         logger.info(f"Exporting playlist: {title}")
 
         # Sanitize filename
-        safe_filename = self._sanitize_filename(title)
+        variant_suffix = f"_sonic-{sonic_variant}" if sonic_variant and sonic_variant != "raw" else ""
+        safe_filename = self._sanitize_filename(title + variant_suffix)
         m3u_path = self.export_path / f"{safe_filename}.m3u8"
 
         # Get file paths for all tracks
@@ -87,6 +88,7 @@ class M3UExporter:
 
                     # Write EXTINF line with track info
                     f.write(f"#EXTINF:{duration_sec},{track_info['artist']} - {track_info['title']}\n")
+                    f.write(f"#EXTVARIANT:{sonic_variant}\n")
 
                     # Write file path
                     f.write(f"{track_info['path']}\n")

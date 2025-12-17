@@ -6,7 +6,7 @@ AI-powered music playlist generator using multi-segment sonic analysis and norma
 
 This system generates intelligent playlists by combining:
 - **Multi-segment sonic analysis** (beginning, middle, end) for accurate similarity matching
-- **Normalized genre metadata** from Last.FM and MusicBrainz (artist/album/track level)
+- **Normalized genre metadata** from MusicBrainz and file tags (artist/album/track level)
 - **Hybrid scoring** (60% sonic + 40% genre) with smart filtering
 
 ## Key Features
@@ -123,7 +123,7 @@ UNIQUE(artist, title)
 ```sql
 artist            TEXT
 genre             TEXT
-source            TEXT              -- 'lastfm_artist', 'musicbrainz_artist'
+source            TEXT              -- 'musicbrainz_artist'
 UNIQUE(artist, genre, source)
 ```
 
@@ -131,7 +131,7 @@ UNIQUE(artist, genre, source)
 ```sql
 album_id          TEXT
 genre             TEXT
-source            TEXT              -- 'lastfm_album', 'musicbrainz_release'
+source            TEXT              -- 'musicbrainz_release'
 UNIQUE(album_id, genre, source)
 ```
 
@@ -139,7 +139,7 @@ UNIQUE(album_id, genre, source)
 ```sql
 track_id          TEXT
 genre             TEXT
-source            TEXT              -- 'lastfm_track', 'file'
+source            TEXT              -- 'file'
 UNIQUE(track_id, genre, source)
 ```
 
@@ -194,7 +194,7 @@ Edit `config.yaml`:
 library:
   music_directory: "E:/MUSIC"     # Your music folder
 
-# Last.FM API (for genre data)
+# Last.FM API (for listening history only)
 lastfm:
   api_key: "your_api_key_here"
   username: "your_username"
@@ -262,9 +262,9 @@ python scripts/update_genres_v3_normalized.py --stats
 ```
 
 **Genre sources:**
-- **Artist:** Last.FM artist tags, MusicBrainz artist genres
-- **Album:** Last.FM album tags, MusicBrainz release genres
-- **Track:** Last.FM track tags, file tags (ID3/FLAC)
+- **Artist:** MusicBrainz artist genres
+- **Album:** MusicBrainz release genres
+- **Track:** File tags (ID3/FLAC)
 
 ### update_sonic.py
 Analyzes sonic features using librosa.
@@ -339,7 +339,6 @@ Uses curated genre relationship matrix (`data/genre_similarity.yaml`):
 - **Current:** 100% librosa (local, no API dependency)
 
 ### Genre Data
-- **Last.FM API** - Artist/album/track tags
 - **MusicBrainz API** - Artist/release genres
 - **File Tags** - ID3/FLAC embedded genres
 
@@ -406,7 +405,7 @@ Already up to date! Check with `--stats` to verify.
 - HDD users: Use 4-6 workers max
 
 ### Genre API errors
-- Check Last.FM API key in config.yaml
+- If you want listening-history-driven playlists, set Last.FM API key in config.yaml
 - Rate limiting: Script has 1.5s delays built-in
 - MusicBrainz: Has 1.1s delays (no API key needed)
 
@@ -430,7 +429,7 @@ Already up to date! Check with `--stats` to verify.
 
 - Python 3.8+
 - See `requirements.txt` for dependencies
-- Last.FM API key (free at https://www.last.fm/api)
+- Last.FM API key (only for history; free at https://www.last.fm/api)
 - Local music library
 - Recommended: 8GB+ RAM for sonic analysis
 

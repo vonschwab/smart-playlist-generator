@@ -23,7 +23,7 @@ PLAYLIST GENERATOR/
 │   ├── artist_utils.py                  # Shared artist normalization helpers
 │   ├── local_library_client.py          # Local library interface
 │   ├── metadata_client.py               # Database interface
-│   ├── lastfm_client.py                 # Last.FM API client
+│   ├── lastfm_client.py                 # Last.FM API client (listening history only)
 │   ├── openai_client.py                 # OpenAI API integration
 │   ├── librosa_analyzer.py              # Audio analysis wrapper
 │   ├── hybrid_sonic_analyzer.py         # Multi-segment sonic analysis
@@ -39,7 +39,7 @@ PLAYLIST GENERATOR/
 ├── scripts/                             # Utility scripts
 │   ├── README.md                        # Scripts documentation
 │   ├── scan_library.py                  # Scan music directory
-│   ├── update_genres_v3_normalized.py   # Genre metadata updater
+│   ├── update_genres_v3_normalized.py   # Genre metadata updater (MusicBrainz-only)
 │   ├── update_sonic.py                  # Sonic feature analyzer
 │   └── validate_metadata.py             # Database validation
 │
@@ -114,7 +114,7 @@ See `scripts/README.md` for detailed usage.
 
 ```bash
 # 1. Configure settings
-edit config.yaml  # Add Last.FM API key, music directory path
+edit config.yaml  # Add music directory path (Last.FM API key only for history)
 
 # 2. Scan your music library
 python scripts/scan_library.py
@@ -177,7 +177,7 @@ tail -f logs/genre_update_v3.log
 - **Album genres** fetched once per album (~3,757 albums)
 - **Track genres** fetched per track (~33,636 tracks)
 - **60% fewer API calls** vs per-track approach
-- Source-aware storage (Last.FM, MusicBrainz, file tags)
+- Source-aware storage (MusicBrainz, file tags)
 
 ### Advanced Genre Similarity
 - **7 similarity methods** implemented:
@@ -257,7 +257,7 @@ See `README.md` for full schema details.
 
 - **Python 3.8+**
 - **Audio Analysis**: librosa, mutagen
-- **APIs**: Last.FM, MusicBrainz, OpenAI
+- **APIs**: MusicBrainz, OpenAI (Last.FM history optional)
 - **Data Science**: numpy, scipy, scikit-learn
 - **Optimization**: python-tsp (Traveling Salesman Problem)
 - **Database**: SQLite3

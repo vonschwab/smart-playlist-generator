@@ -1,0 +1,86 @@
+On branch master
+Your branch is up to date with 'origin/master'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   .gitignore
+	modified:   README.md
+	modified:   REPOSITORY_STRUCTURE.md
+	modified:   config.example.yaml
+	modified:   docs/GENRE_SIMILARITY_SYSTEM.md
+	modified:   main_app.py
+	modified:   requirements.txt
+	modified:   scripts/update_genres_v3_normalized.py
+	modified:   src/artist_utils.py
+	modified:   src/config_loader.py
+	modified:   src/local_library_client.py
+	modified:   src/m3u_exporter.py
+	modified:   src/metadata_client.py
+	modified:   src/playlist_generator.py
+	modified:   src/similarity_calculator.py
+	modified:   src/track_matcher.py
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	AGENTS.md
+	CLEANUP_BASELINE_STATUS.txt
+	CLEANUP_EXECUTION_PLAN.md
+	CLEANUP_PLAN.md
+	DEV.md
+	DIALS_IMPLEMENTATION_SUMMARY.md
+	DIALS_IMPLEMENTATION_VERIFICATION.md
+	DIAL_GRID_FIX_SUMMARY.md
+	DIAL_INVESTIGATION_EXECUTIVE_SUMMARY.txt
+	DIAL_INVESTIGATION_SUMMARY.md
+	DIAL_ROUTING_ANALYSIS.md
+	GENRE_ENFORCEMENT_QUICK_START.md
+	GENRE_ENFORCEMENT_TEST_RESULTS.md
+	GENRE_SYSTEM_COMPLETE_SUMMARY.md
+	IMPLEMENTATION_CHANGES_REFERENCE.txt
+	IMPLEMENTATION_COMPLETE.md
+	MINIMAL_FIX_DIFF.md
+	NEXT_STEPS.md
+	PHASE_AB_DIAGNOSTIC_SUMMARY.md
+	QUICK_START_DIALS_VERIFICATION.txt
+	README_SONIC_FIX.md
+	SCAN_LIBRARY_IMPROVEMENTS_SUMMARY.txt
+	api/
+	diagnostics/
+	discogs-genre-test/
+	discogs_misses.tsv
+	docs/TITLE_DEDUPLICATION.md
+	docs/TUNING_WORKFLOW.md
+	docs/ds_pipeline_integration_plan.md
+	experiments/
+	scripts/ab_playlist_sonic_variants.py
+	scripts/analyze_library.py
+	scripts/batch_eval_sonic_variant.py
+	scripts/build_track_group.py
+	scripts/debug_edge_scores.py
+	scripts/diagnose_artifact_similarity.py
+	scripts/diagnose_sonic_dim_dominance.py
+	scripts/diagnose_sonic_feature_ablation.py
+	scripts/diagnose_sonic_geometry.py
+	scripts/diagnose_sonic_signal.py
+	scripts/force_bind_test.py
+	scripts/infer_sonic_feature_schema.py
+	scripts/make_pairs_file.py
+	scripts/purge_lastfm_genres.py
+	scripts/refresh_effective_genres.py
+	scripts/sonic_separability.py
+	scripts/tune_dial_grid.py
+	scripts/update_discogs_genres.py
+	scripts/validate_title_dedupe.py
+	src/analyze/
+	src/eval/
+	src/features/
+	src/playlist/
+	src/similarity/
+	src/title_dedupe.py
+	tests/
+	ui/
+
+no changes added to commit (use "git add" and/or "git commit -a")
+113
+3e72bd0 feat: implement beat-synchronized sonic feature extraction (Phase 2)

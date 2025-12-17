@@ -4,6 +4,7 @@ Similarity Calculator - Compares sonic features to find similar tracks
 import hashlib
 import json
 import logging
+import math
 import sqlite3
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -29,6 +30,10 @@ class SimilarityCalculator:
         self.db_path = db_path
         self.conn = None
         self.config = config or {}
+        # Sonic feature vector layout (slices, weights, lengths) built lazily
+        self._sonic_feature_layout: Optional[Dict[str, Dict[str, Any]]] = None
+        # Track per-segment fallbacks (for diagnostics in experiments)
+        self.segment_fallback_counts: Dict[str, int] = {"start": 0, "mid": 0, "end": 0}
 
         # Genre similarity settings
         genre_config = self.config.get('playlists', {}).get('genre_similarity', {})
@@ -37,11 +42,21 @@ class SimilarityCalculator:
         self.sonic_weight = genre_config.get('sonic_weight', 0.6)
         self.min_genre_similarity = genre_config.get('min_genre_similarity', 0.3)
 
+        # Duration matching settings
+        duration_cfg = self.config.get('playlists', {}).get('duration_match', {})
+        self.duration_match_enabled = duration_cfg.get('enabled', True)
+        self.duration_weight = float(duration_cfg.get('weight', 0.35))
+        self.duration_window_frac = float(duration_cfg.get('window_frac', 0.25))
+        self.duration_falloff = float(duration_cfg.get('falloff', 0.6))
+        self.duration_min_target_seconds = float(duration_cfg.get('min_target_seconds', 40))
+
         # Genre similarity method (default: ensemble)
         self.genre_method = genre_config.get('method', 'ensemble')
 
         # Genre filtering and combination settings
-        self.use_artist_tags = genre_config.get('use_artist_tags', True)
+        # Artist tag enrichment relied on Last.FM; disable now that genre tags are MusicBrainz/file-only
+        self.use_artist_tags = False
+        self.use_discogs_album = genre_config.get('use_discogs_album', True)
         default_broad = (
             ['__empty__', 'unknown', 'favorites', 'seen live'] +
             # decades
@@ -58,10 +73,9 @@ class SimilarityCalculator:
         )
         self.broad_filters = set(tag.lower() for tag in genre_config.get('broad_filters', default_broad))
 
-        # Similar artists boost settings
-        similar_artists_config = self.config.get('playlists', {}).get('similar_artists', {})
-        self.similar_artists_enabled = similar_artists_config.get('enabled', True)
-        self.similar_artists_boost = similar_artists_config.get('boost', 0.1)
+        # Similar artist boosts are disabled now that Last.FM genre data is removed
+        self.similar_artists_enabled = False
+        self.similar_artists_boost = 0.0
 
         # Initialize genre similarity calculator (V2 with multiple methods)
         if self.genre_enabled:
@@ -73,13 +87,184 @@ class SimilarityCalculator:
             logger.info("Genre similarity disabled")
 
         self._init_db_connection()
+
+    # --- Duration helpers -------------------------------------------------
+
+    @staticmethod
+    def duration_similarity(
+        target_s: float,
+        cand_s: float,
+        *,
+        window_frac: float,
+        falloff: float,
+    ) -> float:
+        """
+        Smooth, symmetric duration preference in [0,1].
+        Uses log-ratio distance with a flat window, then Gaussian-style decay.
+        """
+        if target_s <= 0 or cand_s <= 0:
+            return 1.0
+        eps = 1e-6
+        d = abs(math.log((cand_s + eps) / (target_s + eps)))
+        w = math.log(1 + max(window_frac, 0))
+        if d <= w:
+            return 1.0
+        if falloff <= 0:
+            return 0.0
+        val = math.exp(-((d - w) / falloff) ** 2)
+        return max(0.0, min(1.0, val))
         logger.info("Initialized SimilarityCalculator")
 
     def _init_db_connection(self):
         """Initialize database connection"""
-        self.conn = sqlite3.connect(self.db_path)
+        self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         logger.debug(f"Connected to database: {self.db_path}")
+
+    def _vector_from_features(self, features: Dict[str, Any], update_layout: bool = True) -> np.ndarray:
+        """
+        Internal helper to turn a feature dict (single segment) into a vector using
+        the cached layout. If update_layout is False, lengths will not change.
+        """
+        if features is None:
+            return np.array([], dtype=float)
+
+        if self._sonic_feature_layout is None:
+            self._sonic_feature_layout = {
+                'mfcc_mean': {'weight': 0.6, 'length': None, 'slice': slice(0, 0)},
+                'chroma': {'weight': 0.2, 'length': None, 'slice': slice(0, 0), 'key': None},
+                'bpm': {'weight': 0.1, 'length': 1, 'slice': slice(0, 0)},
+                'spectral_centroid': {'weight': 0.1, 'length': 1, 'slice': slice(0, 0)},
+            }
+
+        layout = self._sonic_feature_layout
+        vector_parts: List[np.ndarray] = []
+
+        def _normalize_and_append(values: Optional[Any], name: str, preferred_length: Optional[int]) -> np.ndarray:
+            if values is None:
+                if preferred_length:
+                    return np.zeros(preferred_length, dtype=float)
+                return np.array([], dtype=float)
+
+            arr = np.asarray(values, dtype=float).flatten()
+            if preferred_length is None:
+                return arr
+
+            if arr.size == preferred_length:
+                return arr
+            if arr.size == 0:
+                return np.zeros(preferred_length, dtype=float)
+
+            if arr.size < preferred_length:
+                padding = np.zeros(preferred_length - arr.size, dtype=float)
+                return np.concatenate([arr, padding])
+            return arr[:preferred_length]
+
+        # MFCC block
+        mfcc_len = layout['mfcc_mean']['length']
+        mfcc_values = features.get('mfcc_mean')
+        if update_layout and mfcc_values is not None:
+            mfcc_array = np.asarray(mfcc_values, dtype=float).flatten()
+            if mfcc_array.size > 0:
+                layout['mfcc_mean']['length'] = mfcc_array.size if mfcc_len is None else mfcc_len
+                mfcc_len = layout['mfcc_mean']['length']
+        mfcc_vector = _normalize_and_append(mfcc_values, 'mfcc_mean', layout['mfcc_mean']['length'])
+        vector_parts.append(mfcc_vector)
+
+        # Chroma/HPCP block (prefer hpcp_mean if available)
+        chroma_key = 'hpcp_mean' if 'hpcp_mean' in features else 'chroma_mean'
+        if chroma_key in features:
+            layout['chroma']['key'] = chroma_key
+            chroma_values = features.get(chroma_key)
+        else:
+            chroma_values = None
+        chroma_len = layout['chroma']['length']
+        if update_layout and chroma_values is not None:
+            chroma_array = np.asarray(chroma_values, dtype=float).flatten()
+            if chroma_array.size > 0:
+                layout['chroma']['length'] = chroma_array.size if chroma_len is None else chroma_len
+        chroma_vector = _normalize_and_append(chroma_values, 'chroma', layout['chroma']['length'])
+        vector_parts.append(chroma_vector)
+
+        # BPM scalar
+        bpm_values = [features.get('bpm')] if 'bpm' in features else None
+        bpm_len = layout['bpm']['length']
+        if bpm_len is None and update_layout:
+            layout['bpm']['length'] = 1
+            bpm_len = 1
+        bpm_vector = _normalize_and_append(bpm_values, 'bpm', layout['bpm']['length'])
+        vector_parts.append(bpm_vector)
+
+        # Spectral centroid scalar
+        spec_values = [features.get('spectral_centroid')] if 'spectral_centroid' in features else None
+        spec_len = layout['spectral_centroid']['length']
+        if spec_len is None and update_layout:
+            layout['spectral_centroid']['length'] = 1
+            spec_len = 1
+        spec_vector = _normalize_and_append(spec_values, 'spectral_centroid', layout['spectral_centroid']['length'])
+        vector_parts.append(spec_vector)
+
+        # Update slices for downstream consumers
+        offset = 0
+        for name in ['mfcc_mean', 'chroma', 'bpm', 'spectral_centroid']:
+            length = layout[name]['length'] or 0
+            layout[name]['slice'] = slice(offset, offset + length)
+            offset += length
+
+        if not vector_parts:
+            return np.array([], dtype=float)
+
+        return np.concatenate(vector_parts)
+
+    def build_sonic_feature_vector(self, sonic_features: Dict[str, Any]) -> np.ndarray:
+        """
+        Convert the multi-segment sonic_features JSON for a single track into a 1D vector.
+
+        The ordering and scaling mirror the existing sonic similarity logic:
+        - MFCC mean vector (weight 0.6)
+        - Chroma/HPCP mean vector (weight 0.2)
+        - BPM scalar (weight 0.1)
+        - Spectral centroid scalar (weight 0.1)
+
+        Missing components are filled with zeros once a length is established, keeping
+        the vector dimension consistent for downstream experiments. Lengths are learned
+        lazily from the first available instance of each component.
+        """
+        if not sonic_features:
+            return np.array([], dtype=float)
+
+        features = sonic_features.get('average', sonic_features)
+        return self._vector_from_features(features, update_layout=True)
+
+    def build_sonic_feature_vector_by_segment(self, sonic_features: Dict[str, Any], segment: str) -> np.ndarray:
+        """
+        Return the sonic feature vector for a specific segment ('start', 'mid', 'end')
+        using the exact same dimension and ordering as build_sonic_feature_vector.
+
+        If the requested segment is missing, fall back to the aggregate/full vector and
+        increment a per-segment fallback counter for diagnostics.
+        """
+        if not sonic_features:
+            return np.array([], dtype=float)
+
+        # Ensure layout is initialized based on the full/average vector
+        full_vec = self.build_sonic_feature_vector(sonic_features)
+        seg_key = segment.lower()
+        seg_data = sonic_features.get(seg_key)
+        if seg_data is None and seg_key == "mid":
+            seg_data = sonic_features.get("middle")
+
+        if seg_data is None:
+            if seg_key in self.segment_fallback_counts:
+                self.segment_fallback_counts[seg_key] += 1
+            return full_vec
+
+        vec = self._vector_from_features(seg_data, update_layout=False)
+        if vec.size == 0:
+            if seg_key in self.segment_fallback_counts:
+                self.segment_fallback_counts[seg_key] += 1
+            return full_vec
+        return vec
 
     def calculate_similarity(self, features1: Dict[str, Any], features2: Dict[str, Any]) -> float:
         """
@@ -93,76 +278,76 @@ class SimilarityCalculator:
             Similarity score (0.0 = completely different, 1.0 = identical)
         """
         try:
-            # Extract feature vectors
+            # Build aligned feature vectors (handling multi-segment data and normalization)
+            vec1 = self.build_sonic_feature_vector(features1)
+            vec2 = self.build_sonic_feature_vector(features2)
+
+            if vec1.size == 0 or vec2.size == 0:
+                return 0.0
+
+            layout = self._sonic_feature_layout or {}
             scores = []
             weights = []
 
             # 1. MFCC similarity (60% weight - timbre/texture)
-            if 'mfcc_mean' in features1 and 'mfcc_mean' in features2:
-                mfcc1 = np.array(features1['mfcc_mean'])
-                mfcc2 = np.array(features2['mfcc_mean'])
+            mfcc_slice = layout.get('mfcc_mean', {}).get('slice')
+            if mfcc_slice and (mfcc_slice.stop - mfcc_slice.start) > 0:
+                mfcc1 = vec1[mfcc_slice]
+                mfcc2 = vec2[mfcc_slice]
 
-                if len(mfcc1) == len(mfcc2) and len(mfcc1) > 0:
-                    # Check for zero-magnitude vectors
-                    mag1 = np.linalg.norm(mfcc1)
-                    mag2 = np.linalg.norm(mfcc2)
+                mag1 = np.linalg.norm(mfcc1)
+                mag2 = np.linalg.norm(mfcc2)
 
-                    if mag1 > 1e-10 and mag2 > 1e-10:
-                        # Cosine similarity (1 = same direction, -1 = opposite)
-                        # Convert to 0-1 scale
-                        mfcc_sim = (1 - cosine(mfcc1, mfcc2))
-                        mfcc_sim = max(0, mfcc_sim)  # Clamp to 0-1
-                        scores.append(mfcc_sim)
-                        weights.append(0.6)
+                if mag1 > 1e-10 and mag2 > 1e-10:
+                    # Cosine similarity (1 = same direction, -1 = opposite) converted to 0-1
+                    mfcc_sim = (1 - cosine(mfcc1, mfcc2))
+                    mfcc_sim = max(0, mfcc_sim)
+                    scores.append(mfcc_sim)
+                    weights.append(layout['mfcc_mean']['weight'])
 
             # 2. Chroma/HPCP similarity (20% weight - harmonic content)
-            chroma_key1 = 'hpcp_mean' if 'hpcp_mean' in features1 else 'chroma_mean'
-            chroma_key2 = 'hpcp_mean' if 'hpcp_mean' in features2 else 'chroma_mean'
+            chroma_slice = layout.get('chroma', {}).get('slice')
+            if chroma_slice and (chroma_slice.stop - chroma_slice.start) > 0:
+                chroma1 = vec1[chroma_slice]
+                chroma2 = vec2[chroma_slice]
 
-            if chroma_key1 in features1 and chroma_key2 in features2:
-                chroma1 = np.array(features1[chroma_key1])
-                chroma2 = np.array(features2[chroma_key2])
+                mag1 = np.linalg.norm(chroma1)
+                mag2 = np.linalg.norm(chroma2)
 
-                if len(chroma1) == len(chroma2) and len(chroma1) > 0:
-                    # Check for zero-magnitude vectors
-                    mag1 = np.linalg.norm(chroma1)
-                    mag2 = np.linalg.norm(chroma2)
-
-                    if mag1 > 1e-10 and mag2 > 1e-10:
-                        chroma_sim = (1 - cosine(chroma1, chroma2))
-                        chroma_sim = max(0, chroma_sim)
-                        scores.append(chroma_sim)
-                        weights.append(0.2)
+                if mag1 > 1e-10 and mag2 > 1e-10:
+                    chroma_sim = (1 - cosine(chroma1, chroma2))
+                    chroma_sim = max(0, chroma_sim)
+                    scores.append(chroma_sim)
+                    weights.append(layout['chroma']['weight'])
 
             # 3. Rhythm similarity (10% weight - tempo)
-            if 'bpm' in features1 and 'bpm' in features2:
-                bpm1 = features1['bpm']
-                bpm2 = features2['bpm']
+            bpm_slice = layout.get('bpm', {}).get('slice')
+            if bpm_slice and (bpm_slice.stop - bpm_slice.start) > 0:
+                bpm1 = vec1[bpm_slice][0] if bpm_slice.stop - bpm_slice.start > 0 else 0
+                bpm2 = vec2[bpm_slice][0] if bpm_slice.stop - bpm_slice.start > 0 else 0
 
                 if bpm1 > 0 and bpm2 > 0:
-                    # Tempo similarity (allow for doubling/halving)
                     tempo_diff = abs(bpm1 - bpm2)
-                    tempo_diff_half = min(tempo_diff, abs(bpm1 - bpm2/2), abs(bpm1 - bpm2*2))
-                    tempo_diff_half = min(tempo_diff_half, abs(bpm1/2 - bpm2))
+                    tempo_diff_half = min(tempo_diff, abs(bpm1 - bpm2 / 2), abs(bpm1 - bpm2 * 2))
+                    tempo_diff_half = min(tempo_diff_half, abs(bpm1 / 2 - bpm2))
 
                     # Convert difference to similarity (smaller diff = higher similarity)
-                    # Assume BPMs within 20 are very similar
                     tempo_sim = max(0, 1 - (tempo_diff_half / 40))
                     scores.append(tempo_sim)
-                    weights.append(0.1)
+                    weights.append(layout['bpm']['weight'])
 
             # 4. Spectral similarity (10% weight - brightness/texture)
-            if 'spectral_centroid' in features1 and 'spectral_centroid' in features2:
-                spec1 = features1['spectral_centroid']
-                spec2 = features2['spectral_centroid']
+            spec_slice = layout.get('spectral_centroid', {}).get('slice')
+            if spec_slice and (spec_slice.stop - spec_slice.start) > 0:
+                spec1 = vec1[spec_slice][0] if spec_slice.stop - spec_slice.start > 0 else 0
+                spec2 = vec2[spec_slice][0] if spec_slice.stop - spec_slice.start > 0 else 0
 
                 if spec1 > 0 and spec2 > 0:
-                    # Normalize and compare
                     spec_diff = abs(spec1 - spec2)
                     max_centroid = max(spec1, spec2)
                     spec_sim = max(0, 1 - (spec_diff / max_centroid))
                     scores.append(spec_sim)
-                    weights.append(0.1)
+                    weights.append(layout['spectral_centroid']['weight'])
 
             # Calculate weighted average
             if scores:
@@ -194,7 +379,7 @@ class SimilarityCalculator:
         # Get seed track features and artist
         cursor = self.conn.cursor()
         cursor.execute("""
-            SELECT sonic_features, artist
+            SELECT sonic_features, artist, duration_ms
             FROM tracks
             WHERE track_id = ?
         """, (track_id,))
@@ -211,13 +396,16 @@ class SimilarityCalculator:
 
         # Get seed track genres (if genre similarity enabled)
         seed_genres = []
+        seed_duration_s = None
         if self.genre_enabled and self.genre_calc:
             seed_genres = self._get_combined_genres(track_id)
             logger.info(f"Seed track combined genres: {seed_genres}")
+        if "duration_ms" in seed_row.keys() and seed_row["duration_ms"]:
+            seed_duration_s = (seed_row["duration_ms"] or 0) / 1000.0
 
         # Get all tracks with features
         cursor.execute("""
-            SELECT track_id, sonic_features, artist
+            SELECT track_id, sonic_features, artist, duration_ms
             FROM tracks
             WHERE sonic_features IS NOT NULL
               AND track_id != ?
@@ -229,6 +417,9 @@ class SimilarityCalculator:
             try:
                 candidate_id = row['track_id']
                 candidate_artist = row['artist']
+                cand_duration_s = None
+                if "duration_ms" in row.keys() and row["duration_ms"]:
+                    cand_duration_s = (row["duration_ms"] or 0) / 1000.0
 
                 # Skip same-artist tracks here so the top-N results aren't monopolized
                 if (candidate_artist or '').lower() == (seed_artist or '').lower():
@@ -260,10 +451,21 @@ class SimilarityCalculator:
                 else:
                     final_sim = sonic_sim
 
-                # Apply similar artists boost if enabled
-                if self.similar_artists_enabled and self._are_artists_similar(seed_artist, candidate_artist):
-                    final_sim = min(1.0, final_sim + self.similar_artists_boost)
-                    logger.debug(f"Similar artist boost applied: {seed_artist} <-> {candidate_artist} (new score: {final_sim:.3f})")
+                # Apply duration preference (soft, multiplicative)
+                if (
+                    self.duration_match_enabled
+                    and self.duration_weight > 0
+                    and seed_duration_s
+                    and seed_duration_s >= self.duration_min_target_seconds
+                    and cand_duration_s
+                ):
+                    dur_sim = self.duration_similarity(
+                        seed_duration_s,
+                        cand_duration_s,
+                        window_frac=self.duration_window_frac,
+                        falloff=self.duration_falloff,
+                    )
+                    final_sim = final_sim * (dur_sim ** self.duration_weight)
 
                 if final_sim >= min_similarity:
                     similarities.append((candidate_id, final_sim))
@@ -277,7 +479,7 @@ class SimilarityCalculator:
         return similarities[:limit]
 
     def find_similar_tracks_sonic_only(self, track_id: str, limit: int = 50,
-                                       min_similarity: float = 0.1) -> List[Tuple[str, float]]:
+                                     min_similarity: float = 0.1) -> List[Tuple[str, float]]:
         """
         Find tracks similar to the given track using sonic features only.
 
@@ -291,7 +493,7 @@ class SimilarityCalculator:
         """
         cursor = self.conn.cursor()
         cursor.execute("""
-            SELECT sonic_features, artist
+            SELECT sonic_features, artist, duration_ms
             FROM tracks
             WHERE track_id = ?
         """, (track_id,))
@@ -305,9 +507,12 @@ class SimilarityCalculator:
         if 'average' in seed_features:
             seed_features = seed_features['average']
         seed_artist = seed_row['artist'] or ''
+        seed_duration_s = None
+        if "duration_ms" in seed_row.keys() and seed_row["duration_ms"]:
+            seed_duration_s = (seed_row["duration_ms"] or 0) / 1000.0
 
         cursor.execute("""
-            SELECT track_id, sonic_features, artist
+            SELECT track_id, sonic_features, artist, duration_ms
             FROM tracks
             WHERE sonic_features IS NOT NULL
               AND track_id != ?
@@ -327,9 +532,28 @@ class SimilarityCalculator:
                     candidate_features = candidate_features_raw
 
                 sonic_sim = self.calculate_similarity(seed_features, candidate_features)
+                final_sim = sonic_sim
 
-                if sonic_sim >= min_similarity:
-                    similarities.append((candidate_id, sonic_sim))
+                if (
+                    self.duration_match_enabled
+                    and self.duration_weight > 0
+                    and seed_duration_s
+                    and seed_duration_s >= self.duration_min_target_seconds
+                    and "duration_ms" in row.keys()
+                    and row["duration_ms"]
+                ):
+                    cand_duration_s = (row["duration_ms"] or 0) / 1000.0
+                    if cand_duration_s:
+                        dur_sim = self.duration_similarity(
+                            seed_duration_s,
+                            cand_duration_s,
+                            window_frac=self.duration_window_frac,
+                            falloff=self.duration_falloff,
+                        )
+                        final_sim = final_sim * (dur_sim ** self.duration_weight)
+
+                if final_sim >= min_similarity:
+                    similarities.append((candidate_id, final_sim))
 
             except Exception as e:
                 logger.debug(f"Error processing track {row['track_id']}: {e}")
@@ -557,65 +781,6 @@ class SimilarityCalculator:
 
         return filtered
 
-    def _get_artist_data(self, artist_name: str) -> Dict[str, Any]:
-        """
-        Get artist metadata including tags and similar artists
-
-        Args:
-            artist_name: Artist name
-
-        Returns:
-            Dictionary with 'tags' and 'similar_artists' lists
-        """
-        cursor = self.conn.cursor()
-        cursor.execute("""
-            SELECT lastfm_tags, similar_artists
-            FROM artists
-            WHERE artist_name = ?
-        """, (artist_name,))
-
-        row = cursor.fetchone()
-        if not row:
-            return {'tags': [], 'similar_artists': []}
-
-        import json
-        tags = json.loads(row['lastfm_tags']) if row['lastfm_tags'] else []
-        similar = json.loads(row['similar_artists']) if row['similar_artists'] else []
-
-        return {
-            'tags': tags,
-            'similar_artists': similar
-        }
-
-    def _are_artists_similar(self, artist1: str, artist2: str) -> bool:
-        """
-        Check if two artists are in each other's similar_artists list
-
-        Args:
-            artist1: First artist name
-            artist2: Second artist name
-
-        Returns:
-            True if either artist appears in the other's similar_artists list
-        """
-        if not artist1 or not artist2:
-            return False
-
-        # Get similar_artists for both
-        artist1_data = self._get_artist_data(artist1)
-        artist2_data = self._get_artist_data(artist2)
-
-        similar1 = set(a.lower() for a in artist1_data['similar_artists'])
-        similar2 = set(a.lower() for a in artist2_data['similar_artists'])
-
-        # Check if artist2 is in artist1's similar list, or vice versa
-        is_similar = (artist2.lower() in similar1) or (artist1.lower() in similar2)
-
-        if is_similar:
-            logger.debug(f"Similar artist match: {artist1} <-> {artist2}")
-
-        return is_similar
-
     def _get_combined_genres(self, track_id: str) -> List[str]:
         """
         Get combined genre tags from album, artist, and artist tags (NOT track_genres)
@@ -623,11 +788,10 @@ class SimilarityCalculator:
         This method:
         1. Fetches album_genres for the track's album
         2. Fetches artist_genres for the track's artist
-        3. Optionally includes artist tags from artists.lastfm_tags
-        4. Filters out broad/noisy tags
-        5. Normalizes and deduplicates while preserving priority order
+        3. Filters out broad/noisy tags
+        4. Normalizes and deduplicates while preserving priority order
 
-        Priority order: album_genres > artist_genres > artist_tags
+        Priority order: album_genres > artist_genres
 
         Args:
             track_id: Track ID
@@ -674,11 +838,21 @@ class SimilarityCalculator:
 
             album_genres = []
             for aid in album_ids_to_try:
-                cursor.execute("""
-                    SELECT genre
-                    FROM album_genres
-                    WHERE album_id = ?
-                """, (aid,))
+                if self.use_discogs_album:
+                    cursor.execute("""
+                        SELECT genre
+                        FROM album_genres
+                        WHERE album_id = ?
+                          AND genre != '__EMPTY__'
+                    """, (aid,))
+                else:
+                    cursor.execute("""
+                        SELECT genre
+                        FROM album_genres
+                        WHERE album_id = ?
+                          AND genre != '__EMPTY__'
+                          AND (source IS NULL OR source NOT LIKE 'discogs_%')
+                    """, (aid,))
                 rows = cursor.fetchall()
                 if rows:
                     album_genres = [r['genre'] for r in rows]
@@ -707,20 +881,7 @@ class SimilarityCalculator:
                 combined_genres.append(genre)
                 seen_normalized.add(normalized)
 
-        # 3. Optionally get artist tags from artists.lastfm_tags
-        if self.use_artist_tags:
-            artist_data = self._get_artist_data(artist_name)
-            artist_tags = artist_data['tags']
-            logger.debug(f"Artist tags for {artist_name}: {artist_tags}")
-
-            for tag in artist_tags:
-                tag_str = self._coerce_tag_to_str(tag)
-                normalized = self._normalize_genre(tag_str)
-                if normalized and normalized not in seen_normalized:
-                    combined_genres.append(tag_str)
-                    seen_normalized.add(normalized)
-
-        # 4. Filter broad/noisy tags
+        # 3. Filter broad/noisy tags
         filtered_genres = self._filter_broad_tags(combined_genres)
 
         logger.debug(f"Combined genres for track {track_id} ({artist_name} - {album_name}): {filtered_genres}")
@@ -846,11 +1007,6 @@ class SimilarityCalculator:
                 hybrid_sim = (sonic_sim * self.sonic_weight) + (genre_sim * self.genre_weight)
                 logger.debug(f"Hybrid similarity: sonic={sonic_sim:.3f}, genre={genre_sim:.3f} ({self.genre_method}), final={hybrid_sim:.3f}")
 
-        # Apply similar artists boost if enabled
-        if self.similar_artists_enabled and self._are_artists_similar(artist1, artist2):
-            hybrid_sim = min(1.0, hybrid_sim + self.similar_artists_boost)
-            logger.debug(f"Similar artist boost applied: {artist1} <-> {artist2} (new score: {hybrid_sim:.3f})")
-
         return hybrid_sim
 
     def get_stats(self) -> Dict[str, int]:
@@ -879,6 +1035,21 @@ class SimilarityCalculator:
             'acousticbrainz': sources.get('acousticbrainz', 0),
             'librosa': sources.get('librosa', 0)
         }
+
+    def get_filtered_combined_genres_for_track(self, track_id: str) -> List[str]:
+        """
+        Public helper to retrieve combined genres for a track using production filtering.
+
+        Combines album/artist/track genres (and optional artist tags) and applies
+        the same normalization and broad tag filtering as the main generator.
+
+        Args:
+            track_id: Track ID to retrieve genres for
+
+        Returns:
+            List of cleaned genre tokens (broad/meta tags removed).
+        """
+        return self._get_combined_genres(track_id)
 
     def close(self):
         """Close database connection"""

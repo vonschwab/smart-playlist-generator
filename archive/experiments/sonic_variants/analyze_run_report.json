@@ -1,0 +1,18 @@
+{
+  "stages": {
+    "artifacts": {
+      "result": {
+        "path": "experiments\\sonic_variants\\data_matrices_step1.npz",
+        "skipped": false,
+        "stats": {
+          "tracks_kept": 34529,
+          "genres_kept": 660,
+          "random_seed": 0
+        }
+      },
+      "duration_sec": 7.695616960525513
+    }
+  },
+  "out_dir": "experiments\\sonic_variants",
+  "total_duration_sec": 7.69580340385437
+}

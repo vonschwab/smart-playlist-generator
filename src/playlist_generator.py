@@ -1,16 +1,22 @@
 """
 Playlist Generator - Core logic for creating AI-powered playlists
 """
-from typing import List, Dict, Any, Tuple, Optional
+from typing import List, Dict, Any, Tuple, Optional, Set
 from collections import Counter, defaultdict
 import random
 import logging
 import time
+import os
 import numpy as np
-from .artist_cache import ArtistSimilarityCache
 from .artist_utils import extract_primary_artist
 from .similarity_calculator import SimilarityCalculator
 from .string_utils import normalize_genre, normalize_song_title
+from .string_utils import normalize_match_string
+from .title_dedupe import TitleDedupeTracker
+from src.features.artifacts import load_artifact_bundle
+from src.similarity.hybrid import transition_similarity_end_to_start
+from src.similarity.sonic_variant import compute_sonic_variant_norm, get_variant_from_env, resolve_sonic_variant
+from src.playlist.ds_pipeline_runner import DsRunResult, generate_playlist_ds as run_ds_pipeline
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +69,9 @@ class PlaylistGenerator:
         self.lastfm = lastfm_client
         self.matcher = track_matcher
         self.metadata = metadata_client  # Metadata database for genre lookups
+        self.pipeline_override: Optional[str] = None
+        self._logged_ds_artifact_warning = False
+        self._last_ds_report: Optional[Dict[str, Any]] = None
         # Expose similarity calculator if provided by the library client; fall back to new instance
         self.similarity_calc = getattr(library_client, 'similarity_calc', None)
         if self.similarity_calc is None:
@@ -73,14 +82,459 @@ class PlaylistGenerator:
                 logger.debug(f"Falling back to default metadata path after config read failure: {e}")
                 db_path = 'data/metadata.db'
             self.similarity_calc = SimilarityCalculator(db_path=db_path, config=self.config)
-        self.genre_similarity_cache = {}  # Cache for Last.FM similar tags
+        self.genre_similarity_cache = {}  # Legacy cache placeholder
+        self._warn_if_ds_artifact_missing()
+        sonic_cfg = self.config.get('playlists', 'sonic', default={}) or {}
+        self.sonic_variant = resolve_sonic_variant(config_variant=sonic_cfg.get("sim_variant"))
+        sonic_cfg = self.config.get('playlists', 'sonic', default={}) or {}
+        # Capture resolved variant once; env can override unless CLI sets explicit
+        self.sonic_variant = resolve_sonic_variant(config_variant=sonic_cfg.get("sim_variant"))
 
-        # Initialize persistent artist similarity cache
-        cache_expiry = self.config.get('playlists', 'cache_expiry_days', 30)
-        self.artist_cache = ArtistSimilarityCache(expiry_days=cache_expiry)
+    def _get_pipeline_choice(self, pipeline_override: Optional[str] = None) -> str:
+        choice = pipeline_override or self.pipeline_override
+        if choice:
+            return str(choice).lower()
+        return str(self.config.get('playlists', 'pipeline', default='ds') or 'ds').lower()
 
-        # Clean up expired entries on startup
-        self.artist_cache.clear_expired()
+    def _warn_if_ds_artifact_missing(self) -> None:
+        """Log once if DS pipeline is configured but artifacts are missing or unreadable."""
+        pipeline_choice = self._get_pipeline_choice(None)
+        if pipeline_choice != "ds" or self._logged_ds_artifact_warning:
+            return
+        ds_cfg = self.config.get('playlists', 'ds_pipeline', default={}) or {}
+        artifact_path = ds_cfg.get('artifact_path')
+        if not artifact_path:
+            return
+        from pathlib import Path
+        try:
+            path = Path(artifact_path)
+            if not path.exists():
+                logger.warning("DS pipeline enabled but artifact missing at %s; will fall back to legacy.", artifact_path)
+                self._logged_ds_artifact_warning = True
+                return
+            # Lightweight readability check
+            try:
+                load_artifact_bundle(path)
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("DS pipeline artifact unreadable (%s); will fall back to legacy at runtime.", exc)
+            self._logged_ds_artifact_warning = True
+        except Exception:
+            # Avoid breaking init; warn once
+            logger.warning("DS pipeline artifact check failed; legacy fallback will be used if needed.")
+            self._logged_ds_artifact_warning = True
+
+    def _compute_edge_scores_from_artifact(
+        self,
+        tracks: List[Dict[str, Any]],
+        artifact_path: Optional[str],
+        transition_floor: Optional[float] = None,
+        transition_gamma: Optional[float] = None,
+        embedding_random_seed: Optional[int] = None,
+        center_transitions: bool = False,
+        verbose: bool = False,
+        sonic_variant: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Compute per-edge scores (T/S/G) for the final playlist order using artifact matrices.
+        """
+        if not artifact_path or not tracks or len(tracks) < 2:
+            return []
+        try:
+            bundle = load_artifact_bundle(artifact_path)
+        except Exception as exc:
+            logger.error("Failed to load artifact for edge logging (%s)", exc, exc_info=True)
+            return []
+
+        # Map rating_key -> index
+        idxs = []
+        missing = 0
+        missing_ids: List[str] = []
+        for t in tracks:
+            tid = str(t.get("rating_key"))
+            idx = bundle.track_id_to_index.get(tid)
+            if idx is None:
+                missing += 1
+                missing_ids.append(tid)
+                idxs.append(None)
+            else:
+                idxs.append(idx)
+        if missing:
+            logger.error("Missing %d track ids in artifact; edge scores may be incomplete.", missing)
+            if verbose:
+                sample = missing_ids[:5]
+                logger.info(
+                    "Missing track id samples: %s",
+                    [(tid, tid in bundle.track_id_to_index) for tid in sample],
+                )
+
+        import numpy as np
+
+        X_sonic = getattr(bundle, "X_sonic", None)
+        X_genre = getattr(bundle, "X_genre_smoothed", None)
+        X_start = getattr(bundle, "X_sonic_start", None)
+        X_end = getattr(bundle, "X_sonic_end", None)
+        X_start_orig = X_start
+        X_end_orig = X_end
+        rescale_transitions = False
+        if center_transitions and X_start is not None and X_end is not None:
+            mu_end = X_end.mean(axis=0, keepdims=True)
+            mu_start = X_start.mean(axis=0, keepdims=True)
+            X_end = X_end - mu_end
+            X_start = X_start - mu_start
+            rescale_transitions = True
+        emb_norm = None
+        try:
+            # Rebuild the hybrid embedding used by DS so transition scores match constructor logic.
+            from src.similarity.hybrid import build_hybrid_embedding
+
+            emb_model = build_hybrid_embedding(
+                X_sonic,
+                X_genre,
+                n_components_sonic=32,
+                n_components_genre=32,
+                w_sonic=1.0,
+                w_genre=1.0,
+                random_seed=embedding_random_seed or 0,
+            )
+            emb = emb_model.embedding
+            emb_norm = emb / (np.linalg.norm(emb, axis=1, keepdims=True) + 1e-12)
+        except Exception as exc:
+            logger.warning("Edge logging: failed to build hybrid embedding (%s)", exc)
+
+        def _norm(mat):
+            if mat is None:
+                return None
+            denom = np.linalg.norm(mat, axis=1, keepdims=True) + 1e-12
+            return mat / denom
+
+        sonic_variant = resolve_sonic_variant(explicit_variant=sonic_variant, config_variant=self.sonic_variant)
+        sonic_norm = None
+        if X_sonic is not None:
+            sonic_norm, sonic_stats = compute_sonic_variant_norm(X_sonic, sonic_variant)
+            if sonic_variant != "raw":
+                logger.info(
+                    "SONIC_SIM_VARIANT=%s applied for edge logging (dim=%d mean_norm=%.6f)",
+                    sonic_variant,
+                    sonic_stats.get("dim"),
+                    sonic_stats.get("mean_norm"),
+                )
+        genre_norm = _norm(X_genre)
+        gamma = 1.0 if transition_gamma is None else float(transition_gamma)
+
+        edge_scores: List[Dict[str, Any]] = []
+        missing_edge_pairs: List[Tuple[str, str]] = []
+        for i in range(1, len(tracks)):
+            prev_idx = idxs[i - 1]
+            cur_idx = idxs[i]
+            if prev_idx is None or cur_idx is None:
+                if verbose:
+                    missing_edge_pairs.append(
+                        (
+                            str(tracks[i - 1].get("rating_key")),
+                            str(tracks[i].get("rating_key")),
+                        )
+                    )
+                continue
+            t_raw_uncentered = float("nan")
+            if X_end_orig is not None and X_start_orig is not None:
+                try:
+                    t_raw_uncentered = float(
+                        transition_similarity_end_to_start(X_end_orig, X_start_orig, prev_idx, np.array([cur_idx]))[0]
+                    )
+                except Exception:
+                    t_raw_uncentered = float("nan")
+            t_centered_cos = float("nan")
+            h_val = float("nan")
+            if emb_norm is not None:
+                h_val = float(emb_norm[prev_idx] @ emb_norm[cur_idx])
+            t_used = t_raw_uncentered
+            if X_end is not None and X_start is not None:
+                try:
+                    t_centered_cos = float(
+                        transition_similarity_end_to_start(X_end, X_start, prev_idx, np.array([cur_idx]))[0]
+                    )
+                except Exception:
+                    t_centered_cos = float("nan")
+            if rescale_transitions and np.isfinite(t_centered_cos):
+                t_used = float(np.clip((t_centered_cos + 1.0) / 2.0, 0.0, 1.0))
+            if (not rescale_transitions) and np.isfinite(t_raw_uncentered) and np.isfinite(h_val):
+                t_used = gamma * t_raw_uncentered + (1 - gamma) * h_val
+            elif (not rescale_transitions) and np.isfinite(h_val):
+                t_used = h_val
+            elif (not rescale_transitions) and np.isfinite(t_raw_uncentered):
+                t_used = t_raw_uncentered
+            elif rescale_transitions and np.isfinite(h_val) and not np.isfinite(t_used):
+                t_used = h_val
+            if rescale_transitions and not np.isfinite(t_used) and np.isfinite(t_raw_uncentered):
+                t_used = float(np.clip((t_raw_uncentered + 1.0) / 2.0, 0.0, 1.0))
+            if (t_used != t_used) and sonic_norm is not None:
+                # Fallback to sonic cosine if transition segments unavailable
+                t_used = float(sonic_norm[prev_idx] @ sonic_norm[cur_idx])
+            s_val = float("nan")
+            if sonic_norm is not None:
+                s_val = float(sonic_norm[prev_idx] @ sonic_norm[cur_idx])
+            g_val = float("nan")
+            if genre_norm is not None:
+                g_val = float(genre_norm[prev_idx] @ genre_norm[cur_idx])
+            edge_scores.append(
+                {
+                    "prev_id": tracks[i - 1].get("rating_key"),
+                    "cur_id": tracks[i].get("rating_key"),
+                    "prev_idx": prev_idx,
+                    "cur_idx": cur_idx,
+                    "T": t_used,
+                    "T_used": t_used,
+                    "T_raw": t_raw_uncentered,
+                    "T_raw_uncentered": t_raw_uncentered,
+                    "T_centered_cos": t_centered_cos,
+                    "H": h_val,
+                    "S": s_val,
+                    "G": g_val,
+                    "floor": transition_floor,
+                    "gamma": transition_gamma,
+                }
+            )
+
+        if verbose:
+            # Sample from the full artifact candidate space to understand baseline similarity levels.
+            cand_indices = list(range(int(getattr(X_sonic, "shape", [0])[0] or 0)))
+            if not cand_indices:
+                cand_indices = sorted({idx for idx in idxs if idx is not None})
+            if len(cand_indices) >= 2:
+                rng = np.random.default_rng(0)
+                sample_size = min(2000, max(1, len(cand_indices) * 2))
+                sample_pairs = rng.choice(cand_indices, size=(sample_size, 2), replace=True)
+
+                def _pct(arr: Optional[np.ndarray]):
+                    if arr is None or arr.size == 0:
+                        return None
+                    return {
+                        "p50": float(np.percentile(arr, 50)),
+                        "p90": float(np.percentile(arr, 90)),
+                        "p99": float(np.percentile(arr, 99)),
+                    }
+
+                base_s = None
+                base_g = None
+                base_t_raw = None
+                base_t_center = None
+                base_t_used = None
+                if sonic_norm is not None:
+                    base_s = np.array([float(sonic_norm[a] @ sonic_norm[b]) for a, b in sample_pairs], dtype=float)
+                if genre_norm is not None:
+                    base_g = np.array([float(genre_norm[a] @ genre_norm[b]) for a, b in sample_pairs], dtype=float)
+                if X_end is not None and X_start is not None:
+                    vals_raw = []
+                    vals_center = []
+                    vals_used = []
+                    for a, b in sample_pairs:
+                        seg_val = float(transition_similarity_end_to_start(X_end, X_start, a, np.array([b]))[0])
+                        vals_center.append(seg_val)
+                        if rescale_transitions:
+                            vals_used.append(float(np.clip((seg_val + 1.0) / 2.0, 0.0, 1.0)))
+                        vals_raw.append(
+                            float(
+                                transition_similarity_end_to_start(
+                                    X_end_orig if X_end_orig is not None else X_end,
+                                    X_start_orig if X_start_orig is not None else X_start,
+                                    a,
+                                    np.array([b]),
+                                )[0]
+                            )
+                        )
+                        if emb_norm is not None and not rescale_transitions:
+                            hyb = float(emb_norm[a] @ emb_norm[b])
+                            vals_used.append(gamma * seg_val + (1 - gamma) * hyb)
+                    base_t_raw = np.array(vals_raw, dtype=float)
+                    base_t_center = np.array(vals_center, dtype=float)
+                    if vals_used:
+                        base_t_used = np.array(vals_used, dtype=float)
+                elif emb_norm is not None:
+                    vals_used = [float(emb_norm[a] @ emb_norm[b]) for a, b in sample_pairs]
+                    base_t_used = np.array(vals_used, dtype=float)
+                baseline = {
+                    "S": _pct(base_s),
+                    "G": _pct(base_g),
+                    "T": _pct(base_t_used),
+                    "T_raw": _pct(base_t_raw),
+                    "T_centered_cos": _pct(base_t_center),
+                    "T_centered_rescaled": _pct(base_t_used) if rescale_transitions else None,
+                }
+                if getattr(self, "_last_ds_report", None) is not None:
+                    self._last_ds_report["baseline"] = baseline  # type: ignore[attr-defined]
+
+            idx_counts = {}
+            for idx in idxs:
+                if idx is None:
+                    continue
+                idx_counts[idx] = idx_counts.get(idx, 0) + 1
+            if idx_counts:
+                unique_indices_used = len(idx_counts)
+                max_repeat = max(idx_counts.values())
+                repeated = sum(1 for v in idx_counts.values() if v > 1)
+                logger.info(
+                    "Edge mapping summary: unique_indices=%d repeated=%d max_repeat=%d",
+                    unique_indices_used,
+                    repeated,
+                    max_repeat,
+                )
+                if sonic_norm is not None:
+                    per_dim_std = np.std(sonic_norm, axis=0)
+                    mean_std = float(per_dim_std.mean())
+                    if mean_std < 1e-3:
+                        logger.warning("X_sonic appears nearly constant (mean per-dim std=%.6f)", mean_std)
+            if missing_edge_pairs and verbose:
+                sample_pairs = missing_edge_pairs[:5]
+                logger.info(
+                    "Edges skipped due to missing indices: %d sample ids=%s",
+                    len(missing_edge_pairs),
+                    [
+                        (
+                            p,
+                            c,
+                            p in bundle.track_id_to_index,
+                            c in bundle.track_id_to_index,
+                        )
+                        for p, c in sample_pairs
+                    ],
+                )
+
+        return edge_scores
+
+    def _maybe_generate_ds_playlist(
+        self,
+        seed_track_id: Optional[str],
+        target_length: int,
+        pipeline_override: Optional[str] = None,
+        mode_override: Optional[str] = None,
+        seed_artist: Optional[str] = None,
+        allowed_track_ids: Optional[List[str]] = None,
+        excluded_track_ids: Optional[Set[str]] = None,
+    ) -> Optional[List[Dict[str, Any]]]:
+        """
+        Try DS pipeline and return ordered track dicts; return None to signal fallback.
+        """
+        pipeline_choice = self._get_pipeline_choice(pipeline_override)
+        if pipeline_choice != "ds":
+            return None
+        if not seed_track_id:
+            logger.warning("DS pipeline requested but seed track id is missing; using legacy path.")
+            return None
+
+        ds_cfg = self.config.get('playlists', 'ds_pipeline', default={}) or {}
+        artifact_path = ds_cfg.get('artifact_path')
+        if not artifact_path:
+            logger.warning("DS pipeline enabled but artifact_path not configured; using legacy path.")
+            return None
+        sonic_cfg = self.config.get("playlists", "sonic", default={}) or {}
+        sonic_variant_cfg = resolve_sonic_variant(
+            explicit_variant=self.sonic_variant,
+            config_variant=ds_cfg.get("sonic_variant") or sonic_cfg.get("sim_variant"),
+        )
+        mode = mode_override or ds_cfg.get('mode', 'dynamic')
+        random_seed = ds_cfg.get('random_seed', 0)
+        enable_logging = ds_cfg.get('enable_logging', False)
+        overrides = ds_cfg.get('overrides') or {}
+        center_transitions = bool(ds_cfg.get("center_transitions", False))
+        if center_transitions:
+            construct_updates = {**(overrides.get("construct") or {}), "center_transitions": True}
+            overrides = {**overrides, "construct": construct_updates}
+
+        seed_to_use = str(seed_track_id)
+        try:
+            bundle = load_artifact_bundle(artifact_path)
+            if seed_track_id not in bundle.track_id_to_index and seed_artist:
+                artist_norm = seed_artist.strip().lower()
+                # try track_artists match
+                if bundle.track_artists is not None:
+                    for idx, artist in enumerate(bundle.track_artists):
+                        if str(artist).strip().lower() == artist_norm:
+                            seed_to_use = str(bundle.track_ids[idx])
+                            logger.info(
+                                "DS pipeline seed not found; falling back to artist match %s -> %s",
+                                seed_track_id,
+                                seed_to_use,
+                            )
+                            break
+        except FileNotFoundError:
+            logger.warning("DS pipeline artifact missing at %s; using legacy path.", artifact_path)
+            return None
+        except Exception as exc:
+            logger.warning("DS pipeline artifact load failed (%s); using legacy path.", exc)
+            return None
+
+        self._last_ds_report = None
+        logger.info(
+            "Invoking DS pipeline seed=%s mode=%s target_length=%d allowed_ids=%d",
+            seed_to_use,
+            mode,
+            target_length,
+            len(allowed_track_ids or []),
+        )
+        try:
+                ds_result: DsRunResult = run_ds_pipeline(
+                    artifact_path=artifact_path,
+                    seed_track_id=seed_to_use,
+                    mode=mode,
+                    length=target_length,
+                    random_seed=random_seed,
+                    overrides=overrides,
+                    enable_logging=enable_logging,
+                    allowed_track_ids=allowed_track_ids,
+                    excluded_track_ids=excluded_track_ids,
+                    sonic_variant=sonic_variant_cfg,
+                )
+        except Exception as exc:
+            logger.warning("DS pipeline failed (%s); using legacy path.", exc)
+            return None
+
+        tracks: List[Dict[str, Any]] = []
+        ds_stats = getattr(ds_result, "playlist_stats", {}) or {}
+        playlist_stats_only = ds_stats.get("playlist") or {}
+        if hasattr(self.library, "get_tracks_by_ids"):
+            fetched = getattr(self.library, "get_tracks_by_ids")(ds_result.track_ids)  # type: ignore[attr-defined]
+            lookup = {str(t.get("rating_key")): t for t in fetched or []}
+            tracks = [lookup[str(tid)] for tid in ds_result.track_ids if str(tid) in lookup]
+        else:
+            for tid in ds_result.track_ids:
+                track = self.library.get_track_by_key(str(tid))
+                if track:
+                    tracks.append(track)
+
+        if not tracks:
+            logger.warning("DS pipeline returned no usable tracks; using legacy path.")
+            return None
+
+        metrics = ds_result.metrics or {}
+        actual_len = len(ds_result.track_ids)
+        self._last_ds_report = {
+            "metrics": metrics,
+            "requested_len": target_length,
+            "actual_len": actual_len,
+            "track_ids_ordered": list(ds_result.track_ids),
+            "playlist_stats": ds_stats,
+            "artifact_path": artifact_path,
+            "transition_floor": playlist_stats_only.get("transition_floor"),
+            "transition_gamma": playlist_stats_only.get("transition_gamma"),
+            "transition_centered": bool(playlist_stats_only.get("transition_centered")),
+            "random_seed": random_seed,
+            "sonic_variant": sonic_variant_cfg or os.getenv("SONIC_SIM_VARIANT") or "raw",
+        }
+        logger.info(
+            "DS pipeline success pipeline=ds seed=%s mode=%s requested_len=%d actual_len=%d distinct_artists=%s max_artist=%s min_transition=%s mean_transition=%s below_floor=%s",
+            seed_to_use,
+            mode,
+            target_length,
+            actual_len,
+            len((metrics.get('artist_counts') or {}).keys()),
+            max((metrics.get('artist_counts') or {}).values()) if metrics.get("artist_counts") else None,
+            metrics.get("min_transition"),
+            metrics.get("mean_transition"),
+            metrics.get("below_floor"),
+        )
+        # Attach playlist stats for edge logging
+        self._last_ds_report["playlist_stats"] = getattr(ds_result, "playlist_stats", {}) if self._last_ds_report else {}
+        return tracks
 
     def _ensure_similarity_calculator(self) -> None:
         """Ensure similarity calculator exists (fallback to local init)."""
@@ -194,9 +648,16 @@ class PlaylistGenerator:
         seeds: List[Dict[str, Any]],
         seed_titles: set,
         candidate_per_seed: int,
+        title_dedupe_tracker: Optional[TitleDedupeTracker] = None,
     ) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
         """
         Collect sonic-only candidates across seeds with basic filtering.
+
+        Args:
+            seeds: List of seed tracks
+            seed_titles: Set of normalized seed titles for quick exclusion
+            candidate_per_seed: Number of candidates to fetch per seed
+            title_dedupe_tracker: Optional tracker for fuzzy title deduplication
 
         Returns:
             (candidates, filtered_counts)
@@ -206,6 +667,15 @@ class PlaylistGenerator:
         filtered_short = 0
         filtered_long = 0
         filtered_dupe_title = 0
+        filtered_fuzzy_dupe = 0
+
+        # Pre-populate tracker with seed titles if enabled
+        if title_dedupe_tracker and title_dedupe_tracker.enabled:
+            for seed in seeds:
+                seed_artist = seed.get('artist', '')
+                seed_title = seed.get('title', '')
+                if seed_artist and seed_title:
+                    title_dedupe_tracker.add(seed_artist, seed_title)
 
         for seed in seeds:
             seed_id = seed.get('rating_key')
@@ -221,11 +691,27 @@ class PlaylistGenerator:
 
             for track in similar:
                 track_key = track.get('rating_key')
+                track_artist = track.get('artist', '')
+                track_title = track.get('title', '')
+
                 # Skip tracks with same title as seed tracks (e.g., remasters, live versions)
-                track_title_normalized = normalize_song_title(track.get('title', ''))
+                track_title_normalized = normalize_song_title(track_title)
                 if track_title_normalized in seed_titles:
                     filtered_dupe_title += 1
                     continue
+
+                # Fuzzy title deduplication (check against already-accepted candidates)
+                if title_dedupe_tracker and title_dedupe_tracker.enabled:
+                    is_dup, matched = title_dedupe_tracker.is_duplicate(
+                        track_artist, track_title, debug=logger.isEnabledFor(logging.DEBUG)
+                    )
+                    if is_dup:
+                        filtered_fuzzy_dupe += 1
+                        logger.debug(
+                            f"Title dedupe: skipping '{track_artist} - {track_title}' "
+                            f"(fuzzy match to '{matched}')"
+                        )
+                        continue
 
                 # Filter out short tracks (interludes, skits, etc.)
                 track_duration = track.get('duration') or 0
@@ -236,6 +722,10 @@ class PlaylistGenerator:
                 existing = all_candidates.get(track_key)
                 if existing and existing.get('similarity_score', 0) >= track.get('similarity_score', 0):
                     continue
+
+                # Add to tracker for future duplicate detection
+                if title_dedupe_tracker and title_dedupe_tracker.enabled:
+                    title_dedupe_tracker.add(track_artist, track_title)
 
                 track['seed_artist'] = seed.get('artist')
                 track['seed_title'] = seed.get('title')
@@ -248,6 +738,7 @@ class PlaylistGenerator:
             'short': filtered_short,
             'long': filtered_long,
             'dupe_title': filtered_dupe_title,
+            'fuzzy_dupe': filtered_fuzzy_dupe,
         }
     
     def analyze_listening_history(self, history: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -361,16 +852,27 @@ class PlaylistGenerator:
         sim_cfg = self._similarity_config(limit_per_seed)
 
         seed_titles = self._build_seed_title_set(seeds)
+
+        # Create title dedupe tracker if enabled
+        title_dedupe_tracker = TitleDedupeTracker(
+            threshold=self.config.title_dedupe_threshold,
+            mode=self.config.title_dedupe_mode,
+            short_title_min_len=self.config.title_dedupe_short_title_min_len,
+            enabled=self.config.title_dedupe_enabled,
+        )
+
         candidates, filtered_counts = self._collect_sonic_candidates(
-            seeds, seed_titles, sim_cfg['candidate_per_seed']
+            seeds, seed_titles, sim_cfg['candidate_per_seed'],
+            title_dedupe_tracker=title_dedupe_tracker,
         )
 
         logger.info(
-            "Sonic-only pool: %s candidates (filtered %s short, %s long, %s duplicate titles)",
+            "Sonic-only pool: %s candidates (filtered %s short, %s long, %s exact dupe, %s fuzzy dupe)",
             len(candidates),
             filtered_counts['short'],
             filtered_counts['long'],
             filtered_counts['dupe_title'],
+            filtered_counts.get('fuzzy_dupe', 0),
         )
 
         capped_candidates = self._cap_candidates_by_artist(
@@ -414,6 +916,7 @@ class PlaylistGenerator:
         seen_keys = set()
         filtered_short_count = 0
         filtered_long_count = 0
+        filtered_fuzzy_dupe_count = 0
 
         # Build set of normalized seed titles to filter out
         seed_titles = {normalize_song_title(seed.get('title', '')) for seed in seeds}
@@ -422,6 +925,22 @@ class PlaylistGenerator:
         # Build set of seed artists to exclude from similarity results
         seed_artists = {seed.get('artist', '').lower() for seed in seeds}
         seed_artists.discard('')
+
+        # Create title dedupe tracker if enabled
+        title_dedupe_tracker = TitleDedupeTracker(
+            threshold=self.config.title_dedupe_threshold,
+            mode=self.config.title_dedupe_mode,
+            short_title_min_len=self.config.title_dedupe_short_title_min_len,
+            enabled=self.config.title_dedupe_enabled,
+        )
+
+        # Pre-populate tracker with seed titles
+        if title_dedupe_tracker.enabled:
+            for seed in seeds:
+                seed_artist = seed.get('artist', '')
+                seed_title = seed.get('title', '')
+                if seed_artist and seed_title:
+                    title_dedupe_tracker.add(seed_artist, seed_title)
 
         for seed in seeds:
             key = seed.get('rating_key')
@@ -446,15 +965,34 @@ class PlaylistGenerator:
                     continue
 
                 # Skip tracks with same title as seeds
-                track_title_normalized = normalize_song_title(track.get('title', ''))
+                track_title = track.get('title', '')
+                track_title_normalized = normalize_song_title(track_title)
                 if track_title_normalized in seed_titles:
                     continue
+
+                # Fuzzy title deduplication
+                if title_dedupe_tracker.enabled:
+                    is_dup, matched = title_dedupe_tracker.is_duplicate(
+                        track.get('artist', ''), track_title,
+                        debug=logger.isEnabledFor(logging.DEBUG)
+                    )
+                    if is_dup:
+                        filtered_fuzzy_dupe_count += 1
+                        logger.debug(
+                            f"Title dedupe (dynamic/sonic): skipping '{track.get('artist')} - {track_title}' "
+                            f"(fuzzy match to '{matched}')"
+                        )
+                        continue
 
                 # Filter short tracks
                 track_duration = track.get('duration') or 0
                 if min_track_duration_ms > 0 and track_duration < min_track_duration_ms:
                     filtered_short_count += 1
                     continue
+
+                # Add to tracker for future duplicate detection
+                if title_dedupe_tracker.enabled:
+                    title_dedupe_tracker.add(track.get('artist', ''), track_title)
 
                 seen_keys.add(track_key)
                 track['seed_artist'] = seed.get('artist')
@@ -464,7 +1002,7 @@ class PlaylistGenerator:
 
                 sonic_tracks.append(track)
 
-        logger.info(f"  Sonic similarity: {len(sonic_tracks)} tracks")
+        logger.info(f"  Sonic similarity: {len(sonic_tracks)} tracks (filtered {filtered_fuzzy_dupe_count} fuzzy dupes)")
 
         # Part 2: Get genre-based tracks using metadata database
         genre_tracks = []
@@ -486,48 +1024,31 @@ class PlaylistGenerator:
 
         # Use metadata database if available, otherwise fall back to local metadata
         if self.metadata:
-            # Get all artists and their genres from metadata database
             cursor = self.metadata.conn.cursor()
-            cursor.execute("""
-                SELECT artist_name, lastfm_tags
-                FROM artists
-                WHERE lastfm_tags IS NOT NULL AND lastfm_tags != ''
-            """)
-
-            # Calculate genre overlap for each artist
-            # Normalize seed genres for matching (aggressive normalization)
-            normalized_seed_genres = set(normalize_genre(g) for g in all_genres)
+            normalized_seed_genres = [normalize_genre(g) for g in all_genres]
+            placeholders = ",".join("?" * len(normalized_seed_genres))
+            cursor.execute(f"""
+                SELECT artist, GROUP_CONCAT(genre) AS genres, COUNT(*) AS match_count
+                FROM artist_genres
+                WHERE genre IN ({placeholders})
+                GROUP BY artist
+                ORDER BY match_count DESC
+            """, tuple(normalized_seed_genres))
 
             artist_genre_scores = []
             for row in cursor.fetchall():
-                artist_name = row['artist_name']
-                # Parse JSON array of tags
-                import json
-                try:
-                    artist_tags_raw = json.loads(row['lastfm_tags']) if row['lastfm_tags'] else []
-                except (json.JSONDecodeError, TypeError):
-                    # Fallback to comma-split if not JSON
-                    artist_tags_raw = row['lastfm_tags'].split(',') if row['lastfm_tags'] else []
-
-                # Normalize artist tags (aggressive normalization)
-                artist_tags_normalized = set(normalize_genre(tag) for tag in artist_tags_raw)
-
+                artist_name = row['artist']
                 # Skip seed artists
                 if any(safe_get_artist(seed) == artist_name.lower() for seed in seeds):
                     continue
 
-                # Calculate how many seed genres this artist has (case-insensitive)
-                matching_genres = artist_tags_normalized & normalized_seed_genres
-                if matching_genres:
-                    artist_genre_scores.append({
-                        'artist': artist_name,
-                        'matching_genres': list(matching_genres),
-                        'match_count': len(matching_genres),
-                        'all_tags': artist_tags_raw
-                    })
-
-            # Sort by match count (most overlapping genres first)
-            artist_genre_scores.sort(key=lambda x: x['match_count'], reverse=True)
+                matching_genres = row['genres'].split(',') if row['genres'] else []
+                artist_genre_scores.append({
+                    'artist': artist_name,
+                    'matching_genres': matching_genres,
+                    'match_count': row['match_count'],
+                    'all_tags': matching_genres
+                })
 
             logger.info(f"  Found {len(artist_genre_scores)} artists with matching genres")
 
@@ -559,9 +1080,24 @@ class PlaylistGenerator:
                         continue
 
                     # Skip seeds
-                    track_title_normalized = normalize_song_title(matched.get('title', ''))
+                    matched_title = matched.get('title', '')
+                    track_title_normalized = normalize_song_title(matched_title)
                     if track_title_normalized in seed_titles:
                         continue
+
+                    # Fuzzy title deduplication
+                    if title_dedupe_tracker.enabled:
+                        is_dup, dup_matched = title_dedupe_tracker.is_duplicate(
+                            artist_name, matched_title,
+                            debug=logger.isEnabledFor(logging.DEBUG)
+                        )
+                        if is_dup:
+                            filtered_fuzzy_dupe_count += 1
+                            logger.debug(
+                                f"Title dedupe (dynamic/genre-meta): skipping '{artist_name} - {matched_title}' "
+                                f"(fuzzy match to '{dup_matched}')"
+                            )
+                            continue
 
                     # Get full track data from library (includes duration)
                     full_track_data = self.library.get_track_by_key(track_key)
@@ -580,6 +1116,10 @@ class PlaylistGenerator:
                         'weight': matched.get('weight', 1.0),
                         'matched_genres': artist_score['matching_genres']  # Store for reporting
                     }
+
+                    # Add to tracker for future duplicate detection
+                    if title_dedupe_tracker.enabled:
+                        title_dedupe_tracker.add(full_track_data.get('artist', ''), full_track_data.get('title', ''))
 
                     seen_keys.add(track_key)
                     genre_tracks.append(track)
@@ -608,9 +1148,25 @@ class PlaylistGenerator:
                     continue
 
                 # Skip seeds
-                track_title_normalized = normalize_song_title(track.get('title', ''))
+                track_title = track.get('title', '')
+                track_title_normalized = normalize_song_title(track_title)
                 if track_title_normalized in seed_titles:
                     continue
+
+                # Fuzzy title deduplication
+                track_artist = track.get('artist', '')
+                if title_dedupe_tracker.enabled:
+                    is_dup, dup_matched = title_dedupe_tracker.is_duplicate(
+                        track_artist, track_title,
+                        debug=logger.isEnabledFor(logging.DEBUG)
+                    )
+                    if is_dup:
+                        filtered_fuzzy_dupe_count += 1
+                        logger.debug(
+                            f"Title dedupe (dynamic/genre-fallback): skipping '{track_artist} - {track_title}' "
+                            f"(fuzzy match to '{dup_matched}')"
+                        )
+                        continue
 
                 # Filter short tracks
                 track_duration = track.get('duration') or 0
@@ -642,6 +1198,10 @@ class PlaylistGenerator:
                 if artist_track_counts[artist] > 2:
                     continue
 
+                # Add to tracker for future duplicate detection
+                if title_dedupe_tracker.enabled:
+                    title_dedupe_tracker.add(track_artist, track_title)
+
                 seen_keys.add(track_key)
                 track['source'] = 'genre'
                 track['weight'] = 1
@@ -661,6 +1221,8 @@ class PlaylistGenerator:
             logger.info(f"  Filtered out {filtered_short_count} short tracks (< {self.config.min_track_duration_seconds}s)")
         if filtered_long_count > 0:
             logger.info(f"  Filtered out {filtered_long_count} long tracks (> {self.config.max_track_duration_seconds}s)")
+        if filtered_fuzzy_dupe_count > 0:
+            logger.info(f"  Filtered out {filtered_fuzzy_dupe_count} fuzzy duplicate titles")
 
         logger.info(f"  Total: {len(all_tracks)} tracks ({len(sonic_tracks)} sonic + {len(genre_tracks)} genre)")
 
@@ -707,7 +1269,12 @@ class PlaylistGenerator:
 
             for track in history:
                 key = track.get('rating_key')
-                timestamp = track.get('timestamp', 0)
+                timestamp = (
+                    track.get('timestamp')
+                    or track.get('last_played')
+                    or track.get('lastfm_timestamp')
+                    or 0
+                )
 
                 if key and timestamp >= cutoff_timestamp:
                     # Only filter if playcount threshold not met
@@ -740,7 +1307,167 @@ class PlaylistGenerator:
             filter_msg += ")"
 
         logger.info(filter_msg)
+        logger.debug(
+            "Filtering details: history_size=%d played_keys=%d candidates_before=%d candidates_after=%d still_present=%d",
+            len(history),
+            len(played_keys),
+            len(tracks),
+            len(filtered),
+            sum(1 for t in filtered if t.get('rating_key') in played_keys and t.get('rating_key') not in exempt_keys),
+        )
+        if played_keys and not exempt_keys and len(filtered) == len(tracks):
+            logger.debug("Filter check: exclusion set non-empty but no candidates removed (possible key mismatch).")
         return filtered
+
+    def _filter_by_scrobbles(
+        self,
+        tracks: List[Dict[str, Any]],
+        scrobbles: List[Dict[str, Any]],
+        lookback_days: int,
+        sample_limit: int = 5,
+    ) -> List[Dict[str, Any]]:
+        """
+        Filter candidates using Last.FM scrobbles without DB matching.
+        Uses normalized artist/title keys (or mbid when present).
+        """
+        if not scrobbles or lookback_days <= 0:
+            return tracks
+
+        from datetime import datetime, timedelta
+
+        cutoff_timestamp = int((datetime.now() - timedelta(days=lookback_days)).timestamp())
+
+        def _key_for_track(track: Dict[str, Any]) -> Optional[str]:
+            if track.get("mbid"):
+                return f"mbid::{track.get('mbid')}"
+            artist = track.get("artist")
+            title = track.get("title")
+            if not artist or not title:
+                return None
+            return f"{normalize_match_string(artist, is_artist=True)}::{normalize_match_string(title)}"
+
+        scrobble_keys = set()
+        for s in scrobbles:
+            ts = s.get("timestamp", 0)
+            if ts and ts < cutoff_timestamp:
+                continue
+            k = _key_for_track(s)
+            if k:
+                scrobble_keys.add(k)
+
+        if not scrobble_keys:
+            logger.debug(
+                "Scrobble recency filter skipped: %d scrobbles but no usable keys (lookback_days=%d)",
+                len(scrobbles),
+                lookback_days,
+            )
+            return tracks
+
+        filtered = []
+        filtered_out = []
+        for t in tracks:
+            k = _key_for_track(t)
+            if k and k in scrobble_keys:
+                filtered_out.append(t)
+                continue
+            filtered.append(t)
+
+        logger.info(
+            "Last.fm recency filter: %d -> %d (filtered=%d, lookback_days=%d, scrobbles=%d, keys=%d)",
+            len(tracks),
+            len(filtered),
+            len(filtered_out),
+            lookback_days,
+            len(scrobbles),
+            len(scrobble_keys),
+        )
+        logger.debug(
+            "Scrobble recency filter: scrobbles=%d keys=%d candidates_before=%d candidates_after=%d filtered=%d",
+            len(scrobbles),
+            len(scrobble_keys),
+            len(tracks),
+            len(filtered),
+            len(filtered_out),
+        )
+        if filtered_out and logger.isEnabledFor(logging.DEBUG):
+            sample = [f"{sanitize_for_logging(t.get('artist',''))} - {sanitize_for_logging(t.get('title',''))}" for t in filtered_out[:sample_limit]]
+            logger.debug("Filtered examples: %s", sample)
+        if not filtered_out and logger.isEnabledFor(logging.DEBUG):
+            reason = "no key overlap"
+            if not tracks:
+                reason = "no candidates"
+            elif all(_key_for_track(t) is None for t in tracks):
+                reason = "candidates missing artist/title"
+            logger.debug("Scrobble recency filter made no changes (%s)", reason)
+
+        return filtered
+
+    def _log_recency_edge_diff(self, before_tracks: List[Dict[str, Any]], after_tracks: List[Dict[str, Any]]) -> None:
+        """Diagnostic: log adjacency changes introduced by recency filtering (no behavior change)."""
+        diag_enabled = bool(os.environ.get("PLAYLIST_DIAG_RECENCY"))
+        if not diag_enabled and not logger.isEnabledFor(logging.DEBUG):
+            return
+        before_ids = [str(t.get("rating_key")) for t in before_tracks]
+        after_ids = [str(t.get("rating_key")) for t in after_tracks]
+        removed = [tid for tid in before_ids if tid not in after_ids]
+        before_edges = list(zip(before_ids, before_ids[1:]))
+        after_edges = list(zip(after_ids, after_ids[1:]))
+        new_edges = [e for e in after_edges if e not in before_edges]
+        logger.info(
+            "Recency adjacency diag: before=%d after=%d removed=%d new_edges=%d",
+            len(before_ids),
+            len(after_ids),
+            len(removed),
+            len(new_edges),
+        )
+        if removed:
+            logger.info("Recency removed ids: %s", removed[:10])
+        if new_edges:
+            logger.info("Recency new edges (sample): %s", new_edges[:10])
+
+    def _compute_excluded_from_scrobbles(
+        self, candidates: List[Dict[str, Any]], scrobbles: List[Dict[str, Any]], lookback_days: int, seed_id: Optional[str]
+    ) -> Set[str]:
+        """
+        Return rating_keys to exclude based on scrobbles, preserving seed_id if present.
+        """
+        if not scrobbles or lookback_days <= 0:
+            return set()
+
+        from datetime import datetime, timedelta
+
+        cutoff_timestamp = int((datetime.now() - timedelta(days=lookback_days)).timestamp())
+
+        def _key_for_track(track: Dict[str, Any]) -> Optional[str]:
+            if track.get("mbid"):
+                return f"mbid::{track.get('mbid')}"
+            artist = track.get("artist")
+            title = track.get("title")
+            if not artist or not title:
+                return None
+            return f"{normalize_match_string(artist, is_artist=True)}::{normalize_match_string(title)}"
+
+        scrobble_keys = set()
+        for s in scrobbles:
+            ts = s.get("timestamp", 0)
+            if ts and ts < cutoff_timestamp:
+                continue
+            k = _key_for_track(s)
+            if k:
+                scrobble_keys.add(k)
+        if not scrobble_keys:
+            return set()
+
+        excluded: Set[str] = set()
+        for t in candidates:
+            k = _key_for_track(t)
+            if k and k in scrobble_keys and t.get("rating_key"):
+                excluded.add(str(t.get("rating_key")))
+
+        if seed_id and seed_id in excluded:
+            excluded.remove(seed_id)
+            logger.warning("Recency exclusions contained seed_id %s; preserving seed.", seed_id)
+        return excluded
     
     def diversify_tracks(self, tracks: List[Dict[str, Any]],
                         max_per_artist: int = None) -> List[Dict[str, Any]]:
@@ -911,7 +1638,13 @@ class PlaylistGenerator:
 
         return seeds
 
-    def create_playlist_batch(self, count: int, dynamic: bool = False) -> List[List[Dict[str, Any]]]:
+    def create_playlist_batch(
+        self,
+        count: int,
+        dynamic: bool = False,
+        pipeline_override: Optional[str] = None,
+        ds_mode_override: Optional[str] = None,
+    ) -> List[List[Dict[str, Any]]]:
         """
         Create multiple playlists with single seed artist per playlist
 
@@ -963,26 +1696,32 @@ class PlaylistGenerator:
             if seeds:
                 artist_seeds[artist] = seeds
 
-        # Fetch genre tags for artists
+        # Fetch genre tags for artists (Last.FM genres removed; rely on DB/file genres)
         logger.info(f"\n{'='*70}")
-        logger.info("Fetching genre tags for artists:")
+        logger.info("Genre tags: using database/file sources only (Last.FM disabled for genres)")
         logger.info(f"{'='*70}\n")
 
-        for artist in artist_seeds.keys():
-            if self.lastfm:
-                genres = self.lastfm.get_artist_tags(artist)
-                # Add genres to all seed tracks for this artist
-                for seed in artist_seeds[artist]:
-                    seed['genres'] = genres
-                if genres:
-                    logger.info(f"  {artist}: {', '.join(genres)}")
-
         # Create playlists from single artists
-        playlists = self._create_playlists_from_single_artists(artist_seeds, history, dynamic=dynamic)
+        playlists = self._create_playlists_from_single_artists(
+            artist_seeds,
+            history,
+            dynamic=dynamic,
+            pipeline_override=pipeline_override,
+            ds_mode_override=ds_mode_override,
+        )
 
         return playlists
 
-    def create_playlist_for_artist(self, artist_name: str, track_count: int = 30, dynamic: bool = False, verbose: bool = False) -> Optional[Dict[str, Any]]:
+    def create_playlist_for_artist(
+        self,
+        artist_name: str,
+        track_count: int = 30,
+        dynamic: bool = False,
+        verbose: bool = False,
+        pipeline_override: Optional[str] = None,
+        ds_mode_override: Optional[str] = None,
+        artist_only: bool = False,
+    ) -> Optional[Dict[str, Any]]:
         """
         Create a single playlist for a specific artist without requiring listening history
 
@@ -1047,13 +1786,111 @@ class PlaylistGenerator:
         seed_titles = [track.get('title') for track in seed_tracks]
         logger.info(f"Seeds ({len(seed_tracks)}): {', '.join(seed_titles)}")
 
-        # Fetch genre tags if Last.FM is available
+        # Genre tags are sourced from database/file tags only (Last.FM disabled for genres)
+
+        # Prepare recency data (scrobbles preferred; matched history only for legacy fallback)
+        scrobbles: List[Dict[str, Any]] = []
+        history: List[Dict[str, Any]] = []
         if self.lastfm:
-            genres = self.lastfm.get_artist_tags(artist_name)
-            for seed in seed_tracks:
-                seed['genres'] = genres
-            if genres:
-                logger.info(f"Genres: {', '.join(genres)}")
+            try:
+                scrobbles = self._get_lastfm_scrobbles_raw()
+            except Exception as exc:
+                logger.warning("Last.FM scrobble fetch failed; skipping scrobble recency filter (%s)", exc, exc_info=True)
+
+        # DS scope selection
+        allowed_track_ids: Optional[List[str]] = None
+        if artist_only:
+            ds_candidates = list(artist_tracks)
+            excluded_ids = set()
+            if scrobbles:
+                excluded_ids = self._compute_excluded_from_scrobbles(
+                    ds_candidates,
+                    scrobbles,
+                    lookback_days=self.config.recently_played_lookback_days,
+                    seed_id=seed_tracks[0].get("rating_key") if seed_tracks else None,
+                )
+                if excluded_ids and len(ds_candidates) - len(excluded_ids) <= 1:
+                    logger.warning("Recency exclusions would empty artist-only DS candidate set; skipping recency exclusion.")
+                    excluded_ids = set()
+            allowed_track_ids = [t.get("rating_key") for t in ds_candidates if t.get("rating_key") and str(t.get("rating_key")) not in excluded_ids]
+            if allowed_track_ids:
+                logger.info("DS candidate ids (sample): %s", [str(i) for i in allowed_track_ids[:3]])
+            logger.info("DS scope: artist_only")
+        else:
+            logger.info("DS scope: library")
+            # Apply library-wide exclusions pre-DS
+            all_ids = [str(t.get("rating_key")) for t in all_library_tracks if t.get("rating_key")]
+            excluded_ids = set()
+            if scrobbles:
+                excluded_ids = self._compute_excluded_from_scrobbles(
+                    all_library_tracks,
+                    scrobbles,
+                    lookback_days=self.config.recently_played_lookback_days,
+                    seed_id=seed_tracks[0].get("rating_key") if seed_tracks else None,
+                )
+                if excluded_ids and len(all_ids) - len(excluded_ids) <= 1:
+                    logger.warning("Recency exclusions would empty DS library candidate set; skipping recency exclusion.")
+                    excluded_ids = set()
+            allowed_track_ids = None  # avoid huge lists; use exclusions instead
+        if os.environ.get("PLAYLIST_DIAG_RECENCY"):
+            logger.info(
+                "Recency diag: scope=%s excluded=%d allowed=%s threshold=10000",
+                "artist_only" if artist_only else "library",
+                len(excluded_ids),
+                len(allowed_track_ids) if allowed_track_ids else 0,
+            )
+
+        # DS pipeline override (if enabled)
+        ds_tracks = self._maybe_generate_ds_playlist(
+            seed_track_id=seed_tracks[0].get('rating_key') if seed_tracks else None,
+            target_length=track_count,
+            pipeline_override=pipeline_override,
+            mode_override=ds_mode_override or ("dynamic" if dynamic else None),
+            seed_artist=artist_name,
+            allowed_track_ids=allowed_track_ids or None,
+            excluded_track_ids=excluded_ids or None,
+        )
+        if ds_tracks:
+            # Recompute edge scores for the final track order
+            if getattr(self, "_last_ds_report", None):
+                recomputed_edges = self._compute_edge_scores_from_artifact(
+                    ds_tracks,
+                    self._last_ds_report.get("artifact_path"),
+                    transition_floor=self._last_ds_report.get("transition_floor"),
+                    transition_gamma=self._last_ds_report.get("transition_gamma"),
+                    center_transitions=bool(self._last_ds_report.get("transition_centered")),
+                    embedding_random_seed=self._last_ds_report.get("random_seed"),
+                    verbose=verbose,
+                    sonic_variant=self._last_ds_report.get("sonic_variant"),
+                )
+                self._last_ds_report["edge_scores"] = recomputed_edges
+                playlist_stats = self._last_ds_report.get("playlist_stats") or {}
+                playlist_stats_playlist = playlist_stats.get("playlist") or {}
+                playlist_stats_playlist["edge_scores"] = recomputed_edges
+                playlist_stats["playlist"] = playlist_stats_playlist
+                self._last_ds_report["playlist_stats"] = playlist_stats
+                if os.environ.get("PLAYLIST_DIAG_RECENCY"):
+                    self._log_recency_edge_diff(ds_tracks, ds_tracks)
+            title = f"Auto: {artist_name}"
+            self._print_playlist_report(ds_tracks, artist_name=artist_name, dynamic=dynamic, verbose_edges=verbose)
+            return {
+                'title': title,
+                'artists': (artist_name,),
+                'genres': [],
+                'tracks': ds_tracks,
+            }
+
+        # Legacy path: fall back to matched history or local history
+        if not history:
+            if self.lastfm and self.matcher:
+                try:
+                    logger.info("Last.FM history matching enabled for legacy path")
+                    history = self._get_lastfm_history()
+                except Exception as exc:
+                    logger.warning("Last.FM history matching failed; continuing without it (%s)", exc, exc_info=True)
+                    history = []
+            else:
+                history = self._get_local_history()
 
         # Generate similar tracks using similarity engine
         # Use larger pool for TSP optimization (2-3x target count)
@@ -1445,9 +2282,14 @@ class PlaylistGenerator:
 
         return playlists
 
-    def _create_playlists_from_single_artists(self, artist_seeds: Dict[str, List[Dict[str, Any]]],
-                                              history: List[Dict[str, Any]],
-                                              dynamic: bool = False) -> List[Dict[str, Any]]:
+    def _create_playlists_from_single_artists(
+        self,
+        artist_seeds: Dict[str, List[Dict[str, Any]]],
+        history: List[Dict[str, Any]],
+        dynamic: bool = False,
+        pipeline_override: Optional[str] = None,
+        ds_mode_override: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         """
         Create playlists from single artists with advanced requirements:
         - At least 1/8 of tracks must be by the seed artist
@@ -1480,6 +2322,46 @@ class PlaylistGenerator:
                 all_genres.extend(seed.get('genres', []))
             seen = set()
             unique_genres = [g for g in all_genres if not (g in seen or seen.add(g))]
+
+            # DS pipeline override (if enabled)
+            target_playlist_size = self.config.get('playlists', 'tracks_per_playlist', 30)
+            ds_tracks = self._maybe_generate_ds_playlist(
+                seed_track_id=seeds[0].get('rating_key') if seeds else None,
+                target_length=target_playlist_size,
+                pipeline_override=pipeline_override,
+                mode_override=ds_mode_override or ("dynamic" if dynamic else None),
+                seed_artist=artist,
+            )
+            if ds_tracks:
+                if self.lastfm:
+                    scrobbles = self._get_lastfm_scrobbles_raw()
+                    filtered_ds_tracks = self._filter_by_scrobbles(
+                        ds_tracks,
+                        scrobbles,
+                        lookback_days=self.config.recently_played_lookback_days,
+                    )
+                else:
+                    filtered_ds_tracks = self.filter_tracks(ds_tracks, history, exempt_tracks=seeds)
+                if not filtered_ds_tracks:
+                    logger.warning("DS pipeline tracks filtered out by freshness rules; falling back to legacy path.")
+                    ds_tracks = None
+                else:
+                    ds_tracks = filtered_ds_tracks
+
+            if ds_tracks:
+                title = self._generate_playlist_title(artist, "", unique_genres)
+                self._print_playlist_report(ds_tracks, artist_name=artist, dynamic=dynamic)
+                playlists.append(
+                    {
+                        'title': title,
+                        'artists': (artist,),
+                        'genres': unique_genres,
+                        'tracks': ds_tracks,
+                    }
+                )
+                logger.info(f"  Title: {title}")
+                logger.info(f"  Final: {len(ds_tracks)} tracks from {len(set(t.get('artist') for t in ds_tracks))} artists")
+                continue
 
             # Generate similar tracks using similarity engine
             similar_tracks = self.generate_similar_tracks(seeds, dynamic=dynamic)
@@ -2295,24 +3177,11 @@ class PlaylistGenerator:
         # Get diverse seeds
         seeds = self._select_diverse_seeds(play_counts, track_metadata, pool_size)
 
-        # Fetch genres for each seed artist if Last.FM client available
-        if self.lastfm:
-            logger.info("Fetching genre tags for seed artists...")
-            for seed in seeds:
-                artist = seed.get('artist')
-                if artist:
-                    genres = self.lastfm.get_artist_tags(artist)
-                    seed['genres'] = genres
-                    if genres:
-                        logger.info(f"  {artist}: {', '.join(genres)}")
-                    else:
-                        logger.warning(f"  {artist}: NO GENRES FOUND")
-
         return seeds
 
     def _get_similar_artists(self, artist_name: str) -> List[str]:
         """
-        Get similar artists from Last.FM (with persistent disk caching)
+        Get similar artists (Last.FM disabled; returns empty list)
 
         Args:
             artist_name: Artist name to find similar artists for
@@ -2320,34 +3189,11 @@ class PlaylistGenerator:
         Returns:
             List of similar artist names
         """
-        if not self.lastfm:
-            return []
-
-        # Check persistent cache first
-        cached_result = self.artist_cache.get_similar_artists(artist_name)
-        if cached_result is not None:
-            return cached_result
-
-        # Cache miss - query Last.FM for similar artists
-        similar_artists_data = self.lastfm.get_similar_artists(artist_name, limit=self.config.limit_similar_artists)
-        similar_artist_names = [a['name'] for a in similar_artists_data]
-
-        # Save to persistent cache
-        self.artist_cache.set_similar_artists(artist_name, similar_artist_names)
-
-        if similar_artist_names:
-            logger.info(f"    Last.FM similar artists for '{artist_name}': {', '.join(similar_artist_names[:5])}...")
-        else:
-            logger.warning(f"    No similar artists found for '{artist_name}'")
-
-        # Rate limiting (only for API calls, not cache hits)
-        time.sleep(0.2)
-
-        return similar_artist_names
+        return []
 
     def _get_similar_genres(self, genre: str) -> List[str]:
         """
-        Get similar genres from Last.FM (with caching)
+        Get similar genres (Last.FM disabled; returns empty list)
 
         Args:
             genre: Genre name to find similar genres for
@@ -2355,31 +3201,12 @@ class PlaylistGenerator:
         Returns:
             List of similar genre names
         """
-        if not self.lastfm:
-            return []
-
-        if genre in self.genre_similarity_cache:
-            return self.genre_similarity_cache[genre]
-
-        # Query Last.FM for similar tags
-        similar_tags = self.lastfm.get_similar_tags(genre, limit=10)
-        similar_genre_names = [tag['name'] for tag in similar_tags]
-
-        # Cache the result
-        self.genre_similarity_cache[genre] = similar_genre_names
-
-        if similar_genre_names:
-            logger.debug(f"    Last.FM: '{genre}' is similar to: {', '.join(similar_genre_names[:5])}")
-
-        # Rate limiting
-        time.sleep(0.2)
-
-        return similar_genre_names
+        return []
 
     def _calculate_artist_similarity(self, seed1: Dict[str, Any],
                                      seed2: Dict[str, Any]) -> float:
         """
-        Calculate artist similarity score using Last.FM artist.getSimilar + genre overlap
+        Calculate artist similarity score using genre overlap only
 
         Args:
             seed1: First seed track with artist and genres
@@ -2393,37 +3220,7 @@ class PlaylistGenerator:
 
         logger.debug(f"\n  Comparing: '{artist1}' <-> '{artist2}'")
 
-        # Strategy 1: Check if artists appear in each other's similar artist lists (HIGHEST confidence)
-        if self.lastfm:
-            similar_to_artist1 = self._get_similar_artists(artist1)
-            similar_to_artist2 = self._get_similar_artists(artist2)
-
-            # Normalize artist names for comparison (lowercase, strip)
-            similar_to_artist1_normalized = {a.lower().strip() for a in similar_to_artist1}
-            similar_to_artist2_normalized = {a.lower().strip() for a in similar_to_artist2}
-            artist1_normalized = artist1.lower().strip()
-            artist2_normalized = artist2.lower().strip()
-
-            # Check if artist2 is in artist1's similar list (or vice versa)
-            if artist2_normalized in similar_to_artist1_normalized:
-                logger.info(f"  >> DIRECT MATCH: '{artist2}' is in '{artist1}' similar artists -> similarity = {self.config.similarity_artist_direct_match}")
-                return self.config.similarity_artist_direct_match
-            elif artist1_normalized in similar_to_artist2_normalized:
-                logger.info(f"  >> DIRECT MATCH: '{artist1}' is in '{artist2}' similar artists -> similarity = {self.config.similarity_artist_direct_match}")
-                return self.config.similarity_artist_direct_match
-
-            # Strategy 2: Check if they share common similar artists (MEDIUM confidence)
-            common_similar = similar_to_artist1_normalized & similar_to_artist2_normalized
-            if common_similar:
-                # More common artists = higher similarity
-                similarity = min(
-                    self.config.similarity_artist_shared_max,
-                    self.config.similarity_artist_shared_base + (len(common_similar) * self.config.similarity_artist_shared_increment)
-                )
-                logger.info(f"  -- SHARED SIMILAR ARTISTS: {len(common_similar)} in common {list(common_similar)[:3]} -> similarity = {similarity:.2f}")
-                return similarity
-
-        # Strategy 3: Fall back to genre overlap (LOW-MEDIUM confidence)
+        # Strategy: genre overlap
         genres1 = set(seed1.get('genres', []))
         genres2 = set(seed2.get('genres', []))
 
@@ -2494,7 +3291,7 @@ class PlaylistGenerator:
     def _cluster_seeds_by_genre(self, seeds: List[Dict[str, Any]],
                                 num_clusters: int) -> List[List[Dict[str, Any]]]:
         """
-        Cluster seeds by genre similarity using Last.FM similarity data
+        Cluster seeds by genre similarity using stored metadata
 
         Args:
             seeds: List of seed tracks with genre tags
@@ -2514,7 +3311,7 @@ class PlaylistGenerator:
 
         # Build similarity matrix between all seeds
         logger.info("="*60)
-        logger.info("Building artist similarity matrix using Last.FM...")
+        logger.info("Building artist similarity matrix using metadata genres...")
         logger.info("="*60)
         similarity_matrix = {}
         for i, seed1 in enumerate(seeds):
@@ -2662,7 +3459,13 @@ class PlaylistGenerator:
         logger.info(f"Retrieved {len(lastfm_tracks)} tracks from Last.FM")
 
         # Match to library
-        matched_tracks = self.matcher.match_lastfm_to_library(lastfm_tracks)
+        matched_tracks: List[Dict[str, Any]] = []
+        try:
+            matched_tracks = self.matcher.match_lastfm_to_library(lastfm_tracks)
+            logger.debug("Last.FM history match stats: raw=%d matched=%d", len(lastfm_tracks), len(matched_tracks))
+        except Exception as exc:
+            logger.warning("Last.FM history matching failed (%s); skipping matched history.", exc, exc_info=True)
+            return []
 
         if not matched_tracks:
             logger.warning("No tracks could be matched to library")
@@ -2672,6 +3475,18 @@ class PlaylistGenerator:
         aggregated = self.matcher.aggregate_play_counts(matched_tracks)
 
         return aggregated
+
+    def _get_lastfm_scrobbles_raw(self) -> List[Dict[str, Any]]:
+        """Get raw Last.FM scrobbles without library matching (for recency exclusion only)."""
+        if not self.lastfm:
+            return []
+        history_days = self.config.lastfm_history_days
+        scrobbles = self.lastfm.get_recent_tracks(days=history_days)
+        if not scrobbles:
+            logger.info("No Last.FM scrobbles found for recency filtering")
+            return []
+        logger.info("Retrieved %d raw scrobbles from Last.FM for recency filtering", len(scrobbles))
+        return scrobbles
 
     def _get_local_history(self) -> List[Dict[str, Any]]:
         """
@@ -2759,7 +3574,13 @@ class PlaylistGenerator:
         
         return selected
 
-    def _print_playlist_report(self, tracks: List[Dict[str, Any]], artist_name: str = None, dynamic: bool = False):
+    def _print_playlist_report(
+        self,
+        tracks: List[Dict[str, Any]],
+        artist_name: str = None,
+        dynamic: bool = False,
+        verbose_edges: bool = False,
+    ):
         """
         Print detailed track report showing how each track was selected
 
@@ -2767,13 +3588,56 @@ class PlaylistGenerator:
             tracks: Final playlist tracks
             artist_name: Name of seed artist (if applicable)
             dynamic: Whether dynamic mode was used
+            verbose_edges: Whether to print per-edge scores when available (DS)
         """
         logger.info("=" * 80)
-        logger.info("PLAYLIST TRACKLIST")
+        # Pipeline context summary if available
+        pipeline_ctx = []
+        if getattr(self, "_last_ds_report", None):
+            pipeline_ctx.append("pipeline=ds")
+        else:
+            pipeline_ctx.append("pipeline=legacy")
+        if hasattr(self, "_last_scope"):
+            pipeline_ctx.append(f"scope={self._last_scope}")
+        if hasattr(self, "_last_ds_mode"):
+            pipeline_ctx.append(f"mode={self._last_ds_mode}")
+        if artist_name:
+            pipeline_ctx.append(f'seed="{sanitize_for_logging(artist_name)}"')
+        ctx_str = " | ".join(pipeline_ctx)
+        logger.info(f"PLAYLIST TRACKLIST  ({ctx_str})")
         logger.info("=" * 80)
 
         # Group tracks by source for statistics
         source_counts = {'sonic': 0, 'genre': 0, 'unknown': 0}
+        edge_scores_for_logging: List[Dict[str, Any]] = []
+        edge_map: Dict[Tuple[str, str], Dict[str, Any]] = {}
+        if getattr(self, "_last_ds_report", None):
+            report = self._last_ds_report or {}
+            playlist_stats = report.get("playlist_stats") or {}
+            playlist_stats_playlist = playlist_stats.get("playlist") or {}
+            edge_scores_for_logging = (
+                playlist_stats_playlist.get("edge_scores")
+                or playlist_stats.get("edge_scores")
+                or report.get("edge_scores")
+                or []
+            )
+            self._last_ds_report["edge_scores"] = edge_scores_for_logging
+            edge_map = {(str(e.get("prev_id")), str(e.get("cur_id"))): e for e in edge_scores_for_logging}
+            if verbose_edges:
+                missing_hydration = [t for t in tracks if not t.get("artist") or not t.get("title")]
+                if missing_hydration:
+                    logger.info(
+                        "Hydration gaps: %d tracks missing artist/title; samples=%s",
+                        len(missing_hydration),
+                        [t.get("rating_key") for t in missing_hydration[:5]],
+                    )
+                if edge_scores_for_logging and len(edge_scores_for_logging) != max(0, len(tracks) - 1):
+                    logger.error(
+                        "Edge score count mismatch (edges=%d, expected=%d); skipping per-edge printing.",
+                        len(edge_scores_for_logging),
+                        max(0, len(tracks) - 1),
+                    )
+                    edge_map = {}
 
         for i, track in enumerate(tracks, 1):
             artist = sanitize_for_logging(track.get('artist', 'Unknown'))
@@ -2785,6 +3649,40 @@ class PlaylistGenerator:
 
             # Format: Track 01: Artist - Title
             logger.info(f"Track {i:02d}: {artist} - {title}")
+            # Verbose per-edge scores (DS only)
+            if verbose_edges and getattr(self, "_last_ds_report", None) and i > 1:
+                prev_id = str(tracks[i - 2].get("rating_key"))
+                cur_id = str(tracks[i - 1].get("rating_key"))
+                edge = edge_map.get((prev_id, cur_id))
+                if edge:
+                    import math
+
+                    t_val = edge.get("T", float("nan"))
+                    t_raw = edge.get("T_raw", float("nan"))
+                    t_center_cos = edge.get("T_centered_cos", float("nan"))
+                    h_val = edge.get("H", float("nan"))
+                    s_val = edge.get("S", float("nan"))
+                    g_val = edge.get("G", float("nan"))
+                    raw_part = ""
+                    if isinstance(t_raw, (int, float)) and not math.isnan(t_raw):
+                        raw_part = f" (raw={t_raw:.3f})"
+                    center_part = ""
+                    if isinstance(t_center_cos, (int, float)) and not math.isnan(t_center_cos):
+                        center_part = f" center_cos={t_center_cos:.3f}"
+                    h_part = f"  H={h_val:.3f}" if isinstance(h_val, (int, float)) and not math.isnan(h_val) else "  H=n/a"
+                    logger.info(
+                        "    edge %02d->%02d: T=%.3f%s%s%s  S=%.3f  G=%.3f",
+                        i - 1,
+                        i,
+                        t_val if t_val == t_val else float("nan"),
+                        raw_part,
+                        center_part,
+                        h_part,
+                        s_val if s_val == s_val else float("nan"),
+                        g_val if g_val == g_val else float("nan"),
+                    )
+                else:
+                    logger.error("Missing edge score for %s->%s", prev_id, cur_id)
 
         # Print summary statistics
         logger.info("=" * 80)
@@ -2793,15 +3691,289 @@ class PlaylistGenerator:
         logger.info(f"Total tracks: {len(tracks)}")
         logger.info(f"Unique artists: {len(set(t.get('artist') for t in tracks))}")
 
-        if dynamic:
-            logger.info(f"  - Sonic similarity: {source_counts.get('sonic', 0)} tracks")
-            logger.info(f"  - Genre-based: {source_counts.get('genre', 0)} tracks")
+        if getattr(self, "_last_ds_report", None):
+            import math
+            import numpy as np
+
+            report = self._last_ds_report or {}
+            metrics = report.get("metrics") or {}
+            playlist_stats = report.get("playlist_stats") or {}
+            playlist_stats_playlist = playlist_stats.get("playlist") or {}
+            edge_scores = (
+                playlist_stats_playlist.get("edge_scores")
+                or playlist_stats.get("edge_scores")
+                or report.get("edge_scores")
+                or []
+            )
+            report["edge_scores"] = edge_scores
+            baseline = report.get("baseline") or {}
+            transition_floor_val = (
+                metrics.get("transition_floor")
+                or playlist_stats_playlist.get("transition_floor")
+                or playlist_stats.get("transition_floor")
+                or report.get("transition_floor")
+            )
+            gamma_val = report.get("transition_gamma") or playlist_stats_playlist.get("transition_gamma")
+            transition_centered = bool(
+                playlist_stats_playlist.get("transition_centered")
+                or playlist_stats.get("transition_centered")
+                or report.get("transition_centered")
+            )
+            tracks_by_id = {str(t.get("rating_key")): t for t in tracks}
+            if verbose_edges:
+                import numpy as np
+
+                def _nan_count(vals):
+                    return sum(1 for v in vals if isinstance(v, float) and math.isnan(v))
+
+                logger.info(
+                    "Edge score arrays: tracks=%d edges=%d missing_T=%d missing_S=%d missing_G=%d",
+                    len(tracks),
+                    len(edge_scores),
+                    _nan_count([e.get("T", float("nan")) for e in edge_scores]),
+                    _nan_count([e.get("S", float("nan")) for e in edge_scores]),
+                    _nan_count([e.get("G", float("nan")) for e in edge_scores]),
+                )
+                if len(edge_scores) != max(0, len(tracks) - 1):
+                    logger.error(
+                        "Edge score count mismatch (edges=%d, expected=%d); skipping edge logging for missing scores.",
+                        len(edge_scores),
+                        max(0, len(tracks) - 1),
+                    )
+                if edge_scores and all((isinstance(e.get("T", float("nan")), float) and math.isnan(e.get("T"))) for e in edge_scores):
+                    logger.error("Edge scores contain only NaN values; skipping edge logging.")
+                    edge_scores = []
+                # Index sanity for first 3 and bottom 3
+                if edge_scores:
+                    samples = edge_scores[:3] + sorted(edge_scores, key=lambda e: e.get("T", float("nan")))[:3]
+                    for e in samples:
+                        logger.info(
+                            "Edge idx map: prev_idx=%s cur_idx=%s prev=%s - %s -> %s - %s T=%.3f",
+                            e.get("prev_idx"),
+                            e.get("cur_idx"),
+                            sanitize_for_logging(tracks_by_id.get(str(e.get("prev_id")), {}).get("artist", "")),
+                            sanitize_for_logging(tracks_by_id.get(str(e.get("prev_id")), {}).get("title", "")),
+                            sanitize_for_logging(tracks_by_id.get(str(e.get("cur_id")), {}).get("artist", "")),
+                            sanitize_for_logging(tracks_by_id.get(str(e.get("cur_id")), {}).get("title", "")),
+                            e.get("T", float("nan")),
+                        )
+                if baseline:
+                    def _fmt_pct(stats: Optional[dict]) -> str:
+                        if not stats:
+                            return "n/a"
+                        return f"p50={stats.get('p50')} p90={stats.get('p90')} p99={stats.get('p99')}"
+
+                    logger.info("Baseline (artifact) percentiles: T=%s | S=%s | G=%s",
+                                _fmt_pct(baseline.get("T_centered_rescaled") if transition_centered else baseline.get("T")),
+                                _fmt_pct(baseline.get("S")),
+                                _fmt_pct(baseline.get("G")))
+                    if transition_centered:
+                        logger.info(
+                            "Baseline centered: T_centered_cos=%s | T_centered_rescaled=%s",
+                            _fmt_pct(baseline.get("T_centered_cos")),
+                            _fmt_pct(baseline.get("T_centered_rescaled")),
+                        )
+                if edge_scores:
+                    idxs = [e.get("prev_idx") for e in edge_scores] + [e.get("cur_idx") for e in edge_scores]
+                    idxs = [i for i in idxs if i is not None]
+                    if idxs:
+                        idx_counts = {}
+                        for i in idxs:
+                            idx_counts[i] = idx_counts.get(i, 0) + 1
+                        unique_indices_used = len(idx_counts)
+                        max_repeat = max(idx_counts.values())
+                        repeated = sum(1 for v in idx_counts.values() if v > 1)
+                        logger.info(
+                            "Chain index-degree summary: unique_nodes=%d nodes_with_degree>1=%d max_degree=%d (expected for contiguous chain)",
+                            unique_indices_used,
+                            repeated,
+                            max_repeat,
+                        )
+            if not edge_scores:
+                logger.info("Edge score summaries: none (edges=0)")
+                return
+            logger.info("Edge score summaries:")
+
+            def _summ(arr):
+                import math
+                import numpy as np
+
+                if not arr:
+                    return None
+                arr_np = np.array([v for v in arr if isinstance(v, (int, float)) and not math.isnan(v)], dtype=float)
+                if arr_np.size == 0:
+                    return None
+                return {
+                    "mean": float(np.nanmean(arr_np)),
+                    "p10": float(np.nanpercentile(arr_np, 10)),
+                    "p50": float(np.nanpercentile(arr_np, 50)),
+                    "p90": float(np.nanpercentile(arr_np, 90)),
+                    "p99": float(np.nanpercentile(arr_np, 99)),
+                    "min": float(np.nanmin(arr_np)),
+                }
+
+            def _fmt(val: Optional[float]) -> str:
+                if val is None:
+                    return "n/a"
+                try:
+                    if math.isnan(val):
+                        return "n/a"
+                except Exception:
+                    return "n/a"
+                return f"{val:.3f}"
+
+            t_list = [e.get("T", float("nan")) for e in edge_scores]
+            t_center_cos_list = [e.get("T_centered_cos", float("nan")) for e in edge_scores]
+            s_list = [e.get("S", float("nan")) for e in edge_scores]
+            g_list = [e.get("G", float("nan")) for e in edge_scores]
+            t_raw_list = [e.get("T_raw", float("nan")) for e in edge_scores]
+            h_list = [e.get("H", float("nan")) for e in edge_scores]
+            t_stats = _summ(t_list)
+            s_stats = _summ(s_list)
+            g_stats = _summ(g_list)
+            t_raw_stats = _summ(t_raw_list)
+            h_stats = _summ(h_list)
+            t_center_stats = _summ(t_center_cos_list)
+            if t_stats:
+                t_clean = [v for v in t_list if isinstance(v, (int, float)) and not np.isnan(v)]
+                below_floor_count = None
+                if transition_floor_val is not None and t_clean:
+                    below_floor_count = sum(1 for v in t_clean if v < transition_floor_val)
+                logger.info(
+                    "  T transition: mean=%s  p10=%s  p50=%s  p90=%s  p99=%s  min=%s  below_floor=%s (floor=%s gamma=%s centered=%s)",
+                    _fmt(t_stats.get("mean")),
+                    _fmt(t_stats.get("p10")),
+                    _fmt(t_stats.get("p50")),
+                    _fmt(t_stats.get("p90")),
+                    _fmt(t_stats.get("p99")),
+                    _fmt(t_stats.get("min")),
+                    below_floor_count if below_floor_count is not None else (metrics.get("below_floor") if metrics else None),
+                    transition_floor_val,
+                    gamma_val,
+                    transition_centered,
+                )
+            if transition_centered and t_center_stats:
+                logger.info(
+                    "  T_centered_cos: mean=%s  p10=%s  p50=%s  p90=%s  p99=%s  min=%s",
+                    _fmt(t_center_stats.get("mean")),
+                    _fmt(t_center_stats.get("p10")),
+                    _fmt(t_center_stats.get("p50")),
+                    _fmt(t_center_stats.get("p90")),
+                    _fmt(t_center_stats.get("p99")),
+                    _fmt(t_center_stats.get("min")),
+                )
+            if os.environ.get("PLAYLIST_DIAG_SONIC"):
+                def _spread(stats: Optional[dict]) -> str:
+                    if not stats:
+                        return "n/a"
+                    p90 = stats.get("p90")
+                    p10 = stats.get("p10")
+                    if p90 is None or p10 is None:
+                        return "n/a"
+                    return _fmt(p90 - p10)
+                logger.info(
+                    "Sonic diag: H(p50=%s p90=%s spread=%s) S(p50=%s p90=%s spread=%s)",
+                    _fmt(h_stats.get("p50") if h_stats else None),
+                    _fmt(h_stats.get("p90") if h_stats else None),
+                    _spread(h_stats),
+                    _fmt(s_stats.get("p50") if s_stats else None),
+                    _fmt(s_stats.get("p90") if s_stats else None),
+                    _spread(s_stats),
+                )
+            if verbose_edges and t_raw_stats:
+                logger.info(
+                    "  T_raw (end->start): mean=%s  p10=%s  p50=%s  p90=%s  p99=%s  min=%s",
+                    _fmt(t_raw_stats.get("mean")),
+                    _fmt(t_raw_stats.get("p10")),
+                    _fmt(t_raw_stats.get("p50")),
+                    _fmt(t_raw_stats.get("p90")),
+                    _fmt(t_raw_stats.get("p99")),
+                    _fmt(t_raw_stats.get("min")),
+                )
+            if verbose_edges and h_stats:
+                logger.info(
+                    "  H hybrid:     mean=%s  p10=%s  p50=%s  p90=%s  p99=%s  min=%s",
+                    _fmt(h_stats.get("mean")),
+                    _fmt(h_stats.get("p10")),
+                    _fmt(h_stats.get("p50")),
+                    _fmt(h_stats.get("p90")),
+                    _fmt(h_stats.get("p99")),
+                    _fmt(h_stats.get("min")),
+                )
+            if s_stats:
+                logger.info(
+                    "  S sonic:      mean=%s  p10=%s  p50=%s  p90=%s  p99=%s  min=%s",
+                    _fmt(s_stats.get("mean")),
+                    _fmt(s_stats.get("p10")),
+                    _fmt(s_stats.get("p50")),
+                    _fmt(s_stats.get("p90")),
+                    _fmt(s_stats.get("p99")),
+                    _fmt(s_stats.get("min")),
+                )
+            if g_stats:
+                logger.info(
+                    "  G genre:      mean=%s  p10=%s  p50=%s  p90=%s  p99=%s  min=%s",
+                    _fmt(g_stats.get("mean")),
+                    _fmt(g_stats.get("p10")),
+                    _fmt(g_stats.get("p50")),
+                    _fmt(g_stats.get("p90")),
+                    _fmt(g_stats.get("p99")),
+                    _fmt(g_stats.get("min")),
+                )
+            if verbose_edges and baseline:
+                logger.info("Baseline vs playlist percentiles:")
+                def _log_percentiles(label: str, playlist_vals: Optional[dict], base_vals: Optional[dict]) -> None:
+                    if not playlist_vals and not base_vals:
+                        return
+                    logger.info(
+                        "  %s playlist p50=%s p90=%s p99=%s | baseline p50=%s p90=%s p99=%s",
+                        label,
+                        _fmt(playlist_vals.get("p50") if playlist_vals else None),
+                        _fmt(playlist_vals.get("p90") if playlist_vals else None),
+                        _fmt(playlist_vals.get("p99") if playlist_vals else None),
+                        _fmt((base_vals or {}).get("p50") if base_vals else None),
+                        _fmt((base_vals or {}).get("p90") if base_vals else None),
+                        _fmt((base_vals or {}).get("p99") if base_vals else None),
+                    )
+                baseline_t = baseline.get("T_centered_rescaled") if transition_centered else baseline.get("T")
+                _log_percentiles("T", t_stats, baseline_t)
+                _log_percentiles("T_raw", t_raw_stats, baseline.get("T_raw"))
+                _log_percentiles("S", s_stats, baseline.get("S"))
+                _log_percentiles("G", g_stats, baseline.get("G"))
+            # Weakest transitions
+            if edge_scores:
+                weakest = sorted(
+                    [e for e in edge_scores if isinstance(e.get("T"), (int, float)) and not np.isnan(e.get("T"))],
+                    key=lambda e: e.get("T", float("inf")),
+                )[:3]
+                logger.info("Weakest transitions (bottom 3 by T):")
+                for idx, e in enumerate(weakest, 1):
+                    logger.info(
+                        "  #%s  T=%.3f  S=%.3f  G=%.3f  %s - %s (idx=%s) -> %s - %s (idx=%s)",
+                        str(idx).zfill(2),
+                        e.get("T", float("nan")),
+                        e.get("S", float("nan")),
+                        e.get("G", float("nan")),
+                        sanitize_for_logging(tracks_by_id.get(str(e.get("prev_id")), {}).get("artist", "")),
+                        sanitize_for_logging(tracks_by_id.get(str(e.get("prev_id")), {}).get("title", "")),
+                        e.get("prev_idx"),
+                        sanitize_for_logging(tracks_by_id.get(str(e.get("cur_id")), {}).get("artist", "")),
+                        sanitize_for_logging(tracks_by_id.get(str(e.get("cur_id")), {}).get("title", "")),
+                        e.get("cur_idx"),
+                    )
         else:
-            logger.info(f"  - Sonic similarity: {source_counts.get('sonic', 0)} tracks")
+            if dynamic:
+                logger.info(f"  - Sonic similarity: {source_counts.get('sonic', 0)} tracks")
+                logger.info(f"  - Genre-based: {source_counts.get('genre', 0)} tracks")
+            else:
+                logger.info(f"  - Sonic similarity: {source_counts.get('sonic', 0)} tracks")
 
         if artist_name:
-            seed_count = len([t for t in tracks if safe_get_artist(t) == artist_name.lower()])
+            seed_norm = (artist_name or "").strip().casefold()
+            norm_artists = [(t.get("artist") or "").strip().casefold() for t in tracks]
+            seed_count = sum(1 for a in norm_artists if a == seed_norm)
             seed_pct = (seed_count / len(tracks)) * 100 if tracks else 0
+            logger.debug("Seed artist normalized: %s | first3 track artists: %s", seed_norm, norm_artists[:3])
             logger.info(f"  - Seed artist ({sanitize_for_logging(artist_name)}): {seed_count} tracks ({seed_pct:.1f}%)")
 
         # Duration info

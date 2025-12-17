@@ -1,11 +1,13 @@
 # Genre Similarity System Documentation
 
-## How the Combined MusicBrainz + Last.FM Genre Similarity System Works
+## How the Combined MusicBrainz + File Genre Similarity System Works
+
+> Note: Last.FM genre tags have been removed from the metadata pipeline. Only MusicBrainz and file-embedded genres are used for similarity; Last.FM is now history-only.
 
 ### **Overview**
 The system uses a **hybrid scoring approach** that combines:
 1. **Sonic similarity** (audio features like timbre, tempo, harmony)
-2. **Genre similarity** (metadata from Last.FM and MusicBrainz)
+2. **Genre similarity** (metadata from MusicBrainz and file tags)
 
 ---
 
@@ -14,11 +16,6 @@ The system uses a **hybrid scoring approach** that combines:
 ### **1. Genre Data Collection (Per Source)**
 
 Genres are collected from multiple sources and stored separately in the normalized database:
-
-**Last.FM Sources:**
-- `lastfm_track` - Track-specific tags (e.g., "Heroes" by David Bowie → ["glam rock", "art rock"])
-- `lastfm_album` - Album tags (e.g., "Low" → ["experimental", "ambient"])
-- `lastfm_artist` - Artist tags (e.g., David Bowie → ["glam rock", "art rock", "80s"])
 
 **MusicBrainz Sources:**
 - `musicbrainz_release` - Release (album) genres
@@ -37,11 +34,9 @@ When calculating similarity for a track, genres are retrieved with **prioritizat
 def get_combined_track_genres(self, track_id: str):
     # Priority order (most specific → least specific)
     priority = [
-        'lastfm_track',          # 1. Most specific - this exact track
-        'lastfm_album',          # 2. Album context
-        'musicbrainz_release',   # 3. MusicBrainz album
-        'lastfm_artist',         # 4. Artist general style
-        'musicbrainz_artist'     # 5. MusicBrainz artist
+        'musicbrainz_release',   # Album context
+        'musicbrainz_artist',    # Artist general style
+        'file'                   # Embedded file tags
     ]
 ```
 
@@ -54,13 +49,12 @@ def get_combined_track_genres(self, track_id: str):
 **Example for "Heroes" by David Bowie:**
 ```
 Input sources:
-- lastfm_track: ["glam rock", "art rock", "classic rock"]
-- lastfm_album: ["experimental", "glam rock"]
-- lastfm_artist: ["rock", "80s", "glam rock"]
-- musicbrainz_artist: ["art rock", "new wave"]
+- musicbrainz_release: ["art rock", "new wave"]
+- musicbrainz_artist: ["glam rock", "art rock", "80s"]
+- file: []
 
-Combined result: ["glam rock", "art rock", "classic rock", "experimental", "rock", "80s", "new wave"]
-                  ^track       ^track     ^track            ^album         ^artist ^artist ^MB
+Combined result: ["art rock", "new wave", "glam rock", "80s"]
+                 ^release    ^release   ^artist    ^artist
 ```
 
 ---
@@ -214,11 +208,11 @@ if genre_sim (0.0) < min_threshold (0.3):
 ## **Key Advantages of This System**
 
 ### **1. Multi-Source Redundancy**
-- If Last.FM has limited data, MusicBrainz fills gaps
+- If MusicBrainz data is limited, file tags fill gaps
 - Track-level tags > album tags > artist tags (specificity priority)
 
 ### **2. Smart Deduplication**
-- Doesn't count "rock" twice if it appears in both Last.FM and MusicBrainz
+- Doesn't count "rock" twice if it appears in both file tags and MusicBrainz
 - Maintains priority order (track-specific genres come first)
 
 ### **3. Curated Relationships**
@@ -276,12 +270,12 @@ The genre update script (`scripts/update_genres_v3_normalized.py`) checks each s
 ```python
 # Example: Artist with partial data
 David Bowie:
-  - lastfm_artist: ["glam rock", "art rock", "80s"]  ✓ Present
-  - musicbrainz_artist: (missing)                    ✗ Needs fetch
+  - musicbrainz_artist: ["glam rock", "art rock", "80s"]  ✓ Present
+  - musicbrainz_release: (missing)                        ✗ Needs fetch
 
 Next update will:
-  - Skip Last.FM (already have data)
-  - Fetch MusicBrainz only
+  - Skip artist genres (already have data)
+  - Fetch MusicBrainz release only
 ```
 
 This enables:
@@ -300,7 +294,7 @@ This enables:
 CREATE TABLE artist_genres (
     artist TEXT NOT NULL,
     genre TEXT NOT NULL,
-    source TEXT NOT NULL,  -- 'lastfm_artist', 'musicbrainz_artist'
+    source TEXT NOT NULL,  -- 'musicbrainz_artist'
     UNIQUE(artist, genre, source)
 )
 
@@ -308,7 +302,7 @@ CREATE TABLE artist_genres (
 CREATE TABLE album_genres (
     album_id TEXT NOT NULL,
     genre TEXT NOT NULL,
-    source TEXT NOT NULL,  -- 'lastfm_album', 'musicbrainz_release'
+    source TEXT NOT NULL,  -- 'musicbrainz_release'
     UNIQUE(album_id, genre, source)
 )
 
@@ -316,7 +310,7 @@ CREATE TABLE album_genres (
 CREATE TABLE track_genres (
     track_id TEXT NOT NULL,
     genre TEXT NOT NULL,
-    source TEXT NOT NULL,  -- 'lastfm_track', 'file', 'lastfm_artist', etc.
+    source TEXT NOT NULL,  -- 'file', 'musicbrainz_artist', etc.
     UNIQUE(track_id, genre, source)
 )
 ```
@@ -325,9 +319,9 @@ CREATE TABLE track_genres (
 
 | Source | Level | Description |
 |--------|-------|-------------|
-| `lastfm_track` | Track | Last.FM track-specific tags (most specific) |
-| `lastfm_album` | Album | Last.FM album tags |
-| `lastfm_artist` | Artist | Last.FM artist tags |
+| `musicbrainz_release` | Album | MusicBrainz release genres |
+| `musicbrainz_artist` | Artist | MusicBrainz artist genres |
+| `file` | Track | File-embedded tags (ID3/FLAC) |
 | `musicbrainz_release` | Album | MusicBrainz release genres |
 | `musicbrainz_artist` | Artist | MusicBrainz artist genres |
 | `file` | Track | Genres from file tags (ID3/FLAC) |
@@ -374,7 +368,7 @@ Potential enhancements to consider:
 
 ### **Problem: Missing genres for some tracks**
 - **Solution**: Run genre update script: `python scripts/update_genres_v3_normalized.py`
-- **Check**: Verify Last.FM API key is configured in `config.yaml`
+- **Check**: Last.FM API key is optional (history only) in `config.yaml`
 
 ---
 

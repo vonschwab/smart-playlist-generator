@@ -1,0 +1,116 @@
+{
+  "artifact": "C:\\Users\\Dylan\\AppData\\Local\\Temp\\pytest-of-Dylan\\pytest-57\\test_infer_schema_identifies_t0\\artifact.npz",
+  "timestamp_utc": "20251215_203307",
+  "samples": [
+    "t0",
+    "t1",
+    "t2"
+  ],
+  "dim_labels": [
+    "mfcc_01",
+    "mfcc_02",
+    "chroma_01",
+    "chroma_02",
+    "tempo",
+    "spectral_centroid"
+  ],
+  "dimensions": [
+    {
+      "dim_index": 0,
+      "dim_label": "mfcc_01",
+      "best_label": "bpm",
+      "best_corr": 1.0,
+      "best_units": "bpm",
+      "runner_up": {
+        "label": "rms_energy",
+        "corr": 1.0,
+        "units": "rms"
+      },
+      "notes": []
+    },
+    {
+      "dim_index": 1,
+      "dim_label": "mfcc_02",
+      "best_label": "bpm",
+      "best_corr": 1.0,
+      "best_units": "bpm",
+      "runner_up": {
+        "label": "rms_energy",
+        "corr": 1.0,
+        "units": "rms"
+      },
+      "notes": []
+    },
+    {
+      "dim_index": 2,
+      "dim_label": "chroma_01",
+      "best_label": "bpm",
+      "best_corr": 1.0,
+      "best_units": "bpm",
+      "runner_up": {
+        "label": "zero_crossing_rate",
+        "corr": 1.0,
+        "units": "ratio"
+      },
+      "notes": []
+    },
+    {
+      "dim_index": 3,
+      "dim_label": "chroma_02",
+      "best_label": "bpm",
+      "best_corr": 1.0,
+      "best_units": "bpm",
+      "runner_up": {
+        "label": "rms_energy",
+        "corr": 1.0,
+        "units": "rms"
+      },
+      "notes": []
+    },
+    {
+      "dim_index": 4,
+      "dim_label": "tempo",
+      "best_label": "bpm",
+      "best_corr": 1.0,
+      "best_units": "bpm",
+      "runner_up": {
+        "label": "rms_energy",
+        "corr": 1.0,
+        "units": "rms"
+      },
+      "notes": []
+    },
+    {
+      "dim_index": 5,
+      "dim_label": "spectral_centroid",
+      "best_label": "spectral_centroid",
+      "best_corr": 1.0,
+      "best_units": "hz",
+      "runner_up": {
+        "label": "zero_crossing_rate",
+        "corr": 0.5000000000000004,
+        "units": "ratio"
+      },
+      "notes": []
+    }
+  ],
+  "blocks": [
+    {
+      "block": "bpm",
+      "range": [
+        0,
+        4
+      ],
+      "count": 5
+    },
+    {
+      "block": "spectral",
+      "range": [
+        5,
+        5
+      ],
+      "count": 1
+    }
+  ],
+  "notes": []
+}

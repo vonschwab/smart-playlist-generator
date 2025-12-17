@@ -6,6 +6,7 @@ import logging
 import sqlite3
 from datetime import datetime, timedelta
 from difflib import SequenceMatcher
+import sqlite3
 
 from .artist_utils import get_artist_variations
 from .string_utils import normalize_match_string
@@ -31,6 +32,7 @@ class TrackMatcher:
         self.db_path = db_path
         self.cache_expiry_days = cache_expiry_days
         self.conn = None
+        self._has_norm_columns = False
         self._init_db_connection()
         logger.info("Initialized TrackMatcher with metadata database")
 
@@ -40,9 +42,22 @@ class TrackMatcher:
             self.conn = sqlite3.connect(self.db_path)
             self.conn.row_factory = sqlite3.Row
             logger.debug(f"Connected to metadata database: {self.db_path}")
+            self._has_norm_columns = self._detect_norm_columns()
+            logger.debug(f"Track matcher norm columns available: {self._has_norm_columns}")
         except Exception as e:
             logger.error(f"Failed to connect to database: {e}")
             raise
+
+    def _detect_norm_columns(self) -> bool:
+        """Detect presence of norm_artist/norm_title columns to avoid OperationalError on older schemas."""
+        try:
+            cur = self.conn.cursor()
+            cur.execute("PRAGMA table_info(tracks)")
+            cols = {row["name"] for row in cur.fetchall()}
+            return "norm_artist" in cols and "norm_title" in cols
+        except Exception as exc:
+            logger.debug(f"Failed to inspect tracks schema for norm columns: {exc}")
+            return False
 
     def match_lastfm_to_library(self, lastfm_tracks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
@@ -78,15 +93,15 @@ class TrackMatcher:
                 matched_tracks.append(matched_track)
             else:
                 unmatched_count += 1
-                if unmatched_count <= 10:  # Only log first 10 to avoid spam
-                    logger.debug(f"No match: {lfm_track['artist']} - {lfm_track['title']}")
 
         match_rate = (len(matched_tracks) / len(lastfm_tracks) * 100) if lastfm_tracks else 0
         logger.info(f"Matched {len(matched_tracks)}/{len(lastfm_tracks)} tracks ({match_rate:.1f}%)")
         logger.info(f"Match breakdown - MBID: {match_stats.get('mbid', 0)}, Exact: {match_stats.get('exact', 0)}, Fuzzy: {match_stats.get('fuzzy', 0)}")
 
-        if unmatched_count > 10:
-            logger.debug(f"... and {unmatched_count - 10} more unmatched tracks")
+        if unmatched_count and logger.isEnabledFor(logging.DEBUG):
+            sample = lastfm_tracks[:5]
+            sample_desc = [f"{t.get('artist')} - {t.get('title')}" for t in sample]
+            logger.debug("Unmatched Last.FM tracks (showing sample): %s", sample_desc)
 
         return matched_tracks
 
@@ -108,9 +123,12 @@ class TrackMatcher:
 
         strategies = [
             lambda: self._match_by_mbid(cursor, lfm_mbid),
-            lambda: self._match_exact(cursor, norm_artist, norm_title),
-            lambda: self._match_exact_with_variations(cursor, artist, norm_title),
-            lambda: self._match_fuzzy_within_artist(cursor, norm_artist, norm_title, artist, title),
+            *((
+                lambda: self._match_exact(cursor, norm_artist, norm_title),
+                lambda: self._match_exact_with_variations(cursor, artist, norm_title),
+                lambda: self._match_fuzzy_within_artist(cursor, norm_artist, norm_title, artist, title),
+            ) if self._has_norm_columns else ()),
+            lambda: self._match_exact_raw(cursor, artist, title),
         ]
 
         for strategy in strategies:
@@ -161,6 +179,32 @@ class TrackMatcher:
             row = cursor.fetchone()
             if row:
                 return dict(row), 'exact'
+        return None, None
+
+    def _match_exact_raw(self, cursor, artist: str, title: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        """
+        Fallback: match using case-insensitive artist/title when norm columns are absent.
+        This mirrors the legacy behavior without requiring schema changes.
+        """
+        norm_artist = normalize_match_string(artist, is_artist=True)
+        norm_title = normalize_match_string(title)
+        try:
+            cursor.execute(
+                """
+                SELECT track_id as rating_key, title, artist, album,
+                       duration_ms as duration, musicbrainz_id as mbid
+                FROM tracks
+                WHERE lower(artist) = ? AND lower(title) = ?
+                """,
+                (norm_artist, norm_title),
+            )
+            row = cursor.fetchone()
+            if row:
+                return dict(row), 'exact'
+        except Exception as exc:
+            # Avoid per-track spam; log the message once per failure site when debug is enabled.
+            logger.debug("Raw exact match query failed (%s)", exc, exc_info=True)
+            return None, None
         return None, None
 
     def _match_fuzzy_within_artist(self, cursor, norm_artist: str, norm_title: str, artist: str, title: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
@@ -226,7 +270,9 @@ class TrackMatcher:
                     **track,
                     'play_count': 0,
                     'first_played': track.get('lastfm_timestamp', 0),
-                    'last_played': track.get('lastfm_timestamp', 0)
+                    'last_played': track.get('lastfm_timestamp', 0),
+                    # Expose a generic timestamp for freshness filters
+                    'timestamp': track.get('lastfm_timestamp', 0)
                 }
 
             stats = track_stats[key]
@@ -236,6 +282,7 @@ class TrackMatcher:
             if timestamp > 0:
                 stats['first_played'] = min(stats['first_played'], timestamp)
                 stats['last_played'] = max(stats['last_played'], timestamp)
+                stats['timestamp'] = stats['last_played']
 
         # Convert back to list and sort by play count
         aggregated = list(track_stats.values())

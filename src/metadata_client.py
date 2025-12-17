@@ -1,7 +1,7 @@
 """
 Metadata Client - Local metadata database interface
 
-Manages a SQLite database of enriched metadata from Last.FM and MusicBrainz
+Manages a SQLite database of enriched metadata from MusicBrainz and file tags
 """
 import sqlite3
 import json
@@ -52,8 +52,6 @@ class MetadataClient:
             CREATE TABLE IF NOT EXISTS artists (
                 artist_name TEXT PRIMARY KEY,
                 musicbrainz_id TEXT,
-                lastfm_tags TEXT,  -- JSON array
-                similar_artists TEXT,  -- JSON array
                 last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -63,7 +61,7 @@ class MetadataClient:
             CREATE TABLE IF NOT EXISTS track_genres (
                 track_id TEXT,
                 genre TEXT,
-                source TEXT,  -- 'lastfm', 'musicbrainz', 'manual'
+                source TEXT,  -- 'file', 'musicbrainz', 'manual'
                 weight REAL DEFAULT 1.0,
                 PRIMARY KEY (track_id, genre, source),
                 FOREIGN KEY (track_id) REFERENCES tracks(track_id)
@@ -85,6 +83,7 @@ class MetadataClient:
         # Create indexes for faster queries
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks(artist)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracks_mbid ON tracks(musicbrainz_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracks_file_path ON tracks(file_path)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_track_genres_genre ON track_genres(genre)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_artists_mbid ON artists(musicbrainz_id)")
 
@@ -112,32 +111,26 @@ class MetadataClient:
         """, (track_id, musicbrainz_id, title, artist, album, duration_ms))
         self.conn.commit()
 
-    def add_artist(self, artist_name: str, musicbrainz_id: Optional[str] = None,
-                   lastfm_tags: Optional[List[str]] = None,
-                   similar_artists: Optional[List[str]] = None):
+    def add_artist(self, artist_name: str, musicbrainz_id: Optional[str] = None):
         """
         Add or update artist in database
 
         Args:
             artist_name: Artist name
             musicbrainz_id: MusicBrainz artist ID
-            lastfm_tags: List of Last.FM tags/genres
-            similar_artists: List of similar artist names
         """
         cursor = self.conn.cursor()
         cursor.execute("""
             INSERT OR REPLACE INTO artists
-            (artist_name, musicbrainz_id, lastfm_tags, similar_artists, last_updated)
-            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+            (artist_name, musicbrainz_id, last_updated)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
         """, (
             artist_name,
-            musicbrainz_id,
-            json.dumps(lastfm_tags) if lastfm_tags else None,
-            json.dumps(similar_artists) if similar_artists else None
+            musicbrainz_id
         ))
         self.conn.commit()
 
-    def add_track_genre(self, track_id: str, genre: str, source: str = 'lastfm',
+    def add_track_genre(self, track_id: str, genre: str, source: str = 'file',
                        weight: float = 1.0):
         """
         Add genre for a track
@@ -145,7 +138,7 @@ class MetadataClient:
         Args:
             track_id: track ID
             genre: Genre name
-            source: Source of genre ('lastfm', 'musicbrainz', 'manual')
+            source: Source of genre ('file', 'musicbrainz', 'manual')
             weight: Relevance weight (0.0-1.0)
         """
         cursor = self.conn.cursor()
@@ -187,7 +180,7 @@ class MetadataClient:
 
         Returns:
             Dictionary mapping source to list of genres (excludes __EMPTY__ markers)
-            e.g., {'lastfm_track': ['rock', 'indie'], 'musicbrainz_artist': ['alternative']}
+            e.g., {'file': ['rock', 'indie'], 'musicbrainz_artist': ['alternative']}
         """
         cursor = self.conn.cursor()
         cursor.execute("""
@@ -208,35 +201,31 @@ class MetadataClient:
         return genres_by_source
 
     def get_combined_track_genres(self, track_id: str,
-                                   lastfm_weight: float = 0.6,
+                                   lastfm_weight: float = 0.0,
                                    musicbrainz_weight: float = 0.4) -> List[str]:
         """
         Get combined genres with prioritization:
-        - Last.FM: track > album > artist (weighted by lastfm_weight)
         - MusicBrainz: release > artist (weighted by musicbrainz_weight)
+        - File tags: track-level fallbacks
 
         Args:
             track_id: track ID
-            lastfm_weight: Weight for Last.FM genres (0.0-1.0)
+            lastfm_weight: Deprecated (ignored)
             musicbrainz_weight: Weight for MusicBrainz genres (0.0-1.0)
 
         Returns:
             Deduplicated list of genres with priority:
-            1. Last.FM track-level (most specific)
-            2. Last.FM album-level
-            3. MusicBrainz release-level
-            4. Last.FM artist-level
-            5. MusicBrainz artist-level
+            1. MusicBrainz release-level
+            2. MusicBrainz artist-level
+            3. File tags
         """
         genres_by_source = self.get_track_genres_by_source(track_id)
 
         # Priority order for combining
         priority = [
-            'lastfm_track',      # Most specific
-            'lastfm_album',
             'musicbrainz_release',
-            'lastfm_artist',
-            'musicbrainz_artist'
+            'musicbrainz_artist',
+            'file'
         ]
 
         combined = []
@@ -250,26 +239,6 @@ class MetadataClient:
                         seen.add(genre)
 
         return combined
-
-    def get_artist_genres(self, artist_name: str) -> List[str]:
-        """
-        Get genres for an artist from Last.FM tags
-
-        Args:
-            artist_name: Artist name
-
-        Returns:
-            List of genre tags
-        """
-        cursor = self.conn.cursor()
-        cursor.execute("""
-            SELECT lastfm_tags FROM artists WHERE artist_name = ?
-        """, (artist_name,))
-
-        row = cursor.fetchone()
-        if row and row['lastfm_tags']:
-            return json.loads(row['lastfm_tags'])
-        return []
 
     def get_artist_metadata(self, artist_name: str) -> Optional[Dict[str, Any]]:
         """
@@ -293,8 +262,6 @@ class MetadataClient:
         return {
             'artist_name': row['artist_name'],
             'musicbrainz_id': row['musicbrainz_id'],
-            'lastfm_tags': json.loads(row['lastfm_tags']) if row['lastfm_tags'] else [],
-            'similar_artists': json.loads(row['similar_artists']) if row['similar_artists'] else [],
             'last_updated': row['last_updated']
         }
 
@@ -433,8 +400,8 @@ class MetadataClient:
         cursor.execute("SELECT COUNT(*) as count FROM artists")
         stats['total_artists'] = cursor.fetchone()['count']
 
-        cursor.execute("SELECT COUNT(*) as count FROM artists WHERE lastfm_tags IS NOT NULL")
-        stats['artists_with_tags'] = cursor.fetchone()['count']
+        cursor.execute("SELECT COUNT(DISTINCT artist) as count FROM artist_genres")
+        stats['artists_with_genres'] = cursor.fetchone()['count']
 
         cursor.execute("SELECT COUNT(DISTINCT track_id) as count FROM track_genres")
         stats['tracks_with_genres'] = cursor.fetchone()['count']

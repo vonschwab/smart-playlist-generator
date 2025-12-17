@@ -1,0 +1,19 @@
+{
+  "pairs": [
+    {
+      "prev_id": "1c347ff04e65adf7923a9e3927ab667a",
+      "cur_id": "083fe622b0600fb6f67084dde4753809",
+      "label": "same_artist_fela"
+    },
+    {
+      "prev_id": "1c347ff04e65adf7923a9e3927ab667a",
+      "cur_id": "bf7c6b0c26427ade2eb16454c66315f1",
+      "label": "cross_artist"
+    },
+    {
+      "prev_id": "bf7c6b0c26427ade2eb16454c66315f1",
+      "cur_id": "b08abdacc5368fa07123c2eb2b602249",
+      "label": "same_artist_dave"
+    }
+  ]
+}

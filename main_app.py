@@ -16,14 +16,18 @@ from src.lastfm_client import LastFMClient
 from src.track_matcher import TrackMatcher
 from src.m3u_exporter import M3UExporter
 from src.metadata_client import MetadataClient
+from src.similarity.sonic_variant import resolve_sonic_variant
+from src.similarity.sonic_variant import resolve_sonic_variant
 
 
 class PlaylistApp:
     """Main application orchestrator"""
     
-    def __init__(self, config_path: str = "config.yaml"):
+    def __init__(self, config_path: str = "config.yaml", pipeline_override: Optional[str] = None, ds_mode_override: Optional[str] = None):
         # Load configuration
         self.config = Config(config_path)
+        self.pipeline_override = pipeline_override
+        self.ds_mode_override = ds_mode_override
         
         # Set up logging
         self._setup_logging()
@@ -37,13 +41,24 @@ class PlaylistApp:
             model=self.config.openai_model
         )
 
-        # Initialize Last.FM client and track matcher
-        self.lastfm = LastFMClient(
-            api_key=self.config.lastfm_api_key,
-            username=self.config.lastfm_username
-        )
+        # Initialize Last.FM client (history-only). Only create if credentials exist.
+        self.lastfm = None
+        if self.config.lastfm_api_key and self.config.lastfm_username:
+            self.lastfm = LastFMClient(
+                api_key=self.config.lastfm_api_key,
+                username=self.config.lastfm_username
+            )
+        else:
+            self.logger.info("Last.FM credentials missing; skipping Last.FM client (history will be local-only).")
 
-        self.matcher = TrackMatcher(self.library, library_id=None)
+        # Use the same metadata DB path as the library client to ensure normalized columns are present
+        self.matcher = TrackMatcher(
+            self.library,
+            library_id=None,
+            db_path=self.config.library_database_path,
+        )
+        sonic_cfg = self.config.get('playlists', 'sonic', default={}) or {}
+        self.sonic_variant = resolve_sonic_variant(sonic_cfg.get("sim_variant"))
 
         # Initialize metadata database client (optional, for enhanced genre matching)
         self.metadata = None
@@ -186,7 +201,12 @@ class PlaylistApp:
 
         # Step 2: Generate playlists with tracks and metadata
         playlist_count = self.config.get('playlists', 'count', default=3)
-        playlists = self.generator.create_playlist_batch(playlist_count, dynamic=dynamic)
+        playlists = self.generator.create_playlist_batch(
+            playlist_count,
+            dynamic=dynamic,
+            pipeline_override=self.pipeline_override,
+            ds_mode_override=self.ds_mode_override,
+        )
 
         if not playlists:
             self.logger.warning("No playlists generated - insufficient data")
@@ -221,7 +241,7 @@ class PlaylistApp:
                 # Export to M3U (local mode)
                 try:
                     if self.m3u_exporter:
-                        m3u_path = self.m3u_exporter.export_playlist(full_title, tracks, self.library)
+                        m3u_path = self.m3u_exporter.export_playlist(full_title, tracks, self.library, sonic_variant=self.sonic_variant)
                         if m3u_path:
                             created_playlists.append({
                                 'title': full_title,
@@ -348,7 +368,7 @@ class PlaylistApp:
             print("Check the log file for details.\n")
             sys.exit(1)
 
-    def run_single_artist(self, artist_name: str, track_count: int = 30, dry_run: bool = False, dynamic: bool = False, verbose: bool = False):
+    def run_single_artist(self, artist_name: str, track_count: int = 30, dry_run: bool = False, dynamic: bool = False, verbose: bool = False, artist_only: bool = False):
         """
         Generate a single playlist for a specific artist.
         Splits business logic, presentation, and export for clarity.
@@ -360,7 +380,7 @@ class PlaylistApp:
             print(f"Generating playlist for: {artist_name}")
             print(f"Target tracks: {track_count}\n")
 
-            playlist_data = self._generate_single_artist_playlist(artist_name, track_count, dynamic, verbose)
+            playlist_data = self._generate_single_artist_playlist(artist_name, track_count, dynamic, verbose, artist_only)
             if not playlist_data:
                 self._report_single_artist_failure(artist_name)
                 return
@@ -386,6 +406,9 @@ class PlaylistApp:
             return
         logging.getLogger('src.playlist_generator').setLevel(logging.DEBUG)
         logging.getLogger('src.similarity_calculator').setLevel(logging.DEBUG)
+        logging.getLogger().setLevel(logging.DEBUG)
+        for handler in logging.getLogger().handlers + self.logger.handlers:
+            handler.setLevel(logging.DEBUG)
         self.logger.info("Verbose logging enabled")
 
     def _log_single_artist_header(self, artist_name: str, dry_run: bool) -> None:
@@ -397,9 +420,17 @@ class PlaylistApp:
             self.logger.info(f"Generating playlist for artist: {artist_name}")
         self.logger.info("=" * 60)
 
-    def _generate_single_artist_playlist(self, artist_name: str, track_count: int, dynamic: bool, verbose: bool) -> Optional[Dict[str, Any]]:
+    def _generate_single_artist_playlist(self, artist_name: str, track_count: int, dynamic: bool, verbose: bool, artist_only: bool) -> Optional[Dict[str, Any]]:
         """Generate playlist data for a single artist."""
-        return self.generator.create_playlist_for_artist(artist_name, track_count, dynamic=dynamic, verbose=verbose)
+        return self.generator.create_playlist_for_artist(
+            artist_name,
+            track_count,
+            dynamic=dynamic,
+            verbose=verbose,
+            pipeline_override=self.pipeline_override,
+            ds_mode_override=self.ds_mode_override,
+            artist_only=artist_only,
+        )
 
     def _report_single_artist_failure(self, artist_name: str) -> None:
         """User-facing messaging when no playlist could be created."""
@@ -411,7 +442,12 @@ class PlaylistApp:
 
     def _compute_seed_stats(self, playlist_data: Dict[str, Any], artist_name: str) -> Tuple[int, float]:
         """Return count and percentage of seed-artist tracks in playlist."""
-        seed_tracks = [t for t in playlist_data['tracks'] if t.get('artist') == artist_name]
+        seed_norm = (artist_name or "").strip().casefold()
+        seed_tracks = []
+        for t in playlist_data['tracks']:
+            a = (t.get('artist') or "").strip().casefold()
+            if a == seed_norm:
+                seed_tracks.append(t)
         seed_percentage = (len(seed_tracks) / len(playlist_data['tracks'])) * 100 if playlist_data['tracks'] else 0.0
         return len(seed_tracks), seed_percentage
 
@@ -440,7 +476,7 @@ class PlaylistApp:
             print("\nM3U export not configured")
             return
 
-        m3u_path = self.m3u_exporter.export_playlist(playlist_title, playlist_data['tracks'], self.library)
+        m3u_path = self.m3u_exporter.export_playlist(playlist_title, playlist_data['tracks'], self.library, sonic_variant=self.sonic_variant)
         if m3u_path:
             self.logger.info(f"Exported to M3U: {m3u_path}")
             print(f"  Exported to: {m3u_path}")
@@ -477,9 +513,29 @@ def main():
         help="Enable dynamic mode: mix sonic similarity (60%%) with genre-based discovery (40%%) for more variety"
     )
     parser.add_argument(
+        "--artist-only",
+        action="store_true",
+        help="Restrict DS pipeline to the requested artist only (no discovery)"
+    )
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="Enable verbose logging: show detailed TSP optimization, transition scores, and constraint enforcement"
+    )
+    parser.add_argument(
+        "--pipeline",
+        choices=["legacy", "ds"],
+        help="Override playlist pipeline (default reads from config: legacy|ds)",
+    )
+    parser.add_argument(
+        "--ds-mode",
+        choices=["narrow", "dynamic", "discover"],
+        help="Override DS pipeline mode (default from config playlists.ds_pipeline.mode)",
+    )
+    parser.add_argument(
+        "--sonic-variant",
+        choices=["raw", "centered", "z", "z_clip", "whiten_pca"],
+        help="Override sonic similarity variant for DS pipeline (env has highest priority).",
     )
     args = parser.parse_args()
 
@@ -495,12 +551,31 @@ def main():
 
     # Run application
     try:
-        app = PlaylistApp()
+        if getattr(args, "sonic_variant", None):
+            import os
+
+            os.environ["SONIC_SIM_VARIANT"] = args.sonic_variant
+        app = PlaylistApp(
+            pipeline_override=getattr(args, 'pipeline', None),
+            ds_mode_override=getattr(args, 'ds_mode', None),
+        )
+        # propagate explicit variant into generator (CLI > env > config)
+        app.generator.sonic_variant = resolve_sonic_variant(
+            explicit_variant=getattr(args, "sonic_variant", None),
+            config_variant=getattr(app.generator, "sonic_variant", None),
+        )
         if args.dry_run:
             print("🔍 DRY RUN MODE - No playlists will be created\n")
         if args.artist:
             # Single artist mode
-            app.run_single_artist(args.artist, args.tracks, dry_run=getattr(args, 'dry_run', False), dynamic=getattr(args, 'dynamic', False), verbose=getattr(args, 'verbose', False))
+            app.run_single_artist(
+                args.artist,
+                args.tracks,
+                dry_run=getattr(args, 'dry_run', False),
+                dynamic=getattr(args, 'dynamic', False),
+                verbose=getattr(args, 'verbose', False),
+                artist_only=getattr(args, 'artist_only', False),
+            )
         else:
             # Normal mode - generate multiple playlists from history
             app.run(dry_run=getattr(args, 'dry_run', False), dynamic=getattr(args, 'dynamic', False))

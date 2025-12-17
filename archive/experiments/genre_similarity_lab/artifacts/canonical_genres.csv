@@ -1,0 +1,506 @@
+genre,album_count,track_count,sources,tier
+rock,1012,12172,discogs;musicbrainz,core
+electronic,679,7096,discogs;musicbrainz,core
+indie rock,641,7866,discogs;musicbrainz,core
+pop,399,4773,discogs;musicbrainz,core
+jazz,297,2734,discogs;musicbrainz,core
+ambient,293,2796,discogs;musicbrainz,core
+experimental,286,3071,discogs;musicbrainz,core
+alternative rock,225,3040,discogs;musicbrainz,core
+indie pop,206,2545,discogs;musicbrainz,core
+lo-fi,133,1661,discogs;musicbrainz,core
+funk / soul,116,1293,discogs;musicbrainz,core
+hip hop,106,1493,discogs;musicbrainz,core
+"folk, world, country",96,982,discogs,core
+synth-pop,95,1111,discogs;musicbrainz,core
+post-punk,94,1281,discogs;musicbrainz,core
+dream pop,91,1104,discogs;musicbrainz,core
+art rock,89,1029,discogs;musicbrainz,core
+psychedelic rock,88,1051,discogs;musicbrainz,core
+funk,86,1009,discogs;musicbrainz,core
+post-rock,85,899,musicbrainz,core
+soul,82,979,discogs;musicbrainz,core
+folk rock,81,946,discogs;musicbrainz,core
+pop rock,79,1070,discogs;musicbrainz,core
+punk,79,1114,discogs;musicbrainz,core
+shoegaze,78,877,discogs;musicbrainz,core
+downtempo,74,839,discogs;musicbrainz,core
+folk,64,738,discogs;musicbrainz,core
+contemporary r&b,63,883,discogs;musicbrainz,core
+idm,63,709,discogs;musicbrainz,core
+noise rock,62,765,discogs;musicbrainz,core
+indie folk,60,748,musicbrainz,core
+neo-psychedelia,54,631,musicbrainz,core
+new age,54,448,discogs;musicbrainz,core
+experimental rock,52,580,musicbrainz,core
+classical,50,496,discogs;musicbrainz,core
+new wave,50,697,discogs;musicbrainz,core
+garage rock,48,672,discogs;musicbrainz,core
+singer-songwriter,47,549,musicbrainz,core
+drone,46,405,discogs;musicbrainz,core
+electro,46,378,discogs;musicbrainz,core
+leftfield,46,482,discogs;musicbrainz,core
+r&b,46,610,musicbrainz,core
+techno,46,297,discogs;musicbrainz,core
+contemporary jazz,43,444,discogs;musicbrainz,core
+art pop,41,499,musicbrainz,core
+instrumental,41,555,discogs;musicbrainz,core
+dance-pop,38,452,discogs;musicbrainz,core
+post rock,37,327,discogs;musicbrainz,core
+psychedelic,37,507,discogs;musicbrainz,core
+chamber pop,35,495,musicbrainz,core
+jazz-funk,34,310,discogs;musicbrainz,core
+psychedelic pop,34,465,musicbrainz,core
+abstract,33,370,discogs;musicbrainz,core
+house,32,328,discogs;musicbrainz,core
+modern classical,31,304,discogs;musicbrainz,core
+noise,31,326,discogs;musicbrainz,core
+slowcore,31,373,discogs;musicbrainz,core
+disco,30,334,discogs;musicbrainz,core
+hard bop,29,186,discogs;musicbrainz,core
+minimal,29,241,discogs;musicbrainz,core
+neo soul,29,402,discogs;musicbrainz,core
+avant-garde,28,309,musicbrainz,core
+alternative r&b,26,359,musicbrainz,core
+indietronica,26,300,musicbrainz,core
+noise pop,26,343,musicbrainz,core
+post-hardcore,26,354,discogs;musicbrainz,core
+fusion,25,176,discogs;musicbrainz,core
+classic rock,24,298,discogs;musicbrainz,core
+krautrock,24,249,discogs;musicbrainz,core
+conscious,22,361,discogs;musicbrainz,core
+hypnagogic pop,22,294,discogs;musicbrainz,core
+acoustic,20,207,discogs;musicbrainz,core
+avant-garde jazz,20,112,discogs;musicbrainz,core
+ballad,20,207,discogs;musicbrainz,core
+bedroom pop,20,241,musicbrainz,core
+contemporary folk,20,224,musicbrainz,core
+slacker rock,20,314,musicbrainz,core
+afrobeat,19,107,discogs;musicbrainz,core
+glitch,19,222,discogs;musicbrainz,core
+hard rock,19,191,discogs;musicbrainz,core
+jangle pop,19,236,discogs;musicbrainz,core
+pop soul,19,266,musicbrainz,core
+baroque pop,18,269,discogs;musicbrainz,core
+post bop,18,140,discogs;musicbrainz,core
+soft rock,18,201,discogs;musicbrainz,core
+alternative pop,17,201,musicbrainz,core
+psychedelic folk,17,186,musicbrainz,core
+art punk,16,276,musicbrainz,core
+blues,16,197,discogs;musicbrainz,core
+blues rock,16,216,discogs;musicbrainz,core
+deep house,16,123,discogs;musicbrainz,core
+electropop,16,199,musicbrainz,core
+garage punk,16,214,musicbrainz,core
+indie,16,210,musicbrainz,core
+math rock,16,267,discogs;musicbrainz,core
+modal,16,112,discogs;musicbrainz,core
+no wave,16,220,discogs;musicbrainz,core
+punk rock,16,197,musicbrainz,core
+stage screen,16,155,discogs,core
+alternative and punk,15,218,musicbrainz,core
+emo,15,257,discogs;musicbrainz,core
+ethereal,15,137,discogs;musicbrainz,core
+free jazz,15,74,discogs;musicbrainz,core
+hardcore punk,15,305,musicbrainz,core
+heavy metal,15,163,discogs;musicbrainz,core
+jazzy hip-hop,15,212,discogs,core
+progressive,15,267,musicbrainz,core
+progressive rock,15,144,musicbrainz,core
+alternative country,14,155,musicbrainz,core
+boom bap,14,250,discogs;musicbrainz,core
+cool jazz,14,116,discogs;musicbrainz,core
+jazz fusion,14,124,musicbrainz,core
+jazz rap,14,234,musicbrainz,core
+latin,14,144,discogs;musicbrainz,core
+smooth soul,14,187,musicbrainz,core
+acid,13,72,discogs;musicbrainz,core
+alternative,13,187,musicbrainz,core
+americana,13,168,musicbrainz,core
+avantgarde,13,127,discogs;musicbrainz,core
+conscious hip hop,13,209,musicbrainz,core
+country rock,13,151,discogs;musicbrainz,core
+funk soul,13,157,musicbrainz,core
+grunge,13,178,discogs;musicbrainz,core
+post-bop,13,91,musicbrainz,core
+rock and roll,13,252,musicbrainz,core
+acid techno,12,87,musicbrainz,core
+alternative hip hop,12,208,musicbrainz,core
+ambient pop,12,140,musicbrainz,core
+chillwave,12,174,discogs;musicbrainz,core
+electronica,12,149,musicbrainz,core
+pop rap,12,188,discogs;musicbrainz,core
+post-punk revival,12,140,musicbrainz,core
+sophisti-pop,12,145,musicbrainz,core
+space rock,12,180,discogs;musicbrainz,core
+synth funk,12,137,musicbrainz,core
+prog rock,11,111,discogs;musicbrainz,core
+soul-jazz,11,99,discogs,core
+spiritual jazz,11,81,discogs;musicbrainz,core
+alternative dance,10,105,musicbrainz,core
+jazz rock,10,97,musicbrainz,core
+progressive pop,10,106,musicbrainz,core
+rhythm blues,10,124,discogs;musicbrainz,core
+soul jazz,10,89,musicbrainz,core
+space rock revival,10,152,musicbrainz,core
+chamber folk,9,91,musicbrainz,core
+contemporary,9,82,discogs,core
+east coast hip hop,9,144,musicbrainz,core
+experimental hip hop,9,121,musicbrainz,core
+folktronica,9,105,musicbrainz,core
+future jazz,9,104,discogs;musicbrainz,core
+garage psych,9,96,musicbrainz,core
+hardcore,9,103,discogs;musicbrainz,core
+hyperpop,9,98,discogs;musicbrainz,core
+jazz pop,9,95,musicbrainz,core
+pop punk,9,108,musicbrainz,core
+progressive electronic,9,116,musicbrainz,core
+alternative punk,8,96,musicbrainz,core
+breakbeat,8,60,discogs;musicbrainz,core
+dance-punk,8,82,musicbrainz,core
+drum and bass,8,98,musicbrainz,core
+dub techno,8,34,discogs;musicbrainz,core
+glam rock,8,85,musicbrainz,core
+non-music,8,81,discogs;musicbrainz,core
+political hip hop,8,93,musicbrainz,core
+power pop,8,135,musicbrainz,core
+soundtrack,8,67,discogs;musicbrainz,core
+surf rock,8,111,musicbrainz,core
+trap,8,110,discogs;musicbrainz,core
+trip hop,8,94,discogs;musicbrainz,core
+abstract hip hop,7,135,musicbrainz,core
+alternative folk,7,86,musicbrainz,core
+bossa nova,7,69,discogs;musicbrainz,core
+folk pop,7,86,musicbrainz,core
+j-pop,7,75,discogs;musicbrainz,core
+progressive metal,7,86,discogs;musicbrainz,core
+acid rock,6,58,musicbrainz,core
+album rock,6,62,musicbrainz,core
+alt-pop,6,67,discogs,core
+ambient techno,6,51,musicbrainz,core
+christmas music,6,174,musicbrainz,core
+classical crossover,6,82,musicbrainz,core
+country,6,69,discogs;musicbrainz,core
+deconstructed club,6,73,discogs;musicbrainz,core
+dub,6,44,discogs;musicbrainz,core
+funk rock,6,69,musicbrainz,core
+garage rock revival,6,71,musicbrainz,core
+glam,6,68,discogs;musicbrainz,core
+hardcore hip hop,6,53,musicbrainz,core
+industrial,6,92,discogs;musicbrainz,core
+instrumental hip hop,6,135,musicbrainz,core
+instrumental jazz,6,60,musicbrainz,core
+jazz-rock,6,77,discogs;musicbrainz,core
+jungle,6,67,discogs;musicbrainz,core
+lounge,6,63,discogs;musicbrainz,core
+modal jazz,6,30,musicbrainz,core
+nu jazz,6,61,musicbrainz,core
+psychedelic soul,6,75,musicbrainz,core
+sludge metal,6,68,discogs;musicbrainz,core
+southern soul,6,58,musicbrainz,core
+vocal,6,50,discogs,core
+alternative pop/rock,5,97,musicbrainz,core
+arena rock,5,47,musicbrainz,core
+beat music,5,69,musicbrainz,core
+boogie,5,53,discogs;musicbrainz,core
+broken beat,5,44,discogs;musicbrainz,core
+chillout,5,47,musicbrainz,core
+drill and bass,5,56,musicbrainz,core
+easy listening,5,79,discogs;musicbrainz,core
+electroacoustic,5,32,discogs;musicbrainz,core
+experimental electronic,5,59,musicbrainz,core
+free improvisation,5,34,discogs;musicbrainz,core
+latin jazz,5,34,discogs;musicbrainz,core
+nu disco,5,53,musicbrainz,core
+proto-punk,5,45,musicbrainz,core
+r b,5,79,musicbrainz,core
+score,5,75,discogs,core
+smooth jazz,5,50,discogs;musicbrainz,core
+spoken word,5,49,discogs;musicbrainz,core
+surf,5,74,discogs;musicbrainz,core
+west coast hip hop,5,76,musicbrainz,core
+adult contemporary,4,51,musicbrainz,micro
+african,4,30,discogs;musicbrainz,micro
+afro-jazz,4,39,musicbrainz,micro
+ambient americana,4,31,musicbrainz,micro
+avant-folk,4,50,musicbrainz,micro
+balearic,4,34,discogs,micro
+breaks,4,27,discogs;musicbrainz,micro
+bubblegum bass,4,43,musicbrainz,micro
+contemporary classical,4,48,musicbrainz,micro
+dance,4,43,musicbrainz,micro
+dance-rock,4,35,musicbrainz,micro
+deep soul,4,46,musicbrainz,micro
+dubstep,4,42,discogs;musicbrainz,micro
+ethereal wave,4,43,musicbrainz,micro
+gospel,4,50,discogs;musicbrainz,micro
+heavy psych,4,41,musicbrainz,micro
+hip-hop,4,77,musicbrainz,micro
+metal,4,39,musicbrainz,micro
+mpb,4,49,discogs;musicbrainz,micro
+neo-classical,4,41,discogs,micro
+neofolk,4,25,musicbrainz,micro
+plunderphonics,4,60,musicbrainz,micro
+post-industrial,4,43,musicbrainz,micro
+progressive folk,4,83,musicbrainz,micro
+quiet storm,4,45,musicbrainz,micro
+rnb/swing,4,55,discogs;musicbrainz,micro
+sound collage,4,39,discogs;musicbrainz,micro
+synthwave,4,53,discogs;musicbrainz,micro
+uk garage,4,43,musicbrainz,micro
+acid jazz,3,41,discogs;musicbrainz,micro
+alternative metal,3,41,musicbrainz,micro
+am pop,3,39,musicbrainz,micro
+aor,3,31,discogs;musicbrainz,micro
+baroque,3,42,discogs;musicbrainz,micro
+berlin-school,3,31,discogs,micro
+blue-eyed soul,3,30,musicbrainz,micro
+bop,3,20,discogs;musicbrainz,micro
+british blues,3,33,musicbrainz,micro
+britpop,3,76,musicbrainz,micro
+bubblegum,3,36,discogs;musicbrainz,micro
+city pop,3,37,discogs;musicbrainz,micro
+dancehall,3,39,discogs;musicbrainz,micro
+doom metal,3,35,musicbrainz,micro
+drum n bass,3,33,discogs,micro
+edm,3,51,musicbrainz,micro
+electro house,3,48,discogs;musicbrainz,micro
+europop,3,32,discogs;musicbrainz,micro
+freak folk,3,37,musicbrainz,micro
+funktronica,3,49,musicbrainz,micro
+future funk,3,30,musicbrainz,micro
+glitch pop,3,35,musicbrainz,micro
+hardcore hip-hop,3,42,discogs,micro
+holiday,3,33,discogs,micro
+indie surf,3,34,musicbrainz,micro
+merseybeat,3,41,musicbrainz,micro
+midwest emo,3,51,discogs;musicbrainz,micro
+minimal synth,3,43,musicbrainz,micro
+mod,3,41,musicbrainz,micro
+stoner rock,3,39,discogs;musicbrainz,micro
+uk street soul,3,26,musicbrainz,micro
+vaporwave,3,36,musicbrainz,micro
+wonky,3,40,musicbrainz,micro
+afro-cuban jazz,2,27,discogs;musicbrainz,micro
+afrobeats,2,29,musicbrainz,micro
+alt rock,2,16,musicbrainz,micro
+alternative/indie rock,2,21,musicbrainz,micro
+américain,2,15,musicbrainz,micro
+animal on cover,2,21,musicbrainz,micro
+artist on cover,2,26,musicbrainz,micro
+avant-garde pop,2,29,musicbrainz,micro
+bass music,2,22,discogs,micro
+bebop,2,19,musicbrainz,micro
+berlin school,2,14,musicbrainz,micro
+big band,2,28,musicbrainz,micro
+bossanova,2,18,discogs,micro
+breakcore,2,22,musicbrainz,micro
+british folk rock,2,20,musicbrainz,micro
+cloud rap,2,26,musicbrainz,micro
+club,2,35,musicbrainz,micro
+contemporary pop/rock,2,23,musicbrainz,micro
+country pop,2,39,musicbrainz,micro
+dark wave,2,23,musicbrainz,micro
+electronica dance,2,24,musicbrainz,micro
+emo pop,2,33,musicbrainz,micro
+emocore,2,40,musicbrainz,micro
+english,2,21,musicbrainz,micro
+footwork,2,21,discogs,micro
+funky house,2,19,musicbrainz,micro
+gangsta rap,2,39,musicbrainz,micro
+hip house,2,26,musicbrainz,micro
+italo-disco,2,21,discogs;musicbrainz,micro
+jazz funk,2,13,musicbrainz,micro
+jazz instrument,2,11,musicbrainz,micro
+math pop,2,15,musicbrainz,micro
+minimal wave,2,22,musicbrainz,micro
+motown,2,24,musicbrainz,micro
+neo-soul,2,31,musicbrainz,micro
+new rave,2,19,musicbrainz,micro
+nu-disco,2,12,discogs,micro
+orchestral,2,33,musicbrainz,micro
+p-funk,2,18,musicbrainz,micro
+p.funk,2,18,discogs;musicbrainz,micro
+piano rock,2,20,musicbrainz,micro
+post-modern,2,31,discogs,micro
+progressive soul,2,32,musicbrainz,micro
+reggae,2,13,musicbrainz,micro
+rnb swing,2,31,musicbrainz,micro
+samba,2,22,discogs;musicbrainz,micro
+sound art,2,14,discogs;musicbrainz,micro
+symphonic rock,2,7,discogs;musicbrainz,micro
+synthpop,2,20,musicbrainz,micro
+tape music,2,20,musicbrainz,micro
+tech house,2,11,discogs;musicbrainz,micro
+theme,2,14,discogs,micro
+third stream,2,23,musicbrainz,micro
+traditional pop,2,24,musicbrainz,micro
+twee pop,2,20,musicbrainz,micro
+underground hip hop,2,35,musicbrainz,micro
+1996,1,10,musicbrainz,singleton
+2-step,1,9,musicbrainz,singleton
+60s,1,14,musicbrainz,singleton
+aaron,1,15,musicbrainz,singleton
+acid breaks,1,12,musicbrainz,singleton
+acid house,1,5,musicbrainz,singleton
+adult alternative pop/rock,1,12,musicbrainz,singleton
+afro house,1,16,musicbrainz,singleton
+afro-cuban,1,4,discogs,singleton
+alt-country,1,11,musicbrainz,singleton
+alternative rap,1,16,musicbrainz,singleton
+ambient dub,1,8,musicbrainz,singleton
+american primitive guitar,1,4,musicbrainz,singleton
+anarcho-punk,1,10,musicbrainz,singleton
+atmospheric drum and bass,1,10,musicbrainz,singleton
+avocado on cover,1,12,musicbrainz,singleton
+ballroom house,1,16,musicbrainz,singleton
+bassline,1,9,musicbrainz,singleton
+bitpop,1,12,musicbrainz,singleton
+bittersweet,1,14,musicbrainz,singleton
+black metal,1,12,musicbrainz,singleton
+blaxploitation,1,14,musicbrainz,singleton
+bluegrass,1,27,discogs,singleton
+bowie,1,10,musicbrainz,singleton
+boy band,1,12,musicbrainz,singleton
+braindance,1,11,musicbrainz,singleton
+brit pop,1,16,musicbrainz,singleton
+british rhythm blues,1,14,musicbrainz,singleton
+broken transmission,1,17,musicbrainz,singleton
+brostep,1,9,musicbrainz,singleton
+bubblegum pop,1,12,musicbrainz,singleton
+c86,1,16,musicbrainz,singleton
+cat on cover,1,9,musicbrainz,singleton
+chamber jazz,1,6,musicbrainz,singleton
+chamber music,1,2,musicbrainz,singleton
+chanson,1,11,discogs,singleton
+chicago soul,1,10,musicbrainz,singleton
+christmas,1,12,musicbrainz,singleton
+classic soul r b,1,21,musicbrainz,singleton
+coldwave,1,16,musicbrainz,singleton
+college rock,1,27,musicbrainz,singleton
+comedy rock,1,9,musicbrainz,singleton
+contemporary r b,1,18,musicbrainz,singleton
+country folk,1,9,musicbrainz,singleton
+country soul,1,27,musicbrainz,singleton
+crossover jazz,1,13,musicbrainz,singleton
+dance punk,1,11,musicbrainz,singleton
+dance-punk revival,1,5,musicbrainz,singleton
+dark jazz,1,12,discogs,singleton
+darksynth,1,10,musicbrainz,singleton
+darkwave,1,10,musicbrainz,singleton
+deep funk,1,16,musicbrainz,singleton
+dirty south,1,16,musicbrainz,singleton
+doo wop,1,12,discogs,singleton
+doo-wop,1,12,musicbrainz,singleton
+drugs,1,14,musicbrainz,singleton
+early pop/rock,1,24,musicbrainz,singleton
+ebm,1,10,musicbrainz,singleton
+eclectic,1,14,musicbrainz,singleton
+electro-disco,1,14,musicbrainz,singleton
+electro-industrial,1,10,musicbrainz,singleton
+emo rap,1,13,musicbrainz,singleton
+epic collage,1,13,musicbrainz,singleton
+exotica,1,12,musicbrainz,singleton
+experimental big band,1,5,musicbrainz,singleton
+female vocalist,1,18,musicbrainz,singleton
+field recording,1,11,musicbrainz,singleton
+flamenco pop,1,15,musicbrainz,singleton
+folk baroque,1,11,musicbrainz,singleton
+folk metal,1,16,musicbrainz,singleton
+folk punk,1,12,musicbrainz,singleton
+free folk,1,12,musicbrainz,singleton
+freestyle,1,9,musicbrainz,singleton
+funk metal,1,12,musicbrainz,singleton
+future pop,1,20,discogs,singleton
+g-funk,1,16,discogs,singleton
+garage house,1,12,musicbrainz,singleton
+go-go,1,27,discogs,singleton
+goth rock,1,28,musicbrainz,singleton
+gothic,1,7,musicbrainz,singleton
+gothic rock,1,28,musicbrainz,singleton
+happy hardcore,1,13,discogs,singleton
+hauntology,1,23,musicbrainz,singleton
+hip hop soul,1,13,musicbrainz,singleton
+hip-house,1,15,discogs,singleton
+horrorcore,1,18,musicbrainz,singleton
+illbient,1,11,discogs,singleton
+impressionist,1,20,discogs,singleton
+industrial metal,1,10,musicbrainz,singleton
+industrial rock,1,10,musicbrainz,singleton
+instrumental rock,1,9,musicbrainz,singleton
+j dilla,1,12,musicbrainz,singleton
+j-rock,1,9,discogs,singleton
+jam band,1,14,musicbrainz,singleton
+jazz blues,1,12,musicbrainz,singleton
+madchester,1,12,musicbrainz,singleton
+makina,1,13,discogs,singleton
+miami bass,1,10,musicbrainz,singleton
+microhouse,1,16,musicbrainz,singleton
+microsound,1,15,musicbrainz,singleton
+midtempo bass,1,10,musicbrainz,singleton
+miles davis,1,11,musicbrainz,singleton
+minimal techno,1,2,musicbrainz,singleton
+minimalism,1,2,musicbrainz,singleton
+music hall,1,65,musicbrainz,singleton
+musique concrète,1,6,discogs,singleton
+neo-acoustic,1,10,musicbrainz,singleton
+neo-progressive rock,1,7,musicbrainz,singleton
+neo-romantic,1,20,discogs,singleton
+neoclassical new age,1,14,musicbrainz,singleton
+new jack swing,1,17,musicbrainz,singleton
+northern soul,1,11,musicbrainz,singleton
+nu funk,1,13,musicbrainz,singleton
+nyū myūjikku,1,10,musicbrainz,singleton
+orchestral music,1,15,musicbrainz,singleton
+parody,1,7,discogs,singleton
+piano jazz,1,7,musicbrainz,singleton
+poetry,1,11,musicbrainz,singleton
+political,1,16,musicbrainz,singleton
+post-britpop,1,12,musicbrainz,singleton
+post-minimalism,1,14,musicbrainz,singleton
+prog-rock,1,6,musicbrainz,singleton
+progressive house,1,9,musicbrainz,singleton
+punk poetry,1,11,musicbrainz,singleton
+rap,1,6,musicbrainz,singleton
+rap metal,1,12,musicbrainz,singleton
+rock roll,1,11,discogs,singleton
+rock/pop,1,13,musicbrainz,singleton
+sarcastic,1,12,musicbrainz,singleton
+self-titled,1,9,musicbrainz,singleton
+shibuya-kei,1,12,musicbrainz,singleton
+shoegazer,1,13,musicbrainz,singleton
+sketch comedy,1,27,musicbrainz,singleton
+southern rap,1,16,musicbrainz,singleton
+southern rock,1,11,musicbrainz,singleton
+space age pop,1,14,musicbrainz,singleton
+space ambient,1,10,musicbrainz,singleton
+speed garage,1,9,musicbrainz,singleton
+speed metal,1,8,discogs;musicbrainz,singleton
+spirituals,1,10,discogs,singleton
+stoner metal,1,15,musicbrainz,singleton
+sunshine pop,1,13,musicbrainz,singleton
+swing,1,16,musicbrainz,singleton
+symphonic prog,1,6,musicbrainz,singleton
+technical,1,6,musicbrainz,singleton
+thrash,1,8,discogs,singleton
+thrash metal,1,8,musicbrainz,singleton
+totalism,1,7,musicbrainz,singleton
+trance,1,9,musicbrainz,singleton
+transcendental auditory experience,1,8,musicbrainz,singleton
+trap soul,1,12,musicbrainz,singleton
+tribal,1,10,discogs,singleton
+trip-hop,1,10,musicbrainz,singleton
+turntablism,1,23,musicbrainz,singleton
+uk rave,1,15,musicbrainz,singleton
+urban,1,11,musicbrainz,singleton
+urban cowboy,1,12,musicbrainz,singleton
+urban crossover,1,18,musicbrainz,singleton
+utopian virtual,1,13,musicbrainz,singleton
+visual album,1,13,musicbrainz,singleton
+vocal jazz,1,6,musicbrainz,singleton
+western classical,1,8,musicbrainz,singleton
+whalecore,1,10,musicbrainz,singleton
+worldbeat,1,10,musicbrainz,singleton
+yacht rock,1,12,musicbrainz,singleton
+zolo,1,5,musicbrainz,singleton
+zydeco,1,27,discogs,singleton

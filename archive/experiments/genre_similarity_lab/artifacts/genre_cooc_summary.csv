@@ -1,0 +1,339 @@
+genre,album_count,top_neighbors
+rock,1013,indie rock:0.52; alternative rock:0.20; pop:0.19; electronic:0.13; experimental:0.12
+electronic,679,ambient:0.34; experimental:0.24; pop:0.16; rock:0.13; jazz:0.10
+indie rock,642,rock:0.52; alternative rock:0.23; indie pop:0.14; pop:0.14; experimental:0.10
+pop,400,indie pop:0.29; rock:0.19; electronic:0.16; indie rock:0.14; pop rock:0.09
+jazz,297,contemporary jazz:0.14; funk:0.13; soul:0.11; jazz funk:0.10; electronic:0.10
+ambient,293,electronic:0.34; experimental:0.19; new age:0.16; drone:0.12; classical:0.10
+experimental,286,electronic:0.24; ambient:0.19; rock:0.12; indie rock:0.10; idm:0.10
+alternative rock,225,indie rock:0.23; rock:0.20; noise rock:0.06; experimental:0.06; art rock:0.06
+indie pop,206,pop:0.29; indie rock:0.14; dream pop:0.12; rock:0.12; pop rock:0.08
+lo-fi,0,
+funk / soul,0,
+hip hop,106,conscious:0.21; neo soul:0.14; boom bap:0.13; jazz rap:0.12; alternative hip hop:0.11
+"folk, world, country",0,
+synth-pop,0,
+post-punk,0,
+dream pop,91,shoegaze:0.26; indie pop:0.12; pop:0.08; post rock:0.08; indie rock:0.07
+art rock,89,experimental rock:0.13; art pop:0.12; classic rock:0.10; pop rock:0.08; rock:0.07
+psychedelic rock,88,psychedelic pop:0.12; garage rock:0.11; garage psych:0.09; rock:0.08; experimental:0.08
+funk,160,soul:0.78; jazz:0.13; neo soul:0.12; jazz funk:0.11; hip hop:0.11
+post-rock,0,
+soul,150,funk:0.78; neo soul:0.13; jazz:0.11; hip hop:0.10; pop soul:0.10
+folk rock,81,indie folk:0.16; folk:0.11; americana:0.11; classic rock:0.11; pop rock:0.10
+pop rock,79,classic rock:0.11; folk rock:0.10; pop:0.09; art rock:0.08; indie pop:0.08
+punk,79,garage rock:0.21; hardcore punk:0.17; punk rock:0.14; noise rock:0.09; hardcore:0.09
+shoegaze,78,dream pop:0.26; noise pop:0.12; slacker rock:0.11; slowcore:0.11; indie rock:0.07
+downtempo,74,electronic:0.10; ambient:0.09; leftfield:0.09; abstract:0.08; idm:0.08
+folk,128,indie folk:0.11; folk rock:0.11; pop:0.06; contemporary folk:0.06; ambient:0.06
+contemporary r&b,0,
+idm,63,abstract:0.26; techno:0.12; glitch:0.11; experimental:0.10; drum and bass:0.09
+noise rock,62,no wave:0.13; noise pop:0.11; experimental rock:0.10; noise:0.09; punk:0.09
+indie folk,60,folk rock:0.16; folk:0.11; chamber pop:0.09; baroque pop:0.07; soft rock:0.07
+neo-psychedelia,0,
+new age,54,ambient:0.16; electronic:0.06; chillout:0.05; minimal:0.05; modern classical:0.05
+experimental rock,52,art rock:0.13; post rock:0.11; noise rock:0.10; experimental:0.08; indie folk:0.06
+classical,50,modern classical:0.19; ambient:0.10; classical crossover:0.08; baroque:0.06; instrumental:0.06
+new wave,50,art punk:0.10; hypnagogic pop:0.09; punk:0.08; alternative:0.07; art rock:0.06
+garage rock,48,garage punk:0.23; punk:0.21; garage psych:0.19; psychedelic rock:0.11; heavy psych:0.08
+singer-songwriter,0,
+drone,46,ambient:0.12; post rock:0.09; experimental:0.07; electronic:0.05; instrumental:0.05
+electro,46,acid techno:0.21; acid:0.18; techno:0.10; idm:0.09; leftfield:0.07
+leftfield,46,downtempo:0.09; art pop:0.09; folktronica:0.08; electro:0.07; electronic:0.06
+r&b,0,
+techno,46,idm:0.12; acid:0.11; minimal:0.10; electro:0.10; acid techno:0.09
+contemporary jazz,43,jazz:0.14; fusion:0.13; soul jazz:0.09; spiritual jazz:0.08; jazz fusion:0.08
+art pop,41,ambient pop:0.13; art rock:0.12; indietronica:0.10; leftfield:0.09; alternative pop:0.09
+instrumental,41,instrumental hip hop:0.09; post rock:0.09; hip hop:0.07; classical:0.06; progressive:0.06
+dance-pop,0,
+post rock,102,experimental rock:0.11; instrumental:0.09; experimental:0.09; drone:0.09; rock:0.08
+psychedelic,37,psychedelic pop:0.09; progressive:0.08; psychedelic rock:0.07; psychedelic folk:0.06; baroque pop:0.06
+chamber pop,35,baroque pop:0.10; indie folk:0.09; art pop:0.09; lounge:0.08; folk rock:0.07
+jazz-funk,0,
+psychedelic pop,34,progressive pop:0.13; hypnagogic pop:0.12; psychedelic rock:0.12; indietronica:0.11; bedroom pop:0.10
+abstract,33,idm:0.26; glitch:0.11; downtempo:0.08; future jazz:0.08; experimental:0.07
+house,32,deep house:0.20; dubstep:0.09; disco:0.09; techno:0.08; europop:0.06
+modern classical,31,classical:0.19; ambient:0.09; baroque:0.06; contemporary classical:0.06; new age:0.05
+noise,31,no wave:0.15; noise rock:0.09; experimental rock:0.05; electronica:0.05; rock and roll:0.05
+slowcore,31,slacker rock:0.34; space rock revival:0.28; alternative country:0.15; contemporary folk:0.13; space rock:0.13
+disco,30,vaporwave:0.10; quiet storm:0.10; house:0.09; alternative dance:0.08; funk:0.08
+hard bop,29,modal jazz:0.17; post bop:0.10; jazz:0.10; free jazz:0.07; modal:0.07
+minimal,29,techno:0.10; ambient:0.06; classical:0.05; new age:0.05; electronic:0.04
+neo soul,29,hip hop:0.14; soul:0.13; jazz rap:0.13; political hip hop:0.12; funk:0.12
+avant-garde,0,
+alternative r&b,0,
+indietronica,26,psychedelic pop:0.11; art pop:0.10; folktronica:0.09; progressive pop:0.09; alternative dance:0.09
+noise pop,26,shoegaze:0.12; noise rock:0.11; slacker rock:0.10; alternative country:0.08; alternative pop:0.07
+post-hardcore,0,
+fusion,25,jazz fusion:0.22; contemporary jazz:0.13; soul jazz:0.13; jazz funk:0.09; spiritual jazz:0.09
+classic rock,24,hard rock:0.26; blues rock:0.25; arena rock:0.21; blues:0.18; album rock:0.15
+krautrock,24,heavy psych:0.17; garage punk:0.14; garage psych:0.14; berlin school:0.12; garage rock:0.07
+conscious,22,conscious hip hop:0.52; jazz rap:0.44; boom bap:0.29; abstract hip hop:0.21; hip hop:0.21
+hypnagogic pop,22,bedroom pop:0.17; uk street soul:0.14; minimal synth:0.14; psychedelic pop:0.12; chillwave:0.10
+acoustic,20,folk rock:0.07; indie folk:0.07; chamber pop:0.06; américain:0.05; freak folk:0.05
+avant-garde jazz,0,
+ballad,20,gospel:0.09; baroque pop:0.09; disco:0.06; pop soul:0.05; art pop:0.05
+bedroom pop,20,hypnagogic pop:0.17; soft rock:0.15; indie surf:0.15; uk street soul:0.15; jangle pop:0.11
+contemporary folk,20,americana:0.22; alternative country:0.21; slowcore:0.13; chamber folk:0.12; folk rock:0.10
+slacker rock,20,space rock revival:0.43; slowcore:0.34; space rock:0.19; alternative country:0.17; shoegaze:0.11
+afrobeat,19,contemporary jazz:0.07; funk:0.07; soul:0.06; adult contemporary:0.05; african:0.05
+glitch,19,progressive electronic:0.17; idm:0.11; abstract:0.11; sound collage:0.10; electroacoustic:0.09
+hard rock,19,classic rock:0.26; blues rock:0.21; arena rock:0.20; heavy metal:0.17; british blues:0.16
+jangle pop,19,indie surf:0.16; bedroom pop:0.11; slacker rock:0.05; hypnagogic pop:0.05; britpop:0.05
+pop soul,19,smooth soul:0.27; adult contemporary:0.15; motown:0.11; gangsta rap:0.11; soul:0.10
+baroque pop,18,chamber pop:0.10; progressive:0.10; ballad:0.09; surf rock:0.08; chamber folk:0.08
+post bop,24,modal:0.18; modal jazz:0.15; cool jazz:0.12; free jazz:0.11; hard bop:0.10
+soft rock,18,bedroom pop:0.15; folk pop:0.14; indie folk:0.07; psychedelic pop:0.06; baroque pop:0.06
+alternative pop,22,uk garage:0.13; art pop:0.09; indietronica:0.07; noise pop:0.07; ambient pop:0.06
+psychedelic folk,17,freak folk:0.18; progressive pop:0.12; americana:0.11; progressive folk:0.11; folk rock:0.09
+art punk,16,spoken word:0.17; funk rock:0.10; new wave:0.10; hardcore punk:0.07; punk:0.07
+blues,16,blues rock:0.28; british blues:0.19; classic rock:0.18; arena rock:0.17; album rock:0.16
+blues rock,16,blues:0.28; classic rock:0.25; arena rock:0.24; album rock:0.22; hard rock:0.21
+deep house,16,house:0.20; dub techno:0.09; bass music:0.06; hip house:0.06; neofolk:0.05
+electropop,16,bubblegum bass:0.25; hyperpop:0.19; deconstructed club:0.16; club:0.12; chillwave:0.12
+garage punk,16,garage psych:0.39; heavy psych:0.25; garage rock:0.23; krautrock:0.14; garage rock revival:0.10
+indie,16,alternative punk:0.09; alternative and punk:0.07; emo:0.07; electronica dance:0.06; lounge:0.05
+math rock,16,art rock:0.07; midwest emo:0.06; noise rock:0.05; post rock:0.05; krautrock:0.05
+modal,16,post bop:0.18; modal jazz:0.10; cool jazz:0.07; hard bop:0.07; free jazz:0.07
+no wave,16,noise:0.15; noise rock:0.13; alternative rock:0.05; trap:0.04; grunge:0.04
+punk rock,16,hardcore punk:0.24; punk:0.14; pop punk:0.14; hardcore:0.09; alternative and punk:0.07
+stage screen,0,
+alternative and punk,15,indie:0.07; punk rock:0.07; alternative metal:0.06; midwest emo:0.06; metal:0.06
+emo,15,alternative punk:0.10; indie:0.07; emocore:0.06; midwest emo:0.06; power pop:0.05
+ethereal,15,shoegaze:0.06; ethereal wave:0.06; synthwave:0.06; contemporary classical:0.06; dream pop:0.05
+free jazz,15,spiritual jazz:0.18; free improvisation:0.18; modal jazz:0.17; post bop:0.11; hard bop:0.07
+hardcore punk,15,punk rock:0.24; hardcore:0.20; punk:0.17; noise rock:0.08; heavy metal:0.07
+heavy metal,15,progressive metal:0.47; sludge metal:0.31; arena rock:0.25; british blues:0.20; hard rock:0.17
+jazzy hip-hop,0,
+progressive,15,progressive rock:0.15; classic rock:0.15; baroque pop:0.10; psychedelic:0.08; prog rock:0.08
+progressive rock,15,progressive:0.15; classic rock:0.15; prog rock:0.12; jazz rock:0.07; alt rock:0.06
+alternative country,14,americana:0.23; contemporary folk:0.21; slacker rock:0.17; slowcore:0.15; alternative folk:0.11
+boom bap,14,conscious:0.29; hip hop:0.13; conscious hip hop:0.12; jazz rap:0.12; abstract hip hop:0.11
+cool jazz,14,post bop:0.12; modal jazz:0.11; modal:0.07; bebop:0.07; américain:0.07
+jazz fusion,14,fusion:0.22; latin jazz:0.19; nu jazz:0.18; jazz funk:0.12; jazz rock:0.12
+jazz rap,14,conscious hip hop:0.69; conscious:0.44; abstract hip hop:0.31; political hip hop:0.29; alternative hip hop:0.24
+latin,14,mpb:0.29; bossa nova:0.17; samba:0.14; latin jazz:0.12; bossanova:0.07
+smooth soul,14,pop soul:0.27; southern soul:0.18; adult contemporary:0.12; quiet storm:0.12; funk soul:0.12
+acid,13,acid techno:0.67; electro:0.18; breakbeat:0.17; techno:0.11; idm:0.09
+alternative,14,garage rock revival:0.11; grunge:0.08; synthpop:0.07; electronica dance:0.07; new wave:0.07
+americana,13,alternative country:0.23; contemporary folk:0.22; country rock:0.18; progressive folk:0.13; country:0.12
+avantgarde,13,spoken word:0.06; lounge:0.06; bossa nova:0.05; experimental rock:0.05; hardcore:0.05
+conscious hip hop,13,jazz rap:0.69; conscious:0.52; political hip hop:0.40; west coast hip hop:0.29; abstract hip hop:0.25
+country rock,13,country:0.19; americana:0.18; gospel:0.13; alternative country:0.08; country pop:0.07
+funk soul,13,deep soul:0.21; southern soul:0.19; smooth soul:0.12; soul:0.09; funk:0.08
+grunge,13,alternative:0.08; noise rock:0.07; alternative pop:0.06; punk:0.06; industrial:0.06
+post-bop,0,
+rock and roll,13,merseybeat:0.14; beat music:0.12; classic rock:0.09; britpop:0.07; am pop:0.07
+acid techno,12,acid:0.67; electro:0.21; breakbeat:0.11; techno:0.09; idm:0.09
+alternative hip hop,12,jazz rap:0.24; conscious:0.17; gangsta rap:0.17; conscious hip hop:0.14; abstract hip hop:0.12
+ambient pop,12,art pop:0.13; chillwave:0.09; psychedelic folk:0.07; freak folk:0.07; alternative pop:0.06
+chillwave,12,electropop:0.12; hypnagogic pop:0.10; ambient pop:0.09; indietronica:0.09; experimental electronic:0.06
+electronica,12,drill and bass:0.06; smooth jazz:0.06; jungle:0.06; idm:0.06; leftfield:0.05
+pop rap,12,gangsta rap:0.17; hip house:0.15; west coast hip hop:0.13; r b:0.13; political hip hop:0.11
+post-punk revival,0,
+sophisti-pop,0,
+space rock,12,space rock revival:0.29; slacker rock:0.19; slowcore:0.13; animal on cover:0.08; folktronica:0.05
+synth funk,12,wonky:0.15; nu jazz:0.12; electropop:0.12; funky house:0.08; jazz instrument:0.08
+prog rock,12,arena rock:0.13; heavy metal:0.12; progressive rock:0.12; progressive metal:0.12; classic rock:0.09
+soul-jazz,0,
+spiritual jazz,11,free jazz:0.18; fusion:0.09; jazz fusion:0.09; big band:0.08; contemporary jazz:0.08
+alternative dance,10,new rave:0.20; indietronica:0.09; disco:0.08; synthwave:0.08; breaks:0.08
+jazz rock,15,jazz fusion:0.12; jazz pop:0.09; jazz funk:0.09; progressive rock:0.07; alt rock:0.06
+progressive pop,10,jazz pop:0.19; psychedelic pop:0.13; psychedelic folk:0.12; piano rock:0.09; indietronica:0.09
+rhythm blues,0,
+soul jazz,18,jazz funk:0.16; fusion:0.13; theme:0.11; funktronica:0.11; nu jazz:0.09
+space rock revival,10,slacker rock:0.43; space rock:0.29; slowcore:0.28; animal on cover:0.09; shoegaze:0.07
+chamber folk,9,contemporary folk:0.12; twee pop:0.10; british folk rock:0.10; orchestral:0.10; progressive folk:0.08
+contemporary,0,
+east coast hip hop,9,conscious hip hop:0.22; jazz rap:0.21; conscious:0.19; abstract hip hop:0.14; alternative hip hop:0.11
+experimental hip hop,9,abstract hip hop:0.33; jazz rap:0.15; hardcore hip hop:0.12; conscious:0.11; alternative hip hop:0.11
+folktronica,9,indietronica:0.09; leftfield:0.08; alternative folk:0.07; progressive pop:0.06; house:0.05
+future jazz,9,jazz instrument:0.10; bass music:0.10; electroacoustic:0.08; boogie:0.08; broken beat:0.08
+garage psych,9,heavy psych:0.44; garage punk:0.39; garage rock:0.19; acid rock:0.15; krautrock:0.14
+hardcore,9,doom metal:0.20; hardcore punk:0.20; sludge metal:0.15; punk rock:0.09; punk:0.09
+hyperpop,9,bubblegum bass:0.30; deconstructed club:0.25; club:0.22; electro house:0.20; edm:0.20
+jazz pop,9,math pop:0.22; progressive pop:0.19; bossa nova:0.14; piano rock:0.10; british folk rock:0.10
+pop punk,9,punk rock:0.14; power pop:0.13; punk:0.05; emo:0.04; math rock:0.04
+progressive electronic,9,sound collage:0.18; glitch:0.17; glitch pop:0.09; plunderphonics:0.08; deconstructed club:0.07
+alternative punk,8,garage rock revival:0.17; emo:0.10; indie:0.09; grunge:0.05; alternative:0.05
+breakbeat,8,acid:0.17; drum and bass:0.14; acid techno:0.11; drum n bass:0.10; uk garage:0.09
+dance-punk,0,
+drum and bass,8,drill and bass:0.30; jungle:0.27; drum n bass:0.22; breakbeat:0.14; breakcore:0.11
+dub techno,8,deep house:0.09; ambient techno:0.08; techno:0.04; new age:0.02; electronic:0.01
+glam rock,8,glam:0.27; hard rock:0.12; piano rock:0.11; lounge:0.08; power pop:0.07
+non-music,0,
+political hip hop,8,conscious hip hop:0.40; west coast hip hop:0.30; jazz rap:0.29; conscious:0.20; trap:0.14
+power pop,8,emo pop:0.25; pop punk:0.13; glam rock:0.07; emo:0.05; punk rock:0.04
+soundtrack,0,
+surf rock,8,traditional pop:0.11; am pop:0.10; surf:0.08; baroque pop:0.08; christmas music:0.08
+trap,8,west coast hip hop:0.18; political hip hop:0.14; pop rap:0.11; cloud rap:0.11; artist on cover:0.11
+trip hop,8,wonky:0.10; acid jazz:0.10; instrumental hip hop:0.08; downtempo:0.06; future jazz:0.06
+abstract hip hop,7,experimental hip hop:0.33; jazz rap:0.31; conscious hip hop:0.25; conscious:0.21; east coast hip hop:0.14
+alternative folk,7,americana:0.11; alternative country:0.11; folktronica:0.07; indie folk:0.06; country rock:0.05
+bossa nova,7,math pop:0.29; latin:0.17; jazz pop:0.14; bossanova:0.12; samba:0.12
+folk pop,7,beat music:0.20; soft rock:0.14; artist on cover:0.12; am pop:0.11; britpop:0.11
+j-pop,0,
+progressive metal,7,sludge metal:0.62; heavy metal:0.47; alternative metal:0.25; stoner rock:0.25; prog rock:0.12
+acid rock,6,heavy psych:0.25; garage psych:0.15; p.funk:0.14; garage punk:0.10; psychedelic soul:0.09
+album rock,6,arena rock:0.38; british blues:0.29; blues rock:0.22; heavy metal:0.17; blues:0.16
+alt-pop,0,
+ambient techno,6,idm:0.08; dub techno:0.08; techno:0.06; acid techno:0.06; abstract:0.05
+christmas music,6,holiday:0.29; traditional pop:0.14; am pop:0.12; progressive folk:0.11; surf:0.10
+classical crossover,6,baroque:0.29; contemporary classical:0.11; instrumental jazz:0.09; classical:0.08; modal:0.05
+country,6,country rock:0.19; country pop:0.14; americana:0.12; gospel:0.11; blues:0.05
+deconstructed club,6,bubblegum bass:0.43; hyperpop:0.25; electropop:0.16; plunderphonics:0.11; progressive electronic:0.07
+dub,6,chillout:0.22; reggae:0.14; quiet storm:0.11; african:0.11; house:0.06
+funk rock,6,p.funk:0.14; art punk:0.10; acid rock:0.09; psychedelic soul:0.09; lounge:0.09
+garage rock revival,6,alternative punk:0.17; stoner rock:0.12; alternative:0.11; garage punk:0.10; garage rock:0.04
+glam,6,glam rock:0.27; piano rock:0.14; hypnagogic pop:0.08; classic rock:0.07; prog rock:0.06
+hardcore hip hop,9,political hip hop:0.13; experimental hip hop:0.12; boom bap:0.10; hip house:0.09; hip hop:0.08
+industrial,6,dark wave:0.14; breaks:0.11; grunge:0.06; techno:0.04; noise:0.03
+instrumental hip hop,6,underground hip hop:0.14; instrumental:0.09; abstract hip hop:0.08; trip hop:0.08; conscious:0.08
+instrumental jazz,6,third stream:0.14; baroque:0.12; contemporary classical:0.11; smooth jazz:0.10; classical crossover:0.09
+jazz-rock,0,
+jungle,6,drum and bass:0.27; drill and bass:0.22; glitch pop:0.12; drum n bass:0.12; breakbeat:0.08
+lounge,6,funk rock:0.09; chamber pop:0.08; glam rock:0.08; jazz pop:0.07; avantgarde:0.06
+modal jazz,6,free jazz:0.17; hard bop:0.17; post bop:0.15; américain:0.14; third stream:0.14
+nu jazz,6,funktronica:0.29; psychedelic soul:0.20; jazz fusion:0.18; wonky:0.12; synth funk:0.12
+psychedelic soul,6,p.funk:0.33; nu jazz:0.20; progressive soul:0.14; funktronica:0.12; jazz fusion:0.11
+sludge metal,6,progressive metal:0.62; heavy metal:0.31; doom metal:0.29; hardcore:0.15; alternative metal:0.12
+southern soul,6,funk soul:0.19; smooth soul:0.18; deep soul:0.11; blues:0.05; soul:0.04
+vocal,6,gospel:0.11; ballad:0.04; acoustic:0.04; experimental rock:0.02; indie folk:0.02
+alternative pop/rock,0,
+arena rock,5,british blues:0.60; album rock:0.38; heavy metal:0.25; blues rock:0.24; classic rock:0.21
+beat music,5,merseybeat:0.60; am pop:0.33; britpop:0.33; folk pop:0.20; artist on cover:0.17
+boogie,5,quiet storm:0.12; broken beat:0.11; future jazz:0.08; alternative dance:0.07; disco:0.06
+broken beat,5,theme:0.17; breaks:0.12; boogie:0.11; future jazz:0.08; contemporary jazz:0.07
+chillout,5,dub:0.22; artist on cover:0.17; bubblegum:0.14; contemporary classical:0.12; trap:0.08
+drill and bass,5,drum n bass:0.33; drum and bass:0.30; jungle:0.22; breakcore:0.17; electronica dance:0.17
+easy listening,5,score:0.43; cool jazz:0.06; jazz funk:0.05; psychedelic:0.02; contemporary jazz:0.02
+electroacoustic,5,nu jazz:0.10; glitch:0.09; future jazz:0.08; minimal:0.03; drone:0.02
+experimental electronic,5,heavy psych:0.12; garage psych:0.08; chillwave:0.06; experimental rock:0.06; jazz rock:0.05
+free improvisation,5,free jazz:0.18; post bop:0.04; krautrock:0.04; drone:0.02; jazz:0.02
+latin jazz,5,jazz fusion:0.19; bossanova:0.17; balearic:0.12; latin:0.12; bossa nova:0.09
+nu disco,7,future funk:0.43; funky house:0.29; vaporwave:0.25; dance:0.10; plunderphonics:0.10
+proto-punk,0,
+r b,5,pop rap:0.13; adult contemporary:0.12; album rock:0.10; smooth soul:0.06; latin:0.06
+score,5,easy listening:0.43; jazz funk:0.05; modal:0.05; psychedelic:0.02; contemporary jazz:0.02
+smooth jazz,5,quiet storm:0.12; neofolk:0.12; instrumental jazz:0.10; electronica:0.06; smooth soul:0.06
+spoken word,5,art punk:0.17; symphonic rock:0.17; hardcore:0.08; avantgarde:0.06; jazz rock:0.05
+surf,5,traditional pop:0.17; am pop:0.14; christmas music:0.10; surf rock:0.08; prog rock:0.06
+west coast hip hop,5,political hip hop:0.30; conscious hip hop:0.29; jazz rap:0.19; trap:0.18; conscious:0.17
+adult contemporary,4,pop soul:0.15; r b:0.12; smooth soul:0.12; jazz pop:0.08; pop rap:0.07
+african,4,dub:0.11; latin:0.06; afrobeat:0.05; folk:0.02; ambient:0.00
+afro-jazz,0,
+ambient americana,4,spiritual jazz:0.07; drone:0.04; slowcore:0.03; post rock:0.01; ambient:0.01
+avant-folk,0,
+balearic,4,latin jazz:0.12; nu disco:0.10; latin:0.06; jazz funk:0.03; downtempo:0.01
+breaks,4,electronica dance:0.20; broken beat:0.12; drill and bass:0.12; industrial:0.11; alternative dance:0.08
+bubblegum bass,4,deconstructed club:0.43; hyperpop:0.30; electropop:0.25; club:0.20; electro house:0.17
+contemporary classical,4,baroque:0.17; chillout:0.12; instrumental jazz:0.11; classical crossover:0.11; modern classical:0.06
+dance,4,funky house:0.20; future funk:0.17; hip house:0.17; nu disco:0.10; hardcore hip hop:0.08
+dance-rock,0,
+deep soul,4,funk soul:0.21; southern soul:0.11; blues:0.05; soul:0.03; funk:0.03
+dubstep,4,wonky:0.17; glitch pop:0.17; house:0.09; jazz funk:0.09; synth funk:0.07
+ethereal wave,4,ethereal:0.06; shoegaze:0.05; dream pop:0.04; electro:0.02; drone:0.02
+gospel,4,country pop:0.20; country rock:0.13; vocal:0.11; country:0.11; ballad:0.09
+heavy psych,4,garage psych:0.44; acid rock:0.25; garage punk:0.25; krautrock:0.17; experimental electronic:0.12
+hip-hop,0,
+metal,4,alternative metal:0.17; heavy metal:0.12; sludge metal:0.11; progressive metal:0.10; alternative and punk:0.06
+mpb,4,samba:0.50; latin:0.29; bossa nova:0.10; psychedelic:0.03; soul:0.02
+neo-classical,0,
+neofolk,4,smooth jazz:0.12; deep house:0.05; experimental rock:0.04; drone:0.02; post rock:0.02
+plunderphonics,4,vaporwave:0.17; future funk:0.17; deconstructed club:0.11; nu disco:0.10; progressive electronic:0.08
+post-industrial,0,
+progressive folk,4,americana:0.13; christmas music:0.11; psychedelic folk:0.11; chamber folk:0.08; folk rock:0.04
+quiet storm,4,boogie:0.12; smooth jazz:0.12; smooth soul:0.12; dub:0.11; disco:0.10
+rnb/swing,0,
+sound collage,4,progressive electronic:0.18; glitch:0.10; contemporary folk:0.04; hypnagogic pop:0.04; indietronica:0.03
+synthwave,4,vaporwave:0.17; alternative dance:0.08; ethereal:0.06; disco:0.03; noise:0.03
+uk garage,4,synthpop:0.20; alternative pop:0.13; breakbeat:0.09; art pop:0.02; leftfield:0.02
+acid jazz,3,funktronica:0.20; trip hop:0.10; progressive rock:0.06; downtempo:0.04; jazz funk:0.03
+alternative metal,3,stoner rock:0.50; progressive metal:0.25; metal:0.17; sludge metal:0.12; heavy metal:0.12
+am pop,3,merseybeat:0.50; beat music:0.33; traditional pop:0.25; artist on cover:0.25; surf:0.14
+aor,3,blues:0.06; soft rock:0.05; acoustic:0.05; downtempo:0.01; folk rock:0.01
+baroque,3,classical crossover:0.29; contemporary classical:0.17; instrumental jazz:0.12; modern classical:0.06; classical:0.06
+berlin-school,0,
+blue-eyed soul,0,
+bop,3,bebop:0.25; cool jazz:0.06; hard bop:0.03; jazz:0.01
+british blues,3,arena rock:0.60; album rock:0.29; british folk rock:0.25; heavy metal:0.20; blues rock:0.19
+britpop,3,beat music:0.33; merseybeat:0.20; folk pop:0.11; rock and roll:0.07; jangle pop:0.05
+bubblegum,3,artist on cover:0.25; chillout:0.14; trap:0.10; pop rap:0.07; electropop:0.06
+city pop,3,electro:0.02; experimental:0.00; electronic:0.00; pop:0.00
+dancehall,3,afrobeats:0.25; rnb swing:0.25; hyperpop:0.09; east coast hip hop:0.09; pop rap:0.07
+doom metal,3,sludge metal:0.29; hardcore:0.20; progressive metal:0.11; heavy metal:0.06; hardcore punk:0.06
+drum n bass,3,drill and bass:0.33; drum and bass:0.22; jungle:0.12; breakbeat:0.10; idm:0.03
+edm,3,club:0.67; electro house:0.50; hyperpop:0.20; bubblegum bass:0.17; electropop:0.12
+electro house,3,club:0.67; edm:0.50; hyperpop:0.20; bubblegum bass:0.17; electropop:0.12
+europop,3,disco:0.06; house:0.06; pop:0.01; electronic:0.00
+freak folk,3,psychedelic folk:0.18; garage psych:0.09; ambient pop:0.07; garage punk:0.06; acoustic:0.05
+funktronica,3,nu jazz:0.29; acid jazz:0.20; wonky:0.20; psychedelic soul:0.12; soul jazz:0.11
+future funk,3,vaporwave:0.50; nu disco:0.43; funky house:0.25; dance:0.17; plunderphonics:0.17
+glitch pop,3,wonky:0.20; dubstep:0.17; jungle:0.12; progressive electronic:0.09; synth funk:0.07
+hardcore hip-hop,0,
+holiday,3,christmas music:0.29; soul jazz:0.05; instrumental:0.02; contemporary jazz:0.02; classical:0.02
+indie surf,3,jangle pop:0.16; bedroom pop:0.15; slacker rock:0.10; hypnagogic pop:0.09; psychedelic pop:0.06
+merseybeat,3,beat music:0.60; am pop:0.50; artist on cover:0.25; britpop:0.20; rock and roll:0.14
+midwest emo,3,emo:0.06; alternative and punk:0.06; math rock:0.06; post rock:0.02; art rock:0.01
+minimal synth,3,minimal wave:0.25; hypnagogic pop:0.14; new wave:0.04; psychedelic:0.03; electronic:0.00
+mod,3,psychedelic rock:0.02; garage rock:0.02; pop rock:0.01; punk:0.01; indie rock:0.00
+stoner rock,3,alternative metal:0.50; progressive metal:0.25; garage rock revival:0.12; sludge metal:0.12; heavy metal:0.12
+uk street soul,3,bedroom pop:0.15; hypnagogic pop:0.14; synth funk:0.07
+vaporwave,3,future funk:0.50; nu disco:0.25; synthwave:0.17; plunderphonics:0.17; disco:0.10
+wonky,3,funktronica:0.20; glitch pop:0.20; dubstep:0.17; synth funk:0.15; nu jazz:0.12
+afro-cuban jazz,0,
+afrobeats,2,hip house:0.25; dancehall:0.25; pop rap:0.08; house:0.03; jazz:0.00
+alt rock,2,jazz fusion:0.07; jazz rock:0.06; progressive rock:0.06; progressive:0.06; krautrock:0.04
+alternative/indie rock,0,
+américain,2,modal jazz:0.14; cool jazz:0.07; free jazz:0.06; acoustic:0.05; hard bop:0.03
+animal on cover,2,space rock revival:0.09; space rock:0.08; slacker rock:0.05; slowcore:0.03; shoegaze:0.01
+artist on cover,2,am pop:0.25; bubblegum:0.25; merseybeat:0.25; beat music:0.17; chillout:0.17
+avant-garde pop,0,
+bass music,2,future jazz:0.10; deep house:0.06; house:0.03; electro:0.02; hip hop:0.01
+bebop,2,bop:0.25; cool jazz:0.07; jazz:0.01
+berlin school,5,krautrock:0.12; minimal:0.03; modern classical:0.03; leftfield:0.02; electro:0.02
+big band,2,traditional pop:0.33; spiritual jazz:0.08; jazz fusion:0.07; soul jazz:0.05; fusion:0.04
+bossanova,2,latin jazz:0.17; bossa nova:0.12; latin:0.07; baroque pop:0.05; psychedelic rock:0.01
+breakcore,2,drill and bass:0.17; drum and bass:0.11; noise:0.03; idm:0.02; electronic:0.00
+british folk rock,2,british blues:0.25; arena rock:0.17; jazz pop:0.10; chamber folk:0.10; heavy metal:0.06
+cloud rap,2,trap:0.11; experimental hip hop:0.10; pop rap:0.08; alternative pop:0.04; new age:0.02
+club,2,edm:0.67; electro house:0.67; hyperpop:0.22; bubblegum bass:0.20; electropop:0.12
+contemporary pop/rock,0,
+country pop,2,gospel:0.20; country:0.14; country rock:0.07; americana:0.07; blues:0.06
+dark wave,2,industrial:0.14; punk rock:0.06; noise rock:0.02; electronic:0.00; rock:0.00
+electronica dance,2,breaks:0.20; drill and bass:0.17; alternative:0.07; indie:0.06; abstract:0.03
+emo pop,2,power pop:0.25; alternative rock:0.01; indie pop:0.00; indie rock:0.00; rock:0.00
+emocore,2,emo:0.06; noise rock:0.03; post rock:0.01
+english,0,
+footwork,2,house:0.03; leftfield:0.02; pop:0.00; experimental:0.00; electronic:0.00
+funky house,2,nu disco:0.29; future funk:0.25; dance:0.20; synth funk:0.08; pop soul:0.05
+gangsta rap,2,alternative hip hop:0.17; pop rap:0.17; pop soul:0.11; hip hop:0.02; funk:0.01
+hip house,3,afrobeats:0.25; dance:0.17; pop rap:0.15; hardcore hip hop:0.09; house:0.06
+italo-disco,0,
+jazz funk,34,soul jazz:0.16; jazz fusion:0.12; funk:0.11; jazz:0.10; fusion:0.09
+jazz instrument,2,future jazz:0.10; fusion:0.08; synth funk:0.08; jazz fusion:0.07; jazz funk:0.06
+math pop,2,bossa nova:0.29; jazz pop:0.22; jazz rock:0.06; chamber pop:0.06; indie folk:0.02
+minimal wave,2,minimal synth:0.25; hypnagogic pop:0.09; indietronica:0.04; minimal:0.03; new wave:0.02
+motown,2,pop soul:0.11; soul:0.01; funk:0.01; pop:0.00; rock:0.00
+neo-soul,0,
+new rave,2,alternative dance:0.20; indietronica:0.08; electro:0.04; disco:0.03; leftfield:0.02
+nu-disco,0,
+orchestral,2,chamber folk:0.10; progressive:0.06; baroque pop:0.05; chamber pop:0.03; psychedelic:0.03
+p-funk,0,
+p.funk,2,psychedelic soul:0.33; funk rock:0.14; acid rock:0.14; hard rock:0.05; funk:0.01
+piano rock,2,glam:0.14; glam rock:0.11; jazz pop:0.10; progressive pop:0.09; hard rock:0.05
+post-modern,0,
+progressive soul,2,psychedelic soul:0.14; neo soul:0.03; art pop:0.02; soul:0.01; funk:0.01
+reggae,2,dub:0.14; experimental:0.00; indie rock:0.00; rock:0.00
+rnb swing,2,dancehall:0.25; east coast hip hop:0.10; funk soul:0.07; neo soul:0.03; hip hop:0.02
+samba,2,mpb:0.50; latin:0.14; bossa nova:0.12; psychedelic:0.03; folk:0.01
+sound art,2,glitch:0.05; idm:0.02; ambient:0.01; electronic:0.00
+symphonic rock,2,spoken word:0.17; prog rock:0.08; progressive rock:0.06; progressive:0.06; classic rock:0.04
+synthpop,2,uk garage:0.20; alternative:0.07; alternative pop:0.04; art pop:0.02; leftfield:0.02
+tape music,2,modern classical:0.03; ambient:0.01; electronic:0.00
+tech house,2,techno:0.04; minimal:0.03; house:0.03; downtempo:0.01; ambient:0.00
+theme,2,broken beat:0.17; soul jazz:0.11; post bop:0.04; fusion:0.04; jazz funk:0.03
+third stream,2,instrumental jazz:0.14; modal jazz:0.14; cool jazz:0.07; post bop:0.04; instrumental:0.02
+traditional pop,2,big band:0.33; am pop:0.25; surf:0.17; christmas music:0.14; surf rock:0.11
+twee pop,2,chamber folk:0.10; chamber pop:0.06; pop rock:0.01; indie pop:0.01; pop:0.00
+underground hip hop,2,instrumental hip hop:0.14; abstract hip hop:0.12; experimental hip hop:0.10; alternative hip hop:0.08; jazz rap:0.07

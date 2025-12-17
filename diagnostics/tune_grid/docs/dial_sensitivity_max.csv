@@ -1,0 +1,11 @@
+metric,genre_method,min_genre_similarity,sonic_weight,transition_strictness
+adjacency_violations,0.0,0.0,0.0,0.0
+artist_cap_rejected,0.0,0.0,3122.0,0.0
+below_floor_count,0.0,0.0,0.0,0.0
+below_similarity_floor,0.0,0.0,3003.0,0.0
+edge_genre_min,0.0,0.0,0.325,0.0
+edge_hybrid_p10,0.0,0.0,0.23620000000000008,0.0
+edge_sonic_min,0.0,0.0,0.052999999999999936,0.0
+edge_transition_min,0.0,0.0,0.051000000000000045,0.0
+tracks_below_genre_threshold,0.0,0.0,0.0,0.0
+transition_floor_rejected,0.0,0.0,0.0,0.0

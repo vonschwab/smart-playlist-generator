@@ -1,0 +1,2 @@
+seed_track_id,seed_artist,seed_title,sonic_flatness,sonic_topk_gap,sonic_intra_artist_coherence,sonic_intra_album_coherence,genre_flatness,genre_topk_gap
+89f67bd19c13c2c481bd583206ce44d9,Aaliyah,Rock The Boat,0.04503425101436902,0.017133160134648162,0.014503743684642134,0.028653710842685975,1.3472379446029663,0.7074573040008545

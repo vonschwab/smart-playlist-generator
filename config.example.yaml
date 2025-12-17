@@ -1,10 +1,10 @@
 library:
   music_directory: E:/MUSIC  # Set to your music library path
-  database_path: metadata.db
+  database_path: data/metadata.db
 
-lastfm:
-  api_key: YOUR_LASTFM_API_KEY
-  username: your_username
+lastfm:  # Optional: only used for listening history now
+  api_key: ""
+  username: ""
   history_days: 90
 
 openai:
@@ -34,6 +34,14 @@ playlists:
   artist_window_size: 8
   max_artist_per_window: 1
   min_seed_artist_ratio: 0.125
+  pipeline: ds  # legacy | ds
+  ds_pipeline:
+    artifact_path: experiments/genre_similarity_lab/artifacts/data_matrices_step1.npz
+    mode: dynamic
+    random_seed: 0
+    enable_logging: true
+  sonic:
+    sim_variant: raw  # raw | centered | z | z_clip | whiten_pca (opt-in; raw remains default)
   genre_similarity:
     enabled: true
     weight: 0.33
@@ -122,9 +130,6 @@ playlists:
       - demo
       - reissue
       - compilation
-  similar_artists:
-    enabled: true
-    boost: 0.05
   similarity:
     min_threshold: 0.5
     artist_direct_match: 0.9
@@ -136,6 +141,18 @@ playlists:
     similar_artists: 30
     extension_base: 10
     extension_increment: 20
+  duration_match:
+    enabled: true
+    weight: 0.35          # influence of duration preference (multiplicative exponent)
+    window_frac: 0.25     # +/-25% is treated as near-neutral
+    falloff: 0.6          # steeper/smoother tail outside window
+    min_target_seconds: 40
+  dedupe:
+    title:
+      enabled: true       # Enable fuzzy title deduplication
+      threshold: 92       # Fuzzy match threshold (0-100, higher = stricter)
+      mode: loose         # 'strict' or 'loose' (loose strips version tags like Remastered, Live, etc.)
+      short_title_min_len: 6  # Titles shorter than this require exact match
 
 logging:
   level: DEBUG

@@ -34,6 +34,11 @@ build/
 dist/
 *.egg-info/
 
+# Node tooling
+node_modules/
+ui/node_modules/
+ui/dist/
+
 # Other tooling artifacts
 .claude/
 

@@ -29,7 +29,6 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
 from src.config_loader import Config
-from src.lastfm_client import LastFMClient
 from src.multi_source_genre_fetcher import MusicBrainzGenreFetcher
 
 # Configure logging
@@ -48,19 +47,16 @@ logger = logging.getLogger(__name__)
 class NormalizedGenreUpdater:
     """Updates genres using normalized schema"""
 
-    def __init__(self, config_path: Optional[str] = None):
+    def __init__(self, config_path: Optional[str] = None, db_path: Optional[str] = None):
         """Initialize updater"""
         if config_path is None:
             config_path = ROOT_DIR / 'config.yaml'
 
         self.config = Config(config_path)
-        self.db_path = ROOT_DIR / 'data' / 'metadata.db'
+        self.db_path = Path(db_path) if db_path else ROOT_DIR / 'data' / 'metadata.db'
         self.conn = None
 
         # Initialize API clients
-        lastfm_api_key = self.config.get('lastfm', 'api_key')
-        lastfm_username = self.config.get('lastfm', 'username')
-        self.lastfm = LastFMClient(lastfm_api_key, lastfm_username)
         self.musicbrainz = MusicBrainzGenreFetcher()
 
         self._init_db()
@@ -81,17 +77,13 @@ class NormalizedGenreUpdater:
 
         query = """
             SELECT DISTINCT t.artist,
-                   CASE WHEN lfm.artist IS NULL THEN 1 ELSE 0 END as needs_lastfm,
                    CASE WHEN mb.artist IS NULL THEN 1 ELSE 0 END as needs_musicbrainz
             FROM tracks t
-            LEFT JOIN (
-                SELECT DISTINCT artist FROM artist_genres WHERE source = 'lastfm_artist'
-            ) lfm ON t.artist = lfm.artist
             LEFT JOIN (
                 SELECT DISTINCT artist FROM artist_genres WHERE source = 'musicbrainz_artist'
             ) mb ON t.artist = mb.artist
             WHERE t.artist IS NOT NULL AND TRIM(t.artist) != ''
-              AND (lfm.artist IS NULL OR mb.artist IS NULL)
+              AND (mb.artist IS NULL)
             ORDER BY t.artist
         """
 
@@ -111,16 +103,12 @@ class NormalizedGenreUpdater:
 
         query = """
             SELECT a.album_id, a.artist, a.title,
-                   CASE WHEN lfm.album_id IS NULL THEN 1 ELSE 0 END as needs_lastfm,
                    CASE WHEN mb.album_id IS NULL THEN 1 ELSE 0 END as needs_musicbrainz
             FROM albums a
             LEFT JOIN (
-                SELECT DISTINCT album_id FROM album_genres WHERE source = 'lastfm_album'
-            ) lfm ON a.album_id = lfm.album_id
-            LEFT JOIN (
                 SELECT DISTINCT album_id FROM album_genres WHERE source = 'musicbrainz_release'
             ) mb ON a.album_id = mb.album_id
-            WHERE lfm.album_id IS NULL OR mb.album_id IS NULL
+            WHERE mb.album_id IS NULL
             ORDER BY a.artist, a.title
         """
 
@@ -131,31 +119,13 @@ class NormalizedGenreUpdater:
         return [dict(row) for row in cursor.fetchall()]
 
     def get_tracks_needing_genres(self, limit: Optional[int] = None) -> List[Dict]:
-        """Get tracks that need track-specific genre data"""
-        cursor = self.conn.cursor()
-
-        query = """
-            SELECT track_id, artist, title, album
-            FROM tracks
-            WHERE file_path IS NOT NULL
-              AND artist IS NOT NULL AND TRIM(artist) != ''
-              AND title IS NOT NULL AND TRIM(title) != ''
-              AND track_id NOT IN (
-                  SELECT DISTINCT track_id FROM track_genres WHERE source = 'lastfm_track'
-              )
-            ORDER BY artist, album, title
-        """
-
-        if limit:
-            query += f" LIMIT {limit}"
-
-        cursor.execute(query)
-        return [dict(row) for row in cursor.fetchall()]
+        """Track-level genre fetching from Last.FM is disabled; return empty list."""
+        return []
 
     def update_artist_genres(self, limit: Optional[int] = None):
-        """Update artist-level genres"""
+        """Update artist-level genres with collaboration inheritance fallback"""
         logger.info("=" * 70)
-        logger.info("Updating Artist Genres")
+        logger.info("Updating Artist Genres (with collaboration inheritance)")
         logger.info("=" * 70)
 
         artists = self.get_artists_needing_genres(limit)
@@ -167,31 +137,22 @@ class NormalizedGenreUpdater:
 
         logger.info(f"Found {total} artists needing genres from one or more sources")
 
-        stats = {'total': total, 'lastfm': 0, 'musicbrainz': 0, 'empty': 0, 'failed': 0}
+        stats = {
+            'total': total,
+            'musicbrainz': 0,
+            'inherited': 0,
+            'empty': 0,
+            'failed': 0
+        }
         start_time = time.time()
 
         for i, artist_data in enumerate(artists, 1):
             artist = artist_data['artist']
-            needs_lastfm = bool(artist_data['needs_lastfm'])
             needs_musicbrainz = bool(artist_data['needs_musicbrainz'])
 
             logger.info(f"[{i}/{total}] {artist}")
 
             try:
-                # Last.FM artist tags (if needed)
-                if needs_lastfm:
-                    lastfm_genres = self.lastfm.get_artist_tags(artist)
-                    if lastfm_genres:
-                        self._store_artist_genres(artist, lastfm_genres, 'lastfm_artist')
-                        stats['lastfm'] += 1
-                        logger.info(f"  + Last.FM: {', '.join(lastfm_genres[:3])}" +
-                                  (f" (+{len(lastfm_genres)-3} more)" if len(lastfm_genres) > 3 else ""))
-                    else:
-                        # Store empty marker to indicate we checked
-                        self._store_artist_genres(artist, ['__EMPTY__'], 'lastfm_artist')
-                        stats['empty'] += 1
-                        logger.info(f"  - Last.FM: No genres found (marked as checked)")
-
                 # MusicBrainz artist genres (if needed)
                 if needs_musicbrainz:
                     mb_genres = self.musicbrainz.fetch_musicbrainz_artist_genres(artist)
@@ -201,12 +162,39 @@ class NormalizedGenreUpdater:
                         logger.info(f"  + MusicBrainz: {', '.join(mb_genres[:3])}" +
                                   (f" (+{len(mb_genres)-3} more)" if len(mb_genres) > 3 else ""))
                     else:
-                        # Store empty marker to indicate we checked
-                        self._store_artist_genres(artist, ['__EMPTY__'], 'musicbrainz_artist')
-                        stats['empty'] += 1
-                        logger.info(f"  - MusicBrainz: No genres found (marked as checked)")
+                        # Try collaboration fallback
+                        from src.artist_utils import parse_collaboration
+                        constituents = parse_collaboration(artist)
 
-                time.sleep(1.5)  # Rate limiting
+                        if len(constituents) > 1:
+                            # It's a collaboration - fetch from constituents
+                            inherited_genres = []
+                            for constituent in constituents:
+                                constituent_genres = self.musicbrainz.fetch_musicbrainz_artist_genres(constituent)
+                                # Take top 5 per artist
+                                inherited_genres.extend(constituent_genres[:5])
+                                time.sleep(1.1)  # Rate limit each constituent fetch
+
+                            if inherited_genres:
+                                # Deduplicate and cap at 10 total
+                                unique_genres = list(dict.fromkeys(inherited_genres))[:10]
+                                self._store_artist_genres(artist, unique_genres, 'musicbrainz_artist_inherited')
+                                stats['inherited'] += 1
+                                logger.info(f"  + Inherited from {len(constituents)} artists: " +
+                                          f"{', '.join(unique_genres[:3])}" +
+                                          (f" (+{len(unique_genres)-3} more)" if len(unique_genres) > 3 else ""))
+                            else:
+                                # No genres found for constituents either
+                                self._store_artist_genres(artist, ['__EMPTY__'], 'musicbrainz_artist')
+                                stats['empty'] += 1
+                                logger.info(f"  - No genres found (collaboration with no constituent genres)")
+                        else:
+                            # Solo artist with no genres
+                            self._store_artist_genres(artist, ['__EMPTY__'], 'musicbrainz_artist')
+                            stats['empty'] += 1
+                            logger.info(f"  - MusicBrainz: No genres found (marked as checked)")
+
+                time.sleep(1.1)  # Rate limiting for MusicBrainz
 
             except Exception as e:
                 logger.error(f"  Error: {e}")
@@ -215,8 +203,20 @@ class NormalizedGenreUpdater:
         elapsed = time.time() - start_time
         logger.info("\n" + "=" * 70)
         logger.info(f"Artist Genres Complete: {total - stats['failed']}/{total} in {elapsed:.1f}s")
-        logger.info(f"  Last.FM: {stats['lastfm']} | MusicBrainz: {stats['musicbrainz']} | Failed: {stats['failed']}")
+        logger.info(f"  Direct MusicBrainz: {stats['musicbrainz']}")
+        logger.info(f"  Inherited (collab): {stats['inherited']}")
+        logger.info(f"  No genres found: {stats['empty']}")
+        logger.info(f"  Failed: {stats['failed']}")
         logger.info("=" * 70)
+
+        # Trigger effective genres refresh
+        logger.info("\nRefreshing effective genres...")
+        try:
+            from scripts.refresh_effective_genres import refresh_effective_genres
+            refresh_effective_genres()
+            logger.info("Effective genres refresh complete!")
+        except Exception as e:
+            logger.error(f"Failed to refresh effective genres: {e}")
 
     def update_album_genres(self, limit: Optional[int] = None):
         """Update album-level genres"""
@@ -233,30 +233,15 @@ class NormalizedGenreUpdater:
 
         logger.info(f"Found {total} albums needing genres from one or more sources")
 
-        stats = {'total': total, 'lastfm': 0, 'musicbrainz': 0, 'empty': 0, 'failed': 0}
+        stats = {'total': total, 'musicbrainz': 0, 'empty': 0, 'failed': 0}
         start_time = time.time()
 
         for i, album in enumerate(albums, 1):
-            needs_lastfm = bool(album['needs_lastfm'])
             needs_musicbrainz = bool(album['needs_musicbrainz'])
 
             logger.info(f"[{i}/{total}] {album['artist']} - {album['title']}")
 
             try:
-                # Last.FM album tags (if needed)
-                if needs_lastfm:
-                    lastfm_genres = self.lastfm.get_album_tags(album['artist'], album['title'])
-                    if lastfm_genres:
-                        self._store_album_genres(album['album_id'], lastfm_genres, 'lastfm_album')
-                        stats['lastfm'] += 1
-                        logger.info(f"  + Last.FM: {', '.join(lastfm_genres[:3])}" +
-                                  (f" (+{len(lastfm_genres)-3} more)" if len(lastfm_genres) > 3 else ""))
-                    else:
-                        # Store empty marker to indicate we checked
-                        self._store_album_genres(album['album_id'], ['__EMPTY__'], 'lastfm_album')
-                        stats['empty'] += 1
-                        logger.info(f"  - Last.FM: No genres found (marked as checked)")
-
                 # MusicBrainz release genres (if needed)
                 if needs_musicbrainz:
                     mb_genres = self.musicbrainz.fetch_musicbrainz_release_genres(album['artist'], album['title'])
@@ -271,7 +256,7 @@ class NormalizedGenreUpdater:
                         stats['empty'] += 1
                         logger.info(f"  - MusicBrainz: No genres found (marked as checked)")
 
-                time.sleep(1.5)  # Rate limiting
+                time.sleep(1.1)  # Rate limiting for MusicBrainz
 
             except Exception as e:
                 logger.error(f"  Error: {e}")
@@ -280,54 +265,19 @@ class NormalizedGenreUpdater:
         elapsed = time.time() - start_time
         logger.info("\n" + "=" * 70)
         logger.info(f"Album Genres Complete: {total - stats['failed']}/{total} in {elapsed:.1f}s")
-        logger.info(f"  Last.FM: {stats['lastfm']} | MusicBrainz: {stats['musicbrainz']} | Failed: {stats['failed']}")
+        logger.info(f"  MusicBrainz: {stats['musicbrainz']} | Failed: {stats['failed']}")
         logger.info("=" * 70)
 
     def update_track_genres(self, limit: Optional[int] = None):
-        """Update track-specific genres"""
+        """Track-level genre fetching from Last.FM is disabled; purge legacy data."""
         logger.info("=" * 70)
-        logger.info("Updating Track Genres")
+        logger.info("Track genre updates are disabled (Last.FM track tags removed). Purging legacy lastfm_track rows.")
         logger.info("=" * 70)
-
-        tracks = self.get_tracks_needing_genres(limit)
-        total = len(tracks)
-
-        if total == 0:
-            logger.info("No tracks need genre updates!")
-            return
-
-        logger.info(f"Found {total} tracks needing track-specific genres")
-
-        stats = {'total': total, 'success': 0, 'empty': 0, 'failed': 0}
-        start_time = time.time()
-
-        for i, track in enumerate(tracks, 1):
-            logger.info(f"[{i}/{total}] {track['artist']} - {track['title']}")
-
-            try:
-                # Last.FM track tags (most specific)
-                track_genres = self.lastfm.get_track_tags(track['artist'], track['title'])
-                if track_genres:
-                    self._store_track_genres(track['track_id'], track_genres, 'lastfm_track')
-                    stats['success'] += 1
-                    logger.info(f"  + Last.FM Track: {', '.join(track_genres[:3])}" +
-                              (f" (+{len(track_genres)-3} more)" if len(track_genres) > 3 else ""))
-                else:
-                    # Store empty marker to indicate we checked
-                    self._store_track_genres(track['track_id'], ['__EMPTY__'], 'lastfm_track')
-                    stats['empty'] += 1
-                    logger.info(f"  - Last.FM: No track genres found (marked as checked)")
-
-                time.sleep(1.5)  # Rate limiting
-
-            except Exception as e:
-                logger.error(f"  Error: {e}")
-                stats['failed'] += 1
-
-        elapsed = time.time() - start_time
-        logger.info("\n" + "=" * 70)
-        logger.info(f"Track Genres Complete: {stats['success']}/{total} in {elapsed:.1f}s")
-        logger.info("=" * 70)
+        cursor = self.conn.cursor()
+        cursor.execute("DELETE FROM track_genres WHERE source = 'lastfm_track'")
+        self.conn.commit()
+        logger.info("Removed legacy lastfm_track entries from track_genres.")
+        return
 
     def _store_artist_genres(self, artist: str, genres: List[str], source: str):
         """Store genres for an artist"""
@@ -380,12 +330,12 @@ class NormalizedGenreUpdater:
         albums_with_genres = cursor.fetchone()[0]
         print(f"Albums: {albums_with_genres:,}/{total_albums:,} have genres ({albums_with_genres/total_albums*100:.1f}%)")
 
-        # Tracks
+        # Tracks: Last.FM track tags disabled; file tag counts only (if present)
         cursor.execute("SELECT COUNT(*) FROM tracks WHERE file_path IS NOT NULL")
         total_tracks = cursor.fetchone()[0]
-        cursor.execute("SELECT COUNT(DISTINCT track_id) FROM track_genres WHERE source = 'lastfm_track'")
+        cursor.execute("SELECT COUNT(DISTINCT track_id) FROM track_genres WHERE source = 'file'")
         tracks_with_genres = cursor.fetchone()[0]
-        print(f"Tracks: {tracks_with_genres:,}/{total_tracks:,} have track-specific genres ({tracks_with_genres/total_tracks*100:.1f}%)")
+        print(f"Tracks: {tracks_with_genres:,}/{total_tracks:,} have file tag genres (Last.FM track tags disabled)")
 
     def close(self):
         """Close database connection"""
@@ -399,7 +349,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Update genres with normalized schema')
     parser.add_argument('--artists', action='store_true', help='Update only artist genres')
     parser.add_argument('--albums', action='store_true', help='Update only album genres')
-    parser.add_argument('--tracks', action='store_true', help='Update only track genres')
+    parser.add_argument('--tracks', action='store_true', help='(Disabled) Track genre updates are no-ops; retains file tags only')
     parser.add_argument('--limit', type=int, help='Maximum number of items to process')
     parser.add_argument('--stats', action='store_true', help='Show statistics only')
     args = parser.parse_args()
@@ -409,11 +359,10 @@ if __name__ == "__main__":
     if args.stats:
         updater.get_stats()
     else:
-        # If no specific type specified, update all
+        # If no specific type specified, update artists and albums (track updates disabled)
         if not (args.artists or args.albums or args.tracks):
             updater.update_artist_genres(limit=args.limit)
             updater.update_album_genres(limit=args.limit)
-            updater.update_track_genres(limit=args.limit)
         else:
             if args.artists:
                 updater.update_artist_genres(limit=args.limit)

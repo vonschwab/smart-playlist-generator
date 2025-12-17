@@ -1,0 +1,506 @@
+genre,tier,album_count,track_count
+rock,core,1012,12172
+electronic,core,679,7096
+indie rock,core,641,7866
+pop,core,399,4773
+jazz,core,297,2734
+ambient,core,293,2796
+experimental,core,286,3071
+alternative rock,core,225,3040
+indie pop,core,206,2545
+lo-fi,core,133,1661
+funk / soul,core,116,1293
+hip hop,core,106,1493
+"folk, world, country",core,96,982
+synth-pop,core,95,1111
+post-punk,core,94,1281
+dream pop,core,91,1104
+art rock,core,89,1029
+psychedelic rock,core,88,1051
+funk,core,86,1009
+post-rock,core,85,899
+soul,core,82,979
+folk rock,core,81,946
+pop rock,core,79,1070
+punk,core,79,1114
+shoegaze,core,78,877
+downtempo,core,74,839
+folk,core,64,738
+contemporary r&b,core,63,883
+idm,core,63,709
+noise rock,core,62,765
+indie folk,core,60,748
+neo-psychedelia,core,54,631
+new age,core,54,448
+experimental rock,core,52,580
+classical,core,50,496
+new wave,core,50,697
+garage rock,core,48,672
+singer-songwriter,core,47,549
+drone,core,46,405
+electro,core,46,378
+leftfield,core,46,482
+r&b,core,46,610
+techno,core,46,297
+contemporary jazz,core,43,444
+art pop,core,41,499
+instrumental,core,41,555
+dance-pop,core,38,452
+post rock,core,37,327
+psychedelic,core,37,507
+chamber pop,core,35,495
+jazz-funk,core,34,310
+psychedelic pop,core,34,465
+abstract,core,33,370
+house,core,32,328
+modern classical,core,31,304
+noise,core,31,326
+slowcore,core,31,373
+disco,core,30,334
+hard bop,core,29,186
+minimal,core,29,241
+neo soul,core,29,402
+avant-garde,core,28,309
+alternative r&b,core,26,359
+indietronica,core,26,300
+noise pop,core,26,343
+post-hardcore,core,26,354
+fusion,core,25,176
+classic rock,core,24,298
+krautrock,core,24,249
+conscious,core,22,361
+hypnagogic pop,core,22,294
+acoustic,core,20,207
+avant-garde jazz,core,20,112
+ballad,core,20,207
+bedroom pop,core,20,241
+contemporary folk,core,20,224
+slacker rock,core,20,314
+afrobeat,core,19,107
+glitch,core,19,222
+hard rock,core,19,191
+jangle pop,core,19,236
+pop soul,core,19,266
+baroque pop,core,18,269
+post bop,core,18,140
+soft rock,core,18,201
+alternative pop,core,17,201
+psychedelic folk,core,17,186
+art punk,core,16,276
+blues,core,16,197
+blues rock,core,16,216
+deep house,core,16,123
+electropop,core,16,199
+garage punk,core,16,214
+indie,core,16,210
+math rock,core,16,267
+modal,core,16,112
+no wave,core,16,220
+punk rock,core,16,197
+stage screen,core,16,155
+alternative and punk,core,15,218
+emo,core,15,257
+ethereal,core,15,137
+free jazz,core,15,74
+hardcore punk,core,15,305
+heavy metal,core,15,163
+jazzy hip-hop,core,15,212
+progressive,core,15,267
+progressive rock,core,15,144
+alternative country,core,14,155
+boom bap,core,14,250
+cool jazz,core,14,116
+jazz fusion,core,14,124
+jazz rap,core,14,234
+latin,core,14,144
+smooth soul,core,14,187
+acid,core,13,72
+alternative,core,13,187
+americana,core,13,168
+avantgarde,core,13,127
+conscious hip hop,core,13,209
+country rock,core,13,151
+funk soul,core,13,157
+grunge,core,13,178
+post-bop,core,13,91
+rock and roll,core,13,252
+acid techno,core,12,87
+alternative hip hop,core,12,208
+ambient pop,core,12,140
+chillwave,core,12,174
+electronica,core,12,149
+pop rap,core,12,188
+post-punk revival,core,12,140
+sophisti-pop,core,12,145
+space rock,core,12,180
+synth funk,core,12,137
+prog rock,core,11,111
+soul-jazz,core,11,99
+spiritual jazz,core,11,81
+alternative dance,core,10,105
+jazz rock,core,10,97
+progressive pop,core,10,106
+rhythm blues,core,10,124
+soul jazz,core,10,89
+space rock revival,core,10,152
+chamber folk,core,9,91
+contemporary,core,9,82
+east coast hip hop,core,9,144
+experimental hip hop,core,9,121
+folktronica,core,9,105
+future jazz,core,9,104
+garage psych,core,9,96
+hardcore,core,9,103
+hyperpop,core,9,98
+jazz pop,core,9,95
+pop punk,core,9,108
+progressive electronic,core,9,116
+alternative punk,core,8,96
+breakbeat,core,8,60
+dance-punk,core,8,82
+drum and bass,core,8,98
+dub techno,core,8,34
+glam rock,core,8,85
+non-music,core,8,81
+political hip hop,core,8,93
+power pop,core,8,135
+soundtrack,core,8,67
+surf rock,core,8,111
+trap,core,8,110
+trip hop,core,8,94
+abstract hip hop,core,7,135
+alternative folk,core,7,86
+bossa nova,core,7,69
+folk pop,core,7,86
+j-pop,core,7,75
+progressive metal,core,7,86
+acid rock,core,6,58
+album rock,core,6,62
+alt-pop,core,6,67
+ambient techno,core,6,51
+christmas music,core,6,174
+classical crossover,core,6,82
+country,core,6,69
+deconstructed club,core,6,73
+dub,core,6,44
+funk rock,core,6,69
+garage rock revival,core,6,71
+glam,core,6,68
+hardcore hip hop,core,6,53
+industrial,core,6,92
+instrumental hip hop,core,6,135
+instrumental jazz,core,6,60
+jazz-rock,core,6,77
+jungle,core,6,67
+lounge,core,6,63
+modal jazz,core,6,30
+nu jazz,core,6,61
+psychedelic soul,core,6,75
+sludge metal,core,6,68
+southern soul,core,6,58
+vocal,core,6,50
+alternative pop/rock,core,5,97
+arena rock,core,5,47
+beat music,core,5,69
+boogie,core,5,53
+broken beat,core,5,44
+chillout,core,5,47
+drill and bass,core,5,56
+easy listening,core,5,79
+electroacoustic,core,5,32
+experimental electronic,core,5,59
+free improvisation,core,5,34
+latin jazz,core,5,34
+nu disco,core,5,53
+proto-punk,core,5,45
+r b,core,5,79
+score,core,5,75
+smooth jazz,core,5,50
+spoken word,core,5,49
+surf,core,5,74
+west coast hip hop,core,5,76
+adult contemporary,micro,4,51
+african,micro,4,30
+afro-jazz,micro,4,39
+ambient americana,micro,4,31
+avant-folk,micro,4,50
+balearic,micro,4,34
+breaks,micro,4,27
+bubblegum bass,micro,4,43
+contemporary classical,micro,4,48
+dance,micro,4,43
+dance-rock,micro,4,35
+deep soul,micro,4,46
+dubstep,micro,4,42
+ethereal wave,micro,4,43
+gospel,micro,4,50
+heavy psych,micro,4,41
+hip-hop,micro,4,77
+metal,micro,4,39
+mpb,micro,4,49
+neo-classical,micro,4,41
+neofolk,micro,4,25
+plunderphonics,micro,4,60
+post-industrial,micro,4,43
+progressive folk,micro,4,83
+quiet storm,micro,4,45
+rnb/swing,micro,4,55
+sound collage,micro,4,39
+synthwave,micro,4,53
+uk garage,micro,4,43
+acid jazz,micro,3,41
+alternative metal,micro,3,41
+am pop,micro,3,39
+aor,micro,3,31
+baroque,micro,3,42
+berlin-school,micro,3,31
+blue-eyed soul,micro,3,30
+bop,micro,3,20
+british blues,micro,3,33
+britpop,micro,3,76
+bubblegum,micro,3,36
+city pop,micro,3,37
+dancehall,micro,3,39
+doom metal,micro,3,35
+drum n bass,micro,3,33
+edm,micro,3,51
+electro house,micro,3,48
+europop,micro,3,32
+freak folk,micro,3,37
+funktronica,micro,3,49
+future funk,micro,3,30
+glitch pop,micro,3,35
+hardcore hip-hop,micro,3,42
+holiday,micro,3,33
+indie surf,micro,3,34
+merseybeat,micro,3,41
+midwest emo,micro,3,51
+minimal synth,micro,3,43
+mod,micro,3,41
+stoner rock,micro,3,39
+uk street soul,micro,3,26
+vaporwave,micro,3,36
+wonky,micro,3,40
+afro-cuban jazz,micro,2,27
+afrobeats,micro,2,29
+alt rock,micro,2,16
+alternative/indie rock,micro,2,21
+américain,micro,2,15
+animal on cover,micro,2,21
+artist on cover,micro,2,26
+avant-garde pop,micro,2,29
+bass music,micro,2,22
+bebop,micro,2,19
+berlin school,micro,2,14
+big band,micro,2,28
+bossanova,micro,2,18
+breakcore,micro,2,22
+british folk rock,micro,2,20
+cloud rap,micro,2,26
+club,micro,2,35
+contemporary pop/rock,micro,2,23
+country pop,micro,2,39
+dark wave,micro,2,23
+electronica dance,micro,2,24
+emo pop,micro,2,33
+emocore,micro,2,40
+english,micro,2,21
+footwork,micro,2,21
+funky house,micro,2,19
+gangsta rap,micro,2,39
+hip house,micro,2,26
+italo-disco,micro,2,21
+jazz funk,micro,2,13
+jazz instrument,micro,2,11
+math pop,micro,2,15
+minimal wave,micro,2,22
+motown,micro,2,24
+neo-soul,micro,2,31
+new rave,micro,2,19
+nu-disco,micro,2,12
+orchestral,micro,2,33
+p-funk,micro,2,18
+p.funk,micro,2,18
+piano rock,micro,2,20
+post-modern,micro,2,31
+progressive soul,micro,2,32
+reggae,micro,2,13
+rnb swing,micro,2,31
+samba,micro,2,22
+sound art,micro,2,14
+symphonic rock,micro,2,7
+synthpop,micro,2,20
+tape music,micro,2,20
+tech house,micro,2,11
+theme,micro,2,14
+third stream,micro,2,23
+traditional pop,micro,2,24
+twee pop,micro,2,20
+underground hip hop,micro,2,35
+1996,singleton,1,10
+2-step,singleton,1,9
+60s,singleton,1,14
+aaron,singleton,1,15
+acid breaks,singleton,1,12
+acid house,singleton,1,5
+adult alternative pop/rock,singleton,1,12
+afro house,singleton,1,16
+afro-cuban,singleton,1,4
+alt-country,singleton,1,11
+alternative rap,singleton,1,16
+ambient dub,singleton,1,8
+american primitive guitar,singleton,1,4
+anarcho-punk,singleton,1,10
+atmospheric drum and bass,singleton,1,10
+avocado on cover,singleton,1,12
+ballroom house,singleton,1,16
+bassline,singleton,1,9
+bitpop,singleton,1,12
+bittersweet,singleton,1,14
+black metal,singleton,1,12
+blaxploitation,singleton,1,14
+bluegrass,singleton,1,27
+bowie,singleton,1,10
+boy band,singleton,1,12
+braindance,singleton,1,11
+brit pop,singleton,1,16
+british rhythm blues,singleton,1,14
+broken transmission,singleton,1,17
+brostep,singleton,1,9
+bubblegum pop,singleton,1,12
+c86,singleton,1,16
+cat on cover,singleton,1,9
+chamber jazz,singleton,1,6
+chamber music,singleton,1,2
+chanson,singleton,1,11
+chicago soul,singleton,1,10
+christmas,singleton,1,12
+classic soul r b,singleton,1,21
+coldwave,singleton,1,16
+college rock,singleton,1,27
+comedy rock,singleton,1,9
+contemporary r b,singleton,1,18
+country folk,singleton,1,9
+country soul,singleton,1,27
+crossover jazz,singleton,1,13
+dance punk,singleton,1,11
+dance-punk revival,singleton,1,5
+dark jazz,singleton,1,12
+darksynth,singleton,1,10
+darkwave,singleton,1,10
+deep funk,singleton,1,16
+dirty south,singleton,1,16
+doo wop,singleton,1,12
+doo-wop,singleton,1,12
+drugs,singleton,1,14
+early pop/rock,singleton,1,24
+ebm,singleton,1,10
+eclectic,singleton,1,14
+electro-disco,singleton,1,14
+electro-industrial,singleton,1,10
+emo rap,singleton,1,13
+epic collage,singleton,1,13
+exotica,singleton,1,12
+experimental big band,singleton,1,5
+female vocalist,singleton,1,18
+field recording,singleton,1,11
+flamenco pop,singleton,1,15
+folk baroque,singleton,1,11
+folk metal,singleton,1,16
+folk punk,singleton,1,12
+free folk,singleton,1,12
+freestyle,singleton,1,9
+funk metal,singleton,1,12
+future pop,singleton,1,20
+g-funk,singleton,1,16
+garage house,singleton,1,12
+go-go,singleton,1,27
+goth rock,singleton,1,28
+gothic,singleton,1,7
+gothic rock,singleton,1,28
+happy hardcore,singleton,1,13
+hauntology,singleton,1,23
+hip hop soul,singleton,1,13
+hip-house,singleton,1,15
+horrorcore,singleton,1,18
+illbient,singleton,1,11
+impressionist,singleton,1,20
+industrial metal,singleton,1,10
+industrial rock,singleton,1,10
+instrumental rock,singleton,1,9
+j dilla,singleton,1,12
+j-rock,singleton,1,9
+jam band,singleton,1,14
+jazz blues,singleton,1,12
+madchester,singleton,1,12
+makina,singleton,1,13
+miami bass,singleton,1,10
+microhouse,singleton,1,16
+microsound,singleton,1,15
+midtempo bass,singleton,1,10
+miles davis,singleton,1,11
+minimal techno,singleton,1,2
+minimalism,singleton,1,2
+music hall,singleton,1,65
+musique concrète,singleton,1,6
+neo-acoustic,singleton,1,10
+neo-progressive rock,singleton,1,7
+neo-romantic,singleton,1,20
+neoclassical new age,singleton,1,14
+new jack swing,singleton,1,17
+northern soul,singleton,1,11
+nu funk,singleton,1,13
+nyū myūjikku,singleton,1,10
+orchestral music,singleton,1,15
+parody,singleton,1,7
+piano jazz,singleton,1,7
+poetry,singleton,1,11
+political,singleton,1,16
+post-britpop,singleton,1,12
+post-minimalism,singleton,1,14
+prog-rock,singleton,1,6
+progressive house,singleton,1,9
+punk poetry,singleton,1,11
+rap,singleton,1,6
+rap metal,singleton,1,12
+rock roll,singleton,1,11
+rock/pop,singleton,1,13
+sarcastic,singleton,1,12
+self-titled,singleton,1,9
+shibuya-kei,singleton,1,12
+shoegazer,singleton,1,13
+sketch comedy,singleton,1,27
+southern rap,singleton,1,16
+southern rock,singleton,1,11
+space age pop,singleton,1,14
+space ambient,singleton,1,10
+speed garage,singleton,1,9
+speed metal,singleton,1,8
+spirituals,singleton,1,10
+stoner metal,singleton,1,15
+sunshine pop,singleton,1,13
+swing,singleton,1,16
+symphonic prog,singleton,1,6
+technical,singleton,1,6
+thrash,singleton,1,8
+thrash metal,singleton,1,8
+totalism,singleton,1,7
+trance,singleton,1,9
+transcendental auditory experience,singleton,1,8
+trap soul,singleton,1,12
+tribal,singleton,1,10
+trip-hop,singleton,1,10
+turntablism,singleton,1,23
+uk rave,singleton,1,15
+urban,singleton,1,11
+urban cowboy,singleton,1,12
+urban crossover,singleton,1,18
+utopian virtual,singleton,1,13
+visual album,singleton,1,13
+vocal jazz,singleton,1,6
+western classical,singleton,1,8
+whalecore,singleton,1,10
+worldbeat,singleton,1,10
+yacht rock,singleton,1,12
+zolo,singleton,1,5
+zydeco,singleton,1,27

@@ -1,0 +1,25 @@
+genre,album_count,track_count,sources,suspect_reason
+1996,1,10,musicbrainz,year_or_decade_token
+2-step,1,9,musicbrainz,manual_review
+60s,1,14,musicbrainz,year_or_decade_token
+aaron,1,15,musicbrainz,manual_review
+avocado on cover,1,12,musicbrainz,cover_or_artwork_meta
+bassline,1,9,musicbrainz,manual_review
+bitpop,1,12,musicbrainz,manual_review
+bittersweet,1,14,musicbrainz,manual_review
+black metal,1,12,musicbrainz,manual_review
+bowie,1,10,musicbrainz,manual_review
+broken transmission,1,17,musicbrainz,manual_review
+c86,1,16,musicbrainz,manual_review
+cat on cover,1,9,musicbrainz,cover_or_artwork_meta
+chanson,1,11,discogs,manual_review
+drugs,1,14,musicbrainz,manual_review
+early pop/rock,1,24,musicbrainz,manual_review
+ebm,1,10,musicbrainz,manual_review
+eclectic,1,14,musicbrainz,manual_review
+epic collage,1,13,musicbrainz,manual_review
+sarcastic,1,12,musicbrainz,manual_review
+self-titled,1,9,musicbrainz,manual_review
+animal on cover,2,21,musicbrainz,cover_or_artwork_meta
+artist on cover,2,26,musicbrainz,cover_or_artwork_meta
+theme,2,14,discogs,manual_review

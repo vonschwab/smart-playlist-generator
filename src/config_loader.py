@@ -26,9 +26,7 @@ class Config:
         """Validate required configuration fields"""
         required_fields = [
             ('library', 'database_path'),
-            ('openai', 'api_key'),
-            ('lastfm', 'api_key'),
-            ('lastfm', 'username')
+            ('openai', 'api_key')
         ]
 
         for section, field in required_fields:
@@ -81,17 +79,21 @@ class Config:
     @property
     def lastfm_api_key(self) -> str:
         """Get Last.FM API key (with environment variable override)"""
+        if 'lastfm' not in self.config or 'api_key' not in self.config.get('lastfm', {}):
+            return ''
         return os.getenv('LASTFM_API_KEY') or self.config['lastfm']['api_key']
 
     @property
     def lastfm_username(self) -> str:
         """Get Last.FM username (with environment variable override)"""
+        if 'lastfm' not in self.config or 'username' not in self.config.get('lastfm', {}):
+            return ''
         return os.getenv('LASTFM_USERNAME') or self.config['lastfm']['username']
 
     @property
     def lastfm_history_days(self) -> int:
         """Get Last.FM history days"""
-        return self.config['lastfm'].get('history_days', 90)
+        return self.config.get('lastfm', {}).get('history_days', 90)
 
     @property
     def min_duration_minutes(self) -> int:
@@ -200,6 +202,38 @@ class Config:
     def limit_extension_increment(self) -> int:
         """Get additional tracks per extension attempt"""
         return self.config.get('playlists', {}).get('limits', {}).get('extension_increment', 20)
+
+    # Instrumentation / artifact emission settings
+    @property
+    def emit_run_artifacts(self) -> bool:
+        """Check if run artifact emission is enabled"""
+        return self.config.get('playlists', {}).get('instrumentation', {}).get('emit_run_artifacts', False)
+
+    @property
+    def run_artifact_dir(self) -> str:
+        """Get directory for run artifacts"""
+        return self.config.get('playlists', {}).get('instrumentation', {}).get('artifact_dir', 'diagnostics/run_artifacts')
+
+    # Title deduplication settings
+    @property
+    def title_dedupe_enabled(self) -> bool:
+        """Check if title deduplication is enabled"""
+        return self.config.get('playlists', {}).get('dedupe', {}).get('title', {}).get('enabled', True)
+
+    @property
+    def title_dedupe_threshold(self) -> int:
+        """Get fuzzy match threshold for title deduplication (0-100)"""
+        return self.config.get('playlists', {}).get('dedupe', {}).get('title', {}).get('threshold', 92)
+
+    @property
+    def title_dedupe_mode(self) -> str:
+        """Get title deduplication mode ('strict' or 'loose')"""
+        return self.config.get('playlists', {}).get('dedupe', {}).get('title', {}).get('mode', 'loose')
+
+    @property
+    def title_dedupe_short_title_min_len(self) -> int:
+        """Get minimum title length for fuzzy matching (shorter titles require exact match)"""
+        return self.config.get('playlists', {}).get('dedupe', {}).get('title', {}).get('short_title_min_len', 6)
 
     def __repr__(self) -> str:
         """String representation (hides sensitive data)"""

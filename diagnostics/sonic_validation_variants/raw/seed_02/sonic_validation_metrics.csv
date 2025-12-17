@@ -1,0 +1,2 @@
+seed_track_id,seed_artist,seed_title,sonic_flatness,sonic_topk_gap,sonic_intra_artist_coherence,sonic_intra_album_coherence,genre_flatness,genre_topk_gap
+62691d38ceb5d153cbc21ed11e77c054,Aphex Twin,#4,0.01744592622741354,0.01495920764806058,-0.003915866459349049,-0.008906046373450938,0.0,0.9521600008010864

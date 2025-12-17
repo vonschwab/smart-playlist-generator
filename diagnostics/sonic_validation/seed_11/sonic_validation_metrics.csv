@@ -1,0 +1,2 @@
+seed_track_id,seed_artist,seed_title,sonic_flatness,sonic_topk_gap,sonic_intra_artist_coherence,sonic_intra_album_coherence,genre_flatness,genre_topk_gap
+bee37246b632df7dcb8fd0d7d6194306,Weyes Blood,Andromeda,0.023006130304136695,0.010600656909420247,0.003785742165159811,-0.0014696316153296474,1.1673613786697388,0.539641797542572

@@ -54,6 +54,60 @@ def extract_primary_artist(artist: str, lowercase: bool = True) -> str:
     return base_artist
 
 
+def parse_collaboration(artist: str) -> List[str]:
+    """
+    Parse collaboration string into constituent artists.
+    Handles jazz ensembles and band name patterns intelligently.
+
+    Returns [artist] unchanged if it's a band name, ensemble, or solo artist.
+    Returns list of constituent artists for real collaborations.
+
+    Examples:
+        "Echo & The Bunnymen" → ["Echo & The Bunnymen"]  (band name)
+        "The Horace Silver Quintet & Trio" → ["The Horace Silver Quintet & Trio"]  (ensemble)
+        "Pink Siifu & Fly Anakin" → ["Pink Siifu", "Fly Anakin"]  (real collab)
+        "John Coltrane feat. Cannonball Adderly" → ["John Coltrane", "Cannonball Adderly"]
+
+    Args:
+        artist: Artist name string, possibly containing collaboration markers
+
+    Returns:
+        List of constituent artist names. Single-element list if solo artist.
+    """
+
+    if not artist:
+        return [""]
+
+    # Step 1: Detect jazz ensemble suffixes with "&" (NOT a collaboration)
+    # "The Horace Silver Quintet & Trio" describes ensemble composition, not collaboration
+    if re.search(
+        r"&\s+(?:Trio|Quartet|Quintet|Sextet|Septet|Octet|Ensemble)\s*$",
+        artist,
+        flags=re.IGNORECASE
+    ):
+        return [artist]  # Preserve as-is
+
+    # Step 2: Preserve band names with "& The", "& His", "& Her", "& Their"
+    # "Echo & The Bunnymen", "Sly & The Family Stone", "Sun Ra & His Arkestra"
+    if re.search(
+        r"(?:^The\s+|\s+(?:&|and)\s+(?:The|His|Her|Their)\s+)",
+        artist,
+        flags=re.IGNORECASE
+    ):
+        return [artist]  # Don't split band names
+
+    # Step 3: Split on collaboration delimiters
+    delimiters = r"\s*(?:featuring|feat\.|ft\.|with|vs\.|versus|\bx\b|&|,|;|\sand\s)\s*"
+    parts = re.split(delimiters, artist, flags=re.IGNORECASE)
+
+    # Step 4: Clean and deduplicate
+    constituents = [p.strip() for p in parts if p and p.strip()]
+    constituents = list(dict.fromkeys(constituents))  # Preserve order
+
+    # Step 5: Return as-is if solo, or list of constituents if collaboration
+    return constituents if len(constituents) > 1 else [artist]
+
+
 def get_artist_variations(artist: str) -> List[str]:
     """Generate artist name variations for better matching (unchanged logic)."""
     variations: List[str] = []

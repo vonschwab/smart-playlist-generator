@@ -32,7 +32,8 @@ class LocalLibraryClient:
 
     def _init_db_connection(self):
         """Initialize database connection"""
-        self.conn = sqlite3.connect(self.db_path)
+        # Allow use across threads (FastAPI worker threads)
+        self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         logger.debug(f"Connected to database: {self.db_path}")
 
@@ -119,6 +120,45 @@ class LocalLibraryClient:
         }
 
         return track
+
+    def get_tracks_by_ids(self, track_ids: List[str]) -> List[Dict[str, Any]]:
+        """
+        Batch fetch tracks by rating keys. Preserves input order for hits; missing tracks are skipped.
+        """
+        if not track_ids:
+            return []
+        cursor = self.conn.cursor()
+        placeholders = ",".join("?" for _ in track_ids)
+        cursor.execute(
+            f"""
+            SELECT
+                track_id as rating_key,
+                artist,
+                title,
+                album,
+                duration_ms,
+                file_path,
+                musicbrainz_id as mbid
+            FROM tracks
+            WHERE track_id IN ({placeholders})
+            """,
+            track_ids,
+        )
+        rows = cursor.fetchall()
+        lookup = {}
+        for row in rows:
+            track = {
+                'rating_key': row['rating_key'],
+                'artist': row['artist'] or '',
+                'title': row['title'] or '',
+                'album': row['album'] or '',
+                'duration': row['duration_ms'],
+                'file_path': row['file_path'],
+                'mbid': row['mbid']
+            }
+            lookup[str(row["rating_key"])] = track
+        ordered = [lookup[k] for k in map(str, track_ids) if k in lookup]
+        return ordered
 
     def get_similar_tracks(self, rating_key: str, limit: int = 50) -> List[Dict[str, Any]]:
         """

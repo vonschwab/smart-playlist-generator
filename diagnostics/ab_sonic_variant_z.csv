@@ -1,0 +1,3 @@
+base_variant,below_floor,distinct_artists,evaluation_mode,max_artist_share,order_source,playlist_len,runtime_sec,seed,track_ids,variant
+raw,,,fixed_order,,raw,,0.0,t3,t3,z
+raw,,,fixed_order,,raw,,0.0,t4,t4,z

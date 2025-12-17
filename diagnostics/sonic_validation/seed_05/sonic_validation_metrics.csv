@@ -1,0 +1,2 @@
+seed_track_id,seed_artist,seed_title,sonic_flatness,sonic_topk_gap,sonic_intra_artist_coherence,sonic_intra_album_coherence,genre_flatness,genre_topk_gap
+4afa1f98bfd3bc9c108f131584cd0532,Jay Reatard,It's So Easy,0.05324302277978923,0.019583784494592416,0.034073136174754715,0.012922979662327028,1.356407642364502,0.5499478578567505

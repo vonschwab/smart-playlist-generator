@@ -1,0 +1,2 @@
+seed_track_id,seed_artist,seed_title,sonic_flatness,sonic_topk_gap,sonic_intra_artist_coherence,sonic_intra_album_coherence,genre_flatness,genre_topk_gap
+5bbb5c1c2481bca6cfefde01466129e2,Bill Evans,Midnight Mood,0.08369667150859923,0.0647181495000081,0.03494501844511977,0.05787837467066226,3.884542942047119,0.8944921493530273
