@@ -856,7 +856,6 @@ class SimilarityCalculator:
                 rows = cursor.fetchall()
                 if rows:
                     album_genres = [r['genre'] for r in rows]
-                    logger.debug(f"Album genres for {album_name} (album_id={aid}): {album_genres}")
                     break
 
             for genre in album_genres:
@@ -873,7 +872,6 @@ class SimilarityCalculator:
         """, (artist_name,))
 
         artist_genres = [row['genre'] for row in cursor.fetchall()]
-        logger.debug(f"Artist genres for {artist_name}: {artist_genres}")
 
         for genre in artist_genres:
             normalized = self._normalize_genre(genre)
@@ -883,8 +881,6 @@ class SimilarityCalculator:
 
         # 3. Filter broad/noisy tags
         filtered_genres = self._filter_broad_tags(combined_genres)
-
-        logger.debug(f"Combined genres for track {track_id} ({artist_name} - {album_name}): {filtered_genres}")
 
         return filtered_genres
 
@@ -1005,7 +1001,6 @@ class SimilarityCalculator:
             else:
                 # Combine using weighted average
                 hybrid_sim = (sonic_sim * self.sonic_weight) + (genre_sim * self.genre_weight)
-                logger.debug(f"Hybrid similarity: sonic={sonic_sim:.3f}, genre={genre_sim:.3f} ({self.genre_method}), final={hybrid_sim:.3f}")
 
         return hybrid_sim
 

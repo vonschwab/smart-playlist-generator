@@ -2111,8 +2111,8 @@ class PlaylistGenerator:
                     used.add(j)
                     logger.info(f"  Pair {len(pairs)}: {artists[i]} <-> {artists[j]} (similarity = {sim:.2f})")
                 else:
-                    # Log rejected pairs that don't meet threshold
-                    logger.debug(f"  Rejected: {artists[i]} <-> {artists[j]} (similarity = {sim:.2f} < {min_similarity})")
+                    # Rejected pairs don't meet threshold (debug logging removed for verbosity)
+                    pass
 
         if len(pairs) < num_pairs:
             logger.warning(f"\nOnly created {len(pairs)} pairs (requested {num_pairs})")
@@ -3218,8 +3218,6 @@ class PlaylistGenerator:
         artist1 = seed1.get('artist', 'Unknown')
         artist2 = seed2.get('artist', 'Unknown')
 
-        logger.debug(f"\n  Comparing: '{artist1}' <-> '{artist2}'")
-
         # Strategy: genre overlap
         genres1 = set(seed1.get('genres', []))
         genres2 = set(seed2.get('genres', []))
@@ -3229,11 +3227,8 @@ class PlaylistGenerator:
             if direct_overlap > 0:
                 # Jaccard similarity for direct overlap
                 jaccard = direct_overlap / len(genres1 | genres2)
-                shared = list(genres1 & genres2)
-                logger.debug(f"  -- Genre overlap: {shared} -> similarity = {jaccard:.2f}")
                 return jaccard
 
-        logger.debug(f"  XX NO SIMILARITY FOUND -> similarity = 0.0")
         return 0.0  # No similarity found
 
     def _create_diverse_playlists(self, all_seeds: List[Dict[str, Any]],
