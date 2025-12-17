@@ -242,10 +242,13 @@ class Config:
 
 # Example usage
 if __name__ == "__main__":
+    import logging
+    logger = logging.getLogger(__name__)
+    logging.basicConfig(level=logging.INFO)
     try:
         config = Config()
-        print(f"Configuration loaded successfully: {config}")
-        print(f"Database path: {config.library_database_path}")
-        print(f"Music directory: {config.library_music_directory}")
+        logger.info(f"Configuration loaded successfully: {config}")
+        logger.info(f"Database path: {config.library_database_path}")
+        logger.info(f"Music directory: {config.library_music_directory}")
     except Exception as e:
-        print(f"Configuration error: {e}")
+        logger.error(f"Configuration error: {e}")

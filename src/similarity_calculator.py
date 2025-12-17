@@ -1073,11 +1073,11 @@ if __name__ == "__main__":
 
     # Show stats
     stats = calc.get_stats()
-    print("Similarity Calculator Stats:")
-    print(f"  Total tracks: {stats['total_tracks']}")
-    print(f"  Analyzed: {stats['analyzed']}")
-    print(f"  Pending: {stats['pending']}")
-    print(f"  AcousticBrainz: {stats['acousticbrainz']}")
-    print(f"  Librosa: {stats['librosa']}")
+    logger.info("Similarity Calculator Stats:")
+    logger.info(f"  Total tracks: {stats['total_tracks']}")
+    logger.info(f"  Analyzed: {stats['analyzed']}")
+    logger.info(f"  Pending: {stats['pending']}")
+    logger.info(f"  AcousticBrainz: {stats['acousticbrainz']}")
+    logger.info(f"  Librosa: {stats['librosa']}")
 
     calc.close()

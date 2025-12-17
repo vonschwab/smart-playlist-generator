@@ -360,17 +360,17 @@ if __name__ == "__main__":
 
     # Test getting all tracks
     tracks = client.get_all_tracks()
-    print(f"Total tracks: {len(tracks)}")
+    logger.info(f"Total tracks: {len(tracks)}")
 
     if tracks:
         # Test getting similar tracks
         sample_track = tracks[0]
-        print(f"\nSample track: {sample_track['artist']} - {sample_track['title']}")
+        logger.info(f"Sample track: {sample_track['artist']} - {sample_track['title']}")
 
         similar = client.get_similar_tracks(sample_track['rating_key'], limit=10)
-        print(f"\nSimilar tracks:")
+        logger.info(f"Similar tracks:")
         for i, track in enumerate(similar, 1):
-            print(f"  {i}. {track['artist']} - {track['title']}")
-            print(f"     Similarity: {track.get('similarity_score', 0):.3f}")
+            logger.info(f"  {i}. {track['artist']} - {track['title']}")
+            logger.info(f"     Similarity: {track.get('similarity_score', 0):.3f}")
 
     client.close()

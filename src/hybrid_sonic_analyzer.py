@@ -109,12 +109,12 @@ if __name__ == "__main__":
     features = analyzer.analyze_track(test_file, mbid=test_mbid)
 
     if features:
-        print(f"Analysis successful! Source: {features.get('source')}")
-        print(f"BPM: {features.get('bpm')}")
-        print(f"Key: {features.get('chords_key')}")
+        logger.info(f"Analysis successful! Source: {features.get('source')}")
+        logger.info(f"BPM: {features.get('bpm')}")
+        logger.info(f"Key: {features.get('chords_key')}")
 
         # Convert to JSON for storage
         json_features = analyzer.features_to_json(features)
-        print(f"\nJSON (first 200 chars): {json_features[:200]}...")
+        logger.info(f"JSON (first 200 chars): {json_features[:200]}...")
     else:
-        print("Analysis failed")
+        logger.error("Analysis failed")

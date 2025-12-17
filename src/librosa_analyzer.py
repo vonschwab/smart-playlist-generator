@@ -350,8 +350,8 @@ if __name__ == "__main__":
     features = analyzer.extract_similarity_features(test_file)
 
     if features:
-        print("Successfully extracted features!")
-        print(f"BPM: {features.get('bpm')}")
-        print(f"Key: {features.get('chords_key')}")
+        logger.info("Successfully extracted features!")
+        logger.info(f"BPM: {features.get('bpm')}")
+        logger.info(f"Key: {features.get('chords_key')}")
     else:
-        print("Failed to extract features")
+        logger.error("Failed to extract features")

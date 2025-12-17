@@ -159,8 +159,8 @@ if __name__ == "__main__":
 
     # Test getting
     similar = cache.get_similar_artists("Ariel Pink")
-    print(f"Similar to Ariel Pink: {similar}")
+    logger.info(f"Similar to Ariel Pink: {similar}")
 
     # Stats
     stats = cache.get_cache_stats()
-    print(f"Cache stats: {stats}")
+    logger.info(f"Cache stats: {stats}")

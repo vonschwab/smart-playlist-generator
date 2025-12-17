@@ -506,12 +506,12 @@ if __name__ == "__main__":
         (["indie rock", "alternative rock", "post-punk"], ["indie rock", "shoegaze"])
     ]
 
-    print("\nGenre Similarity Method Comparison:")
-    print("=" * 100)
+    logger.info("Genre Similarity Method Comparison:")
+    logger.info("=" * 100)
 
     for genres1, genres2 in test_cases:
-        print(f"\nComparing: {genres1} vs {genres2}")
+        logger.info(f"Comparing: {genres1} vs {genres2}")
         results = calc.compare_methods(genres1, genres2)
 
         for method, score in sorted(results.items(), key=lambda x: x[1], reverse=True):
-            print(f"  {method:20s}: {score:.3f}")
+            logger.info(f"  {method:20s}: {score:.3f}")

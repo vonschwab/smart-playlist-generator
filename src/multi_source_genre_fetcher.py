@@ -213,9 +213,9 @@ if __name__ == "__main__":
 
     # Test with an artist
     test_artist = "Minyo Delivery Service"
-    print(f"\nFetching genres for: {test_artist}")
-    print("=" * 60)
+    logger.info(f"Fetching genres for: {test_artist}")
+    logger.info("=" * 60)
 
     genres = fetcher.fetch_musicbrainz_genres(test_artist)
-    print(f"\nMUSICBRAINZ:")
-    print(f"  {', '.join(genres)}")
+    logger.info(f"MUSICBRAINZ:")
+    logger.info(f"  {', '.join(genres)}")
