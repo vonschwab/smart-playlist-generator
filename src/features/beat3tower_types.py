@@ -41,6 +41,18 @@ class BPMInfo:
         )
 
 
+# Class-level constant for rhythm feature ordering
+_RHYTHM_FEATURE_ORDER: List[str] = [
+    'onset_median', 'onset_iqr', 'onset_std', 'onset_p10', 'onset_p90',
+    'tempo_peak1_lag', 'tempo_peak2_lag', 'tempo_peak_ratio',
+    'tempo_acf_lag1', 'tempo_acf_lag2', 'tempo_acf_lag3', 'tempo_acf_lag4', 'tempo_acf_lag5',
+    'beat_interval_cv', 'beat_interval_median',
+    'beat_strength_median', 'beat_strength_iqr',
+    'onset_rate', 'rhythm_entropy',
+    'bpm', 'tempo_stability',
+]
+
+
 @dataclass
 class RhythmTowerFeatures:
     """
@@ -89,40 +101,29 @@ class RhythmTowerFeatures:
     bpm: float = 0.0
     tempo_stability: float = 1.0
 
-    # Feature order for vector conversion
-    _FEATURE_ORDER: List[str] = field(default_factory=lambda: [
-        'onset_median', 'onset_iqr', 'onset_std', 'onset_p10', 'onset_p90',
-        'tempo_peak1_lag', 'tempo_peak2_lag', 'tempo_peak_ratio',
-        'tempo_acf_lag1', 'tempo_acf_lag2', 'tempo_acf_lag3', 'tempo_acf_lag4', 'tempo_acf_lag5',
-        'beat_interval_cv', 'beat_interval_median',
-        'beat_strength_median', 'beat_strength_iqr',
-        'onset_rate', 'rhythm_entropy',
-        'bpm', 'tempo_stability',
-    ], repr=False)
-
     def to_vector(self) -> np.ndarray:
         """Convert to numpy vector in canonical order."""
-        values = [getattr(self, name) for name in self._FEATURE_ORDER]
+        values = [getattr(self, name) for name in _RHYTHM_FEATURE_ORDER]
         return np.array(values, dtype=np.float32)
 
     def to_dict(self) -> Dict[str, float]:
         """Convert to dictionary."""
-        return {name: getattr(self, name) for name in self._FEATURE_ORDER}
+        return {name: getattr(self, name) for name in _RHYTHM_FEATURE_ORDER}
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> 'RhythmTowerFeatures':
         """Create from dictionary."""
-        return cls(**{k: d.get(k, 0.0) for k in cls._FEATURE_ORDER if k != '_FEATURE_ORDER'})
+        return cls(**{k: d.get(k, 0.0) for k in _RHYTHM_FEATURE_ORDER})
 
     @classmethod
     def feature_names(cls) -> List[str]:
         """Get ordered feature names."""
-        return cls._FEATURE_ORDER.copy()
+        return _RHYTHM_FEATURE_ORDER.copy()
 
     @classmethod
     def n_features(cls) -> int:
         """Get number of features."""
-        return len(cls._FEATURE_ORDER)
+        return len(_RHYTHM_FEATURE_ORDER)
 
 
 @dataclass

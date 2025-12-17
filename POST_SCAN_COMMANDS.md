@@ -89,7 +89,7 @@ python src/features/beat3tower_extractor.py "/path/to/sample/track.flac"
 
 ## Step 3: Re-Scan with 3-Tower Features (Future)
 
-**NOT YET IMPLEMENTED** - Phase 1 completes the extractor; Phase 2 integrates it into the scan pipeline.
+**NOT YET IMPLEMENTED** - Requires integration of extractor into scan pipeline.
 
 Once integrated, the scan command will be:
 
@@ -105,11 +105,11 @@ python scripts/update_sonic.py --beat3tower --workers 8
 
 ---
 
-## Step 4: Build 3-Tower Artifacts (Future)
+## Step 4: Build 3-Tower Artifacts
 
-**NOT YET IMPLEMENTED** - Phase 2 builds the artifact builder.
+**IMPLEMENTED** - Phase 2 complete.
 
-Once implemented:
+Build 3-tower artifacts from tracks that have beat3tower features:
 
 ```bash
 # Build 3-tower artifacts
@@ -117,7 +117,21 @@ python scripts/build_beat3tower_artifacts.py \
     --db-path data/metadata.db \
     --config config.yaml \
     --output experiments/genre_similarity_lab/artifacts/data_matrices_beat3tower.npz
+
+# Options:
+#   --no-pca           Disable PCA whitening (use robust standardization only)
+#   --pca-variance 0.95  Fraction of variance to retain in PCA
+#   --clip-sigma 3.0   Sigma for outlier clipping
+#   --max-tracks 1000  Limit tracks for testing
+#   -v                 Verbose output
 ```
+
+The artifact builder:
+- Loads tracks with beat3tower features from database
+- Separates into rhythm/timbre/harmony towers
+- Applies per-tower robust normalization with optional PCA whitening
+- Computes calibration statistics for weighted combination
+- Saves all required matrices for playlist generation
 
 ---
 
@@ -205,6 +219,10 @@ Track has < 4 beats detected. Expected for ambient/drone music. The extractor wi
 | `scripts/validate_sonic_quality.py` | Phase 0 validation harness |
 | `src/features/beat3tower_types.py` | Data classes for features |
 | `src/features/beat3tower_extractor.py` | Phase 1 extractor |
+| `src/features/beat3tower_normalizer.py` | Phase 2 per-tower normalizer |
+| `scripts/build_beat3tower_artifacts.py` | Phase 2 artifact builder |
+| `tests/unit/test_beat3tower_normalizer.py` | Phase 2 normalizer tests |
+| `tests/unit/test_beat3tower_types.py` | Phase 1/2 type tests |
 
 ---
 
@@ -214,7 +232,7 @@ Track has < 4 beats detected. Expected for ambient/drone music. The extractor wi
 |-------|--------|-------------|
 | Phase 0 | ✅ DONE | Validation infrastructure |
 | Phase 1 | ✅ DONE | 3-tower extractor skeleton |
-| Phase 2 | 🔜 TODO | Normalization + artifact builder |
+| Phase 2 | ✅ DONE | Normalization + artifact builder |
 | Phase 3 | 🔜 TODO | Calibrated multi-tower similarity |
 | Phase 4 | 🔜 TODO | Transition scoring (end->start) |
 | Phase 5 | 🔜 OPTIONAL | Weak supervision weight tuning |
