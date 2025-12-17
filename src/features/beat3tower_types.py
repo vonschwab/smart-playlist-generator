@@ -25,10 +25,10 @@ class BPMInfo:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            'primary_bpm': self.primary_bpm,
-            'half_tempo_likely': self.half_tempo_likely,
-            'double_tempo_likely': self.double_tempo_likely,
-            'tempo_stability': self.tempo_stability,
+            'primary_bpm': float(self.primary_bpm),
+            'half_tempo_likely': bool(self.half_tempo_likely),
+            'double_tempo_likely': bool(self.double_tempo_likely),
+            'tempo_stability': float(self.tempo_stability),
         }
 
     @classmethod

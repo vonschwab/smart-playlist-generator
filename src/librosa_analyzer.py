@@ -13,19 +13,84 @@ logger = logging.getLogger(__name__)
 class LibrosaAnalyzer:
     """Extracts audio features locally using Librosa"""
 
-    def __init__(self, sample_rate: int = 22050, use_beat_sync: bool = False):
+    def __init__(self, sample_rate: int = 22050, use_beat_sync: bool = False, use_beat3tower: bool = False):
         """
         Initialize Librosa analyzer
 
         Args:
             sample_rate: Target sample rate for analysis (22050 is Librosa default)
-            use_beat_sync: If True, use beat-synchronized feature extraction (Phase 2)
-                          If False, use fixed-window extraction (legacy)
+            use_beat_sync: If True, use old beat-synchronized feature extraction
+            use_beat3tower: If True, use 3-tower beat-synchronized extraction (recommended)
+                           Takes precedence over use_beat_sync if both are True
         """
         self.sample_rate = sample_rate
         self.use_beat_sync = use_beat_sync
-        mode = "beat-sync" if use_beat_sync else "windowed"
+        self.use_beat3tower = use_beat3tower
+
+        # Determine mode
+        if use_beat3tower:
+            mode = "beat3tower"
+        elif use_beat_sync:
+            mode = "beat-sync"
+        else:
+            mode = "windowed"
+
         logger.info(f"Initialized Librosa analyzer (sr={sample_rate}, mode={mode})")
+
+    def _extract_beat3tower_features(self, file_path: str) -> Optional[Dict[str, Any]]:
+        """
+        PHASE 3: Extract 3-tower beat-synchronized features.
+
+        Uses the Beat3TowerExtractor to extract rhythm/timbre/harmony features
+        aligned to musical beats.
+
+        Args:
+            file_path: Path to audio file
+
+        Returns:
+            Dictionary with 3-tower features or None on failure
+        """
+        try:
+            from src.features.beat3tower_extractor import (
+                Beat3TowerExtractor,
+                Beat3TowerConfig,
+            )
+
+            config = Beat3TowerConfig(sample_rate=self.sample_rate)
+            extractor = Beat3TowerExtractor(config)
+
+            result = extractor.extract_from_file(file_path)
+
+            if result:
+                logger.debug(f"Extracted beat3tower features: {result['metadata']['n_beats_full']} beats")
+                return result
+            else:
+                logger.warning(f"Beat3tower extraction failed for {file_path}, falling back")
+                # Fallback to old beat-sync if beat3tower fails
+                y, sr = librosa.load(file_path, sr=self.sample_rate, duration=None)
+                return self._create_fallback_segments(y, sr)
+
+        except Exception as e:
+            logger.error(f"Beat3tower extraction error for {file_path}: {e}")
+            # Fallback to old method
+            try:
+                y, sr = librosa.load(file_path, sr=self.sample_rate, duration=None)
+                return self._create_fallback_segments(y, sr)
+            except Exception as e2:
+                logger.error(f"Fallback extraction also failed: {e2}")
+                return None
+
+    def _create_fallback_segments(self, y: np.ndarray, sr: int) -> Dict[str, Any]:
+        """Create fallback segment structure when beat3tower fails."""
+        beat_sync_features = self._extract_beat_sync_features(y, sr)
+        return {
+            'beginning': beat_sync_features.copy(),
+            'middle': beat_sync_features.copy(),
+            'end': beat_sync_features.copy(),
+            'average': beat_sync_features.copy(),
+            'source': 'librosa',
+            'extraction_method': 'beat_sync_fallback',
+        }
 
     def _extract_beat_sync_features(self, y: np.ndarray, sr: int) -> Dict[str, Any]:
         """
@@ -247,8 +312,13 @@ class LibrosaAnalyzer:
             # Load full audio once
             y, sr = librosa.load(file_path, sr=self.sample_rate, duration=None)
 
+            # PHASE 3 ROUTING: Use beat3tower if enabled (highest priority)
+            if self.use_beat3tower:
+                logger.debug(f"Extracting beat3tower features from {Path(file_path).name}")
+                return self._extract_beat3tower_features(file_path)
+
             # PHASE 2 ROUTING: Use beat-sync if enabled
-            if self.use_beat_sync:
+            elif self.use_beat_sync:
                 logger.debug(f"Extracting beat-sync features from {Path(file_path).name}")
                 # Use beat-sync method for all segments
                 beat_sync_features = self._extract_beat_sync_features(y, sr)
