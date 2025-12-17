@@ -31,17 +31,9 @@ sys.path.insert(0, str(ROOT_DIR))
 from src.config_loader import Config
 from src.multi_source_genre_fetcher import MusicBrainzGenreFetcher
 
-# Configure logging
-log_file = ROOT_DIR / 'genre_update_v3.log'
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(log_file),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+# Configure logging (centralized)
+from src.logging_config import setup_logging
+logger = setup_logging(name='update_genres', log_file='genre_update_v3.log')
 
 
 class NormalizedGenreUpdater:

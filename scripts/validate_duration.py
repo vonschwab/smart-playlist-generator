@@ -21,12 +21,9 @@ sys.path.insert(0, str(ROOT_DIR))
 from src.config_loader import Config
 from src.local_library_client import LocalLibraryClient
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(message)s'
-)
-logger = logging.getLogger(__name__)
+# Configure logging (centralized)
+from src.logging_config import setup_logging
+logger = setup_logging(name='validate_duration', log_file='validate_duration.log')
 
 
 def validate_schema():

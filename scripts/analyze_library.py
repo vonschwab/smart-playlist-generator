@@ -243,7 +243,8 @@ def run_pipeline(args: argparse.Namespace) -> int:
         print(f"  out_dir: {out_dir}")
         return 0
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    from src.logging_config import setup_logging
+    logger = setup_logging(name='analyze_library', log_file='analyze_library.log')
     cfg = Config(args.config)
     db_path = args.db_path or cfg.library_database_path
 

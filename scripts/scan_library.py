@@ -51,12 +51,9 @@ from src.config_loader import Config
 # Audio file extensions to scan
 AUDIO_EXTENSIONS = {'.mp3', '.flac', '.m4a', '.ogg', '.opus', '.wma', '.wav', '.aac'}
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+# Configure logging (centralized)
+from src.logging_config import setup_logging
+logger = setup_logging(name='scan_library', log_file='scan_library.log')
 
 
 class LibraryScanner:

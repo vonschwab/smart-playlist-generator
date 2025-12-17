@@ -33,18 +33,10 @@ import multiprocessing
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
-# Configure logging to both file and console
-log_file = Path(__file__).parent.parent / 'sonic_analysis.log'
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(log_file),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
-logger.info(f"Logging to: {log_file}")
+# Configure logging (centralized)
+from src.logging_config import setup_logging
+logger = setup_logging(name='update_sonic', log_file='sonic_analysis.log')
+logger.info("Sonic feature analysis started")
 
 
 def analyze_track_worker(track_data: Tuple[str, str, str, str, bool]) -> Optional[Tuple[str, Dict[str, Any], str, str]]:

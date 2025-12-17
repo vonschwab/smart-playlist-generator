@@ -40,12 +40,9 @@ sys.path.insert(0, str(ROOT_DIR))
 
 from src.features.artifacts import load_artifact_bundle
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+# Configure logging (centralized)
+from src.logging_config import setup_logging
+logger = setup_logging(name='sonic_validation', log_file='sonic_validation.log')
 
 DB_PATH = ROOT_DIR / 'data' / 'metadata.db'
 

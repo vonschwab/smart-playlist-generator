@@ -16,8 +16,8 @@ import logging
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
-logging.basicConfig(level=logging.INFO, format='%(message)s')
-logger = logging.getLogger(__name__)
+from src.logging_config import setup_logging
+logger = setup_logging(name='check_duration_health', log_file='check_duration_health.log')
 
 
 def get_db():
