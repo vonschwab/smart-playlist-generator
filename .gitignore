@@ -45,3 +45,4 @@ ui/dist/
 # Generated playlists
 *.m3u
 diagnostics/
+*.npz
