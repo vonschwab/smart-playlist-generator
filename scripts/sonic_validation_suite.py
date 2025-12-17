@@ -39,6 +39,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
 from src.features.artifacts import load_artifact_bundle
+from src.similarity.sonic_variant import compute_sonic_variant_norm
 
 # Configure logging (centralized)
 from src.logging_config import setup_logging
@@ -159,11 +160,20 @@ def compute_intra_album_coherence(
 def compute_sonic_only_neighbors(
     bundle,
     seed_idx: int,
-    k: int = 30
+    k: int = 30,
+    sonic_variant: str = 'raw'
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """Pure sonic cosine similarity."""
+    """Pure sonic cosine similarity with optional variant preprocessing."""
     X = bundle.X_sonic
-    X_norm = X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-12)
+
+    # Apply sonic variant (raw, robust_whiten, etc.)
+    if sonic_variant != 'raw':
+        logger.info(f"Applying sonic variant: {sonic_variant}")
+        X_norm, stats = compute_sonic_variant_norm(X, sonic_variant)
+        logger.info(f"Variant stats: {stats}")
+    else:
+        X_norm = X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-12)
+
     seed_vec = X_norm[seed_idx]
     sims = X_norm @ seed_vec
     topk_idx = np.argsort(sims)[::-1][1:k+1]  # Exclude seed
@@ -431,10 +441,12 @@ def run_validation_suite(
     artifact_path: Path,
     seed_track_id: str,
     k: int = 30,
-    output_dir: Path = Path('diagnostics/sonic_validation/')
+    output_dir: Path = Path('diagnostics/sonic_validation/'),
+    sonic_variant: str = 'raw'
 ) -> Dict[str, Any]:
     """Main validation workflow."""
     logger.info(f"Loading artifact: {artifact_path}")
+    logger.info(f"Sonic variant: {sonic_variant}")
     bundle = load_artifact_bundle(artifact_path)
 
     if seed_track_id not in bundle.track_id_to_index:
@@ -449,7 +461,7 @@ def run_validation_suite(
 
     # 1. Compute neighbors for each mode
     logger.info("Computing sonic-only neighbors...")
-    sonic_idx, sonic_sims = compute_sonic_only_neighbors(bundle, seed_idx, k)
+    sonic_idx, sonic_sims = compute_sonic_only_neighbors(bundle, seed_idx, k, sonic_variant=sonic_variant)
 
     logger.info("Computing genre-only neighbors...")
     genre_idx, genre_sims = compute_genre_only_neighbors(bundle, seed_idx, k)
@@ -466,6 +478,12 @@ def run_validation_suite(
     # 3. Compute metrics
     logger.info("Computing metrics...")
 
+    # Apply variant transformation for coherence metrics
+    if sonic_variant != 'raw':
+        X_sonic_transformed, _ = compute_sonic_variant_norm(bundle.X_sonic, sonic_variant)
+    else:
+        X_sonic_transformed = bundle.X_sonic
+
     # Load album_ids from database
     logger.info("Loading album data from database...")
     album_ids = load_album_ids_for_tracks(bundle.track_ids)
@@ -474,10 +492,11 @@ def run_validation_suite(
         'seed_track_id': seed_track_id,
         'seed_artist': artist,
         'seed_title': title,
+        'sonic_variant': sonic_variant,
         'sonic_flatness': compute_flatness(sonic_sims),
         'sonic_topk_gap': compute_topk_gap(sonic_sims, seed_idx, k),
-        'sonic_intra_artist_coherence': compute_intra_artist_coherence(bundle.X_sonic, bundle.artist_keys, seed_idx),
-        'sonic_intra_album_coherence': compute_intra_album_coherence(bundle.X_sonic, album_ids, seed_idx),
+        'sonic_intra_artist_coherence': compute_intra_artist_coherence(X_sonic_transformed, bundle.artist_keys, seed_idx),
+        'sonic_intra_album_coherence': compute_intra_album_coherence(X_sonic_transformed, album_ids, seed_idx),
         'genre_flatness': compute_flatness(genre_sims),
         'genre_topk_gap': compute_topk_gap(genre_sims, seed_idx, k),
     }
@@ -542,6 +561,9 @@ def main():
     parser.add_argument('--k', type=int, default=30, help='Number of neighbors to retrieve')
     parser.add_argument('--output-dir', type=Path, default=Path('diagnostics/sonic_validation/'),
                         help='Output directory for results')
+    parser.add_argument('--sonic-variant', type=str, default='raw',
+                        choices=['raw', 'centered', 'z', 'z_clip', 'whiten_pca', 'robust_whiten'],
+                        help='Sonic preprocessing variant (default: raw)')
 
     args = parser.parse_args()
 
@@ -549,7 +571,8 @@ def main():
         artifact_path=args.artifact,
         seed_track_id=args.seed_track_id,
         k=args.k,
-        output_dir=args.output_dir
+        output_dir=args.output_dir,
+        sonic_variant=args.sonic_variant
     )
 
 

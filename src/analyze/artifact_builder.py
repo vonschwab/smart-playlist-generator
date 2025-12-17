@@ -10,8 +10,39 @@ import numpy as np
 
 from src.config_loader import Config
 from src.similarity_calculator import SimilarityCalculator
+from src.features.beat3tower_types import Beat3TowerFeatures
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_beat3tower_vector(features: Dict[str, Any], segment_key: str = 'full') -> Optional[np.ndarray]:
+    """
+    Extract beat3tower feature vector from JSON.
+
+    Args:
+        features: Sonic features dict
+        segment_key: Which segment to extract ('full', 'start', 'mid', 'end')
+
+    Returns:
+        137-dimensional beat3tower vector or None if not beat3tower format
+    """
+    segment_data = features.get(segment_key)
+    if not segment_data:
+        return None
+
+    # Check if this is beat3tower format
+    if segment_data.get('extraction_method') != 'beat3tower':
+        return None
+
+    try:
+        # Convert to Beat3TowerFeatures and extract vector
+        b3t_features = Beat3TowerFeatures.from_dict(segment_data)
+        return b3t_features.to_vector()
+    except Exception as e:
+        logger.debug(f"Failed to extract beat3tower vector: {e}")
+        return None
+
+
 def _derive_schema(layout: Dict[str, Dict[str, Any]], dim: int) -> tuple[list[str], list[str]]:
     names: list[str] = []
     units: list[str] = []
@@ -142,18 +173,33 @@ def build_ds_artifacts(
         except Exception:
             continue
 
-        base_vec = calc.build_sonic_feature_vector(features)
-        if base_vec.size == 0:
-            continue
-        start_vec = calc.build_sonic_feature_vector_by_segment(features, "start")
-        mid_vec = calc.build_sonic_feature_vector_by_segment(features, "mid")
-        end_vec = calc.build_sonic_feature_vector_by_segment(features, "end")
-        if start_vec.shape != base_vec.shape:
-            start_vec = base_vec
-        if mid_vec.shape != base_vec.shape:
-            mid_vec = base_vec
-        if end_vec.shape != base_vec.shape:
-            end_vec = base_vec
+        # Try beat3tower extraction first
+        base_vec = _extract_beat3tower_vector(features, 'full')
+        if base_vec is not None:
+            # Beat3tower format - extract all segments
+            start_vec = _extract_beat3tower_vector(features, 'start')
+            if start_vec is None:
+                start_vec = base_vec
+            mid_vec = _extract_beat3tower_vector(features, 'mid')
+            if mid_vec is None:
+                mid_vec = base_vec
+            end_vec = _extract_beat3tower_vector(features, 'end')
+            if end_vec is None:
+                end_vec = base_vec
+        else:
+            # Fall back to old extraction method
+            base_vec = calc.build_sonic_feature_vector(features)
+            if base_vec.size == 0:
+                continue
+            start_vec = calc.build_sonic_feature_vector_by_segment(features, "start")
+            mid_vec = calc.build_sonic_feature_vector_by_segment(features, "mid")
+            end_vec = calc.build_sonic_feature_vector_by_segment(features, "end")
+            if start_vec.shape != base_vec.shape:
+                start_vec = base_vec
+            if mid_vec.shape != base_vec.shape:
+                mid_vec = base_vec
+            if end_vec.shape != base_vec.shape:
+                end_vec = base_vec
 
         genres = calc.get_filtered_combined_genres_for_track(track_id) or []
         # CHANGED: Include tracks even with empty genres (don't continue/skip)
@@ -172,6 +218,38 @@ def build_ds_artifacts(
 
     if not track_ids:
         raise RuntimeError("No usable tracks after filtering; artifacts not created.")
+
+    # Filter for consistent sonic dimensions (handle legacy mixed-format data)
+    dims = [vec.shape[0] for vec in X_sonic]
+    from collections import Counter
+    dim_counts = Counter(dims)
+    logger.info(f"Sonic dimension distribution: {dict(dim_counts)}")
+
+    # PREFER beat3tower (137 dims) if available, otherwise use most common
+    if 137 in dim_counts:
+        target_dim = 137
+        logger.info(f"Found beat3tower features (137 dims): {dim_counts[137]} tracks - using these")
+    else:
+        target_dim = dim_counts.most_common(1)[0][0]
+        logger.info(f"No beat3tower features found, using most common dimension: {target_dim} ({dim_counts[target_dim]} tracks)")
+
+    filtered_indices = [i for i, vec in enumerate(X_sonic) if vec.shape[0] == target_dim]
+    if len(filtered_indices) < len(track_ids):
+        dropped = len(track_ids) - len(filtered_indices)
+        logger.warning(f"Dropping {dropped} tracks with inconsistent sonic dimensions")
+
+    track_ids = [track_ids[i] for i in filtered_indices]
+    artist_keys = [artist_keys[i] for i in filtered_indices]
+    track_artists = [track_artists[i] for i in filtered_indices]
+    track_titles = [track_titles[i] for i in filtered_indices]
+    X_sonic = [X_sonic[i] for i in filtered_indices]
+    X_sonic_start = [X_sonic_start[i] for i in filtered_indices]
+    X_sonic_mid = [X_sonic_mid[i] for i in filtered_indices]
+    X_sonic_end = [X_sonic_end[i] for i in filtered_indices]
+    genre_lists = [genre_lists[i] for i in filtered_indices]
+
+    if not track_ids:
+        raise RuntimeError("No tracks remain after dimension filtering.")
 
     # Build genre vocab
     vocab_set: Dict[str, int] = {}

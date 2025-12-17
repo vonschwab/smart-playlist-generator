@@ -214,6 +214,11 @@ class SonicFeaturePipeline:
         # Extract source
         source = features.get('source', 'unknown')
 
+        # Detect beat3tower format (no 'source' at root level)
+        if source == 'unknown' and 'full' in features:
+            if isinstance(features['full'], dict) and features['full'].get('extraction_method') == 'beat3tower':
+                source = 'librosa'
+
         # Convert to JSON (remove 'source' as it's in separate column)
         features_copy = features.copy()
         features_copy.pop('source', None)
