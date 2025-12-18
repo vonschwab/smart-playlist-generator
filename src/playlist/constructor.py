@@ -159,11 +159,15 @@ def construct_playlist(
 
     seed_sim_lookup = {idx: sim for idx, sim in zip(pool.pool_indices, pool.seed_sim)}
 
+    # Phase C diagnostic counters
     below_floor_count = 0
     gap_sum = 0.0
     gap_values: list[float] = []
     hard_floor_relaxed = False
     fallback_steps = 0
+    total_candidates_evaluated = 0
+    rejected_by_floor = 0
+    penalty_applied_count = 0
 
     while len(track_indices) < playlist_len:
         remaining = [idx for idx in pool.pool_indices if idx not in used_set]
@@ -203,9 +207,16 @@ def construct_playlist(
 
             cand_arr = np.array(candidate_list, dtype=int)
             local_sims = _compute_local_sim(prev_idx, cand_arr, emb_norm, X_end, X_start, transition_gamma, rescale_transitions)
+
+            # Phase C diagnostics: count all candidates evaluated
+            total_candidates_evaluated += len(cand_arr)
+
             # Hard floor pruning if requested
             if hard_floor:
                 mask = local_sims >= transition_floor
+                candidates_below_floor = (~mask).sum()
+                rejected_by_floor += int(candidates_below_floor)
+
                 if not np.any(mask):
                     hard_floor_relaxed = True
                 else:
@@ -224,6 +235,8 @@ def construct_playlist(
             if not hard_floor:
                 gaps = np.maximum(0.0, transition_floor - local_sims)
                 penalty = gaps
+                # Phase C diagnostics: count soft penalties applied
+                penalty_applied_count += int((gaps > 0).sum())
             scores = alpha_t * seed_sims + cfg.construct.beta * local_sims + cfg.construct.gamma * diversity - penalty
 
             # Deterministic tie-breaking
@@ -360,6 +373,7 @@ def construct_playlist(
         "gap_p90": float(np.percentile(gap_values_np, 90)) if gap_values_np.size else 0.0,
         "min_transition": float(np.nanmin(transitions)) if transitions.size else float("nan"),
         "mean_transition": float(np.nanmean(transitions)) if transitions.size else float("nan"),
+        "p10_transition": float(np.nanpercentile(transitions, 10)) if transitions.size else float("nan"),
         "p90_transition": float(np.nanpercentile(transitions, 90)) if transitions.size else float("nan"),
         "transition_floor": transition_floor,
         "transition_gamma": transition_gamma,
@@ -368,6 +382,10 @@ def construct_playlist(
         "seed_sim_mean": float(np.nanmean(seed_sim_values)) if seed_sim_values.size else float("nan"),
         "hard_floor_relaxed": hard_floor_relaxed,
         "fallback_steps": fallback_steps,
+        # Phase C diagnostics (transition scoring validation)
+        "total_candidates_evaluated": total_candidates_evaluated,
+        "rejected_by_floor": rejected_by_floor,
+        "penalty_applied_count": penalty_applied_count,
         "edge_scores": edge_scores,
     }
 

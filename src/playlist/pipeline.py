@@ -311,7 +311,7 @@ def build_run_artifact(
     genre_method: str = "ensemble",
     min_genre_similarity: float = 0.2,
     genre_gate_mode: str = "hard",
-    sonic_variant: str = "raw",
+    sonic_variant: str = "robust_whiten",
 ):
     """
     Build a RunArtifact from a DSPipelineResult for instrumentation.

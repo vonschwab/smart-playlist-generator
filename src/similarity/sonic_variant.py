@@ -12,11 +12,12 @@ _ALLOWED = {"raw", "centered", "z", "z_clip", "whiten_pca", "robust_whiten"}
 
 
 def _normalize_variant_name(name: Optional[str]) -> str:
+    # Default to robust_whiten (validated as best-performing in beat3tower tests)
     if not name:
-        return "raw"
+        return "robust_whiten"
     variant = str(name).strip().lower()
     if variant not in _ALLOWED:
-        return "raw"
+        return "robust_whiten"
     return variant
 
 
@@ -88,7 +89,7 @@ def _variant_transform(X_sonic: np.ndarray, variant: str) -> Tuple[np.ndarray, d
     return mat, stats, std_used
 
 
-def compute_sonic_variant_matrix(X_sonic: np.ndarray, variant: str = "raw", *, l2: bool = False) -> Tuple[np.ndarray, dict]:
+def compute_sonic_variant_matrix(X_sonic: np.ndarray, variant: str = "robust_whiten", *, l2: bool = False) -> Tuple[np.ndarray, dict]:
     """
     Apply variant transform (raw/centered/z/z_clip/whiten_pca) with optional L2 row normalisation.
     Caches per (id(X_sonic), variant, l2) to avoid redundant work.
@@ -106,7 +107,7 @@ def compute_sonic_variant_matrix(X_sonic: np.ndarray, variant: str = "raw", *, l
     return mat, stats
 
 
-def compute_sonic_variant_norm(X_sonic: np.ndarray, variant: str = "raw") -> Tuple[np.ndarray, dict]:
+def compute_sonic_variant_norm(X_sonic: np.ndarray, variant: str = "robust_whiten") -> Tuple[np.ndarray, dict]:
     """
     Return row-normalized sonic matrix per variant (raw/centered/z/...), with lightweight stats.
     """

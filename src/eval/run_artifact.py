@@ -69,8 +69,8 @@ class SettingsSnapshot:
     max_artist_fraction: float = 0.0
     min_gap: int = 0
 
-    # Sonic variant
-    sonic_variant: str = "raw"
+    # Sonic variant (default: robust_whiten - validated as best-performing)
+    sonic_variant: str = "robust_whiten"
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
