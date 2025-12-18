@@ -32,6 +32,11 @@ def generate_playlist_ds(
     excluded_track_ids: Optional[set[str]] = None,
     single_artist: bool = False,
     sonic_variant: Optional[str] = None,
+    # Genre similarity parameters
+    sonic_weight: Optional[float] = None,
+    genre_weight: Optional[float] = None,
+    min_genre_similarity: Optional[float] = None,
+    genre_method: Optional[str] = None,
 ) -> DsRunResult:
     """Production-facing wrapper around the DS pipeline."""
     result = core_generate_playlist_ds(
@@ -45,6 +50,11 @@ def generate_playlist_ds(
         excluded_track_ids=excluded_track_ids,
         single_artist=single_artist,
         sonic_variant=sonic_variant,
+        # Pass through genre similarity parameters
+        sonic_weight=sonic_weight,
+        genre_weight=genre_weight,
+        min_genre_similarity=min_genre_similarity,
+        genre_method=genre_method,
     )
 
     playlist_stats = result.stats.get("playlist", {})

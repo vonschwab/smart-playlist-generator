@@ -47,6 +47,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
 from src.config_loader import Config
+from src.genre_normalization import normalize_genre_list
 
 # Audio file extensions to scan
 AUDIO_EXTENSIONS = {'.mp3', '.flac', '.m4a', '.ogg', '.opus', '.wma', '.wav', '.aac'}
@@ -352,14 +353,13 @@ class LibraryScanner:
             WHERE track_id = ? AND source = 'file'
         """, (track_id,))
 
-        # Insert new genres
-        for genre in genres:
-            genre = genre.strip().lower()
-            if genre:
-                cursor.execute("""
-                    INSERT OR IGNORE INTO track_genres (track_id, genre, source)
-                    VALUES (?, ?, 'file')
-                """, (track_id, genre))
+        # Insert new genres (with normalization)
+        normalized_genres = normalize_genre_list(genres, filter_broad=True)
+        for genre in normalized_genres:
+            cursor.execute("""
+                INSERT OR IGNORE INTO track_genres (track_id, genre, source)
+                VALUES (?, ?, 'file')
+            """, (track_id, genre))
 
     def cleanup_missing_files(self) -> int:
         """

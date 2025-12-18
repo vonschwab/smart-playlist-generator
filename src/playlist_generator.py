@@ -464,12 +464,30 @@ class PlaylistGenerator:
             return None
 
         self._last_ds_report = None
+
+        # Read genre similarity configuration
+        playlists_cfg = self.config.config.get('playlists', {})
+        genre_cfg = playlists_cfg.get('genre_similarity', {})
+        genre_enabled = genre_cfg.get('enabled', True)
+        min_genre_sim = genre_cfg.get('min_genre_similarity', 0.29) if genre_enabled else None
+        genre_method = genre_cfg.get('method', 'ensemble') if genre_enabled else None
+        sonic_weight = genre_cfg.get('sonic_weight', 0.67) if genre_enabled else None
+        genre_weight = genre_cfg.get('weight', 0.33) if genre_enabled else None
+
         logger.info(
-            "Invoking DS pipeline seed=%s mode=%s target_length=%d allowed_ids=%d",
+            "Invoking DS pipeline seed=%s mode=%s target_length=%d allowed_ids=%d genre_gate=%s",
             seed_to_use,
             mode,
             target_length,
             len(allowed_track_ids or []),
+            f"enabled (min_sim={min_genre_sim})" if genre_enabled else "disabled",
+        )
+        logger.info(
+            "Genre params: sonic_weight=%s genre_weight=%s min_genre_sim=%s method=%s",
+            sonic_weight,
+            genre_weight,
+            min_genre_sim,
+            genre_method,
         )
         try:
                 ds_result: DsRunResult = run_ds_pipeline(
@@ -483,6 +501,11 @@ class PlaylistGenerator:
                     allowed_track_ids=allowed_track_ids,
                     excluded_track_ids=excluded_track_ids,
                     sonic_variant=sonic_variant_cfg,
+                    # Genre similarity parameters
+                    sonic_weight=sonic_weight,
+                    genre_weight=genre_weight,
+                    min_genre_similarity=min_genre_sim,
+                    genre_method=genre_method,
                 )
         except Exception as exc:
             logger.warning("DS pipeline failed (%s); using legacy path.", exc)

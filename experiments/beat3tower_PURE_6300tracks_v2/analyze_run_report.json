@@ -1,0 +1,18 @@
+{
+  "stages": {
+    "artifacts": {
+      "result": {
+        "path": "experiments\\beat3tower_PURE_6300tracks_v2\\data_matrices_step1.npz",
+        "skipped": false,
+        "stats": {
+          "tracks_kept": 4398,
+          "genres_kept": 378,
+          "random_seed": 0
+        }
+      },
+      "duration_sec": 3.843362808227539
+    }
+  },
+  "out_dir": "experiments\\beat3tower_PURE_6300tracks_v2",
+  "total_duration_sec": 3.843655824661255
+}

@@ -46,3 +46,4 @@ ui/dist/
 *.m3u
 diagnostics/
 *.npz
+nul

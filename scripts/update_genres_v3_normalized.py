@@ -30,6 +30,7 @@ sys.path.insert(0, str(ROOT_DIR))
 
 from src.config_loader import Config
 from src.multi_source_genre_fetcher import MusicBrainzGenreFetcher
+from src.genre_normalization import normalize_genre_list
 
 # Configure logging (centralized)
 from src.logging_config import setup_logging
@@ -272,19 +273,25 @@ class NormalizedGenreUpdater:
         return
 
     def _store_artist_genres(self, artist: str, genres: List[str], source: str):
-        """Store genres for an artist"""
+        """Store genres for an artist (with normalization)"""
         cursor = self.conn.cursor()
-        for genre in genres:
+        # Normalize genres before storing
+        normalized = normalize_genre_list(genres, filter_broad=True)
+        for genre in normalized:
             cursor.execute("""
                 INSERT OR IGNORE INTO artist_genres (artist, genre, source)
                 VALUES (?, ?, ?)
             """, (artist, genre, source))
         self.conn.commit()
+        if len(normalized) != len(genres):
+            logger.debug(f"Normalized {len(genres)} genres to {len(normalized)} for artist {artist}")
 
     def _store_album_genres(self, album_id: str, genres: List[str], source: str):
-        """Store genres for an album"""
+        """Store genres for an album (with normalization)"""
         cursor = self.conn.cursor()
-        for genre in genres:
+        # Normalize genres before storing
+        normalized = normalize_genre_list(genres, filter_broad=True)
+        for genre in normalized:
             cursor.execute("""
                 INSERT OR IGNORE INTO album_genres (album_id, genre, source)
                 VALUES (?, ?, ?)
@@ -292,9 +299,11 @@ class NormalizedGenreUpdater:
         self.conn.commit()
 
     def _store_track_genres(self, track_id: str, genres: List[str], source: str):
-        """Store genres for a track"""
+        """Store genres for a track (with normalization)"""
         cursor = self.conn.cursor()
-        for genre in genres:
+        # Normalize genres before storing
+        normalized = normalize_genre_list(genres, filter_broad=True)
+        for genre in normalized:
             cursor.execute("""
                 INSERT OR IGNORE INTO track_genres (track_id, genre, source)
                 VALUES (?, ?, ?)
