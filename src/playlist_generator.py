@@ -223,6 +223,14 @@ class PlaylistGenerator:
 
         edge_scores: List[Dict[str, Any]] = []
         missing_edge_pairs: List[Tuple[str, str]] = []
+
+        # Determine valid bounds for indices
+        max_idx = 0
+        if X_sonic is not None:
+            max_idx = X_sonic.shape[0] - 1
+        elif X_genre is not None:
+            max_idx = X_genre.shape[0] - 1
+
         for i in range(1, len(tracks)):
             prev_idx = idxs[i - 1]
             cur_idx = idxs[i]
@@ -234,6 +242,20 @@ class PlaylistGenerator:
                             str(tracks[i].get("rating_key")),
                         )
                     )
+                continue
+            # Check bounds
+            if prev_idx < 0 or prev_idx > max_idx or cur_idx < 0 or cur_idx > max_idx:
+                if verbose:
+                    missing_edge_pairs.append(
+                        (
+                            str(tracks[i - 1].get("rating_key")),
+                            str(tracks[i].get("rating_key")),
+                        )
+                    )
+                logger.warning(
+                    "Track indices out of bounds: prev_idx=%d cur_idx=%d (valid range 0-%d)",
+                    prev_idx, cur_idx, max_idx
+                )
                 continue
             t_raw_uncentered = float("nan")
             if X_end_orig is not None and X_start_orig is not None:
@@ -543,6 +565,24 @@ class PlaylistGenerator:
             "random_seed": random_seed,
             "sonic_variant": sonic_variant_cfg or os.getenv("SONIC_SIM_VARIANT") or "raw",
         }
+        # Log candidate pool stats for diagnostics
+        pool_stats = ds_stats.get("candidate_pool", {})
+        if pool_stats:
+            logger.info(
+                "Candidate pool SUMMARY: size=%d distinct_artists=%d eligible_artists=%d",
+                pool_stats.get("pool_size", 0),
+                pool_stats.get("distinct_artists", 0),
+                pool_stats.get("eligible_artists", 0),
+            )
+            logger.info(
+                "Candidate pool EXCLUSIONS: total_candidates=%d below_floor=%d below_genre=%d artist_cap_excluded=%d eligible=%d",
+                pool_stats.get("total_candidates_considered", 0),
+                pool_stats.get("below_similarity_floor", 0),
+                pool_stats.get("below_genre_similarity", 0),
+                pool_stats.get("artist_cap_excluded", 0),
+                pool_stats.get("eligible_count", 0),
+            )
+
         logger.info(
             "DS pipeline success pipeline=ds seed=%s mode=%s requested_len=%d actual_len=%d distinct_artists=%s max_artist=%s min_transition=%s mean_transition=%s below_floor=%s",
             seed_to_use,
@@ -1127,6 +1167,20 @@ class PlaylistGenerator:
                     if not full_track_data:
                         continue
 
+                    # Hard filter: Check duration constraints
+                    track_duration_ms = full_track_data.get('duration', 0)
+                    min_duration_ms = int(self.config.get('playlists', 'min_track_duration_seconds', default=46) * 1000)
+                    max_duration_ms = int(self.config.get('playlists', 'max_track_duration_seconds', default=720) * 1000)
+
+                    # Skip if duration outside acceptable range
+                    if track_duration_ms > 0:
+                        if track_duration_ms < min_duration_ms:
+                            logger.debug(f"Skipping {full_track_data.get('title')} - too short ({track_duration_ms}ms < {min_duration_ms}ms)")
+                            continue
+                        if track_duration_ms > max_duration_ms:
+                            logger.debug(f"Skipping {full_track_data.get('title')} - too long ({track_duration_ms}ms > {max_duration_ms}ms)")
+                            continue
+
                     # Found a good track - add it with full library data
                     track = {
                         'rating_key': track_key,
@@ -1191,10 +1245,14 @@ class PlaylistGenerator:
                         )
                         continue
 
-                # Filter short tracks
+                # Filter tracks by duration (hard limits)
                 track_duration = track.get('duration') or 0
-                if min_track_duration_ms > 0 and track_duration < min_track_duration_ms:
-                    continue
+                if track_duration > 0:
+                    if min_track_duration_ms > 0 and track_duration < min_track_duration_ms:
+                        continue
+                    if max_track_duration_ms > 0 and track_duration > max_track_duration_ms:
+                        filtered_long_count += 1
+                        continue
 
                 # Check if track's genre matches any seed genres
                 track_genre = track.get('genre', '')

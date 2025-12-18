@@ -5,6 +5,7 @@ These helpers consolidate the previously duplicated normalization logic in
 playlist_generator.py and track_matcher.py without changing behavior.
 """
 import re
+import unicodedata
 from typing import List
 
 # Pre-compiled patterns for song title normalization (remasters/live/etc.)
@@ -45,13 +46,34 @@ _GENRE_ABBREVIATIONS = {
 
 
 def normalize_text(text: str, lowercase: bool = True, strip: bool = True) -> str:
-    """Basic normalization: optional lowercase/strip with None safety."""
+    """
+    Normalize text for consistent comparisons.
+
+    Handles Unicode normalization (NFC), optional case folding, and whitespace.
+    This ensures international characters (Japanese, Korean, etc.) compare correctly.
+
+    Args:
+        text: Text to normalize
+        lowercase: Apply case folding (uses casefold() for better Unicode support)
+        strip: Remove leading/trailing whitespace
+
+    Returns:
+        Normalized text string
+    """
     if text is None:
         return ""
+
+    # Unicode normalization (NFC = canonical composition)
+    # This ensures "きゃりー" in different forms compares as equal
+    text = unicodedata.normalize('NFC', text)
+
     if lowercase:
-        text = text.lower()
+        # casefold() is better than lower() for international characters
+        text = text.casefold()
+
     if strip:
         text = text.strip()
+
     return text
 
 

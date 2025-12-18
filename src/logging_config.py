@@ -53,8 +53,12 @@ def setup_logging(
     for handler in logger.handlers[:]:
         logger.removeHandler(handler)
 
-    # Console handler (stdout)
+    # Console handler (stdout) with UTF-8 encoding for international characters
     console_handler = logging.StreamHandler(sys.stdout)
+    try:
+        console_handler.setEncoding('utf-8')
+    except AttributeError:
+        pass  # Not available in all Python versions
     console_handler.setLevel(getattr(logging, level))
 
     console_format = logging.Formatter(
@@ -116,8 +120,12 @@ def setup_root_logging(
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
 
-    # Console handler
+    # Console handler with UTF-8 encoding for international characters
     console_handler = logging.StreamHandler(sys.stdout)
+    try:
+        console_handler.setEncoding('utf-8')
+    except AttributeError:
+        pass  # Not available in all Python versions
     console_handler.setLevel(getattr(logging, level))
 
     console_format = logging.Formatter(
