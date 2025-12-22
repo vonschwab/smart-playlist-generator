@@ -7,7 +7,7 @@ AI-powered music playlist generator using beat3tower sonic analysis and normaliz
 This system generates intelligent playlists by combining:
 - **Beat3Tower Sonic Analysis** - 3-tower architecture (rhythm, timbre, harmony) with 137-dimensional feature vectors
 - **Multi-Segment Analysis** - Captures full song dynamics (start, middle, end) for accurate similarity and transition matching
-- **Normalized Genre Metadata** - Efficient artist/album/track-level genre data from MusicBrainz and file tags
+- **Comprehensive Genre Data** - Normalized artist/album/track-level genres from MusicBrainz, Discogs, and file tags
 - **Validated Preprocessing** - Robust whitening with PCA for optimal sonic discrimination (proven 4/4 metrics pass)
 
 ## Key Features
@@ -97,11 +97,14 @@ python main_app.py --artist "Radiohead" --tracks 30
 # Preview without creating
 python main_app.py --dry-run
 
-# Dynamic mode (more variety)
-python main_app.py --dynamic
+# DS pipeline mode (narrow|dynamic|discover|sonic_only) with optional seed track
+python main_app.py --ds-mode dynamic --artist "Radiohead"
+python main_app.py --ds-mode dynamic --artist "David Bowie" --track "Life On Mars"
 
-# Discover mode (exploratory)
-python main_app.py --discover
+Sonic-only (no genre filtering)
+```bash
+python main_app.py --ds-mode sonic_only --artist "Radiohead"
+```
 ```
 
 ---
@@ -201,7 +204,7 @@ Raw beat3tower features have vastly different scales across dimensions (BPM vs M
 | Intra-Album Coherence | 0.011 | 0.282 | **+2,555%** |
 | Score Flatness | 0.082 | 181.223 | **+221,000%** |
 
-**Robust whitening is enabled by default** for all playlist generation.
+**Tower PCA is enabled by default** for all playlist generation (per-tower standardization + PCA with weights 0.2/0.5/0.3 for rhythm/timbre/harmony).
 
 **Override if needed:**
 ```bash
@@ -211,6 +214,16 @@ python main_app.py
 
 # Or via command line
 python main_app.py --sonic-variant raw
+
+# Use tower_pca explicitly
+python main_app.py --sonic-variant tower_pca
+
+# Use sonic-only mode (no genre filtering)
+python main_app.py --ds-mode sonic_only --artist "Radiohead"
+
+**Modes:**
+- `narrow`/`dynamic`/`discover`: use hybrid (sonic + genre) with genre gate (default).
+- `sonic_only`: disables genre gating and sets genre weight to 0 (pure sonic).
 ```
 
 ---
@@ -410,14 +423,14 @@ tail -50 sonic_analysis.log
 Validates sonic similarity quality on a given seed track.
 
 ```bash
-# Validate with robust whitening (default)
+# Validate with tower_pca (default)
 python scripts/sonic_validation_suite.py \
     --artifact data_matrices.npz \
     --seed-track-id <track_id> \
     --k 30 \
-    --sonic-variant robust_whiten
+    --sonic-variant tower_pca
 
-# Compare raw vs whitened
+# Compare different variants
 python scripts/sonic_validation_suite.py \
     --seed-track-id <track_id> \
     --sonic-variant raw
@@ -617,7 +630,7 @@ Already up to date! Check with `--stats` to verify.
 
 ### Validation fails (low TopK gap, negative coherence)
 - Ensure beat3tower extraction is used (not legacy)
-- Verify robust_whiten is enabled (default)
+- Verify tower_pca is enabled (default)
 - Check artifact has 137-dim features: `python -c "import numpy as np; data = np.load('artifact.npz'); print(data['X_sonic'].shape)"`
 - Expected: (n_tracks, 137)
 

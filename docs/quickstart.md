@@ -67,44 +67,46 @@ Completed: 1234/1234 tracks
 ### Step 2: Analyze Sonic Features
 
 ```bash
-python scripts/analyze_library.py --stages sonic
+python scripts/update_sonic.py --beat3tower --workers 4
 ```
 
-This extracts audio features (tempo, timbre, rhythm, etc.) from your tracks.
+This extracts beat3tower audio features (137-dimensional: rhythm, timbre, harmony) from your tracks.
 
-**Expected time:** ~1-2 hours for 1000+ tracks (runs in parallel)
+**Expected time:** ~4-8 hours for 33K tracks (adjust workers based on HDD vs SSD)
 
-### Step 3: Build Artifact Matrices
+### Step 3: Fetch Genre Metadata
 
 ```bash
-python scripts/analyze_library.py --stages genres,artifacts
+python scripts/update_genres_v3_normalized.py --artists
+python scripts/update_genres_v3_normalized.py --albums
 ```
 
-This creates optimized matrices for fast playlist generation.
+This fetches genre data from MusicBrainz and Discogs.
 
-**Expected time:** 5-10 minutes
+**Expected time:** 30-60 minutes (with API rate limits)
 
 ## Generate Your First Playlist
 
 ### Option A: Command Line (Simplest)
 
 ```bash
-python main_app.py --artist "Artist Name" --count 50
+python main_app.py --artist "Radiohead" --tracks 30
 ```
 
-**Output:** M3U file with 50 tracks similar to songs by "Artist Name"
+**Output:** M3U file with 30 tracks similar to Radiohead
 
 ### Option B: Specify a Specific Song
 
 ```bash
-python main_app.py --artist "Fela Kuti" --count 50 --dry-run
+python main_app.py --artist "David Bowie" --track "Life On Mars" --tracks 30
 ```
 
 **Flags:**
-- `--count N`: Number of tracks (default 50)
+- `--tracks N`: Number of tracks (default 30)
 - `--dry-run`: Show results without writing to file
-- `--dynamic`: Use dynamic mode (genre + sonic balance)
-- `--pipeline ds`: Use data science pipeline (default)
+- `--ds-mode dynamic`: Use dynamic mode (balanced, default)
+- `--ds-mode narrow`: Narrow mode (highly focused)
+- `--ds-mode discover`: Discover mode (exploratory)
 
 ### Option C: Run the API (For UI Integration)
 
@@ -140,8 +142,9 @@ Generated playlists:
 - Install ffmpeg: https://ffmpeg.org/download.html
 
 ### Sonic analysis taking too long
-- Set `--workers 4` to use 4 CPU cores: `python scripts/analyze_library.py --stages sonic --workers 4`
-- Reduce database size with `--limit 100` for testing
+- Reduce workers for HDD: `python scripts/update_sonic.py --beat3tower --workers 4`
+- For SSD, can increase: `--workers 8`
+- Test on small batch: `python scripts/update_sonic.py --beat3tower --limit 100`
 
 ### "Database locked" error
 - Close other instances of Playlist Generator

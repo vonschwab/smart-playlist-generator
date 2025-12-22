@@ -81,20 +81,24 @@ Understand the data structure:
 
 ## Feature Overview
 
-### Beat-Synchronized Audio Analysis
+### Beat3Tower Audio Analysis
 
-- **Automatic beat detection**: Aligns features to actual beats (not fixed time windows)
-- **Robust aggregation**: Uses median + IQR instead of mean (less affected by outliers)
-- **4.34x improvement**: In similarity discrimination vs. windowed extraction
-- **Fallback handling**: Automatic fallback to windowed if beat detection fails
+- **3-Tower Architecture**: 137-dimensional feature extraction
+  - Rhythm Tower (21 dims): Onset, tempo, beat intervals
+  - Timbre Tower (83 dims): MFCCs, spectral features
+  - Harmony Tower (33 dims): Chroma, tonnetz, key
+- **Multi-Segment Analysis**: Full/start/mid/end segments for transition matching
+- **Tower PCA Processing**: Per-tower standardization + PCA with weights (default)
+- **Validated Quality**: 4/4 similarity metrics pass
 
 ### Hybrid Scoring System
 
-- **60% Sonic**: Beat-synchronized audio features (71 dimensions)
-  - MFCC (timbre), Chroma (pitch), Spectral (brightness), Rhythm/beats
+- **60% Sonic**: Beat3tower features with tower_pca preprocessing
+  - Per-tower standardization + PCA
+  - Weighted combination (rhythm 0.2, timbre 0.5, harmony 0.3)
 - **40% Genre**: Multi-source normalized genres
-  - Last.FM, MusicBrainz, Discogs
-  - 7 different similarity methods (ensemble recommended)
+  - MusicBrainz (artists/albums), Discogs (albums), file tags (tracks)
+  - Ensemble similarity method (recommended)
 
 ### 5 Playlist Modes
 
@@ -179,10 +183,11 @@ See: [REST API](api.md), [Development](dev.md)
 ### Scenario 3: Analyze Your Library
 
 ```bash
-python scripts/scan_library.py               # Find all files (5-10 min)
-python scripts/update_genres_v3_normalized.py  # Fetch genres (30-60 min)
-python scripts/analyze_library.py --stages sonic  # Extract audio (60+ min)
-python scripts/analyze_library.py --stages artifacts  # Build matrices (5-10 min)
+python scripts/scan_library.py                      # Find all files (5-10 min)
+python scripts/update_genres_v3_normalized.py --artists  # Fetch artist genres (20-30 min)
+python scripts/update_genres_v3_normalized.py --albums   # Fetch album genres (20-30 min)
+python scripts/update_sonic.py --beat3tower --workers 4  # Extract audio (4-8 hours)
+python scripts/build_beat3tower_artifacts.py        # Build matrices (5-10 min)
 ```
 
 See: [Pipelines](pipelines.md)
@@ -227,16 +232,15 @@ See: [REST API](api.md), [Development](dev.md)
 
 ## Key Concepts
 
-### Sonic Features
+### Sonic Features (Beat3Tower)
 
-Beat-synchronized audio analysis producing 71 dimensions:
+3-tower architecture producing 137 dimensions:
 
-- **MFCC** (26 dims): Timbre/tone quality
-- **Chroma** (24 dims): Harmonic content/pitch
-- **Spectral** (16 dims): Brightness and spectral shape
-- **Rhythm** (5 dims): Tempo, beat-related features
+- **Rhythm Tower** (21 dims): Onset detection, tempogram, beat intervals, BPM
+- **Timbre Tower** (83 dims): MFCCs (13 coeffs × stats), spectral features, ZCR, RMS
+- **Harmony Tower** (33 dims): Chroma (12 bins), tonnetz, key estimation
 
-Extracted per beat, aggregated using median + IQR.
+Extracted in 4 segments (full/start/mid/end) for transition-aware matching.
 
 ### Genre Similarity
 
@@ -323,20 +327,21 @@ docs/
 
 ## Latest Updates
 
-### Phase 2: Beat-Synchronized Audio Analysis (Current)
+### Beat3Tower Production Deployment (Current - Dec 2024)
 
-- Implemented beat-detection based feature extraction
-- Improved similarity discrimination by 4.34x
-- Robust aggregation using median + IQR
-- Fallback to windowed if beat detection fails
-- Full validation suite added
+- Implemented 3-tower architecture (137 dimensions)
+- Tower PCA preprocessing for optimal discrimination
+- Multi-segment extraction (full/start/mid/end)
+- Validated quality: 4/4 metrics pass
+- Production artifact with 32K+ tracks
+- Normalized genre schema (60% fewer API calls)
 
-### Phase 1: Repository Cleanup (Completed)
+### Repository Cleanup (Completed - Dec 2024)
 
-- Archived experiments, diagnostics, legacy scripts
-- Reorganized tests into unit/integration/smoke
-- Removed large NPZ files from git history
-- Cleaned up root directory
+- Archived session notes and implementation plans
+- Organized documentation structure
+- Updated all docs to reflect beat3tower
+- Removed legacy references
 
 ## Getting Help
 
@@ -355,9 +360,9 @@ Contributions welcome! See [Development Guide](dev.md#contributing) for process.
 
 ---
 
-**Last Updated**: December 16, 2025
+**Last Updated**: December 22, 2025
 
-**Current Version**: Phase 2 (Beat-Sync Audio Analysis)
+**Current Version**: Beat3Tower Production (137-dim tower_pca)
 
-**Status**: Production-ready with active development
+**Status**: Production-ready
 

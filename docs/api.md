@@ -34,16 +34,35 @@ All endpoints are prefixed with `/api/` (e.g., `/api/library/status`).
 
 ## Authentication
 
-Currently no authentication required. Configure CORS for frontend:
+**Required:** All API requests require the `X-API-Key` header.
+
+### Setup
+Configure the API key via environment variable (recommended) or config file:
+
+```bash
+# Environment variable (recommended for production)
+export PLAYLIST_API_KEY=your_secret_key_here
+```
+
+Or in `config.yaml`:
+```yaml
+api:
+  api_key: your_secret_key_here
+```
+
+### Usage
+Include the header in all requests:
+
+```bash
+curl -H "X-API-Key: your_secret_key_here" http://localhost:8000/api/library/status
+```
+
+### CORS Configuration
+The API is configured for local development:
 
 ```python
-# api/main.py
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # React dev server
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# api/main.py - CORS middleware
+allow_origins=["http://localhost:5173"]  # React dev server
 ```
 
 ## Library Endpoints

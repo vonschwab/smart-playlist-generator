@@ -59,6 +59,30 @@ openai:
 - `api_key` (optional): OpenAI API key for playlist naming.
 - `model` (default: `gpt-4o-mini`): Model for generation (fast + inexpensive).
 
+### Plex Integration (Optional)
+
+Export generated playlists directly to Plex.
+
+```yaml
+plex:
+  enabled: false
+  base_url: http://localhost:32400
+  token: ""              # Or set PLEX_TOKEN env var
+  music_section: Music   # Name of your Plex music library
+  verify_ssl: true
+  replace_existing: true
+  path_map: []           # Optional path remapping for Plex file paths
+```
+
+**Options**:
+- `enabled` (default: false): Turn Plex export on/off.
+- `base_url`: Plex server URL.
+- `token`: Plex token (use `PLEX_TOKEN` env var instead of storing in config).
+- `music_section`: Plex music library section name.
+- `verify_ssl` (default: true): SSL verification for HTTPS servers.
+- `replace_existing` (default: true): Replace playlist if title already exists.
+- `path_map` (optional): List of `{from, to}` mappings to align local file paths with Plex paths.
+
 ## Playlist Generation
 
 ### Basic Settings
@@ -147,7 +171,7 @@ Advanced scoring with beat-synchronized features.
 ```yaml
 playlists:
   ds_pipeline:
-    artifact_path: experiments/genre_similarity_lab/artifacts/data_matrices_step1.npz
+    artifact_path: data/artifacts/beat3tower_32k/data_matrices_step1.npz
     mode: dynamic  # Options: dynamic, ds, narrow, discover, legacy
     random_seed: 0
     enable_logging: true
@@ -165,15 +189,21 @@ playlists:
 ```yaml
 playlists:
   sonic:
-    sim_variant: raw  # Options: raw | centered | z | z_clip | whiten_pca
+    sim_variant: tower_pca  # Options: raw | centered | z | z_clip | whiten_pca | robust_whiten | tower_l2 | tower_robust | tower_iqr | tower_weighted | tower_pca
 ```
 
 **Variants**:
-- `raw`: L2-normalized (default, fastest)
-- `centered`: Zero-centered before normalization
-- `z`: Z-score normalization
+- `tower_pca`: Standardize + PCA each tower (8/16/8 components), apply weights (0.2/0.5/0.3), concatenate (default, production variant)
+- `tower_weighted`: L2 normalize each tower, apply weights (0.2/0.5/0.3), then concatenate
+- `tower_robust`: Robust scale each tower (median/IQR), then concatenate
+- `tower_iqr`: IQR scale each tower (no centering), then concatenate
+- `tower_l2`: L2 normalize rhythm/timbre/harmony towers, then concatenate
+- `robust_whiten`: Robust scale (median/IQR) then PCA whitening
+- `whiten_pca`: Z-score then PCA whitening
 - `z_clip`: Z-score with outlier clipping
-- `whiten_pca`: PCA whitening (slower, more discriminative)
+- `z`: Z-score normalization
+- `centered`: Zero-centered before normalization
+- `raw`: L2-normalized only (fastest but lower quality)
 
 ### Genre Similarity
 
@@ -183,9 +213,10 @@ Control how genre impacts playlist generation.
 playlists:
   genre_similarity:
     enabled: true                  # Enable genre filtering
-    weight: 0.33                   # Genre contribution (0.0-1.0)
-    sonic_weight: 0.67             # Sonic contribution
+    weight: 0.50                   # Genre contribution (normalized with sonic_weight)
+    sonic_weight: 0.60             # Sonic contribution (normalized with weight)
     min_genre_similarity: 0.2       # Minimum genre similarity threshold
+    min_genre_similarity_narrow: 0.45  # Narrow-mode override (stricter)
     method: ensemble               # Similarity method
     similarity_file: data/genre_similarity.yaml
     use_artist_tags: true          # Include artist-level genres
@@ -352,9 +383,9 @@ logging:
 
 ```yaml
 playlists:
-  pipeline: legacy        # Faster (pure sonic)
+  pipeline: ds            # DS pipeline required
   sonic:
-    sim_variant: raw      # Fastest variant
+    sim_variant: raw      # Fastest (lower quality than tower_pca)
   genre_similarity:
     enabled: false        # Skip genre computation
   cache_expiry_days: 60   # Cache longer
@@ -368,14 +399,14 @@ playlists:
   ds_pipeline:
     mode: dynamic         # Better flow
   sonic:
-    sim_variant: whiten_pca  # More discriminative (slower)
+    sim_variant: tower_pca  # Production variant (default)
   genre_similarity:
     enabled: true
-    weight: 0.45          # More genre influence
+    weight: 0.50          # Genre influence
     method: ensemble      # Best accuracy
   duration_match:
     enabled: true
-    weight: 0.40          # Strong duration preference
+    weight: 0.35          # Duration preference
 ```
 
 ## Validation
