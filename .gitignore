@@ -42,8 +42,21 @@ ui/dist/
 # Other tooling artifacts
 .claude/
 
+# Internal notes and archives (keep out of public repo)
+archive/
+docs/archive/
+DOCUMENTATION_AUDIT_SUMMARY.md
+
 # Generated playlists
 *.m3u
 diagnostics/
 *.npz
 nul
+
+# Experiments (internal development artifacts)
+experiments/
+
+# Diagnostic and test scripts (internal tools)
+scripts/diagnose_*.py
+scripts/test_*.py
+scripts/check_*.py
