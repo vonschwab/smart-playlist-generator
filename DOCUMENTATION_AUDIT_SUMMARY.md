@@ -10,9 +10,10 @@
 Comprehensive audit and reorganization of all documentation to ensure accuracy with current codebase and prepare for public GitHub release.
 
 **Total Files Reviewed**: 49 markdown files
-**Files Archived**: 22 session notes and implementation plans
+**Files Archived**: 29 session notes and implementation plans (7 additional from root cleanup)
 **Files Updated**: 6 core documentation files
-**Files Kept**: 27 feature and reference docs
+**Files Kept**: 20 feature and reference docs
+**Root Directory**: Cleaned up - only README.md and DOCUMENTATION_AUDIT_SUMMARY.md remain
 
 ---
 
@@ -271,9 +272,31 @@ These technical reference docs remain in `docs/` as they document current featur
 
 ---
 
+## Additional Cleanup (Dec 22, 2025)
+
+**Root Directory Cleanup**:
+- Moved 7 remaining markdown files from root to `docs/archive/`:
+  - `AGENTS.md` → `docs/archive/session_notes/`
+  - `DEV.md` → `docs/archive/session_notes/`
+  - `PHASE_1_IMPLEMENTATION_DETAILS.md` → `docs/archive/session_notes/`
+  - `POST_SCAN_COMMANDS.md` → `docs/archive/session_notes/`
+  - `SONIC_ANALYSIS_SESSION_REPORT.md` → `docs/archive/session_notes/`
+  - `DEPLOYMENT_COMPLETE.md` → `docs/archive/deployment/`
+  - `PRODUCTION_DEPLOYMENT.md` → `docs/archive/deployment/`
+- Removed empty artifact files: `library.db`, `metadata.db`, `nul`
+- Moved `CLEANUP_BASELINE_STATUS.txt` to `archive/`
+- Added README to old `archive/` directory
+
+**Root Directory Status**:
+- ✅ Only 2 markdown files remain: `README.md`, `DOCUMENTATION_AUDIT_SUMMARY.md`
+- ✅ Log files, diagnostics, and cache covered by `.gitignore`
+- ✅ Clean, production-ready structure
+
+---
+
 ## Summary
 
-**Status**: ✅ Documentation audit complete
+**Status**: ✅ Documentation audit and cleanup complete
 
 **Key Achievements**:
 - ✅ Code default updated to match production (tower_pca)
