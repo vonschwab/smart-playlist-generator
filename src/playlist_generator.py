@@ -91,15 +91,11 @@ class PlaylistGenerator:
         self.sonic_variant = resolve_sonic_variant(config_variant=sonic_cfg.get("sim_variant"))
 
     def _get_pipeline_choice(self, pipeline_override: Optional[str] = None) -> str:
-        choice = pipeline_override or self.pipeline_override
-        if choice:
-            return str(choice).lower()
-        return str(self.config.get('playlists', 'pipeline', default='ds') or 'ds').lower()
+        return "ds"
 
     def _warn_if_ds_artifact_missing(self) -> None:
         """Log once if DS pipeline is configured but artifacts are missing or unreadable."""
-        pipeline_choice = self._get_pipeline_choice(None)
-        if pipeline_choice != "ds" or self._logged_ds_artifact_warning:
+        if self._logged_ds_artifact_warning:
             return
         ds_cfg = self.config.get('playlists', 'ds_pipeline', default={}) or {}
         artifact_path = ds_cfg.get('artifact_path')
@@ -109,18 +105,18 @@ class PlaylistGenerator:
         try:
             path = Path(artifact_path)
             if not path.exists():
-                logger.warning("DS pipeline enabled but artifact missing at %s; will fall back to legacy.", artifact_path)
+                logger.error("DS pipeline enabled but artifact missing at %s; DS runs will fail until provided.", artifact_path)
                 self._logged_ds_artifact_warning = True
                 return
             # Lightweight readability check
             try:
                 load_artifact_bundle(path)
             except Exception as exc:  # pragma: no cover - defensive
-                logger.warning("DS pipeline artifact unreadable (%s); will fall back to legacy at runtime.", exc)
+                logger.error("DS pipeline artifact unreadable (%s); DS runs will fail until fixed.", exc)
             self._logged_ds_artifact_warning = True
         except Exception:
             # Avoid breaking init; warn once
-            logger.warning("DS pipeline artifact check failed; legacy fallback will be used if needed.")
+            logger.error("DS pipeline artifact check failed; DS runs will fail until fixed.")
             self._logged_ds_artifact_warning = True
 
     def _compute_edge_scores_from_artifact(
@@ -432,22 +428,18 @@ class PlaylistGenerator:
         seed_artist: Optional[str] = None,
         allowed_track_ids: Optional[List[str]] = None,
         excluded_track_ids: Optional[Set[str]] = None,
-    ) -> Optional[List[Dict[str, Any]]]:
+        anchor_seed_ids: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
         """
-        Try DS pipeline and return ordered track dicts; return None to signal fallback.
+        Run DS pipeline and return ordered track dicts; raise on failure.
         """
-        pipeline_choice = self._get_pipeline_choice(pipeline_override)
-        if pipeline_choice != "ds":
-            return None
         if not seed_track_id:
-            logger.warning("DS pipeline requested but seed track id is missing; using legacy path.")
-            return None
+            raise ValueError("DS pipeline requires a seed track id; none provided.")
 
         ds_cfg = self.config.get('playlists', 'ds_pipeline', default={}) or {}
         artifact_path = ds_cfg.get('artifact_path')
         if not artifact_path:
-            logger.warning("DS pipeline enabled but artifact_path not configured; using legacy path.")
-            return None
+            raise ValueError("DS pipeline artifact_path is not configured.")
         sonic_cfg = self.config.get("playlists", "sonic", default={}) or {}
         sonic_variant_cfg = resolve_sonic_variant(
             explicit_variant=self.sonic_variant,
@@ -479,11 +471,9 @@ class PlaylistGenerator:
                             )
                             break
         except FileNotFoundError:
-            logger.warning("DS pipeline artifact missing at %s; using legacy path.", artifact_path)
-            return None
+            raise FileNotFoundError(f"DS pipeline artifact missing at {artifact_path}")
         except Exception as exc:
-            logger.warning("DS pipeline artifact load failed (%s); using legacy path.", exc)
-            return None
+            raise RuntimeError(f"DS pipeline artifact load failed ({exc})")
 
         self._last_ds_report = None
 
@@ -491,10 +481,20 @@ class PlaylistGenerator:
         playlists_cfg = self.config.config.get('playlists', {})
         genre_cfg = playlists_cfg.get('genre_similarity', {})
         genre_enabled = genre_cfg.get('enabled', True)
-        min_genre_sim = genre_cfg.get('min_genre_similarity', 0.29) if genre_enabled else None
+        min_genre_sim = genre_cfg.get('min_genre_similarity', 0.30) if genre_enabled else None
+        if genre_enabled and mode == "narrow":
+            min_genre_sim = genre_cfg.get('min_genre_similarity_narrow', min_genre_sim)
         genre_method = genre_cfg.get('method', 'ensemble') if genre_enabled else None
-        sonic_weight = genre_cfg.get('sonic_weight', 0.67) if genre_enabled else None
-        genre_weight = genre_cfg.get('weight', 0.33) if genre_enabled else None
+        # Default to 50/50 when genre is enabled
+        sonic_weight = genre_cfg.get('sonic_weight', 0.50) if genre_enabled else None
+        genre_weight = genre_cfg.get('weight', 0.50) if genre_enabled else None
+
+        if mode == "sonic_only":
+            genre_enabled = False
+            min_genre_sim = None
+            genre_method = None
+            genre_weight = 0.0
+            sonic_weight = 1.0
 
         logger.info(
             "Invoking DS pipeline seed=%s mode=%s target_length=%d allowed_ids=%d genre_gate=%s",
@@ -511,27 +511,24 @@ class PlaylistGenerator:
             min_genre_sim,
             genre_method,
         )
-        try:
-                ds_result: DsRunResult = run_ds_pipeline(
-                    artifact_path=artifact_path,
-                    seed_track_id=seed_to_use,
-                    mode=mode,
-                    length=target_length,
-                    random_seed=random_seed,
-                    overrides=overrides,
-                    enable_logging=enable_logging,
-                    allowed_track_ids=allowed_track_ids,
-                    excluded_track_ids=excluded_track_ids,
-                    sonic_variant=sonic_variant_cfg,
-                    # Genre similarity parameters
-                    sonic_weight=sonic_weight,
-                    genre_weight=genre_weight,
-                    min_genre_similarity=min_genre_sim,
-                    genre_method=genre_method,
-                )
-        except Exception as exc:
-            logger.warning("DS pipeline failed (%s); using legacy path.", exc)
-            return None
+        ds_result: DsRunResult = run_ds_pipeline(
+            artifact_path=artifact_path,
+            seed_track_id=seed_to_use,
+            anchor_seed_ids=anchor_seed_ids,
+            mode=mode,
+            length=target_length,
+            random_seed=random_seed,
+            overrides=overrides,
+            enable_logging=enable_logging,
+            allowed_track_ids=allowed_track_ids,
+            excluded_track_ids=excluded_track_ids,
+            sonic_variant=sonic_variant_cfg,
+            # Genre similarity parameters
+            sonic_weight=sonic_weight,
+            genre_weight=genre_weight,
+            min_genre_similarity=min_genre_sim,
+            genre_method=genre_method,
+        )
 
         tracks: List[Dict[str, Any]] = []
         ds_stats = getattr(ds_result, "playlist_stats", {}) or {}
@@ -547,8 +544,7 @@ class PlaylistGenerator:
                     tracks.append(track)
 
         if not tracks:
-            logger.warning("DS pipeline returned no usable tracks; using legacy path.")
-            return None
+            raise RuntimeError("DS pipeline returned no usable tracks from library lookup.")
 
         metrics = ds_result.metrics or {}
         actual_len = len(ds_result.track_ids)
@@ -1406,10 +1402,11 @@ class PlaylistGenerator:
         scrobbles: List[Dict[str, Any]],
         lookback_days: int,
         sample_limit: int = 5,
+        exempt_tracks: Optional[List[Dict[str, Any]]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Filter candidates using Last.FM scrobbles without DB matching.
-        Uses normalized artist/title keys (or mbid when present).
+        Uses normalized artist/title keys (ignoring mbid for consistency).
         """
         if not scrobbles or lookback_days <= 0:
             return tracks
@@ -1419,8 +1416,8 @@ class PlaylistGenerator:
         cutoff_timestamp = int((datetime.now() - timedelta(days=lookback_days)).timestamp())
 
         def _key_for_track(track: Dict[str, Any]) -> Optional[str]:
-            if track.get("mbid"):
-                return f"mbid::{track.get('mbid')}"
+            # Always use artist::title for matching (ignore mbid)
+            # This ensures Last.fm scrobbles match library tracks consistently
             artist = track.get("artist")
             title = track.get("title")
             if not artist or not title:
@@ -1428,9 +1425,18 @@ class PlaylistGenerator:
             return f"{normalize_match_string(artist, is_artist=True)}::{normalize_match_string(title)}"
 
         scrobble_keys = set()
+        exempt_keys = set()
+        if exempt_tracks:
+            for t in exempt_tracks:
+                k = _key_for_track(t)
+                if k:
+                    exempt_keys.add(k)
+            if exempt_keys:
+                logger.info("  Exempting %d seed tracks from scrobble recency filter", len(exempt_keys))
+
         for s in scrobbles:
             ts = s.get("timestamp", 0)
-            if ts and ts < cutoff_timestamp:
+            if ts == 0 or ts < cutoff_timestamp:
                 continue
             k = _key_for_track(s)
             if k:
@@ -1448,7 +1454,7 @@ class PlaylistGenerator:
         filtered_out = []
         for t in tracks:
             k = _key_for_track(t)
-            if k and k in scrobble_keys:
+            if k and k in scrobble_keys and k not in exempt_keys:
                 filtered_out.append(t)
                 continue
             filtered.append(t)
@@ -1483,6 +1489,69 @@ class PlaylistGenerator:
 
         return filtered
 
+    def _ensure_seed_tracks_present(
+        self,
+        seed_tracks: List[Dict[str, Any]],
+        candidates: List[Dict[str, Any]],
+        target_length: int,
+    ) -> List[Dict[str, Any]]:
+        """
+        Ensure all seed tracks are kept in the final playlist without reordering the DS
+        ordering of candidates. Missing seeds are inserted at positions that avoid
+        immediate same-artist adjacency when possible. Length is capped at target_length,
+        preserving all seeds when there is room.
+        """
+        if not seed_tracks:
+            return candidates[:target_length] if target_length > 0 else list(candidates)
+
+        def _key(track: Dict[str, Any]) -> Tuple[str, str, str]:
+            rid = str(track.get("rating_key") or "").strip()
+            if rid:
+                return ("id", rid, "")
+            artist = normalize_match_string(track.get("artist", ""), is_artist=True)
+            title = normalize_match_string(track.get("title", ""))
+            return ("at", artist, title)
+
+        result: List[Dict[str, Any]] = []
+        seen: Set[Tuple[str, str, str]] = set()
+
+        for t in candidates:
+            k = _key(t)
+            if k in seen:
+                continue
+            seen.add(k)
+            result.append(t)
+
+        seed_keys = {_key(s) for s in seed_tracks}
+        for seed in seed_tracks:
+            sk = _key(seed)
+            if sk in seen:
+                continue  # already present in DS ordering
+            seed_artist = safe_get_artist(seed, lowercase=True)
+            insert_at = None
+            for i in range(len(result) + 1):
+                prev_artist = safe_get_artist(result[i - 1], lowercase=True) if i > 0 else None
+                next_artist = safe_get_artist(result[i], lowercase=True) if i < len(result) else None
+                if (prev_artist is None or prev_artist != seed_artist) and (next_artist is None or next_artist != seed_artist):
+                    insert_at = i
+                    break
+            if insert_at is None:
+                insert_at = len(result)
+            result.insert(insert_at, seed)
+            seen.add(sk)
+
+        desired_len = max(target_length, len(seed_tracks)) if target_length > 0 else len(result)
+        if len(result) > desired_len:
+            # drop from the end, preferring to drop non-seed tracks
+            i = len(result) - 1
+            while len(result) > desired_len and i >= 0:
+                if _key(result[i]) not in seed_keys:
+                    result.pop(i)
+                i -= 1
+            result = result[:desired_len]
+
+        return result
+
     def _log_recency_edge_diff(self, before_tracks: List[Dict[str, Any]], after_tracks: List[Dict[str, Any]]) -> None:
         """Diagnostic: log adjacency changes introduced by recency filtering (no behavior change)."""
         diag_enabled = bool(os.environ.get("PLAYLIST_DIAG_RECENCY"))
@@ -1511,6 +1580,7 @@ class PlaylistGenerator:
     ) -> Set[str]:
         """
         Return rating_keys to exclude based on scrobbles, preserving seed_id if present.
+        Uses artist::title matching (ignoring mbid) for consistency between Last.fm and library.
         """
         if not scrobbles or lookback_days <= 0:
             return set()
@@ -1520,8 +1590,8 @@ class PlaylistGenerator:
         cutoff_timestamp = int((datetime.now() - timedelta(days=lookback_days)).timestamp())
 
         def _key_for_track(track: Dict[str, Any]) -> Optional[str]:
-            if track.get("mbid"):
-                return f"mbid::{track.get('mbid')}"
+            # Always use artist::title for matching (ignore mbid)
+            # This ensures Last.fm scrobbles match library tracks consistently
             artist = track.get("artist")
             title = track.get("title")
             if not artist or not title:
@@ -1531,7 +1601,7 @@ class PlaylistGenerator:
         scrobble_keys = set()
         for s in scrobbles:
             ts = s.get("timestamp", 0)
-            if ts and ts < cutoff_timestamp:
+            if ts == 0 or ts < cutoff_timestamp:
                 continue
             k = _key_for_track(s)
             if k:
@@ -1797,9 +1867,9 @@ class PlaylistGenerator:
         self,
         artist_name: str,
         track_count: int = 30,
+        track_title: Optional[str] = None,
         dynamic: bool = False,
         verbose: bool = False,
-        pipeline_override: Optional[str] = None,
         ds_mode_override: Optional[str] = None,
         artist_only: bool = False,
     ) -> Optional[Dict[str, Any]]:
@@ -1859,22 +1929,33 @@ class PlaylistGenerator:
         for track in artist_tracks:
             track['play_count'] = 0
 
-        # Get 4 seed tracks (2 most played + 2 random from top 10)
-        # Since we don't have play counts, just pick 4 random tracks
-        import random
-        seed_tracks = random.sample(artist_tracks, min(4, len(artist_tracks)))
+        # If a specific track title is provided, select canonical match and keep seeds focused
+        seed_tracks: List[Dict[str, Any]] = []
+        if track_title:
+            selected = self._select_canonical_track(artist_tracks, track_title)
+            if selected:
+                seed_tracks = [selected]
+                logger.info("Using specified seed track: %s - %s", selected.get("artist"), selected.get("title"))
+            else:
+                logger.warning("Requested seed track '%s' not found for artist %s; falling back to random seeds.", track_title, artist_name)
+
+        if not seed_tracks:
+            # Get 4 seed tracks (2 most played + 2 random from top 10)
+            # Since we don't have play counts, just pick 4 random tracks
+            import random
+            seed_tracks = random.sample(artist_tracks, min(4, len(artist_tracks)))
 
         seed_titles = [track.get('title') for track in seed_tracks]
         logger.info(f"Seeds ({len(seed_tracks)}): {', '.join(seed_titles)}")
 
         # Genre tags are sourced from database/file tags only (Last.FM disabled for genres)
 
-        # Prepare recency data (scrobbles preferred; matched history only for legacy fallback)
+        # Prepare recency data (scrobbles preferred; matched history retained for filtering)
         scrobbles: List[Dict[str, Any]] = []
         history: List[Dict[str, Any]] = []
         if self.lastfm:
             try:
-                scrobbles = self._get_lastfm_scrobbles_raw()
+                scrobbles = self._get_lastfm_scrobbles_raw(use_cache=True)
             except Exception as exc:
                 logger.warning("Last.FM scrobble fetch failed; skipping scrobble recency filter (%s)", exc, exc_info=True)
 
@@ -1921,184 +2002,65 @@ class PlaylistGenerator:
                 len(allowed_track_ids) if allowed_track_ids else 0,
             )
 
-        # DS pipeline override (if enabled)
+        anchor_seed_ids = [str(t.get("rating_key")) for t in seed_tracks if t.get("rating_key")]
         ds_tracks = self._maybe_generate_ds_playlist(
             seed_track_id=seed_tracks[0].get('rating_key') if seed_tracks else None,
             target_length=track_count,
-            pipeline_override=pipeline_override,
             mode_override=ds_mode_override or ("dynamic" if dynamic else None),
             seed_artist=artist_name,
             allowed_track_ids=allowed_track_ids or None,
             excluded_track_ids=excluded_ids or None,
+            anchor_seed_ids=anchor_seed_ids or None,
         )
-        if ds_tracks:
-            # Recompute edge scores for the final track order
-            if getattr(self, "_last_ds_report", None):
-                recomputed_edges = self._compute_edge_scores_from_artifact(
+
+        # Apply recency filtering if available
+        filtered_ds_tracks = ds_tracks
+        if self.lastfm:
+            try:
+                scrobbles = scrobbles or self._get_lastfm_scrobbles_raw(use_cache=True)
+                filtered_ds_tracks = self._filter_by_scrobbles(
                     ds_tracks,
-                    self._last_ds_report.get("artifact_path"),
-                    transition_floor=self._last_ds_report.get("transition_floor"),
-                    transition_gamma=self._last_ds_report.get("transition_gamma"),
-                    center_transitions=bool(self._last_ds_report.get("transition_centered")),
-                    embedding_random_seed=self._last_ds_report.get("random_seed"),
-                    verbose=verbose,
-                    sonic_variant=self._last_ds_report.get("sonic_variant"),
+                    scrobbles,
+                    lookback_days=self.config.recently_played_lookback_days,
+                    exempt_tracks=seed_tracks,
                 )
-                self._last_ds_report["edge_scores"] = recomputed_edges
-                playlist_stats = self._last_ds_report.get("playlist_stats") or {}
-                playlist_stats_playlist = playlist_stats.get("playlist") or {}
-                playlist_stats_playlist["edge_scores"] = recomputed_edges
-                playlist_stats["playlist"] = playlist_stats_playlist
-                self._last_ds_report["playlist_stats"] = playlist_stats
-                if os.environ.get("PLAYLIST_DIAG_RECENCY"):
-                    self._log_recency_edge_diff(ds_tracks, ds_tracks)
-            title = f"Auto: {artist_name}"
-            self._print_playlist_report(ds_tracks, artist_name=artist_name, dynamic=dynamic, verbose_edges=verbose)
-            return {
-                'title': title,
-                'artists': (artist_name,),
-                'genres': [],
-                'tracks': ds_tracks,
-            }
+            except Exception as exc:
+                logger.warning("Last.FM scrobble filter failed; using unfiltered DS tracks (%s)", exc, exc_info=True)
+        else:
+            filtered_ds_tracks = self.filter_tracks(ds_tracks, history, exempt_tracks=seed_tracks)
 
-        # Legacy path: fall back to matched history or local history
-        if not history:
-            if self.lastfm and self.matcher:
-                try:
-                    logger.info("Last.FM history matching enabled for legacy path")
-                    history = self._get_lastfm_history()
-                except Exception as exc:
-                    logger.warning("Last.FM history matching failed; continuing without it (%s)", exc, exc_info=True)
-                    history = []
-            else:
-                history = self._get_local_history()
-
-        # Generate similar tracks using similarity engine
-        # Use larger pool for TSP optimization (2-3x target count)
-        tsp_pool_multiplier = 2.5  # Gather 2.5x more candidates for TSP to optimize
-        limit_per_seed = int((track_count * tsp_pool_multiplier) / len(seed_tracks)) if seed_tracks else 20
-        similar_tracks = self.generate_similar_tracks(seed_tracks, dynamic=dynamic, limit_per_seed=limit_per_seed)
-        logger.info(f"  Generated pool of {len(similar_tracks)} candidates (target: {track_count}, multiplier: {tsp_pool_multiplier}x)")
-
-        # Keep the full pool; artist/window limits and caps are enforced downstream
-        diverse_tracks = similar_tracks
-
-        # Ensure minimum seed artist representation (configurable ratio)
-        min_seed_tracks = max(4, int(track_count * self.config.min_seed_artist_ratio))
-        seed_artist_tracks = [t for t in diverse_tracks if safe_get_artist(t) == artist_name.lower()]
-
-        additional_count = 0
-        if len(seed_artist_tracks) < min_seed_tracks:
-            additional_needed = min_seed_tracks - len(seed_artist_tracks)
-            # Get more tracks from the artist
-            available_tracks = [t for t in artist_tracks
-                              if t.get('rating_key') not in {track.get('rating_key') for track in diverse_tracks}]
-            if available_tracks:
-                additional = available_tracks[:additional_needed]
-                diverse_tracks.extend(additional)
-                additional_count = len(additional)
-
-        logger.info(f"  Assembled {len(diverse_tracks)} candidates ({len(seed_artist_tracks) + additional_count} from {artist_name})")
-
-        # Optimize track order using TSP (end→beginning transitions)
-        # Intelligent selection happens inside TSP method
-        final_tracks = self._optimize_playlist_order_tsp(
-            diverse_tracks,
-            seed_tracks,
-            verbose=verbose,
-            target_count=track_count  # Enable intelligent candidate selection
-        )
-
-        # Limit artist frequency in windows (configurable)
-        final_tracks = self._limit_artist_frequency_in_window(final_tracks)
-
-        # Note: No naive trimming needed - intelligent selection happens before TSP
-
-        # Ensure playlist meets minimum duration
-        min_duration_ms = self.config.min_duration_minutes * 60 * 1000  # Convert minutes to milliseconds
-        total_duration_ms = sum((track.get('duration') or 0) for track in final_tracks)
-
-        # If playlist is shorter than minimum, add more similar tracks
-        if total_duration_ms < min_duration_ms:
-            logger.info(f"  Playlist is {total_duration_ms/1000/60:.1f} min, extending to {self.config.min_duration_minutes} min...")
-
-            # Track all used rating keys to avoid duplicates
-            used_keys = {track.get('rating_key') for track in final_tracks}
-            used_titles = {normalize_song_title(track.get('title', '')) for track in final_tracks}
-
-            # Keep fetching more similar tracks until we meet duration
-            attempts = 0
-            max_attempts = 10
-
-            while total_duration_ms < min_duration_ms and attempts < max_attempts:
-                # Generate more similar tracks (use higher limit to get more variety)
-                # Increase limit with each attempt to get progressively more tracks
-                extended_limit = self.config.limit_extension_base + (attempts * self.config.limit_extension_increment)
-                more_similar = self.generate_similar_tracks(seed_tracks, dynamic=dynamic, limit_per_seed=extended_limit)
-
-                # Filter out duplicates and already-used tracks
-                new_tracks = []
-                for track in more_similar:
-                    track_key = track.get('rating_key')
-                    track_title_normalized = normalize_song_title(track.get('title', ''))
-
-                    if track_key not in used_keys and track_title_normalized not in used_titles:
-                        new_tracks.append(track)
-                        used_keys.add(track_key)
-                        used_titles.add(track_title_normalized)
-
-                if not new_tracks:
-                    logger.info(f"  No more unique tracks available, stopping at {total_duration_ms/1000/60:.1f} min")
-                    break
-
-                # Keep full set; diversity enforced by window/artist checks below
-
-                # Add tracks until we reach minimum duration
-                for track in new_tracks:
-                    if total_duration_ms >= min_duration_ms:
-                        break
-
-                    # Check artist frequency constraint for this new track
-                    # Look at last (window_size - 1) tracks
-                    window = final_tracks[-(8 - 1):]
-                    artist_counts = {}
-                    for t in window:
-                        artist = t.get('artist')
-                        artist_counts[artist] = artist_counts.get(artist, 0) + 1
-
-                    # Only add if it doesn't violate constraint
-                    track_artist = track.get('artist')
-                    if artist_counts.get(track_artist, 0) < 1:  # max 1 per 8-song window
-                        final_tracks.append(track)
-                        total_duration_ms += (track.get('duration') or 0)
-
-                attempts += 1
-
-            logger.info(f"  Extended playlist to {len(final_tracks)} tracks ({total_duration_ms/1000/60:.1f} min)")
+        final_tracks = self._ensure_seed_tracks_present(seed_tracks, filtered_ds_tracks, track_count)
 
         if not final_tracks:
-            logger.warning(f"No tracks generated for {artist_name}")
-            return None
+            raise RuntimeError("DS pipeline tracks were filtered out by recency rules.")
 
-        # Log final duration
-        total_minutes = total_duration_ms / 1000 / 60
-        logger.info(f"  Playlist duration: {total_minutes:.1f} minutes")
-
-        # Count seed artist tracks in final playlist
-        seed_count = len([t for t in final_tracks if safe_get_artist(t) == artist_name.lower()])
-        seed_percentage = (seed_count / len(final_tracks)) * 100 if final_tracks else 0
-
-        logger.info(f"  Final: {len(final_tracks)} tracks from {len(set(t.get('artist') for t in final_tracks))} artists")
-        logger.info(f"  Seed artist ({artist_name}): {seed_count} tracks ({seed_percentage:.1f}%)")
-
-        # Print detailed track report
-        self._print_playlist_report(final_tracks, artist_name=artist_name, dynamic=dynamic)
-
+        # Recompute edge scores for the final track order
+        if getattr(self, "_last_ds_report", None):
+            recomputed_edges = self._compute_edge_scores_from_artifact(
+                final_tracks,
+                self._last_ds_report.get("artifact_path"),
+                transition_floor=self._last_ds_report.get("transition_floor"),
+                transition_gamma=self._last_ds_report.get("transition_gamma"),
+                center_transitions=bool(self._last_ds_report.get("transition_centered")),
+                embedding_random_seed=self._last_ds_report.get("random_seed"),
+                verbose=verbose,
+                sonic_variant=self._last_ds_report.get("sonic_variant"),
+            )
+            self._last_ds_report["edge_scores"] = recomputed_edges
+            playlist_stats = self._last_ds_report.get("playlist_stats") or {}
+            playlist_stats_playlist = playlist_stats.get("playlist") or {}
+            playlist_stats_playlist["edge_scores"] = recomputed_edges
+            playlist_stats["playlist"] = playlist_stats_playlist
+            self._last_ds_report["playlist_stats"] = playlist_stats
+            if os.environ.get("PLAYLIST_DIAG_RECENCY"):
+                self._log_recency_edge_diff(final_tracks, final_tracks)
+        title = f"Auto: {artist_name}"
+        self._print_playlist_report(final_tracks, artist_name=artist_name, dynamic=dynamic, verbose_edges=verbose)
         return {
-            'title': artist_name,
+            'title': title,
             'artists': (artist_name,),
-            'genres': seed_tracks[0].get('genres', []) if seed_tracks else [],
-            'tracks': final_tracks
+            'genres': [],
+            'tracks': final_tracks,
         }
 
     def _pair_artists_by_similarity(self, artists: List[str], num_pairs: int,
@@ -2406,124 +2368,45 @@ class PlaylistGenerator:
 
             # DS pipeline override (if enabled)
             target_playlist_size = self.config.get('playlists', 'tracks_per_playlist', 30)
+            anchor_seed_ids = [str(s.get('rating_key')) for s in seeds if s.get('rating_key')]
             ds_tracks = self._maybe_generate_ds_playlist(
                 seed_track_id=seeds[0].get('rating_key') if seeds else None,
                 target_length=target_playlist_size,
                 pipeline_override=pipeline_override,
                 mode_override=ds_mode_override or ("dynamic" if dynamic else None),
                 seed_artist=artist,
+                anchor_seed_ids=anchor_seed_ids or None,
             )
-            if ds_tracks:
-                if self.lastfm:
-                    scrobbles = self._get_lastfm_scrobbles_raw()
-                    filtered_ds_tracks = self._filter_by_scrobbles(
-                        ds_tracks,
-                        scrobbles,
-                        lookback_days=self.config.recently_played_lookback_days,
-                    )
-                else:
-                    filtered_ds_tracks = self.filter_tracks(ds_tracks, history, exempt_tracks=seeds)
-                if not filtered_ds_tracks:
-                    logger.warning("DS pipeline tracks filtered out by freshness rules; falling back to legacy path.")
-                    ds_tracks = None
-                else:
-                    ds_tracks = filtered_ds_tracks
-
-            if ds_tracks:
-                title = self._generate_playlist_title(artist, "", unique_genres)
-                self._print_playlist_report(ds_tracks, artist_name=artist, dynamic=dynamic)
-                playlists.append(
-                    {
-                        'title': title,
-                        'artists': (artist,),
-                        'genres': unique_genres,
-                        'tracks': ds_tracks,
-                    }
+            filtered_ds_tracks = ds_tracks
+            if self.lastfm:
+                scrobbles = self._get_lastfm_scrobbles_raw()
+                filtered_ds_tracks = self._filter_by_scrobbles(
+                    ds_tracks,
+                    scrobbles,
+                    lookback_days=self.config.recently_played_lookback_days,
+                    exempt_tracks=seeds,
                 )
-                logger.info(f"  Title: {title}")
-                logger.info(f"  Final: {len(ds_tracks)} tracks from {len(set(t.get('artist') for t in ds_tracks))} artists")
-                continue
+            else:
+                filtered_ds_tracks = self.filter_tracks(ds_tracks, history, exempt_tracks=seeds)
 
-            # Generate similar tracks using similarity engine
-            similar_tracks = self.generate_similar_tracks(seeds, dynamic=dynamic)
-            logger.info(f"  Generated {len(similar_tracks)} similar tracks")
+            final_tracks = self._ensure_seed_tracks_present(seeds, filtered_ds_tracks, target_playlist_size)
 
-            # Add seed tracks to the candidate pool (they're guaranteed to be in playlist)
-            all_tracks = seeds + similar_tracks
-            logger.info(f"  Total candidates: {len(all_tracks)} tracks ({len(seeds)} seeds + {len(similar_tracks)} similar)")
+            if not final_tracks:
+                raise RuntimeError("DS pipeline tracks filtered out by freshness rules for artist playlist generation.")
 
-            # Filter out recently played (seeds are exempt)
-            fresh_tracks = self.filter_tracks(all_tracks, history, exempt_tracks=seeds)
-            logger.info(f"  After filtering: {len(fresh_tracks)} fresh tracks")
-
-            # Diversify tracks
-            diverse_tracks = self.diversify_tracks(fresh_tracks)
-            logger.info(f"  After diversification: {len(diverse_tracks)} tracks")
-
-            # Ensure seed artist quota (configurable ratio)
-            target_playlist_size = self.config.get('playlists', 'tracks_per_playlist', 30)
-            min_seed_artist_tracks = max(4, int(target_playlist_size * self.config.min_seed_artist_ratio))
-
-            seed_artist_tracks = [t for t in diverse_tracks if t.get('artist') == artist]
-            logger.info(f"  Seed artist tracks in pool: {len(seed_artist_tracks)}")
-
-            # If not enough seed artist tracks, add them from history
-            if len(seed_artist_tracks) < min_seed_artist_tracks:
-                logger.info(f"  Need {min_seed_artist_tracks - len(seed_artist_tracks)} more {artist} tracks")
-                additional_tracks = self._get_additional_artist_tracks(artist, history, diverse_tracks,
-                                                                       min_seed_artist_tracks - len(seed_artist_tracks))
-                diverse_tracks.extend(additional_tracks)
-                logger.info(f"  Added {len(additional_tracks)} additional {artist} tracks")
-
-            # Optimize track order using TSP (end→beginning transitions)
-            final_tracks = self._optimize_playlist_order_tsp(diverse_tracks, seeds)
-            logger.info(f"  TSP optimization complete: {len(final_tracks)} tracks")
-
-            # Limit artist frequency in 8-song windows (max 1 per window)
-            final_tracks = self._limit_artist_frequency_in_window(final_tracks, window_size=8, max_per_window=1)
-            logger.info(f"  After limiting artist frequency: {len(final_tracks)} tracks")
-
-            # Ensure playlist meets minimum duration
-            min_duration_ms = self.config.min_duration_minutes * 60 * 1000  # Convert minutes to milliseconds
-            total_duration_ms = 0
-            duration_limited_tracks = []
-
-            for track in final_tracks:
-                duration_limited_tracks.append(track)
-                total_duration_ms += (track.get('duration') or 0)
-
-                # Stop once we've reached the minimum duration
-                if total_duration_ms >= min_duration_ms:
-                    break
-
-            final_tracks = duration_limited_tracks
-
-            # Log final duration
-            total_minutes = total_duration_ms / 1000 / 60
-            logger.info(f"  Playlist duration: {total_minutes:.1f} minutes")
-
-            # Count final seed artist representation
-            final_seed_artist_count = sum(1 for t in final_tracks if t.get('artist') == artist)
-            seed_artist_percentage = (final_seed_artist_count / len(final_tracks) * 100) if final_tracks else 0
-
-            if final_tracks:
-                # Generate title
-                title = self._generate_playlist_title(artist, "", unique_genres)
-
-                # Print detailed track report
-                self._print_playlist_report(final_tracks, artist_name=artist, dynamic=dynamic)
-
-                playlists.append({
+            title = self._generate_playlist_title(artist, "", unique_genres)
+            self._print_playlist_report(final_tracks, artist_name=artist, dynamic=dynamic)
+            playlists.append(
+                {
                     'title': title,
                     'artists': (artist,),
                     'genres': unique_genres,
-                    'tracks': final_tracks
-                })
-                logger.info(f"  Title: {title}")
-                logger.info(f"  Final: {len(final_tracks)} tracks from {len(set(t.get('artist') for t in final_tracks))} artists")
-                logger.info(f"  Seed artist ({artist}): {final_seed_artist_count} tracks ({seed_artist_percentage:.1f}%)\n")
-            else:
-                logger.warning(f"  No tracks generated for {artist}\n")
+                    'tracks': final_tracks,
+                }
+            )
+            logger.info(f"  Title: {title}")
+            logger.info(f"  Final: {len(final_tracks)} tracks from {len(set(t.get('artist') for t in final_tracks))} artists")
+            logger.info(f"  Seed artist ({artist}): {sum(1 for t in final_tracks if t.get('artist') == artist)} tracks\n")
 
         return playlists
 
@@ -2551,6 +2434,45 @@ class PlaylistGenerator:
 
         # Return up to 'count' tracks
         return artist_tracks_from_history[:count]
+
+    def _select_canonical_track(self, artist_tracks: List[Dict[str, Any]], target_title: str) -> Optional[Dict[str, Any]]:
+        """
+        Select a canonical track for a given artist/title by normalizing titles and
+        preferring non-live/demo/remix variants.
+        """
+        import re
+
+        def _strip_punct(txt: str) -> str:
+            return re.sub(r"[^a-z0-9\s]", "", txt.lower()).strip()
+
+        target_norm = normalize_song_title(target_title)
+        target_norm_loose = _strip_punct(target_title)
+        if not target_norm:
+            return None
+
+        best = None
+        best_score = (10, 10_000)  # (penalty, length)
+        penalties = ("live", "demo", "remix", "version", "alt", "alternate", "edit")
+
+        for track in artist_tracks:
+            title = track.get("title") or ""
+            norm = normalize_song_title(title)
+            norm_loose = _strip_punct(title)
+            if norm != target_norm and norm_loose != target_norm_loose:
+                continue
+            lower_title = title.lower()
+            penalty = 0
+            if "(" in title:
+                penalty += 1
+            for p in penalties:
+                if p in lower_title:
+                    penalty += 1
+            score = (penalty, len(title))
+            if score < best_score:
+                best = track
+                best_score = score
+
+        return best
 
     def _order_by_sequential_similarity(self, tracks: List[Dict[str, Any]],
                                         seeds: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -3552,12 +3474,12 @@ class PlaylistGenerator:
 
         return aggregated
 
-    def _get_lastfm_scrobbles_raw(self) -> List[Dict[str, Any]]:
+    def _get_lastfm_scrobbles_raw(self, use_cache: bool = True) -> List[Dict[str, Any]]:
         """Get raw Last.FM scrobbles without library matching (for recency exclusion only)."""
         if not self.lastfm:
             return []
         history_days = self.config.lastfm_history_days
-        scrobbles = self.lastfm.get_recent_tracks(days=history_days)
+        scrobbles = self.lastfm.get_recent_tracks(days=history_days, use_cache=use_cache)
         if not scrobbles:
             logger.info("No Last.FM scrobbles found for recency filtering")
             return []
@@ -3669,10 +3591,7 @@ class PlaylistGenerator:
         logger.info("=" * 80)
         # Pipeline context summary if available
         pipeline_ctx = []
-        if getattr(self, "_last_ds_report", None):
-            pipeline_ctx.append("pipeline=ds")
-        else:
-            pipeline_ctx.append("pipeline=legacy")
+        pipeline_ctx.append("pipeline=ds")
         if hasattr(self, "_last_scope"):
             pipeline_ctx.append(f"scope={self._last_scope}")
         if hasattr(self, "_last_ds_mode"):
