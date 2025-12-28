@@ -1,0 +1,71 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+ENV/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# Testing
+.pytest_cache/
+.tox/
+.coverage
+htmlcov/
+.hypothesis/
+
+# Logs
+*.log
+
+# Local config (user-specific)
+config.yaml
+
+# Data files (large, user-specific)
+data/metadata.db
+data/metadata.db-shm
+data/metadata.db-wal
+data/artifacts/
+data/sonic_backups/
+data/*.npz
+data/*.csv
+
+# M3U exports
+*.m3u
+*.m3u8
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local

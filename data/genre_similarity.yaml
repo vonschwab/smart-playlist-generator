@@ -1,0 +1,384 @@
+alt. rock, indie rock:
+  indie rock: 0.95
+alternatif et indé:
+  alternative: 0.95
+  indie: 0.95
+alternativ und indie:
+  indie: 0.95
+alternative:
+  alternatif et indé: 0.95
+  alternative & indie: 0.95
+  alternative rock: 0.95
+  alternative, indie rock, rock: 0.9
+  alternative; indie; pop; rock: 0.85
+  indie: 0.9
+  indie pop: 0.6
+  indie rock: 0.9
+alternative & indie:
+  alternative: 0.95
+  indie: 0.95
+  indie rock: 0.9
+alternative / indie rock:
+  indie rock: 0.95
+alternative en indie:
+  indie: 0.95
+alternative rock:
+  alternative: 0.95
+  garage rock: 0.6
+  grunge: 0.75
+  indie: 0.85
+  indie rock: 0.9
+  post-punk: 0.65
+  rock: 0.85
+alternative, indie:
+  indie: 0.95
+alternative, indie rock, rock:
+  alternative: 0.9
+alternative; indie; pop; rock:
+  alternative: 0.85
+ambient:
+  ambient country: 0.6
+  american primitive: 0.5
+  dream pop: 0.6
+  drone: 0.85
+  electronic: 0.65
+  experimental: 0.8
+  new age: 0.65
+  post-rock: 0.7
+  shoegaze: 0.55
+  spiritual jazz: 0.5
+ambient country:
+  ambient: 0.6
+  american primitive: 0.7
+  americana: 0.7
+  country: 0.5
+  folk: 0.6
+american primitive:
+  ambient: 0.5
+  ambient country: 0.7
+  americana: 0.7
+  folk: 0.8
+americana:
+  ambient country: 0.7
+  american primitive: 0.7
+  country: 0.8
+  folk: 0.8
+  indie folk: 0.6
+art punk:
+  experimental rock: 0.65
+  hardcore punk: 0.7
+  post-punk: 0.8
+  punk: 0.7
+avant-garde:
+  experimental: 0.9
+  free jazz: 0.65
+  noise: 0.6
+bedroom pop:
+  dream pop: 0.6
+  indie pop: 0.75
+  lo-fi: 0.85
+blues:
+  blues rock: 0.85
+  jazz: 0.55
+  rock: 0.5
+  soul: 0.6
+blues rock:
+  blues: 0.85
+  classic rock: 0.75
+  rock: 0.7
+classic rock:
+  blues rock: 0.75
+  psychedelic rock: 0.7
+  rock: 0.8
+country:
+  ambient country: 0.5
+  americana: 0.8
+  folk: 0.6
+  singer-songwriter: 0.5
+darkwave:
+  gothic rock: 0.8
+  new wave: 0.55
+  post-punk: 0.6
+disco:
+  funk: 0.7
+  house: 0.65
+  soul: 0.5
+dream pop:
+  ambient: 0.6
+  indie pop: 0.8
+  indie rock: 0.5
+  jangle pop: 0.6
+  lo-fi: 0.7
+  psychedelic: 0.55
+  shoegaze: 0.85
+drone:
+  ambient: 0.85
+  experimental: 0.85
+  new age: 0.6
+  noise: 0.65
+  post-rock: 0.6
+electronic:
+  ambient: 0.65
+  house: 0.75
+  idm: 0.7
+  synth pop: 0.6
+  techno: 0.8
+experimental:
+  ambient: 0.8
+  avant-garde: 0.9
+  drone: 0.85
+  noise: 0.75
+  post-rock: 0.6
+  spiritual jazz: 0.5
+experimental rock:
+  art punk: 0.65
+  noise rock: 0.75
+folk:
+  ambient country: 0.6
+  american primitive: 0.8
+  americana: 0.8
+  country: 0.6
+  indie folk: 0.9
+  singer-songwriter: 0.85
+free jazz:
+  avant-garde: 0.65
+  experimental: 0.6
+  jazz: 0.75
+  spiritual jazz: 0.8
+funk:
+  disco: 0.7
+  jazz: 0.6
+  rnb: 0.7
+  soul: 0.85
+garage rock:
+  indie rock: 0.55
+  psychedelic rock: 0.5
+  punk: 0.6
+  rock: 0.7
+gospel:
+  rnb: 0.45
+  soul: 0.55
+gothic rock:
+  darkwave: 0.8
+  post-punk: 0.6
+grunge:
+  alternative rock: 0.75
+  punk: 0.5
+  rock: 0.7
+hardcore:
+  metal: 0.5
+  noise rock: 0.6
+  punk: 0.75
+hardcore punk:
+  art punk: 0.7
+  post-punk: 0.6
+  punk: 0.9
+hip hop:
+  funk: 0.5
+  rap: 0.95
+  rnb: 0.55
+  soul: 0.45
+house:
+  disco: 0.65
+  electronic: 0.75
+  funk: 0.5
+  techno: 0.75
+idm:
+  ambient: 0.6
+  electronic: 0.7
+  experimental: 0.65
+indie:
+  alternatif et indé: 0.95
+  alternativ und indie: 0.95
+  alternative: 0.9
+  alternative & indie: 0.95
+  alternative en indie: 0.95
+  alternative rock: 0.85
+  alternative, indie: 0.95
+  indie / alternative: 0.95
+  indie / rock / alternative: 0.9
+  indie dance: 0.75
+  indie pop: 0.85
+  indie rock: 0.95
+  indie-electronic: 0.75
+  jangle pop: 0.7
+  lo-fi: 0.7
+  pop, rock, alternatif et indé: 0.95
+  rock; alternative; indie: 0.85
+indie / alternative:
+  indie: 0.95
+indie / rock / alternative:
+  indie: 0.9
+indie dance:
+  indie: 0.75
+  indie-electronic: 0.85
+indie folk:
+  folk: 0.9
+  indie rock: 0.6
+  lo-fi: 0.5
+  singer-songwriter: 0.8
+indie pop:
+  alternative: 0.6
+  bedroom pop: 0.75
+  dream pop: 0.8
+  indie: 0.85
+  indie rock: 0.65
+  pop: 0.7
+  singer-songwriter: 0.6
+  synth pop: 0.65
+indie rock:
+  alt. rock, indie rock: 0.95
+  alternative: 0.9
+  alternative & indie: 0.9
+  alternative / indie rock: 0.95
+  alternative rock: 0.9
+  garage rock: 0.55
+  indie: 0.95
+  indie pop: 0.65
+  lo-fi: 0.6
+  noise pop: 0.75
+  post-punk: 0.7
+  shoegaze: 0.7
+indie-electronic:
+  indie: 0.75
+  indie dance: 0.85
+industrial:
+  electronic: 0.5
+  metal: 0.55
+  noise: 0.7
+  techno: 0.6
+jangle pop:
+  dream pop: 0.6
+  indie: 0.7
+jazz:
+  blues: 0.55
+  free jazz: 0.75
+  funk: 0.6
+  rnb: 0.5
+  soul: 0.65
+  spiritual jazz: 0.85
+lo-fi:
+  bedroom pop: 0.85
+  dream pop: 0.7
+  indie: 0.7
+  indie folk: 0.5
+  indie rock: 0.6
+  shoegaze: 0.6
+metal:
+  hardcore: 0.5
+  industrial: 0.55
+  noise: 0.45
+new age:
+  ambient: 0.65
+  drone: 0.6
+new wave:
+  electronic: 0.5
+  indie pop: 0.6
+  post-punk: 0.85
+  synth pop: 0.8
+noise:
+  drone: 0.65
+  experimental: 0.75
+  industrial: 0.7
+noise pop:
+  indie rock: 0.75
+  lo-fi: 0.55
+  post-punk: 0.6
+  shoegaze: 0.85
+noise rock:
+  experimental rock: 0.75
+  hardcore: 0.6
+  post-punk: 0.6
+  punk: 0.6
+pop:
+  dance: 0.65
+  indie pop: 0.7
+  rnb: 0.6
+  synth pop: 0.7
+pop, rock, alternatif et indé:
+  indie: 0.95
+post-punk:
+  alternative rock: 0.65
+  art punk: 0.8
+  gothic rock: 0.6
+  hardcore punk: 0.6
+  indie rock: 0.7
+  new wave: 0.85
+  noise pop: 0.6
+  noise rock: 0.6
+  punk: 0.7
+  shoegaze: 0.5
+post-rock:
+  ambient: 0.7
+  drone: 0.6
+  experimental: 0.6
+  indie rock: 0.5
+  shoegaze: 0.65
+psychedelic:
+  dream pop: 0.55
+  experimental: 0.6
+  psychedelic rock: 0.85
+  shoegaze: 0.5
+psychedelic rock:
+  classic rock: 0.7
+  garage rock: 0.5
+  psychedelic: 0.85
+  rock: 0.65
+punk:
+  alternative rock: 0.5
+  art punk: 0.7
+  garage rock: 0.6
+  hardcore: 0.75
+  hardcore punk: 0.9
+  noise rock: 0.6
+  post-punk: 0.7
+rap:
+  hip hop: 0.95
+  trap: 0.8
+rnb:
+  funk: 0.7
+  hip hop: 0.55
+  jazz: 0.5
+  pop: 0.6
+  soul: 0.9
+rock:
+  alternative rock: 0.85
+  classic rock: 0.8
+  garage rock: 0.7
+  indie rock: 0.7
+  psychedelic rock: 0.65
+rock; alternative; indie:
+  indie: 0.85
+shoegaze:
+  ambient: 0.55
+  dream pop: 0.85
+  indie rock: 0.7
+  lo-fi: 0.6
+  noise pop: 0.85
+  post-punk: 0.5
+  post-rock: 0.65
+  psychedelic: 0.5
+singer-songwriter:
+  folk: 0.85
+  indie folk: 0.8
+  indie pop: 0.6
+soul:
+  blues: 0.6
+  funk: 0.85
+  gospel: 0.55
+  jazz: 0.65
+  rnb: 0.9
+spiritual jazz:
+  ambient: 0.5
+  experimental: 0.5
+  free jazz: 0.8
+  jazz: 0.85
+synth pop:
+  electronic: 0.6
+  indie pop: 0.65
+  new wave: 0.8
+  pop: 0.7
+techno:
+  electronic: 0.8
+  house: 0.75
+  industrial: 0.6

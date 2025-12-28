@@ -1,0 +1,227 @@
+library:
+  music_directory: /path/to/music
+  database_path: data/metadata.db
+discogs:
+  token: ''
+lastfm:
+  api_key: ''
+  username: ''
+  history_days: 90
+openai:
+  api_key: YOUR_OPENAI_API_KEY
+  model: gpt-4o-mini
+plex:
+  enabled: false
+  base_url: http://localhost:32400
+  token: ''
+  music_section: Music
+  verify_ssl: true
+  replace_existing: true
+  path_map: []
+playlists:
+  count: 8
+  tracks_per_playlist: 30
+  history_days: 14
+  seed_count: 5
+  similar_per_seed: 20
+  name_prefix: 'Auto:'
+  max_age_days: 14
+  export_m3u: true
+  m3u_export_path: /path/to/playlists
+  cache_expiry_days: 30
+  name_format: artists
+  recently_played_filter:
+    enabled: true
+    lookback_days: 30
+    min_playcount_threshold: 0
+  min_duration_minutes: 90
+  min_track_duration_seconds: 46
+  max_track_duration_seconds: 720
+  max_tracks_per_artist: 3
+  artist_window_size: 8
+  max_artist_per_window: 1
+  min_seed_artist_ratio: 0.125
+  pipeline: ds
+  ds_pipeline:
+    artifact_path: data/artifacts/beat3tower_32k/data_matrices_step1.npz
+    mode: dynamic
+    random_seed: 0
+    enable_logging: true
+
+    # Sonic feature weighting for candidate selection (must sum to 1.0)
+    # rhythm: tempo/beat patterns | timbre: texture/tone | harmony: key/chords
+    tower_weights:
+      rhythm: 0.20      # Weight for rhythm features (0.0-1.0)
+      timbre: 0.50      # Weight for timbre features (0.0-1.0)
+      harmony: 0.30     # Weight for harmony features (0.0-1.0)
+
+    # Transition weighting for end-of-track-A to start-of-track-B matching
+    # Higher rhythm weight helps maintain tempo/BPM flow between tracks
+    transition_weights:
+      rhythm: 0.40      # Weight for rhythm features (0.0-1.0)
+      timbre: 0.35      # Weight for timbre features (0.0-1.0)
+      harmony: 0.25     # Weight for harmony features (0.0-1.0)
+
+    # PCA dimensions per tower (lower = faster but less detail)
+    # Max dims: rhythm=21, timbre=83, harmony=33
+    tower_pca_dims:
+      rhythm: 8         # PCA components for rhythm (1-21)
+      timbre: 16        # PCA components for timbre (1-83)
+      harmony: 8        # PCA components for harmony (1-33)
+
+    # Hybrid embedding configuration (sonic + genre features combined)
+    embedding:
+      sonic_components: 32    # PCA dims for sonic features (8-64)
+      genre_components: 32    # PCA dims for genre features (8-64)
+      sonic_weight: 0.60      # Weight for sonic similarity (0.0-1.0)
+      genre_weight: 0.40      # Weight for genre similarity (0.0-1.0)
+
+    # Candidate pool configuration (tracks considered before construction)
+    candidate_pool:
+      similarity_floor: 0.20  # Min sonic similarity to seed track (0.0-1.0)
+      max_pool_size: 1200     # Max candidates before construction phase
+      max_artist_fraction: 0.125  # Max tracks from one artist as fraction of playlist
+
+    # Construction scoring weights
+    # score = alpha*seed_sim + beta*transition_sim + gamma*diversity - penalty
+    scoring:
+      alpha: 0.55             # Seed similarity weight (0.0-1.0)
+      beta: 0.55              # Transition similarity weight (0.0-1.0)
+      gamma: 0.04             # Artist diversity bonus (0.0-0.2)
+      # Alpha schedule: "constant" uses alpha throughout, "arc" varies by position
+      alpha_schedule: arc     # "constant" or "arc"
+      alpha_start: 0.65       # Alpha at playlist start (if arc)
+      alpha_mid: 0.45         # Alpha at midpoint (if arc)
+      alpha_end: 0.60         # Alpha at playlist end (if arc)
+      arc_midpoint: 0.55      # Where midpoint falls in playlist (0.0-1.0)
+
+    # Constraint configuration
+    constraints:
+      min_gap: 6              # Min positions between same artist
+      hard_floor: true        # Reject (true) vs penalize (false) below floor
+      transition_floor: 0.20  # Min acceptable transition similarity
+      center_transitions: true # Center X_start/X_end matrices for scoring
+
+    # Repair pass configuration (fixes weak transitions after construction)
+    repair:
+      enabled: true           # Enable post-construction repair pass
+      max_iters: 5            # Max repair iterations
+      max_edges: 5            # Max edges to fix per iteration
+      objective: gap_penalty  # "gap_penalty" or "below_floor_first"
+  sonic:
+    sim_variant: tower_pca
+  genre_similarity:
+    enabled: true
+    weight: 0.50
+    sonic_weight: 0.50
+    min_genre_similarity: 0.30
+    min_genre_similarity_narrow: 0.55
+    method: ensemble
+    similarity_file: data/genre_similarity.yaml
+    use_artist_tags: true
+    broad_filters:
+    - 50s
+    - 60s
+    - 70s
+    - 80s
+    - 90s
+    - 00s
+    - 10s
+    - '1950'
+    - '1960'
+    - '1970'
+    - '1980'
+    - '1990'
+    - '2000'
+    - '2010'
+    - '2020'
+    - 2000s
+    - 2010s
+    - 2020s
+    - rock
+    - pop
+    - indie
+    - alternative
+    - experimental
+    - instrumental
+    - ambient
+    - electronic
+    - underground
+    - classic
+    - modern
+    - contemporary
+    - male vocalists
+    - female vocalists
+    - male vocalist
+    - female vocalist
+    - british
+    - american
+    - canadian
+    - english
+    - uk
+    - usa
+    - nyc
+    - london
+    - lo-fi
+    - lofi
+    - chillout
+    - chill
+    - beautiful
+    - melancholy
+    - sad
+    - happy
+    - love
+    - mellow
+    - catchy
+    - awesome
+    - cool
+    - good
+    - great
+    - seen live
+    - favorites
+    - favourite
+    - my music
+    - owned
+    - liked
+    - to buy
+    - unknown
+    - various
+    - other
+    - misc
+    - soundtrack
+    - ost
+    - cover
+    - covers
+    - remix
+    - remixes
+    - live
+    - bootleg
+    - demo
+    - reissue
+    - compilation
+  similarity:
+    min_threshold: 0.5
+    artist_direct_match: 0.9
+    artist_shared_base: 0.4
+    artist_shared_increment: 0.05
+    artist_shared_max: 0.7
+  limits:
+    similar_tracks: 50
+    similar_artists: 30
+    extension_base: 10
+    extension_increment: 20
+  duration_match:
+    enabled: true
+    weight: 0.35
+    window_frac: 0.25
+    falloff: 0.6
+    min_target_seconds: 40
+  dedupe:
+    title:
+      enabled: true
+      threshold: 92
+      mode: loose
+      short_title_min_len: 6
+logging:
+  level: DEBUG
+  file: playlist_generator.log
