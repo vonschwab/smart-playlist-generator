@@ -73,7 +73,8 @@ class NormalizedGenreUpdater:
                    CASE WHEN mb.artist IS NULL THEN 1 ELSE 0 END as needs_musicbrainz
             FROM tracks t
             LEFT JOIN (
-                SELECT DISTINCT artist FROM artist_genres WHERE source = 'musicbrainz_artist'
+                SELECT DISTINCT artist FROM artist_genres
+                WHERE source IN ('musicbrainz_artist', 'musicbrainz_artist_inherited')
             ) mb ON t.artist = mb.artist
             WHERE t.artist IS NOT NULL AND TRIM(t.artist) != ''
               AND t.file_path IS NOT NULL AND t.file_path != ''
