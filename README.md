@@ -1,6 +1,6 @@
 # Playlist Generator
 
-**Version 3.0.0** - AI-powered music playlist generation using beat3tower sonic analysis and normalized genre metadata.
+**Version 3.1** - AI-powered music playlist generation with a Windows GUI, accent-insensitive artist matching, MusicBrainz MBID enrichment, and the beat3tower DS pipeline.
 
 ## Overview
 
@@ -27,20 +27,26 @@ python tools/doctor.py
 # 4. Scan your music library
 python scripts/scan_library.py
 
-# 5. Extract sonic features
+# 5. (Optional but recommended) Fetch MusicBrainz MBIDs without touching audio files
+python scripts/fetch_mbids_musicbrainz.py --limit 500  # add --force-no-match/--force-error to retry markers
+
+# 6. Extract sonic features
 python scripts/update_sonic.py --beat3tower --workers 4
 
-# 6. Fetch genre metadata
+# 7. Fetch genre metadata
 python scripts/update_genres_v3_normalized.py --artists
 
-# 7. Build artifacts
+# 8. Build artifacts
 python scripts/build_beat3tower_artifacts.py \
     --db-path data/metadata.db \
     --config config.yaml \
     --output data/artifacts/beat3tower_32k/data_matrices_step1.npz
 
-# 8. Generate a playlist
+# 9. Generate a playlist (CLI)
 python main_app.py --artist "Radiohead" --tracks 30
+
+# 10. Launch the GUI (Windows)
+python -m src.playlist_gui.app
 ```
 
 See [docs/GOLDEN_COMMANDS.md](docs/GOLDEN_COMMANDS.md) for complete command reference.
@@ -96,12 +102,23 @@ See [docs/GOLDEN_COMMANDS.md](docs/GOLDEN_COMMANDS.md) for complete command refe
 python main_app.py --artist "Radiohead" --ds-mode discover
 ```
 
+## GUI Highlights (3.1)
+- Accent-insensitive artist autocomplete (type “Joao” and see “João Gilberto”).
+- Track table export buttons fixed; context menu still available.
+- Progress/log panels wired to worker with request correlation.
+
+## MBID Enrichment (3.1)
+- `scripts/fetch_mbids_musicbrainz.py` queries MusicBrainz by artist/title (with collab/feature handling) and writes MBIDs to `tracks.musicbrainz_id` (no file writes). Uses skip markers (`__NO_MATCH__`, `__ERROR__`); reprocess with `--force-no-match`/`--force-error` or all with `--force-all`.
+- `scripts/analyze_library.py` supports a `mbid` stage: `--stages scan,mbid,genres,...` to enrich during full runs.
+- Last.FM matching now prefers MBIDs for instant, exact mapping.
+
 ## Documentation
 
-- [Golden Commands](docs/GOLDEN_COMMANDS.md) - Production workflow reference
+- [Golden Commands](docs/GOLDEN_COMMANDS.md) - Production workflow reference    
 - [Architecture](docs/ARCHITECTURE.md) - System design overview
 - [Configuration](docs/CONFIG.md) - Config file reference
 - [Troubleshooting](docs/TROUBLESHOOTING.md) - Common issues and fixes
+- [Logging](docs/LOGGING.md) - Logging configuration and audit notes
 
 ## License
 
