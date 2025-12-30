@@ -550,6 +550,7 @@ def build_pier_bridge_playlist(
     # Remove duplicates while preserving order
     seed_indices = list(dict.fromkeys(seed_indices))
     num_seeds = len(seed_indices)
+    seed_id_set = {str(bundle.track_ids[i]) for i in seed_indices}
 
     logger.info("Pier+Bridge: %d seeds, target %d tracks", num_seeds, total_tracks)
 
@@ -736,6 +737,15 @@ def build_pier_bridge_playlist(
         )
 
     final_track_ids = [str(bundle.track_ids[i]) for i in final_indices]
+
+    # Recompute seed positions after any min-gap pruning to keep diagnostics consistent
+    seed_positions = [idx for idx, tid in enumerate(final_track_ids) if tid in seed_id_set]
+    if len(seed_positions) != (1 if is_single_seed_arc else len(seed_id_set)):
+        logger.debug(
+            "Pier+Bridge: seed count mismatch after pruning (expected %d, found %d)",
+            (1 if is_single_seed_arc else len(seed_id_set)),
+            len(seed_positions),
+        )
 
     # Compute overall stats
     actual_num_seeds = 1 if is_single_seed_arc else len(seed_indices)
