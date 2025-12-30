@@ -1,7 +1,7 @@
 """
-Presets Manager - Handles saving/loading preset configurations
+Presets Manager - Handles saving/loading preset configurations.
 
-Presets are stored under %APPDATA%\PlaylistGenerator\presets\ on Windows.
+Presets are stored under %APPDATA%\\PlaylistGenerator\\presets\\ on Windows.
 Each preset is a YAML file containing only the overrides (not the full config).
 """
 import os
