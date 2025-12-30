@@ -1,6 +1,6 @@
 # Playlist Generator
 
-**Version 3.1** - AI-powered music playlist generation with a Windows GUI, accent-insensitive artist matching, MusicBrainz MBID enrichment, and the beat3tower DS pipeline.
+**Version 3.1** - Data Science-powered music playlist generation with a Windows GUI, accent-insensitive artist matching, MusicBrainz MBID enrichment, and the beat3tower DS pipeline.
 
 ## Overview
 
