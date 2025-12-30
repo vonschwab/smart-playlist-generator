@@ -69,3 +69,7 @@ Thumbs.db
 # Environment
 .env
 .env.local
+
+# Local tooling artifacts
+.claude/
+pytest_output.txt

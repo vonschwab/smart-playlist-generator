@@ -319,17 +319,17 @@ def _build_segment_candidate_pool(
     if artist_keys is not None:
         artist_best: Dict[str, Tuple[int, float]] = {}  # artist -> (idx, score)
         for idx in combined:
-            artist = str(artist_keys[idx])
+            artist = normalize_artist_key(str(artist_keys[idx]))
             score = bridge_score.get(idx, 0.0)
 
             if artist not in artist_best or score > artist_best[artist][1]:
                 artist_best[artist] = (idx, score)
 
-        # Build final pool: one track per artist
+        # Build final pool: one track per artist (normalized)
         deduped: List[int] = [idx for idx, _ in artist_best.values()]
 
         logger.debug("Segment pool: %d combined -> %d after 1-per-artist dedupe",
-                    len(combined), len(deduped))
+                     len(combined), len(deduped))
         return deduped
 
     return list(combined)
@@ -470,6 +470,39 @@ def _compute_edge_scores(
     return (min(scores), sum(scores) / len(scores))
 
 
+def _enforce_min_gap_global(
+    indices: List[int],
+    artist_keys: Optional[np.ndarray],
+    min_gap: int = 1,
+) -> Tuple[List[int], int]:
+    """
+    Drop tracks that would violate a global min_gap across concatenated segments.
+
+    Pier-bridge already enforces one-per-artist per segment, but adjacent
+    duplicates can appear at segment boundaries. This pass removes any track
+    that would repeat a normalized artist within the last `min_gap` slots.
+    """
+    if not indices or artist_keys is None or min_gap <= 0:
+        return indices, 0
+
+    recent: List[str] = []
+    output: List[int] = []
+    dropped = 0
+
+    for idx in indices:
+        key = normalize_artist_key(str(artist_keys[idx]))
+        if key in recent:
+            dropped += 1
+            continue
+
+        output.append(idx)
+        recent.append(key)
+        if len(recent) > min_gap:
+            recent.pop(0)
+
+    return output, dropped
+
+
 def build_pier_bridge_playlist(
     *,
     seed_track_ids: List[str],
@@ -517,6 +550,7 @@ def build_pier_bridge_playlist(
     # Remove duplicates while preserving order
     seed_indices = list(dict.fromkeys(seed_indices))
     num_seeds = len(seed_indices)
+    seed_id_set = {str(bundle.track_ids[i]) for i in seed_indices}
 
     logger.info("Pier+Bridge: %d seeds, target %d tracks", num_seeds, total_tracks)
 
@@ -693,8 +727,25 @@ def build_pier_bridge_playlist(
                 final_indices.extend(segment[1:])
                 seed_positions.append(len(final_indices) - 1)  # New pier
 
-    # Convert to track IDs
+    # Convert to track IDs (after enforcing cross-segment min_gap to avoid back-to-back repeats)
+    final_indices, dropped = _enforce_min_gap_global(
+        final_indices, bundle.artist_keys, min_gap=1
+    )
+    if dropped:
+        logger.debug(
+            "Pier+Bridge: dropped %d tracks to enforce cross-segment min_gap", dropped
+        )
+
     final_track_ids = [str(bundle.track_ids[i]) for i in final_indices]
+
+    # Recompute seed positions after any min-gap pruning to keep diagnostics consistent
+    seed_positions = [idx for idx, tid in enumerate(final_track_ids) if tid in seed_id_set]
+    if len(seed_positions) != (1 if is_single_seed_arc else len(seed_id_set)):
+        logger.debug(
+            "Pier+Bridge: seed count mismatch after pruning (expected %d, found %d)",
+            (1 if is_single_seed_arc else len(seed_id_set)),
+            len(seed_positions),
+        )
 
     # Compute overall stats
     actual_num_seeds = 1 if is_single_seed_arc else len(seed_indices)

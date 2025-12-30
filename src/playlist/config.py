@@ -97,7 +97,8 @@ def default_ds_config(
     )
     similarity_floor = candidate_pool.get(
         "similarity_floor",
-        {"narrow": 0.30, "dynamic": 0.20, "discover": 0.10, "sonic_only": 0.0}[mode],
+        # Shift each mode narrower: higher floors for tighter cohesion.
+        {"narrow": 0.35, "dynamic": 0.28, "discover": 0.22, "sonic_only": 0.0}[mode],
     )
     transition_floor = constraints.get("transition_floor", similarity_floor)
 
@@ -143,28 +144,30 @@ def default_ds_config(
         alpha_schedule=scoring.get("alpha_schedule", mode_alpha_schedule),
         alpha=scoring.get(
             "alpha",
-            {"narrow": 0.65, "dynamic": 0.55, "discover": 0.40, "sonic_only": 0.55}[mode],
+            # Lean more on seed similarity for all modes (narrowest gets highest).
+            {"narrow": 0.70, "dynamic": 0.62, "discover": 0.50, "sonic_only": 0.55}[mode],
         ),
         alpha_start=scoring.get(
             "alpha_start",
-            {"narrow": 0.65, "dynamic": 0.65, "discover": 0.55, "sonic_only": 0.65}[mode],
+            {"narrow": 0.70, "dynamic": 0.65, "discover": 0.55, "sonic_only": 0.65}[mode],
         ),
         alpha_mid=scoring.get(
             "alpha_mid",
-            {"narrow": 0.65, "dynamic": 0.45, "discover": 0.30, "sonic_only": 0.45}[mode],
+            {"narrow": 0.70, "dynamic": 0.50, "discover": 0.35, "sonic_only": 0.45}[mode],
         ),
         alpha_end=scoring.get(
             "alpha_end",
-            {"narrow": 0.65, "dynamic": 0.60, "discover": 0.45, "sonic_only": 0.60}[mode],
+            {"narrow": 0.70, "dynamic": 0.62, "discover": 0.50, "sonic_only": 0.60}[mode],
         ),
         arc_midpoint=scoring.get("arc_midpoint", 0.55),
         beta=scoring.get(
             "beta",
-            {"narrow": 0.50, "dynamic": 0.55, "discover": 0.60, "sonic_only": 0.45}[mode],
+            {"narrow": 0.55, "dynamic": 0.58, "discover": 0.62, "sonic_only": 0.45}[mode],
         ),
         gamma=scoring.get(
             "gamma",
-            {"narrow": 0.02, "dynamic": 0.04, "discover": 0.10, "sonic_only": 0.04}[mode],
+            # Dial back diversity bonus to favor tighter cohesion.
+            {"narrow": 0.01, "dynamic": 0.025, "discover": 0.06, "sonic_only": 0.04}[mode],
         ),
         hard_floor=constraints.get(
             "hard_floor",
