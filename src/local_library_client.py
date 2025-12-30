@@ -6,7 +6,9 @@ import sqlite3
 import json
 import logging
 from typing import List, Dict, Any, Optional
+from .artist_key_db import ensure_artist_key_schema
 from .similarity_calculator import SimilarityCalculator
+from .string_utils import normalize_artist_key
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +37,7 @@ class LocalLibraryClient:
         # Allow use across threads (FastAPI worker threads)
         self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
+        ensure_artist_key_schema(self.conn, logger=logger)
         logger.debug(f"Connected to database: {self.db_path}")
 
     def get_all_tracks(self, library_id: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -53,6 +56,7 @@ class LocalLibraryClient:
             SELECT
                 track_id as rating_key,
                 artist,
+                artist_key,
                 title,
                 album,
                 duration_ms,
@@ -65,9 +69,11 @@ class LocalLibraryClient:
 
         tracks = []
         for row in cursor.fetchall():
+            artist_key = row["artist_key"] if "artist_key" in row.keys() and row["artist_key"] else normalize_artist_key(row["artist"] or "")
             track = {
                 'rating_key': row['rating_key'],
                 'artist': row['artist'] or '',
+                'artist_key': artist_key,
                 'title': row['title'] or '',
                 'album': row['album'] or '',
                 'duration': row['duration_ms'],  # Keep as milliseconds
@@ -95,6 +101,7 @@ class LocalLibraryClient:
             SELECT
                 track_id as rating_key,
                 artist,
+                artist_key,
                 title,
                 album,
                 duration_ms,
@@ -109,9 +116,11 @@ class LocalLibraryClient:
             logger.warning(f"Track {rating_key} not found in local library")
             return None
 
+        artist_key = row["artist_key"] if "artist_key" in row.keys() and row["artist_key"] else normalize_artist_key(row["artist"] or "")
         track = {
             'rating_key': row['rating_key'],
             'artist': row['artist'] or '',
+            'artist_key': artist_key,
             'title': row['title'] or '',
             'album': row['album'] or '',
             'duration': row['duration_ms'],
@@ -134,6 +143,7 @@ class LocalLibraryClient:
             SELECT
                 track_id as rating_key,
                 artist,
+                artist_key,
                 title,
                 album,
                 duration_ms,
@@ -147,9 +157,11 @@ class LocalLibraryClient:
         rows = cursor.fetchall()
         lookup = {}
         for row in rows:
+            artist_key = row["artist_key"] if "artist_key" in row.keys() and row["artist_key"] else normalize_artist_key(row["artist"] or "")
             track = {
                 'rating_key': row['rating_key'],
                 'artist': row['artist'] or '',
+                'artist_key': artist_key,
                 'title': row['title'] or '',
                 'album': row['album'] or '',
                 'duration': row['duration_ms'],
@@ -285,42 +297,47 @@ class LocalLibraryClient:
         """
         cursor = self.conn.cursor()
 
+        artist_key = normalize_artist_key(artist_name or "")
         if fuzzy:
             cursor.execute("""
                 SELECT
                     track_id as rating_key,
                     artist,
+                    artist_key,
                     title,
                     album,
                     duration_ms,
                     file_path,
                     musicbrainz_id as mbid
                 FROM tracks
-                WHERE artist LIKE ?
+                WHERE artist_key LIKE ?
                   AND file_path IS NOT NULL
                 ORDER BY album, title
-            """, (f"%{artist_name}%",))
+            """, (f"%{artist_key}%",))
         else:
             cursor.execute("""
                 SELECT
                     track_id as rating_key,
                     artist,
+                    artist_key,
                     title,
                     album,
                     duration_ms,
                     file_path,
                     musicbrainz_id as mbid
                 FROM tracks
-                WHERE artist = ?
+                WHERE artist_key = ?
                   AND file_path IS NOT NULL
                 ORDER BY album, title
-            """, (artist_name,))
+            """, (artist_key,))
 
         tracks = []
         for row in cursor.fetchall():
+            key = row["artist_key"] if "artist_key" in row.keys() and row["artist_key"] else normalize_artist_key(row["artist"] or "")
             track = {
                 'rating_key': row['rating_key'],
                 'artist': row['artist'] or '',
+                'artist_key': key,
                 'title': row['title'] or '',
                 'album': row['album'] or '',
                 'duration': row['duration_ms'],

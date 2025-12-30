@@ -18,7 +18,8 @@ import logging
 from src.string_utils import normalize_song_title, normalize_genre
 from src.title_dedupe import TitleDedupeTracker
 from src.playlist import scoring
-from src.playlist.utils import sanitize_for_logging
+from src.playlist.utils import sanitize_for_logging, safe_get_artist_key
+from src.string_utils import normalize_artist_key
 
 logger = logging.getLogger(__name__)
 
@@ -223,8 +224,8 @@ def generate_candidates_dynamic(
     seed_titles = build_seed_title_set(seeds=seeds)
 
     # Build set of seed artists to exclude from similarity results
-    seed_artists = {seed.get('artist', '').lower() for seed in seeds}
-    seed_artists.discard('')
+    seed_artists = {safe_get_artist_key(seed) for seed in seeds}
+    seed_artists.discard("")
 
     # Create title dedupe tracker if enabled
     title_dedupe_tracker = TitleDedupeTracker(
@@ -260,8 +261,8 @@ def generate_candidates_dynamic(
                 continue
 
             # Skip tracks by seed artists
-            track_artist = track.get('artist', '').lower()
-            if track_artist in seed_artists:
+            track_artist_key = safe_get_artist_key(track)
+            if track_artist_key in seed_artists:
                 continue
 
             # Skip tracks with same title as seeds
@@ -339,7 +340,8 @@ def generate_candidates_dynamic(
         for row in cursor.fetchall():
             artist_name = row['artist']
             # Skip seed artists
-            if any(safe_get_artist(seed) == artist_name.lower() for seed in seeds):
+            artist_key = normalize_artist_key(artist_name)
+            if any(safe_get_artist_key(seed) == artist_key for seed in seeds):
                 continue
 
             matching_genres = row['genres'].split(',') if row['genres'] else []
@@ -367,6 +369,7 @@ def generate_candidates_dynamic(
                 break
 
             artist_name = artist_score['artist']
+            artist_key = normalize_artist_key(artist_name)
 
             # Get tracks from this artist (from metadata DB to get rating keys)
             matched_tracks = metadata_client.get_tracks_by_artist(artist_name, limit=5)
@@ -437,7 +440,7 @@ def generate_candidates_dynamic(
 
                 seen_keys.add(track_key)
                 genre_tracks.append(track)
-                selected_artists.add(artist_name)
+                selected_artists.add(artist_key)
 
                 # Only take 1 track per artist
                 break
@@ -509,11 +512,11 @@ def generate_candidates_dynamic(
                 continue
 
             # Limit tracks per artist to increase diversity
-            artist = track.get('artist', 'Unknown')
-            artist_track_counts[artist] = artist_track_counts.get(artist, 0) + 1
+            artist_key = safe_get_artist_key(track)
+            artist_track_counts[artist_key] = artist_track_counts.get(artist_key, 0) + 1
 
             # Max 2 tracks per artist in genre pool
-            if artist_track_counts[artist] > 2:
+            if artist_track_counts[artist_key] > 2:
                 continue
 
             # Add to tracker for future duplicate detection

@@ -15,8 +15,8 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 import logging
 
-from ..string_utils import normalize_match_string
-from .utils import safe_get_artist
+from ..string_utils import normalize_artist_key, normalize_match_string
+from .utils import safe_get_artist_key
 
 logger = logging.getLogger(__name__)
 
@@ -205,7 +205,10 @@ def filter_by_scrobbles(
         title = track.get("title")
         if not artist or not title:
             return None
-        return f"{normalize_match_string(artist, is_artist=True)}::{normalize_match_string(title)}"
+        artist_key = normalize_artist_key(artist)
+        if not artist_key:
+            return None
+        return f"{artist_key}::{normalize_match_string(title)}"
 
     scrobble_keys = set()
     exempt_keys = set()
@@ -315,7 +318,7 @@ def ensure_seed_tracks_present(
         rid = str(track.get("rating_key") or "").strip()
         if rid:
             return ("id", rid, "")
-        artist = normalize_match_string(track.get("artist", ""), is_artist=True)
+        artist = normalize_artist_key(track.get("artist", ""))
         title = normalize_match_string(track.get("title", ""))
         return ("at", artist, title)
 
@@ -338,13 +341,13 @@ def ensure_seed_tracks_present(
         if sk in seen:
             continue  # already present
 
-        seed_artist = safe_get_artist(seed, lowercase=True)
+        seed_artist = safe_get_artist_key(seed)
         insert_at = None
 
         # Find best insertion point (avoiding same-artist adjacency)
         for i in range(len(result) + 1):
-            prev_artist = safe_get_artist(result[i - 1], lowercase=True) if i > 0 else None
-            next_artist = safe_get_artist(result[i], lowercase=True) if i < len(result) else None
+            prev_artist = safe_get_artist_key(result[i - 1]) if i > 0 else None
+            next_artist = safe_get_artist_key(result[i]) if i < len(result) else None
             if (prev_artist is None or prev_artist != seed_artist) and (next_artist is None or next_artist != seed_artist):
                 insert_at = i
                 break

@@ -46,15 +46,16 @@ import logging
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
+from src.artist_key_db import ensure_artist_key_schema
 from src.config_loader import Config
 from src.genre_normalization import normalize_genre_list
+from src.string_utils import normalize_artist_key
 
 # Audio file extensions to scan
 AUDIO_EXTENSIONS = {'.mp3', '.flac', '.m4a', '.ogg', '.opus', '.wma', '.wav', '.aac'}
 
-# Configure logging (centralized)
-from src.logging_config import setup_logging
-logger = setup_logging(name='scan_library', log_file='scan_library.log')
+# Logging will be configured in main() - just get the logger here
+logger = logging.getLogger('scan_library')
 
 
 class LibraryScanner:
@@ -91,6 +92,7 @@ class LibraryScanner:
         """Initialize database connection"""
         self.conn = sqlite3.connect(self.db_path, timeout=30.0)
         self.conn.row_factory = sqlite3.Row
+        ensure_artist_key_schema(self.conn, logger=logger)
 
     def _table_exists(self, table_name: str) -> bool:
         cursor = self.conn.cursor()
@@ -280,6 +282,7 @@ class LibraryScanner:
 
         artist = metadata['artist'] or 'Unknown Artist'
         title = metadata['title'] or 'Unknown Title'
+        artist_key = normalize_artist_key(artist)
 
         # Generate track ID
         track_id = self.generate_track_id(metadata['file_path'], artist, title)
@@ -299,6 +302,7 @@ class LibraryScanner:
                 UPDATE tracks
                 SET track_id = ?,
                     artist = ?,
+                    artist_key = ?,
                     title = ?,
                     album = ?,
                     duration_ms = ?,
@@ -309,6 +313,7 @@ class LibraryScanner:
             """, (
                 track_id,
                 artist,
+                artist_key,
                 title,
                 metadata.get('album'),
                 duration_ms,
@@ -331,12 +336,13 @@ class LibraryScanner:
 
             cursor.execute("""
                 INSERT INTO tracks (
-                    track_id, artist, title, album, duration_ms, file_path, file_modified
+                    track_id, artist, artist_key, title, album, duration_ms, file_path, file_modified
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 track_id,
                 artist,
+                artist_key,
                 title,
                 metadata.get('album'),
                 duration_ms,
@@ -606,6 +612,7 @@ class LibraryScanner:
 
 if __name__ == "__main__":
     import argparse
+    from src.logging_utils import configure_logging, add_logging_args, resolve_log_level
 
     parser = argparse.ArgumentParser(description='Scan music library and update metadata')
     parser.add_argument('--quick', action='store_true',
@@ -616,7 +623,13 @@ if __name__ == "__main__":
                        help='Remove tracks with missing files before scanning')
     parser.add_argument('--stats', action='store_true',
                        help='Show statistics only')
+    add_logging_args(parser)
     args = parser.parse_args()
+
+    # Configure logging
+    log_level = resolve_log_level(args)
+    log_file = getattr(args, 'log_file', None) or 'scan_library.log'
+    configure_logging(level=log_level, log_file=log_file)
 
     scanner = LibraryScanner()
 

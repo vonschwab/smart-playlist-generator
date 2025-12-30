@@ -88,7 +88,7 @@ def _transition_array(
 
 
 def _check_constraints(order: Sequence[int], artist_keys: Sequence[str], max_per_artist: int, min_gap: int) -> Dict[str, int]:
-    from src.string_utils import normalize_text
+    from src.string_utils import normalize_artist_key
 
     counts: Dict[str, int] = {}
     adjacency = 0
@@ -97,7 +97,7 @@ def _check_constraints(order: Sequence[int], artist_keys: Sequence[str], max_per
     recent: list[str] = []
     for idx in order:
         # Normalize artist name to handle Unicode correctly (e.g., きゃりーぱみゅぱみゅ)
-        artist = normalize_text(str(artist_keys[idx]))
+        artist = normalize_artist_key(str(artist_keys[idx]))
         if recent and artist == recent[-1]:
             adjacency += 1
         if min_gap > 0 and artist in recent[-min_gap:]:
@@ -173,7 +173,7 @@ def construct_playlist(
     hard_floor = cfg.construct.hard_floor
     transition_gamma = cfg.construct.transition_gamma
 
-    from src.string_utils import normalize_text
+    from src.string_utils import normalize_artist_key
     track_indices: list[int] = []
     used_counts: Dict[str, int] = {}
     recent_artists: list[str] = []
@@ -183,13 +183,13 @@ def construct_playlist(
     if provided_order:
         track_indices = list(initial_order)[:playlist_len]
         for idx in track_indices:
-            artist = normalize_text(str(bundle.artist_keys[idx]))
+            artist = normalize_artist_key(str(bundle.artist_keys[idx]))
             used_counts[artist] = used_counts.get(artist, 0) + 1
             recent_artists.append(artist)
         recent_artists = recent_artists[-max(min_gap, 1) * 2 :] if recent_artists else []
         used_set = set(track_indices)
     else:
-        seed_artist = normalize_text(str(bundle.artist_keys[seed_idx]))
+        seed_artist = normalize_artist_key(str(bundle.artist_keys[seed_idx]))
         used_counts = {seed_artist: 1}
         recent_artists = [seed_artist]
         track_indices = [seed_idx]
@@ -230,11 +230,11 @@ def construct_playlist(
 
             for relax in range(4):
                 # Enforce constraints with progressive relaxation
-                from src.string_utils import normalize_text
+                from src.string_utils import normalize_artist_key
                 candidate_list: list[int] = []
                 for idx in remaining:
                     # Normalize artist name to handle Unicode correctly (e.g., きゃりーぱみゅぱみゅ)
-                    artist = normalize_text(str(bundle.artist_keys[idx]))
+                    artist = normalize_artist_key(str(bundle.artist_keys[idx]))
                     if relax < 2 and artist == recent_artists[-1]:
                         continue
                     if relax < 1 and min_gap > 0 and artist in recent_artists[-min_gap:]:
@@ -267,7 +267,7 @@ def construct_playlist(
                             continue
 
                 seed_sims = np.array([seed_sim_lookup.get(i, float(emb_norm[i] @ emb_norm[seed_idx])) for i in cand_arr])
-                diversity = np.array([1.0 if normalize_text(str(bundle.artist_keys[i])) not in used_counts else 0.0 for i in cand_arr])
+                diversity = np.array([1.0 if normalize_artist_key(str(bundle.artist_keys[i])) not in used_counts else 0.0 for i in cand_arr])
 
                 if cand_arr.size == 0:
                     continue
@@ -302,7 +302,7 @@ def construct_playlist(
 
             track_indices.append(best_choice)
             used_set.add(best_choice)
-            artist = normalize_text(str(bundle.artist_keys[best_choice]))
+            artist = normalize_artist_key(str(bundle.artist_keys[best_choice]))
             used_counts[artist] = used_counts.get(artist, 0) + 1
             recent_artists.append(artist)
             if len(recent_artists) > max(min_gap, 1) * 2:
@@ -321,9 +321,9 @@ def construct_playlist(
     # Recompute artist counts for provided orders to keep stats consistent.
     used_counts = {}
     for idx in order_array:
-        artist = normalize_text(str(bundle.artist_keys[idx]))
+        artist = normalize_artist_key(str(bundle.artist_keys[idx]))
         used_counts[artist] = used_counts.get(artist, 0) + 1
-    artist_counts = {str(bundle.artist_keys[i]): int(used_counts.get(normalize_text(str(bundle.artist_keys[i])), 0)) for i in order_array}
+    artist_counts = {str(bundle.artist_keys[i]): int(used_counts.get(normalize_artist_key(str(bundle.artist_keys[i])), 0)) for i in order_array}
     seed_sim_values = np.array(
         [seed_sim_lookup.get(i, float(emb_norm[i] @ emb_norm[seed_idx])) for i in order_array],
         dtype=float,

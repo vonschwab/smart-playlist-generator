@@ -108,6 +108,12 @@ def parse_collaboration(artist: str) -> List[str]:
     return constituents if len(constituents) > 1 else [artist]
 
 
+# Backward-compatible alias
+def split_collaborators(artist: str) -> List[str]:
+    """Alias for parse_collaboration()."""
+    return parse_collaboration(artist)
+
+
 def get_artist_variations(artist: str) -> List[str]:
     """Generate artist name variations for better matching (unchanged logic)."""
     variations: List[str] = []

@@ -10,6 +10,12 @@ from typing import Any, Dict, List, Optional, Tuple
 import sys
 import argparse
 
+from src.logging_utils import configure_logging, add_logging_args, resolve_log_level, stage_timer
+from src.console_output import (
+    header, section, subsection, divider, blank, info, stat, bullet,
+    track_line, success, error, warning, progress,
+    PlaylistReport, BatchReport, print_startup_banner, print_initialization
+)
 from src.config_loader import Config
 from src.local_library_client import LocalLibraryClient
 from src.openai_client import OpenAIClient
@@ -19,21 +25,20 @@ from src.track_matcher import TrackMatcher
 from src.m3u_exporter import M3UExporter
 from src.metadata_client import MetadataClient
 from src.similarity.sonic_variant import resolve_sonic_variant
-from src.similarity.sonic_variant import resolve_sonic_variant
 from src.plex_exporter import PlexExporter
 
 
 class PlaylistApp:
     """Main application orchestrator"""
-    
+
     def __init__(self, config_path: str = "config.yaml", ds_mode_override: Optional[str] = None):
         # Load configuration
         self.config = Config(config_path)
         self.ds_mode_override = ds_mode_override
-        
-        # Set up logging
-        self._setup_logging()
-        
+
+        # Get logger (logging should already be configured by main())
+        self.logger = logging.getLogger(__name__)
+
         # Initialize library client
         self.logger.info("Initializing Playlist Generator")
         self.library = LocalLibraryClient(db_path="data/metadata.db")
@@ -121,64 +126,6 @@ class PlaylistApp:
             else:
                 self.logger.warning("Plex export enabled but base_url/token not configured")
     
-    def _setup_logging(self):
-        """Configure logging"""
-        log_level = self.config.get('logging', 'level', default='INFO')
-        log_file = self.config.get('logging', 'file', default='playlist_generator.log')
-        
-        # Create logger
-        self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(getattr(logging, log_level))
-        
-        # Console handler with UTF-8 encoding and error handling
-        import sys
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setLevel(getattr(logging, log_level))
-        # Set stream encoding to handle Unicode properly
-        if hasattr(console_handler.stream, 'reconfigure'):
-            console_handler.stream.reconfigure(encoding='utf-8', errors='replace')
-        console_format = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
-        console_handler.setFormatter(console_format)
-
-        # File handler with UTF-8 encoding
-        file_handler = logging.FileHandler(log_file, encoding='utf-8')
-        file_handler.setLevel(logging.DEBUG)
-        file_format = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
-        )
-        file_handler.setFormatter(file_format)
-        
-        # Add handlers
-        self.logger.addHandler(console_handler)
-        self.logger.addHandler(file_handler)
-        
-        # Set logging for other modules (using src. prefix for new package structure)
-        for module in [
-            'src.openai_client',
-            'src.playlist_generator',
-            'src.playlist.reporter',
-            'src.playlist.filtering',
-            'src.playlist.scoring',
-            'src.playlist.diversity',
-            'src.playlist.ordering',
-            'src.playlist.history_analyzer',
-            'src.playlist.candidate_generator',
-            'src.lastfm_client',
-            'src.track_matcher',
-            'src.m3u_exporter',
-            'src.plex_exporter',
-            'src.metadata_client',
-            'src.metadata_builder',
-            'src.metadata_updater',
-        ]:
-            mod_logger = logging.getLogger(module)
-            mod_logger.setLevel(getattr(logging, log_level))
-            mod_logger.addHandler(console_handler)
-            mod_logger.addHandler(file_handler)
-    
     def cleanup_old_playlists(self) -> int:
         """
         Delete old auto-generated playlists
@@ -221,7 +168,7 @@ class PlaylistApp:
         self.logger.info(f"Cleanup complete: {deleted_count} playlists deleted")
         return deleted_count
     
-    def generate_playlists(self, dry_run: bool = False, dynamic: bool = False) -> List[Dict[str, str]]:
+    def generate_playlists(self, dry_run: bool = False, dynamic: bool = False) -> Tuple[List[Dict[str, str]], List[Dict[str, Any]]]:
         """
         Main workflow: Generate new playlists
 
@@ -230,20 +177,15 @@ class PlaylistApp:
             dynamic: If True, enable dynamic mode (mix sonic + genre-based discovery)
 
         Returns:
-            List of created playlist metadata
+            Tuple of (created playlist metadata, raw playlist data for reporting)
         """
-        self.logger.info("=" * 60)
-        if dry_run:
-            self.logger.info("Starting playlist generation workflow (DRY RUN - no playlists will be created)")
-        else:
-            self.logger.info("Starting playlist generation workflow")
-        self.logger.info("=" * 60)
+        self.logger.info("Starting playlist generation workflow")
 
         # Step 1: Clean up old playlists (skip in dry-run mode)
         if not dry_run:
             self.cleanup_old_playlists()
         else:
-            self.logger.info("Skipping cleanup (dry run mode)")
+            self.logger.debug("Skipping cleanup (dry run mode)")
 
         # Step 2: Generate playlists with tracks and metadata
         playlist_count = self.config.get('playlists', 'count', default=3)
@@ -255,205 +197,173 @@ class PlaylistApp:
 
         if not playlists:
             self.logger.warning("No playlists generated - insufficient data")
-            return []
+            return [], []
 
         # Step 3: Create playlists (skip in dry-run mode)
         name_prefix = self.config.get('playlists', 'name_prefix', default='Auto:')
-
         created_playlists = []
 
         for i, playlist_data in enumerate(playlists, 1):
-            # Extract title and tracks from playlist data
             title = playlist_data['title']
             tracks = playlist_data['tracks']
             full_title = f"{name_prefix} {title}"
-
-            # Calculate duration
             total_duration_ms = sum(t.get('duration', 0) for t in tracks)
             duration_minutes = total_duration_ms / 1000 / 60
 
             if dry_run:
-                # Dry run - just log what would be created
-                self.logger.info(f"Would create playlist {i}/{len(playlists)}: {full_title} ({len(tracks)} tracks, {duration_minutes:.1f} min)")
+                self.logger.debug(f"Would create: {full_title} ({len(tracks)} tracks)")
                 created_playlists.append({
                     'title': full_title,
                     'id': 'dry-run',
-                    'track_count': len(tracks)
+                    'track_count': len(tracks),
+                    'duration_min': duration_minutes
                 })
             else:
-                self.logger.info(f"Exporting playlist {i}/{len(playlists)}: {full_title}")
-
-                # Export to M3U (local mode)
-                try:
-                    if self.m3u_exporter:
+                # Export to M3U
+                m3u_exported = False
+                if self.m3u_exporter:
+                    try:
                         m3u_path = self.m3u_exporter.export_playlist(full_title, tracks, self.library, sonic_variant=self.sonic_variant)
                         if m3u_path:
-                            created_playlists.append({
-                                'title': full_title,
-                                'id': f'm3u_{i}',
-                                'track_count': len(tracks)
-                            })
-                            self.logger.info(f"Exported: {full_title} ({len(tracks)} tracks) -> {m3u_path}")
-                        else:
-                            self.logger.error(f"Failed to export M3U for '{full_title}'")
-                    else:
-                        self.logger.warning(f"M3U exporter not configured, skipping '{full_title}'")
+                            m3u_exported = True
+                            self.logger.debug(f"Exported M3U: {m3u_path}")
+                    except Exception as e:
+                        self.logger.error(f"M3U export failed for '{full_title}': {e}")
 
-                except Exception as e:
-                    self.logger.error(f"Failed to export playlist '{full_title}': {e}")
-
-                # Export to Plex (optional)
+                # Export to Plex
+                plex_exported = False
                 if self.plex_exporter:
                     try:
                         plex_key = self.plex_exporter.export_playlist(full_title, tracks)
                         if plex_key:
-                            self.logger.info("Exported to Plex: %s (%d tracks)", full_title, len(tracks))
-                        else:
-                            self.logger.error("Failed to export Plex playlist '%s'", full_title)
+                            plex_exported = True
+                            self.logger.debug(f"Exported to Plex: {full_title}")
                     except Exception as e:
-                        self.logger.error("Plex export failed for '%s': %s", full_title, e)
+                        self.logger.error(f"Plex export failed for '{full_title}': {e}")
 
-        self.logger.info("=" * 60)
-        if dry_run:
-            self.logger.info(f"Dry run complete: {len(created_playlists)} playlists would be created")
-        else:
-            self.logger.info(f"Workflow complete: {len(created_playlists)} playlists created")
-        self.logger.info("=" * 60)
+                if m3u_exported or plex_exported:
+                    created_playlists.append({
+                        'title': full_title,
+                        'id': f'm3u_{i}',
+                        'track_count': len(tracks),
+                        'duration_min': duration_minutes
+                    })
 
-        return created_playlists
-
-    def _generate_summary_report(self, playlists: List[Dict], created_playlists: List[Dict]):
-        """
-        Generate and print comprehensive summary report
-
-        Args:
-            playlists: Playlist data with metadata from generator
-            created_playlists: Successfully created playlists
-        """
-        print("\n" + "=" * 70)
-        print("PLAYLIST GENERATION SUMMARY")
-        print("=" * 70)
-
-        # Basic statistics
-        print(f"\nDate/Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"Playlists Created: {len(created_playlists)}/{len(playlists)}")
-
-        # Cache statistics
-        if hasattr(self.generator, 'artist_cache'):
-            cache_stats = self.generator.artist_cache.get_cache_stats()
-            print(f"\nArtist Similarity Cache:")
-            print(f"  Total entries: {cache_stats['total_artists']}")
-            print(f"  Fresh entries: {cache_stats['fresh_entries']}")
-            print(f"  Expired entries: {cache_stats['expired_entries']}")
-
-        # Playlist details
-        if created_playlists:
-            print(f"\nPlaylist Details:")
-            total_tracks = 0
-            all_artists = set()
-
-            for i, (playlist_data, created) in enumerate(zip(playlists, created_playlists), 1):
-                track_count = created['track_count']
-                total_tracks += track_count
-                artists = playlist_data.get('artists', ('Unknown', 'Unknown'))
-                genres = playlist_data.get('genres', [])
-
-                # Collect unique artists from tracks
-                tracks = playlist_data.get('tracks', [])
-                for track in tracks:
-                    if track.get('artist'):
-                        all_artists.add(track['artist'])
-
-                print(f"\n  {i}. {created['title']}")
-                print(f"     Artists: {artists[0]} + {artists[1]}")
-                if genres:
-                    print(f"     Genres: {', '.join(genres[:3])}")
-                print(f"     Tracks: {track_count}")
-
-            print(f"\nAggregate Statistics:")
-            print(f"  Total tracks across all playlists: {total_tracks}")
-            print(f"  Average tracks per playlist: {total_tracks / len(created_playlists):.1f}")
-            print(f"  Unique artists featured: {len(all_artists)}")
-
-            # Export location
-            if self.m3u_exporter:
-                m3u_path = self.config.get('playlists', 'm3u_export_path', 'Unknown')
-                print(f"\nM3U Export Location: {m3u_path}")
-
-        print("\n" + "=" * 70)
+        self.logger.info(f"Generation complete: {len(created_playlists)}/{len(playlists)} playlists")
+        return created_playlists, playlists
 
     def run(self, dry_run: bool = False, dynamic: bool = False):
-        """Run the application"""
+        """Run the application with beautiful batch report output."""
         try:
-            # Store original playlist data with metadata
             playlist_count = self.config.get('playlists', 'count', default=3)
+            batch_report = BatchReport(playlist_count)
 
             # Generate playlists
-            results = self.generate_playlists(dry_run=dry_run, dynamic=dynamic)
+            created_playlists, raw_playlists = self.generate_playlists(dry_run=dry_run, dynamic=dynamic)
 
-            # Get the playlist metadata from the generator
-            # We need to re-run the generation to get metadata, or store it
-            # For now, let's create a simplified summary
-            if results:
-                playlists = self.generator.create_playlist_batch(0)  # Get metadata without creating
-                # Actually, we need a different approach. Let me store it during generation
-                # For now, use a simpler summary
+            if created_playlists:
+                # Add each playlist to the batch report
+                for created in created_playlists:
+                    batch_report.add_created(
+                        created['title'],
+                        created['track_count'],
+                        created.get('duration_min', 0)
+                    )
 
-                print("\n" + "=" * 70)
-                print("PLAYLIST GENERATION COMPLETE!")
-                print("=" * 70)
+                # Print the beautiful summary
+                batch_report.print_summary()
 
-                print(f"\nCreated {len(results)} new playlists:")
-                for playlist in results:
-                    print(f"  • {playlist['title']} ({playlist['track_count']} tracks)")
-
-                # Cache stats
-                if hasattr(self.generator, 'artist_cache'):
-                    cache_stats = self.generator.artist_cache.get_cache_stats()
-                    print(f"\nCache Statistics:")
-                    print(f"  Cached artists: {cache_stats['total_artists']} ({cache_stats['fresh_entries']} fresh)")
-
-                print("\nCheck your music player to enjoy your new playlists!")
-                print("=" * 70 + "\n")
             else:
-                print("\nNo playlists created. Check logs for details.")
-            
+                header("NO PLAYLISTS CREATED", "")
+                section("POSSIBLE REASONS")
+                bullet("Insufficient listening history")
+                bullet("No matching tracks in library")
+                bullet("Check logs for details")
+                blank()
+
         except Exception as e:
             self.logger.error(f"Application error: {e}", exc_info=True)
-            print(f"\nError: {e}")
-            print("Check the log file for details.\n")
+            header("ERROR", "Application failed")
+            section("DETAILS")
+            bullet(str(e))
+            bullet("Check the log file for more details")
+            blank()
             sys.exit(1)
 
     def run_single_artist(self, artist_name: str, track_count: int = 30, track_title: Optional[str] = None, dry_run: bool = False, dynamic: bool = False, verbose: bool = False, artist_only: bool = False):
         """
         Generate a single playlist for a specific artist.
-        Splits business logic, presentation, and export for clarity.
+        Uses PlaylistReport for beautiful, organized output.
         """
         try:
             self._configure_verbose_logging(verbose)
-            self._log_single_artist_header(artist_name, dry_run)
 
-            print(f"Generating playlist for: {artist_name}")
-            print(f"Target tracks: {track_count}\n")
+            # Create the report object to track everything
+            playlist_title = f"Auto: {artist_name}"
+            report = PlaylistReport(playlist_title, artist_name)
+            report.dry_run = dry_run
+            report.mode = self.ds_mode_override or "dynamic"
+
+            # Log to file but keep console clean
+            self.logger.info(f"Generating playlist for: {artist_name} (dry_run={dry_run})")
 
             playlist_data = self._generate_single_artist_playlist(artist_name, track_count, track_title, dynamic, verbose, artist_only)
+
             if not playlist_data:
-                self._report_single_artist_failure(artist_name)
+                header("PLAYLIST GENERATION FAILED", f"Artist: {artist_name}")
+                section("POSSIBLE REASONS")
+                bullet("Artist not found in your library")
+                bullet("Artist has too few tracks")
+                bullet("No similar tracks available")
+                blank()
                 return
 
-            playlist_title = f"Auto: {artist_name}"
-            total_duration_ms = sum(t.get('duration', 0) for t in playlist_data['tracks'])
-            duration_minutes = total_duration_ms / 1000 / 60
+            # Populate the report
+            report.set_tracks(playlist_data['tracks'])
 
-            if dry_run:
-                self._handle_dry_run_output(playlist_title, playlist_data, artist_name, duration_minutes)
-            else:
-                self._export_and_report_playlist(playlist_title, playlist_data, artist_name, duration_minutes)
+            # Extract edge scores if available
+            ds_report = playlist_data.get('ds_report', {})
+            if ds_report:
+                metrics = ds_report.get('metrics', {})
+                if metrics:
+                    report.set_edge_scores({
+                        'Transition (T)': metrics.get('T_mean', 0),
+                        'Sonic (S)': metrics.get('S_mean', 0),
+                        'Genre (G)': metrics.get('G_mean', 0),
+                    })
+
+            # Export if not dry run
+            if not dry_run:
+                if self.m3u_exporter:
+                    m3u_path = self.m3u_exporter.export_playlist(
+                        playlist_title,
+                        playlist_data['tracks'],
+                        self.library,
+                        sonic_variant=self.sonic_variant
+                    )
+                    if m3u_path:
+                        report.export_path = str(m3u_path)
+                        self.logger.info(f"Exported to M3U: {m3u_path}")
+
+                if self.plex_exporter:
+                    try:
+                        plex_key = self.plex_exporter.export_playlist(playlist_title, playlist_data['tracks'])
+                        if plex_key:
+                            report.plex_exported = True
+                            self.logger.info(f"Exported to Plex: {playlist_title}")
+                    except Exception as e:
+                        self.logger.error(f"Plex export failed: {e}")
+
+            # Print the beautiful report
+            report.print_full(show_all_tracks=verbose)
 
         except Exception as e:
             self.logger.error(f"Error creating playlist for {artist_name}: {e}", exc_info=True)
-            print(f"\nError: {e}")
-            print("Check the log file for details.\n")
+            header("ERROR", "Playlist generation failed")
+            section("DETAILS")
+            bullet(str(e))
+            bullet("Check the log file for more details")
+            blank()
             sys.exit(1)
 
     def _configure_verbose_logging(self, verbose: bool) -> None:
@@ -467,15 +377,6 @@ class PlaylistApp:
             handler.setLevel(logging.DEBUG)
         self.logger.info("Verbose logging enabled")
 
-    def _log_single_artist_header(self, artist_name: str, dry_run: bool) -> None:
-        """Log banner for single-artist generation."""
-        self.logger.info("=" * 60)
-        if dry_run:
-            self.logger.info(f"Generating playlist for artist: {artist_name} (DRY RUN)")
-        else:
-            self.logger.info(f"Generating playlist for artist: {artist_name}")
-        self.logger.info("=" * 60)
-
     def _generate_single_artist_playlist(self, artist_name: str, track_count: int, track_title: Optional[str], dynamic: bool, verbose: bool, artist_only: bool) -> Optional[Dict[str, Any]]:
         """Generate playlist data for a single artist."""
         return self.generator.create_playlist_for_artist(
@@ -487,70 +388,6 @@ class PlaylistApp:
             ds_mode_override=self.ds_mode_override,
             artist_only=artist_only,
         )
-
-    def _report_single_artist_failure(self, artist_name: str) -> None:
-        """User-facing messaging when no playlist could be created."""
-        print(f"\nCould not create playlist for '{artist_name}'")
-        print("Possible reasons:")
-        print("  - Artist not found in your library")
-        print("  - Artist has too few tracks")
-        print("  - No similar tracks available\n")
-
-    def _compute_seed_stats(self, playlist_data: Dict[str, Any], artist_name: str) -> Tuple[int, float]:
-        """Return count and percentage of seed-artist tracks in playlist."""
-        seed_norm = (artist_name or "").strip().casefold()
-        seed_tracks = []
-        for t in playlist_data['tracks']:
-            a = (t.get('artist') or "").strip().casefold()
-            if a == seed_norm:
-                seed_tracks.append(t)
-        seed_percentage = (len(seed_tracks) / len(playlist_data['tracks'])) * 100 if playlist_data['tracks'] else 0.0
-        return len(seed_tracks), seed_percentage
-
-    def _handle_dry_run_output(self, playlist_title: str, playlist_data: Dict[str, Any], artist_name: str, duration_minutes: float) -> None:
-        """Display dry-run output without side effects."""
-        track_count = len(playlist_data['tracks'])
-        seed_count, seed_pct = self._compute_seed_stats(playlist_data, artist_name)
-
-        self.logger.info(f"Would create playlist: {playlist_title} ({track_count} tracks, {duration_minutes:.1f} min)")
-        print(f"\nDRY RUN - Would create: {playlist_title}")
-        print(f"   Tracks: {track_count}")
-        print(f"   Duration: {duration_minutes:.1f} minutes")
-        print(f"   Seed artist ({artist_name}): {seed_count} tracks ({seed_pct:.1f}%)")
-        print("\nDry run complete - no playlists created")
-
-    def _export_and_report_playlist(self, playlist_title: str, playlist_data: Dict[str, Any], artist_name: str, duration_minutes: float) -> None:
-        """Export playlist and show summary to the user."""
-        track_count = len(playlist_data['tracks'])
-        seed_count, seed_pct = self._compute_seed_stats(playlist_data, artist_name)
-
-        print(f"\nCreated: {playlist_title} ({track_count} tracks)")
-        print(f"  Duration: {duration_minutes:.1f} minutes")
-        print(f"  Seed artist ({artist_name}): {seed_count} tracks ({seed_pct:.1f}%)")
-
-        if not self.m3u_exporter:
-            print("\nM3U export not configured")
-            return
-
-        m3u_path = self.m3u_exporter.export_playlist(playlist_title, playlist_data['tracks'], self.library, sonic_variant=self.sonic_variant)
-        if m3u_path:
-            self.logger.info(f"Exported to M3U: {m3u_path}")
-            print(f"  Exported to: {m3u_path}")
-            print("\nPlaylist exported! Import the M3U file to your music player.")
-        else:
-            print("\nFailed to export M3U file")
-
-        if self.plex_exporter:
-            try:
-                plex_key = self.plex_exporter.export_playlist(playlist_title, playlist_data['tracks'])
-                if plex_key:
-                    self.logger.info("Exported to Plex: %s", playlist_title)
-                    print("  Exported to Plex.")
-                else:
-                    print("  Plex export failed.")
-            except Exception as e:
-                self.logger.error("Plex export failed for '%s': %s", playlist_title, e)
-                print("  Plex export failed.")
 
 
 def main():
@@ -612,16 +449,30 @@ def main():
         ],
         help="Override sonic similarity variant for DS pipeline (env has highest priority).",
     )
+    # Add standard logging arguments
+    add_logging_args(parser)
     args = parser.parse_args()
 
-    print("\nAI Playlist Generator\n")
+    # Configure logging (once, before anything else)
+    log_level = resolve_log_level(args)
+    if args.verbose:
+        log_level = 'DEBUG'
+    # Default log file if not specified
+    log_file = getattr(args, 'log_file', None) or 'playlist_generator.log'
+    configure_logging(level=log_level, log_file=log_file)
+
+    print_startup_banner()
 
     # Check for config file
     import os
     if not os.path.exists("config.yaml"):
-        print("Error: config.yaml not found")
-        print("\nPlease create config.yaml with your API credentials.")
-        print("See config.yaml template for reference.\n")
+        header("CONFIGURATION ERROR", "")
+        section("MISSING FILE")
+        bullet("config.yaml not found")
+        blank()
+        bullet("Please create config.yaml with your settings")
+        bullet("See config.example.yaml for reference")
+        blank()
         sys.exit(1)
 
     # Run application
@@ -640,7 +491,9 @@ def main():
         )
         dynamic_flag = getattr(args, "ds_mode", None) == "dynamic"
         if args.dry_run:
-            print("🔍 DRY RUN MODE - No playlists will be created\n")
+            section("DRY RUN MODE")
+            bullet("No playlists will be created or exported")
+            blank()
         if args.artist:
             # Single artist mode
             app.run_single_artist(

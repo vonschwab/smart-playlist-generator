@@ -9,6 +9,8 @@ import logging
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Any
 from pathlib import Path
+from .artist_key_db import ensure_artist_key_schema
+from .string_utils import normalize_artist_key
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +43,7 @@ class MetadataClient:
                 musicbrainz_id TEXT,
                 title TEXT,
                 artist TEXT,
+                artist_key TEXT,
                 album TEXT,
                 duration_ms INTEGER,
                 last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -82,12 +85,14 @@ class MetadataClient:
 
         # Create indexes for faster queries
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks(artist)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracks_artist_key ON tracks(artist_key)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracks_mbid ON tracks(musicbrainz_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracks_file_path ON tracks(file_path)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_track_genres_genre ON track_genres(genre)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_artists_mbid ON artists(musicbrainz_id)")
 
         self.conn.commit()
+        ensure_artist_key_schema(self.conn, logger=logger)
         logger.info(f"Initialized metadata database: {self.db_path}")
 
     def add_track(self, track_id: str, title: str, artist: str, album: str,
@@ -104,11 +109,12 @@ class MetadataClient:
             musicbrainz_id: MusicBrainz recording ID
         """
         cursor = self.conn.cursor()
+        artist_key = normalize_artist_key(artist or "")
         cursor.execute("""
             INSERT OR REPLACE INTO tracks
-            (track_id, musicbrainz_id, title, artist, album, duration_ms, last_updated)
-            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        """, (track_id, musicbrainz_id, title, artist, album, duration_ms))
+            (track_id, musicbrainz_id, title, artist, artist_key, album, duration_ms, last_updated)
+            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        """, (track_id, musicbrainz_id, title, artist, artist_key, album, duration_ms))
         self.conn.commit()
 
     def add_artist(self, artist_name: str, musicbrainz_id: Optional[str] = None):
@@ -321,15 +327,16 @@ class MetadataClient:
         Returns:
             List of track dictionaries with rating keys
         """
+        artist_key = normalize_artist_key(artist_name or "")
         query = """
             SELECT track_id, title, artist, album
             FROM tracks
-            WHERE artist = ?
+            WHERE artist_key = ?
             LIMIT ?
         """
 
         cursor = self.conn.cursor()
-        cursor.execute(query, (artist_name, limit))
+        cursor.execute(query, (artist_key, limit))
 
         results = []
         for row in cursor.fetchall():

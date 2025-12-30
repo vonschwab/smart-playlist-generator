@@ -39,6 +39,10 @@ class Beat3TowerConfig:
     n_fft: int = 2048
     min_beats: int = 4  # Minimum beats required for extraction
     segment_duration: float = 30.0  # Duration of each segment (start/mid/end) in seconds
+    default_tempo_bpm: float = 60.0  # Fallback tempo when estimation fails
+    timegrid_min_period_sec: float = 0.25  # Clamp to avoid overly small windows
+    silence_rms_threshold: float = 1e-4  # RMS threshold for near-silence detection
+    tempogram_min_frames: int = 1024  # Pad onset envelope to avoid short-signal warnings
 
 
 class Beat3TowerExtractor:
@@ -92,7 +96,7 @@ class Beat3TowerExtractor:
             logger.debug(f"Loaded {path.name}: {duration:.1f}s at {sr}Hz")
 
             # Extract full track features
-            full_features = self.extract_full(y)
+            full_features, full_meta = self._extract_full_with_meta(y, segment_label="full")
 
             # Extract segment features
             seg_dur = self.config.segment_duration
@@ -105,17 +109,29 @@ class Beat3TowerExtractor:
                     'mid': full_features.to_dict(),
                     'end': full_features.to_dict(),
                 }
+                segments_meta = {
+                    "full": full_meta,
+                    "start": full_meta,
+                    "mid": full_meta,
+                    "end": full_meta,
+                }
             else:
                 # Extract segment-specific features
-                start_feat = self._extract_segment(y, 'start', duration)
-                mid_feat = self._extract_segment(y, 'mid', duration)
-                end_feat = self._extract_segment(y, 'end', duration)
+                start_feat, start_meta = self._extract_segment(y, 'start', duration)
+                mid_feat, mid_meta = self._extract_segment(y, 'mid', duration)
+                end_feat, end_meta = self._extract_segment(y, 'end', duration)
 
                 result = {
                     'full': full_features.to_dict(),
                     'start': start_feat.to_dict() if start_feat else full_features.to_dict(),
                     'mid': mid_feat.to_dict() if mid_feat else full_features.to_dict(),
                     'end': end_feat.to_dict() if end_feat else full_features.to_dict(),
+                }
+                segments_meta = {
+                    "full": full_meta,
+                    "start": start_meta if start_meta else full_meta,
+                    "mid": mid_meta if mid_meta else full_meta,
+                    "end": end_meta if end_meta else full_meta,
                 }
 
             # Add metadata
@@ -124,13 +140,27 @@ class Beat3TowerExtractor:
                 'duration': duration,
                 'sample_rate': sr,
                 'n_beats_full': full_features.n_beats,
+                # beat_mode/sonic_source describe the fallback path for this track.
+                'beat_mode': full_meta.get("beat_mode"),
+                'beat_count': full_meta.get("beat_count"),
+                'tempo_source': full_meta.get("tempo_source"),
+                'timegrid_period_sec': full_meta.get("timegrid_period_sec"),
+                'silence_flag': full_meta.get("silence_flag", False),
+                'sonic_source': full_meta.get("sonic_source"),
+                'segments': segments_meta,
             }
+            result['source'] = full_meta.get("sonic_source")
+
+            if full_meta.get("beat_mode") != "beats":
+                logger.warning(
+                    "Beat3tower fallback for %s: mode=%s beats_detected=%s",
+                    path.name,
+                    full_meta.get("beat_mode"),
+                    full_meta.get("beat_count"),
+                )
 
             return result
 
-        except InsufficientBeatsError as e:
-            logger.warning(f"Insufficient beats in {path.name}: {e}")
-            return None
         except Exception as e:
             logger.error(f"Failed to extract features from {file_path}: {e}")
             return None
@@ -148,41 +178,12 @@ class Beat3TowerExtractor:
         Raises:
             InsufficientBeatsError: If too few beats detected
         """
-        # Detect beats
-        tempo, beat_frames = librosa.beat.beat_track(y=y, sr=self.sr, hop_length=self.hop_length)
-        beat_times = librosa.frames_to_time(beat_frames, sr=self.sr, hop_length=self.hop_length)
-
-        if len(beat_frames) < self.config.min_beats:
-            raise InsufficientBeatsError(
-                f"Only {len(beat_frames)} beats detected (minimum: {self.config.min_beats})"
-            )
-
-        logger.debug(f"Detected {len(beat_frames)} beats at {float(tempo):.1f} BPM")
-
-        # Extract each tower
-        rhythm = self._extract_rhythm_tower(y, beat_frames, beat_times, tempo)
-        timbre = self._extract_timbre_tower(y, beat_frames)
-        harmony = self._extract_harmony_tower(y, beat_frames)
-
-        # Compute BPM info
-        bpm_info = self._compute_bpm_info(tempo, beat_times)
-
-        # Update rhythm tower with BPM
-        rhythm.bpm = bpm_info.primary_bpm
-        rhythm.tempo_stability = bpm_info.tempo_stability
-
-        return Beat3TowerFeatures(
-            rhythm=rhythm,
-            timbre=timbre,
-            harmony=harmony,
-            bpm_info=bpm_info,
-            n_beats=len(beat_frames),
-            extraction_method='beat3tower',
-        )
+        features, _meta = self._extract_full_with_meta(y, segment_label="full")
+        return features
 
     def _extract_segment(
         self, y: np.ndarray, segment: str, duration: float
-    ) -> Optional[Beat3TowerFeatures]:
+    ) -> Tuple[Optional[Beat3TowerFeatures], Optional[Dict[str, Any]]]:
         """Extract features for a specific segment."""
         seg_dur = self.config.segment_duration
         seg_samples = int(seg_dur * self.sr)
@@ -199,9 +200,254 @@ class Beat3TowerExtractor:
             raise ValueError(f"Unknown segment: {segment}")
 
         try:
-            return self.extract_full(y_seg)
-        except InsufficientBeatsError:
+            return self._extract_full_with_meta(y_seg, segment_label=segment)
+        except Exception:
+            return None, None
+
+    def _extract_full_with_meta(
+        self,
+        y: np.ndarray,
+        segment_label: str,
+    ) -> Tuple[Beat3TowerFeatures, Dict[str, Any]]:
+        duration = len(y) / self.sr if len(y) > 0 else 0.0
+        silence_flag = self._is_silent(y)
+
+        tempo, beat_frames, beat_times = self._detect_beats(y)
+        beat_count = int(len(beat_frames))
+
+        if silence_flag:
+            features = self._extract_stats_fallback(y, silence=True)
+            return features, self._build_meta(
+                beat_mode="stats",
+                beat_count=beat_count,
+                tempo_source="default",
+                timegrid_period_sec=None,
+                silence_flag=True,
+                tempo_bpm=self.config.default_tempo_bpm,
+            )
+
+        if beat_count >= self.config.min_beats:
+            try:
+                features = self._extract_with_beats(
+                    y=y,
+                    beat_frames=beat_frames,
+                    beat_times=beat_times,
+                    tempo=float(tempo),
+                )
+                return features, self._build_meta(
+                    beat_mode="beats",
+                    beat_count=beat_count,
+                    tempo_source="beat_track",
+                    timegrid_period_sec=None,
+                    silence_flag=False,
+                    tempo_bpm=float(tempo),
+                )
+            except Exception as exc:
+                logger.debug("Beat3tower extraction failed in beats mode (%s): %s", segment_label, exc)
+
+        tempo_est, tempo_source = self._estimate_tempo(y)
+        if tempo_est is None:
+            tempo_est = self.config.default_tempo_bpm
+            tempo_source = "default"
+
+        timegrid = self._make_timegrid_beats(duration, tempo_est)
+        if timegrid:
+            beat_frames, beat_times, beat_period = timegrid
+            try:
+                tempo_effective = 60.0 / beat_period if beat_period > 0 else tempo_est
+                features = self._extract_with_beats(
+                    y=y,
+                    beat_frames=beat_frames,
+                    beat_times=beat_times,
+                    tempo=tempo_effective,
+                )
+                return features, self._build_meta(
+                    beat_mode="timegrid",
+                    beat_count=beat_count,
+                    tempo_source=tempo_source,
+                    timegrid_period_sec=beat_period,
+                    silence_flag=False,
+                    tempo_bpm=tempo_effective,
+                )
+            except Exception as exc:
+                logger.debug("Beat3tower timegrid extraction failed (%s): %s", segment_label, exc)
+
+        features = self._extract_stats_fallback(y)
+        return features, self._build_meta(
+            beat_mode="stats",
+            beat_count=beat_count,
+            tempo_source="default",
+            timegrid_period_sec=None,
+            silence_flag=False,
+            tempo_bpm=self.config.default_tempo_bpm,
+        )
+
+    def _build_meta(
+        self,
+        beat_mode: str,
+        beat_count: int,
+        tempo_source: str,
+        timegrid_period_sec: Optional[float],
+        silence_flag: bool,
+        tempo_bpm: float,
+    ) -> Dict[str, Any]:
+        if beat_mode == "beats":
+            sonic_source = "beat3tower_beats"
+        elif beat_mode == "timegrid":
+            sonic_source = "beat3tower_timegrid"
+        else:
+            sonic_source = "beat3tower_stats"
+        return {
+            "beat_mode": beat_mode,
+            "beat_count": int(beat_count),
+            "tempo_source": tempo_source,
+            "timegrid_period_sec": float(timegrid_period_sec) if timegrid_period_sec is not None else None,
+            "silence_flag": bool(silence_flag),
+            "sonic_source": sonic_source,
+            "tempo_bpm": float(tempo_bpm),
+        }
+
+    def _detect_beats(
+        self,
+        y: np.ndarray,
+    ) -> Tuple[float, np.ndarray, np.ndarray]:
+        tempo, beat_frames = librosa.beat.beat_track(
+            y=y, sr=self.sr, hop_length=self.hop_length
+        )
+        beat_times = librosa.frames_to_time(
+            beat_frames, sr=self.sr, hop_length=self.hop_length
+        )
+        return float(tempo), np.asarray(beat_frames, dtype=int), np.asarray(beat_times, dtype=float)
+
+    def _estimate_tempo(self, y: np.ndarray) -> Tuple[Optional[float], Optional[str]]:
+        try:
+            onset_env = librosa.onset.onset_strength(
+                y=y, sr=self.sr, hop_length=self.hop_length
+            )
+            tempos = librosa.beat.tempo(
+                onset_envelope=onset_env,
+                sr=self.sr,
+                hop_length=self.hop_length,
+            )
+            if tempos is None or len(tempos) == 0:
+                return None, None
+            tempo = float(np.nanmedian(tempos))
+            if not np.isfinite(tempo) or tempo <= 0:
+                return None, None
+            return tempo, "onset_tempo"
+        except Exception:
+            return None, None
+
+    def _make_timegrid_beats(
+        self,
+        duration: float,
+        tempo_bpm: float,
+    ) -> Optional[Tuple[np.ndarray, np.ndarray, float]]:
+        if duration <= 0:
             return None
+        beat_period = 60.0 / max(tempo_bpm, 1e-6)
+        max_period = duration / float(self.config.min_beats + 1)
+        beat_period = min(beat_period, max_period)
+        beat_period = max(beat_period, self.config.timegrid_min_period_sec)
+
+        beat_times = np.arange(0.0, duration, beat_period)
+        beat_times = beat_times[beat_times < duration]
+        if beat_times.size == 0:
+            return None
+
+        beat_frames = librosa.time_to_frames(
+            beat_times, sr=self.sr, hop_length=self.hop_length
+        )
+        beat_frames = np.unique(beat_frames)
+        if beat_frames.size < self.config.min_beats:
+            return None
+
+        beat_times = librosa.frames_to_time(
+            beat_frames, sr=self.sr, hop_length=self.hop_length
+        )
+        return beat_frames, beat_times, float(beat_period)
+
+    def _make_stats_beats(self, y: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        if len(y) == 0:
+            return np.array([], dtype=int), np.array([], dtype=float)
+
+        n_frames = max(1, int(np.floor(len(y) / self.hop_length)))
+        target = max(self.config.min_beats, 2)
+        frame_positions = np.linspace(0, max(0, n_frames - 1), num=target, dtype=int)
+        frame_positions = np.unique(frame_positions)
+        if frame_positions.size < 2:
+            frame_positions = np.array([0, max(1, n_frames - 1)], dtype=int)
+        beat_times = librosa.frames_to_time(
+            frame_positions, sr=self.sr, hop_length=self.hop_length
+        )
+        return frame_positions, beat_times
+
+    def _extract_with_beats(
+        self,
+        y: np.ndarray,
+        beat_frames: np.ndarray,
+        beat_times: np.ndarray,
+        tempo: float,
+    ) -> Beat3TowerFeatures:
+        rhythm = self._extract_rhythm_tower(y, beat_frames, beat_times, tempo)
+        timbre = self._extract_timbre_tower(y, beat_frames)
+        harmony = self._extract_harmony_tower(y, beat_frames)
+
+        bpm_info = self._compute_bpm_info(tempo, beat_times)
+        rhythm.bpm = bpm_info.primary_bpm
+        rhythm.tempo_stability = bpm_info.tempo_stability
+
+        return Beat3TowerFeatures(
+            rhythm=rhythm,
+            timbre=timbre,
+            harmony=harmony,
+            bpm_info=bpm_info,
+            n_beats=int(len(beat_frames)),
+            extraction_method='beat3tower',
+        )
+
+    def _extract_stats_fallback(self, y: np.ndarray, silence: bool = False) -> Beat3TowerFeatures:
+        beat_frames, beat_times = self._make_stats_beats(y)
+        tempo = float(self.config.default_tempo_bpm)
+        if silence:
+            bpm_info = BPMInfo(primary_bpm=tempo, tempo_stability=0.0)
+            rhythm = RhythmTowerFeatures(bpm=tempo, tempo_stability=0.0)
+            timbre = TimbreTowerFeatures()
+            harmony = HarmonyTowerFeatures()
+            return Beat3TowerFeatures(
+                rhythm=rhythm,
+                timbre=timbre,
+                harmony=harmony,
+                bpm_info=bpm_info,
+                n_beats=int(len(beat_frames)),
+                extraction_method='beat3tower',
+            )
+        try:
+            return self._extract_with_beats(
+                y=y,
+                beat_frames=beat_frames,
+                beat_times=beat_times,
+                tempo=tempo,
+            )
+        except Exception:
+            bpm_info = BPMInfo(primary_bpm=tempo, tempo_stability=0.0)
+            rhythm = RhythmTowerFeatures(bpm=tempo, tempo_stability=0.0)
+            timbre = TimbreTowerFeatures()
+            harmony = HarmonyTowerFeatures()
+            return Beat3TowerFeatures(
+                rhythm=rhythm,
+                timbre=timbre,
+                harmony=harmony,
+                bpm_info=bpm_info,
+                n_beats=int(len(beat_frames)),
+                extraction_method='beat3tower',
+            )
+
+    def _is_silent(self, y: np.ndarray) -> bool:
+        if len(y) == 0:
+            return True
+        rms = librosa.feature.rms(y=y, frame_length=self.n_fft, hop_length=self.hop_length)[0]
+        return float(np.max(rms)) < float(self.config.silence_rms_threshold)
 
     # =========================================================================
     # RHYTHM TOWER
@@ -228,8 +474,14 @@ class Beat3TowerExtractor:
         onset_per_beat = self._aggregate_per_beat_1d(onset_env, beat_frames)
 
         # 2. Tempogram / rhythmic autocorrelation
+        tempogram_input = onset_env
+        if onset_env.size < self.config.tempogram_min_frames:
+            pad_len = self.config.tempogram_min_frames - onset_env.size
+            tempogram_input = np.pad(onset_env, (0, pad_len), mode="constant")
         tempogram = librosa.feature.tempogram(
-            onset_envelope=onset_env, sr=self.sr, hop_length=self.hop_length
+            onset_envelope=tempogram_input,
+            sr=self.sr,
+            hop_length=self.hop_length,
         )
         tempo_acf = np.mean(tempogram, axis=1)  # Average across time
 

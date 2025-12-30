@@ -10,7 +10,7 @@ import os
 import numpy as np
 from .artist_utils import extract_primary_artist
 from .similarity_calculator import SimilarityCalculator
-from .string_utils import normalize_genre, normalize_song_title
+from .string_utils import normalize_artist_key, normalize_genre, normalize_song_title
 from .string_utils import normalize_match_string
 from .title_dedupe import TitleDedupeTracker
 from src.features.artifacts import load_artifact_bundle
@@ -61,6 +61,11 @@ def safe_get_artist(track: Dict[str, Any], lowercase: bool = True) -> str:
         Artist name (empty string if None or missing)
     """
     return utils.safe_get_artist(track, lowercase=lowercase)
+
+
+def safe_get_artist_key(track: Dict[str, Any]) -> str:
+    """Safely get normalized artist key from a track dictionary."""
+    return utils.safe_get_artist_key(track)
 
 
 def _convert_seconds_to_ms(seconds: Optional[int]) -> int:
@@ -216,11 +221,11 @@ class PlaylistGenerator:
         try:
             bundle = load_artifact_bundle(artifact_path)
             if seed_track_id not in bundle.track_id_to_index and seed_artist:
-                artist_norm = seed_artist.strip().lower()
+                artist_norm = normalize_artist_key(seed_artist)
                 # try track_artists match
                 if bundle.track_artists is not None:
                     for idx, artist in enumerate(bundle.track_artists):
-                        if str(artist).strip().lower() == artist_norm:
+                        if normalize_artist_key(str(artist)) == artist_norm:
                             seed_to_use = str(bundle.track_ids[idx])
                             logger.info(
                                 "DS pipeline seed not found; falling back to artist match %s -> %s",
@@ -235,12 +240,12 @@ class PlaylistGenerator:
                 anchor_seed_ids_resolved = []
                 for seed_track in anchor_seed_tracks:
                     seed_title = str(seed_track.get('title', '')).strip().lower()
-                    seed_artist_name = str(seed_track.get('artist', '')).strip().lower()
+                    seed_artist_name = normalize_artist_key(str(seed_track.get('artist', '')))
                     if not seed_title or not seed_artist_name:
                         continue
                     # Find matching track in bundle
                     for idx in range(len(bundle.track_artists)):
-                        bundle_artist = str(bundle.track_artists[idx]).strip().lower()
+                        bundle_artist = normalize_artist_key(str(bundle.track_artists[idx]))
                         bundle_title = str(bundle.track_titles[idx]).strip().lower()
                         if bundle_artist == seed_artist_name and bundle_title == seed_title:
                             anchor_seed_ids_resolved.append(str(bundle.track_ids[idx]))
@@ -825,7 +830,8 @@ class PlaylistGenerator:
             for row in cursor.fetchall():
                 artist_name = row['artist']
                 # Skip seed artists
-                if any(safe_get_artist(seed) == artist_name.lower() for seed in seeds):
+                artist_key = normalize_artist_key(artist_name)
+                if any(safe_get_artist_key(seed) == artist_key for seed in seeds):
                     continue
 
                 matching_genres = row['genres'].split(',') if row['genres'] else []
@@ -1337,9 +1343,12 @@ class PlaylistGenerator:
         # Get all tracks by this artist from local library
         all_library_tracks = self.library.get_all_tracks()
 
-        # Filter to just this artist (case-insensitive, exact match)
-        artist_tracks = [t for t in all_library_tracks
-                        if safe_get_artist(t) == artist_name.lower()]
+        # Filter to just this artist (normalized key match)
+        artist_key = normalize_artist_key(artist_name)
+        artist_tracks = [
+            t for t in all_library_tracks
+            if safe_get_artist_key(t) == artist_key
+        ]
 
         # If we don't have enough tracks (or zero), search for collaborations
         if len(artist_tracks) < 4:
@@ -1503,7 +1512,15 @@ class PlaylistGenerator:
         else:
             filtered_ds_tracks = self.filter_tracks(ds_tracks, history, exempt_tracks=seed_tracks)
 
-        final_tracks = self._ensure_seed_tracks_present(seed_tracks, filtered_ds_tracks, track_count)
+        # Skip seed insertion for pier-bridge mode - pier-bridge already handles seed placement
+        # and only includes seeds that were found in the artifact bundle
+        last_report = getattr(self, "_last_ds_report", None) or {}
+        is_pier_bridge = (last_report.get("metrics") or {}).get("strategy") == "pier_bridge"
+        if is_pier_bridge:
+            final_tracks = filtered_ds_tracks
+            logger.debug("Pier-bridge mode: skipping seed insertion (seeds are piers)")
+        else:
+            final_tracks = self._ensure_seed_tracks_present(seed_tracks, filtered_ds_tracks, track_count)
 
         if not final_tracks:
             raise RuntimeError("DS pipeline tracks were filtered out by recency rules.")

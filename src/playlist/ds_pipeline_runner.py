@@ -38,28 +38,23 @@ def generate_playlist_ds(
     genre_weight: Optional[float] = None,
     min_genre_similarity: Optional[float] = None,
     genre_method: Optional[str] = None,
-    # Pier bridge mode (default: auto-enable when anchor_seed_ids provided)
-    use_pier_bridge: Optional[bool] = None,
 ) -> DsRunResult:
     """Production-facing wrapper around the DS pipeline.
 
-    When anchor_seed_ids are provided, uses pier+bridge strategy by default
-    (seeds as fixed piers, beam-search bridges between them, no repair pass).
-    Set use_pier_bridge=False to use legacy anchor_builder + construct_playlist.
+    Always uses pier+bridge strategy:
+    - Multiple seeds: seeds as fixed piers, beam-search bridges between them
+    - Single seed: seed acts as both start and end pier (arc structure)
+    - No repair pass (pier-bridge ordering is final)
     """
-    # Auto-enable pier_bridge when anchor seeds provided (unless explicitly disabled)
-    effective_pier_bridge = use_pier_bridge
-    if effective_pier_bridge is None:
-        effective_pier_bridge = bool(anchor_seed_ids) and len(anchor_seed_ids or []) > 1
-
-    if effective_pier_bridge and anchor_seed_ids:
-        logger.info("Using pier+bridge strategy for %d anchor seeds", len(anchor_seed_ids))
+    logger.info(
+        "DS_PIPELINE_RUNNER: anchor_seed_ids=%d (pier-bridge always enabled)",
+        len(anchor_seed_ids or []),
+    )
 
     result = core_generate_playlist_ds(
         artifact_path=artifact_path,
         seed_track_id=seed_track_id,
         anchor_seed_ids=anchor_seed_ids,
-        use_pier_bridge=effective_pier_bridge,
         num_tracks=length,
         mode=mode,
         random_seed=random_seed,

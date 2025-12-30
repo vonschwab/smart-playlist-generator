@@ -11,14 +11,12 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 
 from src.features.artifacts import ArtifactBundle, get_sonic_matrix, load_artifact_bundle
-from src.playlist.anchor_builder import AnchorConstraints, BridgeSearchConfig, TransitionScorer, build_anchor_playlist, choose_seed_order
 from src.playlist.candidate_pool import CandidatePoolResult, build_candidate_pool
 from src.playlist.config import DSPipelineConfig, default_ds_config
-from src.playlist.constructor import PlaylistResult, construct_playlist
+from src.playlist.constructor import PlaylistResult  # Type only, no longer calling construct_playlist
 from src.playlist.pier_bridge_builder import PierBridgeConfig, PierBridgeResult, build_pier_bridge_playlist
 from src.similarity.hybrid import HybridEmbeddingModel, build_hybrid_embedding
 from src.similarity.sonic_variant import compute_sonic_variant_matrix, resolve_sonic_variant
-from src.title_dedupe import TitleDedupeTracker
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +72,6 @@ def generate_playlist_ds(
     single_artist: bool = False,
     sonic_variant: Optional[str] = None,
     anchor_seed_ids: Optional[List[str]] = None,
-    use_pier_bridge: bool = False,
     pier_bridge_config: Optional[PierBridgeConfig] = None,
     # Hybrid-level tuning dials (not part of DSPipelineConfig)
     sonic_weight: Optional[float] = None,
@@ -87,14 +84,22 @@ def generate_playlist_ds(
     - load_artifact_bundle
     - build embedding (use smoothed genres for embedding)
     - build candidate pool
-    - construct playlist (segment-aware transitions if available)
+    - construct playlist via pier-bridge strategy (no repair pass)
     Returns ordered track_ids and stats.
+
+    Playlist construction uses pier-bridge strategy exclusively:
+    - Multiple seeds: seeds become fixed "piers", bridge segments connect them
+    - Single seed: seed acts as both start and end pier (arc structure)
+    - Seed artist tracks can appear in bridges with same constraints as others
 
     Optional hybrid-level tuning dials:
     - sonic_weight, genre_weight: control hybrid embedding balance
     - min_genre_similarity: gate threshold
     - genre_method: which genre similarity algorithm to use
     """
+    # Normalize optional lists to avoid NoneType len issues downstream.
+    anchor_seed_ids = anchor_seed_ids or []
+
     bundle = load_artifact_bundle(artifact_path)
     if seed_track_id not in bundle.track_id_to_index:
         raise ValueError(f"Seed track_id not found in artifact: {seed_track_id}")
@@ -154,9 +159,13 @@ def generate_playlist_ds(
         total_tracks = int(bundle.track_ids.shape[0])
         mask_keep = []
         applied_excluded = 0
+        # Build set of exempt IDs (primary seed + all anchor seeds)
+        exempt_ids = {str(seed_track_id)}
+        if anchor_seed_ids:
+            exempt_ids.update(str(sid) for sid in anchor_seed_ids)
         for tid in bundle.track_ids:
             sid = str(tid)
-            if sid == str(seed_track_id):
+            if sid in exempt_ids:
                 mask_keep.append(True)
                 continue
             if sid in excluded_track_ids:
@@ -317,36 +326,40 @@ def generate_playlist_ds(
     pool.stats["target_length"] = num_tracks
 
     max_per_artist = max(1, math.ceil(playlist_len * cfg.construct.max_artist_fraction_final))
-    use_anchor_builder = bool(anchor_seed_ids) and len(anchor_seed_ids or []) > 1
-    use_pier_bridge_mode = use_pier_bridge and use_anchor_builder
-    logger.debug(
-        "Strategy selection: anchor_seed_ids=%s use_anchor_builder=%s use_pier_bridge=%s",
-        len(anchor_seed_ids) if anchor_seed_ids else None,
-        use_anchor_builder,
-        use_pier_bridge_mode,
+    logger.info(
+        "PIPELINE STRATEGY: pier-bridge (anchor_seed_ids=%s)",
+        len(anchor_seed_ids),
     )
 
     playlist: PlaylistResult
 
     # ═══════════════════════════════════════════════════════════════════════════
-    # PIER + BRIDGE STRATEGY: seeds as fixed piers, beam-search bridges between
-    # This path does NOT call construct_playlist() - no repair pass
+    # PIER + BRIDGE STRATEGY (always used)
+    # - Multiple seeds: seeds as fixed piers, beam-search bridges between
+    # - Single seed: seed acts as both start and end pier (arc structure)
+    # - No repair pass
     # ═══════════════════════════════════════════════════════════════════════════
-    if use_pier_bridge_mode:
+    if True:  # Always use pier-bridge
         # ─── PIER BRIDGE PATH: No construct_playlist, no repair ───
+        logger.info("ENTERING PIER-BRIDGE PATH with %d anchor seeds", len(anchor_seed_ids))
         from src.title_dedupe import normalize_title_for_dedupe, normalize_artist_key, calculate_version_preference_score
 
         # 1. Resolve seed IDs to indices
         pier_seed_indices: list[int] = []
         not_found = []
-        for sid in anchor_seed_ids or []:
+        for sid in anchor_seed_ids:
             idx = bundle.track_id_to_index.get(str(sid))
             if idx is not None:
                 pier_seed_indices.append(idx)
             else:
                 not_found.append(sid)
         if not_found:
-            logger.warning("Pier seeds NOT FOUND in bundle (%d/%d): %s", len(not_found), len(anchor_seed_ids), not_found[:3])
+            logger.warning(
+                "Pier seeds NOT FOUND in bundle (%d/%d): %s",
+                len(not_found),
+                len(anchor_seed_ids),
+                not_found[:3],
+            )
         else:
             logger.info("All %d pier seeds found in bundle", len(anchor_seed_ids))
 
@@ -386,20 +399,8 @@ def generate_playlist_ds(
             seed_labels.append(f"{tid}:{title}")
         logger.info("Pier seeds (%d): %s", len(pier_seed_indices), seed_labels)
 
-        if len(pier_seed_indices) < 2:
-            # Fall back to standard construct_playlist if only 1 seed
-            logger.warning("Only 1 pier seed after dedup; falling back to construct_playlist")
-            playlist = construct_playlist(
-                seed_idx=seed_idx,
-                pool=pool,
-                bundle=bundle,
-                embedding_model=embedding_model,
-                cfg=cfg,
-                random_seed=random_seed,
-                sonic_variant=resolved_variant,
-                transition_weights=transition_weights,
-            )
-        else:
+        # Pier-bridge handles any number of seeds (including 1 seed as arc structure)
+        if True:
             # 3. Deduplicate candidate pool by (artist, title), keeping canonical version
             pool_indices = list(pool.pool_indices)
             if bundle.track_titles is not None and bundle.artist_keys is not None:
@@ -509,142 +510,8 @@ def generate_playlist_ds(
                 params_effective={"strategy": "pier_bridge", "pier_config": pb_cfg.__dict__},
             )
 
-    elif use_anchor_builder:
-        # ─── ANCHOR BUILDER PATH (legacy): calls construct_playlist with repair ───
-        anchor_seed_indices: list[int] = []
-        not_found = []
-        for sid in anchor_seed_ids or []:
-            idx = bundle.track_id_to_index.get(str(sid))
-            if idx is not None:
-                anchor_seed_indices.append(idx)
-            else:
-                not_found.append(sid)
-        if not_found:
-            logger.warning("Anchor seeds NOT FOUND in bundle (%d/%d): %s", len(not_found), len(anchor_seed_ids), not_found[:3])
-        else:
-            logger.info("All %d anchor seeds found in bundle", len(anchor_seed_ids))
-        anchor_seed_indices = list(dict.fromkeys(anchor_seed_indices))
-        # Also deduplicate by title to avoid multiple versions of the same song
-        if bundle.track_titles is not None:
-            from src.title_dedupe import normalize_title_for_dedupe
-            seen_titles: set[str] = set()
-            dedupe_indices: list[int] = []
-            for idx in anchor_seed_indices:
-                title = bundle.track_titles[idx] or ""
-                norm_title = normalize_title_for_dedupe(str(title), mode="loose")
-                if norm_title not in seen_titles:
-                    seen_titles.add(norm_title)
-                    dedupe_indices.append(idx)
-                else:
-                    logger.debug("Removing duplicate-titled anchor seed: %s", title)
-            anchor_seed_indices = dedupe_indices
-        if seed_idx not in anchor_seed_indices:
-            # Check if seed_idx's title is already in anchors
-            should_insert = True
-            if bundle.track_titles is not None:
-                seed_title = bundle.track_titles[seed_idx] or ""
-                norm_seed = normalize_title_for_dedupe(str(seed_title), mode="loose")
-                for idx in anchor_seed_indices:
-                    anchor_title = bundle.track_titles[idx] or ""
-                    if normalize_title_for_dedupe(str(anchor_title), mode="loose") == norm_seed:
-                        logger.debug("Skipping seed_idx insertion - duplicate title: %s", seed_title)
-                        should_insert = False
-                        break
-            if should_insert:
-                anchor_seed_indices.insert(0, seed_idx)
-        logger.info("Anchor seed indices after resolution: %d (need >1 for anchor builder)", len(anchor_seed_indices))
-        if len(anchor_seed_indices) > 1:
-            seed_labels = []
-            for idx in anchor_seed_indices:
-                tid = bundle.track_ids[idx]
-                title = bundle.track_titles[idx] if bundle.track_titles is not None else ""
-                seed_labels.append(f"{tid}:{title}")
-            logger.info("Anchor seeds (%d): %s", len(anchor_seed_indices), seed_labels)
-
-            emb_norm = embedding_model.embedding / (np.linalg.norm(embedding_model.embedding, axis=1, keepdims=True) + 1e-12)
-            X_start = None
-            X_end = None
-            rescale_transitions = False
-            if bundle.X_sonic_start is not None and bundle.X_sonic_end is not None:
-                X_start = get_sonic_matrix(bundle, "start")
-                X_end = get_sonic_matrix(bundle, "end")
-                if X_start.shape[0] != emb_norm.shape[0] or X_end.shape[0] != emb_norm.shape[0]:
-                    X_start = None
-                    X_end = None
-                elif cfg.construct.center_transitions:
-                    mu_end = X_end.mean(axis=0, keepdims=True)
-                    mu_start = X_start.mean(axis=0, keepdims=True)
-                    X_end = X_end - mu_end
-                    X_start = X_start - mu_start
-                    rescale_transitions = True
-
-            transition_scorer = TransitionScorer(
-                emb_norm=emb_norm,
-                transition_gamma=cfg.construct.transition_gamma,
-                X_end=X_end,
-                X_start=X_start,
-                rescale_transitions=rescale_transitions,
-            )
-            constraints = AnchorConstraints(
-                artist_keys=bundle.artist_keys,
-                track_titles=bundle.track_titles,
-                track_ids=bundle.track_ids,
-                max_per_artist=max_per_artist,
-                min_gap=cfg.construct.min_gap,
-                transition_floor=cfg.construct.transition_floor,
-                hard_floor=cfg.construct.hard_floor,
-                title_dedupe=TitleDedupeTracker(enabled=True),
-            )
-            seed_order = choose_seed_order(anchor_seed_indices, transition_scorer)
-            order_score = 0.0
-            if len(seed_order) > 1:
-                order_score = sum(transition_scorer.score(a, b) for a, b in zip(seed_order, seed_order[1:]))
-            logger.info("Anchor seed order score=%.4f order=%s", order_score, [str(bundle.track_ids[i]) for i in seed_order])
-            search_cfg = BridgeSearchConfig(debug=bool(os.environ.get("PLAYLIST_DIAG_ANCHOR")))
-            anchor_playlist_indices = build_anchor_playlist(
-                seed_order,
-                playlist_len,
-                pool,
-                transition_scorer,
-                constraints,
-                np.random.default_rng(random_seed),
-                search_cfg=search_cfg,
-            )
-            playlist = construct_playlist(
-                seed_idx=seed_idx,
-                pool=pool,
-                bundle=bundle,
-                embedding_model=embedding_model,
-                cfg=cfg,
-                random_seed=random_seed,
-                sonic_variant=resolved_variant,
-                initial_order=anchor_playlist_indices,
-                locked_track_ids=set(anchor_seed_indices),
-                transition_weights=transition_weights,
-            )
-        else:
-            playlist = construct_playlist(
-                seed_idx=seed_idx,
-                pool=pool,
-                bundle=bundle,
-                embedding_model=embedding_model,
-                cfg=cfg,
-                random_seed=random_seed,
-                sonic_variant=resolved_variant,
-                transition_weights=transition_weights,
-            )
-    else:
-        # ─── STANDARD PATH: greedy construction with optional repair ───
-        playlist = construct_playlist(
-            seed_idx=seed_idx,
-            pool=pool,
-            bundle=bundle,
-            embedding_model=embedding_model,
-            cfg=cfg,
-            random_seed=random_seed,
-            sonic_variant=resolved_variant,
-            transition_weights=transition_weights,
-        )
+    # Legacy paths (anchor_builder, standard construct_playlist) have been removed.
+    # All playlist construction now goes through pier-bridge.
 
     ordered_track_ids = [str(bundle.track_ids[i]) for i in playlist.track_indices]
     params_requested = _params_from_config(cfg)

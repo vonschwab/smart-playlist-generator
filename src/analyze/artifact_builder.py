@@ -89,16 +89,11 @@ class ArtifactBuildResult:
 
 def _normalize_artist_key(raw: Optional[str], track_id: Optional[str]) -> str:
     """Normalize artist identifier with fallbacks."""
-    import re
+    from src.string_utils import normalize_artist_key
 
-    if raw is None:
-        raw = ""
-    text = str(raw).lower().strip()
-    text = re.split(r"\b(feat|ft|featuring)\b", text)[0]
-    text = re.sub(r"[^a-z0-9\s]", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    if text:
-        return text
+    key = normalize_artist_key(raw or "")
+    if key:
+        return key
     if track_id:
         return f"unknown:{track_id}"
     return "unknown"

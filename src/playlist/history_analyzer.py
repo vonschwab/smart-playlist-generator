@@ -13,6 +13,8 @@ from collections import Counter, defaultdict
 import random
 import logging
 
+from src.playlist.utils import safe_get_artist_key
+from src.string_utils import normalize_artist_key
 from src.title_dedupe import normalize_title_for_dedupe
 
 logger = logging.getLogger(__name__)
@@ -60,24 +62,30 @@ def analyze_top_artists(
     """
     logger.info(f"Analyzing top {artist_count} artists from listening history...")
 
-    # Group tracks by artist
+    # Group tracks by normalized artist key
     artist_tracks = defaultdict(list)
+    display_counts = defaultdict(Counter)
     for track in history:
         artist = track.get('artist')
         if artist:
-            artist_tracks[artist].append(track)
+            artist_key = normalize_artist_key(artist)
+            if not artist_key:
+                continue
+            artist_tracks[artist_key].append(track)
+            display_counts[artist_key][artist] += 1
 
     # Sort artists by total play count
     artist_play_counts = {
-        artist: sum(t.get('play_count', 1) for t in tracks)
-        for artist, tracks in artist_tracks.items()
+        artist_key: sum(t.get('play_count', 1) for t in tracks)
+        for artist_key, tracks in artist_tracks.items()
     }
 
     top_artists = sorted(artist_play_counts.items(), key=lambda x: x[1], reverse=True)[:artist_count]
 
     result = {}
-    for artist, total_plays in top_artists:
-        exact_match_tracks = artist_tracks[artist]
+    for artist_key, total_plays in top_artists:
+        exact_match_tracks = artist_tracks[artist_key]
+        artist = display_counts[artist_key].most_common(1)[0][0]
 
         # Check if we should include collaborations
         if include_collaborations and len(exact_match_tracks) < 4:
@@ -85,10 +93,11 @@ def analyze_top_artists(
 
             # Search for collaboration tracks
             collaboration_tracks = []
-            for other_artist, other_tracks in artist_tracks.items():
-                if is_collaboration_of(collaboration_name=other_artist, base_artist=artist):
+            for other_key, other_tracks in artist_tracks.items():
+                other_display = display_counts[other_key].most_common(1)[0][0]
+                if is_collaboration_of(collaboration_name=other_display, base_artist=artist):
                     collaboration_tracks.extend(other_tracks)
-                    logger.info(f"    Found collaboration: {other_artist} ({len(other_tracks)} tracks)")
+                    logger.info(f"    Found collaboration: {other_display} ({len(other_tracks)} tracks)")
 
             # Combine exact matches and collaborations
             combined_tracks = exact_match_tracks + collaboration_tracks
@@ -127,15 +136,16 @@ def select_diverse_seeds(
     for key, play_count in play_counts.most_common():
         track = track_metadata[key]
         artist = track.get('artist', 'Unknown')
+        artist_key = safe_get_artist_key(track)
         title = track.get('title', 'Unknown Track')
 
-        if artist not in used_artists:
+        if artist_key not in used_artists:
             seed_track = {
                 **track,
                 'play_count': play_count
             }
             seeds.append(seed_track)
-            used_artists.add(artist)
+            used_artists.add(artist_key)
 
             logger.info(f"  Selected seed: {artist} - {title} ({play_count} plays)")
 

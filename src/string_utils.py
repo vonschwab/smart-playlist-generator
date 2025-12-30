@@ -44,6 +44,29 @@ _GENRE_ABBREVIATIONS = {
     "idm": "intelligent dance music",
 }
 
+# Typography normalization for artist keys
+_ARTIST_TYPOGRAPHY_TRANSLATION = {
+    ord("\u2018"): "'",  # left single quotation mark
+    ord("\u2019"): "'",  # right single quotation mark
+    ord("\u201A"): "'",  # single low-9 quotation mark
+    ord("\u201B"): "'",  # single high-reversed-9 quotation mark
+    ord("\u2032"): "'",  # prime
+    ord("\u2035"): "'",  # reversed prime
+    ord("\u201C"): '"',  # left double quotation mark
+    ord("\u201D"): '"',  # right double quotation mark
+    ord("\u201E"): '"',  # double low-9 quotation mark
+    ord("\u201F"): '"',  # double high-reversed-9 quotation mark
+    ord("\u2033"): '"',  # double prime
+    ord("\u2036"): '"',  # reversed double prime
+    ord("\u2010"): "-",  # hyphen
+    ord("\u2011"): "-",  # non-breaking hyphen
+    ord("\u2012"): "-",  # figure dash
+    ord("\u2013"): "-",  # en dash
+    ord("\u2014"): "-",  # em dash
+    ord("\u2015"): "-",  # horizontal bar
+    ord("\u2212"): "-",  # minus sign
+}
+
 
 def normalize_text(text: str, lowercase: bool = True, strip: bool = True) -> str:
     """
@@ -148,3 +171,42 @@ def normalize_match_string(value: str, is_artist: bool = False) -> str:
     text = re.sub(r"\s+", " ", text)
 
     return text.strip()
+
+
+def normalize_artist_key(name: str) -> str:
+    """
+    Normalize artist names to a stable comparison key.
+
+    Steps:
+    - Strip and collapse whitespace
+    - Normalize typography variants (quotes/dashes)
+    - Unicode NFKD + remove combining marks (diacritics)
+    - Casefold
+    - Replace punctuation with spaces
+    """
+    if not name:
+        return ""
+
+    text = str(name).strip()
+    if not text:
+        return ""
+
+    text = text.translate(_ARTIST_TYPOGRAPHY_TRANSLATION)
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    text = text.casefold()
+
+    normalized = "".join(
+        " " if unicodedata.category(ch).startswith("P") else ch for ch in text
+    )
+    normalized = " ".join(normalized.split())
+    if normalized:
+        return normalized
+
+    # Preserve punctuation-only artist names (e.g., "@", "!!!") as stable keys.
+    fallback = " ".join(text.split())
+    return fallback
+
+
+# Backward-compatible alias
+normalize_string = normalize_text

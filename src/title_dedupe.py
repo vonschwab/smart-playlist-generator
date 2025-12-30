@@ -15,7 +15,7 @@ import logging
 from typing import Dict, Set, List, Optional, Tuple
 from difflib import SequenceMatcher
 
-from .string_utils import normalize_match_string
+from .string_utils import normalize_artist_key, normalize_match_string
 
 logger = logging.getLogger(__name__)
 
@@ -111,14 +111,6 @@ def normalize_title_for_dedupe(title: str, mode: str = "loose") -> str:
     normalized = ' '.join(normalized.split())
 
     return normalized.strip()
-
-
-def normalize_artist_key(artist: str) -> str:
-    """
-    Normalize artist name for grouping in dedupe.
-    Uses the same normalization as track_matcher for consistency.
-    """
-    return normalize_match_string(artist, is_artist=True)
 
 
 def title_similarity(title1: str, title2: str) -> float:
@@ -345,3 +337,7 @@ def calculate_version_preference_score(title: str) -> int:
         score += 10
 
     return score
+
+
+# Backward-compatible alias
+TitleDeduplicator = TitleDedupeTracker

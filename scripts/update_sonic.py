@@ -5,11 +5,12 @@ Sonic Feature Updater
 Analyzes and updates sonic features for tracks with built-in safety protections.
 
 Usage:
-    python update_sonic.py                   # SAFE MODE: Only analyze tracks without features
+    python update_sonic.py                   # DEFAULT: beat3tower (safe mode)
     python update_sonic.py --limit 100       # Analyze up to 100 tracks
     python update_sonic.py --workers 4       # Use 4 parallel workers
     python update_sonic.py --stats           # Show statistics (including beat3tower count)
-    python update_sonic.py --beat3tower      # Use beat3tower extraction (recommended)
+    python update_sonic.py --beat3tower      # Explicit beat3tower (default)
+    python update_sonic.py --rescan-inconsistent  # Re-analyze tracks with inconsistent sonic dims
 
     ⚠️  DANGEROUS - USE WITH CAUTION:
     python update_sonic.py --force           # Re-analyze ALL tracks (requires confirmation)
@@ -32,7 +33,7 @@ Features:
 Recommended workflow:
     1. Create a backup: python scripts/backup_sonic_features.py --backup
     2. Check stats: python update_sonic.py --stats
-    3. Run analysis: python update_sonic.py --beat3tower
+    3. Run analysis: python update_sonic.py
 """
 import sys
 import sqlite3
@@ -48,10 +49,8 @@ import multiprocessing
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
-# Configure logging (centralized)
-from src.logging_config import setup_logging
-logger = setup_logging(name='update_sonic', log_file='sonic_analysis.log')
-logger.info("Sonic feature analysis started")
+# Logging will be configured in main() - just get the logger here
+logger = logging.getLogger('update_sonic')
 
 DB_BUSY_TIMEOUT_MS = 30000
 DB_RETRY_ATTEMPTS = 5
@@ -110,14 +109,14 @@ def analyze_track_worker(track_data: Tuple[str, str, str, str, bool, bool]) -> O
 class SonicFeaturePipeline:
     """Pipeline for analyzing tracks and storing sonic features"""
 
-    def __init__(self, db_path: Optional[str] = None, use_beat_sync: bool = False, use_beat3tower: bool = False):
+    def __init__(self, db_path: Optional[str] = None, use_beat_sync: bool = False, use_beat3tower: bool = True):
         """
         Initialize pipeline
 
         Args:
             db_path: Path to metadata database
-            use_beat_sync: If True, use old beat-synchronized feature extraction
-            use_beat3tower: If True, use 3-tower beat-synchronized extraction (recommended)
+            use_beat_sync: Deprecated legacy mode (disabled)
+            use_beat3tower: If True, use 3-tower beat-synchronized extraction (default)
                            Takes precedence over use_beat_sync
         """
         from src.hybrid_sonic_analyzer import HybridSonicAnalyzer
@@ -152,7 +151,98 @@ class SonicFeaturePipeline:
             logger.warning("Failed to apply SQLite pragmas (%s)", exc)
         logger.debug(f"Connected to database: {self.db_path}")
 
-    def get_pending_tracks(self, limit: Optional[int] = None, force: bool = False) -> list:
+    @staticmethod
+    def _looks_like_beat3tower(features: Dict[str, Any]) -> bool:
+        if not isinstance(features, dict):
+            return False
+        full = features.get("full")
+        if not isinstance(full, dict):
+            return False
+        if full.get("extraction_method") == "beat3tower":
+            return True
+        return all(key in full for key in ("rhythm", "timbre", "harmony"))
+
+    def _infer_feature_dim(self, features: Dict[str, Any], calc) -> int:
+        if not isinstance(features, dict):
+            return 0
+        full = features.get("full")
+        if isinstance(full, dict) and self._looks_like_beat3tower(features):
+            try:
+                from src.features.beat3tower_types import Beat3TowerFeatures
+                b3t = Beat3TowerFeatures.from_dict(full)
+                vec = b3t.to_vector()
+                return int(vec.shape[0]) if hasattr(vec, "shape") else 0
+            except Exception:
+                return 0
+        try:
+            vec = calc.build_sonic_feature_vector(features)
+        except Exception:
+            return 0
+        return int(vec.shape[0]) if hasattr(vec, "shape") else 0
+
+    def _get_inconsistent_tracks(self, limit: Optional[int] = None) -> list:
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT track_id, file_path, musicbrainz_id, artist, title, sonic_features
+            FROM tracks
+            WHERE file_path IS NOT NULL
+              AND sonic_features IS NOT NULL
+            ORDER BY track_id
+        """)
+        rows = cursor.fetchall()
+        if not rows:
+            return []
+
+        from collections import Counter
+        from src.similarity_calculator import SimilarityCalculator
+
+        dim_counts = Counter()
+        dims: list[int] = []
+        invalid_json = 0
+        invalid_dim = 0
+
+        with SimilarityCalculator(db_path=self.db_path, config={}) as calc:
+            for row in rows:
+                raw = row["sonic_features"]
+                try:
+                    features = json.loads(raw)
+                except Exception:
+                    invalid_json += 1
+                    dim = 0
+                else:
+                    dim = self._infer_feature_dim(features, calc)
+                    if dim <= 0:
+                        invalid_dim += 1
+                if dim > 0:
+                    dim_counts[dim] += 1
+                dims.append(dim)
+
+        if not dim_counts:
+            logger.warning("No valid sonic vectors found; cannot detect inconsistent tracks.")
+            return []
+
+        if 137 in dim_counts:
+            target_dim = 137
+        else:
+            target_dim = dim_counts.most_common(1)[0][0]
+
+        inconsistent = [row for row, dim in zip(rows, dims) if dim != target_dim]
+        logger.info("Sonic dimension distribution: %s", dict(dim_counts))
+        logger.info(
+            "Inconsistent rescan: target_dim=%d inconsistent=%d invalid_json=%d invalid_dim=%d total=%d",
+            target_dim,
+            len(inconsistent),
+            invalid_json,
+            invalid_dim,
+            len(rows),
+        )
+
+        if limit is not None and len(inconsistent) > limit:
+            inconsistent = inconsistent[:limit]
+
+        return inconsistent
+
+    def get_pending_tracks(self, limit: Optional[int] = None, force: bool = False, rescan_inconsistent: bool = False) -> list:
         """
         Get tracks that need sonic analysis
 
@@ -160,11 +250,16 @@ class SonicFeaturePipeline:
             limit: Maximum number of tracks to return (None = all)
             force: If True, re-analyze all tracks (even those already analyzed)
                   WARNING: This will overwrite existing beat3tower features!
+            rescan_inconsistent: If True, re-analyze tracks with inconsistent sonic dimensions
 
         Returns:
             List of track rows
         """
         cursor = self.conn.cursor()
+
+        if rescan_inconsistent:
+            logger.info("Rescan mode: Only analyzing tracks with inconsistent sonic dimensions")
+            return self._get_inconsistent_tracks(limit)
 
         if force:
             # Re-analyze everything (convert old format to multi-segment)
@@ -276,11 +371,15 @@ class SonicFeaturePipeline:
 
         # Extract source
         source = features.get('source', 'unknown')
+        if source == 'unknown':
+            metadata = features.get('metadata', {}) if isinstance(features.get('metadata'), dict) else {}
+            source = metadata.get('sonic_source', source)
 
         # Detect beat3tower format (no 'source' at root level)
         if source == 'unknown' and 'full' in features:
             if isinstance(features['full'], dict) and features['full'].get('extraction_method') == 'beat3tower':
-                source = 'librosa'
+                metadata = features.get('metadata', {}) if isinstance(features.get('metadata'), dict) else {}
+                source = metadata.get('sonic_source', 'beat3tower_beats')
 
         # Convert to JSON (remove 'source' as it's in separate column)
         features_copy = features.copy()
@@ -337,7 +436,7 @@ class SonicFeaturePipeline:
                 logger.warning("DB locked; retrying failed mark for %s in %.1fs (attempt %d/%d)", track_id, sleep_for, attempt, DB_RETRY_ATTEMPTS)
                 time.sleep(sleep_for)
 
-    def run(self, limit: Optional[int] = None, workers: Optional[int] = None, force: bool = False):
+    def run(self, limit: Optional[int] = None, workers: Optional[int] = None, force: bool = False, rescan_inconsistent: bool = False):
         """
         Run the analysis pipeline with parallel processing
 
@@ -345,16 +444,19 @@ class SonicFeaturePipeline:
             limit: Maximum number of tracks to analyze (None = all)
             workers: Number of parallel workers (None = CPU count - 1)
             force: If True, re-analyze all tracks (even those already analyzed)
+            rescan_inconsistent: If True, re-analyze tracks with inconsistent sonic dimensions
         """
         logger.info("=" * 70)
-        if force:
+        if rescan_inconsistent:
+            logger.info("Starting Sonic Feature Analysis Pipeline (RESCAN INCONSISTENT MODE)")
+        elif force:
             logger.info("Starting Sonic Feature Analysis Pipeline (FORCE MODE - Re-analyzing ALL tracks)")
         else:
             logger.info("Starting Sonic Feature Analysis Pipeline")
         logger.info("=" * 70)
 
         # Get pending tracks
-        pending = self.get_pending_tracks(limit, force=force)
+        pending = self.get_pending_tracks(limit, force=force, rescan_inconsistent=rescan_inconsistent)
         total = len(pending)
 
         if total == 0:
@@ -373,8 +475,12 @@ class SonicFeaturePipeline:
         stats = {
             'total': total,
             'analyzed': 0,
+            'beat3tower_beats': 0,
+            'beat3tower_timegrid': 0,
+            'beat3tower_stats': 0,
+            'beat3tower_failed': 0,
             'librosa': 0,
-            'failed': 0
+            'failed': 0,
         }
 
         start_time = time.time()
@@ -414,14 +520,26 @@ class SonicFeaturePipeline:
                         stats['analyzed'] += 1
 
                         # Track source
-                        source = features.get('source', 'unknown')
-                        if source == 'librosa':
+                        source = features.get('source')
+                        if source is None:
+                            metadata = features.get('metadata', {}) if isinstance(features.get('metadata'), dict) else {}
+                            source = metadata.get('sonic_source', 'unknown')
+
+                        if source == 'beat3tower_beats':
+                            stats['beat3tower_beats'] += 1
+                        elif source == 'beat3tower_timegrid':
+                            stats['beat3tower_timegrid'] += 1
+                        elif source == 'beat3tower_stats':
+                            stats['beat3tower_stats'] += 1
+                        elif source == 'librosa':
                             stats['librosa'] += 1
 
                         # Only log individual tracks on failure or debug mode
                         logger.debug(f"[{completed}/{total}] OK {artist} - {title} ({source})")
                     else:
                         stats['failed'] += 1
+                        if self.use_beat3tower:
+                            stats['beat3tower_failed'] += 1
                         logger.warning(f"[{completed}/{total}] FAIL {artist} - {title}")
                         # Mark track as failed to prevent repeated analysis attempts
                         commit_now = (completed % batch_size == 0) or (completed == total)
@@ -436,8 +554,14 @@ class SonicFeaturePipeline:
                         logger.info(f"Progress: {completed}/{total} ({completed/total*100:.1f}%) - "
                                   f"Rate: {rate:.1f} tracks/sec - "
                                   f"ETA: {remaining/60:.1f} min")
-                        logger.info(f"  Stats: {stats['librosa']} Librosa, "
-                                  f"{stats['failed']} failed")
+                        logger.info(
+                            "  Stats: beats=%d timegrid=%d stats=%d librosa=%d failed=%d",
+                            stats['beat3tower_beats'],
+                            stats['beat3tower_timegrid'],
+                            stats['beat3tower_stats'],
+                            stats['librosa'],
+                            stats['failed'],
+                        )
 
                 except Exception as e:
                     logger.error(f"Error processing result for {artist} - {title}: {e}")
@@ -454,8 +578,36 @@ class SonicFeaturePipeline:
         logger.info(f"Total time: {elapsed/60:.1f} minutes")
         logger.info(f"Total analyzed: {stats['analyzed']}/{stats['total']}")
         if stats['total'] > 0:
-            logger.info(f"  Librosa: {stats['librosa']} ({stats['librosa']/stats['total']*100:.1f}%)")
-            logger.info(f"  Failed: {stats['failed']} ({stats['failed']/stats['total']*100:.1f}%)")
+            logger.info(
+                "  Beat3tower beats: %d (%.1f%%)",
+                stats['beat3tower_beats'],
+                stats['beat3tower_beats'] / stats['total'] * 100.0,
+            )
+            logger.info(
+                "  Beat3tower timegrid: %d (%.1f%%)",
+                stats['beat3tower_timegrid'],
+                stats['beat3tower_timegrid'] / stats['total'] * 100.0,
+            )
+            logger.info(
+                "  Beat3tower stats: %d (%.1f%%)",
+                stats['beat3tower_stats'],
+                stats['beat3tower_stats'] / stats['total'] * 100.0,
+            )
+            logger.info(
+                "  Beat3tower failed: %d (%.1f%%)",
+                stats['beat3tower_failed'],
+                stats['beat3tower_failed'] / stats['total'] * 100.0,
+            )
+            logger.info(
+                "  Librosa used: %d (%.1f%%)",
+                stats['librosa'],
+                stats['librosa'] / stats['total'] * 100.0,
+            )
+            logger.info(
+                "  Failed: %d (%.1f%%)",
+                stats['failed'],
+                stats['failed'] / stats['total'] * 100.0,
+            )
             logger.info(f"Average rate: {stats['total']/elapsed:.1f} tracks/sec")
 
     def get_stats(self) -> Dict[str, int]:
@@ -517,17 +669,38 @@ class SonicFeaturePipeline:
 
 if __name__ == "__main__":
     import argparse
+    from src.logging_utils import configure_logging, add_logging_args, resolve_log_level
 
     parser = argparse.ArgumentParser(description='Analyze sonic features for tracks')
     parser.add_argument('--limit', type=int, help='Maximum number of tracks to analyze')
     parser.add_argument('--workers', type=int, help='Number of parallel workers (default: CPU count - 2)')
     parser.add_argument('--stats', action='store_true', help='Show statistics only')
     parser.add_argument('--force', action='store_true', help='Re-analyze ALL tracks (converts old format to multi-segment)')
-    parser.add_argument('--beat-sync', action='store_true', help='Use beat-synchronized feature extraction (old method)')
-    parser.add_argument('--beat3tower', action='store_true', help='Use 3-tower beat-synchronized extraction (recommended)')
+    parser.add_argument('--rescan-inconsistent', action='store_true', help='Re-analyze tracks with inconsistent sonic dimensions')
+    parser.add_argument('--beat-sync', action='store_true', help='DEPRECATED: legacy sonic mode is disabled')
+    parser.add_argument('--beat3tower', action='store_true', help='Use 3-tower beat-synchronized extraction (default)')
+    add_logging_args(parser)
     args = parser.parse_args()
 
-    pipeline = SonicFeaturePipeline(use_beat_sync=args.beat_sync, use_beat3tower=args.beat3tower)
+    if args.beat_sync:
+        print("Error: --beat-sync is deprecated and disabled. Beat3tower is always used.")
+        sys.exit(2)
+
+    if not args.beat3tower:
+        args.beat3tower = True
+
+    if args.force and args.rescan_inconsistent:
+        print("Error: --force and --rescan-inconsistent are mutually exclusive.")
+        sys.exit(2)
+
+    # Configure logging
+    log_level = resolve_log_level(args)
+    log_file = getattr(args, 'log_file', None) or 'sonic_analysis.log'
+    configure_logging(level=log_level, log_file=log_file)
+
+    logger.info("Sonic feature analysis started")
+
+    pipeline = SonicFeaturePipeline(use_beat_sync=False, use_beat3tower=args.beat3tower)
 
     if args.stats:
         # Show statistics
@@ -589,6 +762,11 @@ if __name__ == "__main__":
 
             print("\n✓ Confirmed. Starting re-analysis...\n")
 
-        pipeline.run(limit=args.limit, workers=args.workers, force=args.force)
+        pipeline.run(
+            limit=args.limit,
+            workers=args.workers,
+            force=args.force,
+            rescan_inconsistent=args.rescan_inconsistent,
+        )
 
     pipeline.close()

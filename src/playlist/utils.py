@@ -7,6 +7,7 @@ Migrated from src/playlist_generator.py module-level functions.
 """
 from typing import Dict, Any, Optional, List
 import re
+from src.string_utils import normalize_artist_key
 
 
 def safe_get_artist(track: Dict[str, Any], lowercase: bool = True) -> str:
@@ -22,6 +23,20 @@ def safe_get_artist(track: Dict[str, Any], lowercase: bool = True) -> str:
     """
     artist = track.get('artist') or ''
     return artist.lower() if lowercase and artist else artist
+
+
+def safe_get_artist_key(track: Dict[str, Any]) -> str:
+    """
+    Safely get a normalized artist key from a track dictionary.
+    """
+    key = track.get("artist_key")
+    if key:
+        return str(key)
+    artist = track.get("artist") or ""
+    key = normalize_artist_key(artist)
+    if key:
+        track["artist_key"] = key
+    return key
 
 
 def convert_seconds_to_ms(seconds: Optional[int]) -> int:

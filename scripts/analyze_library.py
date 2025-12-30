@@ -39,6 +39,105 @@ STAGE_ORDER_DEFAULT = ["scan", "genres", "discogs", "sonic", "genre-sim", "artif
 
 logger = logging.getLogger("analyze_library")
 
+# ─────────────────────────────────────────────────────────────────────────────
+# MusicBrainz MBID enrichment (optional)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def stage_mbid(ctx: Dict) -> Dict:
+    """
+    Optional stage: fetch MusicBrainz recording MBIDs into metadata.db.
+    Uses scripts/fetch_mbids_musicbrainz.py logic in-process to avoid file writes.
+    Respects limit/force flags; default limit=200 to avoid hammering MB.
+    """
+    args = ctx["args"]
+    db_path = ctx["db_path"]
+    limit = args.limit if args.limit and args.limit > 0 else 200
+    force = args.force
+    force_no_match = getattr(args, "force_no_match", False)
+    force_error = getattr(args, "force_error", False)
+    force_all = getattr(args, "force_all", False)
+
+    # Import fetcher utilities
+    from scripts.fetch_mbids_musicbrainz import (
+        get_session,
+        load_candidates,
+        search_recording_relaxed,
+        best_artist_similarity,
+        similarity,
+        NO_MATCH_MARKER,
+        ERROR_MARKER,
+    )
+
+    conn = ctx["conn"]
+    candidates = load_candidates(
+        conn,
+        limit,
+        force,
+        force_no_match,
+        force_error,
+        force_all,
+        artist_like=None,
+    )
+    logger.info("MBID stage: loaded %d candidates (force=%s)", len(candidates), force)
+
+    session = get_session(timeout=10.0, max_retries=3)
+    cur = conn.cursor()
+    updated = 0
+    skipped = 0
+    errors = 0
+    processed = 0
+
+    last_call = 0.0
+    for track_id, title, artist, duration_ms in candidates:
+        processed += 1
+        elapsed = time.perf_counter() - last_call
+        if elapsed < 1.1:
+            time.sleep(1.1 - elapsed)
+        try:
+            rec = search_recording_relaxed(session, artist, title, duration_ms, tolerance_ms=4000)
+            last_call = time.perf_counter()
+            if rec:
+                mbid = rec.get("id")
+                mb_title = rec.get("title", "")
+                mb_score = rec.get("score", 0)
+                artist_credit = rec.get("artist-credit") or []
+                credit_names = [ac.get("name") for ac in artist_credit if isinstance(ac, dict) and ac.get("name")]
+                mb_artist = " & ".join(credit_names)
+                mb_len = rec.get("length")
+                dur_diff = None
+                if duration_ms is not None and mb_len is not None:
+                    dur_diff = abs(int(mb_len) - int(duration_ms))
+                title_sim = similarity(title, mb_title)
+                artist_sim = best_artist_similarity(artist, mb_artist or "")
+
+                if artist_sim < 0.40 or title_sim < 0.55:
+                    skipped += 1
+                    continue
+                if duration_ms is not None and mb_len is not None and dur_diff is not None and dur_diff > 4000:
+                    skipped += 1
+                    continue
+                elif mb_len is None and not (mb_score >= 80 and artist_sim >= 0.7 and title_sim >= 0.7):
+                    skipped += 1
+                    continue
+
+                cur.execute("UPDATE tracks SET musicbrainz_id = ? WHERE track_id = ?", (mbid, track_id))
+                updated += cur.rowcount
+            else:
+                skipped += 1
+                cur.execute("UPDATE tracks SET musicbrainz_id = ? WHERE track_id = ?", (NO_MATCH_MARKER, track_id))
+        except Exception as exc:
+            errors += 1
+            logger.debug("MBID error for %s - %s: %s", artist, title, exc)
+            cur.execute("UPDATE tracks SET musicbrainz_id = ? WHERE track_id = ?", (ERROR_MARKER, track_id))
+            last_call = time.perf_counter()
+
+        if processed % 200 == 0:
+            conn.commit()
+
+    conn.commit()
+    logger.info("MBID stage: updated=%d skipped=%d errors=%d", updated, skipped, errors)
+    return {"updated": updated, "skipped": skipped, "errors": errors, "total": len(candidates)}
+
 
 def stage_scan(ctx: Dict) -> Dict:
     """
@@ -459,13 +558,16 @@ def stage_sonic(ctx: Dict) -> Dict:
     args = ctx["args"]
     force = args.force
     limit = args.limit
-    use_beat_sync = args.beat_sync
     workers_arg = args.workers
     if isinstance(workers_arg, str) and workers_arg.lower() == "auto":
         workers = None
     else:
         workers = int(workers_arg)
-    pipeline = SonicFeaturePipeline(db_path=ctx["db_path"], use_beat_sync=use_beat_sync)
+    pipeline = SonicFeaturePipeline(
+        db_path=ctx["db_path"],
+        use_beat_sync=False,
+        use_beat3tower=True,
+    )
     try:
         pending = pipeline.get_pending_tracks(limit, force=force)
     except sqlite3.OperationalError as exc:
@@ -474,10 +576,26 @@ def stage_sonic(ctx: Dict) -> Dict:
     if not force and len(pending) == 0:
         logger.info("Skipping sonic stage (no pending tracks; use --force to re-run)")
         return {"pending": 0, "skipped": True}
-    mode = "beat-sync" if use_beat_sync else "windowed"
+    mode = "beat3tower"
     logger.info(f"Running sonic stage in {mode} mode")
+    start_ts = int(time.time())
     pipeline.run(limit=limit, workers=workers, force=force)
-    return {"pending": len(pending), "skipped": False, "mode": mode}
+    updated = 0
+    try:
+        cursor = ctx["conn"].cursor()
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS c
+            FROM tracks
+            WHERE sonic_analyzed_at IS NOT NULL
+              AND sonic_analyzed_at >= ?
+            """,
+            (start_ts,),
+        )
+        updated = cursor.fetchone()["c"]
+    except sqlite3.OperationalError:
+        updated = len(pending)
+    return {"pending": len(pending), "skipped": False, "mode": mode, "updated": updated}
 
 
 def stage_genre_sim(ctx: Dict) -> Dict:
@@ -508,12 +626,12 @@ def stage_artifacts(ctx: Dict) -> Dict:
     out_path = out_dir / "data_matrices_step1.npz"
     genre_sim_path = out_dir / "genre_similarity_matrix.npz"
     genre_sim_use = genre_sim_path if genre_sim_path.exists() else None
-    force_rebuild = ctx["args"].force or bool(ctx.get("genres_dirty"))
+    force_rebuild = ctx["args"].force or bool(ctx.get("genres_dirty")) or bool(ctx.get("sonic_dirty"))
     if out_path.exists() and not force_rebuild:
         logger.info("Skipping artifacts stage (exists: %s; use --force to rebuild)", out_path)
         return {"path": str(out_path), "skipped": True}
     if out_path.exists() and force_rebuild and not ctx["args"].force:
-        logger.info("Rebuilding artifacts (new genres detected since last build)")
+        logger.info("Rebuilding artifacts (new genres or sonic updates detected since last build)")
     try:
         result = build_ds_artifacts(
             db_path=ctx["db_path"],
@@ -554,6 +672,7 @@ def stage_verify(ctx: Dict) -> Dict:
 
 STAGE_FUNCS = {
     "scan": stage_scan,
+    "mbid": stage_mbid,
     "genres": stage_genres,
     "discogs": stage_discogs,
     "sonic": stage_sonic,
@@ -564,6 +683,8 @@ STAGE_FUNCS = {
 
 
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
+    from src.logging_utils import add_logging_args
+
     parser = argparse.ArgumentParser(description="Analyze library pipeline")
     parser.add_argument("--config", default="config.yaml", help="Path to config.yaml (default: config.yaml)")
     parser.add_argument("--db-path", help="Override DB path (default from config)")
@@ -580,9 +701,13 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--limit", type=int, help="Limit tracks for sonic/artifacts")
     parser.add_argument("--max-tracks", type=int, default=0, help="Cap tracks for artifact build (0=all)")
     parser.add_argument("--force", action="store_true", help="Force rerun even if outputs exist")
+    parser.add_argument("--force-no-match", action="store_true", help="MBID stage: reprocess __NO_MATCH__ tracks")
+    parser.add_argument("--force-error", action="store_true", help="MBID stage: reprocess __ERROR__ tracks")
+    parser.add_argument("--force-all", action="store_true", help="MBID stage: process all tracks regardless of existing musicbrainz_id")
     parser.add_argument("--out-dir", help="Output directory for artifacts")
-    parser.add_argument("--beat-sync", action="store_true", help="Use beat-synchronized feature extraction (Phase 2)")
+    parser.add_argument("--beat-sync", action="store_true", help="DEPRECATED: legacy sonic mode is disabled")
     parser.add_argument("--dry-run", action="store_true", help="Print plan and exit")
+    add_logging_args(parser)
     return parser.parse_args(argv)
 
 
@@ -601,8 +726,19 @@ def run_pipeline(args: argparse.Namespace) -> int:
         print(f"  out_dir: {out_dir}")
         return 0
 
-    from src.logging_config import setup_logging
-    logger = setup_logging(name='analyze_library', log_file='analyze_library.log')
+    from src.logging_utils import configure_logging, resolve_log_level
+    log_level = resolve_log_level(args)
+    log_file = getattr(args, 'log_file', None) or 'analyze_library.log'
+    configure_logging(level=log_level, log_file=log_file)
+
+    # Re-get logger after configuration
+    global logger
+    logger = logging.getLogger("analyze_library")
+
+    if args.beat_sync:
+        logger.error("Legacy sonic mode (--beat-sync) is deprecated and disabled. Beat3tower is always used.")
+        return 2
+
     cfg = Config(args.config)
     db_path = args.db_path or cfg.library_database_path
 
@@ -626,6 +762,7 @@ def run_pipeline(args: argparse.Namespace) -> int:
         "args": args,
         "conn": conn,
         "genres_dirty": False,
+        "sonic_dirty": False,
     }
 
     report = {"stages": {}, "out_dir": str(out_dir)}
@@ -651,6 +788,9 @@ def run_pipeline(args: argparse.Namespace) -> int:
         elif stage == "discogs":
             if result.get("added_discogs_genres", 0) > 0:
                 ctx["genres_dirty"] = True
+        elif stage == "sonic":
+            if result.get("updated", 0) > 0:
+                ctx["sonic_dirty"] = True
 
     report["total_duration_sec"] = time.time() - start_total
     report_path = out_dir / "analyze_run_report.json"

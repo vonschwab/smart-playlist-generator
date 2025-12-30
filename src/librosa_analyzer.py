@@ -62,23 +62,20 @@ class LibrosaAnalyzer:
             result = extractor.extract_from_file(file_path)
 
             if result:
-                logger.debug(f"Extracted beat3tower features: {result['metadata']['n_beats_full']} beats")
+                meta = result.get("metadata", {})
+                logger.debug(
+                    "Extracted beat3tower features: %s beats (mode=%s)",
+                    meta.get("n_beats_full"),
+                    meta.get("beat_mode"),
+                )
                 return result
             else:
-                logger.warning(f"Beat3tower extraction failed for {file_path}, falling back")
-                # Fallback to old beat-sync if beat3tower fails
-                y, sr = librosa.load(file_path, sr=self.sample_rate, duration=None)
-                return self._create_fallback_segments(y, sr)
+                logger.warning(f"Beat3tower extraction failed for {file_path}")
+                return None
 
         except Exception as e:
             logger.error(f"Beat3tower extraction error for {file_path}: {e}")
-            # Fallback to old method
-            try:
-                y, sr = librosa.load(file_path, sr=self.sample_rate, duration=None)
-                return self._create_fallback_segments(y, sr)
-            except Exception as e2:
-                logger.error(f"Fallback extraction also failed: {e2}")
-                return None
+            return None
 
     def _create_fallback_segments(self, y: np.ndarray, sr: int) -> Dict[str, Any]:
         """Create fallback segment structure when beat3tower fails."""

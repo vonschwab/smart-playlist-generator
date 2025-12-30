@@ -11,7 +11,7 @@ import numpy as np
 
 from src.playlist.candidate_pool import CandidatePoolResult
 from src.similarity.hybrid import transition_similarity_end_to_start
-from src.string_utils import normalize_text
+from src.string_utils import normalize_artist_key
 from src.title_dedupe import TitleDedupeTracker
 
 logger = logging.getLogger(__name__)
@@ -98,7 +98,7 @@ def choose_seed_order(
 
 
 def _artist_for_idx(idx: int, constraints: AnchorConstraints) -> str:
-    return normalize_text(str(constraints.artist_keys[idx]))
+    return normalize_artist_key(str(constraints.artist_keys[idx]))
 
 
 def _title_for_idx(idx: int, constraints: AnchorConstraints) -> str:

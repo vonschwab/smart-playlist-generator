@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Any
 from collections import Counter
 import logging
+from src.playlist.utils import safe_get_artist_key
 
 logger = logging.getLogger(__name__)
 
@@ -55,11 +56,10 @@ def diversify_by_artist_cap(
     diversified = []
 
     for track in tracks:
-        artist = track.get('artist', 'Unknown')
-
-        if artist_counts[artist] < max_per_artist:
+        artist_key = safe_get_artist_key(track)
+        if artist_counts[artist_key] < max_per_artist:
             diversified.append(track)
-            artist_counts[artist] += 1
+            artist_counts[artist_key] += 1
 
     logger.info(f"Diversified {len(tracks)} -> {len(diversified)} tracks (max {max_per_artist} per artist)")
     return diversified
@@ -85,19 +85,19 @@ def remove_consecutive_artists(
 
     result = [tracks[0]]
     remaining = tracks[1:]
+    last_artist_key = safe_get_artist_key(result[0])
 
     while remaining:
-        last_artist = result[-1].get('artist')
-
         # Find the first track with a different artist
         next_track = None
         for i, track in enumerate(remaining):
-            if track.get('artist') != last_artist:
+            if safe_get_artist_key(track) != last_artist_key:
                 next_track = remaining.pop(i)
                 break
 
         if next_track:
             result.append(next_track)
+            last_artist_key = safe_get_artist_key(next_track)
         else:
             # All remaining tracks are by the same artist
             # Just add them (can't avoid consecutive in this case)
@@ -130,11 +130,12 @@ def enforce_artist_window(
     skipped = 0
 
     for i, track in enumerate(tracks):
-        artist = track.get('artist', 'Unknown')
+        artist_key = safe_get_artist_key(track)
+        artist_label = track.get('artist', 'Unknown')
 
         # Check if artist appeared within window
-        if artist in artist_positions:
-            recent_positions = [p for p in artist_positions[artist] if len(result) - p <= window_size]
+        if artist_key in artist_positions:
+            recent_positions = [p for p in artist_positions[artist_key] if len(result) - p <= window_size]
 
             if recent_positions:
                 # Violation detected - try to find a swap candidate
@@ -142,27 +143,28 @@ def enforce_artist_window(
 
                 # Look ahead for a valid track to swap with
                 for swap_idx in range(i + 1, min(i + 10, len(tracks))):
-                    swap_artist = tracks[swap_idx].get('artist', 'Unknown')
+                    swap_artist_key = safe_get_artist_key(tracks[swap_idx])
 
                     # Check if swap candidate would be valid
-                    if swap_artist not in artist_positions:
+                    if swap_artist_key not in artist_positions:
                         swap_valid = True
                     else:
-                        swap_recent = [p for p in artist_positions[swap_artist] if len(result) - p <= window_size]
+                        swap_recent = [p for p in artist_positions[swap_artist_key] if len(result) - p <= window_size]
                         swap_valid = len(swap_recent) == 0
 
                     if swap_valid:
                         # Swap tracks
                         tracks[i], tracks[swap_idx] = tracks[swap_idx], tracks[i]
                         track = tracks[i]
-                        artist = track.get('artist', 'Unknown')
+                        artist_key = safe_get_artist_key(track)
+                        artist_label = track.get('artist', 'Unknown')
                         swapped = True
                         logger.debug(f"Swapped position {i} with {swap_idx} to fix window violation")
                         break
 
                 if not swapped:
                     # No valid swap found - skip this track
-                    logger.debug(f"Skipping {artist} - {track.get('title')} due to window violation (no valid swap)")
+                    logger.debug(f"Skipping {artist_label} - {track.get('title')} due to window violation (no valid swap)")
                     skipped += 1
                     continue
 
@@ -170,9 +172,9 @@ def enforce_artist_window(
         result.append(track)
 
         # Track artist position
-        if artist not in artist_positions:
-            artist_positions[artist] = []
-        artist_positions[artist].append(len(result) - 1)
+        if artist_key not in artist_positions:
+            artist_positions[artist_key] = []
+        artist_positions[artist_key].append(len(result) - 1)
 
     if skipped > 0:
         logger.info(f"Enforced artist window: {skipped} tracks skipped")
@@ -218,7 +220,7 @@ def limit_artist_frequency_in_window(
     while remaining:
         # Look at the last (window_size - 1) tracks to determine what can be added next
         window = result[-(window_size - 1):]
-        artist_counts = Counter([t.get('artist') for t in window])
+        artist_counts = Counter([safe_get_artist_key(t) for t in window])
 
         # Find a track that won't violate the constraint
         # Prefer alternating between sources when possible to avoid clustering
@@ -235,7 +237,7 @@ def limit_artist_frequency_in_window(
         # First pass: try to find a track with preferred source
         if prefer_source:
             for i, track in enumerate(remaining):
-                artist = track.get('artist')
+                artist = safe_get_artist_key(track)
                 source = track.get('source')
                 # Check if adding this track would violate the constraint
                 if artist_counts.get(artist, 0) < max_per_window and source == prefer_source:
@@ -246,7 +248,7 @@ def limit_artist_frequency_in_window(
         # Second pass: if no preferred source found, take first valid track
         if not next_track:
             for i, track in enumerate(remaining):
-                artist = track.get('artist')
+                artist = safe_get_artist_key(track)
                 # Check if adding this track would violate the constraint
                 if artist_counts.get(artist, 0) < max_per_window:
                     best_candidate_idx = i

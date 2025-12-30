@@ -6,6 +6,7 @@ import logging
 import sqlite3
 from datetime import datetime, timedelta
 from difflib import SequenceMatcher
+import time
 
 from .artist_utils import get_artist_variations
 from .string_utils import normalize_match_string
@@ -32,6 +33,10 @@ class TrackMatcher:
         self.cache_expiry_days = cache_expiry_days
         self.conn = None
         self._has_norm_columns = False
+        self._cache_ready = False
+        self._tracks_by_mbid = {}
+        self._tracks_by_norm = {}
+        self._tracks_by_norm_artist = {}
         self._init_db_connection()
         logger.info("Initialized TrackMatcher with metadata database")
 
@@ -58,6 +63,51 @@ class TrackMatcher:
             logger.debug(f"Failed to inspect tracks schema for norm columns: {exc}")
             return False
 
+    def _ensure_lookup_cache(self) -> None:
+        """Preload track lookup maps to avoid per-track queries in matching."""
+        if self._cache_ready or not self._has_norm_columns:
+            return
+
+        try:
+            cur = self.conn.cursor()
+            cur.execute(
+                """
+                SELECT
+                    track_id as rating_key,
+                    title,
+                    artist,
+                    album,
+                    duration_ms as duration,
+                    musicbrainz_id as mbid,
+                    norm_artist,
+                    norm_title
+                FROM tracks
+            """
+            )
+            for row in cur.fetchall():
+                track = dict(row)
+                mbid = track.get("mbid")
+                norm_artist = track.get("norm_artist") or normalize_match_string(track.get("artist", ""), is_artist=True)
+                norm_title = track.get("norm_title") or normalize_match_string(track.get("title", ""))
+                track["norm_artist"] = norm_artist
+                track["norm_title"] = norm_title
+                if mbid:
+                    self._tracks_by_mbid[mbid] = track
+                if norm_artist and norm_title:
+                    key = (norm_artist, norm_title)
+                    self._tracks_by_norm[key] = track
+                    self._tracks_by_norm_artist.setdefault(norm_artist, []).append((norm_title, track))
+            self._cache_ready = True
+            logger.info(
+                "Track matcher cache built: %d mbids, %d norm pairs, %d artists",
+                len(self._tracks_by_mbid),
+                len(self._tracks_by_norm),
+                len(self._tracks_by_norm_artist),
+            )
+        except Exception as exc:
+            logger.warning("Failed to build track matcher cache: %s", exc, exc_info=True)
+            self._cache_ready = False
+
     def match_lastfm_to_library(self, lastfm_tracks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Match Last.FM tracks to library
@@ -68,13 +118,21 @@ class TrackMatcher:
         Returns:
             List of matched tracks with play count and timestamp info
         """
-        logger.info(f"Matching tracks to library")
+        logger.info("Matching tracks to library")
+
+        # Build lookup cache once to avoid thousands of repetitive SQLite scans
+        t0 = time.perf_counter()
+        self._ensure_lookup_cache()
+        cache_build_ms = int((time.perf_counter() - t0) * 1000)
+        if cache_build_ms > 500:
+            logger.info("Track matcher cache ready in %d ms", cache_build_ms)
 
         matched_tracks = []
         unmatched_count = 0
         match_stats = {'mbid': 0, 'exact': 0, 'fuzzy': 0}
+        last_log = time.perf_counter()
 
-        for lfm_track in lastfm_tracks:
+        for idx, lfm_track in enumerate(lastfm_tracks, 1):
             library_match, match_type = self._find_best_match(lfm_track)
 
             if library_match:
@@ -93,9 +151,34 @@ class TrackMatcher:
             else:
                 unmatched_count += 1
 
+            # Progress log every 1000 to reassure long histories
+            now = time.perf_counter()
+            if idx % 1000 == 0 or (now - last_log) > 5:
+                last_log = now
+                logger.info(
+                    "Matched %d/%d so far (unmatched=%d, mbid=%d, exact=%d, fuzzy=%d)",
+                    idx,
+                    len(lastfm_tracks),
+                    unmatched_count,
+                    match_stats.get('mbid', 0),
+                    match_stats.get('exact', 0),
+                    match_stats.get('fuzzy', 0),
+                )
+
         match_rate = (len(matched_tracks) / len(lastfm_tracks) * 100) if lastfm_tracks else 0
-        logger.info(f"Matched {len(matched_tracks)}/{len(lastfm_tracks)} tracks ({match_rate:.1f}%)")
-        logger.info(f"Match breakdown - MBID: {match_stats.get('mbid', 0)}, Exact: {match_stats.get('exact', 0)}, Fuzzy: {match_stats.get('fuzzy', 0)}")
+        logger.info(
+            "Matched %d/%d tracks (%.1f%%) in %.1fs",
+            len(matched_tracks),
+            len(lastfm_tracks),
+            match_rate,
+            time.perf_counter() - t0,
+        )
+        logger.info(
+            "Match breakdown - MBID: %d, Exact: %d, Fuzzy: %d",
+            match_stats.get('mbid', 0),
+            match_stats.get('exact', 0),
+            match_stats.get('fuzzy', 0),
+        )
 
         if unmatched_count and logger.isEnabledFor(logging.DEBUG):
             sample = lastfm_tracks[:5]
@@ -120,6 +203,39 @@ class TrackMatcher:
         norm_artist = normalize_match_string(artist, is_artist=True)
         norm_title = normalize_match_string(title)
 
+        if self._cache_ready and self._has_norm_columns:
+            # MBID fast path
+            if lfm_mbid and lfm_mbid in self._tracks_by_mbid:
+                return self._tracks_by_mbid[lfm_mbid], 'mbid'
+
+            # Exact normalized match
+            key = (norm_artist, norm_title)
+            if key in self._tracks_by_norm:
+                return self._tracks_by_norm[key], 'exact'
+
+            # Alternate artist normalizations
+            for alt_artist in get_artist_variations(artist):
+                alt_norm = normalize_match_string(alt_artist, is_artist=True)
+                alt_key = (alt_norm, norm_title)
+                if alt_key in self._tracks_by_norm:
+                    return self._tracks_by_norm[alt_key], 'exact'
+
+            # Fuzzy within artist (use cached list for this artist)
+            artist_tracks = self._tracks_by_norm_artist.get(norm_artist, [])
+            best_match = None
+            best_score = 0.0
+            for norm_title_db, track in artist_tracks:
+                if not norm_title_db:
+                    continue
+                score = self._similarity_score(norm_title, norm_title_db)
+                if score > best_score and score >= 0.80:
+                    best_score = score
+                    best_match = track
+            if best_match:
+                logger.debug(f"Fuzzy match ({best_score:.2f}): {artist} - {title}")
+                return dict(best_match), 'fuzzy'
+
+        # Legacy / schema-missing fallback uses per-call queries
         strategies = [
             lambda: self._match_by_mbid(cursor, lfm_mbid),
             *((

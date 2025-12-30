@@ -11,8 +11,9 @@ Key features:
 - Candidate pool deduped BEFORE ordering (no duplicate songs by normalized artist+title)
 - Genre gating stays enabled with hard floors (no relaxation)
 - Global used_track_ids prevents duplicates across segments
-- Artist min_gap constraints disabled for this mode
-- Seeds appear exactly once as segment endpoints
+- One track per artist per segment (provides implicit min_gap without explicit constraints)
+- Single seed mode: seed acts as both start AND end pier, creating an arc structure
+- Seed artist is allowed in bridges with same constraints as other artists
 """
 
 from __future__ import annotations
@@ -265,7 +266,6 @@ def _build_segment_candidate_pool(
     neighbors_m: int,
     bridge_helpers: int,
     artist_keys: Optional[np.ndarray] = None,
-    seed_artist: Optional[str] = None,
 ) -> List[int]:
     """
     Build candidate subset for a segment from pier_a to pier_b.
@@ -275,8 +275,9 @@ def _build_segment_candidate_pool(
     - Top M neighbors of pier_b by full similarity
     - Top B "bridge helper" tracks by two-sided bridge score
 
-    Only ONE track per artist is allowed in the segment (except seed artist).
+    Only ONE track per artist is allowed in the segment.
     This prevents artist clustering without needing min_gap constraints.
+    All artists (including seed artist) follow the same one-per-segment rule.
     """
     # Filter out used tracks
     available = [idx for idx in universe_indices if idx not in used_track_ids]
@@ -314,29 +315,18 @@ def _build_segment_candidate_pool(
     # Combine all candidates
     combined = neighbors_a | neighbors_b | helpers
 
-    # Dedupe to ONE track per artist (except seed artist)
-    # Keep the track with best bridge score for each artist
+    # Dedupe to ONE track per artist (all artists treated equally, including seed artist)
     if artist_keys is not None:
         artist_best: Dict[str, Tuple[int, float]] = {}  # artist -> (idx, score)
         for idx in combined:
             artist = str(artist_keys[idx])
             score = bridge_score.get(idx, 0.0)
 
-            # Seed artist can have multiple tracks
-            if seed_artist and artist == seed_artist:
-                continue  # Don't dedupe seed artist
-
             if artist not in artist_best or score > artist_best[artist][1]:
                 artist_best[artist] = (idx, score)
 
-        # Build final pool: one per artist + all seed artist tracks
-        deduped: List[int] = []
-        for idx in combined:
-            artist = str(artist_keys[idx])
-            if seed_artist and artist == seed_artist:
-                deduped.append(idx)
-            elif artist in artist_best and artist_best[artist][0] == idx:
-                deduped.append(idx)
+        # Build final pool: one track per artist
+        deduped: List[int] = [idx for idx, _ in artist_best.values()]
 
         logger.debug("Segment pool: %d combined -> %d after 1-per-artist dedupe",
                     len(combined), len(deduped))
@@ -370,6 +360,7 @@ def _beam_search_segment(
 
     Returns interior track indices (not including piers) or None if no path found.
     """
+
     if interior_length == 0:
         # Check if direct transition meets floor
         direct_score = _compute_transition_score(
@@ -557,21 +548,26 @@ def build_pier_bridge_playlist(
     logger.info("Pier+Bridge: seed order = %s",
                [str(bundle.track_ids[i]) for i in ordered_seeds])
 
-    # Allocate interior lengths across segments
-    num_segments = max(1, num_seeds - 1)
-    total_interior = total_tracks - num_seeds
-
-    if num_segments == 0:
-        # Single seed case
-        segment_lengths = []
+    # Handle single seed as both start AND end pier (arc structure)
+    # This creates a playlist that starts from seed, explores, and returns to seed-similar sounds
+    is_single_seed_arc = (num_seeds == 1)
+    if is_single_seed_arc:
+        # Duplicate the seed as both start and end pier
+        ordered_seeds = [ordered_seeds[0], ordered_seeds[0]]
+        num_segments = 1
+        total_interior = total_tracks - 1  # Only one seed in final output
+        logger.info("Pier+Bridge: single-seed arc mode (seed is both start and end pier)")
     else:
-        # Even split with remainder distributed to earlier segments
-        base_length = total_interior // num_segments
-        remainder = total_interior % num_segments
-        segment_lengths = [
-            base_length + (1 if i < remainder else 0)
-            for i in range(num_segments)
-        ]
+        num_segments = num_seeds - 1
+        total_interior = total_tracks - num_seeds
+
+    # Even split with remainder distributed to earlier segments
+    base_length = total_interior // num_segments
+    remainder = total_interior % num_segments
+    segment_lengths = [
+        base_length + (1 if i < remainder else 0)
+        for i in range(num_segments)
+    ]
 
     logger.info("Pier+Bridge: segment lengths = %s (total_interior=%d)",
                segment_lengths, total_interior)
@@ -580,11 +576,6 @@ def build_pier_bridge_playlist(
     global_used: Set[int] = set(ordered_seeds)  # Seeds are already "used"
     all_segments: List[List[int]] = []
     diagnostics: List[SegmentDiagnostics] = []
-
-    # Determine seed artist (for allowing multiple tracks in segment pool)
-    seed_artist: Optional[str] = None
-    if bundle.artist_keys is not None and len(ordered_seeds) > 0:
-        seed_artist = str(bundle.artist_keys[ordered_seeds[0]])
 
     for seg_idx in range(num_segments):
         pier_a = ordered_seeds[seg_idx]
@@ -607,14 +598,13 @@ def build_pier_bridge_playlist(
         pool_size_final = 0
 
         for attempt in range(cfg.max_expansion_attempts):
-            # Build segment candidate pool (one track per artist, except seed artist)
+            # Build segment candidate pool (one track per artist, all artists equal)
             segment_candidates = _build_segment_candidate_pool(
                 pier_a, pier_b,
                 X_full_norm, universe,
                 global_used,
                 neighbors_m, bridge_helpers,
                 artist_keys=bundle.artist_keys,
-                seed_artist=seed_artist,
             )
 
             if attempt == 0:
@@ -681,13 +671,17 @@ def build_pier_bridge_playlist(
     # Concatenate segments
     # First segment: keep full [A, ..., B]
     # Subsequent segments: drop first element (the pier) to avoid duplication
+    # Single-seed arc: drop last element (the duplicated seed) to avoid repetition
     final_indices: List[int] = []
     seed_positions: List[int] = []
 
-    if num_segments == 0:
-        # Single seed case
-        final_indices = ordered_seeds[:]
-        seed_positions = [0]
+    if is_single_seed_arc:
+        # Single-seed arc: segment is [seed, interior..., seed]
+        # Output only [seed, interior...] to avoid duplicate seed at end
+        segment = all_segments[0] if all_segments else [ordered_seeds[0]]
+        final_indices = segment[:-1]  # Drop the trailing duplicate seed
+        seed_positions = [0]  # Seed is at position 0
+        logger.info("Pier+Bridge: single-seed arc output: %d tracks (seed at start, arc returns to seed-similar)", len(final_indices))
     else:
         for seg_idx, segment in enumerate(all_segments):
             if seg_idx == 0:
@@ -703,8 +697,10 @@ def build_pier_bridge_playlist(
     final_track_ids = [str(bundle.track_ids[i]) for i in final_indices]
 
     # Compute overall stats
+    actual_num_seeds = 1 if is_single_seed_arc else len(seed_indices)
     stats = {
-        "num_seeds": num_seeds,
+        "num_seeds": actual_num_seeds,
+        "single_seed_arc": is_single_seed_arc,
         "target_tracks": total_tracks,
         "actual_tracks": len(final_indices),
         "universe_size": len(universe),

@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional, Tuple
 from collections import Counter
 import logging
+from src.playlist.utils import safe_get_artist_key
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +145,7 @@ def cap_candidates_by_artist(
     artist_counts = Counter()
 
     for track in sorted_candidates:
-        artist = (track.get('artist') or '').lower()
+        artist = safe_get_artist_key(track)
         if artist_counts[artist] >= artist_cap:
             continue
         artist_counts[artist] += 1
@@ -180,7 +181,7 @@ def finalize_pool(
     artist_counts = Counter()
 
     for track in sorted(candidates, key=lambda t: t.get(score_key, 0), reverse=True):
-        artist = (track.get('artist') or '').lower()
+        artist = safe_get_artist_key(track)
         if artist_counts[artist] >= artist_cap:
             continue
         artist_counts[artist] += 1

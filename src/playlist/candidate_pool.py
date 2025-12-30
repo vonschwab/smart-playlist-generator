@@ -81,9 +81,9 @@ class CandidatePoolResult:
 
 
 def _normalize_artist_key(raw: Any) -> str:
-    txt = "" if raw is None else str(raw)
-    txt = txt.strip().lower()
-    return txt
+    from src.string_utils import normalize_artist_key
+
+    return normalize_artist_key("" if raw is None else str(raw))
 
 
 def build_candidate_pool(
@@ -227,4 +227,3 @@ def build_candidate_pool(
         stats=stats,
         params_effective=params_effective,
     )
-
