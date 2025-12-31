@@ -5,6 +5,7 @@ Queries the metadata database to provide autocomplete suggestions.
 Uses Qt's QCompleter for integration with line edits.
 """
 import sqlite3
+import logging
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -12,6 +13,8 @@ from PySide6.QtCore import Qt, QStringListModel, Signal, QObject
 from PySide6.QtWidgets import QCompleter, QLineEdit
 from src.artist_key_db import ensure_artist_key_schema
 from src.string_utils import normalize_artist_key
+
+logger = logging.getLogger(__name__)
 
 
 class DatabaseCompleter(QObject):
@@ -95,7 +98,7 @@ class DatabaseCompleter(QObject):
             return True
 
         except Exception as e:
-            print(f"Failed to load autocomplete data: {e}")
+            logger.warning("Failed to load autocomplete data: %s", e)
             return False
 
     def get_artists(self) -> List[str]:

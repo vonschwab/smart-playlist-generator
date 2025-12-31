@@ -17,6 +17,15 @@ from src.features.artifacts import load_artifact_bundle
 from src.similarity.hybrid import transition_similarity_end_to_start
 from src.similarity.sonic_variant import compute_sonic_variant_norm, get_variant_from_env, resolve_sonic_variant
 from src.playlist.ds_pipeline_runner import DsRunResult, generate_playlist_ds as run_ds_pipeline
+from src.playlist.artist_style import (
+    ArtistStyleConfig,
+    build_balanced_candidate_pool,
+    cluster_artist_tracks,
+    get_internal_connectors,
+    order_clusters,
+)
+from src.playlist.pier_bridge_builder import PierBridgeConfig, resolve_pier_bridge_tuning
+from src.playlist.config import default_ds_config, get_min_sonic_similarity
 # Phase 2: Import utilities from refactored module
 from src.playlist import utils
 # Phase 3: Import filtering from refactored module
@@ -41,6 +50,43 @@ from src.playlist import candidate_generator
 from src.playlist import reporter
 
 logger = logging.getLogger(__name__)
+
+
+# DS pipeline config wiring helper (CLI/GUI share this codepath).
+def build_ds_overrides(ds_cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Build the `overrides` dict passed into the DS pipeline from `playlists.ds_pipeline`.
+
+    This centralizes config wiring so CLI and GUI runs resolve pier-bridge tuning
+    consistently (including `ds_pipeline.pier_bridge.*`).
+    """
+    legacy_overrides = ds_cfg.get("overrides") or {}
+    overrides: Dict[str, Any] = {
+        "scoring": ds_cfg.get("scoring", {}),
+        "constraints": ds_cfg.get("constraints", {}),
+        "candidate_pool": ds_cfg.get("candidate_pool", {}),
+        "pier_bridge": ds_cfg.get("pier_bridge", {}),
+        "repair": ds_cfg.get("repair", {}),
+        "tower_weights": ds_cfg.get("tower_weights"),
+        "transition_weights": ds_cfg.get("transition_weights"),
+        "tower_pca_dims": ds_cfg.get("tower_pca_dims"),
+        "embedding": ds_cfg.get("embedding", {}),
+    }
+
+    # Merge legacy overrides (if any) on top
+    for key in ["candidate", "construct", "repair"]:
+        if key in legacy_overrides:
+            overrides[key] = legacy_overrides[key]
+
+    # Back-compat: allow `center_transitions` at top-level ds_pipeline or in constraints.
+    center_transitions = bool(ds_cfg.get("center_transitions", False))
+    if overrides.get("constraints", {}).get("center_transitions"):
+        center_transitions = True
+    if center_transitions:
+        constraints_updates = {**overrides.get("constraints", {}), "center_transitions": True}
+        overrides = {**overrides, "constraints": constraints_updates}
+
+    return overrides
 
 
 # Phase 2: Delegate to refactored utils module (backward compatibility)
@@ -101,6 +147,11 @@ class PlaylistGenerator:
         # Capture resolved variant once; env can override unless CLI sets explicit
         sonic_cfg = self.config.get('playlists', 'sonic', default={}) or {}
         self.sonic_variant = resolve_sonic_variant(config_variant=sonic_cfg.get("sim_variant"))
+        # Runtime flags (CLI/GUI) for optional pier-bridge backoff + run audits.
+        # Default OFF; config.yaml keys can still enable these without flags.
+        self._pb_backoff_enabled: bool = False
+        self._audit_run_enabled: bool = False
+        self._audit_run_dir: Optional[str] = None
 
     def _get_pipeline_choice(self, pipeline_override: Optional[str] = None) -> str:
         return "ds"
@@ -170,6 +221,15 @@ class PlaylistGenerator:
         excluded_track_ids: Optional[Set[str]] = None,
         anchor_seed_ids: Optional[List[str]] = None,
         anchor_seed_tracks: Optional[List[Dict[str, Any]]] = None,
+        pier_bridge_config=None,
+        internal_connector_ids: Optional[List[str]] = None,
+        internal_connector_max_per_segment: int = 0,
+        internal_connector_priority: bool = True,
+        artist_style_enabled: bool = False,
+        artist_playlist: bool = False,
+        pool_source: Optional[str] = None,
+        dry_run: bool = False,
+        audit_context_extra: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Run DS pipeline and return ordered track dicts; raise on failure.
@@ -190,31 +250,27 @@ class PlaylistGenerator:
         random_seed = ds_cfg.get('random_seed', 0)
         enable_logging = ds_cfg.get('enable_logging', False)
 
-        # Build overrides from new config.yaml tuning structure
-        # Priority: explicit overrides > new tuning sections > legacy overrides field
-        legacy_overrides = ds_cfg.get('overrides') or {}
-        overrides = {
-            'scoring': ds_cfg.get('scoring', {}),
-            'constraints': ds_cfg.get('constraints', {}),
-            'candidate_pool': ds_cfg.get('candidate_pool', {}),
-            'repair': ds_cfg.get('repair', {}),
-            'tower_weights': ds_cfg.get('tower_weights'),
-            'transition_weights': ds_cfg.get('transition_weights'),
-            'tower_pca_dims': ds_cfg.get('tower_pca_dims'),
-            'embedding': ds_cfg.get('embedding', {}),
-        }
-        # Merge legacy overrides (if any) on top
-        for key in ['candidate', 'construct', 'repair']:
-            if key in legacy_overrides:
-                overrides[key] = legacy_overrides[key]
-
-        center_transitions = bool(ds_cfg.get("center_transitions", False))
-        # Also check constraints section for center_transitions
-        if overrides.get('constraints', {}).get('center_transitions'):
-            center_transitions = True
-        if center_transitions:
-            constraints_updates = {**overrides.get("constraints", {}), "center_transitions": True}
-            overrides = {**overrides, "constraints": constraints_updates}
+        overrides = build_ds_overrides(ds_cfg)
+        # Runtime flags (CLI/GUI) can enable optional behaviors without editing config.yaml.
+        # These merge on top of config-driven `playlists.ds_pipeline.pier_bridge.*`.
+        pb_overrides = overrides.get("pier_bridge")
+        if not isinstance(pb_overrides, dict):
+            pb_overrides = {}
+        if getattr(self, "_pb_backoff_enabled", False):
+            ih = pb_overrides.get("infeasible_handling")
+            if not isinstance(ih, dict):
+                ih = {}
+            ih["enabled"] = True
+            pb_overrides["infeasible_handling"] = ih
+        if getattr(self, "_audit_run_enabled", False):
+            ar = pb_overrides.get("audit_run")
+            if not isinstance(ar, dict):
+                ar = {}
+            ar["enabled"] = True
+            if getattr(self, "_audit_run_dir", None):
+                ar["out_dir"] = str(getattr(self, "_audit_run_dir"))
+            pb_overrides["audit_run"] = ar
+        overrides["pier_bridge"] = pb_overrides
 
         seed_to_use = str(seed_track_id)
         anchor_seed_ids_resolved: Optional[List[str]] = None
@@ -284,12 +340,21 @@ class PlaylistGenerator:
             genre_weight = 0.0
             sonic_weight = 1.0
 
+        if artist_style_enabled and not allowed_track_ids:
+            raise ValueError(
+                "Artist style mode enabled but allowed_track_ids is empty; refusing to run DS without clamp."
+            )
+
+        pool_source_effective = pool_source or ("restricted" if allowed_track_ids else "unrestricted")
+
         logger.info(
-            "Invoking DS pipeline seed=%s mode=%s target_length=%d allowed_ids=%d genre_gate=%s",
+            "Invoking DS pipeline seed=%s mode=%s target_length=%d allowed_ids=%d artist_style_enabled=%s pool_source=%s genre_gate=%s",
             seed_to_use,
             mode,
             target_length,
             len(allowed_track_ids or []),
+            bool(artist_style_enabled),
+            pool_source_effective,
             f"enabled (min_sim={min_genre_sim})" if genre_enabled else "disabled",
         )
         logger.info(
@@ -301,6 +366,18 @@ class PlaylistGenerator:
         )
         if anchor_seed_ids_resolved:
             logger.info("Passing %d anchor_seed_ids to pipeline: %s", len(anchor_seed_ids_resolved), anchor_seed_ids_resolved[:5])
+
+        audit_context_extra_effective: Optional[Dict[str, Any]] = None
+        if audit_context_extra is not None:
+            audit_context_extra_effective = dict(audit_context_extra)
+        else:
+            audit_context_extra_effective = {}
+        recency_extra = audit_context_extra_effective.get("recency")
+        if not isinstance(recency_extra, dict):
+            recency_extra = {}
+        if "lookback_days" not in recency_extra:
+            recency_extra["lookback_days"] = int(getattr(self.config, "recently_played_lookback_days", 0))
+        audit_context_extra_effective["recency"] = recency_extra
         ds_result: DsRunResult = run_ds_pipeline(
             artifact_path=artifact_path,
             seed_track_id=seed_to_use,
@@ -313,16 +390,26 @@ class PlaylistGenerator:
             allowed_track_ids=allowed_track_ids,
             excluded_track_ids=excluded_track_ids,
             sonic_variant=sonic_variant_cfg,
+            pier_bridge_config=pier_bridge_config,
+            dry_run=bool(dry_run),
+            pool_source=pool_source_effective,
+            artist_style_enabled=bool(artist_style_enabled),
+            artist_playlist=bool(artist_playlist),
+            audit_context_extra=audit_context_extra_effective,
             # Genre similarity parameters
             sonic_weight=sonic_weight,
             genre_weight=genre_weight,
             min_genre_similarity=min_genre_sim,
             genre_method=genre_method,
+            internal_connector_ids=internal_connector_ids,
+            internal_connector_max_per_segment=internal_connector_max_per_segment,
+            internal_connector_priority=internal_connector_priority,
         )
 
         tracks: List[Dict[str, Any]] = []
         ds_stats = getattr(ds_result, "playlist_stats", {}) or {}
         playlist_stats_only = ds_stats.get("playlist") or {}
+        pool_seed_sonic = (ds_stats.get("candidate_pool") or {}).get("seed_sonic_sim_track_ids") or {}
         if hasattr(self.library, "get_tracks_by_ids"):
             fetched = getattr(self.library, "get_tracks_by_ids")(ds_result.track_ids)  # type: ignore[attr-defined]
             lookup = {str(t.get("rating_key")): t for t in fetched or []}
@@ -335,6 +422,17 @@ class PlaylistGenerator:
 
         if not tracks:
             raise RuntimeError("DS pipeline returned no usable tracks from library lookup.")
+
+        if pool_seed_sonic:
+            for track in tracks:
+                tid = track.get("rating_key") or track.get("id") or track.get("track_id")
+                if tid is None:
+                    continue
+                sonic_val = pool_seed_sonic.get(str(tid))
+                if sonic_val is None and str(tid) == str(ds_result.track_ids[0]):
+                    sonic_val = 1.0  # ensure seed shows perfect similarity
+                if sonic_val is not None:
+                    track["sonic_similarity"] = sonic_val
 
         metrics = ds_result.metrics or {}
         actual_len = len(ds_result.track_ids)
@@ -1070,6 +1168,7 @@ class PlaylistGenerator:
             lookback_days=lookback_days,
             min_playcount=min_playcount,
             exempt_tracks=exempt_tracks,
+            stage="candidate_pool",
         )
 
         return result.filtered_tracks
@@ -1094,6 +1193,7 @@ class PlaylistGenerator:
             lookback_days=lookback_days,
             exempt_tracks=exempt_tracks,
             sample_limit=sample_limit,
+            stage="candidate_pool",
         )
         return result.filtered_tracks
 
@@ -1151,6 +1251,7 @@ class PlaylistGenerator:
             lookback_days=lookback_days,
             exempt_tracks=exempt_tracks,
             sample_limit=0,  # Disable logging samples here
+            stage="candidate_pool",
         )
 
         # Convert filtered tracks to excluded IDs (tracks that were removed)
@@ -1162,6 +1263,96 @@ class PlaylistGenerator:
             logger.warning("Recency exclusions contained seed_id %s; preserving seed.", seed_id)
 
         return excluded
+
+    def _compute_excluded_from_history(
+        self,
+        candidates: List[Dict[str, Any]],
+        history: List[Dict[str, Any]],
+        lookback_days: int,
+        exempt_tracks: Optional[List[Dict[str, Any]]] = None,
+    ) -> Set[str]:
+        """
+        Return rating_keys to exclude based on local play history.
+
+        This is a pre-order operation (candidate_pool stage). The returned set
+        contains track_ids that should be excluded from DS candidate selection.
+
+        Phase 3: Delegates to filtering.filter_by_recently_played() and converts
+        result to excluded IDs.
+        """
+        if (
+            not history
+            or lookback_days <= 0
+            or not getattr(self.config, "recently_played_filter_enabled", False)
+        ):
+            return set()
+
+        result = filtering.filter_by_recently_played(
+            tracks=candidates,
+            play_history=history,
+            lookback_days=lookback_days,
+            min_playcount=getattr(self.config, "recently_played_min_playcount", 0),
+            exempt_tracks=exempt_tracks,
+            stage="candidate_pool",
+        )
+        filtered_ids = {str(t.get("rating_key")) for t in result.filtered_tracks if t.get("rating_key")}
+        all_ids = {str(t.get("rating_key")) for t in candidates if t.get("rating_key")}
+        return all_ids - filtered_ids
+
+    def _post_order_validate_ds_output(
+        self,
+        *,
+        ordered_tracks: List[Dict[str, Any]],
+        expected_length: int,
+        excluded_track_ids: Set[str],
+        exempt_pier_track_ids: Set[str],
+        audit_path: Optional[str] = None,
+    ) -> None:
+        """
+        Post-order validation for DS pier-bridge runs (NO mutations allowed).
+
+        Invariant: recency filtering must occur pre-order (candidate selection).
+        After DS ordering completes, we validate only; we never filter/drop/reorder.
+        """
+        ordered_ids: List[str] = []
+        for t in ordered_tracks:
+            tid = t.get("rating_key") or t.get("id") or t.get("track_id")
+            if tid is not None:
+                ordered_ids.append(str(tid))
+
+        overlap = [
+            tid
+            for tid in ordered_ids
+            if tid in excluded_track_ids and tid not in exempt_pier_track_ids
+        ]
+        logger.info(
+            "stage=post_order_validation | recency_overlap=%d | final_size=%d | expected=%d",
+            len(overlap),
+            len(ordered_ids),
+            int(expected_length),
+        )
+
+        errors: List[str] = []
+        if expected_length > 0 and len(ordered_ids) != int(expected_length):
+            errors.append(f"length_mismatch final={len(ordered_ids)} expected={int(expected_length)}")
+
+        if overlap:
+            offenders: List[str] = []
+            for tid in overlap[:10]:
+                track = next((x for x in ordered_tracks if str(x.get("rating_key") or x.get("id") or x.get("track_id")) == tid), None)
+                if track:
+                    artist = utils.sanitize_for_logging(str(track.get("artist", "")))
+                    title = utils.sanitize_for_logging(str(track.get("title", "")))
+                    offenders.append(f"{tid} ({artist} - {title})")
+                else:
+                    offenders.append(tid)
+            errors.append(f"recency_overlap={len(overlap)} offenders={offenders}")
+
+        if errors:
+            msg = "post_order_validation_failed: " + " | ".join(errors)
+            if audit_path:
+                msg += f" (audit: {audit_path})"
+            raise ValueError(msg)
     
     def diversify_tracks(self, tracks: List[Dict[str, Any]],
                         max_per_artist: int = None) -> List[Dict[str, Any]]:
@@ -1324,6 +1515,7 @@ class PlaylistGenerator:
         track_count: int = 30,
         track_title: Optional[str] = None,
         dynamic: bool = False,
+        dry_run: bool = False,
         verbose: bool = False,
         ds_mode_override: Optional[str] = None,
         artist_only: bool = False,
@@ -1460,33 +1652,263 @@ class PlaylistGenerator:
                 len(allowed_track_ids) if allowed_track_ids else 0,
             )
 
-        # Try each seed track until we find one that's in the artifact
         ds_tracks = None
         last_error = None
-        for i, seed_track in enumerate(seed_tracks):
-            seed_id = seed_track.get('rating_key')
-            if not seed_id:
-                continue
+
+        # ─────────────────────────────────────────────────────────────────────
+        # Style-aware artist mode (optional; config-gated)
+        # ─────────────────────────────────────────────────────────────────────
+        ds_cfg = self.config.get('playlists', 'ds_pipeline', default={}) or {}
+        style_cfg_raw = ds_cfg.get("artist_style", {}) or {}
+        style_cfg = ArtistStyleConfig(
+            enabled=bool(style_cfg_raw.get("enabled", False)),
+            cluster_k_min=style_cfg_raw.get("cluster_k_min", 3),
+            cluster_k_max=style_cfg_raw.get("cluster_k_max", 6),
+            cluster_k_heuristic_enabled=style_cfg_raw.get("cluster_k_heuristic_enabled", True),
+            piers_per_cluster=style_cfg_raw.get("piers_per_cluster", 1),
+            per_cluster_candidate_pool_size=style_cfg_raw.get("per_cluster_candidate_pool_size", 400),
+            pool_balance_mode=style_cfg_raw.get("pool_balance_mode", "equal"),
+            internal_connector_priority=style_cfg_raw.get("internal_connector_priority", True),
+            internal_connector_max_per_segment=style_cfg_raw.get("internal_connector_max_per_segment", 2),
+            bridge_floor_narrow=style_cfg_raw.get("bridge_floor", {}).get("narrow", 0.08),
+            bridge_floor_dynamic=style_cfg_raw.get("bridge_floor", {}).get("dynamic", 0.03),
+            bridge_weight=style_cfg_raw.get("bridge_score_weights", {}).get("bridge", 0.7),
+            transition_weight=style_cfg_raw.get("bridge_score_weights", {}).get("transition", 0.3),
+            genre_tiebreak_weight=style_cfg_raw.get("genre_tiebreak_weight", 0.05),
+        )
+        ds_mode_effective = ds_mode_override or ("dynamic" if dynamic else ds_cfg.get("mode", "dynamic"))
+        artifact_path = ds_cfg.get("artifact_path")
+        pool_source = "legacy"
+
+        logger.info(
+            "Artist style mode %s: artist=%s ds_mode=%s",
+            "ENABLED" if style_cfg.enabled else "DISABLED",
+            artist_name,
+            ds_mode_effective,
+        )
+
+        using_artist_style = False
+        pier_cfg = None
+        style_seed_track_id: Optional[str] = None
+        style_anchor_tracks: Optional[List[Dict[str, Any]]] = None
+        style_anchor_ids: Optional[List[str]] = None
+        style_allowed_track_ids: Optional[List[str]] = None
+        internal_connector_ids: Optional[List[str]] = None
+
+        if style_cfg.enabled and artifact_path and (not artist_only) and (not track_title):
             try:
-                ds_tracks = self._maybe_generate_ds_playlist(
-                    seed_track_id=seed_id,
-                    target_length=track_count,
-                    mode_override=ds_mode_override or ("dynamic" if dynamic else None),
-                    seed_artist=artist_name,
-                    allowed_track_ids=allowed_track_ids or None,
-                    excluded_track_ids=excluded_ids or None,
-                    anchor_seed_tracks=seed_tracks,  # Pass full seed track info for title+artist resolution
+                bundle = load_artifact_bundle(artifact_path)
+                sonic_cfg = self.config.get("playlists", "sonic", default={}) or {}
+                sonic_variant_cfg = resolve_sonic_variant(
+                    explicit_variant=getattr(self, "sonic_variant", None),
+                    config_variant=ds_cfg.get("sonic_variant") or sonic_cfg.get("sim_variant"),
                 )
-                if i > 0:
-                    logger.info(f"Successfully used alternative seed #{i+1}: {seed_track.get('artist')} - {seed_track.get('title')}")
-                break  # Success!
-            except ValueError as e:
-                if "not found in artifact" in str(e):
-                    last_error = e
-                    logger.debug(f"Seed #{i+1} not in artifact, trying next seed...")
+                clusters, medoids, medoids_by_cluster, X_norm = cluster_artist_tracks(
+                    bundle=bundle,
+                    artist_name=artist_name,
+                    cfg=style_cfg,
+                    random_seed=ds_cfg.get("random_seed", 0),
+                    sonic_variant=sonic_variant_cfg,
+                )
+                if not medoids:
+                    raise ValueError("Style clustering returned no medoids")
+                ordered_medoids = order_clusters(medoids, X_norm)
+                cluster_piers = medoids_by_cluster
+
+                # Global admission floor (same as DS candidate admission)
+                min_sonic = get_min_sonic_similarity(ds_cfg.get("candidate_pool", {}), ds_mode_effective)
+                artist_key_norm = normalize_artist_key(artist_name)
+
+                external_pool = build_balanced_candidate_pool(
+                    bundle=bundle,
+                    cluster_piers=cluster_piers,
+                    X_norm=X_norm,
+                    per_cluster_size=style_cfg.per_cluster_candidate_pool_size,
+                    pool_balance_mode=style_cfg.pool_balance_mode,
+                    global_floor=min_sonic,
+                    artist_key=artist_key_norm,
+                )
+                internal_connector_ids = (
+                    get_internal_connectors(
+                        bundle=bundle,
+                        artist_key=artist_key_norm,
+                        exclude_indices=medoids,
+                        global_floor=min_sonic,
+                        pier_indices=medoids,
+                        X_norm=X_norm,
+                    )
+                    if style_cfg.internal_connector_priority
+                    else []
+                )
+                pier_ids = [str(bundle.track_ids[m]) for m in ordered_medoids]
+                style_allowed_track_ids = list(dict.fromkeys(pier_ids + external_pool + list(internal_connector_ids or [])))
+                if not style_allowed_track_ids:
+                    raise ValueError("Artist style allowed pool empty")
+
+                style_seed_track_id = pier_ids[0]
+                style_anchor_ids = pier_ids[1:]
+                style_anchor_tracks = [
+                    {
+                        "rating_key": str(bundle.track_ids[m]),
+                        "title": str(bundle.track_titles[m] or ""),
+                        "artist": str(bundle.track_artists[m] or artist_name),
+                    }
+                    for m in ordered_medoids
+                ]
+                style_summary = {
+                    "artist": str(artist_name),
+                    "ds_mode": str(ds_mode_effective),
+                    "sonic_variant": str(sonic_variant_cfg),
+                    "global_sonic_floor": float(min_sonic),
+                    "clusters": [
+                        {
+                            "cluster_index": int(i),
+                            "artist_track_count": int(len(members)),
+                            "pier_track_ids": [str(bundle.track_ids[p]) for p in (medoids_by_cluster[i] if i < len(medoids_by_cluster) else [])],
+                        }
+                        for i, members in enumerate(clusters)
+                    ],
+                    "ordered_piers": [
+                        {
+                            "track_id": str(bundle.track_ids[m]),
+                            "artist": str(bundle.track_artists[m] or artist_name),
+                            "title": str(bundle.track_titles[m] or ""),
+                        }
+                        for m in ordered_medoids
+                    ],
+                    "allowed_ids_count": int(len(style_allowed_track_ids)),
+                    "external_pool_count": int(len(external_pool)),
+                    "internal_connectors_count": int(len(internal_connector_ids or [])),
+                }
+                center_transitions = bool(ds_cfg.get("center_transitions", False)) or bool(
+                    ds_cfg.get("constraints", {}).get("center_transitions", False)
+                )
+                tw_raw = ds_cfg.get("transition_weights")
+                transition_weights = None
+                if isinstance(tw_raw, dict):
+                    transition_weights = (
+                        float(tw_raw.get("rhythm", 0.4)),
+                        float(tw_raw.get("timbre", 0.35)),
+                        float(tw_raw.get("harmony", 0.25)),
+                    )
+                elif isinstance(tw_raw, (list, tuple)) and len(tw_raw) == 3:
+                    transition_weights = (
+                        float(tw_raw[0]),
+                        float(tw_raw[1]),
+                        float(tw_raw[2]),
+                    )
+                ds_defaults = default_ds_config(ds_mode_effective, playlist_len=track_count, overrides=ds_cfg)
+                pb_tuning = resolve_pier_bridge_tuning(ds_cfg, ds_mode_effective)
+
+                # Artist-style can override per-mode pier-bridge weights, but defaults
+                # should follow the global pier-bridge tuning for the mode.
+                weight_bridge = float(pb_tuning["weight_bridge"])
+                weight_transition = float(pb_tuning["weight_transition"])
+                weights_raw = style_cfg_raw.get("bridge_score_weights")
+                if isinstance(weights_raw, dict):
+                    by_mode = weights_raw.get(ds_mode_effective)
+                    if isinstance(by_mode, dict):
+                        weight_bridge = float(by_mode.get("bridge", weight_bridge))
+                        weight_transition = float(by_mode.get("transition", weight_transition))
+                    else:
+                        weight_bridge = float(weights_raw.get("bridge", weight_bridge))
+                        weight_transition = float(weights_raw.get("transition", weight_transition))
+
+                genre_tiebreak_weight = float(
+                    style_cfg_raw.get("genre_tiebreak_weight", pb_tuning["genre_tiebreak_weight"])
+                )
+                bridge_floor = float(pb_tuning["bridge_floor"])
+                bridge_floor_raw = style_cfg_raw.get("bridge_floor")
+                if isinstance(bridge_floor_raw, dict):
+                    mode_val = bridge_floor_raw.get(ds_mode_effective)
+                    if isinstance(mode_val, (int, float)):
+                        bridge_floor = float(mode_val)
+                elif isinstance(bridge_floor_raw, (int, float)):
+                    bridge_floor = float(bridge_floor_raw)
+
+                pier_cfg = PierBridgeConfig(
+                    transition_floor=float(ds_defaults.construct.transition_floor),
+                    bridge_floor=bridge_floor,
+                    center_transitions=bool(ds_defaults.construct.center_transitions),
+                    transition_weights=transition_weights,
+                    sonic_variant=sonic_variant_cfg,
+                    weight_bridge=weight_bridge,
+                    weight_transition=weight_transition,
+                    genre_tiebreak_weight=genre_tiebreak_weight,
+                    genre_penalty_threshold=float(pb_tuning["genre_penalty_threshold"]),
+                    genre_penalty_strength=float(pb_tuning["genre_penalty_strength"]),
+                )
+
+                using_artist_style = True
+                pool_source = "artist_style"
+                logger.info(
+                    "Artist style mode ENABLED: artist=%s ds_mode=%s clusters=%d piers=%d allowed_ids=%d internal_connectors=%d",
+                    artist_name,
+                    ds_mode_effective,
+                    len(clusters),
+                    len(ordered_medoids),
+                    len(style_allowed_track_ids),
+                    len(internal_connector_ids or []),
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Artist style mode fallback to legacy (reason=%s)",
+                    exc,
+                    exc_info=True,
+                )
+                using_artist_style = False
+                pool_source = "legacy_fallback"
+
+        if using_artist_style and style_seed_track_id and style_allowed_track_ids:
+            ds_tracks = self._maybe_generate_ds_playlist(
+                seed_track_id=style_seed_track_id,
+                target_length=track_count,
+                mode_override=ds_mode_effective,
+                seed_artist=artist_name,
+                allowed_track_ids=style_allowed_track_ids,
+                excluded_track_ids=excluded_ids or None,
+                anchor_seed_tracks=style_anchor_tracks,
+                anchor_seed_ids=style_anchor_ids,
+                pier_bridge_config=pier_cfg,
+                internal_connector_ids=internal_connector_ids,
+                internal_connector_max_per_segment=style_cfg.internal_connector_max_per_segment,
+                internal_connector_priority=style_cfg.internal_connector_priority,
+                artist_style_enabled=True,
+                artist_playlist=True,
+                pool_source=pool_source,
+                dry_run=bool(dry_run),
+                audit_context_extra={"style_summary": style_summary},
+            )
+        else:
+            logger.info("Artist style mode DISABLED: using legacy seed selection")
+            for i, seed_track in enumerate(seed_tracks):
+                seed_id = seed_track.get('rating_key')
+                if not seed_id:
                     continue
-                else:
-                    raise  # Re-raise if it's a different error
+                try:
+                    ds_tracks = self._maybe_generate_ds_playlist(
+                        seed_track_id=seed_id,
+                        target_length=track_count,
+                        mode_override=ds_mode_override or ("dynamic" if dynamic else None),
+                        seed_artist=artist_name,
+                        allowed_track_ids=allowed_track_ids or None,
+                        excluded_track_ids=excluded_ids or None,
+                        anchor_seed_tracks=seed_tracks,  # Pass full seed track info for title+artist resolution
+                        artist_style_enabled=False,
+                        artist_playlist=True,
+                        pool_source=pool_source,
+                        dry_run=bool(dry_run),
+                    )
+                    if i > 0:
+                        logger.info(f"Successfully used alternative seed #{i+1}: {seed_track.get('artist')} - {seed_track.get('title')}")
+                    break  # Success!
+                except ValueError as e:
+                    if "not found in artifact" in str(e):
+                        last_error = e
+                        logger.debug(f"Seed #{i+1} not in artifact, trying next seed...")
+                        continue
+                    else:
+                        raise  # Re-raise if it's a different error
 
         if ds_tracks is None:
             # All seeds failed - provide helpful error
@@ -1496,34 +1918,42 @@ class PlaylistGenerator:
                 f"Run 'python scripts/update_sonic.py --beat3tower' to extract features, then rebuild the artifact."
             )
 
-        # Apply recency filtering if available
-        filtered_ds_tracks = ds_tracks
-        if self.lastfm:
-            try:
-                scrobbles = scrobbles or self._get_lastfm_scrobbles_raw(use_cache=True)
-                filtered_ds_tracks = self._filter_by_scrobbles(
-                    ds_tracks,
-                    scrobbles,
-                    lookback_days=self.config.recently_played_lookback_days,
-                    exempt_tracks=seed_tracks,
-                )
-            except Exception as exc:
-                logger.warning("Last.FM scrobble filter failed; using unfiltered DS tracks (%s)", exc, exc_info=True)
-        else:
-            filtered_ds_tracks = self.filter_tracks(ds_tracks, history, exempt_tracks=seed_tracks)
-
         # Skip seed insertion for pier-bridge mode - pier-bridge already handles seed placement
         # and only includes seeds that were found in the artifact bundle
         last_report = getattr(self, "_last_ds_report", None) or {}
         is_pier_bridge = (last_report.get("metrics") or {}).get("strategy") == "pier_bridge"
-        if is_pier_bridge:
-            final_tracks = filtered_ds_tracks
-            logger.debug("Pier-bridge mode: skipping seed insertion (seeds are piers)")
-        else:
-            final_tracks = self._ensure_seed_tracks_present(seed_tracks, filtered_ds_tracks, track_count)
 
-        if not final_tracks:
-            raise RuntimeError("DS pipeline tracks were filtered out by recency rules.")
+        # Post-order validation ONLY (no filtering/removal/reordering allowed).
+        # Recency exclusions must be applied pre-order via DS `excluded_track_ids`.
+        audit_path = None
+        try:
+            audit_path = (
+                (getattr(self, "_last_ds_report", None) or {}).get("playlist_stats") or {}
+            ).get("playlist", {}).get("audit_path")
+        except Exception:
+            audit_path = None
+
+        pier_tracks_for_exemption = (
+            style_anchor_tracks if (using_artist_style and style_anchor_tracks) else seed_tracks
+        )
+        exempt_pier_ids = {
+            str(t.get("rating_key"))
+            for t in (pier_tracks_for_exemption or [])
+            if t.get("rating_key")
+        }
+        self._post_order_validate_ds_output(
+            ordered_tracks=ds_tracks,
+            expected_length=track_count,
+            excluded_track_ids=set(excluded_ids or set()),
+            exempt_pier_track_ids=exempt_pier_ids,
+            audit_path=str(audit_path) if audit_path else None,
+        )
+
+        if is_pier_bridge:
+            final_tracks = ds_tracks
+            logger.debug("Pier-bridge mode: no post-order filtering (validation only).")
+        else:
+            final_tracks = self._ensure_seed_tracks_present(seed_tracks, ds_tracks, track_count)
 
         # Recompute edge scores for the final track order
         if getattr(self, "_last_ds_report", None):
@@ -1544,7 +1974,7 @@ class PlaylistGenerator:
             playlist_stats["playlist"] = playlist_stats_playlist
             self._last_ds_report["playlist_stats"] = playlist_stats
             if os.environ.get("PLAYLIST_DIAG_RECENCY"):
-                self._log_recency_edge_diff(final_tracks, final_tracks)
+                logger.info("Recency diag: post-order filtering disabled; no edge diff computed.")
         title = f"Auto: {artist_name}"
         self._print_playlist_report(final_tracks, artist_name=artist_name, dynamic=dynamic, verbose_edges=verbose)
         return {
@@ -1552,6 +1982,7 @@ class PlaylistGenerator:
             'artists': (artist_name,),
             'genres': [],
             'tracks': final_tracks,
+            'ds_report': getattr(self, "_last_ds_report", None),
         }
 
 
@@ -1834,6 +2265,47 @@ class PlaylistGenerator:
 
         playlists = []
 
+        # Pre-order recency exclusions (applied via DS `excluded_track_ids`).
+        # IMPORTANT: No recency filtering is allowed after DS ordering.
+        excluded_ids_batch: Set[str] = set()
+        recency_candidates: List[Dict[str, Any]] = []
+        seen_ids: Set[str] = set()
+        for t in history or []:
+            tid = t.get("rating_key")
+            if not tid:
+                continue
+            sid = str(tid)
+            if sid in seen_ids:
+                continue
+            seen_ids.add(sid)
+            recency_candidates.append(t)
+
+        lookback_days = getattr(self.config, "recently_played_lookback_days", 0)
+        scrobbles: List[Dict[str, Any]] = []
+        if self.lastfm:
+            try:
+                scrobbles = self._get_lastfm_scrobbles_raw(use_cache=True)
+            except Exception as exc:
+                logger.warning(
+                    "Last.FM scrobble fetch failed; skipping scrobble recency exclusions (%s)",
+                    exc,
+                    exc_info=True,
+                )
+        if scrobbles:
+            excluded_ids_batch = self._compute_excluded_from_scrobbles(
+                recency_candidates,
+                scrobbles,
+                lookback_days=lookback_days,
+                seed_id=None,
+            )
+        elif history and getattr(self.config, "recently_played_filter_enabled", False):
+            excluded_ids_batch = self._compute_excluded_from_history(
+                recency_candidates,
+                history,
+                lookback_days=lookback_days,
+                exempt_tracks=None,
+            )
+
         for idx, (artist, seeds) in enumerate(artist_seeds.items(), 1):
             logger.info(f"Playlist {idx}: {artist}")
 
@@ -1849,30 +2321,215 @@ class PlaylistGenerator:
 
             # DS pipeline override (if enabled)
             target_playlist_size = self.config.get('playlists', 'tracks_per_playlist', 30)
+            ds_cfg = self.config.get('playlists', 'ds_pipeline', default={}) or {}
+            style_cfg_raw = ds_cfg.get("artist_style", {}) or {}
+            style_cfg = ArtistStyleConfig(
+                enabled=bool(style_cfg_raw.get("enabled", False)),
+                cluster_k_min=style_cfg_raw.get("cluster_k_min", 3),
+                cluster_k_max=style_cfg_raw.get("cluster_k_max", 6),
+                cluster_k_heuristic_enabled=style_cfg_raw.get("cluster_k_heuristic_enabled", True),
+                piers_per_cluster=style_cfg_raw.get("piers_per_cluster", 1),
+                per_cluster_candidate_pool_size=style_cfg_raw.get("per_cluster_candidate_pool_size", 400),
+                pool_balance_mode=style_cfg_raw.get("pool_balance_mode", "equal"),
+                internal_connector_priority=style_cfg_raw.get("internal_connector_priority", True),
+                internal_connector_max_per_segment=style_cfg_raw.get("internal_connector_max_per_segment", 2),
+                bridge_floor_narrow=style_cfg_raw.get("bridge_floor", {}).get("narrow", 0.08),
+                bridge_floor_dynamic=style_cfg_raw.get("bridge_floor", {}).get("dynamic", 0.03),
+                bridge_weight=style_cfg_raw.get("bridge_score_weights", {}).get("bridge", 0.7),
+                transition_weight=style_cfg_raw.get("bridge_score_weights", {}).get("transition", 0.3),
+                genre_tiebreak_weight=style_cfg_raw.get("genre_tiebreak_weight", 0.05),
+            )
+            ds_mode_effective = ds_mode_override or ("dynamic" if dynamic else ds_cfg.get("mode", "dynamic"))
+            style_seed_track_id = seeds[0].get('rating_key') if seeds else None
+            style_anchor_tracks = seeds
+            style_anchor_ids = None
+            allowed_track_ids = None
+            pier_cfg = None
+            internal_connectors = None
+            artifact_path = ds_cfg.get("artifact_path")
+            pool_source = "legacy"
+            using_artist_style = False
+            logger.info(
+                "Artist style mode %s: artist=%s ds_mode=%s",
+                "ENABLED" if style_cfg.enabled else "DISABLED",
+                artist,
+                ds_mode_effective,
+            )
+            if style_cfg.enabled and artifact_path:
+                try:
+                    bundle = load_artifact_bundle(artifact_path)
+                    sonic_cfg = self.config.get("playlists", "sonic", default={}) or {}
+                    sonic_variant_cfg = resolve_sonic_variant(
+                        explicit_variant=getattr(self, "sonic_variant", None),
+                        config_variant=ds_cfg.get("sonic_variant") or sonic_cfg.get("sim_variant"),
+                    )
+                    clusters, medoids, medoids_by_cluster, X_norm = cluster_artist_tracks(
+                        bundle=bundle,
+                        artist_name=artist,
+                        cfg=style_cfg,
+                        random_seed=ds_cfg.get("random_seed", 0),
+                        sonic_variant=sonic_variant_cfg,
+                    )
+                    if not medoids:
+                        raise ValueError("Style clustering returned no medoids")
+                    ordered_medoids = order_clusters(medoids, X_norm)
+                    cluster_piers = medoids_by_cluster
+                    min_sonic = get_min_sonic_similarity(ds_cfg.get("candidate_pool", {}), ds_mode_effective)
+                    artist_key = normalize_artist_key(artist)
+                    external_pool = build_balanced_candidate_pool(
+                        bundle=bundle,
+                        cluster_piers=cluster_piers,
+                        X_norm=X_norm,
+                        per_cluster_size=style_cfg.per_cluster_candidate_pool_size,
+                        pool_balance_mode=style_cfg.pool_balance_mode,
+                        global_floor=min_sonic,
+                        artist_key=artist_key,
+                    )
+                    internal_connectors = get_internal_connectors(
+                        bundle=bundle,
+                        artist_key=artist_key,
+                        exclude_indices=medoids,
+                        global_floor=min_sonic,
+                        pier_indices=medoids,
+                        X_norm=X_norm,
+                    ) if style_cfg.internal_connector_priority else []
+                    pier_ids = [str(bundle.track_ids[m]) for m in ordered_medoids]
+                    allowed_track_ids = list(dict.fromkeys(pier_ids + external_pool + internal_connectors))
+                    if not allowed_track_ids:
+                        raise ValueError("Artist style allowed pool empty")
+                    style_seed_track_id = pier_ids[0]
+                    style_anchor_ids = pier_ids[1:]
+                    style_anchor_tracks = [
+                        {
+                            "rating_key": str(bundle.track_ids[m]),
+                            "title": str(bundle.track_titles[m] or ""),
+                            "artist": str(bundle.track_artists[m] or artist),
+                        }
+                        for m in ordered_medoids
+                    ]
+                    center_transitions = bool(ds_cfg.get("center_transitions", False)) or bool(
+                        ds_cfg.get("constraints", {}).get("center_transitions", False)
+                    )
+                    tw_raw = ds_cfg.get("transition_weights")
+                    transition_weights = None
+                    if isinstance(tw_raw, dict):
+                        transition_weights = (
+                            float(tw_raw.get("rhythm", 0.4)),
+                            float(tw_raw.get("timbre", 0.35)),
+                            float(tw_raw.get("harmony", 0.25)),
+                        )
+                    elif isinstance(tw_raw, (list, tuple)) and len(tw_raw) == 3:
+                        transition_weights = (
+                            float(tw_raw[0]),
+                            float(tw_raw[1]),
+                            float(tw_raw[2]),
+                        )
+                    ds_defaults = default_ds_config(ds_mode_effective, playlist_len=track_count, overrides=ds_cfg)
+                    pb_tuning = resolve_pier_bridge_tuning(ds_cfg, ds_mode_effective)
+
+                    weight_bridge = float(pb_tuning["weight_bridge"])
+                    weight_transition = float(pb_tuning["weight_transition"])
+                    weights_raw = style_cfg_raw.get("bridge_score_weights")
+                    if isinstance(weights_raw, dict):
+                        by_mode = weights_raw.get(ds_mode_effective)
+                        if isinstance(by_mode, dict):
+                            weight_bridge = float(by_mode.get("bridge", weight_bridge))
+                            weight_transition = float(by_mode.get("transition", weight_transition))
+                        else:
+                            weight_bridge = float(weights_raw.get("bridge", weight_bridge))
+                            weight_transition = float(weights_raw.get("transition", weight_transition))
+
+                    genre_tiebreak_weight = float(
+                        style_cfg_raw.get("genre_tiebreak_weight", pb_tuning["genre_tiebreak_weight"])
+                    )
+                    bridge_floor = float(pb_tuning["bridge_floor"])
+                    bridge_floor_raw = style_cfg_raw.get("bridge_floor")
+                    if isinstance(bridge_floor_raw, dict):
+                        mode_val = bridge_floor_raw.get(ds_mode_effective)
+                        if isinstance(mode_val, (int, float)):
+                            bridge_floor = float(mode_val)
+                    elif isinstance(bridge_floor_raw, (int, float)):
+                        bridge_floor = float(bridge_floor_raw)
+
+                    pier_cfg = PierBridgeConfig(
+                        transition_floor=float(ds_defaults.construct.transition_floor),
+                        bridge_floor=bridge_floor,
+                        center_transitions=bool(ds_defaults.construct.center_transitions),
+                        transition_weights=transition_weights,
+                        sonic_variant=sonic_variant_cfg,
+                        weight_bridge=weight_bridge,
+                        weight_transition=weight_transition,
+                        genre_tiebreak_weight=genre_tiebreak_weight,
+                        genre_penalty_threshold=float(pb_tuning["genre_penalty_threshold"]),
+                        genre_penalty_strength=float(pb_tuning["genre_penalty_strength"]),
+                    )
+                    using_artist_style = True
+                    pool_source = "artist_style"
+                    logger.info(
+                        "Artist style mode ENABLED: artist=%s ds_mode=%s clusters=%d piers=%d allowed_ids=%d internal_connectors=%d",
+                        artist,
+                        ds_mode_effective,
+                        len(clusters),
+                        len(ordered_medoids),
+                        len(allowed_track_ids),
+                        len(internal_connectors),
+                    )
+                except Exception as exc:
+                    logger.warning("Artist style clustering failed (%s); using default artist flow", exc, exc_info=True)
+                    allowed_track_ids = None
+                    pier_cfg = None
+                    internal_connectors = None
+                    using_artist_style = False
+                    pool_source = "legacy_fallback"
+
             ds_tracks = self._maybe_generate_ds_playlist(
-                seed_track_id=seeds[0].get('rating_key') if seeds else None,
+                seed_track_id=style_seed_track_id,
                 target_length=target_playlist_size,
                 pipeline_override=pipeline_override,
-                mode_override=ds_mode_override or ("dynamic" if dynamic else None),
+                mode_override=ds_mode_effective,
                 seed_artist=artist,
-                anchor_seed_tracks=seeds,  # Pass full seed track info for title+artist resolution
+                anchor_seed_tracks=style_anchor_tracks,  # Pass full seed track info for title+artist resolution
+                allowed_track_ids=allowed_track_ids,
+                excluded_track_ids=excluded_ids_batch or None,
+                anchor_seed_ids=style_anchor_ids,
+                pier_bridge_config=pier_cfg,
+                internal_connector_ids=internal_connectors if style_cfg.internal_connector_priority else None,
+                internal_connector_max_per_segment=style_cfg.internal_connector_max_per_segment,
+                internal_connector_priority=style_cfg.internal_connector_priority,
+                artist_style_enabled=using_artist_style,
+                artist_playlist=True,
+                pool_source=pool_source,
             )
-            filtered_ds_tracks = ds_tracks
-            if self.lastfm:
-                scrobbles = self._get_lastfm_scrobbles_raw()
-                filtered_ds_tracks = self._filter_by_scrobbles(
-                    ds_tracks,
-                    scrobbles,
-                    lookback_days=self.config.recently_played_lookback_days,
-                    exempt_tracks=seeds,
-                )
+
+            last_report = getattr(self, "_last_ds_report", None) or {}
+            is_pier_bridge = (last_report.get("metrics") or {}).get("strategy") == "pier_bridge"
+
+            audit_path = None
+            try:
+                audit_path = (
+                    (getattr(self, "_last_ds_report", None) or {}).get("playlist_stats") or {}
+                ).get("playlist", {}).get("audit_path")
+            except Exception:
+                audit_path = None
+
+            pier_tracks_for_exemption = style_anchor_tracks if using_artist_style else seeds
+            exempt_pier_ids = {
+                str(t.get("rating_key"))
+                for t in (pier_tracks_for_exemption or [])
+                if t.get("rating_key")
+            }
+            self._post_order_validate_ds_output(
+                ordered_tracks=ds_tracks,
+                expected_length=target_playlist_size,
+                excluded_track_ids=set(excluded_ids_batch or set()),
+                exempt_pier_track_ids=exempt_pier_ids,
+                audit_path=str(audit_path) if audit_path else None,
+            )
+
+            if is_pier_bridge:
+                final_tracks = ds_tracks
             else:
-                filtered_ds_tracks = self.filter_tracks(ds_tracks, history, exempt_tracks=seeds)
-
-            final_tracks = self._ensure_seed_tracks_present(seeds, filtered_ds_tracks, target_playlist_size)
-
-            if not final_tracks:
-                raise RuntimeError("DS pipeline tracks filtered out by freshness rules for artist playlist generation.")
+                final_tracks = self._ensure_seed_tracks_present(seeds, ds_tracks, target_playlist_size)
 
             title = self._generate_playlist_title(artist, "", unique_genres)
             self._print_playlist_report(final_tracks, artist_name=artist, dynamic=dynamic)
@@ -2457,5 +3114,4 @@ class PlaylistGenerator:
 
 # Example usage
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
     logger.info("Playlist Generator module loaded")

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from src.playlist.pipeline import generate_playlist_ds as core_generate_playlist_ds
+from src.playlist.pier_bridge_builder import PierBridgeConfig
 
 logger = logging.getLogger(__name__)
 
@@ -33,11 +34,21 @@ def generate_playlist_ds(
     single_artist: bool = False,
     sonic_variant: Optional[str] = None,
     anchor_seed_ids: Optional[List[str]] = None,
+    # Optional pier-bridge audit/backoff context
+    dry_run: bool = False,
+    pool_source: Optional[str] = None,
+    artist_style_enabled: bool = False,
+    artist_playlist: bool = False,
+    audit_context_extra: Optional[Dict[str, Any]] = None,
     # Genre similarity parameters
     sonic_weight: Optional[float] = None,
     genre_weight: Optional[float] = None,
     min_genre_similarity: Optional[float] = None,
     genre_method: Optional[str] = None,
+    pier_bridge_config: Optional["PierBridgeConfig"] = None,
+    internal_connector_ids: Optional[list[str]] = None,
+    internal_connector_max_per_segment: int = 0,
+    internal_connector_priority: bool = True,
 ) -> DsRunResult:
     """Production-facing wrapper around the DS pipeline.
 
@@ -63,11 +74,21 @@ def generate_playlist_ds(
         excluded_track_ids=excluded_track_ids,
         single_artist=single_artist,
         sonic_variant=sonic_variant,
+        pier_bridge_config=pier_bridge_config,
+        dry_run=dry_run,
+        pool_source=pool_source,
+        artist_style_enabled=artist_style_enabled,
+        artist_playlist=artist_playlist,
+        audit_context_extra=audit_context_extra,
         # Pass through genre similarity parameters
         sonic_weight=sonic_weight,
         genre_weight=genre_weight,
         min_genre_similarity=min_genre_similarity,
         genre_method=genre_method,
+        allowed_track_ids_set=set(str(t) for t in allowed_track_ids) if allowed_track_ids else None,
+        internal_connector_ids=internal_connector_ids,
+        internal_connector_max_per_segment=internal_connector_max_per_segment,
+        internal_connector_priority=internal_connector_priority,
     )
 
     playlist_stats = result.stats.get("playlist", {})

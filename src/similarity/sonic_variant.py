@@ -369,7 +369,7 @@ def _variant_transform(X_sonic: np.ndarray, variant: str) -> Tuple[np.ndarray, d
         mat = X_sonic
     stats = {
         "variant": variant,
-        "dim": int(X_sonic.shape[1]),
+        "dim": int(mat.shape[1]),
     }
     if variant in {"tower_l2", "tower_robust", "tower_iqr", "tower_weighted", "tower_pca"}:
         stats["tower_dims"] = tower_dims

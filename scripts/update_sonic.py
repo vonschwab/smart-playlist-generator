@@ -49,6 +49,8 @@ import multiprocessing
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
+from src.logging_utils import ProgressLogger
+
 # Logging will be configured in main() - just get the logger here
 logger = logging.getLogger('update_sonic')
 
@@ -101,8 +103,9 @@ def analyze_track_worker(track_data: Tuple[str, str, str, str, bool, bool]) -> O
             return None
 
     except Exception as e:
-        # Avoid logger in subprocess; print minimal context for debugging
-        print(f"[worker] Failed to analyze track {track_id}: {e}", file=sys.stderr)
+        # Avoid full logger in subprocess; emit minimal context to stderr
+        sys.stderr.write(f"[worker] Failed to analyze track {track_id}: {e}\n")
+        sys.stderr.flush()
         return None
 
 
@@ -436,7 +439,17 @@ class SonicFeaturePipeline:
                 logger.warning("DB locked; retrying failed mark for %s in %.1fs (attempt %d/%d)", track_id, sleep_for, attempt, DB_RETRY_ATTEMPTS)
                 time.sleep(sleep_for)
 
-    def run(self, limit: Optional[int] = None, workers: Optional[int] = None, force: bool = False, rescan_inconsistent: bool = False):
+    def run(
+        self,
+        limit: Optional[int] = None,
+        workers: Optional[int] = None,
+        force: bool = False,
+        rescan_inconsistent: bool = False,
+        progress: bool = True,
+        progress_interval: float = 15.0,
+        progress_every: int = 500,
+        verbose_each: bool = False,
+    ):
         """
         Run the analysis pipeline with parallel processing
 
@@ -492,10 +505,18 @@ class SonicFeaturePipeline:
             (track['track_id'], track['file_path'], track['artist'], track['title'], self.use_beat_sync, self.use_beat3tower)
             for track in pending
         ]
+        prog = ProgressLogger(
+            logger,
+            total=total,
+            label="update_sonic",
+            unit="tracks",
+            interval_s=progress_interval,
+            every_n=progress_every,
+            verbose_each=verbose_each,
+        ) if progress else None
 
         # Process tracks in parallel
         with ProcessPoolExecutor(max_workers=workers) as executor:
-            # Submit all tracks
             future_to_index = {
                 executor.submit(analyze_track_worker, track_data): i
                 for i, track_data in enumerate(track_data_list)
@@ -545,30 +566,18 @@ class SonicFeaturePipeline:
                         commit_now = (completed % batch_size == 0) or (completed == total)
                         self.mark_track_failed(track_id, commit=commit_now)
 
-                    # Progress report every 10 tracks
-                    if completed % 10 == 0 or completed == total:
-                        elapsed = time.time() - start_time
-                        rate = completed / elapsed if elapsed > 0 else 0
-                        remaining = (total - completed) / rate if rate > 0 else 0
-
-                        logger.info(f"Progress: {completed}/{total} ({completed/total*100:.1f}%) - "
-                                  f"Rate: {rate:.1f} tracks/sec - "
-                                  f"ETA: {remaining/60:.1f} min")
-                        logger.info(
-                            "  Stats: beats=%d timegrid=%d stats=%d librosa=%d failed=%d",
-                            stats['beat3tower_beats'],
-                            stats['beat3tower_timegrid'],
-                            stats['beat3tower_stats'],
-                            stats['librosa'],
-                            stats['failed'],
-                        )
+                    if prog:
+                        prog.update(detail=f"{artist} - {title}")
 
                 except Exception as e:
                     logger.error(f"Error processing result for {artist} - {title}: {e}")
                     stats['failed'] += 1
 
-            # Final commit to catch any remaining
-            self.conn.commit()
+        # Final commit to catch any remaining
+        self.conn.commit()
+
+        if prog:
+            prog.finish(detail=f"Stats beats={stats['beat3tower_beats']} timegrid={stats['beat3tower_timegrid']} stats={stats['beat3tower_stats']} librosa={stats['librosa']} failed={stats['failed']}")
 
         # Final report
         elapsed = time.time() - start_time
@@ -679,22 +688,34 @@ if __name__ == "__main__":
     parser.add_argument('--rescan-inconsistent', action='store_true', help='Re-analyze tracks with inconsistent sonic dimensions')
     parser.add_argument('--beat-sync', action='store_true', help='DEPRECATED: legacy sonic mode is disabled')
     parser.add_argument('--beat3tower', action='store_true', help='Use 3-tower beat-synchronized extraction (default)')
+    parser.add_argument('--progress', dest='progress', action='store_true', default=True,
+                        help='Enable progress logging (default)')
+    parser.add_argument('--no-progress', dest='progress', action='store_false',
+                        help='Disable progress logging')
+    parser.add_argument('--progress-interval', type=float, default=15.0,
+                        help='Seconds between progress updates (default: 15)')
+    parser.add_argument('--progress-every', type=int, default=500,
+                        help='Items between progress updates (default: 500)')
+    parser.add_argument('--verbose', action='store_true',
+                        help='Verbose per-track progress (DEBUG)')
     add_logging_args(parser)
     args = parser.parse_args()
 
     if args.beat_sync:
-        print("Error: --beat-sync is deprecated and disabled. Beat3tower is always used.")
+        logger.error("Error: --beat-sync is deprecated and disabled. Beat3tower is always used.")
         sys.exit(2)
 
     if not args.beat3tower:
         args.beat3tower = True
 
     if args.force and args.rescan_inconsistent:
-        print("Error: --force and --rescan-inconsistent are mutually exclusive.")
+        logger.error("Error: --force and --rescan-inconsistent are mutually exclusive.")
         sys.exit(2)
 
     # Configure logging
     log_level = resolve_log_level(args)
+    if args.verbose and not args.debug and not args.quiet and args.log_level.upper() == "INFO":
+        log_level = "DEBUG"
     log_file = getattr(args, 'log_file', None) or 'sonic_analysis.log'
     configure_logging(level=log_level, log_file=log_file)
 
@@ -705,35 +726,35 @@ if __name__ == "__main__":
     if args.stats:
         # Show statistics
         stats = pipeline.get_stats()
-        print("\nSonic Analysis Statistics:")
-        print("=" * 60)
-        print(f"  Total tracks: {stats['total_tracks']:,}")
-        print(f"  Analyzed: {stats['analyzed']:,}")
-        print(f"  Pending: {stats['pending']:,}")
-        print(f"\n  Feature formats:")
-        print(f"    Beat3tower (recommended): {stats['beat3tower']:,}")
-        print(f"    Legacy format: {stats['legacy']:,}")
-        print(f"  Librosa source: {stats['librosa']:,}")
-        print("=" * 60)
+        logger.info("Sonic Analysis Statistics:")
+        logger.info("=" * 60)
+        logger.info("  Total tracks: %s", f"{stats['total_tracks']:,}")
+        logger.info("  Analyzed: %s", f"{stats['analyzed']:,}")
+        logger.info("  Pending: %s", f"{stats['pending']:,}")
+        logger.info("  Feature formats:")
+        logger.info("    Beat3tower (recommended): %s", f"{stats['beat3tower']:,}")
+        logger.info("    Legacy format: %s", f"{stats['legacy']:,}")
+        logger.info("  Librosa source: %s", f"{stats['librosa']:,}")
+        logger.info("=" * 60)
         if stats['beat3tower'] > 0:
-            print(f"\n✓ {stats['beat3tower']:,} tracks protected with beat3tower features")
-            print("  Run without --force to preserve these features (safe mode)")
+            logger.info("✓ %s tracks protected with beat3tower features", f"{stats['beat3tower']:,}")
+            logger.info("  Run without --force to preserve these features (safe mode)")
     else:
         # Run analysis
         if args.force:
             # Get current stats to show what will be overwritten
             stats = pipeline.get_stats()
 
-            print("\n" + "=" * 70)
-            print("⚠️  WARNING: FORCE MODE ENABLED ⚠️")
-            print("=" * 70)
-            print(f"This will RE-ANALYZE ALL {stats['total_tracks']:,} tracks, including:")
-            print(f"  • {stats['beat3tower']:,} tracks with beat3tower features")
-            print(f"  • {stats['legacy']:,} tracks with legacy features")
+            logger.warning("=" * 70)
+            logger.warning("⚠️  WARNING: FORCE MODE ENABLED ⚠️")
+            logger.warning("=" * 70)
+            logger.warning("This will RE-ANALYZE ALL %s tracks, including:", f"{stats['total_tracks']:,}")
+            logger.warning("  • %s tracks with beat3tower features", f"{stats['beat3tower']:,}")
+            logger.warning("  • %s tracks with legacy features", f"{stats['legacy']:,}")
 
             # Auto-backup if beat3tower features exist
             if stats['beat3tower'] > 0:
-                print("\n🔒 Auto-backup: Creating safety backup of beat3tower features...")
+                logger.info("🔒 Auto-backup: Creating safety backup of beat3tower features...")
                 try:
                     # Import and run backup
                     sys.path.insert(0, str(ROOT_DIR / "scripts"))
@@ -743,30 +764,34 @@ if __name__ == "__main__":
                     backup_path = backup_manager.create_backup(name="auto_before_force")
                     backup_manager._close()
 
-                    print(f"✓ Backup created: {backup_path.name}")
-                    print(f"  Restore with: python scripts/backup_sonic_features.py --restore auto_before_force\n")
+                    logger.info("✓ Backup created: %s", backup_path.name)
+                    logger.info("  Restore with: python scripts/backup_sonic_features.py --restore auto_before_force")
                 except Exception as e:
-                    print(f"❌ Backup failed: {e}")
-                    print("   Aborting force mode for safety.")
+                    logger.error("❌ Backup failed: %s", e)
+                    logger.error("Aborting force mode for safety.")
                     pipeline.close()
                     sys.exit(1)
             else:
-                print("\n✓ No beat3tower features to backup.\n")
+                logger.info("✓ No beat3tower features to backup.")
 
             # Require explicit confirmation
             response = input("Type 'YES' to confirm you want to overwrite existing features: ")
             if response.strip().upper() != 'YES':
-                print("\n❌ Aborted. No tracks were modified.")
+                logger.info("❌ Aborted. No tracks were modified.")
                 pipeline.close()
                 sys.exit(0)
 
-            print("\n✓ Confirmed. Starting re-analysis...\n")
+            logger.info("✓ Confirmed. Starting re-analysis...")
 
         pipeline.run(
             limit=args.limit,
             workers=args.workers,
             force=args.force,
             rescan_inconsistent=args.rescan_inconsistent,
+            progress=args.progress,
+            progress_interval=args.progress_interval,
+            progress_every=args.progress_every,
+            verbose_each=args.verbose,
         )
 
     pipeline.close()

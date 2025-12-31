@@ -38,11 +38,10 @@ WIDTH = 70
 def _safe_print(text: str = "") -> None:
     """Print with UTF-8 encoding safety."""
     try:
-        print(text)
+        logger.info(text)
     except UnicodeEncodeError:
-        # Fallback for terminals that don't support Unicode
         safe_text = text.encode('ascii', 'replace').decode('ascii')
-        print(safe_text)
+        logger.info(safe_text)
 
 
 def header(title: str, subtitle: str = "") -> None:

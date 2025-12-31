@@ -3,18 +3,31 @@ from __future__ import annotations
 import logging
 import math
 import os
+import uuid
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 import numpy as np
 
 from src.features.artifacts import ArtifactBundle, get_sonic_matrix, load_artifact_bundle
 from src.playlist.candidate_pool import CandidatePoolResult, build_candidate_pool
-from src.playlist.config import DSPipelineConfig, default_ds_config
+from src.playlist.config import DSPipelineConfig, default_ds_config, resolve_pier_bridge_tuning
 from src.playlist.constructor import PlaylistResult  # Type only, no longer calling construct_playlist
-from src.playlist.pier_bridge_builder import PierBridgeConfig, PierBridgeResult, build_pier_bridge_playlist
+from src.playlist.pier_bridge_builder import (
+    PierBridgeConfig,
+    PierBridgeResult,
+    build_pier_bridge_playlist,
+)
+from src.playlist.run_audit import (
+    RunAuditContext,
+    RunAuditEvent,
+    now_utc_iso,
+    parse_infeasible_handling_config,
+    parse_run_audit_config,
+    write_markdown_report,
+)
 from src.similarity.hybrid import HybridEmbeddingModel, build_hybrid_embedding
 from src.similarity.sonic_variant import compute_sonic_variant_matrix, resolve_sonic_variant
 
@@ -59,6 +72,13 @@ def _params_from_config(cfg: DSPipelineConfig) -> Dict[str, Any]:
     }
 
 
+def enforce_allowed_invariant(track_ids: list[str], allowed: set[str], context: str = "") -> None:
+    """Raise if any track_id is not within allowed set."""
+    out = [tid for tid in track_ids if tid not in allowed]
+    if out:
+        raise ValueError(f"Out-of-pool tracks detected {context}: {out[:5]}")
+
+
 def generate_playlist_ds(
     *,
     artifact_path: str | Path,
@@ -78,6 +98,16 @@ def generate_playlist_ds(
     genre_weight: Optional[float] = None,
     min_genre_similarity: Optional[float] = None,
     genre_method: Optional[str] = None,
+    allowed_track_ids_set: Optional[set[str]] = None,
+    internal_connector_ids: Optional[List[str]] = None,
+    internal_connector_max_per_segment: int = 0,
+    internal_connector_priority: bool = True,
+    # Optional pier-bridge infeasible handling + audit context (CLI/GUI)
+    dry_run: bool = False,
+    pool_source: Optional[str] = None,
+    artist_style_enabled: bool = False,
+    artist_playlist: bool = False,
+    audit_context_extra: Optional[Dict[str, Any]] = None,
 ) -> DSPipelineResult:
     """
     Orchestrate:
@@ -88,9 +118,9 @@ def generate_playlist_ds(
     Returns ordered track_ids and stats.
 
     Playlist construction uses pier-bridge strategy exclusively:
-    - Multiple seeds: seeds become fixed "piers", bridge segments connect them
+    - Multiple seeds: seeds become fixed "piers", bridge segments connect them  
     - Single seed: seed acts as both start and end pier (arc structure)
-    - Seed artist tracks can appear in bridges with same constraints as others
+    - Artist playlists can optionally enforce "seed artist = piers only"
 
     Optional hybrid-level tuning dials:
     - sonic_weight, genre_weight: control hybrid embedding balance
@@ -98,7 +128,15 @@ def generate_playlist_ds(
     - genre_method: which genre similarity algorithm to use
     """
     # Normalize optional lists to avoid NoneType len issues downstream.
-    anchor_seed_ids = anchor_seed_ids or []
+    anchor_seed_ids = list(dict.fromkeys(anchor_seed_ids or []))
+
+    # Optional pier-bridge run audit + infeasible handling configs (default OFF).
+    pb_overrides = (overrides or {}).get("pier_bridge", {}) if isinstance(overrides, dict) else {}
+    audit_cfg = parse_run_audit_config(pb_overrides.get("audit_run"))
+    infeasible_cfg = parse_infeasible_handling_config(pb_overrides.get("infeasible_handling"))
+    audit_events: Optional[list[RunAuditEvent]] = [] if bool(audit_cfg.enabled) else None
+    audit_context: Optional[RunAuditContext] = None
+    audit_path: Optional[Path] = None
 
     bundle = load_artifact_bundle(artifact_path)
     if seed_track_id not in bundle.track_id_to_index:
@@ -112,16 +150,42 @@ def generate_playlist_ds(
             sonic_weight, genre_weight, min_genre_similarity, genre_method
         )
 
-    # Restrict bundle to allowed_track_ids when provided
+    # Restrict bundle to allowed_track_ids when provided.
+    # IMPORTANT: if both allowed_track_ids and excluded_track_ids are provided,
+    # apply BOTH (intersection); otherwise style-aware runs bypass exclusions (e.g., recency).
     if allowed_track_ids:
-        allowed_indices = []
-        for tid in allowed_track_ids:
-            idx = bundle.track_id_to_index.get(str(tid))
+        allowed_indices: list[int] = []
+        allowed_track_ids_set = {str(tid) for tid in allowed_track_ids}
+        for tid in allowed_track_ids_set:
+            idx = bundle.track_id_to_index.get(tid)
             if idx is not None:
                 allowed_indices.append(idx)
-        if seed_idx not in allowed_indices:
-            allowed_indices.append(seed_idx)
-        allowed_indices = sorted(set(allowed_indices))
+
+        # Always include seed + anchor seeds (piers), even if not explicitly in allowed list.
+        exempt_ids = {str(seed_track_id)}
+        if anchor_seed_ids:
+            exempt_ids.update(str(sid) for sid in anchor_seed_ids)
+        for tid in exempt_ids:
+            idx = bundle.track_id_to_index.get(tid)
+            if idx is not None:
+                allowed_indices.append(idx)
+
+        applied_excluded = 0
+        if excluded_track_ids:
+            excluded_set = {str(t) for t in excluded_track_ids}
+            kept: list[int] = []
+            for idx in allowed_indices:
+                tid = str(bundle.track_ids[int(idx)])
+                if tid in exempt_ids:
+                    kept.append(idx)
+                    continue
+                if tid in excluded_set:
+                    applied_excluded += 1
+                    continue
+                kept.append(idx)
+            allowed_indices = kept
+
+        allowed_indices = sorted(set(int(i) for i in allowed_indices))
         N_allowed = len(allowed_indices)
         if N_allowed == 0:
             raise ValueError("No allowed track_ids were found in artifact bundle.")
@@ -155,6 +219,14 @@ def generate_playlist_ds(
             getattr(bundle.X_sonic, "shape", None),
             getattr(bundle.X_genre_smoothed, "shape", None),
         )
+        if excluded_track_ids and (os.environ.get("PLAYLIST_DIAG_RECENCY") or os.environ.get("PLAYLIST_DIAG_POOL")):
+            logger.info(
+                "DS bundle clamp+exclude: allowed_ids=%d excluded_ids=%d applied_excluded=%d final_N=%d",
+                len(allowed_track_ids_set),
+                len(excluded_track_ids),
+                applied_excluded,
+                N_allowed,
+            )
     elif excluded_track_ids:
         total_tracks = int(bundle.track_ids.shape[0])
         mask_keep = []
@@ -207,6 +279,14 @@ def generate_playlist_ds(
                 applied_excluded,
                 len(allowed_indices),
             )
+
+    internal_connector_indices: Optional[Set[int]] = None
+    if internal_connector_ids:
+        internal_connector_indices = set()
+        for tid in internal_connector_ids:
+            idx = bundle.track_id_to_index.get(str(tid))
+            if idx is not None:
+                internal_connector_indices.add(idx)
 
     playlist_len = min(num_tracks, bundle.track_ids.shape[0])
     # Pass config.yaml overrides to default_ds_config for initial config creation
@@ -261,6 +341,17 @@ def generate_playlist_ds(
         logger.debug("Skipped flatness heuristic; unable to compute percentile diagnostics.", exc_info=True)
     pre_scaled_sonic = bool(variant_stats.get("pre_scaled", False))
 
+    # Resolve all seed indices for admission gating (max over seeds)
+    seed_indices_for_floor = [seed_idx]
+    for sid in anchor_seed_ids:
+        idx = bundle.track_id_to_index.get(str(sid))
+        if idx is not None and idx not in seed_indices_for_floor:
+            seed_indices_for_floor.append(idx)
+        elif idx is None:
+            logger.debug("Anchor seed %s not found in bundle for sonic floor", sid)
+    if len(seed_indices_for_floor) > 1:
+        logger.info("Sonic admission uses %d seeds (max similarity across seeds)", len(seed_indices_for_floor))
+
     # Compute effective hybrid embedding weights
     # Default to balanced approach: 0.6 sonic / 0.4 genre
     effective_w_sonic = 0.6
@@ -298,9 +389,37 @@ def generate_playlist_ds(
             effective_w_genre, effective_w_sonic
         )
 
+    # Apply optional broad-genre masking for genre embeddings/gating
+    raw_broad_filters = cfg.candidate.broad_filters or ()
+    try:
+        if isinstance(raw_broad_filters, np.ndarray):
+            raw_broad_filters = raw_broad_filters.tolist()
+    except Exception:
+        raw_broad_filters = ()
+    broad_filters = tuple(str(b).lower() for b in raw_broad_filters)
+
+    X_genre_smoothed = bundle.X_genre_smoothed
+    X_genre_raw = bundle.X_genre_raw
+    raw_vocab = getattr(bundle, "genre_vocab", [])
+    try:
+        if hasattr(raw_vocab, "tolist"):
+            genre_vocab: list[str] = list(raw_vocab.tolist())
+        else:
+            genre_vocab = list(raw_vocab or [])
+    except Exception:
+        genre_vocab = [str(g) for g in raw_vocab] if raw_vocab is not None else []
+    genre_mask = None
+    if broad_filters and genre_vocab:
+        genre_mask = np.array([g.lower() not in broad_filters for g in genre_vocab], dtype=bool)
+        if X_genre_smoothed is not None and genre_mask.shape[0] == X_genre_smoothed.shape[1]:
+            X_genre_smoothed = X_genre_smoothed[:, genre_mask]
+            genre_vocab = [g for g, keep in zip(genre_vocab, genre_mask) if keep]
+        if X_genre_raw is not None and genre_mask.shape[0] == X_genre_raw.shape[1]:
+            X_genre_raw = X_genre_raw[:, genre_mask]
+
     embedding_model = build_hybrid_embedding(
         X_sonic_for_embed,
-        bundle.X_genre_smoothed,
+        X_genre_smoothed,
         n_components_sonic=32,
         n_components_genre=32,
         w_sonic=effective_w_sonic,
@@ -312,15 +431,22 @@ def generate_playlist_ds(
 
     pool = build_candidate_pool(
         seed_idx=seed_idx,
+        seed_indices=seed_indices_for_floor,
         embedding=embedding_model.embedding,
         artist_keys=bundle.artist_keys,
+        track_ids=bundle.track_ids,
+        track_titles=bundle.track_titles,
+        track_artists=bundle.track_artists,
         cfg=cfg.candidate,
         random_seed=random_seed,
+        X_sonic=X_sonic_for_embed,
         # NEW: genre-based candidate filtering (skip when min_genre_similarity is None)
-        X_genre_raw=bundle.X_genre_raw if min_genre_similarity is not None else None,
-        X_genre_smoothed=bundle.X_genre_smoothed if min_genre_similarity is not None else None,
+        X_genre_raw=X_genre_raw if min_genre_similarity is not None else None,
+        X_genre_smoothed=X_genre_smoothed if min_genre_similarity is not None else None,
         min_genre_similarity=min_genre_similarity,
         genre_method=genre_method or "ensemble",
+        genre_vocab=genre_vocab,
+        broad_filters=broad_filters,
         mode=mode,
     )
     pool.stats["target_length"] = num_tracks
@@ -342,7 +468,8 @@ def generate_playlist_ds(
     if True:  # Always use pier-bridge
         # ─── PIER BRIDGE PATH: No construct_playlist, no repair ───
         logger.info("ENTERING PIER-BRIDGE PATH with %d anchor seeds", len(anchor_seed_ids))
-        from src.title_dedupe import normalize_title_for_dedupe, normalize_artist_key, calculate_version_preference_score
+        from src.title_dedupe import normalize_title_for_dedupe, calculate_version_preference_score
+        from src.playlist.identity_keys import identity_keys_for_index
 
         # 1. Resolve seed IDs to indices
         pier_seed_indices: list[int] = []
@@ -402,14 +529,12 @@ def generate_playlist_ds(
         # Pier-bridge handles any number of seeds (including 1 seed as arc structure)
         if True:
             # 3. Deduplicate candidate pool by (artist, title), keeping canonical version
-            pool_indices = list(pool.pool_indices)
-            if bundle.track_titles is not None and bundle.artist_keys is not None:
+            pool_indices = list(getattr(pool, "eligible_indices", pool.pool_indices))
+            if bundle.track_titles is not None:
                 # Group by (artist_key, normalized_title)
                 key_to_indices: Dict[tuple, list[int]] = {}
                 for idx in pool_indices:
-                    artist = str(bundle.artist_keys[idx]) if bundle.artist_keys is not None else ""
-                    title = bundle.track_titles[idx] or ""
-                    key = (normalize_artist_key(artist), normalize_title_for_dedupe(str(title), mode="loose"))
+                    key = identity_keys_for_index(bundle, int(idx)).track_key
                     if key not in key_to_indices:
                         key_to_indices[key] = []
                     key_to_indices[key].append(idx)
@@ -443,17 +568,270 @@ def generate_playlist_ds(
             # 4. Convert seed track IDs for pier bridge builder
             seed_track_ids_for_pier = [str(bundle.track_ids[idx]) for idx in pier_seed_indices]
 
+            if audit_events is not None and audit_context is None:
+                ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+                run_id = f"ds_{cfg.mode}_{ts}_{uuid.uuid4().hex[:8]}"
+                seed_artist_val: Optional[str] = None
+                try:
+                    if bundle.track_artists is not None:
+                        seed_artist_val = str(bundle.track_artists[seed_idx])
+                    elif bundle.artist_keys is not None:
+                        seed_artist_val = str(bundle.artist_keys[seed_idx])
+                except Exception:
+                    seed_artist_val = None
+                audit_context = RunAuditContext(
+                    timestamp_utc=now_utc_iso(),
+                    run_id=run_id,
+                    ds_mode=str(cfg.mode),
+                    seed_track_id=str(seed_track_id),
+                    seed_artist=seed_artist_val,
+                    dry_run=bool(dry_run),
+                    artifact_path=str(artifact_path),
+                    sonic_variant=str(resolved_variant) if resolved_variant else None,
+                    allowed_ids_count=int(len(allowed_track_ids_set or set())),
+                    pool_source=str(pool_source) if pool_source is not None else None,
+                    artist_style_enabled=bool(artist_style_enabled),
+                    artist_playlist=bool(artist_playlist),
+                    extra=dict(audit_context_extra or {}),
+                )
+                audit_path = Path(audit_cfg.out_dir) / f"{audit_context.run_id}.md"
+
             # 5. Call pier bridge builder
-            pb_cfg = pier_bridge_config or PierBridgeConfig(
-                transition_floor=cfg.construct.transition_floor,
+            transition_weights = None
+            try:
+                tw_raw = (overrides or {}).get("transition_weights")
+                if isinstance(tw_raw, dict):
+                    transition_weights = (
+                        float(tw_raw.get("rhythm", 0.4)),
+                        float(tw_raw.get("timbre", 0.35)),
+                        float(tw_raw.get("harmony", 0.25)),
+                    )
+                elif isinstance(tw_raw, (list, tuple)) and len(tw_raw) == 3:
+                    transition_weights = (
+                        float(tw_raw[0]),
+                        float(tw_raw[1]),
+                        float(tw_raw[2]),
+                    )
+            except Exception:
+                transition_weights = None
+
+            tuning, tuning_sources = resolve_pier_bridge_tuning(
+                mode=cfg.mode,
+                similarity_floor=float(cfg.candidate.similarity_floor),
+                overrides=overrides,
             )
+            logger.info(
+                "Pier-bridge tuning resolved: mode=%s transition_floor=%.2f bridge_floor=%.2f weight_bridge=%.2f weight_transition=%.2f genre_tiebreak_weight=%.2f genre_penalty_threshold=%.2f genre_penalty_strength=%.2f",
+                cfg.mode,
+                float(tuning.transition_floor),
+                float(tuning.bridge_floor),
+                float(tuning.weight_bridge),
+                float(tuning.weight_transition),
+                float(tuning.genre_tiebreak_weight),
+                float(tuning.genre_penalty_threshold),
+                float(tuning.genre_penalty_strength),
+            )
+            if logger.isEnabledFor(logging.DEBUG):
+                for field, source in sorted(tuning_sources.items()):
+                    if source != "default":
+                        logger.debug(
+                            "Pier-bridge tuning override: %s=%s source=%s",
+                            field,
+                            getattr(tuning, field, None),
+                            source,
+                        )
+            pb_cfg = pier_bridge_config or PierBridgeConfig(
+                transition_floor=float(tuning.transition_floor),
+                bridge_floor=float(tuning.bridge_floor),
+                center_transitions=cfg.construct.center_transitions,
+                transition_weights=transition_weights,
+                sonic_variant=resolved_variant,
+                weight_bridge=float(tuning.weight_bridge),
+                weight_transition=float(tuning.weight_transition),
+                genre_tiebreak_weight=float(tuning.genre_tiebreak_weight),      
+                genre_penalty_threshold=float(tuning.genre_penalty_threshold),  
+                genre_penalty_strength=float(tuning.genre_penalty_strength),    
+            )
+
+            # Segment-local pier-bridge policy defaults (with optional overrides).
+            disallow_seed_raw = pb_overrides.get("disallow_seed_artist_in_interiors")
+            if isinstance(disallow_seed_raw, bool):
+                pb_cfg = replace(
+                    pb_cfg,
+                    disallow_seed_artist_in_interiors=bool(disallow_seed_raw),
+                )
+            else:
+                pb_cfg = replace(
+                    pb_cfg,
+                    disallow_seed_artist_in_interiors=bool(artist_playlist),
+                )
+
+            disallow_pier_raw = pb_overrides.get("disallow_pier_artists_in_interiors")
+            if isinstance(disallow_pier_raw, bool):
+                pb_cfg = replace(
+                    pb_cfg,
+                    disallow_pier_artists_in_interiors=bool(disallow_pier_raw),
+                )
+
+            segment_pool_strategy = pb_overrides.get("segment_pool_strategy")
+            if isinstance(segment_pool_strategy, str) and segment_pool_strategy.strip():
+                pb_cfg = replace(
+                    pb_cfg,
+                    segment_pool_strategy=str(segment_pool_strategy).strip(),
+                )
+
+            segment_pool_max = pb_overrides.get("segment_pool_max")
+            if isinstance(segment_pool_max, int) and int(segment_pool_max) > 0:
+                pb_cfg = replace(pb_cfg, segment_pool_max=int(segment_pool_max))
+
+            max_segment_pool_max = pb_overrides.get("max_segment_pool_max")
+            if isinstance(max_segment_pool_max, int) and int(max_segment_pool_max) > 0:
+                pb_cfg = replace(pb_cfg, max_segment_pool_max=int(max_segment_pool_max))
+
+            progress_raw = pb_overrides.get("progress")
+            if isinstance(progress_raw, dict):
+                if isinstance(progress_raw.get("enabled"), bool):
+                    pb_cfg = replace(pb_cfg, progress_enabled=bool(progress_raw.get("enabled")))
+                if isinstance(progress_raw.get("monotonic_epsilon"), (int, float)):
+                    pb_cfg = replace(
+                        pb_cfg,
+                        progress_monotonic_epsilon=float(progress_raw.get("monotonic_epsilon")),
+                    )
+                if isinstance(progress_raw.get("penalty_weight"), (int, float)):
+                    pb_cfg = replace(
+                        pb_cfg,
+                        progress_penalty_weight=float(progress_raw.get("penalty_weight")),
+                    )
+
+            logger.info(
+                "Pier-bridge segment policy: artist_playlist=%s strategy=%s pool_max=%d progress=%s disallow_seed_artist_in_interiors=%s disallow_pier_artists_in_interiors=%s",
+                bool(artist_playlist),
+                str(pb_cfg.segment_pool_strategy),
+                int(pb_cfg.segment_pool_max),
+                bool(pb_cfg.progress_enabled),
+                bool(pb_cfg.disallow_seed_artist_in_interiors),
+                bool(pb_cfg.disallow_pier_artists_in_interiors),
+            )
+            if audit_events is not None and not any(e.kind == "preflight" for e in audit_events):
+                pool_summary = {
+                    "allowed_ids_count": int(len(allowed_track_ids_set or set())),
+                    "piers_count": int(len(seed_track_ids_for_pier)),
+                    "internal_connectors_count": int(len(internal_connector_indices or set())),
+                    "candidate_pool_stats": dict(pool.stats or {}),
+                    "candidate_pool_indices_after_dedupe": int(len(pool_indices)),
+                }
+                style_summary = None
+                if isinstance(audit_context_extra, dict):
+                    style_summary = audit_context_extra.get("style_summary")
+
+                excluded_ids_set = {str(t) for t in (excluded_track_ids or set())}
+                pier_ids_set = {str(t) for t in seed_track_ids_for_pier}
+                exempt_piers_count = int(len(excluded_ids_set & pier_ids_set))
+                recency_lookback_days = None
+                if isinstance(audit_context_extra, dict):
+                    recency_raw = audit_context_extra.get("recency")
+                    if isinstance(recency_raw, dict) and isinstance(recency_raw.get("lookback_days"), (int, float)):
+                        recency_lookback_days = int(recency_raw.get("lookback_days"))
+                audit_events.append(
+                    RunAuditEvent(
+                        kind="preflight",
+                        ts_utc=now_utc_iso(),
+                        payload={
+                            "tuning": {
+                                "mode": str(cfg.mode),
+                                "transition_floor": float(tuning.transition_floor),
+                                "bridge_floor": float(tuning.bridge_floor),
+                                "weight_bridge": float(tuning.weight_bridge),
+                                "weight_transition": float(tuning.weight_transition),
+                                "genre_tiebreak_weight": float(tuning.genre_tiebreak_weight),
+                                "genre_penalty_threshold": float(tuning.genre_penalty_threshold),
+                                "genre_penalty_strength": float(tuning.genre_penalty_strength),
+                                "segment_pool_strategy": str(pb_cfg.segment_pool_strategy),
+                                "segment_pool_max": int(pb_cfg.segment_pool_max),
+                                "max_segment_pool_max": int(pb_cfg.max_segment_pool_max),
+                                "progress": {
+                                    "enabled": bool(pb_cfg.progress_enabled),
+                                    "monotonic_epsilon": float(pb_cfg.progress_monotonic_epsilon),
+                                    "penalty_weight": float(pb_cfg.progress_penalty_weight),
+                                },
+                                "disallow_seed_artist_in_interiors": bool(pb_cfg.disallow_seed_artist_in_interiors),
+                                "disallow_pier_artists_in_interiors": bool(pb_cfg.disallow_pier_artists_in_interiors),
+                                "infeasible_handling": {
+                                    "enabled": bool(infeasible_cfg.enabled),    
+                                    "strategy": str(infeasible_cfg.strategy),   
+                                    "min_bridge_floor": float(infeasible_cfg.min_bridge_floor),
+                                    "backoff_steps": list(infeasible_cfg.backoff_steps),
+                                    "max_attempts_per_segment": int(infeasible_cfg.max_attempts_per_segment),
+                                    "widen_search_on_backoff": bool(infeasible_cfg.widen_search_on_backoff),
+                                    "extra_neighbors_m": int(infeasible_cfg.extra_neighbors_m),
+                                    "extra_bridge_helpers": int(infeasible_cfg.extra_bridge_helpers),
+                                    "extra_beam_width": int(infeasible_cfg.extra_beam_width),
+                                    "extra_expansion_attempts": int(infeasible_cfg.extra_expansion_attempts),
+                                },
+                                "audit_run": {
+                                    "enabled": bool(audit_cfg.enabled),
+                                    "out_dir": str(audit_cfg.out_dir),
+                                    "include_top_k": int(audit_cfg.include_top_k),
+                                    "max_bytes": int(audit_cfg.max_bytes),
+                                    "write_on_success": bool(audit_cfg.write_on_success),
+                                    "write_on_failure": bool(audit_cfg.write_on_failure),
+                                },
+                            },
+                            "tuning_sources": dict(tuning_sources),
+                            "pool_summary": pool_summary,
+                            "ds_inputs": {
+                                "allowed_ids_count": int(len(allowed_track_ids_set or set())),
+                                "excluded_ids_count": int(len(excluded_ids_set)),
+                            },
+                            "recency": {
+                                "lookback_days": recency_lookback_days,
+                                "excluded_count": int(len(excluded_ids_set)),
+                                "exempt_piers_count": exempt_piers_count,
+                            },
+                            "style_summary": style_summary,
+                        },
+                    )
+                )
             pb_result: PierBridgeResult = build_pier_bridge_playlist(
                 seed_track_ids=seed_track_ids_for_pier,
                 total_tracks=playlist_len,
                 bundle=bundle,
                 candidate_pool_indices=pool_indices,
                 cfg=pb_cfg,
+                allowed_track_ids_set=set(allowed_track_ids) if allowed_track_ids else None,
+                internal_connector_indices=internal_connector_indices,
+                internal_connector_max_per_segment=internal_connector_max_per_segment,
+                internal_connector_priority=internal_connector_priority,
+                infeasible_handling=infeasible_cfg,
+                audit_config=audit_cfg,
+                audit_events=audit_events,
             )
+            if not pb_result.success:
+                if audit_events is not None and audit_context is not None and audit_path is not None:
+                    audit_events.append(
+                        RunAuditEvent(
+                            kind="final_failure",
+                            ts_utc=now_utc_iso(),
+                            payload={
+                                "failure_reason": str(pb_result.failure_reason or "pier-bridge failed"),
+                                "segment_bridge_floors_used": (pb_result.stats or {}).get("segment_bridge_floors_used"),
+                                "segment_backoff_attempts_used": (pb_result.stats or {}).get("segment_backoff_attempts_used"),
+                            },
+                        )
+                    )
+                    try:
+                        write_markdown_report(
+                            context=audit_context,
+                            events=audit_events,
+                            path=audit_path,
+                            max_bytes=int(audit_cfg.max_bytes),
+                        )
+                    except Exception as exc:
+                        logger.exception("Failed to write run audit report: %s", exc)
+                    raise ValueError(
+                        f"Pier-bridge failed: {pb_result.failure_reason} (audit: {audit_path})"
+                    )
+                raise ValueError(f"Pier-bridge failed: {pb_result.failure_reason}")
 
             # 6. Log diagnostics
             logger.info(
@@ -470,29 +848,20 @@ def generate_playlist_ds(
             from dataclasses import dataclass as dc_dataclass
             pb_track_indices = np.array(pb_result.track_indices, dtype=np.int32)
 
-            # Build edge scores for stats
-            edge_scores_list = []
-            for i in range(1, len(pb_result.track_indices)):
-                prev_idx = pb_result.track_indices[i - 1]
-                cur_idx = pb_result.track_indices[i]
-                prev_id = str(bundle.track_ids[prev_idx])
-                cur_id = str(bundle.track_ids[cur_idx])
-                # Compute transition score
-                X_end = get_sonic_matrix(bundle, "end")
-                X_start = get_sonic_matrix(bundle, "start")
-                if X_end is not None and X_start is not None:
-                    end_vec = X_end[prev_idx]
-                    start_vec = X_start[cur_idx]
-                    trans_sim = float(np.dot(end_vec, start_vec) / (
-                        np.linalg.norm(end_vec) * np.linalg.norm(start_vec) + 1e-12
-                    ))
-                else:
-                    trans_sim = 0.0
-                edge_scores_list.append({
-                    "prev_id": prev_id,
-                    "cur_id": cur_id,
-                    "T": trans_sim,
-                })
+            # Edge scores (T) produced by pier-bridge builder (matches its scoring)
+            edge_scores_list = list((pb_result.stats or {}).get("edge_scores") or [])
+            t_vals = [
+                float(e.get("T"))
+                for e in edge_scores_list
+                if isinstance(e, dict) and isinstance(e.get("T"), (int, float))
+            ]
+            below_floor_count = (
+                sum(1 for v in t_vals if v < float(pb_cfg.transition_floor))
+                if t_vals
+                else 0
+            )
+            min_transition = float(min(t_vals)) if t_vals else None
+            mean_transition = float(sum(t_vals) / len(t_vals)) if t_vals else None
 
             # Create minimal PlaylistResult
             playlist = PlaylistResult(
@@ -504,6 +873,12 @@ def generate_playlist_ds(
                     "failure_reason": pb_result.failure_reason,
                     "segment_diagnostics": [s.__dict__ for s in pb_result.segment_diagnostics],
                     "edge_scores": edge_scores_list,
+                    "transition_floor": float(pb_cfg.transition_floor),
+                    "transition_gamma": float(cfg.construct.transition_gamma),
+                    "transition_centered": bool(pb_cfg.center_transitions),
+                    "below_floor_count": below_floor_count,
+                    "min_transition": min_transition,
+                    "mean_transition": mean_transition,
                     "repair_applied": False,  # No repair in pier bridge mode
                 },
                 params_requested={"strategy": "pier_bridge"},
@@ -514,6 +889,166 @@ def generate_playlist_ds(
     # All playlist construction now goes through pier-bridge.
 
     ordered_track_ids = [str(bundle.track_ids[i]) for i in playlist.track_indices]
+
+    # Post-order validation only: DS ordering must be final (no post-filtering).
+    expected_len = int(playlist_len)
+    excluded_ids_set = {str(t) for t in (excluded_track_ids or set())}
+    pier_ids_set = {str(t) for t in seed_track_ids_for_pier}
+    recency_overlap_ids = [
+        tid for tid in ordered_track_ids if (tid in excluded_ids_set and tid not in pier_ids_set)
+    ]
+    post_order_validation = {
+        "recency_overlap_count": int(len(recency_overlap_ids)),
+        "final_size": int(len(ordered_track_ids)),
+        "expected_size": int(expected_len),
+    }
+
+    validation_errors: list[str] = []
+    if expected_len > 0 and len(ordered_track_ids) != expected_len:
+        validation_errors.append(f"length_mismatch final={len(ordered_track_ids)} expected={expected_len}")
+
+    if recency_overlap_ids:
+        offenders: list[str] = []
+        for tid in recency_overlap_ids[:10]:
+            idx = bundle.track_id_to_index.get(str(tid))
+            if idx is None:
+                offenders.append(str(tid))
+                continue
+            artist = ""
+            title = ""
+            try:
+                if bundle.track_artists is not None:
+                    artist = str(bundle.track_artists[int(idx)])
+                elif bundle.artist_keys is not None:
+                    artist = str(bundle.artist_keys[int(idx)])
+                if bundle.track_titles is not None:
+                    title = str(bundle.track_titles[int(idx)])
+            except Exception:
+                artist = ""
+                title = ""
+            offenders.append(f"{tid} ({artist} - {title})")
+        validation_errors.append(f"recency_overlap={len(recency_overlap_ids)} offenders={offenders}")
+
+    if validation_errors:
+        msg = "post_order_validation_failed: " + " | ".join(validation_errors)
+        if audit_events is not None and audit_context is not None and audit_path is not None:
+            audit_events.append(
+                RunAuditEvent(
+                    kind="final_failure",
+                    ts_utc=now_utc_iso(),
+                    payload={
+                        "failure_reason": msg,
+                        "post_order_filters_applied": [],
+                        "post_order_validation": dict(post_order_validation),
+                    },
+                )
+            )
+            try:
+                write_markdown_report(
+                    context=audit_context,
+                    events=audit_events,
+                    path=audit_path,
+                    max_bytes=int(audit_cfg.max_bytes),
+                )
+            except Exception as write_exc:
+                logger.exception("Failed to write run audit report: %s", write_exc)
+            raise ValueError(f"{msg} (audit: {audit_path})")
+        raise ValueError(msg)
+    try:
+        if allowed_track_ids_set is not None:
+            logger.info(
+                "Allowed pool enforcement: allowed=%d playlist=%d",
+                len(allowed_track_ids_set),
+                len(ordered_track_ids),
+            )
+            enforce_allowed_invariant(ordered_track_ids, allowed_track_ids_set, context="final_playlist")
+    except Exception as exc:
+        if audit_events is not None and audit_context is not None and audit_path is not None:
+            audit_events.append(
+                RunAuditEvent(
+                    kind="final_failure",
+                    ts_utc=now_utc_iso(),
+                    payload={
+                        "failure_reason": f"allowed_set_invariant_failed: {exc}",
+                    },
+                )
+            )
+            try:
+                write_markdown_report(
+                    context=audit_context,
+                    events=audit_events,
+                    path=audit_path,
+                    max_bytes=int(audit_cfg.max_bytes),
+                )
+            except Exception as write_exc:
+                logger.exception("Failed to write run audit report: %s", write_exc)
+            raise ValueError(f"{exc} (audit: {audit_path})") from exc
+        raise
+
+    if audit_events is not None and audit_context is not None and audit_path is not None and bool(audit_cfg.write_on_success):
+        playlist_tracks: list[dict[str, Any]] = []
+        for idx in playlist.track_indices.tolist():
+            artist = ""
+            title = ""
+            try:
+                if bundle.artist_keys is not None:
+                    artist = str(bundle.artist_keys[int(idx)])
+                if bundle.track_titles is not None:
+                    title = str(bundle.track_titles[int(idx)])
+            except Exception:
+                artist = ""
+                title = ""
+            playlist_tracks.append(
+                {
+                    "track_id": str(bundle.track_ids[int(idx)]),
+                    "artist": artist,
+                    "title": title,
+                }
+            )
+
+        weakest_edges: list[dict[str, Any]] = []
+        try:
+            weakest_edges = sorted(
+                [e for e in (edge_scores_list or []) if isinstance(e, dict) and isinstance(e.get("T"), (int, float))],
+                key=lambda e: float(e.get("T")),
+            )[: min(10, len(edge_scores_list or []))]
+        except Exception:
+            weakest_edges = []
+
+        audit_events.append(
+            RunAuditEvent(
+                kind="final_success",
+                ts_utc=now_utc_iso(),
+                payload={
+                    "post_order_filters_applied": [],
+                    "post_order_validation": dict(post_order_validation),
+                    "playlist_tracks": playlist_tracks,
+                    "weakest_edges": weakest_edges,
+                    "summary_stats": {
+                        "final_playlist_size": int(len(ordered_track_ids)),
+                        "transition_floor": float(getattr(pb_cfg, "transition_floor", 0.0)),
+                        "below_floor_count": int(below_floor_count),
+                        "min_transition": min_transition,
+                        "mean_transition": mean_transition,
+                        "segment_bridge_floors_used": (pb_result.stats or {}).get("segment_bridge_floors_used"),
+                        "segment_backoff_attempts_used": (pb_result.stats or {}).get("segment_backoff_attempts_used"),
+                        "soft_genre_penalty_hits": (pb_result.stats or {}).get("soft_genre_penalty_hits"),
+                        "soft_genre_penalty_edges_scored": (pb_result.stats or {}).get("soft_genre_penalty_edges_scored"),
+                        "post_order_filters_applied": [],
+                        "post_order_validation": dict(post_order_validation),
+                    },
+                },
+            )
+        )
+        try:
+            write_markdown_report(
+                context=audit_context,
+                events=audit_events,
+                path=audit_path,
+                max_bytes=int(audit_cfg.max_bytes),
+            )
+        except Exception as write_exc:
+            logger.exception("Failed to write run audit report: %s", write_exc)
     params_requested = _params_from_config(cfg)
     if overrides:
         params_requested["overrides"] = overrides
@@ -527,6 +1062,12 @@ def generate_playlist_ds(
         "candidate_pool": pool.stats,
         "playlist": playlist.stats,
     }
+    if audit_path is not None:
+        try:
+            stats.setdefault("playlist", {})
+            stats["playlist"]["audit_path"] = str(audit_path)
+        except Exception:
+            pass
 
     return DSPipelineResult(
         track_ids=ordered_track_ids,
@@ -621,7 +1162,9 @@ def build_run_artifact(
     # Build track records
     tracks: List[TrackRecord] = []
     playlist_stats = result.stats.get("playlist", {})
+    pool_stats = result.stats.get("candidate_pool", {}) if isinstance(result.stats, dict) else {}
     edge_scores = playlist_stats.get("edge_scores", [])
+    seed_sonic_lookup = pool_stats.get("seed_sonic_sim_track_ids") or {}
 
     # Build seed_sim lookup from edge_scores or fallback
     seed_sim_lookup: Dict[str, float] = {}
@@ -629,13 +1172,14 @@ def build_run_artifact(
         idx = bundle.track_id_to_index.get(track_id)
         if idx is not None:
             # Try to get seed_sim from playlist stats
-            seed_sim = 0.0
-            if i == 0:
-                seed_sim = 1.0  # Seed itself
-            elif i - 1 < len(edge_scores):
-                # Approximate from edge data or use a placeholder
-                edge = edge_scores[i - 1] if i - 1 < len(edge_scores) else {}
-                seed_sim = edge.get("H", 0.0)  # Use hybrid as proxy
+            seed_sim = seed_sonic_lookup.get(str(track_id), 0.0)
+            if not seed_sim:
+                if i == 0:
+                    seed_sim = 1.0  # Seed itself
+                elif i - 1 < len(edge_scores):
+                    # Approximate from edge data or use a placeholder
+                    edge = edge_scores[i - 1] if i - 1 < len(edge_scores) else {}
+                    seed_sim = edge.get("H", 0.0)  # Use hybrid as proxy
 
             artist_key = str(bundle.artist_keys[idx]) if bundle.artist_keys is not None else ""
             artist_name = str(bundle.track_artists[idx]) if bundle.track_artists is not None else artist_key

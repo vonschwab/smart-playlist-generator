@@ -98,7 +98,7 @@ class TestEventFiltering:
 
         # Track emitted signals
         log_received = []
-        client.log_received.connect(lambda level, msg: log_received.append((level, msg)))
+        client.log_received.connect(lambda level, msg, job_id: log_received.append((level, msg, job_id)))
 
         # Process an event with matching request_id
         event_line = json.dumps({
@@ -111,7 +111,19 @@ class TestEventFiltering:
         client._process_event_line(event_line)
 
         assert len(log_received) == 1
-        assert log_received[0] == ("INFO", "Test message")
+        assert log_received[0] == ("INFO", "Test message", None)
+
+    def test_log_signal_signature_enforced(self):
+        """Signals must include job_id and reject wrong arity."""
+        from src.playlist_gui.worker_client import WorkerClient
+        import pytest
+
+        client = WorkerClient()
+        # Missing job_id should raise
+        with pytest.raises(TypeError):
+            client.log_received.emit("INFO", "msg")
+        # Correct arity passes
+        client.log_received.emit("INFO", "msg", None)
 
     def test_events_with_mismatched_request_id_are_filtered(self):
         """Test that events with different request_id are filtered out."""
@@ -124,7 +136,7 @@ class TestEventFiltering:
         # Track emitted signals
         progress_received = []
         client.progress_received.connect(
-            lambda stage, cur, tot, det: progress_received.append((stage, cur, tot))
+            lambda stage, cur, tot, det, job_id: progress_received.append((stage, cur, tot, det, job_id))
         )
 
         # Process an event with different request_id (stale event)
@@ -150,7 +162,7 @@ class TestEventFiltering:
         client._busy = True
 
         log_received = []
-        client.log_received.connect(lambda level, msg: log_received.append((level, msg)))
+        client.log_received.connect(lambda level, msg, job_id: log_received.append((level, msg, job_id)))
 
         # Process a legacy event without request_id
         event_line = json.dumps({
@@ -163,7 +175,7 @@ class TestEventFiltering:
 
         # Should still be processed
         assert len(log_received) == 1
-        assert log_received[0] == ("WARNING", "Legacy message")
+        assert log_received[0] == ("WARNING", "Legacy message", None)
 
     def test_done_event_clears_active_request(self):
         """Test that done event clears the active request."""
@@ -176,7 +188,9 @@ class TestEventFiltering:
 
         done_received = []
         client.done_received.connect(
-            lambda cmd, ok, detail, cancelled: done_received.append((cmd, ok, cancelled))
+            lambda cmd, ok, detail, cancelled, job_id, summary: done_received.append(
+                (cmd, ok, cancelled, job_id, summary)
+            )
         )
 
         # Process done event
@@ -194,7 +208,18 @@ class TestEventFiltering:
         assert client._active_request_id is None
         assert client.is_busy() is False
         assert len(done_received) == 1
-        assert done_received[0] == ("generate_playlist", True, False)
+        assert done_received[0] == ("generate_playlist", True, False, None, "")
+
+    def test_done_signal_signature_enforced(self):
+        """Done signal must include job_id and summary."""
+        from src.playlist_gui.worker_client import WorkerClient
+        import pytest
+
+        client = WorkerClient()
+        with pytest.raises(TypeError):
+            client.done_received.emit("cmd", True, "detail", False)
+        # Correct arity
+        client.done_received.emit("cmd", True, "detail", False, None, "")
 
 
 class TestCancellation:
@@ -241,7 +266,9 @@ class TestCancellation:
 
         done_received = []
         client.done_received.connect(
-            lambda cmd, ok, detail, cancelled: done_received.append((cmd, ok, cancelled))
+            lambda cmd, ok, detail, cancelled, job_id, summary: done_received.append(
+                (cmd, ok, cancelled, job_id, summary)
+            )
         )
 
         # Process cancelled done event
@@ -257,10 +284,12 @@ class TestCancellation:
         client._process_event_line(event_line)
 
         assert len(done_received) == 1
-        cmd, ok, cancelled = done_received[0]
+        cmd, ok, cancelled, job_id, summary = done_received[0]
         assert cmd == "generate_playlist"
         assert ok is False
         assert cancelled is True
+        assert job_id is None
+        assert summary == ""
 
 
 class TestWorkerState:
@@ -271,7 +300,7 @@ class TestWorkerState:
         from src.playlist_gui.worker import WorkerState
 
         state = WorkerState()
-        state.start_request("test-id", "generate_playlist")
+        state.start_request("test-id", "generate_playlist", job_id=None)
 
         assert state.current_request_id == "test-id"
         assert state.current_cmd == "generate_playlist"
@@ -282,7 +311,7 @@ class TestWorkerState:
         from src.playlist_gui.worker import WorkerState
 
         state = WorkerState()
-        state.start_request("test-id", "generate_playlist")
+        state.start_request("test-id", "generate_playlist", job_id=None)
 
         # Cancel with matching ID should succeed
         result = state.request_cancel("test-id")
@@ -294,7 +323,7 @@ class TestWorkerState:
         from src.playlist_gui.worker import WorkerState
 
         state = WorkerState()
-        state.start_request("test-id", "generate_playlist")
+        state.start_request("test-id", "generate_playlist", job_id=None)
 
         # Cancel with different ID should fail
         result = state.request_cancel("wrong-id")
@@ -306,7 +335,7 @@ class TestWorkerState:
         from src.playlist_gui.worker import WorkerState, CancellationError
 
         state = WorkerState()
-        state.start_request("test-id", "generate_playlist")
+        state.start_request("test-id", "generate_playlist", job_id=None)
         state.request_cancel("test-id")
 
         with pytest.raises(CancellationError):
@@ -317,7 +346,7 @@ class TestWorkerState:
         from src.playlist_gui.worker import WorkerState
 
         state = WorkerState()
-        state.start_request("test-id", "generate_playlist")
+        state.start_request("test-id", "generate_playlist", job_id=None)
         state.request_cancel("test-id")
         state.end_request()
 

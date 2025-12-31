@@ -51,6 +51,8 @@ try {
         "--hidden-import", "PySide6.QtGui",
         "--hidden-import", "yaml",
         "--hidden-import", "platformdirs",
+        "--hidden-import", "playlist_gui",
+        "--hidden-import", "playlist_gui.worker",
         "--hidden-import", "src.playlist_gui",
         "--hidden-import", "src.playlist_gui.worker",
         "--hidden-import", "src.config_loader",

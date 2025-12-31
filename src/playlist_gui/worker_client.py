@@ -13,10 +13,14 @@ Protocol Version: 1
 import json
 import sys
 import uuid
+import logging
+import os
 from pathlib import Path
 from typing import Any, Dict, Optional
+from .utils.redaction import redact_text
+from .utils.bounded_buffer import BoundedBuffer
 
-from PySide6.QtCore import QObject, QProcess, QTimer, Signal, Slot
+from PySide6.QtCore import QObject, QProcess, QTimer, Signal, Slot, QProcessEnvironment
 
 
 # Protocol version
@@ -52,11 +56,11 @@ class WorkerClient(QObject):
     """
 
     # Signals for event routing
-    log_received = Signal(str, str)  # level, message
-    progress_received = Signal(str, int, int, str)  # stage, current, total, detail
-    result_received = Signal(str, dict)  # result_type, data
-    error_received = Signal(str, str)  # message, traceback
-    done_received = Signal(str, bool, str, bool)  # cmd, ok, detail, cancelled
+    log_received = Signal(str, str, object)  # level, message, job_id
+    progress_received = Signal(str, int, int, str, object)  # stage, current, total, detail, job_id
+    result_received = Signal(str, dict, object)  # result_type, data, job_id
+    error_received = Signal(str, str, object)  # message, traceback, job_id
+    done_received = Signal(str, bool, str, bool, object, str)  # cmd, ok, detail, cancelled, job_id, summary
     worker_started = Signal()
     worker_stopped = Signal(int, str)  # exit_code, exit_status
     busy_changed = Signal(bool)  # is_busy
@@ -70,7 +74,12 @@ class WorkerClient(QObject):
         # Request tracking
         self._active_request_id: Optional[str] = None
         self._active_cmd: Optional[str] = None
+        self._active_job_id: Optional[str] = None
         self._busy = False
+        self._manual_stop = False
+        self._event_buffer: BoundedBuffer = BoundedBuffer()
+        self._last_exit_busy = False
+        self._logger = logging.getLogger("playlist_gui.worker_client")
 
         # Cancellation escalation
         self._cancel_timer: Optional[QTimer] = None
@@ -87,6 +96,23 @@ class WorkerClient(QObject):
     def get_active_request_id(self) -> Optional[str]:
         """Get the current active request ID, if any."""
         return self._active_request_id
+
+    def get_active_job_id(self) -> Optional[str]:
+        """Get the current active job ID, if any."""
+        return self._active_job_id
+
+    def get_event_buffer(self) -> list:
+        """Return a copy of recent worker events (redacted strings)."""
+        return self._event_buffer.items()
+
+    def get_pid(self) -> Optional[int]:
+        """Return worker process id if running."""
+        if self._process:
+            return int(self._process.processId()) if self._process.processId() else None
+        return None
+
+    def was_busy_on_last_exit(self) -> bool:
+        return self._last_exit_busy
 
     def _set_busy(self, busy: bool) -> None:
         """Set busy state and emit signal if changed."""
@@ -108,8 +134,17 @@ class WorkerClient(QObject):
         if self._running:
             return True
 
+        self._manual_stop = False
         self._process = QProcess(self)
         self._process.setProcessChannelMode(QProcess.SeparateChannels)
+
+        # Ensure worker can import the src/ layout without editable install
+        env = QProcessEnvironment.systemEnvironment()
+        src_dir = Path(__file__).resolve().parent.parent
+        existing = env.value("PYTHONPATH")
+        new_py_path = f"{src_dir}{os.pathsep}{existing}" if existing else str(src_dir)
+        env.insert("PYTHONPATH", new_py_path)
+        self._process.setProcessEnvironment(env)
 
         # Connect signals
         self._process.readyReadStandardOutput.connect(self._on_stdout_ready)
@@ -137,6 +172,7 @@ class WorkerClient(QObject):
         if not self._running or not self._process:
             return
 
+        self._manual_stop = True
         # Close stdin to signal EOF
         self._process.closeWriteChannel()
 
@@ -148,24 +184,30 @@ class WorkerClient(QObject):
 
         self._running = False
 
-    def send_command(self, cmd_data: Dict[str, Any], track_request: bool = True) -> Optional[str]:
+    def send_command(
+        self,
+        cmd_data: Dict[str, Any],
+        track_request: bool = True,
+        job_id: Optional[str] = None,
+    ) -> Optional[str]:
         """
         Send a command to the worker.
 
         Args:
             cmd_data: Command dictionary with at least a 'cmd' key.
             track_request: If True, generate request_id and track as active.
+            job_id: Optional job identifier for correlation with job manager.
 
         Returns:
             The request_id if successful, None otherwise.
         """
         if not self._running or not self._process:
-            self.error_received.emit("Worker not running", "")
+            self.error_received.emit("Worker not running", "", job_id)
             return None
 
         # Check if busy (single active job MVP)
         if track_request and self._busy:
-            self.error_received.emit("Worker is busy with another request", "")
+            self.error_received.emit("Worker is busy with another request", "", None)
             return None
 
         # Generate and add request_id
@@ -174,11 +216,16 @@ class WorkerClient(QObject):
             request_id = self._generate_request_id()
             cmd_data["request_id"] = request_id
             cmd_data["protocol_version"] = PROTOCOL_VERSION
+            if job_id:
+                cmd_data["job_id"] = job_id
 
             # Track this request
             self._active_request_id = request_id
             self._active_cmd = cmd_data.get("cmd")
+            self._active_job_id = job_id or cmd_data.get("job_id")
             self._set_busy(True)
+        elif job_id and "job_id" not in cmd_data:
+            cmd_data["job_id"] = job_id
 
         try:
             line = json.dumps(cmd_data) + "\n"
@@ -190,9 +237,10 @@ class WorkerClient(QObject):
                 if track_request:
                     self._clear_active_request()
                 return None
+            self._logger.info("Sent command to worker: %s", cmd_data.get("cmd"))
             return request_id
         except Exception as e:
-            self.error_received.emit(f"Failed to send command: {e}", "")
+            self.error_received.emit(f"Failed to send command: {e}", "", job_id)
             if track_request:
                 self._clear_active_request()
             return None
@@ -201,6 +249,7 @@ class WorkerClient(QObject):
         """Clear the active request state."""
         self._active_request_id = None
         self._active_cmd = None
+        self._active_job_id = None
         self._set_busy(False)
         self._stop_cancel_timer()
 
@@ -220,11 +269,11 @@ class WorkerClient(QObject):
         """
         target_id = request_id or self._active_request_id
         if not target_id:
-            self.log_received.emit("WARNING", "No active request to cancel")
+            self.log_received.emit("WARNING", "No active request to cancel", None)
             return False
 
         if not self._running or not self._process:
-            self.log_received.emit("WARNING", "Worker not running")
+            self.log_received.emit("WARNING", "Worker not running", None)
             return False
 
         # Send cancel command (untracked - doesn't set busy)
@@ -234,12 +283,12 @@ class WorkerClient(QObject):
             data = line.encode("utf-8")
             bytes_written = self._process.write(data)
             if bytes_written >= 0:
-                self.log_received.emit("INFO", f"Cancellation requested for {target_id[:8]}...")
+                self.log_received.emit("INFO", f"Cancellation requested for {target_id[:8]}...", None)
                 self._start_cancel_timer()
                 return True
             return False
         except Exception as e:
-            self.error_received.emit(f"Failed to send cancel: {e}", "")
+            self.error_received.emit(f"Failed to send cancel: {e}", "", None)
             return False
 
     def _start_cancel_timer(self) -> None:
@@ -263,7 +312,7 @@ class WorkerClient(QObject):
         if not self._busy:
             return  # Already completed
 
-        self.log_received.emit("WARNING", "Worker not responding to cancel, terminating...")
+        self.log_received.emit("WARNING", "Worker not responding to cancel, terminating...", None)
 
         # Force kill the worker
         if self._process:
@@ -274,7 +323,7 @@ class WorkerClient(QObject):
         self._clear_active_request()
 
         # Auto-restart the worker
-        self.log_received.emit("INFO", "Restarting worker process...")
+        self.log_received.emit("INFO", "Restarting worker process...", None)
         self.start()
 
     def force_kill(self) -> None:
@@ -292,7 +341,8 @@ class WorkerClient(QObject):
         mode: str = "history",
         artist: Optional[str] = None,
         track: Optional[str] = None,
-        tracks: int = 30
+        tracks: int = 30,
+        job_id: Optional[str] = None,
     ) -> Optional[str]:
         """
         Send a generate_playlist command.
@@ -314,44 +364,89 @@ class WorkerClient(QObject):
         if track:
             args["track"] = track
 
-        return self.send_command({
-            "cmd": "generate_playlist",
-            "base_config_path": config_path,
-            "overrides": overrides,
-            "args": args
-        })
+        return self.send_command(
+            {
+                "cmd": "generate_playlist",
+                "base_config_path": config_path,
+                "overrides": overrides,
+                "args": args,
+            },
+            job_id=job_id,
+        )
 
-    def scan_library(self, config_path: str, overrides: Optional[Dict[str, Any]] = None) -> Optional[str]:
+    def scan_library(
+        self,
+        config_path: str,
+        overrides: Optional[Dict[str, Any]] = None,
+        job_id: Optional[str] = None,
+    ) -> Optional[str]:
         """Send a scan_library command. Returns request_id if successful."""
-        return self.send_command({
-            "cmd": "scan_library",
-            "base_config_path": config_path,
-            "overrides": overrides or {}
-        })
+        return self.send_command(
+            {
+                "cmd": "scan_library",
+                "base_config_path": config_path,
+                "overrides": overrides or {},
+            },
+            job_id=job_id,
+        )
 
-    def update_genres(self, config_path: str, overrides: Optional[Dict[str, Any]] = None) -> Optional[str]:
+    def update_genres(
+        self,
+        config_path: str,
+        overrides: Optional[Dict[str, Any]] = None,
+        job_id: Optional[str] = None,
+    ) -> Optional[str]:
         """Send an update_genres command. Returns request_id if successful."""
-        return self.send_command({
-            "cmd": "update_genres",
-            "base_config_path": config_path,
-            "overrides": overrides or {}
-        })
+        return self.send_command(
+            {
+                "cmd": "update_genres",
+                "base_config_path": config_path,
+                "overrides": overrides or {},
+            },
+            job_id=job_id,
+        )
 
-    def update_sonic(self, config_path: str, overrides: Optional[Dict[str, Any]] = None) -> Optional[str]:
+    def update_sonic(
+        self,
+        config_path: str,
+        overrides: Optional[Dict[str, Any]] = None,
+        job_id: Optional[str] = None,
+    ) -> Optional[str]:
         """Send an update_sonic command. Returns request_id if successful."""
-        return self.send_command({
-            "cmd": "update_sonic",
-            "base_config_path": config_path,
-            "overrides": overrides or {}
-        })
+        return self.send_command(
+            {
+                "cmd": "update_sonic",
+                "base_config_path": config_path,
+                "overrides": overrides or {},
+            },
+            job_id=job_id,
+        )
 
-    def build_artifacts(self, config_path: str, overrides: Optional[Dict[str, Any]] = None) -> Optional[str]:
+    def build_artifacts(
+        self,
+        config_path: str,
+        overrides: Optional[Dict[str, Any]] = None,
+        job_id: Optional[str] = None,
+    ) -> Optional[str]:
         """Send a build_artifacts command. Returns request_id if successful."""
-        return self.send_command({
-            "cmd": "build_artifacts",
-            "base_config_path": config_path,
-            "overrides": overrides or {}
-        })
+        return self.send_command(
+            {
+                "cmd": "build_artifacts",
+                "base_config_path": config_path,
+                "overrides": overrides or {},
+            },
+            job_id=job_id,
+        )
+
+    def doctor(self, config_path: str, overrides: Optional[Dict[str, Any]] = None) -> Optional[str]:
+        """Send diagnostics command."""
+        return self.send_command(
+            {
+                "cmd": "doctor",
+                "base_config_path": config_path,
+                "overrides": overrides or {},
+            }
+        )
 
     # ─────────────────────────────────────────────────────────────────────────
     # Private Methods
@@ -360,7 +455,14 @@ class WorkerClient(QObject):
     def _find_worker_path(self) -> str:
         """Find the worker module path."""
         # The worker is at src/playlist_gui/worker.py
-        # It can be run as: python -m src.playlist_gui.worker
+        # Prefer the installed package name; fall back to src.* when running from source.
+        try:  # pragma: no cover - simple import probe
+            import importlib.util
+
+            if importlib.util.find_spec("playlist_gui.worker"):
+                return "playlist_gui.worker"
+        except Exception:
+            pass
         return "src.playlist_gui.worker"
 
     @Slot()
@@ -392,20 +494,26 @@ class WorkerClient(QObject):
         # Emit stderr as warning logs
         for line in text.strip().split("\n"):
             if line.strip():
-                self.log_received.emit("WARNING", f"[stderr] {line}")
+                self.log_received.emit("WARNING", f"[stderr] {line}", None)
 
     @Slot()
     def _on_started(self) -> None:
         """Handle worker process start."""
         self._running = True
+        self._logger.info("Worker process started (pid=%s)", self.get_pid())
         self.worker_started.emit()
 
     @Slot(int, QProcess.ExitStatus)
     def _on_finished(self, exit_code: int, exit_status: QProcess.ExitStatus) -> None:
         """Handle worker process finish."""
+        self._last_exit_busy = self._busy
+        self._clear_active_request()
         self._running = False
         status_str = "normal" if exit_status == QProcess.NormalExit else "crashed"
+        self._logger.warning("Worker stopped (code=%s, status=%s, busy=%s)", exit_code, status_str, self._last_exit_busy)
         self.worker_stopped.emit(exit_code, status_str)
+        if not self._manual_stop:
+            QTimer.singleShot(500, self.start)
 
     @Slot(QProcess.ProcessError)
     def _on_error(self, error: QProcess.ProcessError) -> None:
@@ -419,7 +527,7 @@ class WorkerClient(QObject):
             QProcess.UnknownError: "Unknown worker error",
         }
         msg = error_messages.get(error, "Unknown error")
-        self.error_received.emit(msg, "")
+        self.error_received.emit(msg, "", None)
 
     def _process_event_line(self, line: str) -> None:
         """Parse and route an event line with request_id filtering."""
@@ -431,7 +539,13 @@ class WorkerClient(QObject):
             event = json.loads(line)
         except json.JSONDecodeError:
             # Not JSON, treat as raw log
-            self.log_received.emit("INFO", line)
+            red = redact_text(line)
+            self._logger.warning("Malformed event from worker: %s", red)
+            self.log_received.emit("INFO", red, None)
+            try:
+                self._event_buffer.append(red)
+            except Exception:
+                pass
             return
 
         event_type = event.get("type")
@@ -440,6 +554,7 @@ class WorkerClient(QObject):
 
         # Check request_id correlation
         event_request_id = event.get("request_id")
+        event_job_id = event.get("job_id")
 
         # Filter events: only process if request_id matches or is missing (legacy)
         if event_request_id and self._active_request_id:
@@ -447,40 +562,52 @@ class WorkerClient(QObject):
                 # Stale event from a previous request - ignore
                 self.log_received.emit(
                     "DEBUG",
-                    f"Ignoring stale event for {event_request_id[:8]}..."
+                    f"Ignoring stale event for {event_request_id[:8]}...",
+                    None,
                 )
                 return
 
         if event_type == "log":
             self.log_received.emit(
                 event.get("level", "INFO"),
-                event.get("msg", "")
+                event.get("msg", ""),
+                event_job_id,
             )
         elif event_type == "progress":
             self.progress_received.emit(
                 event.get("stage", ""),
                 event.get("current", 0),
                 event.get("total", 100),
-                event.get("detail", "")
+                event.get("detail", ""),
+                event_job_id,
             )
         elif event_type == "result":
             result_type = event.get("result_type", "unknown")
             # Remove type and result_type, pass rest as data
-            data = {k: v for k, v in event.items() if k not in ("type", "result_type", "request_id")}
-            self.result_received.emit(result_type, data)
+            data = {k: v for k, v in event.items() if k not in ("type", "result_type", "request_id", "job_id")}
+            self.result_received.emit(result_type, data, event_job_id)
         elif event_type == "error":
             self.error_received.emit(
                 event.get("message", "Unknown error"),
-                event.get("traceback", "")
+                event.get("traceback", ""),
+                event_job_id,
             )
         elif event_type == "done":
             cancelled = event.get("cancelled", False)
+            summary = event.get("summary", "")
             self.done_received.emit(
                 event.get("cmd", ""),
                 event.get("ok", False),
                 event.get("detail", ""),
-                cancelled
+                cancelled,
+                event_job_id,
+                summary,
             )
             # Clear active request when done
             if event_request_id == self._active_request_id or not event_request_id:
                 self._clear_active_request()
+
+        try:
+            self._event_buffer.append(redact_text(line))
+        except Exception:
+            pass

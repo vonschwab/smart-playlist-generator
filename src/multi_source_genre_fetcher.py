@@ -207,8 +207,6 @@ class MusicBrainzGenreFetcher:
 
 # Example usage
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-
     fetcher = MusicBrainzGenreFetcher()
 
     # Test with an artist

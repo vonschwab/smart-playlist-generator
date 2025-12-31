@@ -1,23 +1,20 @@
+#!/usr/bin/env python3
 """
 Import MusicBrainz track IDs (MBIDs) into metadata.db without retagging files.
 
 Usage:
     python scripts/import_mbids_from_csv.py --mapping path/to/mbids.csv --db data/metadata.db
-
-CSV requirements:
-    - Must have headers.
-    - Acceptable column names for MBID: musicbrainz_id, mbid, track_mbid
-    - Acceptable column names for path: file_path, path
-    - Extra columns are ignored.
-
-The script matches rows to tracks.file_path and updates tracks.musicbrainz_id.
-No audio files are modified.
 """
 import argparse
 import csv
+import logging
 import sqlite3
 from pathlib import Path
 from typing import Dict, Tuple
+
+from src.logging_utils import configure_logging, add_logging_args, resolve_log_level
+
+logger = logging.getLogger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
@@ -32,6 +29,7 @@ def parse_args() -> argparse.Namespace:
         default="data/metadata.db",
         help="Path to metadata.db (default: data/metadata.db)",
     )
+    add_logging_args(parser)
     return parser.parse_args()
 
 
@@ -54,7 +52,6 @@ def load_mapping(path: Path) -> Dict[str, str]:
             file_path = (row.get(path_col) or "").strip()
             if not mbid or not file_path:
                 continue
-            # Normalize path for consistent matching
             normalized_path = str(Path(file_path).resolve())
             mapping[normalized_path] = mbid
         return mapping
@@ -80,15 +77,19 @@ def update_db(db_path: Path, mapping: Dict[str, str]) -> Tuple[int, int]:
             "UPDATE tracks SET musicbrainz_id = ? WHERE file_path = ?",
             (mbid, path),
         )
-        updated += cur.rowcount
+        updated += 1
 
     conn.commit()
     conn.close()
     return updated, missing
 
 
-def main() -> None:
+def main():
     args = parse_args()
+    log_level = resolve_log_level(args)
+    log_file = getattr(args, "log_file", None) or "import_mbids.log"
+    configure_logging(level=log_level, log_file=log_file)
+
     mapping_path = Path(args.mapping)
     db_path = Path(args.db)
 
@@ -98,12 +99,12 @@ def main() -> None:
         raise FileNotFoundError(f"Database file not found: {db_path}")
 
     mapping = load_mapping(mapping_path)
-    print(f"Loaded {len(mapping)} MBID mappings from {mapping_path}")
+    logger.info("Loaded %d MBID mappings from %s", len(mapping), mapping_path)
 
     updated, missing = update_db(db_path, mapping)
-    print(f"Updated {updated} tracks with MBIDs")
+    logger.info("Updated %d tracks with MBIDs", updated)
     if missing:
-        print(f"{missing} paths in mapping not found in tracks.file_path")
+        logger.warning("%d paths in mapping not found in tracks.file_path", missing)
 
 
 if __name__ == "__main__":

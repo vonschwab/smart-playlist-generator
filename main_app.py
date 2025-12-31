@@ -307,7 +307,15 @@ class PlaylistApp:
             # Log to file but keep console clean
             self.logger.info(f"Generating playlist for: {artist_name} (dry_run={dry_run})")
 
-            playlist_data = self._generate_single_artist_playlist(artist_name, track_count, track_title, dynamic, verbose, artist_only)
+            playlist_data = self._generate_single_artist_playlist(
+                artist_name,
+                track_count,
+                track_title,
+                dynamic,
+                dry_run,
+                verbose,
+                artist_only,
+            )
 
             if not playlist_data:
                 header("PLAYLIST GENERATION FAILED", f"Artist: {artist_name}")
@@ -377,13 +385,23 @@ class PlaylistApp:
             handler.setLevel(logging.DEBUG)
         self.logger.info("Verbose logging enabled")
 
-    def _generate_single_artist_playlist(self, artist_name: str, track_count: int, track_title: Optional[str], dynamic: bool, verbose: bool, artist_only: bool) -> Optional[Dict[str, Any]]:
+    def _generate_single_artist_playlist(
+        self,
+        artist_name: str,
+        track_count: int,
+        track_title: Optional[str],
+        dynamic: bool,
+        dry_run: bool,
+        verbose: bool,
+        artist_only: bool,
+    ) -> Optional[Dict[str, Any]]:
         """Generate playlist data for a single artist."""
         return self.generator.create_playlist_for_artist(
             artist_name,
             track_count,
             track_title=track_title,
             dynamic=dynamic,
+            dry_run=dry_run,
             verbose=verbose,
             ds_mode_override=self.ds_mode_override,
             artist_only=artist_only,
@@ -449,6 +467,21 @@ def main():
         ],
         help="Override sonic similarity variant for DS pipeline (env has highest priority).",
     )
+    parser.add_argument(
+        "--audit-run",
+        action="store_true",
+        help="Write a detailed pier-bridge markdown audit report for this run (see playlists.ds_pipeline.pier_bridge.audit_run).",
+    )
+    parser.add_argument(
+        "--audit-run-dir",
+        type=str,
+        help="Override run audit output directory (default: docs/run_audits).",
+    )
+    parser.add_argument(
+        "--pb-backoff",
+        action="store_true",
+        help="Enable optional pier-bridge infeasible backoff for this run (see playlists.ds_pipeline.pier_bridge.infeasible_handling).",
+    )
     # Add standard logging arguments
     add_logging_args(parser)
     args = parser.parse_args()
@@ -484,12 +517,19 @@ def main():
         app = PlaylistApp(
             ds_mode_override=getattr(args, 'ds_mode', None),
         )
-        # propagate explicit variant into generator (CLI > env > config)
+        # propagate explicit variant into generator (CLI > env > config)  
         app.generator.sonic_variant = resolve_sonic_variant(
-            explicit_variant=getattr(args, "sonic_variant", None),
-            config_variant=getattr(app.generator, "sonic_variant", None),
+            explicit_variant=getattr(args, "sonic_variant", None),        
+            config_variant=getattr(app.generator, "sonic_variant", None),  
         )
-        dynamic_flag = getattr(args, "ds_mode", None) == "dynamic"
+        # Runtime flags (do not change defaults unless enabled)
+        if getattr(args, "audit_run", False):
+            app.generator._audit_run_enabled = True
+        if getattr(args, "audit_run_dir", None):
+            app.generator._audit_run_dir = str(getattr(args, "audit_run_dir"))
+        if getattr(args, "pb_backoff", False):
+            app.generator._pb_backoff_enabled = True
+        dynamic_flag = getattr(args, "ds_mode", None) == "dynamic"        
         if args.dry_run:
             section("DRY RUN MODE")
             bullet("No playlists will be created or exported")

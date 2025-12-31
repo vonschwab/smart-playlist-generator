@@ -1,6 +1,6 @@
 # Playlist Generator
 
-**Version 3.1** - AI-powered music playlist generation with a Windows GUI, accent-insensitive artist matching, MusicBrainz MBID enrichment, and the beat3tower DS pipeline.
+**Version 3.2** - AI-powered music playlist generation with a Windows GUI, accent-insensitive artist matching, MusicBrainz MBID enrichment, and the beat3tower DS pipeline.
 
 ## Overview
 
@@ -16,6 +16,8 @@ This system generates intelligent playlists by combining:
 ```bash
 # 1. Install dependencies
 pip install -r requirements.txt
+pip install -r requirements-gui.txt
+pip install -e .
 
 # 2. Configure
 cp config.example.yaml config.yaml
@@ -46,7 +48,7 @@ python scripts/build_beat3tower_artifacts.py \
 python main_app.py --artist "Radiohead" --tracks 30
 
 # 10. Launch the GUI (Windows)
-python -m src.playlist_gui.app
+python -m playlist_gui.app
 ```
 
 See [docs/GOLDEN_COMMANDS.md](docs/GOLDEN_COMMANDS.md) for complete command reference.
@@ -102,12 +104,17 @@ See [docs/GOLDEN_COMMANDS.md](docs/GOLDEN_COMMANDS.md) for complete command refe
 python main_app.py --artist "Radiohead" --ds-mode discover
 ```
 
-## GUI Highlights (3.1)
+## DS Run Audits (3.2)
+- Per-run markdown audits: add `--audit-run` (optional `--audit-run-dir docs/run_audits`) to record pool sizes, segment gating, scoring, and post-order validation.
+- Infeasible segment handling (optional): add `--pb-backoff` to retry segments with a deterministic `bridge_floor` backoff (attempts are recorded in the audit).
+- Recency invariant: Last.fm/local recency exclusions are applied **pre-order only**; verify logs include exactly one `stage=candidate_pool | Last.fm recency exclusions: ...` line and one `stage=post_order_validation | ...` line.
+
+## GUI Highlights (3.2)
 - Accent-insensitive artist autocomplete (type “Joao” and see “João Gilberto”).
 - Track table export buttons fixed; context menu still available.
 - Progress/log panels wired to worker with request correlation.
 
-## MBID Enrichment (3.1)
+## MBID Enrichment (3.2)
 - `scripts/fetch_mbids_musicbrainz.py` queries MusicBrainz by artist/title (with collab/feature handling) and writes MBIDs to `tracks.musicbrainz_id` (no file writes). Uses skip markers (`__NO_MATCH__`, `__ERROR__`); reprocess with `--force-no-match`/`--force-error` or all with `--force-all`.
 - `scripts/analyze_library.py` supports a `mbid` stage: `--stages scan,mbid,genres,...` to enrich during full runs.
 - Last.FM matching now prefers MBIDs for instant, exact mapping.
@@ -119,6 +126,14 @@ python main_app.py --artist "Radiohead" --ds-mode discover
 - [Configuration](docs/CONFIG.md) - Config file reference
 - [Troubleshooting](docs/TROUBLESHOOTING.md) - Common issues and fixes
 - [Logging](docs/LOGGING.md) - Logging configuration and audit notes
+
+### Diagnostics & Support
+- GUI logs: `%APPDATA%\PlaylistGenerator\logs\playlist_gui.log` (rotates 5 x 2MB). Secret-aware redaction is applied to all UI/worker lines.
+- Copy/Save Debug Report: Help -> Copy Debug Report or Save Debug Report. Copies/saves a redacted bundle (environment, config path, preset/mode, last job, readiness checks, tail of GUI/worker logs).
+- Readiness banner: non-modal warning at the top of the window when prerequisites are missing (config/DB/artifacts/worker). Shows `Last checked: HH:MM` with CTAs to re-run checks, open Jobs, queue Scan/Artifacts, copy debug report, retry queue, or dismiss.
+- Layout persistence: window/dock layout, last config path, mode, artist query, preset, and track filter are restored via QSettings. Reset via View -> Reset UI Layout.
+- Doctor command: `{"cmd":"doctor","request_id":"<uuid>","base_config_path":"...","overrides":{}}` returns quick check results.
+- Jobs pane: Queue/History filter; Clear Pending empties the queue immediately (pending count drops to zero).
 
 ## License
 

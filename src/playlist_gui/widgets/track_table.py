@@ -78,6 +78,13 @@ class TrackTable(QWidget):
         # Settings
         self._double_click_opens_file = True
         self._playlist_name = "Playlist"
+        # Optional column visibility (default hidden to keep layout compact)
+        self._column_visibility = {
+            Column.SONIC_SIM: False,
+            Column.GENRE_SIM: False,
+            Column.GENRES: False,
+            Column.FILE_PATH: True,  # still shown by default but toggleable
+        }
 
         # Setup models
         self._model = TrackTableModel(self)
@@ -152,12 +159,19 @@ class TrackTable(QWidget):
         header.setSectionResizeMode(Column.TITLE, QHeaderView.Stretch)
         header.setSectionResizeMode(Column.ALBUM, QHeaderView.Interactive)
         header.setSectionResizeMode(Column.DURATION, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(Column.SONIC_SIM, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(Column.GENRE_SIM, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(Column.GENRES, QHeaderView.Interactive)
         header.setSectionResizeMode(Column.FILE_PATH, QHeaderView.Interactive)
 
         # Set default column widths
         self._table.setColumnWidth(Column.ARTIST, 150)
         self._table.setColumnWidth(Column.ALBUM, 150)
+        self._table.setColumnWidth(Column.SONIC_SIM, 90)
+        self._table.setColumnWidth(Column.GENRE_SIM, 90)
+        self._table.setColumnWidth(Column.GENRES, 220)
         self._table.setColumnWidth(Column.FILE_PATH, 300)
+        self._apply_column_visibility()
 
         # Vertical header (row numbers) hidden
         self._table.verticalHeader().setVisible(False)
@@ -171,6 +185,15 @@ class TrackTable(QWidget):
         self._table.customContextMenuRequested.connect(self._show_context_menu)
 
         layout.addWidget(self._table)
+
+    # Persistence helpers
+    def get_filter_text(self) -> str:
+        """Return current filter text."""
+        return self._filter_edit.text()
+
+    def set_filter_text(self, text: str) -> None:
+        """Restore filter text."""
+        self._filter_edit.setText(text or "")
 
     def _setup_shortcuts(self) -> None:
         """Setup keyboard shortcuts."""
@@ -393,7 +416,30 @@ class TrackTable(QWidget):
             lambda: self._export_m3u8(self.get_tracks())
         )
 
+        # Column visibility submenu
+        columns_menu = menu.addMenu("Columns")
+        for col, label in [
+            (Column.SONIC_SIM, "Sonic Similarity"),
+            (Column.GENRE_SIM, "Genre Similarity"),
+            (Column.GENRES, "Genres"),
+            (Column.FILE_PATH, "File Path"),
+        ]:
+            action = columns_menu.addAction(label)
+            action.setCheckable(True)
+            action.setChecked(self._column_visibility.get(col, True))
+            action.triggered.connect(lambda checked, c=col: self._toggle_column(c, checked))
+
         menu.exec(global_pos)
+
+    def _apply_column_visibility(self) -> None:
+        """Hide or show optional columns based on current settings."""
+        for col, visible in self._column_visibility.items():
+            self._table.setColumnHidden(col, not visible)
+
+    def _toggle_column(self, column: int, visible: bool) -> None:
+        """Toggle a column visibility and persist state."""
+        self._column_visibility[column] = visible
+        self._apply_column_visibility()
 
     # ─────────────────────────────────────────────────────────────────────────
     # Copy actions

@@ -725,10 +725,8 @@ def main() -> None:
     args = parse_args()
 
     log_level = logging.DEBUG if args.verbose else logging.INFO
-    logging.basicConfig(
-        level=log_level,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    )
+    from src.logging_utils import configure_logging
+    configure_logging(level=logging.getLevelName(log_level), force=True)
 
     try:
         build_artifacts(args)

@@ -21,10 +21,33 @@ class Column:
     TITLE = 2
     ALBUM = 3
     DURATION = 4
-    FILE_PATH = 5
+    SONIC_SIM = 5
+    GENRE_SIM = 6
+    GENRES = 7
+    FILE_PATH = 8
 
-    HEADERS = ["#", "Artist", "Title", "Album", "Duration", "File Path"]
-    KEYS = ["position", "artist", "title", "album", "duration_ms", "file_path"]
+    HEADERS = [
+        "#",
+        "Artist",
+        "Title",
+        "Album",
+        "Duration",
+        "Sonic Sim",
+        "Genre Sim",
+        "Genres",
+        "File Path",
+    ]
+    KEYS = [
+        "position",
+        "artist",
+        "title",
+        "album",
+        "duration_ms",
+        "sonic_similarity",
+        "genre_similarity",
+        "genres",
+        "file_path",
+    ]
 
 
 def format_duration(ms: int) -> str:
@@ -126,6 +149,15 @@ class TrackTableModel(QAbstractTableModel):
                 # Format duration as M:SS
                 ms = normalize_duration(value)
                 return format_duration(ms)
+            elif col in (Column.SONIC_SIM, Column.GENRE_SIM):
+                try:
+                    return f"{float(value):.3f}"
+                except (TypeError, ValueError):
+                    return ""
+            elif col == Column.GENRES:
+                if isinstance(value, (list, tuple)):
+                    return ", ".join([str(v) for v in value if v])
+                return str(value) if value else ""
             elif col == Column.INDEX:
                 return str(value) if value else ""
             else:
@@ -135,6 +167,11 @@ class TrackTableModel(QAbstractTableModel):
             # Raw value for sorting
             if col == Column.DURATION:
                 return normalize_duration(value)
+            elif col in (Column.SONIC_SIM, Column.GENRE_SIM):
+                try:
+                    return float(value)
+                except (TypeError, ValueError):
+                    return 0.0
             elif col == Column.INDEX:
                 try:
                     return int(value) if value else 0
@@ -145,7 +182,7 @@ class TrackTableModel(QAbstractTableModel):
                 return str(value).lower() if value else ""
 
         elif role == Qt.TextAlignmentRole:
-            if col == Column.INDEX or col == Column.DURATION:
+            if col in (Column.INDEX, Column.DURATION, Column.SONIC_SIM, Column.GENRE_SIM):
                 return Qt.AlignRight | Qt.AlignVCenter
             return Qt.AlignLeft | Qt.AlignVCenter
 
@@ -227,8 +264,8 @@ class TrackFilterProxyModel(QSortFilterProxyModel):
         if not model:
             return True
 
-        # Check columns: Artist, Title, Album
-        columns_to_check = [Column.ARTIST, Column.TITLE, Column.ALBUM]
+        # Check columns: Artist, Title, Album (and Genres for extra context)
+        columns_to_check = [Column.ARTIST, Column.TITLE, Column.ALBUM, Column.GENRES]
         if self._include_path_in_search:
             columns_to_check.append(Column.FILE_PATH)
 

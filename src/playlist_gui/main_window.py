@@ -8,10 +8,12 @@ Layout:
 - Bottom dock: Log panel
 """
 import os
+import logging
+from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
-from PySide6.QtCore import Qt, Slot, QTimer
+from PySide6.QtCore import Qt, Slot, QTimer, QSettings, QThreadPool, QRunnable, QObject, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -38,11 +40,43 @@ from PySide6.QtWidgets import (
 from .autocomplete import DatabaseCompleter, setup_artist_completer, update_track_completer
 from .config.config_model import ConfigModel
 from .config.presets import PresetManager, install_builtin_presets
+from .gui_logging import LogEmitter
+from .jobs import JobManager, JobType
 from .widgets.advanced_panel import AdvancedSettingsPanel
 from .widgets.export_dialog import ExportLocalDialog, ExportPlexDialog
+from .widgets.jobs_panel import JobsPanel
 from .widgets.log_panel import LogPanel
 from .widgets.track_table import TrackTable
 from .worker_client import WorkerClient
+from .diagnostics.checks import CheckResult
+from .diagnostics.manager import DiagnosticsManager
+
+
+class DebugReportSignals(QObject):
+    finished = Signal(str, object)  # text, save_path
+    failed = Signal(str)
+
+
+class DebugReportTask(QRunnable):
+    """QRunnable to build (and optionally save) a debug report off the UI thread."""
+
+    def __init__(self, args: dict, save_path: Optional[Path] = None):
+        super().__init__()
+        self.signals = DebugReportSignals()
+        self._args = args
+        self._save_path = save_path
+
+    def run(self) -> None:  # pragma: no cover - exercised via UI
+        from .diagnostics.report import build_debug_report
+
+        try:
+            report = build_debug_report(**self._args)
+            if self._save_path:
+                self._save_path.parent.mkdir(parents=True, exist_ok=True)
+                self._save_path.write_text(report, encoding="utf-8")
+            self.signals.finished.emit(report, self._save_path)
+        except Exception as e:  # pragma: no cover - defensive
+            self.signals.failed.emit(str(e))
 
 
 class MainWindow(QMainWindow):
@@ -60,7 +94,7 @@ class MainWindow(QMainWindow):
     - Override status indicator showing active overrides and preset state
     """
 
-    def __init__(self):
+    def __init__(self, log_emitter: Optional[LogEmitter] = None, log_buffer=None, log_path: Optional[Path] = None):
         super().__init__()
 
         self.setWindowTitle("Playlist Generator")
@@ -70,14 +104,32 @@ class MainWindow(QMainWindow):
         self._config_path = "config.yaml"
         self._config_model: Optional[ConfigModel] = None
         self._worker_client: Optional[WorkerClient] = None
+        self._job_manager: Optional[JobManager] = None
         self._preset_manager = PresetManager()
         self._is_generating = False
         self._db_completer: Optional[DatabaseCompleter] = None
+        self._jobs_panel: Optional[JobsPanel] = None
+        self._jobs_dock: Optional[QDockWidget] = None
+        self._log_emitter = log_emitter
+        self._log_buffer = log_buffer
+        self._log_path = log_path
+        self._settings = QSettings("PlaylistGenerator", "PlaylistGeneratorGUI")
+        self._logger = logging.getLogger("playlist_gui.main_window")
+        self._diag_pool = QThreadPool.globalInstance()
+        self._diagnostics: Optional[DiagnosticsManager] = None
+        self._last_diagnostics: List[CheckResult] = []
+        self._last_diagnostics_checked_at = None
+        self._diagnostics_banner_on_fail = False
+        self._banner_frame: Optional[QFrame] = None
+        self._banner_label: Optional[QLabel] = None
+        self._banner_time_label: Optional[QLabel] = None
+        self._report_tasks: List[DebugReportTask] = []
 
         # Preset/override tracking state
         self._active_preset_name: Optional[str] = None
         self._preset_overrides_snapshot: dict = {}  # Snapshot of overrides when preset loaded
         self._dirty_overrides = False  # True when overrides differ from loaded preset
+        self._pending_preset_name: Optional[str] = None
 
         # Current playlist state (for export naming)
         self._current_playlist_name: str = ""
@@ -91,12 +143,24 @@ class MainWindow(QMainWindow):
         self._setup_ui()
         self._setup_menu()
         self._setup_worker()
+        self._diagnostics = DiagnosticsManager(
+            base_config_provider=lambda: self._config_path,
+            config_model_provider=lambda: self._config_model,
+            worker_client=self._worker_client,
+        )
+        self._diagnostics.diagnostics_updated.connect(self._on_diagnostics_updated)
+        if self._worker_client:
+            self._worker_client.busy_changed.connect(self._diagnostics.handle_busy_changed)
+        self._job_manager = JobManager(self._worker_client)
+        self._setup_jobs_dock()
+        self._restore_settings()
 
         # Try to load default config
         self._load_config(self._config_path)
 
         # Setup autocomplete after a brief delay to allow config load
         QTimer.singleShot(500, self._setup_autocomplete)
+        QTimer.singleShot(1200, lambda: self._run_diagnostics(show_banner_on_fail=True, include_worker=False))
 
     def _setup_ui(self) -> None:
         """Setup the main UI layout."""
@@ -105,6 +169,40 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
         main_layout = QVBoxLayout(central)
         main_layout.setSpacing(8)
+
+        # Diagnostics banner (hidden by default)
+        self._banner_frame = QFrame()
+        self._banner_frame.setStyleSheet("QFrame { background: #fff4e5; border: 1px solid #f0c36d; border-radius: 4px; }")
+        banner_layout = QHBoxLayout(self._banner_frame)
+        banner_layout.setContentsMargins(8, 4, 8, 4)
+        self._banner_label = QLabel("")
+        banner_layout.addWidget(self._banner_label, stretch=1)
+        self._banner_time_label = QLabel("")
+        self._banner_time_label.setStyleSheet("color: #555; font-size: 11px;")
+        banner_layout.addWidget(self._banner_time_label)
+        btn_jobs = QPushButton("Open Jobs")
+        btn_jobs.clicked.connect(lambda: self._jobs_dock.show() if self._jobs_dock else None)
+        banner_layout.addWidget(btn_jobs)
+        btn_scan = QPushButton("Scan Library")
+        btn_scan.clicked.connect(self._on_scan_library)
+        banner_layout.addWidget(btn_scan)
+        btn_art = QPushButton("Build Artifacts")
+        btn_art.clicked.connect(self._on_build_artifacts)
+        banner_layout.addWidget(btn_art)
+        btn_debug = QPushButton("Copy Debug Report")
+        btn_debug.clicked.connect(self._on_copy_debug_report)
+        banner_layout.addWidget(btn_debug)
+        btn_rerun = QPushButton("Re-run")
+        btn_rerun.clicked.connect(lambda: self._run_diagnostics(force=True, show_banner_on_fail=True))
+        banner_layout.addWidget(btn_rerun)
+        btn_retry = QPushButton("Retry Queue")
+        btn_retry.clicked.connect(self._on_retry_queue)
+        banner_layout.addWidget(btn_retry)
+        btn_dismiss = QPushButton("Dismiss")
+        btn_dismiss.clicked.connect(self._hide_banner)
+        banner_layout.addWidget(btn_dismiss)
+        self._banner_frame.hide()
+        main_layout.addWidget(self._banner_frame)
 
         # ─────────────────────────────────────────────────────────────────────
         # Top controls - Clean, artist-focused interface
@@ -252,6 +350,8 @@ class MainWindow(QMainWindow):
         # Log panel (bottom dock)
         # ─────────────────────────────────────────────────────────────────────
         self._log_panel = LogPanel()
+        if self._log_emitter:
+            self._log_emitter.log_ready.connect(self._log_panel.append_log)
         log_dock = QDockWidget("Logs", self)
         log_dock.setWidget(self._log_panel)
         log_dock.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable)
@@ -464,6 +564,8 @@ class MainWindow(QMainWindow):
         tools_menu = self._tools_menu
         menubar.addMenu(tools_menu)
 
+        tools_menu.addAction("Run &Diagnostics", self._on_run_diagnostics)
+        tools_menu.addAction("Run &Pipeline (Scan->Genres->Sonic->Artifacts)", self._on_run_pipeline)
         tools_menu.addAction("Scan &Library", self._on_scan_library)
         tools_menu.addAction("Update &Genres", self._on_update_genres)
         tools_menu.addAction("Update &Sonic Features", self._on_update_sonic)
@@ -475,12 +577,16 @@ class MainWindow(QMainWindow):
 
         view_menu.addAction("&Advanced Settings", lambda: self._advanced_dock.show())
         view_menu.addAction("&Logs", lambda: self._log_panel.parentWidget().show())
+        view_menu.addAction("&Jobs", lambda: self._jobs_dock.show() if self._jobs_dock else None)
+        view_menu.addAction("Reset &UI Layout", self._reset_ui_layout)
 
         # Help menu
         help_menu = QMenu("&Help", self)
         menubar.addMenu(help_menu)
 
         help_menu.addAction("&About", self._on_about)
+        help_menu.addAction("Copy Debug Report", self._on_copy_debug_report)
+        help_menu.addAction("Save Debug Report...", self._on_save_debug_report)
 
     def _setup_worker(self) -> None:
         """Setup the worker client."""
@@ -495,6 +601,26 @@ class MainWindow(QMainWindow):
         self._worker_client.worker_started.connect(self._on_worker_started)
         self._worker_client.worker_stopped.connect(self._on_worker_stopped)
         self._worker_client.busy_changed.connect(self._on_busy_changed)
+
+    def _setup_jobs_dock(self) -> None:
+        """Create the Jobs dock/panel."""
+        if not self._job_manager:
+            return
+
+        self._jobs_panel = JobsPanel(
+            self._job_manager,
+            on_run_pipeline=self._on_run_pipeline,
+            on_cancel_active=self._on_cancel_jobs,
+            on_cancel_pending=self._on_clear_pending_jobs,
+        )
+        self._jobs_dock = QDockWidget("Jobs", self)
+        self._jobs_dock.setWidget(self._jobs_panel)
+        self._jobs_dock.setFeatures(
+            QDockWidget.DockWidgetMovable
+            | QDockWidget.DockWidgetFloatable
+            | QDockWidget.DockWidgetClosable
+        )
+        self.addDockWidget(Qt.LeftDockWidgetArea, self._jobs_dock)
 
     def _setup_autocomplete(self) -> None:
         """Setup autocomplete for artist and track inputs."""
@@ -561,6 +687,21 @@ class MainWindow(QMainWindow):
             # Reload autocomplete with new config
             self._setup_autocomplete()
 
+            # Restore preset if pending
+            if self._pending_preset_name:
+                presets = [p["name"] for p in self._preset_manager.list_presets()]
+                if self._pending_preset_name in presets:
+                    overrides = self._preset_manager.load_preset(self._pending_preset_name)
+                    if overrides:
+                        self._config_model.set_overrides(overrides)
+                        if self._advanced_panel:
+                            self._advanced_panel.refresh()
+                        self._active_preset_name = self._pending_preset_name
+                        self._preset_overrides_snapshot = overrides.copy()
+                        self._dirty_overrides = False
+                        self._update_override_status()
+                self._pending_preset_name = None
+
             return True
 
         except Exception as e:
@@ -574,6 +715,63 @@ class MainWindow(QMainWindow):
         self._artist_edit.setVisible(is_artist_mode)
         self._track_label.setVisible(is_artist_mode)
         self._track_edit.setVisible(is_artist_mode)
+
+    def _ensure_artifacts_ready(self) -> bool:
+        """
+        Guardrail: warn if required artifacts are missing before playlist generation.
+
+        Returns True if it's safe to proceed, False if the operation should stop.
+        """
+        if not self._config_model:
+            return True
+
+        artifact_path = self._config_model.get("playlists.ds_pipeline.artifact_path")
+        if not artifact_path:
+            return True
+
+        path = Path(artifact_path)
+        base_dir = Path(self._config_path).parent if self._config_path else Path.cwd()
+        if not path.is_absolute():
+            path = base_dir / path
+
+        if path.exists():
+            return True
+
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("Artifacts Not Found")
+        box.setText(f"Required artifacts were not found:\n{path}")
+        box.setInformativeText("Run the library pipeline now? This queues Scan -> Genres -> Sonic -> Artifacts.")
+        run_btn = box.addButton("Run Pipeline", QMessageBox.AcceptRole)
+        continue_btn = box.addButton("Continue Anyway", QMessageBox.DestructiveRole)
+        cancel_btn = box.addButton(QMessageBox.Cancel)
+        box.setDefaultButton(run_btn)
+        box.exec()
+
+        clicked = box.clickedButton()
+        if clicked == run_btn:
+            self._on_run_pipeline()
+            return False
+        if clicked == continue_btn:
+            return True
+        return False
+
+    def _show_banner(self, message: str, checked_at: Optional[datetime] = None) -> None:
+        if self._banner_frame and self._banner_label:
+            timestamp = ""
+            if checked_at:
+                local_time = checked_at.astimezone()
+                timestamp = f"Last checked: {local_time.strftime('%H:%M')}"
+            if self._banner_time_label:
+                self._banner_time_label.setText(timestamp)
+            self._banner_label.setText(message)
+            self._banner_frame.show()
+
+    def _hide_banner(self) -> None:
+        if self._banner_frame:
+            self._banner_frame.hide()
+        if self._banner_time_label:
+            self._banner_time_label.setText("")
 
     # ─────────────────────────────────────────────────────────────────────────
     # Event Handlers
@@ -597,6 +795,8 @@ class MainWindow(QMainWindow):
     @Slot(bool)
     def _on_busy_changed(self, is_busy: bool) -> None:
         """Handle busy state change from worker client."""
+        if self._diagnostics:
+            self._diagnostics.handle_busy_changed(is_busy)
         self._is_generating = is_busy
         self._generate_btn.setEnabled(not is_busy)
         self._cancel_btn.setEnabled(is_busy)
@@ -605,7 +805,7 @@ class MainWindow(QMainWindow):
         # (Tools menu is at index 2 in the menu bar)
         if hasattr(self, '_tools_menu'):
             for action in self._tools_menu.actions():
-                action.setEnabled(not is_busy)
+                action.setEnabled(True)
 
         if not is_busy:
             # Reset progress when not busy
@@ -643,6 +843,13 @@ class MainWindow(QMainWindow):
 
         if not self._config_model:
             QMessageBox.warning(self, "No Config", "Please load a configuration file first.")
+            return
+
+        # Refresh diagnostics but avoid worker doctor when busy
+        include_worker = not (self._worker_client and self._worker_client.is_busy())
+        self._run_diagnostics(show_banner_on_fail=True, include_worker=include_worker)
+
+        if not self._ensure_artifacts_ready():
             return
 
         # Start worker if not running
@@ -693,6 +900,25 @@ class MainWindow(QMainWindow):
         if track:
             log_msg += f", seed_track={track}"
         self._log_panel.append_log("INFO", log_msg)
+
+    def _run_diagnostics(self, show_banner_on_fail: bool = False, force: bool = False, include_worker: bool = True) -> None:
+        """Trigger diagnostics via the diagnostics manager."""
+        if not self._diagnostics:
+            return
+        self._diagnostics_banner_on_fail = self._diagnostics_banner_on_fail or show_banner_on_fail
+        self._diagnostics.run_checks(force=force, include_worker=include_worker)
+
+    def _on_diagnostics_updated(self, results: List[CheckResult], checked_at: Optional[datetime]) -> None:
+        """Handle diagnostics completion."""
+        self._last_diagnostics = results or []
+        self._last_diagnostics_checked_at = checked_at
+        failures = [r for r in self._last_diagnostics if not r.ok]
+        if failures:
+            msg = failures[0].detail or f"{failures[0].name} failed"
+            self._show_banner(f"Diagnostics: {msg}", checked_at=checked_at)
+        elif self._diagnostics_banner_on_fail:
+            self._hide_banner()
+        self._diagnostics_banner_on_fail = False
 
     @Slot()
     def _on_save_preset(self) -> None:
@@ -771,42 +997,163 @@ class MainWindow(QMainWindow):
     @Slot()
     def _on_scan_library(self) -> None:
         """Run library scan."""
-        if not self._worker_client.is_running():
-            if not self._worker_client.start():
-                return
-
-        self._worker_client.scan_library(self._config_path)
-        self._log_panel.append_log("INFO", "Starting library scan...")
+        self._enqueue_job(JobType.SCAN_LIBRARY)
 
     @Slot()
     def _on_update_genres(self) -> None:
         """Run genre update."""
-        if not self._worker_client.is_running():
-            if not self._worker_client.start():
-                return
-
-        self._worker_client.update_genres(self._config_path)
-        self._log_panel.append_log("INFO", "Starting genre update...")
+        self._enqueue_job(JobType.UPDATE_GENRES)
 
     @Slot()
     def _on_update_sonic(self) -> None:
         """Run sonic feature extraction."""
-        if not self._worker_client.is_running():
-            if not self._worker_client.start():
-                return
-
-        self._worker_client.update_sonic(self._config_path)
-        self._log_panel.append_log("INFO", "Starting sonic feature extraction...")
+        self._enqueue_job(JobType.UPDATE_SONIC)
 
     @Slot()
     def _on_build_artifacts(self) -> None:
         """Run artifact building."""
-        if not self._worker_client.is_running():
-            if not self._worker_client.start():
-                return
+        self._enqueue_job(JobType.BUILD_ARTIFACTS)
 
-        self._worker_client.build_artifacts(self._config_path)
-        self._log_panel.append_log("INFO", "Starting artifact build...")
+    def _enqueue_job(self, job_type: JobType) -> None:
+        """Queue a job through the JobManager."""
+        if not self._config_model:
+            QMessageBox.warning(self, "No Config", "Load a configuration before queuing jobs.")
+            return
+        if not self._job_manager:
+            QMessageBox.warning(self, "Jobs Unavailable", "Job manager is not initialized.")
+            return
+
+        overrides = dict(self._config_model.get_overrides())
+        job = self._job_manager.enqueue_job(job_type, self._config_path, overrides)
+        self._log_panel.append_log("INFO", f"Queued job: {job_type.label()} ({job.job_id[:8]})")
+        self._status_bar.showMessage(f"Queued {job_type.label()} job")
+
+    @Slot()
+    def _on_run_pipeline(self) -> None:
+        """Queue the full library pipeline."""
+        if not self._config_model:
+            QMessageBox.warning(self, "No Config", "Load a configuration before queuing jobs.")
+            return
+        if not self._job_manager:
+            QMessageBox.warning(self, "Jobs Unavailable", "Job manager is not initialized.")
+            return
+
+        overrides = dict(self._config_model.get_overrides())
+        self._job_manager.enqueue_pipeline(self._config_path, overrides)
+        self._log_panel.append_log("INFO", "Queued pipeline: Scan -> Genres -> Sonic -> Artifacts")
+        self._status_bar.showMessage("Pipeline queued")
+
+    def _on_cancel_jobs(self) -> None:
+        """Cancel the active job if running."""
+        if self._job_manager:
+            self._job_manager.cancel_active_job()
+
+    def _on_clear_pending_jobs(self) -> None:
+        """Clear pending jobs from the queue."""
+        if self._job_manager:
+            self._job_manager.cancel_pending()
+
+    @Slot()
+    def _on_retry_queue(self) -> None:
+        """Retry previously skipped jobs after a crash."""
+        if not self._job_manager:
+            return
+        self._job_manager.retry_skipped()
+        self._hide_banner()
+    @Slot()
+    def _on_run_diagnostics(self) -> None:
+        """Manually trigger diagnostics."""
+        self._run_diagnostics(show_banner_on_fail=True, force=True)
+
+    @Slot()
+    def _on_copy_debug_report(self) -> None:
+        """Generate and copy a debug report."""
+        args = self._collect_debug_report_args()
+        task = DebugReportTask(args)
+        task.signals.finished.connect(lambda text, path, task=task: self._on_debug_report_ready(text, True, path, task))
+        task.signals.failed.connect(lambda msg, task=task: self._on_debug_report_failed(msg, task))
+        self._report_tasks.append(task)
+        self._diag_pool.start(task)
+
+    @Slot()
+    def _on_save_debug_report(self) -> None:
+        """Generate and save a debug report to disk."""
+        path_str, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Debug Report",
+            str(Path.cwd() / "debug_report.txt"),
+            "Text Files (*.txt);;All Files (*.*)",
+        )
+        if not path_str:
+            return
+        save_path = Path(path_str)
+        args = self._collect_debug_report_args()
+        task = DebugReportTask(args, save_path=save_path)
+        task.signals.finished.connect(lambda text, path, task=task: self._on_debug_report_ready(text, False, path, task))
+        task.signals.failed.connect(lambda msg, task=task: self._on_debug_report_failed(msg, task))
+        self._report_tasks.append(task)
+        self._diag_pool.start(task)
+
+    def _collect_debug_report_args(self) -> dict:
+        """Gather context for the debug report builder."""
+        preset_label = "Base config"
+        if self._active_preset_name:
+            preset_label = self._active_preset_name
+            if self._dirty_overrides:
+                preset_label += " (modified)"
+
+        mode = self._mode_combo.currentText()
+        artist = self._artist_edit.text()
+        worker_status = "running" if self._worker_client and self._worker_client.is_running() else "not running"
+        if self._worker_client and self._worker_client.get_pid():
+            worker_status += f" (pid {self._worker_client.get_pid()})"
+
+        last_job_summary = ""
+        last_job_error = ""
+        if self._job_manager and self._job_manager.jobs():
+            last_job = self._job_manager.jobs()[-1]
+            last_job_summary = last_job.summary or f"{last_job.job_type.label()} {last_job.status}"
+            last_job_error = last_job.error_message
+
+        return {
+            "base_config_path": self._config_path,
+            "preset_label": preset_label,
+            "mode": mode,
+            "artist": artist,
+            "worker_status": worker_status,
+            "last_job_summary": last_job_summary,
+            "last_job_error": last_job_error,
+            "readiness": self._last_diagnostics,
+            "gui_log_path": self._log_path if self._log_path else Path(),
+            "worker_events": self._worker_client.get_event_buffer() if self._worker_client else [],
+        }
+
+    def _on_debug_report_ready(
+        self, text: str, copy_to_clipboard: bool, save_path: Optional[Path], task: Optional[DebugReportTask] = None
+    ) -> None:
+        """Handle debug report completion."""
+        try:
+            if task:
+                self._report_tasks.remove(task)
+        except ValueError:
+            pass
+
+        if copy_to_clipboard:
+            QApplication.clipboard().setText(text)
+            self._status_bar.showMessage("Debug report copied to clipboard", 5000)
+        elif save_path:
+            self._status_bar.showMessage(f"Debug report saved to {save_path}", 5000)
+        self._logger.info("Debug report generated (%s)", "copied" if copy_to_clipboard else "saved")
+
+    def _on_debug_report_failed(self, message: str, task: Optional[DebugReportTask] = None) -> None:
+        """Handle debug report failure."""
+        try:
+            if task:
+                self._report_tasks.remove(task)
+        except ValueError:
+            pass
+        self._logger.error("Debug report failed: %s", message)
+        self._status_bar.showMessage(f"Debug report failed: {message}", 6000)
 
     @Slot()
     def _on_about(self) -> None:
@@ -823,13 +1170,13 @@ class MainWindow(QMainWindow):
     # Worker Signal Handlers
     # ─────────────────────────────────────────────────────────────────────────
 
-    @Slot(str, str)
-    def _on_worker_log(self, level: str, message: str) -> None:
+    @Slot(str, str, object)
+    def _on_worker_log(self, level: str, message: str, job_id: object = None) -> None:
         """Handle log from worker."""
-        self._log_panel.append_log(level, message)
+        self._logger.info("worker: %s", message)
 
-    @Slot(str, int, int, str)
-    def _on_worker_progress(self, stage: str, current: int, total: int, detail: str) -> None:
+    @Slot(str, int, int, str, object)
+    def _on_worker_progress(self, stage: str, current: int, total: int, detail: str, job_id: object = None) -> None:
         """Handle progress from worker."""
         if total > 0:
             percent = int((current / total) * 100)
@@ -837,9 +1184,10 @@ class MainWindow(QMainWindow):
 
         stage_text = detail if detail else stage
         self._stage_label.setText(stage_text)
+        self._logger.info("worker progress: %s %s/%s %s", stage, current, total, detail)
 
-    @Slot(str, dict)
-    def _on_worker_result(self, result_type: str, data: dict) -> None:
+    @Slot(str, dict, object)
+    def _on_worker_result(self, result_type: str, data: dict, job_id: object = None) -> None:
         """Handle result from worker."""
         if result_type == "playlist":
             playlist = data.get("playlist", {})
@@ -865,16 +1213,21 @@ class MainWindow(QMainWindow):
             self._export_plex_btn.setEnabled(has_tracks)
 
             self._log_panel.append_log("INFO", f"Received playlist: {playlist.get('name', 'Unknown')}")
+        elif result_type == "doctor":
+            checks_raw = data.get("checks", [])
+            if self._diagnostics:
+                self._diagnostics.handle_worker_doctor(checks_raw)
 
-    @Slot(str, str)
-    def _on_worker_error(self, message: str, tb: str) -> None:
+    @Slot(str, str, object)
+    def _on_worker_error(self, message: str, tb: str, job_id: object = None) -> None:
         """Handle error from worker."""
+        self._logger.error("worker error: %s", message)
         self._log_panel.append_log("ERROR", message)
         if tb:
             self._log_panel.append_log("DEBUG", f"Traceback: {tb[:500]}...")
 
-    @Slot(str, bool, str, bool)
-    def _on_worker_done(self, cmd: str, ok: bool, detail: str, cancelled: bool) -> None:
+    @Slot(str, bool, str, bool, object, str)
+    def _on_worker_done(self, cmd: str, ok: bool, detail: str, cancelled: bool, job_id: object = None, summary: str = "") -> None:
         """Handle done signal from worker."""
         # Note: busy state is now managed by _on_busy_changed
         # but we still update UI elements here for the specific completion state
@@ -886,16 +1239,19 @@ class MainWindow(QMainWindow):
             self._log_panel.append_log("INFO", f"Operation cancelled: {cmd}")
         elif ok:
             self._progress_bar.setValue(100)
-            self._stage_label.setText("Complete")
-            self._status_bar.showMessage(f"Completed: {cmd}")
+            final_text = summary or detail or "Complete"
+            self._stage_label.setText(final_text)
+            self._status_bar.showMessage(f"Completed: {cmd} - {final_text}")
         else:
             self._stage_label.setText("Failed")
             self._status_bar.showMessage(f"Failed: {cmd} - {detail}")
+        self._logger.info("worker done: %s ok=%s cancelled=%s summary=%s", cmd, ok, cancelled, summary or detail)
 
     @Slot()
     def _on_worker_started(self) -> None:
         """Handle worker start."""
         self._log_panel.append_log("INFO", "Worker process started")
+        self._run_diagnostics(force=True, include_worker=True)
 
     @Slot(int, str)
     def _on_worker_stopped(self, exit_code: int, status: str) -> None:
@@ -908,6 +1264,8 @@ class MainWindow(QMainWindow):
             self._cancel_btn.setEnabled(False)
             self._progress_bar.setValue(0)
             self._stage_label.setText("Worker stopped")
+        if self._worker_client and self._worker_client.was_busy_on_last_exit():
+            self._show_banner("Worker exited unexpectedly. Copy Debug Report?")
 
     # ─────────────────────────────────────────────────────────────────────────
     # Export Handlers
@@ -1089,6 +1447,61 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         """Handle window close."""
+        self._save_settings()
         if self._worker_client:
             self._worker_client.stop()
         event.accept()
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Persistence Helpers
+    # ─────────────────────────────────────────────────────────────────────────
+    def _restore_settings(self) -> None:
+        """Restore persisted window/layout and form state."""
+        try:
+            geo = self._settings.value("ui/geometry")
+            if geo:
+                self.restoreGeometry(geo)
+            state = self._settings.value("ui/state")
+            if state:
+                self.restoreState(state)
+            cfg = self._settings.value("state/config_path")
+            if cfg:
+                self._config_path = str(cfg)
+            mode = self._settings.value("state/mode")
+            if mode:
+                self._mode_combo.setCurrentText(mode)
+            artist = self._settings.value("state/artist")
+            if artist:
+                self._artist_edit.setText(str(artist))
+            preset = self._settings.value("state/preset")
+            if preset:
+                self._pending_preset_name = str(preset)
+            filt = self._settings.value("state/filter")
+            if filt:
+                self._track_table.set_filter_text(str(filt))
+        except Exception as e:
+            self._logger.warning("Failed to restore settings: %s", e)
+
+    def _save_settings(self) -> None:
+        """Persist window/layout and form state."""
+        try:
+            self._settings.setValue("ui/geometry", self.saveGeometry())
+            self._settings.setValue("ui/state", self.saveState())
+            self._settings.setValue("state/config_path", self._config_path)
+            self._settings.setValue("state/mode", self._mode_combo.currentText())
+            self._settings.setValue("state/artist", self._artist_edit.text())
+            self._settings.setValue("state/filter", self._track_table.get_filter_text())
+            if self._active_preset_name:
+                self._settings.setValue("state/preset", self._active_preset_name)
+            else:
+                self._settings.remove("state/preset")
+        except Exception as e:
+            self._logger.warning("Failed to save settings: %s", e)
+
+    def _reset_ui_layout(self) -> None:
+        """Reset layout-related persisted state."""
+        for key in ["ui/geometry", "ui/state"]:
+            self._settings.remove(key)
+        self.resize(1200, 800)
+        self.showNormal()
+        self._logger.info("UI layout reset to defaults")

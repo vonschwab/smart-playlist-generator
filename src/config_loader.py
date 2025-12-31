@@ -445,7 +445,6 @@ class Config:
 if __name__ == "__main__":
     import logging
     logger = logging.getLogger(__name__)
-    logging.basicConfig(level=logging.INFO)
     try:
         config = Config()
         logger.info(f"Configuration loaded successfully: {config}")

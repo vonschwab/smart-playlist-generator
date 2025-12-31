@@ -17,6 +17,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import librosa
 import numpy as np
+from src.logging_utils import configure_logging
 
 from .beat3tower_types import (
     Beat3TowerFeatures,
@@ -831,34 +832,34 @@ def extract_beat3tower_features(
 if __name__ == "__main__":
     import sys
 
-    logging.basicConfig(level=logging.DEBUG)
+    configure_logging(level="INFO")
 
     if len(sys.argv) < 2:
-        print("Usage: python beat3tower_extractor.py <audio_file>")
+        logger.info("Usage: python beat3tower_extractor.py <audio_file>")
         sys.exit(1)
 
     file_path = sys.argv[1]
-    print(f"Extracting 3-tower features from: {file_path}")
+    logger.info(f"Extracting 3-tower features from: {file_path}")
 
     result = extract_beat3tower_features(file_path)
 
     if result:
-        print(f"\nExtraction successful!")
-        print(f"  Beats detected: {result['metadata']['n_beats_full']}")
-        print(f"  Duration: {result['metadata']['duration']:.1f}s")
+        logger.info(f"\nExtraction successful!")
+        logger.info(f"  Beats detected: {result['metadata']['n_beats_full']}")
+        logger.info(f"  Duration: {result['metadata']['duration']:.1f}s")
 
         full = Beat3TowerFeatures.from_dict(result['full'])
-        print(f"\nFeature dimensions:")
-        print(f"  Rhythm: {full.rhythm.to_vector().shape}")
-        print(f"  Timbre: {full.timbre.to_vector().shape}")
-        print(f"  Harmony: {full.harmony.to_vector().shape}")
-        print(f"  Total: {full.to_vector().shape}")
+        logger.info(f"\nFeature dimensions:")
+        logger.info(f"  Rhythm: {full.rhythm.to_vector().shape}")
+        logger.info(f"  Timbre: {full.timbre.to_vector().shape}")
+        logger.info(f"  Harmony: {full.harmony.to_vector().shape}")
+        logger.info(f"  Total: {full.to_vector().shape}")
 
-        print(f"\nBPM Info:")
-        print(f"  Primary: {full.bpm_info.primary_bpm:.1f}")
-        print(f"  Stability: {full.bpm_info.tempo_stability:.2f}")
-        print(f"  Half-tempo likely: {full.bpm_info.half_tempo_likely}")
-        print(f"  Double-tempo likely: {full.bpm_info.double_tempo_likely}")
+        logger.info(f"\nBPM Info:")
+        logger.info(f"  Primary: {full.bpm_info.primary_bpm:.1f}")
+        logger.info(f"  Stability: {full.bpm_info.tempo_stability:.2f}")
+        logger.info(f"  Half-tempo likely: {full.bpm_info.half_tempo_likely}")
+        logger.info(f"  Double-tempo likely: {full.bpm_info.double_tempo_likely}")
     else:
-        print("Extraction failed!")
+        logger.info("Extraction failed!")
         sys.exit(1)

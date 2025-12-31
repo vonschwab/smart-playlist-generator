@@ -686,5 +686,4 @@ class LastFMClient:
 
 # Example usage
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
     logger.info("Last.FM Client module loaded")
