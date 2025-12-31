@@ -24,6 +24,12 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import requests
 import yaml
+
+ROOT = Path(__file__).resolve().parent.parent
+src_path = ROOT / "src"
+if str(src_path) not in sys.path:
+    sys.path.insert(0, str(src_path))
+
 from src.logging_utils import (
     ProgressLogger,
     add_logging_args,
