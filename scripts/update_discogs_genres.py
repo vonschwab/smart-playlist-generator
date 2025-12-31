@@ -26,9 +26,8 @@ import requests
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
-src_path = ROOT / "src"
-if str(src_path) not in sys.path:
-    sys.path.insert(0, str(src_path))
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from src.logging_utils import (
     ProgressLogger,
