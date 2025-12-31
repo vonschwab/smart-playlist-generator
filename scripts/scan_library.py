@@ -494,7 +494,7 @@ class LibraryScanner:
         else:
             cursor.execute("SELECT file_path, file_modified FROM tracks WHERE file_path IS NOT NULL")
             db_info = {
-                self._normalize_path_str(row["file_path"]): (row["file_path"], row["file_modified"], None, row["file_modified"])
+                self._normalize_path_str(row["file_path"]): (row["file_path"], None, None, row["file_modified"])
                 for row in cursor.fetchall()
             }
 
