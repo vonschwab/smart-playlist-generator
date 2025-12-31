@@ -1160,8 +1160,6 @@ class SimilarityCalculator:
 
 # Example usage
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-
     calc = SimilarityCalculator()
 
     # Show stats

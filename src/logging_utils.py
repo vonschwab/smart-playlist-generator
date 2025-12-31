@@ -1,16 +1,7 @@
 """
-Unified logging utilities for Playlist Generator
+Unified logging utilities for Playlist Generator.
 
-This module provides the single source of truth for logging configuration.
 All entrypoints should call configure_logging() once at startup.
-
-Usage:
-    from src.logging_utils import configure_logging, stage_timer, redact
-
-    configure_logging(level='INFO', log_file='run.log')
-
-    with stage_timer("Processing tracks"):
-        process_tracks()
 """
 import logging
 import sys
@@ -23,6 +14,29 @@ from typing import Optional, Any, List, Union
 
 # Track whether logging has been configured
 _logging_configured = False
+_run_id: Optional[str] = None
+_HANDLER_TAG = "_pg_handler"
+_CONSOLE_FMT_NO_RUN_ID = '%(asctime)s | %(levelname)-5s | %(name)s | %(message)s'
+_CONSOLE_FMT_WITH_RUN_ID = '%(asctime)s | %(levelname)-5s | %(name)s | run_id=%(run_id)s | %(message)s'
+_FILE_FMT_WITH_RUN_ID = '%(asctime)s | %(levelname)-5s | %(name)s | %(funcName)s:%(lineno)d | run_id=%(run_id)s | %(message)s'
+
+
+class RunIdFilter(logging.Filter):
+    """Inject run_id into every log record."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.run_id = _run_id or "-"
+        return True
+
+
+def set_run_id(run_id: Optional[str]) -> None:
+    """Set a global run_id used by log records."""
+    global _run_id
+    _run_id = run_id
+
+
+def _build_formatter(fmt: str, datefmt: Optional[str] = None) -> logging.Formatter:
+    return logging.Formatter(fmt, datefmt=datefmt)
 
 
 def configure_logging(
@@ -30,6 +44,10 @@ def configure_logging(
     log_file: Optional[str] = None,
     file_level: str = 'DEBUG',
     force: bool = False,
+    run_id: Optional[str] = None,
+    console: bool = True,
+    show_run_id: bool = False,
+    json_logs: bool = False,
 ) -> None:
     """
     Configure logging for the entire application.
@@ -42,12 +60,17 @@ def configure_logging(
         log_file: Optional path to log file
         file_level: Log level for file output (default DEBUG)
         force: If True, reconfigure even if already configured
+        run_id: Optional run identifier to inject into log records
+        console: Whether to add a console handler
 
     Environment variable overrides:
         LOG_LEVEL: Override the level parameter
         LOG_FILE: Override the log_file parameter
     """
     global _logging_configured
+
+    if run_id:
+        set_run_id(run_id)
 
     if _logging_configured and not force:
         return
@@ -61,21 +84,29 @@ def configure_logging(
     root = logging.getLogger()
     root.setLevel(logging.DEBUG)  # Capture all, filter at handler level
 
-    # Remove existing handlers
+    # Remove handlers we previously installed (tagged)
     for handler in root.handlers[:]:
-        root.removeHandler(handler)
+        if getattr(handler, _HANDLER_TAG, False):
+            root.removeHandler(handler)
+
+    # Ensure a single run_id filter on root
+    root.filters = [f for f in root.filters if not isinstance(f, RunIdFilter)]
+    root.addFilter(RunIdFilter())
+
+    use_run_id_console = show_run_id or level.upper() == "DEBUG" or json_logs
 
     # Console handler
-    console = logging.StreamHandler(sys.stdout)
-    console.setLevel(getattr(logging, level, logging.INFO))
-
-    # Use simpler format for console
-    console_fmt = logging.Formatter(
-        '%(asctime)s | %(levelname)-5s | %(name)s | %(message)s',
-        datefmt='%H:%M:%S'
-    )
-    console.setFormatter(console_fmt)
-    root.addHandler(console)
+    if console:
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setLevel(getattr(logging, level, logging.INFO))
+        console_fmt = _build_formatter(
+            _CONSOLE_FMT_WITH_RUN_ID if use_run_id_console else _CONSOLE_FMT_NO_RUN_ID,
+            datefmt='%H:%M:%S',
+        )
+        console_handler.setFormatter(console_fmt)
+        console_handler.addFilter(RunIdFilter())
+        setattr(console_handler, _HANDLER_TAG, True)
+        root.addHandler(console_handler)
 
     # File handler (if specified)
     if log_file:
@@ -85,12 +116,13 @@ def configure_logging(
         file_handler = logging.FileHandler(log_file, encoding='utf-8')
         file_handler.setLevel(getattr(logging, file_level, logging.DEBUG))
 
-        # More detailed format for file
-        file_fmt = logging.Formatter(
-            '%(asctime)s | %(levelname)-5s | %(name)s | %(funcName)s:%(lineno)d | %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
+        file_fmt = _build_formatter(
+            _FILE_FMT_WITH_RUN_ID,
+            datefmt='%Y-%m-%d %H:%M:%S',
         )
         file_handler.setFormatter(file_fmt)
+        file_handler.addFilter(RunIdFilter())
+        setattr(file_handler, _HANDLER_TAG, True)
         root.addHandler(file_handler)
 
     # Quiet noisy third-party loggers
@@ -100,7 +132,7 @@ def configure_logging(
     _logging_configured = True
 
     logger = logging.getLogger(__name__)
-    logger.debug(f"Logging configured: level={level}, file={log_file or 'none'}")
+    logger.debug(f"Logging configured: level={level}, file={log_file or 'none'}, run_id={_run_id or '-'}")
 
 
 @contextmanager
@@ -198,9 +230,8 @@ def redact(
     # Handle dict-like structures (redact specific keys)
     if keys:
         for key in keys:
-            # Match key: value or key=value patterns
             text = re.sub(
-                rf'(["\']?{re.escape(key)}["\']?\s*[:=]\s*["\']?)([^"\'\\s,}}]+)(["\']?)',
+                rf'(["\']?{re.escape(key)}["\']?\s*[:=]\s*["\']?)([^"\'\s,}}]+)(["\']?)',
                 r'\1***REDACTED***\3',
                 text,
                 flags=re.IGNORECASE
@@ -250,6 +281,112 @@ def truncate_list(items: List[Any], max_items: int = 3, format_fn=str) -> str:
     return result
 
 
+def _human_time(seconds: float) -> str:
+    """Render a human-friendly duration."""
+    seconds = max(0, seconds)
+    if seconds < 60:
+        return f"{int(seconds)}s"
+    minutes, sec = divmod(int(seconds), 60)
+    if minutes < 60:
+        return f"{minutes}m{sec:02d}s"
+    hours, minutes = divmod(minutes, 60)
+    if hours < 24:
+        return f"{hours}h{minutes:02d}m"
+    days, hours = divmod(hours, 24)
+    return f"{days}d{hours}h"
+
+
+class ProgressLogger:
+    """
+    Emit periodic progress updates with optional per-item verbose logging.
+
+    Default: INFO summaries every interval_s seconds or every_n items.
+    Verbose: DEBUG per-item + INFO summaries.
+    """
+
+    def __init__(
+        self,
+        logger: logging.Logger,
+        total: Optional[int],
+        label: str,
+        unit: str = "items",
+        interval_s: float = 15.0,
+        every_n: int = 500,
+        verbose_each: bool = False,
+        level_summary: int = logging.INFO,
+        level_each: int = logging.DEBUG,
+    ) -> None:
+        self.logger = logger
+        self.total = total if total and total > 0 else None
+        self.label = label
+        self.unit = unit
+        self.interval_s = interval_s
+        self.every_n = every_n
+        self.verbose_each = verbose_each
+        self.level_summary = level_summary
+        self.level_each = level_each
+        self.start_time = time.perf_counter()
+        self.last_log_time = self.start_time
+        self.last_count = 0
+        self.processed = 0
+
+    def _should_emit(self) -> bool:
+        if self.verbose_each:
+            return False
+        now = time.perf_counter()
+        if (now - self.last_log_time) >= self.interval_s:
+            return True
+        if (self.processed - self.last_count) >= self.every_n:
+            return True
+        if self.total and self.processed >= self.total:
+            return True
+        return False
+
+    def _progress_msg(self) -> str:
+        elapsed = time.perf_counter() - self.start_time
+        rate = self.processed / elapsed if elapsed > 0 else 0.0
+        percent = f"{(self.processed / self.total * 100):.1f}%" if self.total else "?"
+        eta = ""
+        if self.total and rate > 0:
+            remaining = max(self.total - self.processed, 0)
+            eta_val = remaining / rate
+            eta = f" | ETA {_human_time(eta_val)}"
+        return (
+            f"{self.label}: {self.processed:,}"
+            + (f"/{self.total:,}" if self.total else "")
+            + (f" ({percent})" if self.total else "")
+            + f" | {rate:.1f} {self.unit}/s{eta}"
+        )
+
+    def update(self, n: int = 1, detail: Optional[str] = None) -> None:
+        self.processed += n
+        if self.verbose_each and detail:
+            safe_detail = Path(detail).name if os.path.isabs(detail) else detail
+            self.logger.log(
+                self.level_each,
+                f"{self.label} item {self.processed}" + (f"/{self.total}" if self.total else "") + f": {safe_detail}",
+            )
+        if self.verbose_each:
+            # Still emit summaries periodically
+            if self._should_emit():
+                self._emit_summary()
+            return
+        if self._should_emit():
+            self._emit_summary()
+
+    def _emit_summary(self) -> None:
+        self.logger.log(self.level_summary, self._progress_msg())
+        self.last_log_time = time.perf_counter()
+        self.last_count = self.processed
+
+    def finish(self, detail: Optional[str] = None) -> None:
+        # Always emit final summary
+        if detail:
+            self.logger.log(self.level_each if self.verbose_each else self.level_summary, detail)
+        elapsed = time.perf_counter() - self.start_time
+        rate = self.processed / elapsed if elapsed > 0 else 0.0
+        suffix = f" | elapsed {_human_time(elapsed)} | avg {rate:.1f} {self.unit}/s"
+        self.logger.log(self.level_summary, f"{self.label} complete: {self.processed:,} {self.unit}{suffix}")
 def add_logging_args(parser) -> None:
     """
     Add standard logging CLI arguments to an argparse parser.
@@ -287,6 +424,11 @@ def add_logging_args(parser) -> None:
         type=str,
         metavar='PATH',
         help='Write logs to file'
+    )
+    group.add_argument(
+        '--show-run-id',
+        action='store_true',
+        help='Include run_id in console logs (always included in file logs)',
     )
 
 
@@ -349,14 +491,12 @@ class RunSummary:
         self.logger.log(level, f"{self.title.upper()} SUMMARY")
 
         for key, value in self.metrics.items():
-            # Format key nicely
             display_key = key.replace('_', ' ').title()
             if isinstance(value, float):
                 self.logger.log(level, f"  {display_key}: {value:.2f}")
             else:
                 self.logger.log(level, f"  {display_key}: {value}")
 
-        # Format timing
         if elapsed < 60:
             time_str = f"{elapsed:.1f}s"
         else:

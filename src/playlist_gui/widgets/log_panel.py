@@ -1,26 +1,38 @@
 """
-Log Panel - Displays structured logs from the worker process
+Log Panel - Displays structured logs from the worker process and GUI.
 
 Features:
 - Append structured logs with level coloring
 - Filter by log level
-- Clear button
+- Search within logs
+- Copy selected or visible logs
+- Open logs folder
+- Clear button (view only)
 - Auto-scroll to bottom
 """
-from typing import Optional
+from __future__ import annotations
 
-from PySide6.QtCore import Qt, Slot
-from PySide6.QtGui import QColor, QTextCursor
+from typing import Optional, List, Tuple
+from pathlib import Path
+from PySide6.QtCore import Qt, Slot, QUrl
+from PySide6.QtGui import QColor, QTextCursor, QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
+try:
+    from platformdirs import user_log_dir
+except ImportError:  # pragma: no cover - optional
+    user_log_dir = None
+
+from ..utils.redaction import redact_text
 
 # Log level colors
 LEVEL_COLORS = {
@@ -34,18 +46,16 @@ LEVEL_COLORS = {
 
 class LogPanel(QWidget):
     """
-    Log display panel with filtering and clear functionality.
-
-    Usage:
-        panel = LogPanel()
-        panel.append_log("INFO", "Application started")
-        panel.append_log("ERROR", "Something went wrong")
+    Log display panel with filtering, search, and clipboard helpers.
     """
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self._min_level = "INFO"  # Minimum level to display
         self._auto_scroll = True
+        self._entries: List[Tuple[str, str]] = []  # (level, message)
+        self._entries_bytes = 0
+        self._max_entries = 2000
+        self._max_bytes = 2 * 1024 * 1024
 
         self._setup_ui()
 
@@ -72,15 +82,34 @@ class LogPanel(QWidget):
 
         toolbar.addStretch()
 
+        toolbar.addWidget(QLabel("Search:"))
+        self._search_edit = QLineEdit()
+        self._search_edit.setPlaceholderText("Find text...")
+        self._search_edit.textChanged.connect(self._refresh_view)
+        self._search_edit.setClearButtonEnabled(True)
+        toolbar.addWidget(self._search_edit, stretch=1)
+
         # Auto-scroll toggle
         self._auto_scroll_check = QCheckBox("Auto-scroll")
         self._auto_scroll_check.setChecked(True)
         self._auto_scroll_check.stateChanged.connect(self._on_auto_scroll_changed)
         toolbar.addWidget(self._auto_scroll_check)
 
-        # Clear button
-        clear_btn = QPushButton("Clear")
-        clear_btn.setFixedWidth(60)
+        # Copy button
+        copy_btn = QPushButton("Copy")
+        copy_btn.setFixedWidth(60)
+        copy_btn.clicked.connect(self._copy_selected)
+        toolbar.addWidget(copy_btn)
+
+        # Open logs folder
+        open_btn = QPushButton("Open Logs")
+        open_btn.setFixedWidth(90)
+        open_btn.clicked.connect(self._open_logs_folder)
+        toolbar.addWidget(open_btn)
+
+        # Clear button (view only)
+        clear_btn = QPushButton("Clear View")
+        clear_btn.setFixedWidth(90)
         clear_btn.clicked.connect(self.clear)
         toolbar.addWidget(clear_btn)
 
@@ -116,62 +145,87 @@ class LogPanel(QWidget):
             message: Log message text
         """
         level = level.upper()
+        message = redact_text(message)
 
-        # Check if this level is enabled
-        enabled = self._get_enabled_levels()
-        if level not in enabled and level != "CRITICAL":
+        self._entries.append((level, message))
+        self._entries_bytes += self._entry_size(level, message)
+        self._trim_entries()
+        self._refresh_view()
+
+    def _refresh_view(self) -> None:
+        """Rebuild the visible log view based on filters/search."""
+        if not hasattr(self, "_text_edit"):
             return
 
-        # Format the log line
-        color = LEVEL_COLORS.get(level, QColor(0, 0, 0))
+        enabled_levels = self._get_enabled_levels()
+        query = (self._search_edit.text() or "").lower()
 
-        # Move cursor to end
+        self._text_edit.clear()
+
+        for level, msg in self._entries:
+            if level not in enabled_levels:
+                continue
+            if query and query not in f"{level} {msg}".lower():
+                continue
+            self._append_to_view(level, msg)
+
+        if self._auto_scroll:
+            self._text_edit.moveCursor(QTextCursor.End)
+
+    def _append_to_view(self, level: str, message: str) -> None:
+        """Append a single line with color styling."""
         cursor = self._text_edit.textCursor()
         cursor.movePosition(QTextCursor.End)
-        self._text_edit.setTextCursor(cursor)
-
-        # Insert formatted text
-        # Use HTML for coloring
-        level_padded = f"[{level}]".ljust(10)
-        html = f'<span style="color: {color.name()};">{level_padded}</span>{self._escape_html(message)}<br>'
-        cursor.insertHtml(html)
-
-        # Auto-scroll
-        if self._auto_scroll:
-            scrollbar = self._text_edit.verticalScrollBar()
-            scrollbar.setValue(scrollbar.maximum())
-
-    def _escape_html(self, text: str) -> str:
-        """Escape HTML special characters."""
-        return (
-            text.replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace(" ", "&nbsp;")
-        )
-
-    @Slot()
-    def clear(self) -> None:
-        """Clear all log messages."""
-        self._text_edit.clear()
+        color = LEVEL_COLORS.get(level.upper(), LEVEL_COLORS["INFO"])
+        self._text_edit.setTextColor(color)
+        self._text_edit.insertPlainText(f"{level}: {message}\n")
 
     @Slot()
     def _on_filter_changed(self) -> None:
-        """Handle filter checkbox change."""
-        # Just affects future messages, not a retroactive filter
-        pass
+        """Handle level filter changes."""
+        self._refresh_view()
 
     @Slot(int)
     def _on_auto_scroll_changed(self, state: int) -> None:
         """Handle auto-scroll toggle."""
         self._auto_scroll = state == Qt.Checked
 
-    def get_text(self) -> str:
-        """Get all log text as plain text."""
-        return self._text_edit.toPlainText()
+    @Slot()
+    def clear(self) -> None:  # type: ignore[override]
+        """Clear the visible log view (keeps history list)."""
+        self._text_edit.clear()
 
-    def set_font_size(self, size: int) -> None:
-        """Set the log font size."""
-        font = self._text_edit.font()
-        font.setPointSize(size)
-        self._text_edit.setFont(font)
+    def _entry_size(self, level: str, message: str) -> int:
+        return len(f"{level}:{message}".encode("utf-8", "ignore"))
+
+    def _trim_entries(self) -> None:
+        """Ensure the in-memory buffer stays within bounds."""
+        while self._entries and (len(self._entries) > self._max_entries or self._entries_bytes > self._max_bytes):
+            old_level, old_msg = self._entries.pop(0)
+            self._entries_bytes -= self._entry_size(old_level, old_msg)
+            if self._entries_bytes < 0:
+                self._entries_bytes = 0
+
+    def _copy_selected(self) -> None:
+        """Copy selected text or all visible text if none selected."""
+        cursor = self._text_edit.textCursor()
+        if cursor.hasSelection():
+            text = cursor.selectedText().replace("\u2029", "\n")
+        else:
+            text = self._text_edit.toPlainText()
+        if text:
+            from PySide6.QtWidgets import QApplication
+
+            QApplication.clipboard().setText(text)
+
+    def _open_logs_folder(self) -> None:
+        """Open the logs directory."""
+        if user_log_dir:
+            log_dir = Path(user_log_dir("PlaylistGenerator", "PlaylistGenerator"))
+        else:
+            log_dir = Path.home() / ".PlaylistGenerator" / "logs"
+        try:
+            log_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(log_dir)))

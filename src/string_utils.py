@@ -6,7 +6,7 @@ playlist_generator.py and track_matcher.py without changing behavior.
 """
 import re
 import unicodedata
-from typing import List
+from typing import List, Optional
 
 # Pre-compiled patterns for song title normalization (remasters/live/etc.)
 _SONG_TITLE_PATTERNS: List[re.Pattern] = [
@@ -210,3 +210,13 @@ def normalize_artist_key(name: str) -> str:
 
 # Backward-compatible alias
 normalize_string = normalize_text
+
+
+def sanitize_for_logging(text: Optional[str]) -> str:
+    """
+    Lightweight sanitization for log output.
+    Removes newlines and trims whitespace; keeps ASCII-safe representation.
+    """
+    if text is None:
+        return ""
+    return str(text).replace("\r", " ").replace("\n", " ").strip()

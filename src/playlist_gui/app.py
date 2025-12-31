@@ -2,14 +2,17 @@
 Playlist Generator GUI - Application Entry Point
 
 Usage:
-    python -m src.playlist_gui.app
-    python -m playlist_gui.app  (from src directory)
+    python -m playlist_gui.app
 
 This launches the native Windows desktop GUI for the playlist generator.
 """
 import os
 import sys
+import logging
 from pathlib import Path
+from .gui_logging import setup_gui_logging
+
+logger = logging.getLogger(__name__)
 
 
 def setup_environment():
@@ -45,13 +48,11 @@ def check_dependencies():
         import platformdirs
     except ImportError:
         # Optional, just warn
-        print("Note: platformdirs not installed, using fallback paths")
+        logger.warning("Note: platformdirs not installed, using fallback paths")
 
     if missing:
-        print("Missing required dependencies:")
-        for dep in missing:
-            print(f"  - {dep}")
-        print("\nInstall with: pip install PySide6 pyyaml platformdirs")
+        logger.error("Missing required dependencies: %s", ", ".join(missing))
+        logger.error("Install with: pip install PySide6 pyyaml platformdirs")
         sys.exit(1)
 
 
@@ -59,6 +60,7 @@ def main():
     """Main entry point for the GUI application."""
     setup_environment()
     check_dependencies()
+    emitter, log_buffer, log_path = setup_gui_logging()
 
     # Import Qt after environment setup
     from PySide6.QtWidgets import QApplication
@@ -79,7 +81,7 @@ def main():
 
     # Import and create main window
     from .main_window import MainWindow
-    window = MainWindow()
+    window = MainWindow(log_emitter=emitter, log_buffer=log_buffer, log_path=log_path)
     window.show()
 
     # Run event loop

@@ -114,7 +114,6 @@ class HybridSonicAnalyzer:
 
 # Example usage
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
     analyzer = HybridSonicAnalyzer()
 
     # Test with a file and optional MBID

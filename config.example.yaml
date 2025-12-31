@@ -32,6 +32,8 @@ playlists:
   name_format: artists
   recently_played_filter:
     enabled: true
+    # Recency exclusions are applied during candidate selection (pre-order) for DS pier-bridge runs.
+    # Post-order filtering/shrinking is forbidden; runs fail loudly on violations.
     lookback_days: 30
     min_playcount_threshold: 0
   min_duration_minutes: 90
@@ -78,9 +80,38 @@ playlists:
 
     # Candidate pool configuration (tracks considered before construction)
     candidate_pool:
-      similarity_floor: 0.20  # Min sonic similarity to seed track (0.0-1.0)
+      similarity_floor: 0.20  # Min hybrid similarity to seed track (0.0-1.0)
+      # Mode-specific sonic floors (hard gate before genre/hybrid):
+      min_sonic_similarity_narrow: 0.10
+      min_sonic_similarity_dynamic: 0.00
+      # fallback if mode-specific not set:
+      # min_sonic_similarity: 0.00
       max_pool_size: 1200     # Max candidates before construction phase
       max_artist_fraction: 0.125  # Max tracks from one artist as fraction of playlist
+      broad_filters: ["rock", "indie", "alternative", "pop"]  # Tags ignored for narrow-mode genre gating/sim
+
+    # Artist style-aware pier-bridge (applies to --artist playlists)
+    artist_style:
+      enabled: false           # Enable style-aware pier-bridge for artist playlists
+      cluster_k_min: 3
+      cluster_k_max: 6
+      cluster_k_heuristic_enabled: true
+      piers_per_cluster: 1
+      per_cluster_candidate_pool_size: 400
+      pool_balance_mode: equal  # equal | proportional_capped
+      internal_connector_priority: true
+      internal_connector_max_per_segment: 2
+      bridge_floor:
+        narrow: 0.08
+        dynamic: 0.03
+      bridge_score_weights:
+        dynamic:
+          bridge: 0.6
+          transition: 0.4
+        narrow:
+          bridge: 0.7
+          transition: 0.3
+      genre_tiebreak_weight: 0.05
 
     # Construction scoring weights
     # score = alpha*seed_sim + beta*transition_sim + gamma*diversity - penalty
@@ -99,12 +130,77 @@ playlists:
     constraints:
       min_gap: 6              # Min positions between same artist
       hard_floor: true        # Reject (true) vs penalize (false) below floor
-      transition_floor: 0.20  # Min acceptable transition similarity
+      # Per-mode transition floors (higher = fewer "teleports")
+      transition_floor_dynamic: 0.35
+      transition_floor_narrow: 0.45
+      # transition_floor: 0.35  # Optional global override for all modes
       center_transitions: true # Center X_start/X_end matrices for scoring
+
+    # Pier-bridge ordering/scoring (applies to all playlists when pipeline=ds)
+    pier_bridge:
+      # Bridge-local gate: require min(sim_to_pier_A, sim_to_pier_B) >= floor
+      bridge_floor_dynamic: 0.03
+      bridge_floor_narrow: 0.08
+      # Edge scoring weights (bridge harmonic mean vs local transition)
+      weight_bridge_dynamic: 0.6
+      weight_transition_dynamic: 0.4
+      weight_bridge_narrow: 0.7
+      weight_transition_narrow: 0.3
+      # Small genre tie-breaker (never rescues hard gates)
+      genre_tiebreak_weight: 0.05
+      # Soft genre whiplash penalty (does NOT gate): if edge_genre < threshold,
+      # final_edge_score *= (1 - strength)
+      soft_genre_penalty_threshold: 0.20
+      soft_genre_penalty_strength: 0.10
+      # Segment-local candidate pool strategy (recommended).
+      # "segment_scored" builds a per-segment pool by scoring candidates jointly vs BOTH
+      # endpoints (pier A and pier B), rather than unioning neighbor lists.
+      segment_pool_strategy: segment_scored
+      segment_pool_max: 400
+      max_segment_pool_max: 1200
+
+      # Progress constraint (A→B) to reduce "teleporting" / bouncing during bridges.
+      # Uses projection onto the AB direction in the sonic similarity space.
+      progress:
+        enabled: true
+        monotonic_epsilon: 0.05
+        penalty_weight: 0.15
+
+      # Interior artist policies (optional):
+      # - For `--artist` playlists, the seed artist is DISALLOWED in bridge interiors by default (piers-only).
+      # - To override in any run, you can set:
+      #   disallow_seed_artist_in_interiors: false   # allow seed artist inside segments
+      #   disallow_pier_artists_in_interiors: true   # disallow endpoint artists inside segments
+
+      # Optional: segment infeasibility handling (default OFF).
+      # If a segment is infeasible under the current bridge_floor + allowed pool,
+      # this can retry the SAME segment with a lower bridge_floor.
+      infeasible_handling:
+        enabled: false
+        strategy: "backoff"
+        min_bridge_floor: 0.00
+        backoff_steps: [0.08, 0.06, 0.05, 0.04, 0.03, 0.02, 0.01, 0.00]
+        max_attempts_per_segment: 8
+        widen_search_on_backoff: true
+        # Widening knobs applied only after the first failure:
+        extra_neighbors_m: 200
+        extra_bridge_helpers: 100
+        extra_beam_width: 50
+        extra_expansion_attempts: 2
+
+      # Optional: write a markdown run audit report (default OFF).
+      # Useful when debugging infeasible segments or verifying gating behavior.
+      audit_run:
+        enabled: false
+        out_dir: "docs/run_audits"
+        include_top_k: 25
+        max_bytes: 350000
+        write_on_success: true
+        write_on_failure: true
 
     # Repair pass configuration (fixes weak transitions after construction)
     repair:
-      enabled: true           # Enable post-construction repair pass
+      enabled: true           # Enable post-construction repair pass      
       max_iters: 5            # Max repair iterations
       max_edges: 5            # Max edges to fix per iteration
       objective: gap_penalty  # "gap_penalty" or "below_floor_first"

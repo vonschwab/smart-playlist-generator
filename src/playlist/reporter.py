@@ -462,15 +462,36 @@ def print_playlist_report(
                 edge_map = {}
 
     for i, track in enumerate(tracks, 1):
-        artist = sanitize_for_logging(track.get('artist', 'Unknown'))
-        title = sanitize_for_logging(track.get('title', 'Unknown'))
+        raw_artist = str(track.get('artist', 'Unknown') or 'Unknown')
+        raw_title = str(track.get('title', 'Unknown') or 'Unknown')
+        artist = sanitize_for_logging(raw_artist)
+        title = sanitize_for_logging(raw_title)
         source = track.get('source', 'unknown')
+        track_id = track.get("rating_key") or track.get("id") or track.get("track_id")
+        file_path = track.get("file") or track.get("path") or track.get("file_path")
+
+        sanitized = (artist != raw_artist) or (title != raw_title)
+        if sanitized and logger.isEnabledFor(logging.DEBUG):
+            # Keep raw values ASCII-safe for console logs.
+            raw_artist_dbg = raw_artist.encode("unicode_escape", errors="backslashreplace").decode("ascii")
+            raw_title_dbg = raw_title.encode("unicode_escape", errors="backslashreplace").decode("ascii")
+            logger.debug(
+                "Track metadata sanitized: idx=%d id=%s file=%s raw_artist=%s raw_title=%s safe_artist=%s safe_title=%s",
+                i,
+                track_id,
+                file_path,
+                raw_artist_dbg,
+                raw_title_dbg,
+                artist,
+                title,
+            )
 
         # Count by source
         source_counts[source] = source_counts.get(source, 0) + 1
 
         # Format: Track 01: Artist - Title
-        logger.info(f"Track {i:02d}: {artist} - {title}")
+        marker = f" [id={track_id}]" if sanitized and track_id is not None else ""
+        logger.info(f"Track {i:02d}: {artist} - {title}{marker}")
         # Verbose per-edge scores (DS only)
         if verbose_edges and last_ds_report and i > 1:
             prev_id = str(tracks[i - 2].get("rating_key"))

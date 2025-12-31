@@ -119,6 +119,59 @@ playlists:
       max_edges: 5
 ```
 
+### Pier-Bridge Tuning (per mode)
+Pier-bridge uses per-mode defaults when you don’t specify overrides:
+- `dynamic`: `transition_floor=0.35`, `bridge_floor=0.03`, weights `bridge=0.6`, `transition=0.4`
+- `narrow`: `transition_floor=0.45`, `bridge_floor=0.08`, weights `bridge=0.7`, `transition=0.3`
+
+Overrides are supported via:
+- `playlists.ds_pipeline.constraints.transition_floor_dynamic`
+- `playlists.ds_pipeline.constraints.transition_floor_narrow`
+- `playlists.ds_pipeline.pier_bridge.*` (see `config.example.yaml` for the full list, including `soft_genre_penalty_threshold/strength`)
+
+### Segment-Local Bridging + Progress Constraint
+Pier-bridge now builds each bridge segment (A → B) from a **segment-local** candidate universe scored against **both endpoints** (no neighbor-list union pooling).
+
+Config (see `config.example.yaml`):
+- `playlists.ds_pipeline.pier_bridge.segment_pool_strategy`: `segment_scored` (recommended)
+- `playlists.ds_pipeline.pier_bridge.segment_pool_max`: per-segment candidate cap (top-K by bridge score)
+- `playlists.ds_pipeline.pier_bridge.progress.*`: optional A→B progress constraint to reduce bouncing/teleports
+
+### Artist Playlists: Seed Artist = Piers Only (default)
+For `--artist` playlists, the DS pipeline marks the run as an artist playlist and pier-bridge defaults to **disallowing the seed artist in bridge interiors** (the artist appears only as pier tracks).
+
+To override for any run (optional):
+- `playlists.ds_pipeline.pier_bridge.disallow_seed_artist_in_interiors: false`
+- `playlists.ds_pipeline.pier_bridge.disallow_pier_artists_in_interiors: true`
+
+### How to verify
+- Run `python main_app.py --artist "Sabrina Carpenter" --ds-mode dynamic --log-level INFO --dry-run`
+- Confirm the run logs include: `Pier-bridge tuning resolved: mode=dynamic ...`
+- Confirm the run logs include: `Pier-bridge segment policy: artist_playlist=... strategy=...`
+- For penalty visibility, re-run with `--log-level DEBUG` and look for per-segment `soft_genre_penalty_hits=... edges_scored=...` lines.
+
+### Recency Filtering Invariant (DS)
+Recency exclusions (Last.fm scrobbles and/or local history) are applied **pre-order only** during candidate selection. After pier-bridge ordering completes, the playlist is **not** filtered/shrunk; we do **validation only** and fail loudly if constraints are violated.
+
+Log evidence (per run):
+- `stage=candidate_pool | Last.fm recency exclusions: before=... after=... excluded=... lookback_days=...`
+- `stage=post_order_validation | recency_overlap=0 | final_size=... | expected=...`
+
+Run audit evidence (when `playlists.ds_pipeline.pier_bridge.audit_run.enabled=true` or `--audit-run`):
+- `## 3b) Recency (Pre-Order)`
+- `post_order_filters_applied: []` and `post_order_validation.recency_overlap_count == 0`
+
+### Infeasible Segments: Bridge-Floor Backoff + Run Audits (optional)
+By default, pier-bridge fails loudly if any segment is infeasible under the current `bridge_floor` and allowed pool.
+
+Optional knobs (all default OFF) under `playlists.ds_pipeline.pier_bridge`:
+- `infeasible_handling.enabled`: retry infeasible segments with lower `bridge_floor` (deterministic backoff list).
+- `audit_run.enabled`: write a markdown report per run (success + failure) to `docs/run_audits/`.
+
+CLI helpers:
+- Enable audits: `--audit-run` (and optionally `--audit-run-dir <path>`)
+- Enable backoff: `--pb-backoff`
+
 ## Genre Similarity
 
 ```yaml

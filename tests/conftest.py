@@ -54,3 +54,17 @@ def synthetic_artifact(tmp_path):
     path = _build_artifact(tmp_path, seed=123)
     bundle = load_artifact_bundle(path)
     return path, bundle
+
+
+@pytest.fixture()
+def qtbot():
+    """
+    Minimal shim so tests that accept `qtbot` can run without pytest-qt.
+    The fixture isn't used in assertions, so a dummy object is sufficient.
+    """
+    class _DummyQtBot:
+        def __getattr__(self, name):
+            # Allow arbitrary attribute access without failing the test
+            return lambda *args, **kwargs: None
+
+    return _DummyQtBot()

@@ -207,7 +207,7 @@ Commands and events use newline-delimited JSON (one JSON object per line).
 ```
 src/playlist_gui/
 ├── __init__.py           # Package init
-├── __main__.py           # Entry point for `python -m src.playlist_gui`
+├── __main__.py           # Entry point for `python -m playlist_gui.app`
 ├── app.py                # QApplication setup and launch
 ├── main_window.py        # Main window with controls and layout
 ├── autocomplete.py       # Database-driven artist/track autocomplete
@@ -245,7 +245,7 @@ pip install -r requirements-gui.txt
 
 ```bash
 # From project root
-python -m src.playlist_gui
+python -m playlist_gui.app
 
 # Or using the app entry point
 python src/playlist_gui/app.py
@@ -403,7 +403,7 @@ SettingSpec(
 ### GUI Won't Start
 - Check Python version (3.9+ required)
 - Verify PySide6 is installed: `pip install PySide6`
-- Run with debug: `python -m src.playlist_gui 2>&1`
+- Run with debug: `python -m playlist_gui.app 2>&1`
 
 ### Worker Crashes
 - Check config.yaml exists and is valid YAML

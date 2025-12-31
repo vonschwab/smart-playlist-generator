@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import logging
 import os
 import re
 import sqlite3
@@ -24,9 +25,26 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 import requests
 import yaml
 
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from src.logging_utils import (
+    ProgressLogger,
+    add_logging_args,
+    configure_logging,
+    resolve_log_level,
+)
+
+logger = logging.getLogger(__name__)
+
 API_BASE = "https://api.discogs.com"
 USER_AGENT = "PlaylistGenerator/DiscogsGenreImport"
 DEFAULT_PAGE_SIZE = 15
+DISCOGS_STATUS_UNKNOWN = "unknown"
+DISCOGS_STATUS_OK = "ok"
+DISCOGS_STATUS_NO_MATCH = "no_match"
+DISCOGS_STATUS_FAILED = "failed"
 
 
 class TokenBucket:
@@ -241,6 +259,72 @@ def normalize_tag(tag: str) -> str:
     return re.sub(r"\s+", " ", tag.strip().lower())
 
 
+def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    try:
+        cur = conn.execute(f"PRAGMA table_info({table})")
+    except sqlite3.OperationalError:
+        return False
+    for row in cur.fetchall():
+        try:
+            name = row["name"]
+        except Exception:
+            name = row[1]
+        if name == column:
+            return True
+    return False
+
+
+def ensure_discogs_marker_columns(conn: sqlite3.Connection) -> None:
+    """Add Discogs attempt marker columns to albums if missing (best-effort)."""
+    needed = [
+        ("discogs_status", "TEXT"),
+        ("discogs_attempted_at", "TEXT"),
+        ("discogs_attempt_count", "INTEGER"),
+        ("discogs_last_error", "TEXT"),
+    ]
+    for col, col_type in needed:
+        if _column_exists(conn, "albums", col):
+            continue
+        try:
+            conn.execute(f"ALTER TABLE albums ADD COLUMN {col} {col_type}")
+            conn.commit()
+        except sqlite3.OperationalError:
+            conn.rollback()
+
+
+def get_discogs_marker(conn: sqlite3.Connection, album_id: str) -> str:
+    cur = conn.execute("SELECT discogs_status FROM albums WHERE album_id=?", (album_id,))
+    row = cur.fetchone()
+    if not row:
+        return DISCOGS_STATUS_UNKNOWN
+    try:
+        status = row["discogs_status"]
+    except Exception:
+        status = row[0]
+    return status or DISCOGS_STATUS_UNKNOWN
+
+
+def set_discogs_marker(
+    conn: sqlite3.Connection,
+    album_id: str,
+    status: str,
+    last_error: Optional[str] = None,
+) -> None:
+    """Persist Discogs attempt markers for an album."""
+    now = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
+    conn.execute(
+        """
+        UPDATE albums
+        SET discogs_status = ?,
+            discogs_attempted_at = ?,
+            discogs_attempt_count = COALESCE(discogs_attempt_count, 0) + 1,
+            discogs_last_error = ?
+        WHERE album_id = ?
+        """,
+        (status, now, last_error, album_id),
+    )
+
+
 def discogs_status(conn: sqlite3.Connection, album_id: str) -> Tuple[bool, bool]:
     """
     Return (has_data, has_empty) for discogs sources on this album.
@@ -316,6 +400,12 @@ def upsert_album_genres(conn: sqlite3.Connection, album_id: str, genres: Sequenc
 # --- Runner -------------------------------------------------------------------
 
 def run(args: argparse.Namespace) -> None:
+    log_level = resolve_log_level(args)
+    if args.verbose and not getattr(args, "debug", False) and not getattr(args, "quiet", False) and getattr(args, "log_level", "INFO").upper() == "INFO":
+        log_level = "DEBUG"
+    log_file = getattr(args, "log_file", None) or "discogs_genres.log"
+    configure_logging(level=log_level, log_file=log_file)
+
     db_path = Path(args.db)
     if not db_path.exists():
         sys.exit(f"Database not found: {db_path}")
@@ -326,6 +416,7 @@ def run(args: argparse.Namespace) -> None:
     client = DiscogsClient(token)
 
     conn = sqlite3.connect(db_path)
+    ensure_discogs_marker_columns(conn)
     conn.isolation_level = None  # autocommit
 
     misses = []
@@ -334,10 +425,23 @@ def run(args: argparse.Namespace) -> None:
 
     albums_list = list(iter_albums(conn, args.artist, args.limit, args.per_artist))
     total_to_process = len(albums_list)
+    prog = ProgressLogger(
+        logger,
+        total=total_to_process,
+        label="discogs_genres",
+        unit="albums",
+        interval_s=args.progress_interval,
+        every_n=args.progress_every,
+        verbose_each=args.verbose,
+    ) if args.progress else None
     start_time = time.monotonic()
     for idx, album in enumerate(albums_list, start=1):
         total_albums += 1
         has_data, has_empty = discogs_status(conn, album.album_id)
+        marker_status = get_discogs_marker(conn, album.album_id)
+
+        if prog:
+            prog.update(detail=f"{album.artist} - {album.title}")
 
         elapsed = time.monotonic() - start_time
         remaining = total_to_process - idx
@@ -347,21 +451,23 @@ def run(args: argparse.Namespace) -> None:
         est_secs_rem = int(est_seconds % 60)
         eta_str = f"{est_minutes}m {est_secs_rem}s" if est_minutes else f"{est_secs_rem}s"
         prefix = f"[{idx}/{total_to_process}] [{eta_str} left]"
-        if has_data:
-            print(f"{prefix} [skip] {album.artist} - {album.title} (discogs already present)")
+        if marker_status == DISCOGS_STATUS_OK or has_data:
+            logger.debug("%s [skip] %s - %s (discogs already present)", prefix, album.artist, album.title)
             continue
-        if has_empty and not args.recheck_empty:
-            print(f"{prefix} [skip] {album.artist} - {album.title} (previous discogs __EMPTY__)")
+        if (marker_status == DISCOGS_STATUS_NO_MATCH or has_empty) and not args.recheck_empty:
+            logger.debug("%s [skip] %s - %s (previous discogs no-match)", prefix, album.artist, album.title)
             continue
         try:
             match = best_match(client, album, args.threshold, strict_artist=args.strict_artist)
         except Exception as exc:  # pylint: disable=broad-except
-            print(f"{prefix} [warn] search failed for {album.artist} - {album.title}: {exc}")
+            logger.warning("%s [warn] search failed for %s - %s: %s", prefix, album.artist, album.title, exc)
             misses.append((album, "search_error", str(exc)))
+            set_discogs_marker(conn, album.album_id, DISCOGS_STATUS_FAILED, last_error=exc.__class__.__name__)
             continue
         if not match:
-            print(f"{prefix} [miss] {album.artist} - {album.title}")
+            logger.debug("%s [miss] %s - %s", prefix, album.artist, album.title)
             upsert_album_genres(conn, album.album_id, ["__EMPTY__"], "discogs_release", args.dry_run)
+            set_discogs_marker(conn, album.album_id, DISCOGS_STATUS_NO_MATCH, last_error=None)
             misses.append((album, "no_match", ""))
             continue
         release_id = match.get("id")
@@ -370,8 +476,9 @@ def run(args: argparse.Namespace) -> None:
         try:
             genres, styles = fetch_genres(client, release_id, master_id)
         except Exception as exc:  # pylint: disable=broad-except
-            print(f"{prefix} [warn] fetch failed for {album.artist} - {album.title}: {exc}")
+            logger.warning("%s [warn] fetch failed for %s - %s: %s", prefix, album.artist, album.title, exc)
             misses.append((album, "fetch_error", str(exc)))
+            set_discogs_marker(conn, album.album_id, DISCOGS_STATUS_FAILED, last_error=exc.__class__.__name__)
             continue
 
         norm_genres = [normalize_tag(g) for g in genres if g]
@@ -383,16 +490,29 @@ def run(args: argparse.Namespace) -> None:
             upsert_album_genres(conn, album.album_id, norm_styles, "discogs_master", args.dry_run)
 
         total_hits += 1
+        set_discogs_marker(conn, album.album_id, DISCOGS_STATUS_OK, last_error=None)
         genres_str = ", ".join(norm_genres) if norm_genres else "none"
         styles_str = ", ".join(norm_styles) if norm_styles else "none"
-        print(f"{prefix} [hit] {album.artist} - {album.title} -> release {release_id} (score {score:.2f}) genres=[{genres_str}] styles=[{styles_str}]")
+        logger.debug(
+            "%s [hit] %s - %s -> release %s (score %.2f) genres=[%s] styles=[%s]",
+            prefix,
+            album.artist,
+            album.title,
+            release_id,
+            score,
+            genres_str,
+            styles_str,
+        )
 
-    print(f"\nProcessed albums: {total_albums}, hits: {total_hits}, misses: {len(misses)}")
+    if prog:
+        prog.finish()
+
+    logger.info("Processed albums: %d, hits: %d, misses: %d", total_albums, total_hits, len(misses))
     if misses and args.miss_log:
         with Path(args.miss_log).open("w", encoding="utf-8") as f:
             for album, reason, detail in misses:
                 f.write(f"{album.artist}\t{album.title}\t{reason}\t{detail}\n")
-        print(f"Misses logged to {args.miss_log}")
+        logger.info("Misses logged to %s", args.miss_log)
 
     conn.close()
 
@@ -433,6 +553,12 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true", help="Do not write to the database.")
     parser.add_argument("--miss-log", help="Path to write miss records (tsv).")
     parser.add_argument("--recheck-empty", action="store_true", help="Retry albums previously marked __EMPTY__ for Discogs; otherwise skips them.")
+    parser.add_argument("--progress", dest="progress", action="store_true", default=True, help="Enable progress logging (default)")
+    parser.add_argument("--no-progress", dest="progress", action="store_false", help="Disable progress logging")
+    parser.add_argument("--progress-interval", type=float, default=15.0, help="Seconds between progress updates (default: 15)")
+    parser.add_argument("--progress-every", type=int, default=500, help="Items between progress updates (default: 500)")
+    parser.add_argument("--verbose", action="store_true", help="Verbose per-album progress (DEBUG)")
+    add_logging_args(parser)
     return parser.parse_args(argv)
 
 

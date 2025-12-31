@@ -213,5 +213,4 @@ Return ONLY the titles, one per line, numbered 1-{len(playlist_tracks)}. Example
 
 # Example usage
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
     logger.info("OpenAI Client module loaded")

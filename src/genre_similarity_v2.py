@@ -10,7 +10,7 @@ Now includes Taxonomy v1 integration for:
 import yaml
 import numpy as np
 from pathlib import Path
-from typing import List, Set, Dict, Tuple, Optional
+from typing import List, Set, Dict, Tuple, Optional, Any
 import logging
 from collections import Counter
 from dataclasses import dataclass
@@ -573,6 +573,84 @@ class GenreSimilarityV2:
         else:
             raise ValueError(f"Unknown similarity method: {method}")
 
+    def calculate_similarity_with_explain(
+        self,
+        genres1: List[str],
+        genres2: List[str],
+        *,
+        method: str = "ensemble",
+        broad_filters: Optional[List[str]] = None,
+        top_k: int = 5,
+    ) -> Tuple[float, Dict[str, Any]]:
+        """
+        Compute genre similarity plus an explanation of contributing pairs.
+
+        Args:
+            genres1: Seed/left genres (raw strings)
+            genres2: Candidate/right genres (raw strings)
+            method: Similarity method to use for the score
+            broad_filters: Optional list of broad tags to drop symmetrically
+            top_k: Number of top contributing pairs to return
+
+        Returns:
+            (score, explanation_dict)
+        """
+        broad_set = set(g.lower() for g in (broad_filters or []))
+
+        def _filter_broad(genres: List[str]) -> Tuple[List[str], List[str]]:
+            kept = []
+            removed = []
+            for g in genres:
+                norm = g.lower().strip()
+                if norm and norm not in broad_set:
+                    kept.append(g)
+                else:
+                    removed.append(g)
+            return kept, removed
+
+        seed_filtered, seed_removed = _filter_broad(genres1 or [])
+        cand_filtered, cand_removed = _filter_broad(genres2 or [])
+
+        if not seed_filtered or not cand_filtered:
+            return 0.0, {
+                "seed_genres_raw": genres1 or [],
+                "cand_genres_raw": genres2 or [],
+                "seed_genres_filtered": seed_filtered,
+                "cand_genres_filtered": cand_filtered,
+                "seed_broad_removed": seed_removed,
+                "cand_broad_removed": cand_removed,
+                "top_pairs": [],
+                "method": method,
+            }
+
+        score = self.calculate_similarity(seed_filtered, cand_filtered, method=method)
+
+        pair_details: List[Dict[str, Any]] = []
+        for g1 in seed_filtered:
+            for g2 in cand_filtered:
+                val, conf = self._lookup_similarity_with_confidence(g1.lower(), g2.lower())
+                pair_details.append(
+                    {
+                        "seed_genre": g1,
+                        "cand_genre": g2,
+                        "pair_score": val,
+                        "confidence": conf,
+                    }
+                )
+        pair_details.sort(key=lambda d: d["pair_score"], reverse=True)
+        top_pairs = pair_details[:top_k]
+
+        return score, {
+            "seed_genres_raw": genres1 or [],
+            "cand_genres_raw": genres2 or [],
+            "seed_genres_filtered": seed_filtered,
+            "cand_genres_filtered": cand_filtered,
+            "seed_broad_removed": seed_removed,
+            "cand_broad_removed": cand_removed,
+            "top_pairs": top_pairs,
+            "method": method,
+        }
+
     def calculate_similarity_with_confidence(
         self, genres1: List[str], genres2: List[str], method: str = "ensemble"
     ) -> SimilarityResultWithConfidence:
@@ -719,8 +797,6 @@ class GenreSimilarityV2:
 
 # Example usage and testing
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-
     calc = GenreSimilarityV2()
 
     # Test cases

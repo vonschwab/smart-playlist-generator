@@ -69,14 +69,21 @@ logger = logging.getLogger("scan_library")
 
 All log messages use this format:
 ```
-%(asctime)s | %(levelname)-5s | %(name)s | %(message)s
+%(asctime)s | %(levelname)-5s | %(name)s | run_id=%(run_id)s | %(message)s
 ```
+`run_id` is injected automatically by `configure_logging` (defaults to `-` when not provided).
 
-Example output:
+Run IDs:
+- Console output **omits run_id by default** for readability.
+- File logs always include run_id.
+- Add `--show-run-id` (or set log level DEBUG) to include run_id on console.
+Example default console output:
 ```
-2024-01-15 10:30:45 | INFO  | src.playlist.pipeline | Starting playlist generation
-2024-01-15 10:30:45 | INFO  | src.playlist.pipeline | Anchor: Radiohead - Karma Police
-2024-01-15 10:30:46 | INFO  | src.playlist.pipeline | Generated 30 tracks in 1.2s
+10:30:45 | INFO  | src.playlist.pipeline | Starting playlist generation
+```
+Example with `--show-run-id` or DEBUG:
+```
+10:30:45 | INFO  | src.playlist.pipeline | run_id=abcd1234 | Starting playlist generation
 ```
 
 ### Message Guidelines
@@ -93,6 +100,29 @@ For complex data, use key=value format:
 ```python
 logger.info(f"Playlist complete: tracks={len(tracks)} duration={duration:.1f}min unique_artists={n_artists}")
 ```
+
+## Progress + ETA
+
+- Default runs show **periodic INFO summaries** using `ProgressLogger` every `--progress-interval` seconds or `--progress-every` items (defaults: 15s or 500 items). Each summary includes percent, rate, and ETA when a total is known.
+- Verbose runs (`--verbose`) enable **per-item DEBUG logs** while still emitting periodic INFO summaries. Use when debugging a specific item flow.
+- Disable progress output with `--no-progress` if you prefer silent runs or need clean stdout for piping.
+- All entrypoints accept: `--progress/--no-progress`, `--progress-interval`, `--progress-every`, `--verbose`, plus standard `--log-level/--debug/--quiet/--log-file`.
+
+### Recommended defaults and examples
+
+- Default scan (`python scripts/scan_library.py --quick`):
+  - INFO: `scan_library: 1,250/3,210 files (38.9%) | 82.3 files/s | ETA 25s`
+  - INFO final: `scan_library complete: 3,210 files | elapsed 1m02s | avg 51.6 files/s`
+- Verbose scan (`python scripts/scan_library.py --verbose`):
+  - DEBUG per file: `scan_library item 125/3210: Artist - Title (song.flac)`
+  - INFO periodic summaries as above.
+- Quiet mode (`--quiet`):
+  - Suppresses INFO progress; WARNING/ERROR still emitted.
+- Run IDs:
+  - Normal runs: default console (no run_id), add `--log-file` to capture run_id in file.
+  - Debugging or correlation: `--show-run-id` to include run_id on console, or run with `--debug`.
+
+Always redact secrets and sensitive paths when logging; prefer basename/relative paths and avoid logging tokens, API keys, or credentials.
 
 ## Timings and Metrics
 
@@ -129,6 +159,14 @@ logger.info("=" * 60)
 | update_sonic | tracks_analyzed, features_extracted, failures |
 | update_genres | artists_updated, albums_updated, api_calls, empty_results |
 | main_app | anchor_track, candidates_considered, final_tracks, generation_time |
+
+## Analyze Library Logging
+
+- Startup logs include `run_id`, db path, out_dir, selected stages, config hash, git commit, and progress settings.
+- Each stage logs a **plan line** with current/last fingerprints, skip eligibility, and pending counts; skips record explicit reasons (e.g., fingerprint unchanged).
+- Stage execution logs start/end with durations; periodic progress/ETA comes from stage-specific `ProgressLogger` instances.
+- End-of-run summary lists stage, decision, reason, items (when known), duration, plus verify issues if present.
+- `--verbose` enables per-item DEBUG logs within stages; `--no-progress` disables periodic summaries.
 
 ## Redaction Policy
 

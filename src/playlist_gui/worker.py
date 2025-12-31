@@ -33,8 +33,9 @@ Security:
 """
 import json
 import logging
-import re
+import os
 import sys
+import sqlite3
 import threading
 import traceback
 from dataclasses import dataclass
@@ -42,6 +43,8 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import yaml
+
+from .utils.redaction import redact_text
 
 
 # Protocol version
@@ -65,6 +68,7 @@ class WorkerState:
     Thread-safe for cancel requests that may arrive during command execution.
     """
     current_request_id: Optional[str] = None
+    current_job_id: Optional[str] = None
     current_cmd: Optional[str] = None
     cancel_requested: bool = False
     _lock: threading.Lock = None
@@ -72,11 +76,12 @@ class WorkerState:
     def __post_init__(self):
         self._lock = threading.Lock()
 
-    def start_request(self, request_id: str, cmd: str) -> None:
+    def start_request(self, request_id: str, cmd: str, job_id: Optional[str]) -> None:
         """Mark a new request as active."""
         with self._lock:
             self.current_request_id = request_id
             self.current_cmd = cmd
+            self.current_job_id = job_id
             self.cancel_requested = False
 
     def end_request(self) -> None:
@@ -84,6 +89,7 @@ class WorkerState:
         with self._lock:
             self.current_request_id = None
             self.current_cmd = None
+            self.current_job_id = None
             self.cancel_requested = False
 
     def request_cancel(self, request_id: str) -> bool:
@@ -117,6 +123,11 @@ class WorkerState:
         with self._lock:
             return self.current_request_id
 
+    def get_job_id(self) -> Optional[str]:
+        """Get the current job_id, if any."""
+        with self._lock:
+            return self.current_job_id
+
 
 # Global worker state
 _worker_state = WorkerState()
@@ -130,17 +141,6 @@ def check_cancelled() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 # Secret Redaction
 # ─────────────────────────────────────────────────────────────────────────────
-
-SECRET_PATTERNS = re.compile(
-    r"(api_key|token|secret|password|credential|bearer)[\s]*[=:]\s*['\"]?([^'\"\s,}]+)",
-    re.IGNORECASE
-)
-
-
-def redact_secrets_in_text(text: str) -> str:
-    """Redact any secret values from text (for logs, tracebacks)."""
-    return SECRET_PATTERNS.sub(r"\1=***REDACTED***", text)
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Event Emission
@@ -157,6 +157,11 @@ def emit_event(event: Dict[str, Any]) -> None:
     if request_id and "request_id" not in event:
         event["request_id"] = request_id
 
+    # Include job_id if available
+    job_id = _worker_state.get_job_id()
+    if job_id and "job_id" not in event:
+        event["job_id"] = job_id
+
     try:
         line = json.dumps(event, default=str)
         print(line, flush=True)
@@ -170,7 +175,7 @@ def emit_event(event: Dict[str, Any]) -> None:
 
 def emit_log(level: str, msg: str, request_id: Optional[str] = None) -> None:
     """Emit a log event."""
-    event = {"type": "log", "level": level, "msg": redact_secrets_in_text(msg)}
+    event = {"type": "log", "level": level, "msg": redact_text(msg)}
     if request_id:
         event["request_id"] = request_id
     emit_event(event)
@@ -186,9 +191,11 @@ def emit_progress(stage: str, current: int, total: int, detail: Optional[str] = 
 
 def emit_error(message: str, tb: Optional[str] = None) -> None:
     """Emit an error event with redacted traceback."""
-    event = {"type": "error", "message": redact_secrets_in_text(message)}
+    event = {"type": "error", "message": redact_text(message)}
     if tb:
-        event["traceback"] = redact_secrets_in_text(tb)
+        event["traceback"] = redact_text(tb)
+        # Also emit full traceback to the log stream so GUI output isn't truncated
+        emit_log("DEBUG", f"Traceback detail:\n{tb}")
     emit_event(event)
 
 
@@ -197,11 +204,24 @@ def emit_result(result_type: str, data: Dict[str, Any]) -> None:
     emit_event({"type": "result", "result_type": result_type, **data})
 
 
-def emit_done(cmd: str, ok: bool, detail: Optional[str] = None, cancelled: bool = False) -> None:
+# Backwards-compatible alias expected by legacy tests
+def redact_secrets_in_text(text: str) -> str:
+    return redact_text(text)
+
+
+def emit_done(
+    cmd: str,
+    ok: bool,
+    detail: Optional[str] = None,
+    cancelled: bool = False,
+    summary: Optional[str] = None,
+) -> None:
     """Emit a done event indicating command completion."""
     event = {"type": "done", "cmd": cmd, "ok": ok}
     if detail:
         event["detail"] = detail
+    if summary:
+        event["summary"] = summary
     if cancelled:
         event["cancelled"] = True
     emit_event(event)
@@ -265,6 +285,50 @@ def load_config_with_overrides(base_path: str, overrides: Dict[str, Any]) -> Dic
 # ─────────────────────────────────────────────────────────────────────────────
 # Command Handlers
 # ─────────────────────────────────────────────────────────────────────────────
+def handle_doctor(cmd_data: Dict[str, Any]) -> None:
+    """Quick diagnostics."""
+    checks = []
+    base_path = cmd_data.get("base_config_path", "config.yaml")
+    overrides = cmd_data.get("overrides", {})
+    cfg_path = Path(base_path)
+
+    if cfg_path.exists():
+        checks.append({"name": "config_path", "ok": True, "detail": str(cfg_path)})
+    else:
+        checks.append({"name": "config_path", "ok": False, "detail": f"Missing {cfg_path}"})
+
+    try:
+        cfg = load_config_with_overrides(base_path, overrides)
+        checks.append({"name": "config_load", "ok": True, "detail": "Loaded"})
+    except Exception as e:
+        checks.append({"name": "config_load", "ok": False, "detail": str(e)})
+        emit_result("doctor", {"checks": checks})
+        emit_done("doctor", False, "Config failed")
+        return
+
+    db_path = Path(cfg.get("library", {}).get("database_path", "data/metadata.db"))
+    if not db_path.is_absolute():
+        db_path = cfg_path.parent / db_path
+    if db_path.exists():
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM tracks")
+            count = cursor.fetchone()[0]
+            conn.close()
+            checks.append({"name": "database", "ok": count > 0, "detail": f"{count} tracks"})
+        except Exception as e:
+            checks.append({"name": "database", "ok": False, "detail": str(e)})
+    else:
+        checks.append({"name": "database", "ok": False, "detail": f"Missing {db_path}"})
+
+    artifact_path = Path(cfg.get("playlists", {}).get("ds_pipeline", {}).get("artifact_path", "data/artifacts/beat3tower_32k/data_matrices_step1.npz"))
+    if not artifact_path.is_absolute():
+        artifact_path = cfg_path.parent / artifact_path
+    checks.append({"name": "artifacts", "ok": artifact_path.exists(), "detail": str(artifact_path)})
+
+    emit_result("doctor", {"checks": checks})
+    emit_done("doctor", True, "Doctor complete")
 
 def handle_ping(cmd_data: Dict[str, Any]) -> None:
     """Handle ping command - simple health check with protocol version."""
@@ -541,16 +605,53 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
 
         if playlist_data:
             tracks = playlist_data.get('tracks', [])
+            ds_report = playlist_data.get('ds_report', {}) or {}
+            edge_scores = (
+                (ds_report.get("playlist_stats") or {}).get("playlist", {}).get("edge_scores")
+                or ds_report.get("edge_scores")
+                or []
+            )
+            edge_map = {str(edge.get("cur_id")): edge for edge in edge_scores if edge.get("cur_id")}
+
             formatted_tracks = []
 
             for i, track in enumerate(tracks, 1):
+                genres = track.get('genres', [])
+                rating_key = track.get('rating_key') or track.get('id') or track.get('track_id')
+                # Fill genres lazily from similarity calculator if missing
+                if (not genres) and rating_key and getattr(generator, "similarity_calc", None):
+                    try:
+                        genres = generator.similarity_calc.get_filtered_combined_genres_for_track(str(rating_key)) or []
+                    except Exception:
+                        genres = track.get('genres', []) or []
+
+                # Prefer explicit similarity fields; fall back to edge scores from DS report
+                edge = edge_map.get(str(rating_key), {})
+                sonic_sim = (
+                    track.get('similarity_score')
+                    or track.get('hybrid_score')
+                    or track.get('score')
+                    or track.get('sonic_similarity')
+                    or edge.get('S')
+                )
+                genre_sim = (
+                    track.get('genre_sim')
+                    or track.get('genre_similarity')
+                    or track.get('G')
+                    or edge.get('G')
+                )
+
                 formatted_tracks.append({
                     "position": i,
+                    "rating_key": rating_key,
                     "artist": track.get('artist', 'Unknown'),
                     "title": track.get('title', 'Unknown'),
                     "album": track.get('album', ''),
                     "duration_ms": track.get('duration', 0),
                     "file_path": track.get('file_path', ''),
+                    "sonic_similarity": sonic_sim,
+                    "genre_similarity": genre_sim,
+                    "genres": genres,
                 })
 
             playlist_result = {
@@ -560,7 +661,6 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
             }
 
             # Include DS report metrics if available
-            ds_report = playlist_data.get('ds_report', {})
             if ds_report:
                 metrics = ds_report.get('metrics', {})
                 playlist_result["metrics"] = {
@@ -615,15 +715,19 @@ def handle_scan_library(cmd_data: Dict[str, Any]) -> None:
 
         check_cancelled()
         emit_result("scan", {"stats": stats})
-        emit_done("scan_library", True, f"Scanned {stats.get('total', 0)} files")
+        total = stats.get('total', 0) if isinstance(stats, dict) else 0
+        new_count = stats.get('new', 0) if isinstance(stats, dict) else 0
+        updated = stats.get('updated', 0) if isinstance(stats, dict) else 0
+        summary = f"Indexed {total} files (new {new_count}, updated {updated})"
+        emit_done("scan_library", True, f"Scanned {total} files", summary=summary)
 
     except CancellationError:
         emit_log("INFO", "Library scan cancelled")
-        emit_done("scan_library", False, "Cancelled by user", cancelled=True)
+        emit_done("scan_library", False, "Cancelled by user", cancelled=True, summary="Scan cancelled")
     except Exception as e:
         tb = traceback.format_exc()
         emit_error(str(e), tb)
-        emit_done("scan_library", False, str(e))
+        emit_done("scan_library", False, str(e), summary="Scan failed")
 
 
 def handle_update_genres(cmd_data: Dict[str, Any]) -> None:
@@ -652,15 +756,26 @@ def handle_update_genres(cmd_data: Dict[str, Any]) -> None:
 
         check_cancelled()
         emit_result("genres", {"stats": stats})
-        emit_done("update_genres", True)
+        summary = "Updated genres"
+        if isinstance(stats, dict):
+            artists = stats.get("artists_updated") or stats.get("artists_processed")
+            albums = stats.get("albums_updated") or stats.get("albums_processed")
+            parts = []
+            if artists:
+                parts.append(f"{artists} artists")
+            if albums:
+                parts.append(f"{albums} albums")
+            if parts:
+                summary = "Updated genres for " + ", ".join(parts)
+        emit_done("update_genres", True, summary, summary=summary)
 
     except CancellationError:
         emit_log("INFO", "Genre update cancelled")
-        emit_done("update_genres", False, "Cancelled by user", cancelled=True)
+        emit_done("update_genres", False, "Cancelled by user", cancelled=True, summary="Genre update cancelled")
     except Exception as e:
         tb = traceback.format_exc()
         emit_error(str(e), tb)
-        emit_done("update_genres", False, str(e))
+        emit_done("update_genres", False, str(e), summary="Genre update failed")
 
 
 def handle_update_sonic(cmd_data: Dict[str, Any]) -> None:
@@ -687,15 +802,20 @@ def handle_update_sonic(cmd_data: Dict[str, Any]) -> None:
 
         check_cancelled()
         emit_result("sonic", {"stats": stats})
-        emit_done("update_sonic", True)
+        summary = "Sonic analysis complete"
+        if isinstance(stats, dict):
+            analyzed = stats.get("analyzed") or stats.get("total") or stats.get("total_tracks")
+            if analyzed is not None:
+                summary = f"Analyzed {analyzed} tracks"
+        emit_done("update_sonic", True, summary, summary=summary)
 
     except CancellationError:
         emit_log("INFO", "Sonic feature extraction cancelled")
-        emit_done("update_sonic", False, "Cancelled by user", cancelled=True)
+        emit_done("update_sonic", False, "Cancelled by user", cancelled=True, summary="Sonic analysis cancelled")
     except Exception as e:
         tb = traceback.format_exc()
         emit_error(str(e), tb)
-        emit_done("update_sonic", False, str(e))
+        emit_done("update_sonic", False, str(e), summary="Sonic analysis failed")
 
 
 def handle_build_artifacts(cmd_data: Dict[str, Any]) -> None:
@@ -730,15 +850,16 @@ def handle_build_artifacts(cmd_data: Dict[str, Any]) -> None:
 
         check_cancelled()
         emit_result("artifacts", {"output_path": output_path})
-        emit_done("build_artifacts", True)
+        summary = f"Built artifacts at {output_path}"
+        emit_done("build_artifacts", True, summary, summary=summary)
 
     except CancellationError:
         emit_log("INFO", "Artifact build cancelled")
-        emit_done("build_artifacts", False, "Cancelled by user", cancelled=True)
+        emit_done("build_artifacts", False, "Cancelled by user", cancelled=True, summary="Artifact build cancelled")
     except Exception as e:
         tb = traceback.format_exc()
         emit_error(str(e), tb)
-        emit_done("build_artifacts", False, str(e))
+        emit_done("build_artifacts", False, str(e), summary="Artifact build failed")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -753,6 +874,7 @@ TRACKED_COMMAND_HANDLERS = {
     "update_genres": handle_update_genres,
     "update_sonic": handle_update_sonic,
     "build_artifacts": handle_build_artifacts,
+    "doctor": handle_doctor,
 }
 
 # Commands that don't have their own request context
@@ -790,8 +912,9 @@ def process_command(line: str) -> None:
             emit_log("ERROR", f"Untracked command {cmd} failed: {e}")
         return
 
-    # For tracked commands, get request_id
+    # For tracked commands, get identifiers
     request_id = cmd_data.get("request_id")
+    job_id = cmd_data.get("job_id")
     if not request_id:
         # Legacy support: generate a warning but continue
         emit_log("WARNING", f"Command {cmd} missing request_id (legacy mode)")
@@ -800,7 +923,7 @@ def process_command(line: str) -> None:
     if not handler:
         emit_error(f"Unknown command: {cmd}")
         if request_id:
-            _worker_state.start_request(request_id, cmd)
+            _worker_state.start_request(request_id, cmd, job_id)
         emit_done(cmd, False, "Unknown command")
         if request_id:
             _worker_state.end_request()
@@ -808,7 +931,7 @@ def process_command(line: str) -> None:
 
     # Start tracking this request
     if request_id:
-        _worker_state.start_request(request_id, cmd)
+        _worker_state.start_request(request_id, cmd, job_id)
 
     try:
         handler(cmd_data)

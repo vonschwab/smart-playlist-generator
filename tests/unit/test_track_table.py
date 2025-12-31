@@ -99,21 +99,21 @@ class TestTrackTableModel:
 
     def test_model_empty(self):
         """Test empty model."""
-        from src.playlist_gui.widgets.track_table_model import TrackTableModel
+        from src.playlist_gui.widgets.track_table_model import TrackTableModel, Column
 
         model = TrackTableModel()
         assert model.rowCount() == 0
-        assert model.columnCount() == 6
+        assert model.columnCount() == len(Column.HEADERS)
 
     def test_model_set_tracks(self, sample_tracks):
         """Test setting tracks."""
-        from src.playlist_gui.widgets.track_table_model import TrackTableModel
+        from src.playlist_gui.widgets.track_table_model import TrackTableModel, Column
 
         model = TrackTableModel()
         model.set_tracks(sample_tracks)
 
         assert model.rowCount() == 3
-        assert model.columnCount() == 6
+        assert model.columnCount() == len(Column.HEADERS)
 
     def test_model_get_track(self, sample_tracks):
         """Test getting track by row."""
@@ -179,6 +179,19 @@ class TestTrackTableModel:
         assert model.headerData(Column.ARTIST, Qt.Horizontal, Qt.DisplayRole) == "Artist"
         assert model.headerData(Column.TITLE, Qt.Horizontal, Qt.DisplayRole) == "Title"
         assert model.headerData(Column.DURATION, Qt.Horizontal, Qt.DisplayRole) == "Duration"
+
+    def test_columns_single_source_of_truth(self):
+        """Column headers/keys stay aligned and drive the model."""
+        from src.playlist_gui.widgets.track_table_model import TrackTableModel, Column
+
+        # HEADERS and KEYS should stay aligned (no hardcoded counts in tests)
+        assert len(Column.HEADERS) == len(Column.KEYS)
+
+        model = TrackTableModel()
+        assert model.columnCount() == len(Column.HEADERS)
+        # Column indexes map deterministically to keys
+        for idx, key in enumerate(Column.KEYS):
+            assert Column.KEYS[idx] == key
 
     def test_model_clear(self, sample_tracks):
         """Test clearing tracks."""

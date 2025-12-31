@@ -246,6 +246,30 @@ SETTINGS_SCHEMA: List[SettingSpec] = [
         description="Tracks must be at least this similar to the seed to be considered. Lower = larger pool with more variety (discovery mode). Higher = smaller pool with tighter similarity (focused mode). Try 0.10-0.15 for discovery, 0.30+ for focused."
     ),
     SettingSpec(
+        key_path="playlists.ds_pipeline.candidate_pool.min_sonic_similarity_narrow",
+        label="Sonic floor (narrow mode)",
+        setting_type=SettingType.FLOAT,
+        group="Candidate Pool",
+        default=0.10,
+        min_value=-1.0,
+        max_value=1.0,
+        step=0.05,
+        tooltip="Hard sonic similarity floor for narrow mode",
+        description="Candidates with sonic similarity below this value are rejected before scoring when running narrow mode. Default 0.10 to prevent negative/low sonic matches from entering the pool."
+    ),
+    SettingSpec(
+        key_path="playlists.ds_pipeline.candidate_pool.min_sonic_similarity_dynamic",
+        label="Sonic floor (dynamic mode)",
+        setting_type=SettingType.FLOAT,
+        group="Candidate Pool",
+        default=0.00,
+        min_value=-1.0,
+        max_value=1.0,
+        step=0.05,
+        tooltip="Hard sonic similarity floor for dynamic mode",
+        description="Candidates with sonic similarity below this value are rejected before scoring when running dynamic mode. Default 0.00 blocks negatives while allowing borderline neutral matches."
+    ),
+    SettingSpec(
         key_path="playlists.ds_pipeline.candidate_pool.max_pool_size",
         label="Max pool size",
         setting_type=SettingType.INT,
