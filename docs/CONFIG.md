@@ -109,6 +109,42 @@ playlists:
     # Constraints
     constraints:
       min_gap: 6                     # Tracks between same artist
+
+      # Artist identity resolution (optional, default: disabled)
+      # Collapses ensemble variants ("Bill Evans Trio" → "bill evans")
+      # and splits collaborations ("A & B" → both A and B count for min_gap)
+      artist_identity:
+        enabled: false               # Enable identity-based min_gap enforcement
+        strip_trailing_ensemble_terms: true  # Remove "Trio", "Quartet", etc.
+        trailing_ensemble_terms:     # List of terms to strip (multi-word first)
+          - "big band"
+          - "chamber orchestra"
+          - "symphony orchestra"
+          - "string quartet"
+          - "orchestra"
+          - "ensemble"
+          - "trio"
+          - "quartet"
+          - "quintet"
+          - "sextet"
+          - "septet"
+          - "octet"
+          - "nonet"
+          - "group"
+          - "band"
+        split_delimiters:            # Collaboration delimiters to split on
+          - ","
+          - " & "
+          - " and "
+          - " feat. "
+          - " feat "
+          - " featuring "
+          - " ft. "
+          - " ft "
+          - " with "
+          - " x "
+          - " + "
+
       hard_floor: true               # Reject vs penalize bad transitions
       transition_floor: 0.20         # Minimum transition quality
 
@@ -136,6 +172,63 @@ Config (see `config.example.yaml`):
 - `playlists.ds_pipeline.pier_bridge.segment_pool_strategy`: `segment_scored` (recommended)
 - `playlists.ds_pipeline.pier_bridge.segment_pool_max`: per-segment candidate cap (top-K by bridge score)
 - `playlists.ds_pipeline.pier_bridge.progress.*`: optional A→B progress constraint to reduce bouncing/teleports
+
+### Artist Identity Resolution (min_gap Enforcement)
+
+**NEW in v3.2:** Artist identity-based min_gap enforcement collapses ensemble variants and splits collaborations.
+
+**Problem:** Without identity resolution, `min_gap=6` treats these as distinct artists:
+- "Bill Evans"
+- "Bill Evans Trio"
+- "Bill Evans Quintet"
+
+This allows them to cluster together, violating the spirit of artist diversity.
+
+**Solution:** When `playlists.ds_pipeline.constraints.artist_identity.enabled=true`:
+1. **Ensemble variants collapse to core identity:**
+   - "Bill Evans Trio" → `"bill evans"`
+   - "Ahmad Jamal Quintet" → `"ahmad jamal"`
+   - "Duke Ellington Orchestra" → `"duke ellington"`
+
+2. **Collaboration strings split into participant identities:**
+   - "Bob Brookmeyer & Bill Evans" → `{"bob brookmeyer", "bill evans"}`
+   - Both participants count for min_gap enforcement
+
+3. **Cross-segment boundary tracking:**
+   - Recent identity keys from the last `min_gap` positions are tracked across pier-bridge segments
+   - Prevents "Bill Evans Trio" in segment N from being followed by "Bill Evans" in segment N+1
+
+**Configuration:**
+```yaml
+playlists:
+  ds_pipeline:
+    constraints:
+      min_gap: 6
+      artist_identity:
+        enabled: true  # Enable identity-based matching
+        strip_trailing_ensemble_terms: true
+        trailing_ensemble_terms:  # Multi-word terms checked first
+          - "big band"
+          - "chamber orchestra"
+          - "orchestra"
+          - "trio"
+          - "quartet"
+          # ... (see full list in config)
+        split_delimiters:
+          - ","
+          - " & "
+          - " feat. "
+          # ... (see full list in config)
+```
+
+**Behavior when disabled (default):**
+- Falls back to raw artist string normalization (diacritics, punctuation, case)
+- Ensemble variants treated as distinct artists
+- Collaboration strings treated as single artist
+
+**Debug logging:**
+- When enabled, logs: `"Artist identity resolution enabled for min_gap enforcement"`
+- Candidate rejections logged at DEBUG level: `"Rejected candidate idx=... due to identity_min_gap: key=... distance<=..."`
 
 ### Artist Playlists: Seed Artist = Piers Only (default)
 For `--artist` playlists, the DS pipeline marks the run as an artist playlist and pier-bridge defaults to **disallowing the seed artist in bridge interiors** (the artist appears only as pier tracks).
