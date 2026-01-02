@@ -320,4 +320,4 @@ playlists:
       short_title_min_len: 6
 logging:
   level: DEBUG
-  file: playlist_generator.log
+  file: logs/playlist_generator.log

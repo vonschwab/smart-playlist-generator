@@ -1254,7 +1254,7 @@ def run_pipeline(args: argparse.Namespace) -> int:
     log_level = resolve_log_level(args)
     if getattr(args, "verbose", False) and not getattr(args, "debug", False) and not getattr(args, "quiet", False) and getattr(args, "log_level", "INFO").upper() == "INFO":
         log_level = "DEBUG"
-    log_file = getattr(args, 'log_file', None) or 'analyze_library.log'
+    log_file = getattr(args, 'log_file', None) or 'logs/analyze_library.log'
     configure_logging(level=log_level, log_file=log_file, run_id=run_id, show_run_id=getattr(args, "show_run_id", False))
 
     # Re-get logger after configuration

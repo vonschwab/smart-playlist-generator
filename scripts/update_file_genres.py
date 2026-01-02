@@ -224,7 +224,7 @@ def main():
     args = parser.parse_args()
 
     # Configure logging
-    configure_logging('INFO', 'genre_update.log')
+    configure_logging('INFO', 'logs/genre_update.log')
 
     # Connect to database
     db_path = ROOT_DIR / args.db

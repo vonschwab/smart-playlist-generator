@@ -716,7 +716,7 @@ if __name__ == "__main__":
     log_level = resolve_log_level(args)
     if args.verbose and not args.debug and not args.quiet and args.log_level.upper() == "INFO":
         log_level = "DEBUG"
-    log_file = getattr(args, 'log_file', None) or 'sonic_analysis.log'
+    log_file = getattr(args, 'log_file', None) or 'logs/sonic_analysis.log'
     configure_logging(level=log_level, log_file=log_file)
 
     logger.info("Sonic feature analysis started")

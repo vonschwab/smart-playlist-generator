@@ -319,7 +319,7 @@ playlists:
 ```yaml
 logging:
   level: INFO                        # DEBUG, INFO, WARNING, ERROR
-  file: playlist_generator.log       # Log file path
+  file: logs/playlist_generator.log  # Log file path (in logs/ directory)
 ```
 
 ## Environment Variable Overrides
