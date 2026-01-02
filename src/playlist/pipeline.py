@@ -170,6 +170,9 @@ def generate_playlist_ds(
             if idx is not None:
                 allowed_indices.append(idx)
 
+        # Add exempt_ids to allowed_track_ids_set for final enforcement check
+        allowed_track_ids_set.update(exempt_ids)
+
         applied_excluded = 0
         if excluded_track_ids:
             excluded_set = {str(t) for t in excluded_track_ids}

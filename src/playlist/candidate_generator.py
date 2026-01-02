@@ -33,8 +33,8 @@ class CandidateConfig:
     use_genre_discovery: bool = False  # Enable dynamic mode (sonic + genre)
     sonic_ratio: float = 0.6  # Sonic tracks ratio in dynamic mode
     genre_ratio: float = 0.4  # Genre tracks ratio in dynamic mode
-    min_track_duration_seconds: int = 46  # Filter short tracks
-    max_track_duration_seconds: int = 720  # Filter long tracks
+    min_track_duration_seconds: int = 47  # Filter short tracks (hard minimum)
+    max_track_duration_seconds: int = 720  # Filter long tracks (hard maximum)
     # Title deduplication settings
     title_dedupe_enabled: bool = True
     title_dedupe_threshold: float = 0.85

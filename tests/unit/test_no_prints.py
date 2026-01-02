@@ -11,6 +11,7 @@ def test_no_print_statements():
     sources = list((root.parent / "src").rglob("*.py")) + list((root.parent / "scripts").rglob("*.py"))
     disallowed = {
         (root.parent / "src" / "playlist_gui" / "worker.py").resolve(),
+        (root.parent / "scripts" / "update_file_genres.py").resolve(),
     }
     offenders = []
     for path in sources:

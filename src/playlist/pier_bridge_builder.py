@@ -11,7 +11,9 @@ Key features:
 - Candidate pool deduped BEFORE ordering (no duplicate songs by normalized artist+title)
 - Genre gating stays enabled with hard floors (no relaxation)
 - Global used_track_ids prevents duplicates across segments
-- One track per artist per segment (provides implicit min_gap without explicit constraints)
+- One track per artist per segment enforced during beam search
+- Cross-segment min_gap enforced during generation via boundary-aware constraints
+- No post-order filtering or dropping (guarantees exact length)
 - Single seed mode: seed acts as both start AND end pier, creating an arc structure
 - Seed artist is allowed in bridges with same constraints as other artists
 """
@@ -62,10 +64,14 @@ class PierBridgeConfig:
     weight_bridge: float = 0.6
     weight_transition: float = 0.4
     genre_tiebreak_weight: float = 0.05
-    # Soft genre penalty (does not gate candidates): if edge_genre < threshold, 
+    # Soft genre penalty (does not gate candidates): if edge_genre < threshold,
     # multiply the edge score by (1 - strength).
     genre_penalty_threshold: float = 0.20
     genre_penalty_strength: float = 0.10
+    # Soft duration penalty: asymmetric penalty for candidates longer than pier reference
+    # (does not gate candidates, only reduces score)
+    duration_penalty_enabled: bool = False
+    duration_penalty_weight: float = 0.10
     # Segment candidate pool strategy:
     # - "segment_scored": score candidates jointly vs (pierA,pierB) and take top-K
     # - "legacy": neighbors(A) ∪ neighbors(B) ∪ helpers (debug/compat only)
@@ -974,6 +980,36 @@ class BeamState:
     last_progress: float = 0.0
 
 
+def _compute_duration_penalty(
+    candidate_duration_ms: float,
+    reference_duration_ms: float,
+    weight: float,
+) -> float:
+    """
+    Compute asymmetric soft duration penalty for candidates longer than reference.
+
+    Penalty is ZERO for candidates <= reference duration.
+    For longer candidates, penalty = weight * (excess / reference)²
+
+    Args:
+        candidate_duration_ms: Candidate track duration in milliseconds
+        reference_duration_ms: Reference duration (max of two piers) in milliseconds
+        weight: Penalty weight (typically 0.05-0.15)
+
+    Returns:
+        Penalty value (>= 0) to subtract from combined_score
+    """
+    if candidate_duration_ms <= 0 or reference_duration_ms <= 0:
+        return 0.0
+
+    if candidate_duration_ms <= reference_duration_ms:
+        return 0.0  # No penalty for shorter or equal-length tracks
+
+    excess_ms = candidate_duration_ms - reference_duration_ms
+    penalty = weight * (excess_ms / reference_duration_ms) ** 2
+    return penalty
+
+
 def _beam_search_segment(
     pier_a: int,
     pier_b: int,
@@ -990,11 +1026,19 @@ def _beam_search_segment(
     *,
     artist_key_by_idx: Optional[Dict[int, str]] = None,
     seed_artist_key: Optional[str] = None,
+    recent_global_artists: Optional[List[str]] = None,
+    durations_ms: Optional[np.ndarray] = None,
 ) -> Tuple[Optional[List[int]], int, int, Optional[str]]:
     """
     Constrained beam search to find path from pier_a to pier_b.
 
     Returns interior track indices (not including piers) or None if no path found.
+
+    Args:
+        recent_global_artists: Artist keys from the last min_gap positions of the
+            global playlist prefix (from previous segments). Used to enforce
+            cross-segment min_gap constraints during generation.
+        durations_ms: Optional array of track durations in milliseconds (parallel to bundle.track_ids)
     """
 
     genre_penalty_hits = 0
@@ -1004,6 +1048,16 @@ def _beam_search_segment(
         penalty_strength = 0.0
     penalty_strength = float(max(0.0, min(1.0, penalty_strength)))
     penalty_threshold = float(cfg.genre_penalty_threshold)
+
+    # Duration penalty: compute reference duration (max of two piers)
+    reference_duration_ms = 0.0
+    duration_penalty_active = bool(cfg.duration_penalty_enabled) and durations_ms is not None
+    if duration_penalty_active:
+        pier_a_dur = float(durations_ms[pier_a]) if 0 <= pier_a < len(durations_ms) else 0.0
+        pier_b_dur = float(durations_ms[pier_b]) if 0 <= pier_b < len(durations_ms) else 0.0
+        reference_duration_ms = max(pier_a_dur, pier_b_dur)
+        if reference_duration_ms <= 0:
+            duration_penalty_active = False  # No valid reference, disable penalty
 
     if interior_length == 0:
         # Check if direct transition meets floor
@@ -1046,6 +1100,13 @@ def _beam_search_segment(
 
     # Initialize beam with pier_a
     used_artists_init: Set[str] = set()
+
+    # Add boundary context from previous segments (cross-segment min_gap enforcement)
+    if recent_global_artists:
+        for artist_key in recent_global_artists:
+            if artist_key:
+                used_artists_init.add(str(artist_key))
+
     if artist_key_by_idx is not None:
         if cfg.disallow_pier_artists_in_interiors:
             ak_a = str(artist_key_by_idx.get(int(pier_a), "") or "")
@@ -1122,6 +1183,17 @@ def _beam_search_segment(
                         ):
                             combined_score *= (1.0 - penalty_strength)
                             genre_penalty_hits += 1
+
+                # Duration penalty: subtract penalty for candidates longer than reference
+                if duration_penalty_active:
+                    cand_duration = float(durations_ms[cand]) if 0 <= cand < len(durations_ms) else 0.0
+                    if cand_duration > 0:
+                        dur_penalty = _compute_duration_penalty(
+                            cand_duration,
+                            reference_duration_ms,
+                            cfg.duration_penalty_weight,
+                        )
+                        combined_score -= dur_penalty
 
                 new_score = state.score + combined_score + dest_pull
                 new_path = state.path + [cand]
@@ -1489,6 +1561,11 @@ def build_pier_bridge_playlist(
     segment_bridge_floors_used: list[float] = []
     segment_backoff_attempts_used: list[int] = []
 
+    # Boundary context tracking for cross-segment min_gap enforcement
+    # Tracks artist keys from the last min_gap positions of the concatenated result
+    MIN_GAP_GLOBAL = 1  # Cross-segment min_gap constraint
+    recent_boundary_artists: List[str] = []
+
     def _bridge_floor_attempts(initial_floor: float) -> list[float]:
         if not infeasible_handling or not infeasible_handling.enabled:
             return [float(initial_floor)]
@@ -1671,6 +1748,8 @@ def build_pier_bridge_playlist(
                         beam_width,
                         artist_key_by_idx=(cand_artist_keys if cand_artist_keys else None),
                         seed_artist_key=seed_artist_key,
+                        recent_global_artists=recent_boundary_artists if seg_idx > 0 else None,
+                        durations_ms=bundle.durations_ms,
                     )
                     last_failure_reason = beam_failure_reason
 
@@ -1898,6 +1977,26 @@ def build_pier_bridge_playlist(
 
         all_segments.append(full_segment)
 
+        # Update boundary context for next segment (cross-segment min_gap enforcement)
+        # Build the concatenated result so far to extract recent artists
+        current_concat: List[int] = []
+        for concat_seg_idx, concat_seg in enumerate(all_segments):
+            if concat_seg_idx == 0:
+                current_concat.extend(concat_seg)
+            else:
+                current_concat.extend(concat_seg[1:])  # Drop duplicate pier
+
+        # Extract artist keys from the last MIN_GAP_GLOBAL positions
+        recent_boundary_artists = []
+        start_pos = max(0, len(current_concat) - MIN_GAP_GLOBAL)
+        for pos in range(start_pos, len(current_concat)):
+            try:
+                artist_key = identity_keys_for_index(bundle, int(current_concat[pos])).artist_key
+                if artist_key:
+                    recent_boundary_artists.append(str(artist_key))
+            except Exception:
+                continue
+
     # Concatenate segments
     # First segment: keep full [A, ..., B]
     # Subsequent segments: drop first element (the pier) to avoid duplication
@@ -1923,16 +2022,27 @@ def build_pier_bridge_playlist(
                 final_indices.extend(segment[1:])
                 seed_positions.append(len(final_indices) - 1)  # New pier
 
-    # Convert to track IDs (after enforcing cross-segment min_gap to avoid back-to-back repeats)
-    final_indices, dropped = _enforce_min_gap_global(
-        final_indices, bundle.artist_keys, min_gap=1, bundle=bundle
-    )
-    if dropped:
-        logger.debug(
-            "Pier+Bridge: dropped %d tracks to enforce cross-segment min_gap", dropped
-        )
-
+    # Convert to track IDs
+    # Cross-segment min_gap is enforced DURING generation (boundary-aware beam search),
+    # not as a post-order filter. This ensures exact length guarantees.
     final_track_ids = [str(bundle.track_ids[i]) for i in final_indices]
+
+    # Strict length validation: pier-bridge must return EXACTLY the requested number of tracks
+    if len(final_track_ids) != total_tracks:
+        failure_msg = (
+            f"Pier-bridge length mismatch: generated {len(final_track_ids)} tracks "
+            f"but expected exactly {total_tracks}. This indicates a bug in segment generation."
+        )
+        logger.error(failure_msg)
+        return PierBridgeResult(
+            track_ids=[],
+            track_indices=[],
+            seed_positions=[],
+            segment_diagnostics=diagnostics,
+            stats={"error": "length_mismatch", "expected": total_tracks, "actual": len(final_track_ids)},
+            success=False,
+            failure_reason=failure_msg,
+        )
 
     # Compute per-edge transition scores for reporting (matches builder scoring)
     edge_scores: list[dict[str, Any]] = []
@@ -1966,11 +2076,11 @@ def build_pier_bridge_playlist(
             }
         )
 
-    # Recompute seed positions after any min-gap pruning to keep diagnostics consistent
+    # Recompute seed positions from final track IDs for diagnostic accuracy
     seed_positions = [idx for idx, tid in enumerate(final_track_ids) if tid in seed_id_set]
     if len(seed_positions) != (1 if is_single_seed_arc else len(seed_id_set)):
-        logger.debug(
-            "Pier+Bridge: seed count mismatch after pruning (expected %d, found %d)",
+        logger.warning(
+            "Pier+Bridge: seed count mismatch in final result (expected %d, found %d)",
             (1 if is_single_seed_arc else len(seed_id_set)),
             len(seed_positions),
         )

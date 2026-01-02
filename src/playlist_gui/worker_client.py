@@ -340,6 +340,7 @@ class WorkerClient(QObject):
         overrides: Dict[str, Any],
         mode: str = "history",
         artist: Optional[str] = None,
+        genre: Optional[str] = None,
         track: Optional[str] = None,
         tracks: int = 30,
         job_id: Optional[str] = None,
@@ -350,8 +351,9 @@ class WorkerClient(QObject):
         Args:
             config_path: Path to base config YAML
             overrides: Override values to merge
-            mode: "history" or "artist"
+            mode: "history", "artist", or "genre"
             artist: Artist name (required if mode is "artist")
+            genre: Genre name (required if mode is "genre")
             track: Optional seed track title
             tracks: Number of tracks to generate
 
@@ -361,6 +363,8 @@ class WorkerClient(QObject):
         args = {"mode": mode, "tracks": tracks}
         if artist:
             args["artist"] = artist
+        if genre:
+            args["genre"] = genre
         if track:
             args["track"] = track
 

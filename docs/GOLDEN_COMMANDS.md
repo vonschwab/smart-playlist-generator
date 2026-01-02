@@ -150,8 +150,13 @@ python main_app.py --artist "Radiohead" --tracks 30
 # With specific seed track
 python main_app.py --artist "David Bowie" --track "Life On Mars" --tracks 30
 
+# Generate for specific genre
+python main_app.py --genre "new age" --tracks 30
+python main_app.py --genre "ambient" --ds-mode narrow --tracks 30
+
 # Dry run (preview without creating files)
 python main_app.py --artist "Radiohead" --dry-run
+python main_app.py --genre "experimental" --dry-run
 
 # DS pipeline modes
 python main_app.py --artist "Radiohead" --ds-mode narrow    # Focused
@@ -195,6 +200,9 @@ python scripts/build_beat3tower_artifacts.py \
 
 # 6. Generate a test playlist
 python main_app.py --artist "Your Favorite Artist" --tracks 20 --dry-run
+
+# Or try genre mode
+python main_app.py --genre "ambient" --tracks 20 --dry-run
 ```
 
 ---

@@ -37,7 +37,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .autocomplete import DatabaseCompleter, setup_artist_completer, update_track_completer
+from .autocomplete import DatabaseCompleter, setup_artist_completer, setup_genre_completer, update_track_completer
 from .config.config_model import ConfigModel
 from .config.presets import PresetManager, install_builtin_presets
 from .gui_logging import LogEmitter
@@ -213,7 +213,7 @@ class MainWindow(QMainWindow):
         # Mode selector
         top_row.addWidget(QLabel("Mode:"))
         self._mode_combo = QComboBox()
-        self._mode_combo.addItems(["Artist", "History"])  # Artist first (default)
+        self._mode_combo.addItems(["Artist", "Genre", "History"])  # Artist first (default)
         self._mode_combo.currentTextChanged.connect(self._on_mode_changed)
         top_row.addWidget(self._mode_combo)
 
@@ -237,6 +237,16 @@ class MainWindow(QMainWindow):
         self._track_edit.setPlaceholderText("Seed from specific track...")
         self._track_edit.setFixedWidth(250)
         top_row.addWidget(self._track_edit)
+
+        top_row.addSpacing(10)
+
+        # Genre input
+        self._genre_label = QLabel("Genre:")
+        top_row.addWidget(self._genre_label)
+        self._genre_edit = QLineEdit()
+        self._genre_edit.setPlaceholderText("Start typing genre name...")
+        self._genre_edit.setFixedWidth(220)
+        top_row.addWidget(self._genre_edit)
 
         top_row.addStretch()
 
@@ -640,17 +650,22 @@ class MainWindow(QMainWindow):
             # Setup artist autocomplete
             setup_artist_completer(self._artist_edit, self._db_completer)
 
+            # Setup genre autocomplete
+            setup_genre_completer(self._genre_edit, self._db_completer)
+
             # Update database info
             if hasattr(self, '_db_info_label'):
                 self._db_info_label.setText(
                     f"Database: {self._db_completer.artist_count} artists, "
-                    f"{self._db_completer.track_count} tracks"
+                    f"{self._db_completer.track_count} tracks, "
+                    f"{self._db_completer.genre_count} genres"
                 )
 
             self._log_panel.append_log(
                 "INFO",
                 f"Loaded autocomplete: {self._db_completer.artist_count} artists, "
-                f"{self._db_completer.track_count} tracks"
+                f"{self._db_completer.track_count} tracks, "
+                f"{self._db_completer.genre_count} genres"
             )
         else:
             self._log_panel.append_log("WARNING", "Failed to load autocomplete data")
@@ -710,11 +725,17 @@ class MainWindow(QMainWindow):
 
     def _update_mode_ui(self) -> None:
         """Update UI based on selected mode."""
-        is_artist_mode = self._mode_combo.currentText() == "Artist"
-        self._artist_label.setVisible(is_artist_mode)
-        self._artist_edit.setVisible(is_artist_mode)
-        self._track_label.setVisible(is_artist_mode)
-        self._track_edit.setVisible(is_artist_mode)
+        mode = self._mode_combo.currentText()
+
+        is_artist = mode == "Artist"
+        self._artist_label.setVisible(is_artist)
+        self._artist_edit.setVisible(is_artist)
+        self._track_label.setVisible(is_artist)
+        self._track_edit.setVisible(is_artist)
+
+        is_genre = mode == "Genre"
+        self._genre_label.setVisible(is_genre)
+        self._genre_edit.setVisible(is_genre)
 
     def _ensure_artifacts_ready(self) -> bool:
         """
@@ -859,8 +880,11 @@ class MainWindow(QMainWindow):
                 return
 
         # Get parameters
-        mode = "artist" if self._mode_combo.currentText() == "Artist" else "history"
+        mode_text = self._mode_combo.currentText()
+        mode = "artist" if mode_text == "Artist" else "genre" if mode_text == "Genre" else "history"
+
         artist = self._artist_edit.text().strip() if mode == "artist" else None
+        genre = self._genre_edit.text().strip() if mode == "genre" else None
         track = self._track_edit.text().strip() if mode == "artist" else None
         # Track count is now controlled via config's playlists.tracks_per_playlist
         # (visible in Advanced Settings panel), not a separate spinner
@@ -869,6 +893,14 @@ class MainWindow(QMainWindow):
         if mode == "artist" and not artist:
             QMessageBox.warning(self, "Missing Artist", "Please enter an artist name.")
             return
+
+        if mode == "genre" and not genre:
+            QMessageBox.warning(self, "Missing Genre", "Please enter a genre name.")
+            return
+
+        # Strip (similar) suffix from genre autocomplete
+        if genre and " (similar)" in genre:
+            genre = genre.replace(" (similar)", "").strip()
 
         # Parse track title from autocomplete format "Title - Artist (Album)"
         if track and " - " in track:
@@ -890,6 +922,7 @@ class MainWindow(QMainWindow):
             overrides=overrides,
             mode=mode,
             artist=artist,
+            genre=genre,
             track=track,
             tracks=tracks_per_playlist
         )
@@ -897,6 +930,8 @@ class MainWindow(QMainWindow):
         log_msg = f"Starting generation (mode={mode}, tracks={tracks_per_playlist})"
         if artist:
             log_msg += f", artist={artist}"
+        if genre:
+            log_msg += f", genre={genre}"
         if track:
             log_msg += f", seed_track={track}"
         self._log_panel.append_log("INFO", log_msg)
@@ -1161,8 +1196,9 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self,
             "About Playlist Generator",
-            "Playlist Generator v1.0\n\n"
-            "AI-powered playlist generation using sonic and genre similarity.\n\n"
+            "Playlist Generator v3.2\n\n"
+            "Data Science-powered playlist generation using beat3tower sonic analysis\n"
+            "and normalized genre metadata.\n\n"
             "Architecture: Two-process model with PySide6 GUI and worker process."
         )
 
@@ -1336,7 +1372,7 @@ class MainWindow(QMainWindow):
             plex_base_url = self._config_model.get("plex.base_url")
             import os
             plex_token = os.getenv("PLEX_TOKEN") or self._config_model.get("plex.token")
-            plex_configured = plex_enabled and plex_base_url and plex_token
+            plex_configured = bool(plex_enabled and plex_base_url and plex_token)
 
         # Show export dialog
         dialog = ExportPlexDialog(
@@ -1473,6 +1509,9 @@ class MainWindow(QMainWindow):
             artist = self._settings.value("state/artist")
             if artist:
                 self._artist_edit.setText(str(artist))
+            genre = self._settings.value("state/genre")
+            if genre:
+                self._genre_edit.setText(str(genre))
             preset = self._settings.value("state/preset")
             if preset:
                 self._pending_preset_name = str(preset)
@@ -1490,6 +1529,7 @@ class MainWindow(QMainWindow):
             self._settings.setValue("state/config_path", self._config_path)
             self._settings.setValue("state/mode", self._mode_combo.currentText())
             self._settings.setValue("state/artist", self._artist_edit.text())
+            self._settings.setValue("state/genre", self._genre_edit.text())
             self._settings.setValue("state/filter", self._track_table.get_filter_text())
             if self._active_preset_name:
                 self._settings.setValue("state/preset", self._active_preset_name)

@@ -1,5 +1,5 @@
 """
-Playlist Generator - Core logic for creating AI-powered playlists
+Playlist Generator - Core logic for creating Data Science-powered playlists
 """
 from typing import List, Dict, Any, Tuple, Optional, Set
 from collections import Counter, defaultdict
@@ -1592,8 +1592,15 @@ class PlaylistGenerator:
         if not seed_tracks:
             # Get 4 seed tracks (2 most played + 2 random from top 10)
             # Since we don't have play counts, just pick 4 random tracks
+            # Filter by duration before selecting (exclude short/long tracks)
+            from src.playlist.filtering import is_valid_duration
+            valid_tracks = [t for t in artist_tracks if is_valid_duration(t, min_seconds=47, max_seconds=720)]
+            if len(valid_tracks) == 0:
+                raise ValueError(f"Artist '{artist_name}' has no tracks in valid duration range (47s-720s)")
+            if len(valid_tracks) < 4:
+                logger.warning(f"Artist has only {len(valid_tracks)} valid-duration tracks (requested 4); using all valid tracks")
             import random
-            seed_tracks = random.sample(artist_tracks, min(4, len(artist_tracks)))
+            seed_tracks = random.sample(valid_tracks, min(4, len(valid_tracks)))
 
         seed_titles = [track.get('title') for track in seed_tracks]
         logger.info(f"Seeds ({len(seed_tracks)}): {', '.join(seed_titles)}")
@@ -1981,6 +1988,228 @@ class PlaylistGenerator:
             'title': title,
             'artists': (artist_name,),
             'genres': [],
+            'tracks': final_tracks,
+            'ds_report': getattr(self, "_last_ds_report", None),
+        }
+
+    def create_playlist_for_genre(
+        self,
+        genre_name: str,
+        track_count: int = 30,
+        dynamic: bool = False,
+        dry_run: bool = False,
+        verbose: bool = False,
+        ds_mode_override: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Create a single playlist for a specific genre without requiring listening history
+
+        Args:
+            genre_name: Name of the genre to create playlist for
+            track_count: Target number of tracks in playlist
+            dynamic: Use dynamic mode (lower genre similarity threshold)
+            dry_run: Preview mode (for testing)
+            verbose: Enable verbose edge scoring output
+            ds_mode_override: Override DS mode (narrow/dynamic/discover/sonic_only)
+
+        Returns:
+            Playlist dictionary with tracks and metadata, or None if unable to create
+        """
+        from src.genre_normalization import normalize_genre_token
+
+        # Normalize the genre name
+        normalized_genre = normalize_genre_token(genre_name)
+        if not normalized_genre:
+            logger.warning(f"Genre '{genre_name}' could not be normalized")
+            return None
+
+        logger.info(f"Creating playlist for genre: {genre_name} (normalized: {normalized_genre})")
+
+        # Get tracks matching this genre
+        genre_tracks = self.library.get_tracks_for_genre(normalized_genre, limit=1000)
+
+        if not genre_tracks:
+            # No exact matches - suggest alternatives
+            suggestions = self.library.suggest_similar_genres(normalized_genre, limit=10)
+            logger.warning(f"No tracks found for genre '{normalized_genre}'")
+            if suggestions:
+                logger.info(f"Did you mean one of these genres? {', '.join(suggestions)}")
+            return None
+
+        if len(genre_tracks) < 4:
+            logger.warning(f"Genre '{normalized_genre}' has only {len(genre_tracks)} tracks, need at least 4")
+            return None
+
+        logger.info(f"Found {len(genre_tracks)} tracks for genre '{normalized_genre}'")
+
+        # Add play count (0 for all, since we don't use history for genre mode)
+        for track in genre_tracks:
+            track['play_count'] = 0
+
+        # Select seed tracks (4 seeds for consistency with artist mode)
+        # Use deterministic selection based on random_seed from config
+        # Filter by duration before selecting (exclude short/long tracks)
+        from src.playlist.filtering import is_valid_duration
+        valid_tracks = [t for t in genre_tracks if is_valid_duration(t, min_seconds=47, max_seconds=720)]
+        if len(valid_tracks) == 0:
+            raise ValueError(f"Genre '{genre_name}' has no tracks in valid duration range (47s-720s)")
+        if len(valid_tracks) < 10:
+            raise ValueError(
+                f"Genre '{genre_name}' has only {len(valid_tracks)} valid-duration tracks "
+                f"(minimum 10 required for playlist generation). "
+                f"Total tracks in genre: {len(genre_tracks)}"
+            )
+        if len(valid_tracks) < 4:
+            logger.warning(f"Genre has only {len(valid_tracks)} valid-duration tracks (requested 4); using all valid tracks")
+
+        import random
+        ds_cfg = self.config.get('playlists', 'ds_pipeline', default={}) or {}
+        random_seed = ds_cfg.get('random_seed', 0)
+        rng = random.Random(random_seed)
+        seed_count = min(4, len(valid_tracks))
+        seed_tracks = rng.sample(valid_tracks, seed_count)
+
+        seed_info = [f"{t.get('artist')} - {t.get('title')}" for t in seed_tracks]
+        logger.info(f"Seeds ({len(seed_tracks)}): {', '.join(seed_info[:3])}{'...' if len(seed_info) > 3 else ''}")
+
+        # Prepare recency data (scrobbles for filtering)
+        scrobbles: List[Dict[str, Any]] = []
+        if self.lastfm:
+            try:
+                scrobbles = self._get_lastfm_scrobbles_raw(use_cache=True)
+            except Exception as exc:
+                logger.warning("Last.FM scrobble fetch failed; skipping scrobble recency filter (%s)", exc, exc_info=True)
+
+        # DS scope: use genre tracks as candidate pool (not entire library)
+        ds_candidates = genre_tracks
+        excluded_ids = set()
+
+        if scrobbles:
+            excluded_ids = self._compute_excluded_from_scrobbles(
+                ds_candidates,
+                scrobbles,
+                lookback_days=self.config.recently_played_lookback_days,
+                seed_id=seed_tracks[0].get('rating_key') if seed_tracks else None,
+            )
+            logger.info(f"stage=candidate_pool | Last.fm recency exclusions: before={len(ds_candidates)} after={len(ds_candidates) - len(excluded_ids)} excluded={len(excluded_ids)}")
+
+        allowed_track_ids = [t.get("rating_key") for t in ds_candidates if t.get("rating_key") and str(t.get("rating_key")) not in excluded_ids]
+
+        logger.info(f"DS scope: genre (allowed_ids={len(allowed_track_ids)})")
+
+        # Determine DS mode
+        ds_mode = ds_mode_override or (self.ds_mode_override if hasattr(self, 'ds_mode_override') and self.ds_mode_override else None)
+        if not ds_mode:
+            ds_cfg = self.config.get('playlists', 'ds_pipeline', default={}) or {}
+            ds_mode = "dynamic" if dynamic else ds_cfg.get('mode', 'dynamic')
+
+        logger.info(f"Running pipeline with mode={ds_mode}")
+
+        # Genre mode doesn't use artist_style clustering (no single artist to cluster)
+        # But we still use pier-bridge with the genre seeds as piers
+        style_seed_track_id = seed_tracks[0].get('rating_key') if seed_tracks else None
+        anchor_seed_ids = [s.get('rating_key') for s in seed_tracks if s.get('rating_key')]
+
+        # Call DS pipeline
+        # Note: Pier-bridge may drop 1-2 tracks for cross-segment gap enforcement (quality control)
+        # Accept results within tolerance rather than requiring exact match
+        ds_tracks = None
+        import re
+
+        try:
+            ds_tracks = self._maybe_generate_ds_playlist(
+                seed_track_id=style_seed_track_id,
+                target_length=track_count,
+                mode_override=ds_mode,
+                allowed_track_ids=allowed_track_ids,
+                excluded_track_ids=excluded_ids,
+                anchor_seed_tracks=seed_tracks,  # Pass full seed track info
+                anchor_seed_ids=anchor_seed_ids,
+                artist_style_enabled=False,  # No artist clustering for genre mode
+                artist_playlist=False,  # Genre mode, not artist mode
+                pool_source="library",
+                dry_run=bool(dry_run),
+                audit_context_extra={
+                    "genre": normalized_genre,
+                    "seed_mode": "genre",
+                },
+                internal_connector_ids=None,
+                internal_connector_max_per_segment=0,
+                internal_connector_priority=False,
+            )
+        except ValueError as e:
+            error_msg = str(e)
+            if "length_mismatch" in error_msg and "final=" in error_msg:
+                # Pier-bridge drops tracks for gap enforcement - accept if close enough
+                match = re.search(r'final=(\d+)', error_msg)
+                if match:
+                    actual_length = int(match.group(1))
+                    tolerance = max(3, int(track_count * 0.1))  # Within 3 tracks or 10%
+                    min_acceptable = max(15, int(track_count * 0.5))  # At least 50% or 15 tracks
+
+                    if actual_length < min_acceptable:
+                        logger.error(
+                            f"Genre '{normalized_genre}' candidate pool too small: "
+                            f"got {actual_length} tracks (minimum {min_acceptable}). "
+                            f"Try --ds-mode dynamic or discover for larger pool."
+                        )
+                        raise
+
+                    if actual_length >= track_count - tolerance:
+                        # Close enough - retry with exact actual length to pass validation
+                        logger.warning(
+                            f"Genre mode: Pier-bridge produced {actual_length} tracks (target {track_count}), "
+                            f"accepting result (within tolerance)"
+                        )
+                        ds_tracks = self._maybe_generate_ds_playlist(
+                            seed_track_id=style_seed_track_id,
+                            target_length=actual_length,  # Use actual achievable length
+                            mode_override=ds_mode,
+                            allowed_track_ids=allowed_track_ids,
+                            excluded_track_ids=excluded_ids,
+                            anchor_seed_tracks=seed_tracks,
+                            anchor_seed_ids=anchor_seed_ids,
+                            artist_style_enabled=False,
+                            artist_playlist=False,
+                            pool_source="library",
+                            dry_run=bool(dry_run),
+                            audit_context_extra={
+                                "genre": normalized_genre,
+                                "seed_mode": "genre",
+                                "adjusted_target": True,
+                            },
+                            internal_connector_ids=None,
+                            internal_connector_max_per_segment=0,
+                            internal_connector_priority=False,
+                        )
+                    else:
+                        logger.error(
+                            f"Genre '{normalized_genre}': Pier-bridge produced {actual_length} tracks "
+                            f"(target {track_count}, tolerance {tolerance}). "
+                            f"Try --ds-mode dynamic or reduce --tracks to {actual_length}."
+                        )
+                        raise
+                else:
+                    raise  # Can't parse length, re-raise
+            else:
+                raise  # Not a length mismatch error, re-raise
+
+        if not ds_tracks:
+            logger.warning(f"DS pipeline returned no tracks for genre '{normalized_genre}'")
+            return None
+
+        final_tracks = ds_tracks
+
+        logger.info(f"Generated {len(final_tracks)} tracks for genre '{normalized_genre}'")
+
+        # Print summary
+        title = f"Auto: {normalized_genre.title()}"
+        self._print_playlist_report(final_tracks, artist_name=None, dynamic=dynamic, verbose_edges=verbose)
+
+        return {
+            'title': title,
+            'artists': tuple(set(t.get('artist') for t in final_tracks if t.get('artist'))),
+            'genres': [normalized_genre],
             'tracks': final_tracks,
             'ds_report': getattr(self, "_last_ds_report", None),
         }

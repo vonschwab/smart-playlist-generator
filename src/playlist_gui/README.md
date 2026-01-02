@@ -1,13 +1,14 @@
 # Playlist Generator GUI
 
-A native Windows desktop application for AI-powered playlist generation, built with PySide6/Qt Widgets.
+A native Windows desktop application for Data Science-powered playlist generation, built with PySide6/Qt Widgets.
 
 ## Features
 
 ### Simple, Clean Interface
 - **Artist Mode** (default): Generate playlists seeded from a specific artist and optional track
+- **Genre Mode**: Generate playlists by genre with smart autocomplete showing exact matches and similar genres (similarity ≥ 0.7)
 - **History Mode**: Generate playlists from your Last.FM listening history
-- **Predictive Autocomplete**: Artist and track inputs query your music database for suggestions
+- **Predictive Autocomplete**: Artist, track, and genre inputs query your music database with accent-insensitive matching
 - **Real-time Progress**: Visual progress bar with stage information during generation
 
 ### Advanced Settings Panel

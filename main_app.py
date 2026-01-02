@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-AI Playlist Generator - Main Application
-Automatically generates AI-powered playlists based on listening history
+Data Science Playlist Generator - Main Application
+Automatically generates playlists using beat3tower sonic analysis and genre metadata
 """
 import logging
 import os
@@ -374,6 +374,88 @@ class PlaylistApp:
             blank()
             sys.exit(1)
 
+    def run_single_genre(self, genre_name: str, track_count: int = 30, dry_run: bool = False, dynamic: bool = False, verbose: bool = False):
+        """
+        Generate a single playlist for a specific genre.
+        Uses PlaylistReport for beautiful, organized output.
+        """
+        try:
+            self._configure_verbose_logging(verbose)
+
+            # Create the report object to track everything
+            playlist_title = f"Auto: {genre_name.title()}"
+            report = PlaylistReport(playlist_title, artist_name=None)
+            report.dry_run = dry_run
+            report.mode = self.ds_mode_override or "dynamic"
+
+            # Log to file but keep console clean
+            self.logger.info(f"Generating playlist for genre: {genre_name} (dry_run={dry_run})")
+
+            playlist_data = self._generate_single_genre_playlist(
+                genre_name,
+                track_count,
+                dynamic,
+                dry_run,
+                verbose,
+            )
+
+            if not playlist_data:
+                header("PLAYLIST GENERATION FAILED", f"Genre: {genre_name}")
+                section("POSSIBLE REASONS")
+                bullet("Genre not found in your library")
+                bullet("Genre has too few tracks (need at least 4)")
+                bullet("Check suggestions above for similar genres")
+                blank()
+                return
+
+            # Populate the report
+            report.set_tracks(playlist_data['tracks'])
+
+            # Extract edge scores if available
+            ds_report = playlist_data.get('ds_report', {})
+            if ds_report:
+                metrics = ds_report.get('metrics', {})
+                if metrics:
+                    report.set_edge_scores({
+                        'Transition (T)': metrics.get('T_mean', 0),
+                        'Sonic (S)': metrics.get('S_mean', 0),
+                        'Genre (G)': metrics.get('G_mean', 0),
+                    })
+
+            # Export if not dry run
+            if not dry_run:
+                if self.m3u_exporter:
+                    m3u_path = self.m3u_exporter.export_playlist(
+                        playlist_title,
+                        playlist_data['tracks'],
+                        self.library,
+                        sonic_variant=self.sonic_variant
+                    )
+                    if m3u_path:
+                        report.export_path = str(m3u_path)
+                        self.logger.info(f"Exported to M3U: {m3u_path}")
+
+                if self.plex_exporter:
+                    try:
+                        plex_key = self.plex_exporter.export_playlist(playlist_title, playlist_data['tracks'])
+                        if plex_key:
+                            report.plex_exported = True
+                            self.logger.info(f"Exported to Plex: {playlist_title}")
+                    except Exception as e:
+                        self.logger.error(f"Plex export failed: {e}")
+
+            # Print the beautiful report
+            report.print_full(show_all_tracks=verbose)
+
+        except Exception as e:
+            self.logger.error(f"Error creating playlist for genre {genre_name}: {e}", exc_info=True)
+            header("ERROR", "Playlist generation failed")
+            section("DETAILS")
+            bullet(str(e))
+            bullet("Check the log file for more details")
+            blank()
+            sys.exit(1)
+
     def _configure_verbose_logging(self, verbose: bool) -> None:
         """Enable verbose logging for generator/similarity when requested."""
         if not verbose:
@@ -407,17 +489,43 @@ class PlaylistApp:
             artist_only=artist_only,
         )
 
+    def _generate_single_genre_playlist(
+        self,
+        genre_name: str,
+        track_count: int,
+        dynamic: bool,
+        dry_run: bool,
+        verbose: bool,
+    ) -> Optional[Dict[str, Any]]:
+        """Generate playlist data for a single genre."""
+        return self.generator.create_playlist_for_genre(
+            genre_name,
+            track_count,
+            dynamic=dynamic,
+            dry_run=dry_run,
+            verbose=verbose,
+            ds_mode_override=self.ds_mode_override,
+        )
+
 
 def main():
     """Entry point"""
     # Parse command-line arguments
     parser = argparse.ArgumentParser(
-        description="Generate playlists based on listening history or a specific artist"
+        description="Generate playlists based on listening history, a specific artist, or genre"
     )
-    parser.add_argument(
+
+    # Create mutually exclusive group for seed mode
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
         "--artist",
         type=str,
         help="Generate a single playlist for a specific artist (e.g., --artist \"Radiohead\")"
+    )
+    mode_group.add_argument(
+        "--genre",
+        type=str,
+        help='Generate a single playlist for a specific genre (e.g., --genre "new age")'
     )
     parser.add_argument(
         "--track",
@@ -544,6 +652,15 @@ def main():
                 dynamic=dynamic_flag,
                 verbose=getattr(args, 'verbose', False),
                 artist_only=getattr(args, 'artist_only', False),
+            )
+        elif args.genre:
+            # Single genre mode
+            app.run_single_genre(
+                args.genre,
+                args.tracks,
+                dry_run=getattr(args, 'dry_run', False),
+                dynamic=dynamic_flag,
+                verbose=getattr(args, 'verbose', False),
             )
         else:
             # Normal mode - generate multiple playlists from history

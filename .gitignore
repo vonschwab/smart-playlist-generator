@@ -73,3 +73,6 @@ Thumbs.db
 # Local tooling artifacts
 .claude/
 pytest_output.txt
+
+# Development archives
+docs/archive/

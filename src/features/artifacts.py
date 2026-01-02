@@ -29,6 +29,7 @@ class ArtifactBundle:
     track_id_to_index: Dict[str, int]  # built mapping
     sonic_feature_names: Optional[np.ndarray] = None
     sonic_feature_units: Optional[np.ndarray] = None
+    durations_ms: Optional[np.ndarray] = None  # (N,) track durations in milliseconds, optional
     # Optional: precomputed variant + raw matrix metadata
     X_sonic_raw: Optional[np.ndarray] = None
     sonic_variant: Optional[str] = None
@@ -76,6 +77,7 @@ def load_artifact_bundle(path: str | Path) -> ArtifactBundle:
     genre_vocab = data["genre_vocab"]
     sonic_feature_names = data["sonic_feature_names"] if "sonic_feature_names" in data else None
     sonic_feature_units = data["sonic_feature_units"] if "sonic_feature_units" in data else None
+    durations_ms = data["durations_ms"] if "durations_ms" in data else None
 
     # Prefer precomputed variant matrix when present
     sonic_variant = None
@@ -107,6 +109,7 @@ def load_artifact_bundle(path: str | Path) -> ArtifactBundle:
         "artist_keys": artist_keys,
         "track_artists": track_artists,
         "track_titles": track_titles,
+        "durations_ms": durations_ms,
         "X_sonic": X_sonic,
         "X_sonic_start": X_sonic_start,
         "X_sonic_mid": X_sonic_mid,
@@ -150,6 +153,7 @@ def load_artifact_bundle(path: str | Path) -> ArtifactBundle:
         genre_vocab=genre_vocab,
         sonic_feature_names=sonic_feature_names,
         sonic_feature_units=sonic_feature_units,
+        durations_ms=durations_ms,
         track_id_to_index=track_id_to_index,
         X_sonic_raw=X_sonic_raw,
         sonic_variant=sonic_variant,

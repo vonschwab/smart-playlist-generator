@@ -1,7 +1,7 @@
 """
 Playlist Generator - Source Code Package
 
-AI-powered music playlist generation using beat3tower sonic analysis
+Data Science-powered music playlist generation using beat3tower sonic analysis
 and normalized genre metadata.
 """
 

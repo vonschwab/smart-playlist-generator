@@ -372,6 +372,7 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
 
     mode = args.get("mode", "history")
     artist = args.get("artist")
+    genre = args.get("genre")
     track_title = args.get("track")
     track_count = args.get("tracks", 30)
 
@@ -587,6 +588,14 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                 dynamic=(ds_mode == "dynamic"),
                 ds_mode_override=ds_mode,
             )
+        elif mode == "genre" and genre:
+            # Genre mode
+            playlist_data = generator.create_playlist_for_genre(
+                genre,
+                track_count,
+                dynamic=(ds_mode == "dynamic"),
+                ds_mode_override=ds_mode,
+            )
         else:
             # History mode - generate batch
             playlist_count = config.get('playlists', {}).get('count', 8)
@@ -711,7 +720,7 @@ def handle_scan_library(cmd_data: Dict[str, Any]) -> None:
 
         # LibraryScanner reads music_dir and db_path from config
         scanner = LibraryScanner(config_path=base_path)
-        stats = scanner.scan(quick=False)
+        stats = scanner.run(quick=False)
 
         check_cancelled()
         emit_result("scan", {"stats": stats})
@@ -745,14 +754,22 @@ def handle_update_genres(cmd_data: Dict[str, Any]) -> None:
             sys.path.insert(0, str(project_root))
 
         # Import and run genre updater
-        from scripts.update_genres_v3_normalized import update_genres_main
+        from scripts.update_genres_v3_normalized import NormalizedGenreUpdater
 
         db_path = config.get('library', {}).get('database_path', 'data/metadata.db')
         check_cancelled()
         emit_progress("genres", 20, 100, "Fetching genres")
 
-        # This runs the full genre update
-        stats = update_genres_main(db_path=db_path, config_path=base_path)
+        # This runs the full genre update (artists + albums)
+        updater = NormalizedGenreUpdater(db_path=db_path)
+        emit_progress("genres", 30, 100, "Updating artist genres")
+        updater.update_artist_genres(progress=False)
+        check_cancelled()
+        emit_progress("genres", 60, 100, "Updating album genres")
+        updater.update_album_genres(progress=False)
+        check_cancelled()
+        stats = {"artists_updated": 0, "albums_updated": 0}  # Updater doesn't return detailed stats
+        updater.close()
 
         check_cancelled()
         emit_result("genres", {"stats": stats})
@@ -792,13 +809,19 @@ def handle_update_sonic(cmd_data: Dict[str, Any]) -> None:
         if str(project_root) not in sys.path:
             sys.path.insert(0, str(project_root))
 
-        from scripts.update_sonic import main as update_sonic_main
+        from scripts.update_sonic import SonicFeaturePipeline
 
         db_path = config.get('library', {}).get('database_path', 'data/metadata.db')
         check_cancelled()
         emit_progress("sonic", 20, 100, "Extracting features")
 
-        stats = update_sonic_main(db_path=db_path)
+        # Run sonic analysis with beat3tower
+        pipeline = SonicFeaturePipeline(db_path=db_path, use_beat_sync=False, use_beat3tower=True)
+        emit_progress("sonic", 30, 100, "Analyzing tracks")
+        pipeline.run(limit=None, force=False, progress=False)
+        check_cancelled()
+        stats = pipeline.get_stats()
+        pipeline.close()
 
         check_cancelled()
         emit_result("sonic", {"stats": stats})
@@ -832,7 +855,7 @@ def handle_build_artifacts(cmd_data: Dict[str, Any]) -> None:
         if str(project_root) not in sys.path:
             sys.path.insert(0, str(project_root))
 
-        from scripts.build_beat3tower_artifacts import main as build_artifacts_main
+        from scripts.build_beat3tower_artifacts import build_artifacts
 
         db_path = config.get('library', {}).get('database_path', 'data/metadata.db')
         output_path = config.get('playlists', {}).get('ds_pipeline', {}).get(
@@ -842,11 +865,19 @@ def handle_build_artifacts(cmd_data: Dict[str, Any]) -> None:
         check_cancelled()
         emit_progress("artifacts", 20, 100, "Building matrices")
 
-        build_artifacts_main(
+        # Create argparse-like namespace for build_artifacts
+        from argparse import Namespace
+        args = Namespace(
             db_path=db_path,
-            config_path=base_path,
-            output_path=output_path
+            config=base_path,
+            output=output_path,
+            genre_sim_path=None,
+            max_tracks=0,
+            no_pca=False,
+            pca_variance=0.95,
+            verbose=False
         )
+        build_artifacts(args)
 
         check_cancelled()
         emit_result("artifacts", {"output_path": output_path})

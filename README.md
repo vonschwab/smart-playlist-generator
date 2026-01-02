@@ -47,6 +47,9 @@ python scripts/build_beat3tower_artifacts.py \
 # 9. Generate a playlist (CLI)
 python main_app.py --artist "Radiohead" --tracks 30
 
+# Or generate by genre
+python main_app.py --genre "new age" --tracks 30
+
 # 10. Launch the GUI (Windows)
 python -m playlist_gui.app
 ```
@@ -102,6 +105,7 @@ See [docs/GOLDEN_COMMANDS.md](docs/GOLDEN_COMMANDS.md) for complete command refe
 
 ```bash
 python main_app.py --artist "Radiohead" --ds-mode discover
+python main_app.py --genre "ambient" --ds-mode narrow
 ```
 
 ## DS Run Audits (3.2)
@@ -110,9 +114,12 @@ python main_app.py --artist "Radiohead" --ds-mode discover
 - Recency invariant: Last.fm/local recency exclusions are applied **pre-order only**; verify logs include exactly one `stage=candidate_pool | Last.fm recency exclusions: ...` line and one `stage=post_order_validation | ...` line.
 
 ## GUI Highlights (3.2)
-- Accent-insensitive artist autocomplete (type “Joao” and see “João Gilberto”).
-- Track table export buttons fixed; context menu still available.
-- Progress/log panels wired to worker with request correlation.
+- **Genre Mode** - Generate playlists by genre with smart autocomplete showing both exact matches and similar genres (similarity ≥ 0.7)
+- **Accent-insensitive Autocomplete** - Type "Joao" and see "João Gilberto" for both artist and genre fields
+- **Atomized Genre Data** - All 746 genres properly normalized and split (no compound strings like "indie rock, alternative")
+- **Track Table Export** - Export buttons fixed; context menu still available
+- **Progress/Log Panels** - Wired to worker with request correlation
+- **Run All Button** - One-click pipeline execution (Scan → Genres → Sonic → Artifacts)
 
 ## MBID Enrichment (3.2)
 - `scripts/fetch_mbids_musicbrainz.py` queries MusicBrainz by artist/title (with collab/feature handling) and writes MBIDs to `tracks.musicbrainz_id` (no file writes). Uses skip markers (`__NO_MATCH__`, `__ERROR__`); reprocess with `--force-no-match`/`--force-error` or all with `--force-all`.

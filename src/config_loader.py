@@ -103,7 +103,7 @@ class Config:
     @property
     def min_track_duration_seconds(self) -> int:
         """Get minimum track duration in seconds (filter out short tracks)"""
-        return self.config.get('playlists', {}).get('min_track_duration_seconds', 90)
+        return self.config.get('playlists', {}).get('min_track_duration_seconds', 47)
 
     @property
     def max_track_duration_seconds(self) -> int:
