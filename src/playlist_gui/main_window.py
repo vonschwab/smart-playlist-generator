@@ -16,6 +16,7 @@ from typing import Optional, List
 from PySide6.QtCore import Qt, Slot, QTimer, QSettings, QThreadPool, QRunnable, QObject, Signal
 from PySide6.QtWidgets import (
     QApplication,
+    QButtonGroup,
     QComboBox,
     QDialog,
     QDockWidget,
@@ -31,6 +32,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QRadioButton,
     QScrollArea,
     QStatusBar,
     QVBoxLayout,
@@ -294,6 +296,63 @@ class MainWindow(QMainWindow):
         top_row.addWidget(self._cancel_btn)
 
         main_layout.addLayout(top_row)
+
+        # ─────────────────────────────────────────────────────────────────────
+        # Similarity Tuning Row (Genre/Sonic Mode Selectors)
+        # ─────────────────────────────────────────────────────────────────────
+        tuning_row = QHBoxLayout()
+        tuning_row.setSpacing(20)
+        tuning_row.setContentsMargins(0, 8, 0, 8)
+
+        # Genre Mode Section
+        genre_section = QHBoxLayout()
+        genre_section.addWidget(QLabel("<b>Genre:</b>"))
+
+        self._genre_mode_group = QButtonGroup(self)
+        genre_modes = [
+            ("strict", "Strict"),
+            ("narrow", "Narrow"),
+            ("dynamic", "Dynamic"),
+            ("discover", "Discover"),
+            ("off", "Off")
+        ]
+
+        for mode_id, mode_label in genre_modes:
+            radio = QRadioButton(mode_label)
+            radio.setProperty("mode_id", mode_id)
+            self._genre_mode_group.addButton(radio)
+            genre_section.addWidget(radio)
+            if mode_id == "dynamic":  # Default
+                radio.setChecked(True)
+
+        tuning_row.addLayout(genre_section)
+        tuning_row.addSpacing(30)
+
+        # Sonic Mode Section
+        sonic_section = QHBoxLayout()
+        sonic_section.addWidget(QLabel("<b>Sonic:</b>"))
+
+        self._sonic_mode_group = QButtonGroup(self)
+        sonic_modes = [
+            ("strict", "Strict"),
+            ("narrow", "Narrow"),
+            ("dynamic", "Dynamic"),
+            ("discover", "Discover"),
+            ("off", "Off")
+        ]
+
+        for mode_id, mode_label in sonic_modes:
+            radio = QRadioButton(mode_label)
+            radio.setProperty("mode_id", mode_id)
+            self._sonic_mode_group.addButton(radio)
+            sonic_section.addWidget(radio)
+            if mode_id == "dynamic":  # Default
+                radio.setChecked(True)
+
+        tuning_row.addLayout(sonic_section)
+        tuning_row.addStretch()
+
+        main_layout.addLayout(tuning_row)
 
         # ─────────────────────────────────────────────────────────────────────
         # Progress bar
@@ -737,6 +796,25 @@ class MainWindow(QMainWindow):
         self._genre_label.setVisible(is_genre)
         self._genre_edit.setVisible(is_genre)
 
+    def _get_selected_modes(self) -> tuple[Optional[str], Optional[str]]:
+        """Get selected genre and sonic modes from radio buttons."""
+        genre_mode = None
+        sonic_mode = None
+
+        # Get genre mode
+        if hasattr(self, '_genre_mode_group'):
+            checked_button = self._genre_mode_group.checkedButton()
+            if checked_button:
+                genre_mode = checked_button.property("mode_id")
+
+        # Get sonic mode
+        if hasattr(self, '_sonic_mode_group'):
+            checked_button = self._sonic_mode_group.checkedButton()
+            if checked_button:
+                sonic_mode = checked_button.property("mode_id")
+
+        return genre_mode, sonic_mode
+
     def _ensure_artifacts_ready(self) -> bool:
         """
         Guardrail: warn if required artifacts are missing before playlist generation.
@@ -916,6 +994,13 @@ class MainWindow(QMainWindow):
         # Get overrides from config model
         overrides = self._config_model.get_overrides()
 
+        # Apply mode selections
+        genre_mode, sonic_mode = self._get_selected_modes()
+        if genre_mode:
+            overrides['playlists.genre_mode'] = genre_mode
+        if sonic_mode:
+            overrides['playlists.sonic_mode'] = sonic_mode
+
         # Send command - tracks parameter comes from config (playlists.tracks_per_playlist)
         self._worker_client.generate_playlist(
             config_path=self._config_path,
@@ -927,7 +1012,12 @@ class MainWindow(QMainWindow):
             tracks=tracks_per_playlist
         )
 
-        log_msg = f"Starting generation (mode={mode}, tracks={tracks_per_playlist})"
+        log_msg = f"Starting generation (mode={mode}, tracks={tracks_per_playlist}"
+        if genre_mode:
+            log_msg += f", genre_mode={genre_mode}"
+        if sonic_mode:
+            log_msg += f", sonic_mode={sonic_mode}"
+        log_msg += ")"
         if artist:
             log_msg += f", artist={artist}"
         if genre:
@@ -1512,6 +1602,18 @@ class MainWindow(QMainWindow):
             genre = self._settings.value("state/genre")
             if genre:
                 self._genre_edit.setText(str(genre))
+            genre_mode = self._settings.value("state/genre_mode")
+            if genre_mode and hasattr(self, '_genre_mode_group'):
+                for button in self._genre_mode_group.buttons():
+                    if button.property("mode_id") == genre_mode:
+                        button.setChecked(True)
+                        break
+            sonic_mode = self._settings.value("state/sonic_mode")
+            if sonic_mode and hasattr(self, '_sonic_mode_group'):
+                for button in self._sonic_mode_group.buttons():
+                    if button.property("mode_id") == sonic_mode:
+                        button.setChecked(True)
+                        break
             preset = self._settings.value("state/preset")
             if preset:
                 self._pending_preset_name = str(preset)
@@ -1531,6 +1633,14 @@ class MainWindow(QMainWindow):
             self._settings.setValue("state/artist", self._artist_edit.text())
             self._settings.setValue("state/genre", self._genre_edit.text())
             self._settings.setValue("state/filter", self._track_table.get_filter_text())
+
+            # Save mode selections
+            genre_mode, sonic_mode = self._get_selected_modes()
+            if genre_mode:
+                self._settings.setValue("state/genre_mode", genre_mode)
+            if sonic_mode:
+                self._settings.setValue("state/sonic_mode", sonic_mode)
+
             if self._active_preset_name:
                 self._settings.setValue("state/preset", self._active_preset_name)
             else:
