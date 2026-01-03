@@ -166,13 +166,20 @@ playlists:
         monotonic_epsilon: 0.05
         penalty_weight: 0.15
 
-      # Duration penalty (medium-firm): penalizes bridge candidates much longer than pier tracks.
-      # Does NOT block long tracks (hard filter at max_track_duration_seconds does that), but
-      # significantly reduces their score during pier-bridge beam search.
-      # Formula: penalty = weight * (excess_duration / reference_duration)²
+      # Duration penalty (geometric): penalizes bridge candidates based on percentage excess
+      # over pier tracks. Uses a three-phase curve that accelerates from gentle to severe.
+      # Does NOT block long tracks (hard filter does that), but reduces score based on
+      # how much longer they are than the pier tracks.
+      #
+      # Three-phase geometric curve (percentage-based):
+      #   0-20% excess:   Gentle penalties (barely noticeable)
+      #   20-50% excess:  Moderate penalties (increasing)
+      #   50-100% excess: Steep penalties (strong discouragement)
+      #   >100% excess:   Severe penalties (track is 2x+ longer than pier)
       duration_penalty:
         enabled: true                # Enable duration penalty (default: true)
         weight: 0.30                 # Penalty strength (default: 0.30, range: 0.10-0.50)
+        # Example: 200s pier track → 400s candidate (+100%) = severe penalty ≈ 0.75
 
       # Interior artist policies (optional):
       # - For `--artist` playlists, the seed artist is DISALLOWED in bridge interiors by default (piers-only).

@@ -154,17 +154,27 @@ playlists:
       max_iters: 5
       max_edges: 5
 
-    # Duration penalty (medium-firm): penalizes bridge candidates much longer than pier tracks
+    # Duration penalty (geometric): penalizes bridge candidates based on percentage excess
+    # over pier tracks. Uses a three-phase curve that accelerates from gentle to severe.
     # Does NOT block long tracks (hard filter at 720s does that), but significantly reduces
-    # their score during pier-bridge beam search
+    # their score during pier-bridge beam search based on how much longer they are.
     duration_penalty:
       enabled: true                  # Default: enabled
       weight: 0.30                   # Penalty strength (range: 0.10-0.50)
-      # Formula: penalty = weight * (excess_duration / reference_duration)²
-      # Example with weight=0.30, reference=3min (180s):
-      #   - 4min track: penalty = 0.30 * (60/180)² = 0.033
-      #   - 6min track: penalty = 0.30 * (180/180)² = 0.30 (significant!)
-      #   - 9min track: penalty = 0.30 * (360/180)² = 1.20 (very high!)
+
+      # Three-phase geometric curve (percentage-based):
+      # Phase 1 (0-20% excess):   Gentle penalties (power 1.5)
+      # Phase 2 (20-50% excess):  Moderate penalties (power 2.0)
+      # Phase 3 (50-100% excess): Steep penalties (power 2.5)
+      # Phase 4 (>100% excess):   Severe penalties (power 3.0)
+
+      # Example with weight=0.30, reference=200s pier track:
+      #   +5% (210s):   penalty ≈ 0.003 (negligible)
+      #   +20% (240s):  penalty ≈ 0.015 (gentle)
+      #   +40% (280s):  penalty ≈ 0.10 (moderate)
+      #   +80% (360s):  penalty ≈ 0.45 (steep)
+      #   +100% (400s): penalty ≈ 0.75 (severe threshold)
+      #   +200% (600s): penalty ≈ 3.0 (very severe!)
 ```
 
 ### Pier-Bridge Tuning (per mode)

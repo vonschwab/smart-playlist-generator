@@ -991,10 +991,13 @@ def _compute_duration_penalty(
     weight: float,
 ) -> float:
     """
-    Compute asymmetric medium-firm duration penalty for candidates longer than reference.
+    Compute asymmetric duration penalty based on percentage excess over reference track.
 
-    Penalty is ZERO for candidates <= reference duration.
-    For longer candidates, penalty = weight * (excess / reference)²
+    Uses a three-phase geometric curve:
+    - 0-20% excess: Gentle penalties (barely noticeable)
+    - 20-50% excess: Moderate increasing penalties
+    - 50-100% excess: Steep penalties
+    - >100% excess: Severe penalties (track is 2x+ longer than reference)
 
     Args:
         candidate_duration_ms: Candidate track duration in milliseconds
@@ -1005,10 +1008,13 @@ def _compute_duration_penalty(
         Penalty value (>= 0) to subtract from combined_score
 
     Examples:
-        With weight=0.30 and reference=180s (3min):
-        - 240s (4min): penalty = 0.30 * (60/180)² = 0.033
-        - 360s (6min): penalty = 0.30 * (180/180)² = 0.30
-        - 540s (9min): penalty = 0.30 * (360/180)² = 1.20
+        With weight=0.30 and reference=200s:
+        - 210s (+5% = +10s): penalty ≈ 0.003 (negligible)
+        - 240s (+20% = +40s): penalty ≈ 0.015 (gentle)
+        - 280s (+40% = +80s): penalty ≈ 0.10 (moderate)
+        - 360s (+80% = +160s): penalty ≈ 0.45 (steep)
+        - 400s (+100% = +200s): penalty ≈ 0.75 (severe threshold)
+        - 600s (+200% = +400s): penalty ≈ 3.0 (very severe!)
     """
     if candidate_duration_ms <= 0 or reference_duration_ms <= 0:
         return 0.0
@@ -1016,8 +1022,33 @@ def _compute_duration_penalty(
     if candidate_duration_ms <= reference_duration_ms:
         return 0.0  # No penalty for shorter or equal-length tracks
 
-    excess_ms = candidate_duration_ms - reference_duration_ms
-    penalty = weight * (excess_ms / reference_duration_ms) ** 2
+    # Calculate excess as percentage of reference
+    excess_ratio = (candidate_duration_ms - reference_duration_ms) / reference_duration_ms
+
+    # Three-phase geometric penalty curve
+    if excess_ratio <= 0.20:
+        # Phase 1 (0-20%): Gentle - power 1.5 for sub-linear growth
+        # At 20%: penalty = weight * 0.05
+        penalty = weight * 0.05 * (excess_ratio / 0.20) ** 1.5
+
+    elif excess_ratio <= 0.50:
+        # Phase 2 (20-50%): Moderate - power 2.0 for quadratic growth
+        # At 20%: ~0.015, At 50%: ~0.30
+        phase_ratio = (excess_ratio - 0.20) / 0.30
+        penalty = weight * 0.05 + weight * 0.25 * (phase_ratio ** 2.0)
+
+    elif excess_ratio <= 1.00:
+        # Phase 3 (50-100%): Steep - power 2.5 for accelerating growth
+        # At 50%: ~0.30, At 100%: ~0.75
+        phase_ratio = (excess_ratio - 0.50) / 0.50
+        penalty = weight * 0.30 + weight * 0.45 * (phase_ratio ** 2.5)
+
+    else:
+        # Phase 4 (>100%): Severe - power 3.0 for very steep growth
+        # At 100%: 0.75, At 200%: 3.0, At 300%: 9.0
+        phase_ratio = excess_ratio - 1.00
+        penalty = weight * 0.75 + weight * 2.25 * (phase_ratio ** 3.0)
+
     return penalty
 
 
