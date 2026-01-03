@@ -417,8 +417,8 @@ def generate_candidates_dynamic(
                     if track_duration_ms < min_duration_ms:
                         logger.debug(f"Skipping {full_track_data.get('title')} - too short ({track_duration_ms}ms < {min_duration_ms}ms)")
                         continue
-                    if track_duration_ms > max_duration_ms:
-                        logger.debug(f"Skipping {full_track_data.get('title')} - too long ({track_duration_ms}ms > {max_duration_ms}ms)")
+                    if track_duration_ms >= max_duration_ms:
+                        logger.debug(f"Skipping {full_track_data.get('title')} - too long ({track_duration_ms}ms >= {max_duration_ms}ms)")
                         continue
 
                 # Found a good track - add it with full library data
