@@ -1619,7 +1619,10 @@ class PlaylistGenerator:
         # DS scope selection
         allowed_track_ids: Optional[List[str]] = None
         if artist_only:
-            ds_candidates = list(artist_tracks)
+            # IMPORTANT: Filter artist_tracks by duration for DS candidate pool
+            # This ensures no tracks outside valid duration range (47s-720s) are selected
+            from src.playlist.filtering import is_valid_duration
+            ds_candidates = [t for t in artist_tracks if is_valid_duration(t, min_seconds=47, max_seconds=720)]
             excluded_ids = set()
             if scrobbles:
                 excluded_ids = self._compute_excluded_from_scrobbles(
@@ -2081,7 +2084,8 @@ class PlaylistGenerator:
                 logger.warning("Last.FM scrobble fetch failed; skipping scrobble recency filter (%s)", exc, exc_info=True)
 
         # DS scope: use genre tracks as candidate pool (not entire library)
-        ds_candidates = genre_tracks
+        # IMPORTANT: Use valid_tracks (duration-filtered) not genre_tracks (unfiltered)
+        ds_candidates = valid_tracks
         excluded_ids = set()
 
         if scrobbles:
