@@ -73,10 +73,10 @@ class PierBridgeConfig:
     # multiply the edge score by (1 - strength).
     genre_penalty_threshold: float = 0.20
     genre_penalty_strength: float = 0.10
-    # Soft duration penalty: asymmetric penalty for candidates longer than pier reference
-    # (does not gate candidates, only reduces score)
-    duration_penalty_enabled: bool = False
-    duration_penalty_weight: float = 0.10
+    # Medium-firm duration penalty: asymmetric penalty for candidates longer than pier reference
+    # (does not gate candidates, but significantly reduces score for long tracks)
+    duration_penalty_enabled: bool = True
+    duration_penalty_weight: float = 0.30
     # Segment candidate pool strategy:
     # - "segment_scored": score candidates jointly vs (pierA,pierB) and take top-K
     # - "legacy": neighbors(A) ∪ neighbors(B) ∪ helpers (debug/compat only)
@@ -991,7 +991,7 @@ def _compute_duration_penalty(
     weight: float,
 ) -> float:
     """
-    Compute asymmetric soft duration penalty for candidates longer than reference.
+    Compute asymmetric medium-firm duration penalty for candidates longer than reference.
 
     Penalty is ZERO for candidates <= reference duration.
     For longer candidates, penalty = weight * (excess / reference)²
@@ -999,10 +999,16 @@ def _compute_duration_penalty(
     Args:
         candidate_duration_ms: Candidate track duration in milliseconds
         reference_duration_ms: Reference duration (max of two piers) in milliseconds
-        weight: Penalty weight (typically 0.05-0.15)
+        weight: Penalty weight (default 0.30, range typically 0.10-0.50)
 
     Returns:
         Penalty value (>= 0) to subtract from combined_score
+
+    Examples:
+        With weight=0.30 and reference=180s (3min):
+        - 240s (4min): penalty = 0.30 * (60/180)² = 0.033
+        - 360s (6min): penalty = 0.30 * (180/180)² = 0.30
+        - 540s (9min): penalty = 0.30 * (360/180)² = 1.20
     """
     if candidate_duration_ms <= 0 or reference_duration_ms <= 0:
         return 0.0

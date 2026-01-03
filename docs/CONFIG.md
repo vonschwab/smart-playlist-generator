@@ -153,6 +153,18 @@ playlists:
       enabled: true
       max_iters: 5
       max_edges: 5
+
+    # Duration penalty (medium-firm): penalizes bridge candidates much longer than pier tracks
+    # Does NOT block long tracks (hard filter at 720s does that), but significantly reduces
+    # their score during pier-bridge beam search
+    duration_penalty:
+      enabled: true                  # Default: enabled
+      weight: 0.30                   # Penalty strength (range: 0.10-0.50)
+      # Formula: penalty = weight * (excess_duration / reference_duration)²
+      # Example with weight=0.30, reference=3min (180s):
+      #   - 4min track: penalty = 0.30 * (60/180)² = 0.033
+      #   - 6min track: penalty = 0.30 * (180/180)² = 0.30 (significant!)
+      #   - 9min track: penalty = 0.30 * (360/180)² = 1.20 (very high!)
 ```
 
 ### Pier-Bridge Tuning (per mode)
