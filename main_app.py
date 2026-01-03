@@ -27,6 +27,8 @@ from src.metadata_client import MetadataClient
 from src.similarity.sonic_variant import resolve_sonic_variant
 from src.plex_exporter import PlexExporter
 
+logger = logging.getLogger(__name__)
+
 
 class PlaylistApp:
     """Main application orchestrator"""
