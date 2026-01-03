@@ -558,6 +558,24 @@ def main():
         choices=["narrow", "dynamic", "discover", "sonic_only"],
         help="Select DS pipeline mode (default from config playlists.ds_pipeline.mode)",
     )
+
+    # Genre and sonic similarity mode presets (simpler alternative to manual tuning)
+    parser.add_argument(
+        "--genre-mode",
+        choices=["strict", "narrow", "dynamic", "discover", "off"],
+        help="Genre similarity mode: strict (0.80 weight), narrow (0.65), dynamic (0.50), discover (0.35), off (sonic-only)",
+    )
+    parser.add_argument(
+        "--sonic-mode",
+        choices=["strict", "narrow", "dynamic", "discover", "off"],
+        help="Sonic similarity mode: strict (0.85 weight), narrow (0.70), dynamic (0.50), discover (0.35), off (genre-only)",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["balanced", "tight", "exploratory", "sonic_only", "genre_only", "varied_sound", "sonic_thread"],
+        help="Quick preset: balanced (default), tight (strict+strict), exploratory (discover+discover), sonic_only, genre_only, etc.",
+    )
+
     parser.add_argument(
         "--sonic-variant",
         choices=[
@@ -625,11 +643,61 @@ def main():
         app = PlaylistApp(
             ds_mode_override=getattr(args, 'ds_mode', None),
         )
-        # propagate explicit variant into generator (CLI > env > config)  
+        # propagate explicit variant into generator (CLI > env > config)
         app.generator.sonic_variant = resolve_sonic_variant(
-            explicit_variant=getattr(args, "sonic_variant", None),        
-            config_variant=getattr(app.generator, "sonic_variant", None),  
+            explicit_variant=getattr(args, "sonic_variant", None),
+            config_variant=getattr(app.generator, "sonic_variant", None),
         )
+
+        # Apply genre/sonic mode presets if provided (CLI overrides config)
+        from src.playlist.mode_presets import resolve_genre_mode, resolve_sonic_mode, resolve_quick_preset
+
+        genre_mode = None
+        sonic_mode = None
+
+        # Check for quick preset first
+        if getattr(args, "mode", None):
+            genre_mode, sonic_mode = resolve_quick_preset(args.mode)
+            logger.info(f"Using quick preset '{args.mode}': genre={genre_mode}, sonic={sonic_mode}")
+
+        # Individual mode args override quick preset
+        if getattr(args, "genre_mode", None):
+            genre_mode = args.genre_mode
+        if getattr(args, "sonic_mode", None):
+            sonic_mode = args.sonic_mode
+
+        # Apply mode settings to generator config
+        if genre_mode:
+            genre_settings = resolve_genre_mode(genre_mode)
+            # Apply to generator's config
+            app.generator.config.config.setdefault('playlists', {}).setdefault('genre_similarity', {})
+            genre_cfg = app.generator.config.config['playlists']['genre_similarity']
+            genre_cfg['enabled'] = genre_settings['enabled']
+            genre_cfg['weight'] = genre_settings['weight']
+            if genre_settings.get('min_genre_similarity') is not None:
+                genre_cfg['min_genre_similarity'] = genre_settings['min_genre_similarity']
+            logger.info(f"Genre mode '{genre_mode}' applied: weight={genre_settings['weight']}, threshold={genre_settings.get('min_genre_similarity')}")
+
+        if sonic_mode:
+            sonic_settings = resolve_sonic_mode(sonic_mode)
+            # For sonic mode, we primarily adjust the sonic_weight in genre config
+            if sonic_settings['enabled']:
+                app.generator.config.config.setdefault('playlists', {}).setdefault('genre_similarity', {})
+                genre_cfg = app.generator.config.config['playlists']['genre_similarity']
+                if genre_mode:  # Use sonic_weight from genre mode
+                    sonic_weight = resolve_genre_mode(genre_mode)['sonic_weight']
+                else:
+                    # Calculate sonic weight from sonic mode weight
+                    sonic_weight = sonic_settings['weight']
+                genre_cfg['sonic_weight'] = sonic_weight
+                logger.info(f"Sonic mode '{sonic_mode}' applied: sonic_weight={sonic_weight}")
+            else:
+                # Sonic mode 'off' = genre-only mode
+                app.generator.config.config.setdefault('playlists', {}).setdefault('genre_similarity', {})
+                genre_cfg = app.generator.config.config['playlists']['genre_similarity']
+                genre_cfg['sonic_weight'] = 0.0
+                logger.info(f"Sonic mode 'off' applied: genre-only mode (sonic_weight=0)")
+
         # Runtime flags (do not change defaults unless enabled)
         if getattr(args, "audit_run", False):
             app.generator._audit_run_enabled = True
