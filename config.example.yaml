@@ -21,6 +21,52 @@ plex:
 playlists:
   count: 8
   tracks_per_playlist: 30
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # MODE-BASED CONFIGURATION (Simpler Alternative to Manual Tuning)
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Instead of manually setting weights and thresholds in genre_similarity below,
+  # you can use simple mode presets that configure everything automatically.
+  #
+  # GENRE MODES (how strictly to match genre):
+  #   strict:   Ultra-tight genre matching (weight 0.80, threshold 0.50)
+  #   narrow:   Stay close to seed genre (weight 0.65, threshold 0.40)
+  #   dynamic:  Balanced exploration (weight 0.50, threshold 0.30) ← default
+  #   discover: Genre-adjacent exploration (weight 0.35, threshold 0.20)
+  #   off:      Sonic-only mode (ignore genre tags completely)
+  #
+  # SONIC MODES (how strictly to match audio features):
+  #   strict:   Ultra-tight sonic matching (weight 0.85, tight pool)
+  #   narrow:   Cohesive sound (weight 0.70, tighter pool)
+  #   dynamic:  Balanced sonic flow (weight 0.50, standard pool) ← default
+  #   discover: Varied textures (weight 0.35, wider pool)
+  #   off:      Genre-only mode (ignore sonic features completely)
+  #
+  # EXAMPLES:
+  #   genre_mode: dynamic      # Balanced genre + sonic (50/50)
+  #   sonic_mode: dynamic
+  #
+  #   genre_mode: strict       # Ultra-cohesive playlists
+  #   sonic_mode: strict
+  #
+  #   genre_mode: narrow       # Same genre, varied sound
+  #   sonic_mode: discover
+  #
+  #   genre_mode: off          # Pure sonic similarity
+  #   sonic_mode: dynamic
+  #
+  #   genre_mode: dynamic      # Pure genre matching (NEW!)
+  #   sonic_mode: off
+  #
+  # If mode settings are present, they OVERRIDE manual genre_similarity settings below.
+  # Uncomment to enable mode-based configuration:
+  #
+  # genre_mode: dynamic
+  # sonic_mode: dynamic
+  #
+  # ═══════════════════════════════════════════════════════════════════════════
+
+
   history_days: 14
   seed_count: 5
   similar_per_seed: 20
