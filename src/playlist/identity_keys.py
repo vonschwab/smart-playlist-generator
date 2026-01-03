@@ -8,6 +8,7 @@ from src.features.artifacts import ArtifactBundle
 from src.string_utils import normalize_artist_key as _normalize_artist_key_punct
 from src.string_utils import normalize_match_string
 from src.title_dedupe import normalize_title_for_dedupe
+from src.artist_utils import extract_primary_artist
 
 
 def normalize_primary_artist_key(value: str) -> str:
@@ -18,9 +19,10 @@ def normalize_primary_artist_key(value: str) -> str:
       - "Mount Eerie" vs "Mount Eerie with Julie Doiron & Fred Squire"
       - "Charli XCX" vs "Charli XCX feat. MØ"
       - "Artist A x Artist B" (treat as collab)
+      - "Bill Evans Trio" vs "Bill Evans" (ensemble normalization)
 
-    This intentionally follows the matching semantics used by `normalize_match_string(..., is_artist=True)`
-    with a small pre-pass to treat " x " as a collaboration separator.
+    Uses extract_primary_artist() which handles ensemble suffixes (Trio, Quartet, etc.)
+    and collaboration markers properly.
     """
     if not value:
         return ""
@@ -30,7 +32,8 @@ def normalize_primary_artist_key(value: str) -> str:
     # Treat "x" / "×" collaborations similarly to "feat" to avoid bypassing 1-per-artist constraints.
     text = text.replace("×", " x ")
     text = re.sub(r"\s+x\s+", " feat ", text, flags=re.IGNORECASE)
-    return normalize_match_string(text, is_artist=True)
+    # Use extract_primary_artist for ensemble normalization
+    return extract_primary_artist(text, lowercase=True)
 
 
 def normalize_title_key(value: str) -> str:
