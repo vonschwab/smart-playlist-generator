@@ -296,6 +296,7 @@ class LocalLibraryClient:
             AND t.file_path IS NOT NULL
             AND t.is_blacklisted = 0
 
+            ORDER BY priority ASC, rating_key ASC
             LIMIT ?
         """, (genre, genre, genre, limit))
 
