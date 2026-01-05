@@ -85,6 +85,18 @@ class MetadataClient:
             )
         """)
 
+        # Artist genres table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS artist_genres (
+                artist_name TEXT,
+                genre TEXT,
+                source TEXT,
+                weight REAL DEFAULT 1.0,
+                PRIMARY KEY (artist_name, genre, source),
+                FOREIGN KEY (artist_name) REFERENCES artists(artist_name)
+            )
+        """)
+
         # Create indexes for faster queries
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks(artist)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracks_artist_key ON tracks(artist_key)")
@@ -92,6 +104,10 @@ class MetadataClient:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracks_file_path ON tracks(file_path)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_track_genres_genre ON track_genres(genre)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_artists_mbid ON artists(musicbrainz_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_album_genres_genre ON album_genres(genre)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_album_genres_album ON album_genres(album_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_artist_genres_genre ON artist_genres(genre)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_artist_genres_artist ON artist_genres(artist_name)")
 
         self.conn.commit()
         ensure_artist_key_schema(self.conn, logger=logger)
