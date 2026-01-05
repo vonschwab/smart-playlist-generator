@@ -88,6 +88,44 @@ def _normalize_artist_key(raw: Any) -> str:
     return normalize_artist_key("" if raw is None else str(raw))
 
 
+def _compute_duration_penalty(
+    candidate_duration_ms: float,
+    reference_duration_ms: float,
+    weight: float,
+) -> float:
+    """
+    Four-phase geometric penalty based on percentage excess over reference.
+
+    0-20%:   Gentle (barely noticeable)
+    20-50%:  Moderate (increasing)
+    50-100%: Steep (strong discouragement)
+    >100%:   Severe (track is 2x+ longer)
+    """
+    if candidate_duration_ms <= 0 or reference_duration_ms <= 0:
+        return 0.0
+    if candidate_duration_ms <= reference_duration_ms:
+        return 0.0
+
+    excess_ratio = (candidate_duration_ms - reference_duration_ms) / reference_duration_ms
+    if excess_ratio <= 0.20:
+        # Phase 1: Gentle (power 1.5)
+        penalty = weight * 0.05 * (excess_ratio / 0.20) ** 1.5
+    elif excess_ratio <= 0.50:
+        # Phase 2: Moderate (power 2.0)
+        phase_ratio = (excess_ratio - 0.20) / 0.30
+        penalty = weight * 0.05 + weight * 0.25 * (phase_ratio ** 2.0)
+    elif excess_ratio <= 1.00:
+        # Phase 3: Steep (power 2.5)
+        phase_ratio = (excess_ratio - 0.50) / 0.50
+        penalty = weight * 0.30 + weight * 0.45 * (phase_ratio ** 2.5)
+    else:
+        # Phase 4: Severe (power 3.0)
+        phase_ratio = excess_ratio - 1.00
+        penalty = weight * 0.75 + weight * 2.25 * (phase_ratio ** 3.0)
+
+    return penalty
+
+
 def build_candidate_pool(
     *,
     seed_idx: int,
@@ -97,6 +135,7 @@ def build_candidate_pool(
     track_ids: Optional[np.ndarray] = None,
     track_titles: Optional[np.ndarray] = None,
     track_artists: Optional[np.ndarray] = None,
+    durations_ms: Optional[np.ndarray] = None,
     cfg: CandidatePoolConfig,
     random_seed: int,
     # Optional raw sonic space for hard floor
@@ -131,6 +170,60 @@ def build_candidate_pool(
     seed_mask = np.zeros_like(seed_sim_all, dtype=bool)
     seed_mask[seed_list] = True
     seed_sim_all[seed_mask] = -1.0
+
+    duration_penalty_active = bool(cfg.duration_penalty_enabled) and durations_ms is not None
+    reference_duration_ms = 0.0
+    if duration_penalty_active:
+        seed_durations = []
+        for idx in seed_list:
+            if 0 <= idx < len(durations_ms):
+                dur = float(durations_ms[idx])
+                if dur > 0:
+                    seed_durations.append(dur)
+        if seed_durations:
+            seed_durations.sort()
+            mid = len(seed_durations) // 2
+            if len(seed_durations) % 2 == 1:
+                reference_duration_ms = seed_durations[mid]
+            else:
+                reference_duration_ms = (seed_durations[mid - 1] + seed_durations[mid]) / 2.0
+        else:
+            reference_duration_ms = 0.0
+        if reference_duration_ms <= 0:
+            duration_penalty_active = False
+
+    duration_penalty_count = 0
+    duration_cutoff_count = 0
+    if duration_penalty_active:
+        seed_sim_all = seed_sim_all.copy()
+        cutoff_ms = reference_duration_ms * float(cfg.duration_cutoff_multiplier)
+        for i in range(len(seed_sim_all)):
+            if seed_mask[i]:
+                continue
+            if i >= len(durations_ms):
+                continue
+            cand_duration = float(durations_ms[i])
+            if cand_duration <= 0:
+                continue
+            if cand_duration > cutoff_ms:
+                seed_sim_all[i] = -1.0
+                duration_cutoff_count += 1
+                continue
+            penalty = _compute_duration_penalty(
+                cand_duration,
+                reference_duration_ms,
+                cfg.duration_penalty_weight,
+            )
+            if penalty > 0:
+                seed_sim_all[i] -= penalty
+                duration_penalty_count += 1
+        if duration_penalty_count and logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Duration penalty applied: reference_ms=%.0f penalized=%d weight=%.3f",
+                reference_duration_ms,
+                duration_penalty_count,
+                cfg.duration_penalty_weight,
+            )
 
     # Optional sonic-only similarity (for hard floor)
     sonic_seed_sim = None
@@ -293,6 +386,12 @@ def build_candidate_pool(
         "seed_artist_bonus": cfg.seed_artist_bonus,
         "min_sonic_similarity": cfg.min_sonic_similarity,
     }
+    if duration_penalty_active:
+        params_effective["duration_penalty_weight"] = cfg.duration_penalty_weight
+        params_effective["duration_reference_ms"] = reference_duration_ms
+        params_effective["duration_cutoff_multiplier"] = float(
+            cfg.duration_cutoff_multiplier
+        )
     if min_genre_similarity is not None:
         params_effective["genre_method"] = genre_method
         params_effective["min_genre_similarity"] = min_genre_similarity
@@ -313,6 +412,9 @@ def build_candidate_pool(
         "artist_cap_excluded": max(0, artist_cap_excluded),
         "eligible_count": len(eligible),
     }
+    if duration_penalty_active:
+        stats["duration_penalty_applied"] = duration_penalty_count
+        stats["duration_cutoff_excluded"] = duration_cutoff_count
     if sonic_sim_pool is not None:
         if track_ids is not None:
             stats["seed_sonic_sim_track_ids"] = {

@@ -27,75 +27,18 @@ class Config:
         """
         Apply genre_mode and sonic_mode presets if specified in config.
 
-        Mode settings (genre_mode/sonic_mode) take precedence over manual
+        Mode settings (genre_mode/sonic_mode) take precedence over manual       
         weight/threshold settings. If both are present, mode wins.
         """
         playlists_cfg = self.config.get('playlists', {})
         if not playlists_cfg:
             return
-
-        # Check for mode settings at top level
-        genre_mode = playlists_cfg.get('genre_mode')
-        sonic_mode = playlists_cfg.get('sonic_mode')
-
-        if not genre_mode and not sonic_mode:
-            return  # No modes specified, use manual settings
-
-        # Import mode resolution functions
         try:
-            from src.playlist.mode_presets import resolve_genre_mode, resolve_sonic_mode
+            from src.playlist.mode_presets import apply_mode_presets
         except ImportError:
-            # Fallback if mode_presets not available (shouldn't happen)
             return
 
-        # Apply genre mode preset
-        if genre_mode:
-            try:
-                genre_settings = resolve_genre_mode(genre_mode)
-                # Initialize genre_similarity section if needed
-                if 'genre_similarity' not in playlists_cfg:
-                    playlists_cfg['genre_similarity'] = {}
-
-                genre_cfg = playlists_cfg['genre_similarity']
-
-                # Apply mode settings (mode overrides manual settings)
-                genre_cfg['enabled'] = genre_settings['enabled']
-                genre_cfg['weight'] = genre_settings['weight']
-                if genre_settings.get('min_genre_similarity') is not None:
-                    genre_cfg['min_genre_similarity'] = genre_settings['min_genre_similarity']
-                if genre_settings.get('min_genre_similarity_narrow') is not None:
-                    genre_cfg['min_genre_similarity_narrow'] = genre_settings['min_genre_similarity_narrow']
-
-                # Store sonic_weight from genre mode (will be overridden if sonic_mode also specified)
-                genre_cfg['sonic_weight'] = genre_settings['sonic_weight']
-
-                print(f"[Config] Genre mode '{genre_mode}' applied: weight={genre_settings['weight']}, "
-                      f"threshold={genre_settings.get('min_genre_similarity')}")
-            except ValueError as e:
-                print(f"[Config] Warning: Invalid genre_mode '{genre_mode}': {e}")
-
-        # Apply sonic mode preset
-        if sonic_mode:
-            try:
-                sonic_settings = resolve_sonic_mode(sonic_mode)
-                # Initialize genre_similarity section if needed (sonic_weight goes here)
-                if 'genre_similarity' not in playlists_cfg:
-                    playlists_cfg['genre_similarity'] = {}
-
-                genre_cfg = playlists_cfg['genre_similarity']
-
-                if sonic_settings['enabled']:
-                    # Use sonic weight from sonic mode
-                    # If genre_mode was also specified, use its sonic_weight, otherwise use sonic mode's weight
-                    if not genre_mode:
-                        genre_cfg['sonic_weight'] = sonic_settings['weight']
-                    print(f"[Config] Sonic mode '{sonic_mode}' applied: weight={sonic_settings['weight']}")
-                else:
-                    # Sonic mode 'off' = genre-only mode
-                    genre_cfg['sonic_weight'] = 0.0
-                    print(f"[Config] Sonic mode 'off' applied: genre-only mode (sonic_weight=0)")
-            except ValueError as e:
-                print(f"[Config] Warning: Invalid sonic_mode '{sonic_mode}': {e}")
+        apply_mode_presets(playlists_cfg)
 
     def _validate_config(self):
         """Validate required configuration fields"""

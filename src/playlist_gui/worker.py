@@ -279,7 +279,28 @@ def load_config_with_overrides(base_path: str, overrides: Dict[str, Any]) -> Dic
                 result[key] = value
         return result
 
-    return deep_merge(config, overrides)
+    merged = deep_merge(config, overrides)
+
+    # Apply mode presets (genre_mode/sonic_mode) to resolve weights and thresholds
+    _apply_mode_presets(merged)
+
+    return merged
+
+
+def _apply_mode_presets(config: Dict[str, Any]) -> None:
+    """
+    Apply genre_mode and sonic_mode presets if specified in config.
+    Modifies config in-place.
+    """
+    playlists_cfg = config.get('playlists', {})
+    if not playlists_cfg:
+        return
+    try:
+        from src.playlist.mode_presets import apply_mode_presets
+    except ImportError:
+        return
+
+    apply_mode_presets(playlists_cfg)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -374,6 +395,13 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
     artist = args.get("artist")
     genre = args.get("genre")
     track_title = args.get("track")
+    seed_tracks = args.get("seed_tracks")
+    if isinstance(seed_tracks, list):
+        seed_tracks = [str(t).strip() for t in seed_tracks if str(t).strip()]
+        if not seed_tracks:
+            seed_tracks = None
+    else:
+        seed_tracks = None
     track_count = args.get("tracks", 30)
 
     emit_log("INFO", f"Starting playlist generation (mode={mode})")
@@ -570,14 +598,25 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
             metadata_client=metadata
         )
 
-        # Get DS mode override from config
+        # Get DS pipeline mode from config
+        # Note: genre_mode and sonic_mode are SEPARATE settings that control weighting,
+        # not the pipeline algorithm. They are already applied to the config via overrides.
         ds_mode = config.get('playlists', {}).get('ds_pipeline', {}).get('mode', 'dynamic')
+
+        # Log which modes are active
+        genre_mode = config.get('playlists', {}).get('genre_mode')
+        sonic_mode = config.get('playlists', {}).get('sonic_mode')
+        if genre_mode:
+            emit_log("INFO", f"Genre mode: {genre_mode}")
+        if sonic_mode:
+            emit_log("INFO", f"Sonic mode: {sonic_mode}")
+        emit_log("INFO", f"DS pipeline mode: {ds_mode}")
 
         # Cancellation check before generation
         check_cancelled()
 
         emit_progress("generate", 60, 100, "Generating playlist")
-        emit_log("INFO", f"Running pipeline with mode={ds_mode}")
+        emit_log("INFO", f"Running playlist generation with mode={ds_mode}")
 
         if mode == "artist" and artist:
             # Single artist mode
@@ -585,6 +624,14 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                 artist,
                 track_count,
                 track_title=track_title,
+                track_titles=seed_tracks,
+                dynamic=(ds_mode == "dynamic"),
+                ds_mode_override=ds_mode,
+            )
+        elif mode == "artist" and seed_tracks:
+            playlist_data = generator.create_playlist_from_seed_tracks(
+                seed_tracks,
+                track_count=track_count,
                 dynamic=(ds_mode == "dynamic"),
                 ds_mode_override=ds_mode,
             )
@@ -893,6 +940,49 @@ def handle_build_artifacts(cmd_data: Dict[str, Any]) -> None:
         emit_done("build_artifacts", False, str(e), summary="Artifact build failed")
 
 
+def handle_blacklist_fetch(cmd_data: Dict[str, Any]) -> None:
+    """Fetch blacklisted tracks from metadata DB."""
+    base_path = cmd_data.get("base_config_path", "config.yaml")
+    overrides = cmd_data.get("overrides", {})
+    try:
+        config = load_config_with_overrides(base_path, overrides)
+        db_path = config.get('library', {}).get('database_path', 'data/metadata.db')
+        from src.metadata_client import MetadataClient
+
+        metadata = MetadataClient(db_path)
+        tracks = metadata.fetch_blacklisted_tracks()
+        emit_result("blacklist", {"tracks": tracks, "count": len(tracks)})
+        emit_done("blacklist_fetch", True, f"Fetched {len(tracks)} blacklisted tracks")
+    except Exception as e:
+        tb = traceback.format_exc()
+        emit_error(str(e), tb)
+        emit_done("blacklist_fetch", False, str(e))
+
+
+def handle_blacklist_set(cmd_data: Dict[str, Any]) -> None:
+    """Set blacklisted flag for track ids."""
+    base_path = cmd_data.get("base_config_path", "config.yaml")
+    overrides = cmd_data.get("overrides", {})
+    track_ids = cmd_data.get("track_ids", []) or []
+    value = bool(cmd_data.get("value", True))
+    try:
+        config = load_config_with_overrides(base_path, overrides)
+        db_path = config.get('library', {}).get('database_path', 'data/metadata.db')
+        from src.metadata_client import MetadataClient
+
+        metadata = MetadataClient(db_path)
+        updated = metadata.set_blacklisted([str(t) for t in track_ids], value)
+        emit_result(
+            "blacklist_set",
+            {"track_ids": track_ids, "value": value, "updated": updated},
+        )
+        emit_done("blacklist_set", True, f"Updated {updated} track(s)")
+    except Exception as e:
+        tb = traceback.format_exc()
+        emit_error(str(e), tb)
+        emit_done("blacklist_set", False, str(e))
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Command Router
 # ─────────────────────────────────────────────────────────────────────────────
@@ -906,6 +996,8 @@ TRACKED_COMMAND_HANDLERS = {
     "update_sonic": handle_update_sonic,
     "build_artifacts": handle_build_artifacts,
     "doctor": handle_doctor,
+    "blacklist_fetch": handle_blacklist_fetch,
+    "blacklist_set": handle_blacklist_set,
 }
 
 # Commands that don't have their own request context

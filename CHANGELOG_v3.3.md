@@ -4,6 +4,11 @@
 
 This changelog documents the new artist identity-based min_gap enforcement feature implemented in version 3.3.
 
+Additional updates in 3.3:
+- **Seed List mode** - Explicit multi-seed playlists (GUI + CLI), including seed-only runs without an artist field
+- **Sonic/Genre modes** - `strict`, `narrow`, `dynamic`, `discover`, `off` controls for independent tuning
+- **Refactor progress** - Pipeline modularization (candidate pool, pier/bridge, constraints, diagnostics) and GUI widget extraction
+
 ---
 
 ## 🎯 New Feature: Artist Identity Resolution for min_gap Enforcement

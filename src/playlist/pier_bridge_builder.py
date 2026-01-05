@@ -40,6 +40,20 @@ from src.playlist.artist_identity_resolver import (
 from src.playlist.config import resolve_pier_bridge_tuning as _resolve_pier_bridge_tuning_cfg
 from src.playlist.run_audit import InfeasibleHandlingConfig, RunAuditConfig, RunAuditEvent, now_utc_iso
 
+# Phase 3 extracted modules
+from src.playlist.scoring import (
+    compute_transition_score as _compute_transition_score_extracted,
+    compute_bridgeability_score as _compute_bridgeability_score_extracted,
+)
+from src.playlist.segment_pool_builder import (
+    SegmentCandidatePoolBuilder,
+    SegmentPoolConfig,
+)
+from src.playlist.pier_bridge_diagnostics import (
+    SegmentDiagnostics as _SegmentDiagnosticsExtracted,
+    PierBridgeDiagnosticsCollector,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -92,23 +106,9 @@ class PierBridgeConfig:
     disallow_seed_artist_in_interiors: bool = False
 
 
-@dataclass
-class SegmentDiagnostics:
-    """Diagnostics for a single segment."""
-    pier_a_id: str
-    pier_b_id: str
-    target_length: int
-    actual_length: int
-    pool_size_initial: int
-    pool_size_final: int
-    expansions: int
-    beam_width_used: int
-    worst_edge_score: float
-    mean_edge_score: float
-    success: bool
-    bridge_floor_used: float = 0.0
-    backoff_attempts_used: int = 1
-    widened_search: bool = False
+# Backward compatibility: SegmentDiagnostics now imported from extracted module
+# Kept here as alias for existing code
+SegmentDiagnostics = _SegmentDiagnosticsExtracted
 
 
 @dataclass
@@ -1096,16 +1096,6 @@ def _beam_search_segment(
     penalty_strength = float(max(0.0, min(1.0, penalty_strength)))
     penalty_threshold = float(cfg.genre_penalty_threshold)
 
-    # Duration penalty: compute reference duration (max of two piers)
-    reference_duration_ms = 0.0
-    duration_penalty_active = bool(cfg.duration_penalty_enabled) and durations_ms is not None
-    if duration_penalty_active:
-        pier_a_dur = float(durations_ms[pier_a]) if 0 <= pier_a < len(durations_ms) else 0.0
-        pier_b_dur = float(durations_ms[pier_b]) if 0 <= pier_b < len(durations_ms) else 0.0
-        reference_duration_ms = max(pier_a_dur, pier_b_dur)
-        if reference_duration_ms <= 0:
-            duration_penalty_active = False  # No valid reference, disable penalty
-
     if interior_length == 0:
         # Check if direct transition meets floor
         direct_score = _compute_transition_score(
@@ -1258,17 +1248,6 @@ def _beam_search_segment(
                         ):
                             combined_score *= (1.0 - penalty_strength)
                             genre_penalty_hits += 1
-
-                # Duration penalty: subtract penalty for candidates longer than reference
-                if duration_penalty_active:
-                    cand_duration = float(durations_ms[cand]) if 0 <= cand < len(durations_ms) else 0.0
-                    if cand_duration > 0:
-                        dur_penalty = _compute_duration_penalty(
-                            cand_duration,
-                            reference_duration_ms,
-                            cfg.duration_penalty_weight,
-                        )
-                        combined_score -= dur_penalty
 
                 new_score = state.score + combined_score + dest_pull
                 new_path = state.path + [cand]
@@ -2344,6 +2323,7 @@ def generate_pier_bridge_playlist(
         track_ids=bundle.track_ids,
         track_titles=bundle.track_titles,
         track_artists=bundle.track_artists,
+        durations_ms=bundle.durations_ms,
         cfg=cfg.candidate,
         random_seed=random_seed,
         X_sonic=X_sonic_for_embed,

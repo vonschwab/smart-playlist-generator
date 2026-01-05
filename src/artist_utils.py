@@ -1,57 +1,57 @@
 """
 Artist-related normalization helpers shared across modules.
 
-These functions consolidate logic that previously lived in playlist_generator.py
-and track_matcher.py without changing behavior.
+DEPRECATED: This module is deprecated and will be removed in July 2026.
+Use src.string_utils.normalize_artist_name() instead.
+
+These functions now delegate to the canonical implementation in string_utils.py
+via deprecation wrappers. All functions maintain backward compatibility but will
+issue deprecation warnings.
+
+Migration:
+    # Old (deprecated):
+    from src.artist_utils import extract_primary_artist
+
+    # New (recommended):
+    from src.string_utils import normalize_artist_name
+    # Use: normalize_artist_name(artist, strip_ensemble=True, strip_collaborations=True)
 """
 import re
+import warnings
 from typing import List
 
-from .string_utils import normalize_text
+from .string_utils import normalize_text, normalize_artist_name
+
+# Issue deprecation warning on module import
+warnings.warn(
+    "artist_utils module is deprecated and will be removed in July 2026. "
+    "Use src.string_utils.normalize_artist_name() instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 
 def extract_primary_artist(artist: str, lowercase: bool = True) -> str:
     """
-    Extract the primary/first artist from collaborative credits.
-    Mirrors the original playlist_generator.extract_primary_artist behavior.
+    DEPRECATED: Use src.string_utils.normalize_artist_name() instead.
+
+    This function delegates to the canonical implementation.
+    Will be removed in July 2026.
+
+    Migration:
+        # Old:
+        extract_primary_artist("Bill Evans Trio")
+
+        # New:
+        normalize_artist_name("Bill Evans Trio", strip_ensemble=True, strip_collaborations=True)
     """
-    if not artist:
-        return ""
-
-    # Remove anything after featuring/with/vs (clear collaboration markers)
-    base_artist = re.split(
-        r"\s+(?:feat\.?|ft\.?|featuring|with|vs\.?|x)\s+",
+    return normalize_artist_name(
         artist,
-        flags=re.IGNORECASE,
-    )[0]
-
-    # Check for jazz ensemble suffixes
-    has_ensemble_suffix = re.search(
-        r"\s+(?:Trio|Quartet|Quintet|Sextet|Septet|Octet)\s*$",
-        base_artist,
-        flags=re.IGNORECASE,
+        strip_ensemble=True,
+        strip_collaborations=True,
+        lowercase=lowercase,
+        normalize_unicode=False,  # extract_primary_artist didn't do Unicode normalization
     )
-
-    if has_ensemble_suffix:
-        base_artist = re.sub(r"^The\s+", "", base_artist, flags=re.IGNORECASE)
-        base_artist = re.sub(
-            r"\s+(?:Trio|Quartet|Quintet|Sextet|Septet|Octet)\s*$",
-            "",
-            base_artist,
-            flags=re.IGNORECASE,
-        )
-        base_artist = base_artist.strip()
-        return base_artist.lower() if lowercase and base_artist else base_artist
-
-    # Preserve likely band names (contains "& The" or "and The")
-    if re.search(r"(?:^The\s+|\s+(?:&|and)\s+The\s+)", base_artist, flags=re.IGNORECASE):
-        base_artist = base_artist.strip()
-        return base_artist.lower() if lowercase and base_artist else base_artist
-
-    # Otherwise, split on common separators for collaborations
-    base_artist = re.split(r"\s*[&,;]\s*|\s+and\s+", base_artist, flags=re.IGNORECASE)[0]
-    base_artist = normalize_text(base_artist, lowercase=lowercase)
-    return base_artist
 
 
 def parse_collaboration(artist: str) -> List[str]:

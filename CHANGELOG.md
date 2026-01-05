@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.3
+- Seed List mode: explicit multi-seed playlists in GUI/CLI, including seed-only runs without an artist field.
+- Sonic/Genre modes: strict, narrow, dynamic, discover, off controls for independent tuning.
+- Refactor progress: modularized candidate pool, pier/bridge, constraints, diagnostics, and GUI widgets.
+- Blacklist support: track-level exclusions applied across seed selection and candidate pools.
+- Duration enforcement: pre-order duration cutoffs and penalties tied to median seed length.
+
 ## 3.2
 - Windows GUI: accent-insensitive artist autocomplete and export fixes for the track table.
 - Artist normalization: shared `normalize_artist_key` across CLI/GUI, DB schema migration (`artist_key`) with backfill.

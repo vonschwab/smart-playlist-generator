@@ -51,6 +51,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
 from src.artist_key_db import ensure_artist_key_schema
+from src.blacklist_db import ensure_blacklist_schema
 from src.config_loader import Config
 from src.genre_normalization import normalize_genre_list
 from src.string_utils import normalize_artist_key
@@ -121,6 +122,7 @@ class LibraryScanner:
                 self.conn.rollback()
                 self._has_fingerprints = self._column_exists("tracks", "file_mtime_ns")
         ensure_artist_key_schema(self.conn, logger=logger)
+        ensure_blacklist_schema(self.conn, logger=logger)
 
     def _table_exists(self, table_name: str) -> bool:
         cursor = self.conn.cursor()

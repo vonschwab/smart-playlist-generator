@@ -134,6 +134,9 @@ playlists:
       # min_sonic_similarity: 0.00
       max_pool_size: 1200     # Max candidates before construction phase
       max_artist_fraction: 0.125  # Max tracks from one artist as fraction of playlist
+      duration_penalty_enabled: true    # Penalize long tracks vs median seed duration
+      duration_penalty_weight: 0.60     # Penalty strength (higher = more severe)
+      duration_cutoff_multiplier: 2.5  # Hard cutoff multiplier vs median seed duration
       broad_filters: ["rock", "indie", "alternative", "pop"]  # Tags ignored for narrow-mode genre gating/sim
 
     # Artist style-aware pier-bridge (applies to --artist playlists)
@@ -382,3 +385,57 @@ playlists:
 logging:
   level: DEBUG
   file: logs/playlist_generator.log
+
+# ═══════════════════════════════════════════════════════════════════════════
+# EXPERIMENTAL FEATURES (Refactoring Feature Flags)
+# ═══════════════════════════════════════════════════════════════════════════
+# Feature flags for safe incremental refactoring. All flags default to false
+# (legacy behavior) for maximum safety. Only enable flags when explicitly
+# testing refactored implementations.
+#
+# WARNING: These flags are for development/testing only. Do not enable in
+# production unless you understand the implications and have validated
+# behavior with golden file tests.
+#
+experimental:
+  # Phase 2.1: Genre normalization consolidation
+  use_unified_genre_normalization: false
+
+  # Phase 2.2: Artist normalization consolidation
+  use_unified_artist_normalization: false
+
+  # Phase 2.3: Genre similarity consolidation
+  use_unified_genre_similarity: false
+
+  # Phase 2.4: Typed configuration facades
+  use_typed_config: false
+
+  # Phase 3.1: Pier-bridge scoring extraction
+  use_extracted_pier_bridge_scoring: false
+
+  # Phase 3.2: Segment pool builder extraction
+  use_extracted_segment_pool: false
+
+  # Phase 3.3: Pier-bridge diagnostics extraction
+  use_extracted_pier_bridge_diagnostics: false
+
+  # Phase 4.1: Playlist factory with strategy pattern
+  use_playlist_factory: false
+
+  # Phase 4.2: Enhanced candidate generator
+  use_new_candidate_generator: false
+
+  # Phase 4.3: Composable filter pipeline
+  use_filtering_pipeline: false
+
+  # Phase 4.4: Listening history repository
+  use_history_repository: false
+
+  # Phase 5.1: Explicit config resolution
+  use_config_resolver: false
+
+  # Phase 5.2: DS pipeline builder pattern
+  use_pipeline_builder: false
+
+  # Phase 5.3: Sonic variant caching
+  use_variant_cache: false

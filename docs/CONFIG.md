@@ -65,6 +65,113 @@ playlists:
   pipeline: ds                       # Use DS pipeline (recommended)
 ```
 
+## Mode-Based Configuration (Simplified Tuning)
+
+**NEW in v3.2:** Instead of manually tuning genre/sonic weights and thresholds, you can use simple mode presets that configure everything automatically.
+
+### Genre Modes
+
+Control how strictly playlists match genre tags:
+
+| Mode | Description | Genre Weight | Threshold | Use Case |
+|------|-------------|--------------|-----------|----------|
+| `strict` | Ultra-tight genre matching | 0.80 | 0.50 | Single-genre deep dives |
+| `narrow` | Stay close to seed genre | 0.65 | 0.40 | Cohesive genre exploration |
+| `dynamic` | Balanced exploration | 0.50 | 0.30 | General use (default) |
+| `discover` | Genre-adjacent exploration | 0.35 | 0.20 | Cross-genre discovery |
+| `off` | Sonic-only mode | 0.00 | 0.00 | Ignore genre tags completely |
+
+### Sonic Modes
+
+Control how strictly playlists match audio features (rhythm, timbre, harmony):
+
+| Mode | Description | Sonic Weight | Pool Control | Use Case |
+|------|-------------|--------------|--------------|----------|
+| `strict` | Ultra-tight sonic matching | 0.85 | Tight pool | Laser-focused sound |
+| `narrow` | Cohesive sound | 0.70 | Tighter pool | Consistent texture |
+| `dynamic` | Balanced sonic flow | 0.50 | Standard pool | General use (default) |
+| `discover` | Varied textures | 0.35 | Wider pool | Sonic variety |
+| `off` | Genre-only mode | 0.00 | Maximum pool | Ignore sonic features |
+
+### Configuration Examples
+
+**Balanced (default):**
+```yaml
+playlists:
+  genre_mode: dynamic      # 50% genre weight
+  sonic_mode: dynamic      # 50% sonic weight
+```
+
+**Ultra-cohesive playlists:**
+```yaml
+playlists:
+  genre_mode: strict       # 80% genre, threshold 0.50
+  sonic_mode: strict       # 85% sonic, tight pool
+```
+
+**Same genre, varied sound:**
+```yaml
+playlists:
+  genre_mode: narrow       # 65% genre, threshold 0.40
+  sonic_mode: discover     # 35% sonic, wide pool
+```
+
+**Pure sonic similarity:**
+```yaml
+playlists:
+  genre_mode: off          # Genre disabled
+  sonic_mode: dynamic      # 50% sonic weight
+```
+
+**Pure genre matching:**
+```yaml
+playlists:
+  genre_mode: dynamic      # 50% genre weight
+  sonic_mode: off          # Sonic disabled
+```
+
+### CLI Override
+
+Override modes for a single run without changing config:
+
+```bash
+# Strict genre + narrow sonic
+python main_app.py --artist "Radiohead" --genre-mode strict --sonic-mode narrow
+
+# Pure sonic (genre off)
+python main_app.py --genre "ambient" --genre-mode off --sonic-mode dynamic
+
+# Discovery mode
+python main_app.py --genre "jazz" --genre-mode discover --sonic-mode discover
+```
+
+### GUI Override
+
+The GUI playlist tab includes dropdown selectors for both modes. Selected modes override config file settings for that generation only.
+
+### Technical Details
+
+Mode presets automatically configure multiple underlying parameters:
+
+**Genre modes set:**
+- `playlists.genre_similarity.weight` (genre weight in hybrid score)
+- `playlists.genre_similarity.sonic_weight` (sonic weight in hybrid score)
+- `playlists.genre_similarity.min_genre_similarity` (filter threshold)
+- `playlists.ds_pipeline.candidate_pool.min_sonic_similarity_<mode>` (mode-specific sonic floor)
+
+**Sonic modes set:**
+- `playlists.genre_similarity.sonic_weight` (sonic weight in hybrid score)
+- `playlists.genre_similarity.weight` (genre weight in hybrid score)
+- `playlists.ds_pipeline.candidate_pool.similarity_floor` (hybrid similarity floor)
+
+**Mode precedence (highest to lowest):**
+1. CLI flags (`--genre-mode`, `--sonic-mode`)
+2. GUI selections
+3. Config file (`genre_mode`, `sonic_mode`)
+4. Manual parameters (`weight`, `min_genre_similarity`, etc.)
+
+If mode settings are present, they OVERRIDE manual `genre_similarity` settings.
+
 ## DS Pipeline Configuration
 
 ```yaml
@@ -98,6 +205,9 @@ playlists:
       similarity_floor: 0.20         # Minimum similarity to consider
       max_pool_size: 1200            # Maximum candidates
       max_artist_fraction: 0.125     # Max 12.5% from one artist
+      duration_penalty_enabled: true   # Penalize long tracks vs seeds
+      duration_penalty_weight: 0.60    # Penalty strength (higher = more severe)
+      duration_cutoff_multiplier: 2.5 # Hard cutoff vs median seed duration
 
     # Scoring weights
     scoring:
@@ -154,27 +264,26 @@ playlists:
       max_iters: 5
       max_edges: 5
 
-    # Duration penalty (geometric): penalizes bridge candidates based on percentage excess
-    # over pier tracks. Uses a three-phase curve that accelerates from gentle to severe.
-    # Does NOT block long tracks (hard filter at 720s does that), but significantly reduces
-    # their score during pier-bridge beam search based on how much longer they are.
-    duration_penalty:
-      enabled: true                  # Default: enabled
-      weight: 0.30                   # Penalty strength (range: 0.10-0.50)
+    # Duration penalty (geometric): penalizes candidates during pool construction
+    # based on percentage excess over the median seed track. This is a soft penalty
+    # (not a hard filter) but reduces seed similarity so long tracks fall below
+    # similarity floors before pier-bridge. Candidates longer than
+    # duration_cutoff_multiplier * median seed duration are hard excluded.
 
-      # Three-phase geometric curve (percentage-based):
-      # Phase 1 (0-20% excess):   Gentle penalties (power 1.5)
-      # Phase 2 (20-50% excess):  Moderate penalties (power 2.0)
-      # Phase 3 (50-100% excess): Steep penalties (power 2.5)
-      # Phase 4 (>100% excess):   Severe penalties (power 3.0)
+    # Four-phase geometric curve (percentage-based):
+    # Phase 1 (0-20% excess):   Gentle penalties (power 1.5)
+    # Phase 2 (20-50% excess):  Moderate penalties (power 2.0)
+    # Phase 3 (50-100% excess): Steep penalties (power 2.5)
+    # Phase 4 (>100% excess):   Severe penalties (power 3.0)
 
-      # Example with weight=0.30, reference=200s pier track:
-      #   +5% (210s):   penalty ≈ 0.003 (negligible)
-      #   +20% (240s):  penalty ≈ 0.015 (gentle)
-      #   +40% (280s):  penalty ≈ 0.10 (moderate)
-      #   +80% (360s):  penalty ≈ 0.45 (steep)
-      #   +100% (400s): penalty ≈ 0.75 (severe threshold)
-      #   +200% (600s): penalty ≈ 3.0 (very severe!)
+    # Example with weight=0.60, reference=200s seed track (duration_cutoff_multiplier=2.5):
+    #   +5% (210s):   penalty ≈ 0.006 (negligible)
+    #   +20% (240s):  penalty ≈ 0.030 (gentle)
+    #   +40% (280s):  penalty ≈ 0.20 (moderate)
+    #   +80% (360s):  penalty ≈ 0.90 (steep)
+    #   +100% (400s): penalty ≈ 1.50 (severe threshold)
+    #   +150% (500s): penalty ≈ 3.19 (very severe)
+    #   +160% (520s): excluded (hard cutoff at 2.5x)
 ```
 
 ### Pier-Bridge Tuning (per mode)

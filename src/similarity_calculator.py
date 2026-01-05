@@ -12,6 +12,7 @@ import numpy as np
 from scipy.spatial.distance import cosine, euclidean
 
 from .genre_similarity_v2 import GenreSimilarityV2
+from .blacklist_db import ensure_blacklist_schema
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +125,7 @@ class SimilarityCalculator:
         """Initialize database connection"""
         self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
+        ensure_blacklist_schema(self.conn, logger=logger)
         logger.debug(f"Connected to database: {self.db_path}")
 
     @staticmethod
@@ -423,6 +425,7 @@ class SimilarityCalculator:
             SELECT sonic_features, artist, duration_ms
             FROM tracks
             WHERE track_id = ?
+              AND is_blacklisted = 0
         """, (track_id,))
 
         seed_row = cursor.fetchone()
@@ -450,6 +453,7 @@ class SimilarityCalculator:
             FROM tracks
             WHERE sonic_features IS NOT NULL
               AND track_id != ?
+              AND is_blacklisted = 0
         """, (track_id,))
 
         # Calculate similarity for each track
@@ -549,6 +553,7 @@ class SimilarityCalculator:
             SELECT sonic_features, artist, duration_ms
             FROM tracks
             WHERE track_id = ?
+              AND is_blacklisted = 0
         """, (track_id,))
 
         seed_row = cursor.fetchone()
@@ -569,6 +574,7 @@ class SimilarityCalculator:
             FROM tracks
             WHERE sonic_features IS NOT NULL
               AND track_id != ?
+              AND is_blacklisted = 0
         """, (track_id,))
 
         similarities = []
@@ -650,6 +656,7 @@ class SimilarityCalculator:
             FROM tracks
             WHERE sonic_features IS NOT NULL
               AND track_id NOT IN ({placeholders})
+              AND is_blacklisted = 0
         """, track_ids)
 
         # Calculate average similarity to seed tracks
@@ -691,6 +698,7 @@ class SimilarityCalculator:
             SELECT sonic_features
             FROM tracks
             WHERE track_id = ?
+              AND is_blacklisted = 0
         """, (track_id,))
 
         row = cursor.fetchone()
@@ -726,6 +734,7 @@ class SimilarityCalculator:
             SELECT sonic_features
             FROM tracks
             WHERE track_id = ?
+              AND is_blacklisted = 0
         """, (track_id,))
 
         row = cursor.fetchone()
@@ -857,6 +866,7 @@ class SimilarityCalculator:
             SELECT artist, album, album_id
             FROM tracks
             WHERE track_id = ?
+              AND is_blacklisted = 0
         """, (track_id,))
 
         row = cursor.fetchone()
@@ -1043,6 +1053,7 @@ class SimilarityCalculator:
             SELECT track_id, sonic_features, artist
             FROM tracks
             WHERE track_id IN (?, ?)
+              AND is_blacklisted = 0
         """, (track1_id, track2_id))
 
         rows = {row['track_id']: row for row in cursor.fetchall()}

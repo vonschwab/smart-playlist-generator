@@ -7,6 +7,7 @@ import json
 import logging
 from typing import List, Dict, Any, Optional
 from .artist_key_db import ensure_artist_key_schema
+from .blacklist_db import ensure_blacklist_schema
 from .similarity_calculator import SimilarityCalculator
 from .string_utils import normalize_artist_key
 
@@ -38,6 +39,7 @@ class LocalLibraryClient:
         self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         ensure_artist_key_schema(self.conn, logger=logger)
+        ensure_blacklist_schema(self.conn, logger=logger)
         logger.debug(f"Connected to database: {self.db_path}")
 
     def get_all_tracks(self, library_id: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -64,6 +66,7 @@ class LocalLibraryClient:
                 musicbrainz_id as mbid
             FROM tracks
             WHERE file_path IS NOT NULL
+              AND is_blacklisted = 0
             ORDER BY artist, album, title
         """)
 
@@ -109,6 +112,7 @@ class LocalLibraryClient:
                 musicbrainz_id as mbid
             FROM tracks
             WHERE track_id = ?
+              AND is_blacklisted = 0
         """, (rating_key,))
 
         row = cursor.fetchone()
@@ -151,6 +155,7 @@ class LocalLibraryClient:
                 musicbrainz_id as mbid
             FROM tracks
             WHERE track_id IN ({placeholders})
+              AND is_blacklisted = 0
             """,
             track_ids,
         )
@@ -265,6 +270,7 @@ class LocalLibraryClient:
             JOIN track_effective_genres teg ON t.track_id = teg.track_id
             WHERE teg.genre = ?
             AND t.file_path IS NOT NULL
+            AND t.is_blacklisted = 0
 
             UNION
 
@@ -276,6 +282,7 @@ class LocalLibraryClient:
             JOIN album_genres ag ON t.album_id = ag.album_id
             WHERE ag.genre = ?
             AND t.file_path IS NOT NULL
+            AND t.is_blacklisted = 0
 
             UNION
 
@@ -287,6 +294,7 @@ class LocalLibraryClient:
             JOIN artist_genres ag ON t.artist = ag.artist
             WHERE ag.genre = ?
             AND t.file_path IS NOT NULL
+            AND t.is_blacklisted = 0
 
             LIMIT ?
         """, (genre, genre, genre, limit))
@@ -396,7 +404,10 @@ class LocalLibraryClient:
             File path or None if not found
         """
         cursor = self.conn.cursor()
-        cursor.execute("SELECT file_path FROM tracks WHERE track_id = ?", (rating_key,))
+        cursor.execute(
+            "SELECT file_path FROM tracks WHERE track_id = ? AND is_blacklisted = 0",
+            (rating_key,),
+        )
         row = cursor.fetchone()
         return row['file_path'] if row else None
 
@@ -428,6 +439,7 @@ class LocalLibraryClient:
                 FROM tracks
                 WHERE artist_key LIKE ?
                   AND file_path IS NOT NULL
+                  AND is_blacklisted = 0
                 ORDER BY album, title
             """, (f"%{artist_key}%",))
         else:
@@ -444,6 +456,7 @@ class LocalLibraryClient:
                 FROM tracks
                 WHERE artist_key = ?
                   AND file_path IS NOT NULL
+                  AND is_blacklisted = 0
                 ORDER BY album, title
             """, (artist_key,))
 

@@ -11,7 +11,7 @@
 When you generate a playlist for "Bill Evans Trio", the system:
 
 1. **Retrieves** all Bill Evans Trio tracks from your library database
-2. **Selects** 4-5 representative "seed" tracks using clustering analysis
+2. **Selects** seed tracks (auto-clustered or explicit Seed List mode)
 3. **Analyzes** your Last.fm listening history to exclude recently played tracks
 4. **Clusters** the artist's catalog into 3-6 style groups using sonic similarity
 5. **Builds** a candidate pool of ~1,200-2,000 external tracks with similar sonic/genre characteristics
@@ -42,6 +42,7 @@ config._validate_config()      # Validate required fields
 
 **Configuration Keys Applied:**
 - `playlists.ds_pipeline.mode`: "dynamic" (balanced genre+sonic)
+- `playlists.genre_mode` / `playlists.sonic_mode`: strict | narrow | dynamic | discover | off
 - `playlists.genre_similarity.weight`: 0.50 (from mode preset)
 - `playlists.sonic_weight`: 0.50
 - `playlists.ds_pipeline.artifact_path`: Path to sonic embeddings
@@ -368,6 +369,10 @@ def generate_candidate_pool(
     sonic_pass = similarities >= sonic_floor
     # Before: 1,559 → After: 901 (rejected: 658)
 
+    # Step 3.5: Duration penalty (seed-relative)
+    # Penalize candidates longer than the median seed duration before gating
+    # Hard exclude candidates longer than duration_cutoff_multiplier * median seed duration
+
     # Step 4: Genre hard gate
     for idx in allowed_indices:
         genre_sim = max([
@@ -557,13 +562,6 @@ def build_bridge_segment(
                     weight=0.15
                 )
 
-                # Duration penalty (geometric curve)
-                duration_penalty = compute_duration_penalty(
-                    candidate_duration_ms=bundle.durations[cand_idx],
-                    reference_duration_ms=(bundle.durations[pier_a_idx] + bundle.durations[pier_b_idx]) / 2,
-                    weight=0.30
-                )
-
                 # Genre soft penalty (whiplash reduction)
                 genre_penalty = 0.0
                 genre_sim = compute_genre_similarity(cand_idx, current_idx)
@@ -571,7 +569,7 @@ def build_bridge_segment(
                     genre_penalty = config.genre_penalty_strength
 
                 # Final score
-                final_score = score + edge_score - progress_penalty - duration_penalty - genre_penalty
+                final_score = score + edge_score - progress_penalty - genre_penalty
 
                 next_beam.append((cand_idx, path + [cand_idx], final_score))
 
@@ -649,7 +647,7 @@ for step, cand_idx in enumerate(path):
 - **Min artist gap:** 6 positions
 - **Seed artist policy:** Disallowed in bridge interiors
 - **Progress constraint:** Monotonic movement toward destination
-- **Duration penalty:** Geometric curve (0-100% excess)
+- **Duration penalty:** Applied in candidate pool (geometric curve vs max seed duration)
 - **Genre soft penalty:** Reduce whiplash below 0.20 similarity
 
 #### 7.4 Full Playlist Assembly
@@ -1027,11 +1025,13 @@ def compute_progress_penalty(
 - Creates smooth sonic arc from A → B
 
 ### 5. Duration Penalty (Geometric Curve)
-**Purpose:** Discourage overly long tracks in bridges
+**Purpose:** Discourage overly long tracks in candidate pool selection
+**Reference:** Median seed track duration (penalty applied before similarity floors)
+**Hard cutoff:** Candidates > duration_cutoff_multiplier * median seed duration are excluded
 
 ```python
-# pier_bridge_builder.py:988-1052
-def compute_duration_penalty(candidate_duration_ms, reference_duration_ms, weight=0.30):
+# candidate_pool.py:91-140
+def compute_duration_penalty(candidate_duration_ms, reference_duration_ms, weight=0.60):
     """
     Four-phase geometric penalty based on percentage excess.
 
@@ -1065,10 +1065,11 @@ def compute_duration_penalty(candidate_duration_ms, reference_duration_ms, weigh
 ```
 
 **Example Penalties (200s reference track):**
-- 220s (+10%): penalty = 0.013 (negligible)
-- 260s (+30%): penalty = 0.095 (moderate)
-- 340s (+70%): penalty = 0.287 (steep)
-- 440s (+120%): penalty = 0.762 (severe)
+- 220s (+10%): penalty = 0.026 (negligible)
+- 260s (+30%): penalty = 0.190 (moderate)
+- 340s (+70%): penalty = 0.574 (steep)
+- 440s (+120%): penalty = 1.524 (severe)
+- 520s (+160%): excluded (hard cutoff at 2.5x)
 
 ---
 

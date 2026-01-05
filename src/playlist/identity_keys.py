@@ -6,9 +6,9 @@ from typing import Optional, Tuple
 
 from src.features.artifacts import ArtifactBundle
 from src.string_utils import normalize_artist_key as _normalize_artist_key_punct
-from src.string_utils import normalize_match_string
+from src.string_utils import normalize_match_string, normalize_artist_name
 from src.title_dedupe import normalize_title_for_dedupe
-from src.artist_utils import extract_primary_artist
+from src.artist_utils import extract_primary_artist  # Deprecated, kept for backward compat
 
 
 def normalize_primary_artist_key(value: str) -> str:

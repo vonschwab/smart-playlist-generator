@@ -12,6 +12,7 @@ from PySide6.QtCore import (
     QSortFilterProxyModel,
     Qt,
 )
+from PySide6.QtGui import QBrush, QColor
 
 
 class Column:
@@ -185,10 +186,15 @@ class TrackTableModel(QAbstractTableModel):
             if col in (Column.INDEX, Column.DURATION, Column.SONIC_SIM, Column.GENRE_SIM):
                 return Qt.AlignRight | Qt.AlignVCenter
             return Qt.AlignLeft | Qt.AlignVCenter
+        elif role == Qt.ForegroundRole:
+            if track.get("is_blacklisted"):
+                return QBrush(QColor("#a33"))
 
         elif role == Qt.ToolTipRole:
             if col == Column.FILE_PATH:
                 return str(value) if value else ""
+            if track.get("is_blacklisted"):
+                return "Blacklisted"
 
         return None
 
@@ -211,6 +217,24 @@ class TrackTableModel(QAbstractTableModel):
         self.beginResetModel()
         self._tracks = list(tracks)  # Copy the list
         self.endResetModel()
+
+    def mark_blacklisted(self, track_ids: set[str], value: bool) -> int:
+        """Mark tracks as blacklisted by rating_key."""
+        if not track_ids:
+            return 0
+        updated = 0
+        for track in self._tracks:
+            track_id = track.get("rating_key") or track.get("id") or track.get("track_id")
+            if track_id is None:
+                continue
+            if str(track_id) in track_ids:
+                track["is_blacklisted"] = bool(value)
+                updated += 1
+        if updated:
+            top_left = self.index(0, 0)
+            bottom_right = self.index(self.rowCount() - 1, self.columnCount() - 1)
+            self.dataChanged.emit(top_left, bottom_right)
+        return updated
 
     def get_track(self, row: int) -> Optional[Dict[str, Any]]:
         """Get track data at the given row."""

@@ -77,6 +77,7 @@ SONIC_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "enabled": True,
         "weight": 0.85,
         "candidate_pool_multiplier": 0.6,
+        "min_sonic_similarity": 0.20,
         "description": "Ultra-tight sonic matching - very similar sound",
         "use_case": "Extremely cohesive sound with minimal variation",
     },
@@ -84,6 +85,7 @@ SONIC_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "enabled": True,
         "weight": 0.70,
         "candidate_pool_multiplier": 0.8,
+        "min_sonic_similarity": 0.12,
         "description": "Strict sonic coherence - familiar sound",
         "use_case": "Cohesive playlists with consistent sonic character",
     },
@@ -91,6 +93,7 @@ SONIC_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "enabled": True,
         "weight": 0.50,
         "candidate_pool_multiplier": 1.0,
+        "min_sonic_similarity": 0.06,
         "description": "Balanced sonic flow (default)",
         "use_case": "Standard playlists with moderate sonic variation",
     },
@@ -98,6 +101,7 @@ SONIC_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "enabled": True,
         "weight": 0.35,
         "candidate_pool_multiplier": 1.2,
+        "min_sonic_similarity": 0.0,
         "description": "Broader sonic palette - varied textures",
         "use_case": "Exploratory playlists with diverse sonic textures",
     },
@@ -105,6 +109,7 @@ SONIC_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "enabled": False,
         "weight": 0.0,
         "candidate_pool_multiplier": None,
+        "min_sonic_similarity": None,
         "description": "Genre-only mode - ignore sonic similarity",
         "use_case": "Match by genre tags only, disregard audio features",
     },
@@ -236,6 +241,84 @@ def resolve_sonic_mode(mode: str, overrides: Optional[Dict[str, Any]] = None) ->
         logger.info(f"Sonic mode '{mode}': {settings['description']}")
 
     return settings
+
+
+def apply_mode_presets(playlists_cfg: Dict[str, Any]) -> None:
+    """
+    Apply genre_mode/sonic_mode presets to a playlists config dictionary.
+
+    This is the single source of truth for mode-driven gates/weights.
+    """
+    if not playlists_cfg:
+        return
+
+    genre_mode = playlists_cfg.get("genre_mode")
+    sonic_mode = playlists_cfg.get("sonic_mode")
+    if not genre_mode and not sonic_mode:
+        return
+
+    genre_cfg = playlists_cfg.setdefault("genre_similarity", {})
+    ds_cfg = playlists_cfg.setdefault("ds_pipeline", {})
+    candidate_pool = ds_cfg.setdefault("candidate_pool", {})
+
+    genre_enabled = bool(genre_cfg.get("enabled", True))
+    genre_weight = float(genre_cfg.get("weight", 0.50))
+    sonic_weight = float(genre_cfg.get("sonic_weight", 0.50))
+    min_genre_sim = genre_cfg.get("min_genre_similarity")
+    min_genre_sim_narrow = genre_cfg.get("min_genre_similarity_narrow")
+    min_sonic_similarity = candidate_pool.get("min_sonic_similarity")
+
+    if genre_mode:
+        genre_settings = resolve_genre_mode(genre_mode)
+        genre_enabled = bool(genre_settings["enabled"])
+        genre_weight = float(genre_settings["weight"])
+        min_genre_sim = genre_settings.get("min_genre_similarity")
+        min_genre_sim_narrow = genre_settings.get("min_genre_similarity_narrow")
+        if not sonic_mode:
+            sonic_weight = float(genre_settings["sonic_weight"])
+
+    if sonic_mode:
+        sonic_settings = resolve_sonic_mode(sonic_mode)
+        if sonic_settings["enabled"]:
+            sonic_weight = float(sonic_settings["weight"])
+            min_sonic_similarity = sonic_settings.get("min_sonic_similarity")
+        else:
+            sonic_weight = 0.0
+            genre_weight = 1.0
+            min_sonic_similarity = None
+            if not genre_mode:
+                genre_enabled = True
+        if not genre_mode:
+            genre_weight = 0.0 if sonic_weight == 0.0 else max(0.0, 1.0 - sonic_weight)
+
+    if genre_mode and not genre_enabled:
+        genre_weight = 0.0
+        min_genre_sim = None
+        min_genre_sim_narrow = None
+        sonic_weight = 1.0
+
+    if genre_mode and sonic_mode and genre_enabled and sonic_weight > 0.0:
+        total = float(sonic_weight) + float(genre_weight)
+        if total > 0:
+            sonic_weight = float(sonic_weight) / total
+            genre_weight = float(genre_weight) / total
+
+    genre_cfg["enabled"] = bool(genre_enabled)
+    genre_cfg["weight"] = float(genre_weight)
+    genre_cfg["sonic_weight"] = float(sonic_weight)
+    if min_genre_sim is not None:
+        genre_cfg["min_genre_similarity"] = float(min_genre_sim)
+    else:
+        genre_cfg.pop("min_genre_similarity", None)
+    if min_genre_sim_narrow is not None:
+        genre_cfg["min_genre_similarity_narrow"] = float(min_genre_sim_narrow)
+    else:
+        genre_cfg.pop("min_genre_similarity_narrow", None)
+
+    if min_sonic_similarity is not None:
+        candidate_pool["min_sonic_similarity"] = float(min_sonic_similarity)
+    else:
+        candidate_pool["min_sonic_similarity"] = None
 
 
 def resolve_quick_preset(preset: str) -> Tuple[str, str]:
@@ -409,6 +492,7 @@ __all__ = [
     "GENRE_MODE_PRESETS",
     "SONIC_MODE_PRESETS",
     "QUICK_PRESETS",
+    "apply_mode_presets",
     "resolve_genre_mode",
     "resolve_sonic_mode",
     "resolve_quick_preset",

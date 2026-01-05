@@ -292,7 +292,17 @@ class PlaylistApp:
             blank()
             sys.exit(1)
 
-    def run_single_artist(self, artist_name: str, track_count: int = 30, track_title: Optional[str] = None, dry_run: bool = False, dynamic: bool = False, verbose: bool = False, artist_only: bool = False):
+    def run_single_artist(
+        self,
+        artist_name: str,
+        track_count: int = 30,
+        track_title: Optional[str] = None,
+        dry_run: bool = False,
+        dynamic: bool = False,
+        verbose: bool = False,
+        artist_only: bool = False,
+        anchor_seed_ids: Optional[List[str]] = None,
+    ):
         """
         Generate a single playlist for a specific artist.
         Uses PlaylistReport for beautiful, organized output.
@@ -317,6 +327,7 @@ class PlaylistApp:
                 dry_run,
                 verbose,
                 artist_only,
+                anchor_seed_ids,
             )
 
             if not playlist_data:
@@ -478,6 +489,7 @@ class PlaylistApp:
         dry_run: bool,
         verbose: bool,
         artist_only: bool,
+        anchor_seed_ids: Optional[List[str]],
     ) -> Optional[Dict[str, Any]]:
         """Generate playlist data for a single artist."""
         return self.generator.create_playlist_for_artist(
@@ -489,6 +501,7 @@ class PlaylistApp:
             verbose=verbose,
             ds_mode_override=self.ds_mode_override,
             artist_only=artist_only,
+            anchor_seed_ids=anchor_seed_ids,
         )
 
     def _generate_single_genre_playlist(
@@ -533,6 +546,11 @@ def main():
         "--track",
         type=str,
         help="Optional: specify a seed track title for the artist (e.g., --track \"Life On Mars\")"
+    )
+    parser.add_argument(
+        "--anchor-seed-ids",
+        type=str,
+        help="Comma-separated list of rating_key IDs to fix pier seeds (artist mode only).",
     )
     parser.add_argument(
         "--tracks",
@@ -652,7 +670,7 @@ def main():
         )
 
         # Apply genre/sonic mode presets if provided (CLI overrides config)
-        from src.playlist.mode_presets import resolve_genre_mode, resolve_sonic_mode, resolve_quick_preset
+        from src.playlist.mode_presets import apply_mode_presets, resolve_quick_preset
 
         genre_mode = None
         sonic_mode = None
@@ -668,37 +686,13 @@ def main():
         if getattr(args, "sonic_mode", None):
             sonic_mode = args.sonic_mode
 
-        # Apply mode settings to generator config
+        playlists_cfg = app.generator.config.config.setdefault('playlists', {})
         if genre_mode:
-            genre_settings = resolve_genre_mode(genre_mode)
-            # Apply to generator's config
-            app.generator.config.config.setdefault('playlists', {}).setdefault('genre_similarity', {})
-            genre_cfg = app.generator.config.config['playlists']['genre_similarity']
-            genre_cfg['enabled'] = genre_settings['enabled']
-            genre_cfg['weight'] = genre_settings['weight']
-            if genre_settings.get('min_genre_similarity') is not None:
-                genre_cfg['min_genre_similarity'] = genre_settings['min_genre_similarity']
-            logger.info(f"Genre mode '{genre_mode}' applied: weight={genre_settings['weight']}, threshold={genre_settings.get('min_genre_similarity')}")
-
+            playlists_cfg['genre_mode'] = genre_mode
         if sonic_mode:
-            sonic_settings = resolve_sonic_mode(sonic_mode)
-            # For sonic mode, we primarily adjust the sonic_weight in genre config
-            if sonic_settings['enabled']:
-                app.generator.config.config.setdefault('playlists', {}).setdefault('genre_similarity', {})
-                genre_cfg = app.generator.config.config['playlists']['genre_similarity']
-                if genre_mode:  # Use sonic_weight from genre mode
-                    sonic_weight = resolve_genre_mode(genre_mode)['sonic_weight']
-                else:
-                    # Calculate sonic weight from sonic mode weight
-                    sonic_weight = sonic_settings['weight']
-                genre_cfg['sonic_weight'] = sonic_weight
-                logger.info(f"Sonic mode '{sonic_mode}' applied: sonic_weight={sonic_weight}")
-            else:
-                # Sonic mode 'off' = genre-only mode
-                app.generator.config.config.setdefault('playlists', {}).setdefault('genre_similarity', {})
-                genre_cfg = app.generator.config.config['playlists']['genre_similarity']
-                genre_cfg['sonic_weight'] = 0.0
-                logger.info(f"Sonic mode 'off' applied: genre-only mode (sonic_weight=0)")
+            playlists_cfg['sonic_mode'] = sonic_mode
+        if genre_mode or sonic_mode:
+            apply_mode_presets(playlists_cfg)
 
         # Runtime flags (do not change defaults unless enabled)
         if getattr(args, "audit_run", False):
@@ -714,6 +708,13 @@ def main():
             blank()
         if args.artist:
             # Single artist mode
+            anchor_seed_ids = None
+            if getattr(args, "anchor_seed_ids", None):
+                anchor_seed_ids = [
+                    part.strip()
+                    for part in str(args.anchor_seed_ids).split(",")
+                    if part.strip()
+                ]
             app.run_single_artist(
                 args.artist,
                 args.tracks,
@@ -722,6 +723,7 @@ def main():
                 dynamic=dynamic_flag,
                 verbose=getattr(args, 'verbose', False),
                 artist_only=getattr(args, 'artist_only', False),
+                anchor_seed_ids=anchor_seed_ids,
             )
         elif args.genre:
             # Single genre mode

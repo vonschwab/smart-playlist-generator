@@ -76,26 +76,27 @@ class ArtistIdentityConfig:
 
 def _normalize_component(text: str) -> str:
     """
+    DEPRECATED: Internal function now delegates to src.string_utils.normalize_artist_name().
+
     Normalize a single artist name component.
 
-    Steps:
-    - Strip whitespace
-    - Lowercase
-    - Collapse multiple spaces
-    - Remove leading "the "
-
-    Returns:
-        Normalized string (may be empty)
+    Note: This function is deprecated but maintained for backward compatibility.
+    Use normalize_artist_name() from string_utils for new code.
     """
     if not text:
         return ""
 
-    text = text.strip().lower()
-    text = re.sub(r'\s+', ' ', text)
-    text = re.sub(r'^the\s+', '', text)
-    text = text.strip()
+    from src.string_utils import normalize_artist_name
 
-    return text
+    # Delegate to canonical implementation with flags matching old behavior
+    return normalize_artist_name(
+        text,
+        strip_ensemble=False,  # Don't strip ensemble here (done separately)
+        strip_collaborations=False,  # Don't strip collaborations (done separately)
+        lowercase=True,
+        strip_the=True,  # Old implementation stripped "the"
+        normalize_unicode=False,  # Old implementation didn't do Unicode normalization
+    )
 
 
 def _strip_ensemble_designator(component: str, terms: List[str]) -> str:

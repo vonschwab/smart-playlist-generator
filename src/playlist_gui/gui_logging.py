@@ -46,10 +46,7 @@ class QtLogHandler(logging.Handler):
 
 
 def _build_log_dir() -> Path:
-    if user_log_dir:
-        base = Path(user_log_dir("PlaylistGenerator", "PlaylistGenerator"))
-    else:
-        base = Path.home() / ".PlaylistGenerator" / "logs"
+    base = Path.cwd() / "logs"
     base.mkdir(parents=True, exist_ok=True)
     return base
 
