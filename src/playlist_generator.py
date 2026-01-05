@@ -137,7 +137,7 @@ class PlaylistGenerator:
         if self.similarity_calc is None:
             db_path = None
             try:
-                db_path = self.config.get('library', {}).get('database_path', 'data/metadata.db')
+                db_path = self.config.get('library', 'database_path', 'data/metadata.db')
             except Exception as e:
                 logger.debug(f"Falling back to default metadata path after config read failure: {e}")
                 db_path = 'data/metadata.db'
