@@ -43,6 +43,24 @@ def format_duration(duration_ms: int) -> str:
     return f"{total_minutes:.1f} minutes"
 
 
+def format_track_duration(duration_ms: Optional[int]) -> str:
+    """
+    Format track duration in milliseconds as M:SS.
+
+    Args:
+        duration_ms: Track duration in milliseconds (or None)
+
+    Returns:
+        Formatted duration string like "3:45"
+    """
+    if not duration_ms or duration_ms <= 0:
+        return "0:00"
+    seconds = int(duration_ms) // 1000
+    minutes = seconds // 60
+    secs = seconds % 60
+    return f"{minutes}:{secs:02d}"
+
+
 def log_recency_edge_diff(
     *,
     before_tracks: List[Dict[str, Any]],
@@ -489,9 +507,24 @@ def print_playlist_report(
         # Count by source
         source_counts[source] = source_counts.get(source, 0) + 1
 
-        # Format: Track 01: Artist - Title
+        # Format: Track 01: Artist - Title (dur=3:45, T=0.123)
         marker = f" [id={track_id}]" if sanitized and track_id is not None else ""
-        logger.info(f"Track {i:02d}: {artist} - {title}{marker}")
+        duration_ms = track.get("duration")
+        if not duration_ms:
+            duration_ms = track.get("duration_ms")
+        duration_str = format_track_duration(duration_ms)
+        t_score = "n/a"
+        if last_ds_report and i > 1:
+            prev_id = str(tracks[i - 2].get("rating_key"))
+            cur_id = str(tracks[i - 1].get("rating_key"))
+            edge = edge_map.get((prev_id, cur_id))
+            if edge:
+                t_val = edge.get("T", float("nan"))
+                if isinstance(t_val, (int, float)) and t_val == t_val:
+                    t_score = f"{t_val:.3f}"
+        logger.info(
+            f"Track {i:02d}: {artist} - {title}{marker} (dur={duration_str}, T={t_score})"
+        )
         # Verbose per-edge scores (DS only)
         if verbose_edges and last_ds_report and i > 1:
             prev_id = str(tracks[i - 2].get("rating_key"))

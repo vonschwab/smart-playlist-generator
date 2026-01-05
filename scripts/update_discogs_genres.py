@@ -403,7 +403,7 @@ def run(args: argparse.Namespace) -> None:
     log_level = resolve_log_level(args)
     if args.verbose and not getattr(args, "debug", False) and not getattr(args, "quiet", False) and getattr(args, "log_level", "INFO").upper() == "INFO":
         log_level = "DEBUG"
-    log_file = getattr(args, "log_file", None) or "discogs_genres.log"
+    log_file = getattr(args, "log_file", None) or "logs/discogs_genres.log"
     configure_logging(level=log_level, log_file=log_file)
 
     db_path = Path(args.db)

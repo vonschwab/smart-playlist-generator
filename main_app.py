@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-AI Playlist Generator - Main Application
-Automatically generates AI-powered playlists based on listening history
+Data Science Playlist Generator - Main Application
+Automatically generates playlists using beat3tower sonic analysis and genre metadata
 """
 import logging
 import os
@@ -26,6 +26,8 @@ from src.m3u_exporter import M3UExporter
 from src.metadata_client import MetadataClient
 from src.similarity.sonic_variant import resolve_sonic_variant
 from src.plex_exporter import PlexExporter
+
+logger = logging.getLogger(__name__)
 
 
 class PlaylistApp:
@@ -290,7 +292,17 @@ class PlaylistApp:
             blank()
             sys.exit(1)
 
-    def run_single_artist(self, artist_name: str, track_count: int = 30, track_title: Optional[str] = None, dry_run: bool = False, dynamic: bool = False, verbose: bool = False, artist_only: bool = False):
+    def run_single_artist(
+        self,
+        artist_name: str,
+        track_count: int = 30,
+        track_title: Optional[str] = None,
+        dry_run: bool = False,
+        dynamic: bool = False,
+        verbose: bool = False,
+        artist_only: bool = False,
+        anchor_seed_ids: Optional[List[str]] = None,
+    ):
         """
         Generate a single playlist for a specific artist.
         Uses PlaylistReport for beautiful, organized output.
@@ -315,6 +327,7 @@ class PlaylistApp:
                 dry_run,
                 verbose,
                 artist_only,
+                anchor_seed_ids,
             )
 
             if not playlist_data:
@@ -374,6 +387,88 @@ class PlaylistApp:
             blank()
             sys.exit(1)
 
+    def run_single_genre(self, genre_name: str, track_count: int = 30, dry_run: bool = False, dynamic: bool = False, verbose: bool = False):
+        """
+        Generate a single playlist for a specific genre.
+        Uses PlaylistReport for beautiful, organized output.
+        """
+        try:
+            self._configure_verbose_logging(verbose)
+
+            # Create the report object to track everything
+            playlist_title = f"Auto: {genre_name.title()}"
+            report = PlaylistReport(playlist_title, artist_name=None)
+            report.dry_run = dry_run
+            report.mode = self.ds_mode_override or "dynamic"
+
+            # Log to file but keep console clean
+            self.logger.info(f"Generating playlist for genre: {genre_name} (dry_run={dry_run})")
+
+            playlist_data = self._generate_single_genre_playlist(
+                genre_name,
+                track_count,
+                dynamic,
+                dry_run,
+                verbose,
+            )
+
+            if not playlist_data:
+                header("PLAYLIST GENERATION FAILED", f"Genre: {genre_name}")
+                section("POSSIBLE REASONS")
+                bullet("Genre not found in your library")
+                bullet("Genre has too few tracks (need at least 4)")
+                bullet("Check suggestions above for similar genres")
+                blank()
+                return
+
+            # Populate the report
+            report.set_tracks(playlist_data['tracks'])
+
+            # Extract edge scores if available
+            ds_report = playlist_data.get('ds_report', {})
+            if ds_report:
+                metrics = ds_report.get('metrics', {})
+                if metrics:
+                    report.set_edge_scores({
+                        'Transition (T)': metrics.get('T_mean', 0),
+                        'Sonic (S)': metrics.get('S_mean', 0),
+                        'Genre (G)': metrics.get('G_mean', 0),
+                    })
+
+            # Export if not dry run
+            if not dry_run:
+                if self.m3u_exporter:
+                    m3u_path = self.m3u_exporter.export_playlist(
+                        playlist_title,
+                        playlist_data['tracks'],
+                        self.library,
+                        sonic_variant=self.sonic_variant
+                    )
+                    if m3u_path:
+                        report.export_path = str(m3u_path)
+                        self.logger.info(f"Exported to M3U: {m3u_path}")
+
+                if self.plex_exporter:
+                    try:
+                        plex_key = self.plex_exporter.export_playlist(playlist_title, playlist_data['tracks'])
+                        if plex_key:
+                            report.plex_exported = True
+                            self.logger.info(f"Exported to Plex: {playlist_title}")
+                    except Exception as e:
+                        self.logger.error(f"Plex export failed: {e}")
+
+            # Print the beautiful report
+            report.print_full(show_all_tracks=verbose)
+
+        except Exception as e:
+            self.logger.error(f"Error creating playlist for genre {genre_name}: {e}", exc_info=True)
+            header("ERROR", "Playlist generation failed")
+            section("DETAILS")
+            bullet(str(e))
+            bullet("Check the log file for more details")
+            blank()
+            sys.exit(1)
+
     def _configure_verbose_logging(self, verbose: bool) -> None:
         """Enable verbose logging for generator/similarity when requested."""
         if not verbose:
@@ -394,6 +489,7 @@ class PlaylistApp:
         dry_run: bool,
         verbose: bool,
         artist_only: bool,
+        anchor_seed_ids: Optional[List[str]],
     ) -> Optional[Dict[str, Any]]:
         """Generate playlist data for a single artist."""
         return self.generator.create_playlist_for_artist(
@@ -405,6 +501,25 @@ class PlaylistApp:
             verbose=verbose,
             ds_mode_override=self.ds_mode_override,
             artist_only=artist_only,
+            anchor_seed_ids=anchor_seed_ids,
+        )
+
+    def _generate_single_genre_playlist(
+        self,
+        genre_name: str,
+        track_count: int,
+        dynamic: bool,
+        dry_run: bool,
+        verbose: bool,
+    ) -> Optional[Dict[str, Any]]:
+        """Generate playlist data for a single genre."""
+        return self.generator.create_playlist_for_genre(
+            genre_name,
+            track_count,
+            dynamic=dynamic,
+            dry_run=dry_run,
+            verbose=verbose,
+            ds_mode_override=self.ds_mode_override,
         )
 
 
@@ -412,17 +527,30 @@ def main():
     """Entry point"""
     # Parse command-line arguments
     parser = argparse.ArgumentParser(
-        description="Generate playlists based on listening history or a specific artist"
+        description="Generate playlists based on listening history, a specific artist, or genre"
     )
-    parser.add_argument(
+
+    # Create mutually exclusive group for seed mode
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
         "--artist",
         type=str,
         help="Generate a single playlist for a specific artist (e.g., --artist \"Radiohead\")"
+    )
+    mode_group.add_argument(
+        "--genre",
+        type=str,
+        help='Generate a single playlist for a specific genre (e.g., --genre "new age")'
     )
     parser.add_argument(
         "--track",
         type=str,
         help="Optional: specify a seed track title for the artist (e.g., --track \"Life On Mars\")"
+    )
+    parser.add_argument(
+        "--anchor-seed-ids",
+        type=str,
+        help="Comma-separated list of rating_key IDs to fix pier seeds (artist mode only).",
     )
     parser.add_argument(
         "--tracks",
@@ -450,6 +578,24 @@ def main():
         choices=["narrow", "dynamic", "discover", "sonic_only"],
         help="Select DS pipeline mode (default from config playlists.ds_pipeline.mode)",
     )
+
+    # Genre and sonic similarity mode presets (simpler alternative to manual tuning)
+    parser.add_argument(
+        "--genre-mode",
+        choices=["strict", "narrow", "dynamic", "discover", "off"],
+        help="Genre similarity mode: strict (0.80 weight), narrow (0.65), dynamic (0.50), discover (0.35), off (sonic-only)",
+    )
+    parser.add_argument(
+        "--sonic-mode",
+        choices=["strict", "narrow", "dynamic", "discover", "off"],
+        help="Sonic similarity mode: strict (0.85 weight), narrow (0.70), dynamic (0.50), discover (0.35), off (genre-only)",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["balanced", "tight", "exploratory", "sonic_only", "genre_only", "varied_sound", "sonic_thread"],
+        help="Quick preset: balanced (default), tight (strict+strict), exploratory (discover+discover), sonic_only, genre_only, etc.",
+    )
+
     parser.add_argument(
         "--sonic-variant",
         choices=[
@@ -517,11 +663,37 @@ def main():
         app = PlaylistApp(
             ds_mode_override=getattr(args, 'ds_mode', None),
         )
-        # propagate explicit variant into generator (CLI > env > config)  
+        # propagate explicit variant into generator (CLI > env > config)
         app.generator.sonic_variant = resolve_sonic_variant(
-            explicit_variant=getattr(args, "sonic_variant", None),        
-            config_variant=getattr(app.generator, "sonic_variant", None),  
+            explicit_variant=getattr(args, "sonic_variant", None),
+            config_variant=getattr(app.generator, "sonic_variant", None),
         )
+
+        # Apply genre/sonic mode presets if provided (CLI overrides config)
+        from src.playlist.mode_presets import apply_mode_presets, resolve_quick_preset
+
+        genre_mode = None
+        sonic_mode = None
+
+        # Check for quick preset first
+        if getattr(args, "mode", None):
+            genre_mode, sonic_mode = resolve_quick_preset(args.mode)
+            logger.info(f"Using quick preset '{args.mode}': genre={genre_mode}, sonic={sonic_mode}")
+
+        # Individual mode args override quick preset
+        if getattr(args, "genre_mode", None):
+            genre_mode = args.genre_mode
+        if getattr(args, "sonic_mode", None):
+            sonic_mode = args.sonic_mode
+
+        playlists_cfg = app.generator.config.config.setdefault('playlists', {})
+        if genre_mode:
+            playlists_cfg['genre_mode'] = genre_mode
+        if sonic_mode:
+            playlists_cfg['sonic_mode'] = sonic_mode
+        if genre_mode or sonic_mode:
+            apply_mode_presets(playlists_cfg)
+
         # Runtime flags (do not change defaults unless enabled)
         if getattr(args, "audit_run", False):
             app.generator._audit_run_enabled = True
@@ -536,6 +708,13 @@ def main():
             blank()
         if args.artist:
             # Single artist mode
+            anchor_seed_ids = None
+            if getattr(args, "anchor_seed_ids", None):
+                anchor_seed_ids = [
+                    part.strip()
+                    for part in str(args.anchor_seed_ids).split(",")
+                    if part.strip()
+                ]
             app.run_single_artist(
                 args.artist,
                 args.tracks,
@@ -544,6 +723,16 @@ def main():
                 dynamic=dynamic_flag,
                 verbose=getattr(args, 'verbose', False),
                 artist_only=getattr(args, 'artist_only', False),
+                anchor_seed_ids=anchor_seed_ids,
+            )
+        elif args.genre:
+            # Single genre mode
+            app.run_single_genre(
+                args.genre,
+                args.tracks,
+                dry_run=getattr(args, 'dry_run', False),
+                dynamic=dynamic_flag,
+                verbose=getattr(args, 'verbose', False),
             )
         else:
             # Normal mode - generate multiple playlists from history

@@ -20,6 +20,7 @@ from src.playlist.pier_bridge_builder import (
     PierBridgeResult,
     build_pier_bridge_playlist,
 )
+from src.playlist.artist_identity_resolver import ArtistIdentityConfig
 from src.playlist.run_audit import (
     RunAuditContext,
     RunAuditEvent,
@@ -138,6 +139,24 @@ def generate_playlist_ds(
     audit_context: Optional[RunAuditContext] = None
     audit_path: Optional[Path] = None
 
+    # Parse artist identity config from constraints.artist_identity
+    constraints_overrides = (overrides or {}).get("constraints", {}) if isinstance(overrides, dict) else {}
+    artist_identity_overrides = constraints_overrides.get("artist_identity", {})
+    if isinstance(artist_identity_overrides, dict):
+        # Parse config fields with defaults
+        artist_identity_cfg = ArtistIdentityConfig(
+            enabled=bool(artist_identity_overrides.get("enabled", False)),
+            split_delimiters=list(artist_identity_overrides.get("split_delimiters", [])) if artist_identity_overrides.get("split_delimiters") else None or ArtistIdentityConfig().split_delimiters,
+            strip_trailing_ensemble_terms=bool(artist_identity_overrides.get("strip_trailing_ensemble_terms", True)),
+            trailing_ensemble_terms=list(artist_identity_overrides.get("trailing_ensemble_terms", [])) if artist_identity_overrides.get("trailing_ensemble_terms") else None or ArtistIdentityConfig().trailing_ensemble_terms,
+        )
+    else:
+        # No config provided or invalid: use defaults (disabled)
+        artist_identity_cfg = ArtistIdentityConfig()
+
+    if artist_identity_cfg.enabled:
+        logger.info("Artist identity resolution enabled for min_gap enforcement")
+
     bundle = load_artifact_bundle(artifact_path)
     if seed_track_id not in bundle.track_id_to_index:
         raise ValueError(f"Seed track_id not found in artifact: {seed_track_id}")
@@ -169,6 +188,9 @@ def generate_playlist_ds(
             idx = bundle.track_id_to_index.get(tid)
             if idx is not None:
                 allowed_indices.append(idx)
+
+        # Add exempt_ids to allowed_track_ids_set for final enforcement check
+        allowed_track_ids_set.update(exempt_ids)
 
         applied_excluded = 0
         if excluded_track_ids:
@@ -203,6 +225,7 @@ def generate_playlist_ds(
             artist_keys=bundle.artist_keys[allowed_indices],
             track_artists=_slice(bundle.track_artists),
             track_titles=_slice(bundle.track_titles),
+            durations_ms=_slice(bundle.durations_ms),
             X_sonic=bundle.X_sonic[allowed_indices],
             X_sonic_start=_slice(bundle.X_sonic_start),
             X_sonic_mid=_slice(bundle.X_sonic_mid),
@@ -437,6 +460,7 @@ def generate_playlist_ds(
         track_ids=bundle.track_ids,
         track_titles=bundle.track_titles,
         track_artists=bundle.track_artists,
+        durations_ms=bundle.durations_ms,
         cfg=cfg.candidate,
         random_seed=random_seed,
         X_sonic=X_sonic_for_embed,
@@ -805,6 +829,7 @@ def generate_playlist_ds(
                 infeasible_handling=infeasible_cfg,
                 audit_config=audit_cfg,
                 audit_events=audit_events,
+                artist_identity_cfg=artist_identity_cfg,
             )
             if not pb_result.success:
                 if audit_events is not None and audit_context is not None and audit_path is not None:

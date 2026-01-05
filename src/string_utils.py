@@ -173,9 +173,123 @@ def normalize_match_string(value: str, is_artist: bool = False) -> str:
     return text.strip()
 
 
+def normalize_artist_name(
+    artist: str,
+    *,
+    strip_ensemble: bool = True,
+    strip_collaborations: bool = True,
+    lowercase: bool = True,
+    strip_the: bool = False,
+    normalize_unicode: bool = True,
+) -> str:
+    """
+    Canonical artist normalization with all features.
+
+    Consolidates logic from artist_utils.extract_primary_artist() and
+    artist_identity_resolver._normalize_component() with comprehensive
+    Unicode and typography handling.
+
+    Args:
+        artist: Raw artist name
+        strip_ensemble: Remove Trio/Quartet/etc suffixes (default: True)
+        strip_collaborations: Remove feat./with/vs collaborations (default: True)
+        lowercase: Convert to lowercase/casefold (default: True)
+        strip_the: Remove leading "The " (default: False)
+        normalize_unicode: Apply Unicode normalization and diacritic removal (default: True)
+
+    Returns:
+        Normalized artist name
+
+    Examples:
+        >>> normalize_artist_name("The Bill Evans Trio")
+        'bill evans'
+        >>> normalize_artist_name("Red Garland feat. John Coltrane")
+        'red garland'
+        >>> normalize_artist_name("Sigur Rós", normalize_unicode=True)
+        'sigur ros'
+        >>> normalize_artist_name("Echo & The Bunnymen", strip_collaborations=False)
+        'echo & the bunnymen'
+    """
+    if not artist:
+        return ""
+
+    text = str(artist).strip()
+    if not text:
+        return ""
+
+    # Step 1: Handle collaborations if requested
+    if strip_collaborations:
+        # Remove anything after featuring/with/vs (clear collaboration markers)
+        text = re.split(
+            r"\s+(?:feat\.?|ft\.?|featuring|with|vs\.?|versus|\bx\b)\s+",
+            text,
+            flags=re.IGNORECASE,
+        )[0]
+
+        # Preserve band names with "& The", "& His", "& Her", "& Their"
+        # "Echo & The Bunnymen", "Sly & The Family Stone", "Sun Ra & His Arkestra"
+        has_band_pattern = re.search(
+            r"(?:^The\s+|\s+(?:&|and)\s+(?:The|His|Her|Their)\s+)",
+            text,
+            flags=re.IGNORECASE
+        )
+
+        # Split on collaboration delimiters if not a band name
+        if not has_band_pattern:
+            text = re.split(r"\s*[&,;]\s*|\s+and\s+", text, flags=re.IGNORECASE)[0]
+
+    # Step 2: Handle ensemble suffixes if requested
+    if strip_ensemble:
+        # Check for jazz ensemble suffixes
+        has_ensemble_suffix = re.search(
+            r"\s+(?:Trio|Quartet|Quintet|Sextet|Septet|Octet|Nonet|Ensemble|Group|Band)\s*$",
+            text,
+            flags=re.IGNORECASE,
+        )
+
+        if has_ensemble_suffix:
+            # Remove "The " prefix for ensembles
+            text = re.sub(r"^The\s+", "", text, flags=re.IGNORECASE)
+            # Remove the ensemble suffix
+            text = re.sub(
+                r"\s+(?:Trio|Quartet|Quintet|Sextet|Septet|Octet|Nonet|Ensemble|Group|Band)\s*$",
+                "",
+                text,
+                flags=re.IGNORECASE,
+            )
+            text = text.strip()
+
+    # Step 3: Typography normalization (convert fancy quotes/dashes to ASCII)
+    text = text.translate(_ARTIST_TYPOGRAPHY_TRANSLATION)
+
+    # Step 4: Unicode normalization and diacritic removal if requested
+    if normalize_unicode:
+        # NFKD decomposition + remove combining marks (diacritics)
+        text = unicodedata.normalize("NFKD", text)
+        text = "".join(ch for ch in text if not unicodedata.combining(ch))
+
+    # Step 5: Case normalization
+    if lowercase:
+        # casefold() is better than lower() for international characters
+        text = text.casefold()
+
+    # Step 6: Strip "The " prefix if requested
+    if strip_the:
+        text = re.sub(r'^the\s+', '', text)
+
+    # Step 7: Collapse whitespace
+    text = " ".join(text.split())
+
+    return text.strip()
+
+
 def normalize_artist_key(name: str) -> str:
     """
     Normalize artist names to a stable comparison key.
+
+    This is a specialized version of normalize_artist_name() optimized
+    for database keys and comparison purposes. It applies all normalizations
+    and converts punctuation to spaces for maximum matching flexibility.
 
     Steps:
     - Strip and collapse whitespace
@@ -183,6 +297,8 @@ def normalize_artist_key(name: str) -> str:
     - Unicode NFKD + remove combining marks (diacritics)
     - Casefold
     - Replace punctuation with spaces
+
+    For most use cases, prefer normalize_artist_name() for more control.
     """
     if not name:
         return ""

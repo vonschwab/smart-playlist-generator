@@ -65,6 +65,7 @@ class TrackTable(QWidget):
     track_selected = Signal(int, dict)
     track_double_clicked = Signal(int, dict)
     status_changed = Signal(int, int)  # visible_count, total_count
+    blacklist_requested = Signal(list)
 
     def __init__(self, parent: Optional[QWidget] = None):
         # Ensure a QApplication exists (tests may construct this widget outside
@@ -256,6 +257,13 @@ class TrackTable(QWidget):
         """Get all tracks (unfiltered)."""
         return self._model.get_tracks()
 
+    def mark_blacklisted(self, track_ids: set[str], value: bool) -> int:
+        """Update blacklisted flag in the table model."""
+        updated = self._model.mark_blacklisted(track_ids, value)
+        if updated:
+            self._update_status()
+        return updated
+
     def get_visible_tracks(self) -> List[Dict[str, Any]]:
         """Get currently visible (filtered) tracks."""
         return self._proxy.get_visible_tracks()
@@ -416,6 +424,13 @@ class TrackTable(QWidget):
             lambda: self._export_m3u8(self.get_tracks())
         )
 
+        if has_selection:
+            menu.addSeparator()
+            menu.addAction(
+                f"Blacklist {len(selected)} Track(s)",
+                lambda: self._confirm_blacklist(selected),
+            )
+
         # Column visibility submenu
         columns_menu = menu.addMenu("Columns")
         for col, label in [
@@ -430,6 +445,20 @@ class TrackTable(QWidget):
             action.triggered.connect(lambda checked, c=col: self._toggle_column(c, checked))
 
         menu.exec(global_pos)
+
+    def _confirm_blacklist(self, selected: List[Dict[str, Any]]) -> None:
+        """Confirm blacklist action and emit request."""
+        if not selected:
+            return
+        reply = QMessageBox.question(
+            self,
+            "Blacklist Tracks",
+            f"Blacklist {len(selected)} track(s)? They will no longer appear in generated playlists.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self.blacklist_requested.emit(selected)
 
     def _apply_column_visibility(self) -> None:
         """Hide or show optional columns based on current settings."""

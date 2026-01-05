@@ -12,16 +12,34 @@ class Config:
     def __init__(self, config_path: str = "config.yaml"):
         self.config_path = config_path
         self.config = self._load_config()
+        self._apply_mode_presets()  # Resolve genre_mode/sonic_mode to settings
         self._validate_config()
     
     def _load_config(self) -> dict:
         """Load configuration from YAML file"""
         if not os.path.exists(self.config_path):
             raise FileNotFoundError(f"Configuration file not found: {self.config_path}")
-        
+
         with open(self.config_path, 'r') as f:
             return yaml.safe_load(f)
-    
+
+    def _apply_mode_presets(self):
+        """
+        Apply genre_mode and sonic_mode presets if specified in config.
+
+        Mode settings (genre_mode/sonic_mode) take precedence over manual       
+        weight/threshold settings. If both are present, mode wins.
+        """
+        playlists_cfg = self.config.get('playlists', {})
+        if not playlists_cfg:
+            return
+        try:
+            from src.playlist.mode_presets import apply_mode_presets
+        except ImportError:
+            return
+
+        apply_mode_presets(playlists_cfg)
+
     def _validate_config(self):
         """Validate required configuration fields"""
         required_fields = [
@@ -103,7 +121,7 @@ class Config:
     @property
     def min_track_duration_seconds(self) -> int:
         """Get minimum track duration in seconds (filter out short tracks)"""
-        return self.config.get('playlists', {}).get('min_track_duration_seconds', 90)
+        return self.config.get('playlists', {}).get('min_track_duration_seconds', 47)
 
     @property
     def max_track_duration_seconds(self) -> int:

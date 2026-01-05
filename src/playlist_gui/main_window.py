@@ -11,11 +11,12 @@ import os
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Any
 
 from PySide6.QtCore import Qt, Slot, QTimer, QSettings, QThreadPool, QRunnable, QObject, Signal
 from PySide6.QtWidgets import (
     QApplication,
+    QButtonGroup,
     QComboBox,
     QDialog,
     QDockWidget,
@@ -31,13 +32,14 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QRadioButton,
     QScrollArea,
     QStatusBar,
     QVBoxLayout,
     QWidget,
 )
 
-from .autocomplete import DatabaseCompleter, setup_artist_completer, update_track_completer
+from .autocomplete import DatabaseCompleter, setup_artist_completer, setup_genre_completer
 from .config.config_model import ConfigModel
 from .config.presets import PresetManager, install_builtin_presets
 from .gui_logging import LogEmitter
@@ -46,7 +48,9 @@ from .widgets.advanced_panel import AdvancedSettingsPanel
 from .widgets.export_dialog import ExportLocalDialog, ExportPlexDialog
 from .widgets.jobs_panel import JobsPanel
 from .widgets.log_panel import LogPanel
+from .widgets.seed_tracks_input import SeedTracksInput
 from .widgets.track_table import TrackTable
+from .blacklist_window import BlacklistWindow
 from .worker_client import WorkerClient
 from .diagnostics.checks import CheckResult
 from .diagnostics.manager import DiagnosticsManager
@@ -135,6 +139,8 @@ class MainWindow(QMainWindow):
         self._current_playlist_name: str = ""
         self._current_artist_name: str = ""
         self._current_tracks: list = []
+        self._blacklist_window: Optional[BlacklistWindow] = None
+        self._seed_tracks_input: Optional[SeedTracksInput] = None
 
         # Install built-in presets
         install_builtin_presets(self._preset_manager)
@@ -213,7 +219,7 @@ class MainWindow(QMainWindow):
         # Mode selector
         top_row.addWidget(QLabel("Mode:"))
         self._mode_combo = QComboBox()
-        self._mode_combo.addItems(["Artist", "History"])  # Artist first (default)
+        self._mode_combo.addItems(["Artist", "Genre", "History"])  # Artist first (default)
         self._mode_combo.currentTextChanged.connect(self._on_mode_changed)
         top_row.addWidget(self._mode_combo)
 
@@ -230,13 +236,19 @@ class MainWindow(QMainWindow):
 
         top_row.addSpacing(10)
 
-        # Track input (optional, for single-track seeding) with autocomplete
-        self._track_label = QLabel("Track (optional):")
-        top_row.addWidget(self._track_label)
-        self._track_edit = QLineEdit()
-        self._track_edit.setPlaceholderText("Seed from specific track...")
-        self._track_edit.setFixedWidth(250)
-        top_row.addWidget(self._track_edit)
+        # Track seeds input (optional) with per-row autocomplete
+        self._seed_tracks_input = SeedTracksInput()
+        top_row.addWidget(self._seed_tracks_input)
+
+        top_row.addSpacing(10)
+
+        # Genre input
+        self._genre_label = QLabel("Genre:")
+        top_row.addWidget(self._genre_label)
+        self._genre_edit = QLineEdit()
+        self._genre_edit.setPlaceholderText("Start typing genre name...")
+        self._genre_edit.setFixedWidth(220)
+        top_row.addWidget(self._genre_edit)
 
         top_row.addStretch()
 
@@ -286,6 +298,63 @@ class MainWindow(QMainWindow):
         main_layout.addLayout(top_row)
 
         # ─────────────────────────────────────────────────────────────────────
+        # Similarity Tuning Row (Genre/Sonic Mode Selectors)
+        # ─────────────────────────────────────────────────────────────────────
+        tuning_row = QHBoxLayout()
+        tuning_row.setSpacing(20)
+        tuning_row.setContentsMargins(0, 8, 0, 8)
+
+        # Genre Mode Section
+        genre_section = QHBoxLayout()
+        genre_section.addWidget(QLabel("<b>Genre:</b>"))
+
+        self._genre_mode_group = QButtonGroup(self)
+        genre_modes = [
+            ("strict", "Strict"),
+            ("narrow", "Narrow"),
+            ("dynamic", "Dynamic"),
+            ("discover", "Discover"),
+            ("off", "Off")
+        ]
+
+        for mode_id, mode_label in genre_modes:
+            radio = QRadioButton(mode_label)
+            radio.setProperty("mode_id", mode_id)
+            self._genre_mode_group.addButton(radio)
+            genre_section.addWidget(radio)
+            if mode_id == "dynamic":  # Default
+                radio.setChecked(True)
+
+        tuning_row.addLayout(genre_section)
+        tuning_row.addSpacing(30)
+
+        # Sonic Mode Section
+        sonic_section = QHBoxLayout()
+        sonic_section.addWidget(QLabel("<b>Sonic:</b>"))
+
+        self._sonic_mode_group = QButtonGroup(self)
+        sonic_modes = [
+            ("strict", "Strict"),
+            ("narrow", "Narrow"),
+            ("dynamic", "Dynamic"),
+            ("discover", "Discover"),
+            ("off", "Off")
+        ]
+
+        for mode_id, mode_label in sonic_modes:
+            radio = QRadioButton(mode_label)
+            radio.setProperty("mode_id", mode_id)
+            self._sonic_mode_group.addButton(radio)
+            sonic_section.addWidget(radio)
+            if mode_id == "dynamic":  # Default
+                radio.setChecked(True)
+
+        tuning_row.addLayout(sonic_section)
+        tuning_row.addStretch()
+
+        main_layout.addLayout(tuning_row)
+
+        # ─────────────────────────────────────────────────────────────────────
         # Progress bar
         # ─────────────────────────────────────────────────────────────────────
         progress_row = QHBoxLayout()
@@ -306,6 +375,7 @@ class MainWindow(QMainWindow):
         # Track table (center)
         # ─────────────────────────────────────────────────────────────────────
         self._track_table = TrackTable()
+        self._track_table.blacklist_requested.connect(self._on_blacklist_requested)
         main_layout.addWidget(self._track_table)
 
         # ─────────────────────────────────────────────────────────────────────
@@ -353,6 +423,7 @@ class MainWindow(QMainWindow):
         if self._log_emitter:
             self._log_emitter.log_ready.connect(self._log_panel.append_log)
         log_dock = QDockWidget("Logs", self)
+        log_dock.setObjectName("logs_dock")
         log_dock.setWidget(self._log_panel)
         log_dock.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable)
         self.addDockWidget(Qt.BottomDockWidgetArea, log_dock)
@@ -362,6 +433,7 @@ class MainWindow(QMainWindow):
         # ─────────────────────────────────────────────────────────────────────
         self._advanced_panel: Optional[AdvancedSettingsPanel] = None
         self._advanced_dock = QDockWidget("Advanced Settings", self)
+        self._advanced_dock.setObjectName("advanced_settings_dock")
         self._advanced_dock.setFeatures(
             QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable | QDockWidget.DockWidgetClosable
         )
@@ -578,6 +650,7 @@ class MainWindow(QMainWindow):
         view_menu.addAction("&Advanced Settings", lambda: self._advanced_dock.show())
         view_menu.addAction("&Logs", lambda: self._log_panel.parentWidget().show())
         view_menu.addAction("&Jobs", lambda: self._jobs_dock.show() if self._jobs_dock else None)
+        view_menu.addAction("View &Blacklist", self._on_view_blacklist)
         view_menu.addAction("Reset &UI Layout", self._reset_ui_layout)
 
         # Help menu
@@ -602,6 +675,11 @@ class MainWindow(QMainWindow):
         self._worker_client.worker_stopped.connect(self._on_worker_stopped)
         self._worker_client.busy_changed.connect(self._on_busy_changed)
 
+    def _get_worker_overrides(self) -> dict:
+        if self._config_model is None:
+            return {}
+        return dict(self._config_model.get_overrides())
+
     def _setup_jobs_dock(self) -> None:
         """Create the Jobs dock/panel."""
         if not self._job_manager:
@@ -614,6 +692,7 @@ class MainWindow(QMainWindow):
             on_cancel_pending=self._on_clear_pending_jobs,
         )
         self._jobs_dock = QDockWidget("Jobs", self)
+        self._jobs_dock.setObjectName("jobs_dock")
         self._jobs_dock.setWidget(self._jobs_panel)
         self._jobs_dock.setFeatures(
             QDockWidget.DockWidgetMovable
@@ -621,6 +700,7 @@ class MainWindow(QMainWindow):
             | QDockWidget.DockWidgetClosable
         )
         self.addDockWidget(Qt.LeftDockWidgetArea, self._jobs_dock)
+        self._jobs_dock.hide()
 
     def _setup_autocomplete(self) -> None:
         """Setup autocomplete for artist and track inputs."""
@@ -640,17 +720,24 @@ class MainWindow(QMainWindow):
             # Setup artist autocomplete
             setup_artist_completer(self._artist_edit, self._db_completer)
 
+            # Setup genre autocomplete
+            setup_genre_completer(self._genre_edit, self._db_completer)
+            if self._seed_tracks_input:
+                self._seed_tracks_input.set_completer_data(self._db_completer)
+
             # Update database info
             if hasattr(self, '_db_info_label'):
                 self._db_info_label.setText(
                     f"Database: {self._db_completer.artist_count} artists, "
-                    f"{self._db_completer.track_count} tracks"
+                    f"{self._db_completer.track_count} tracks, "
+                    f"{self._db_completer.genre_count} genres"
                 )
 
             self._log_panel.append_log(
                 "INFO",
                 f"Loaded autocomplete: {self._db_completer.artist_count} artists, "
-                f"{self._db_completer.track_count} tracks"
+                f"{self._db_completer.track_count} tracks, "
+                f"{self._db_completer.genre_count} genres"
             )
         else:
             self._log_panel.append_log("WARNING", "Failed to load autocomplete data")
@@ -710,11 +797,47 @@ class MainWindow(QMainWindow):
 
     def _update_mode_ui(self) -> None:
         """Update UI based on selected mode."""
-        is_artist_mode = self._mode_combo.currentText() == "Artist"
-        self._artist_label.setVisible(is_artist_mode)
-        self._artist_edit.setVisible(is_artist_mode)
-        self._track_label.setVisible(is_artist_mode)
-        self._track_edit.setVisible(is_artist_mode)
+        mode = self._mode_combo.currentText()
+
+        is_artist = mode == "Artist"
+        self._artist_label.setVisible(is_artist)
+        self._artist_edit.setVisible(is_artist)
+        if self._seed_tracks_input:
+            self._seed_tracks_input.setVisible(is_artist)
+
+        is_genre = mode == "Genre"
+        self._genre_label.setVisible(is_genre)
+        self._genre_edit.setVisible(is_genre)
+
+    def _get_selected_modes(self) -> tuple[Optional[str], Optional[str]]:       
+        """Get selected genre and sonic modes from radio buttons."""
+        genre_mode = None
+        sonic_mode = None
+
+        # Get genre mode
+        if hasattr(self, '_genre_mode_group'):
+            checked_button = self._genre_mode_group.checkedButton()
+            if checked_button:
+                genre_mode = checked_button.property("mode_id")
+
+        # Get sonic mode
+        if hasattr(self, '_sonic_mode_group'):
+            checked_button = self._sonic_mode_group.checkedButton()
+            if checked_button:
+                sonic_mode = checked_button.property("mode_id")
+
+        return genre_mode, sonic_mode
+
+    @staticmethod
+    def _set_override_value(overrides: dict, key_path: str, value: Any) -> None:
+        """Set a nested override value from a dot-separated key path."""
+        keys = key_path.split(".")
+        current = overrides
+        for key in keys[:-1]:
+            if key not in current or not isinstance(current[key], dict):
+                current[key] = {}
+            current = current[key]
+        current[keys[-1]] = value
 
     def _ensure_artifacts_ready(self) -> bool:
         """
@@ -780,8 +903,8 @@ class MainWindow(QMainWindow):
     @Slot(str)
     def _on_artist_changed(self, artist: str) -> None:
         """Handle artist input change - update track autocomplete."""
-        if self._db_completer and artist:
-            update_track_completer(self._track_edit, self._db_completer, artist)
+        if self._db_completer and self._seed_tracks_input:
+            self._seed_tracks_input.set_artist_filter(artist)
 
     @Slot()
     def _on_cancel(self) -> None:
@@ -859,20 +982,33 @@ class MainWindow(QMainWindow):
                 return
 
         # Get parameters
-        mode = "artist" if self._mode_combo.currentText() == "Artist" else "history"
+        mode_text = self._mode_combo.currentText()
+        mode = "artist" if mode_text == "Artist" else "genre" if mode_text == "Genre" else "history"
+
         artist = self._artist_edit.text().strip() if mode == "artist" else None
-        track = self._track_edit.text().strip() if mode == "artist" else None
+        genre = self._genre_edit.text().strip() if mode == "genre" else None
+        seed_tracks = []
+        if mode == "artist" and self._seed_tracks_input:
+            if artist:
+                seed_tracks = self._seed_tracks_input.seed_tracks()
+            else:
+                seed_tracks = self._seed_tracks_input.seed_tracks_raw()
+        track = None
         # Track count is now controlled via config's playlists.tracks_per_playlist
         # (visible in Advanced Settings panel), not a separate spinner
         tracks_per_playlist = self._config_model.get("playlists.tracks_per_playlist", 30)
 
-        if mode == "artist" and not artist:
+        if mode == "artist" and not artist and not seed_tracks:
             QMessageBox.warning(self, "Missing Artist", "Please enter an artist name.")
             return
 
-        # Parse track title from autocomplete format "Title - Artist (Album)"
-        if track and " - " in track:
-            track = track.split(" - ")[0].strip()
+        if mode == "genre" and not genre:
+            QMessageBox.warning(self, "Missing Genre", "Please enter a genre name.")
+            return
+
+        # Strip (similar) suffix from genre autocomplete
+        if genre and " (similar)" in genre:
+            genre = genre.replace(" (similar)", "").strip()
 
         # Clear previous results
         self._track_table.clear()
@@ -884,20 +1020,38 @@ class MainWindow(QMainWindow):
         # Get overrides from config model
         overrides = self._config_model.get_overrides()
 
+        # Apply mode selections
+        genre_mode, sonic_mode = self._get_selected_modes()
+        if genre_mode:
+            self._set_override_value(overrides, "playlists.genre_mode", genre_mode)
+        if sonic_mode:
+            self._set_override_value(overrides, "playlists.sonic_mode", sonic_mode)
+
         # Send command - tracks parameter comes from config (playlists.tracks_per_playlist)
         self._worker_client.generate_playlist(
             config_path=self._config_path,
             overrides=overrides,
             mode=mode,
             artist=artist,
+            genre=genre,
             track=track,
+            seed_tracks=seed_tracks,
             tracks=tracks_per_playlist
         )
 
-        log_msg = f"Starting generation (mode={mode}, tracks={tracks_per_playlist})"
+        log_msg = f"Starting generation (mode={mode}, tracks={tracks_per_playlist}"
+        if genre_mode:
+            log_msg += f", genre_mode={genre_mode}"
+        if sonic_mode:
+            log_msg += f", sonic_mode={sonic_mode}"
+        log_msg += ")"
         if artist:
             log_msg += f", artist={artist}"
-        if track:
+        if genre:
+            log_msg += f", genre={genre}"
+        if seed_tracks:
+            log_msg += f", seed_tracks={seed_tracks}"
+        elif track:
             log_msg += f", seed_track={track}"
         self._log_panel.append_log("INFO", log_msg)
 
@@ -1161,8 +1315,9 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self,
             "About Playlist Generator",
-            "Playlist Generator v1.0\n\n"
-            "AI-powered playlist generation using sonic and genre similarity.\n\n"
+            "Playlist Generator v3.2\n\n"
+            "Data Science-powered playlist generation using beat3tower sonic analysis\n"
+            "and normalized genre metadata.\n\n"
             "Architecture: Two-process model with PySide6 GUI and worker process."
         )
 
@@ -1217,6 +1372,16 @@ class MainWindow(QMainWindow):
             checks_raw = data.get("checks", [])
             if self._diagnostics:
                 self._diagnostics.handle_worker_doctor(checks_raw)
+        elif result_type == "blacklist":
+            if self._blacklist_window:
+                self._blacklist_window.handle_blacklist_result(data)
+        elif result_type == "blacklist_set":
+            track_ids = {str(t) for t in data.get("track_ids", [])}
+            value = bool(data.get("value", True))
+            if track_ids:
+                self._track_table.mark_blacklisted(track_ids, value)
+            if self._blacklist_window:
+                self._blacklist_window.handle_blacklist_set_result(data)
 
     @Slot(str, str, object)
     def _on_worker_error(self, message: str, tb: str, job_id: object = None) -> None:
@@ -1266,6 +1431,40 @@ class MainWindow(QMainWindow):
             self._stage_label.setText("Worker stopped")
         if self._worker_client and self._worker_client.was_busy_on_last_exit():
             self._show_banner("Worker exited unexpectedly. Copy Debug Report?")
+
+    @Slot()
+    def _on_blacklist_requested(self, tracks: list) -> None:
+        if not self._worker_client:
+            return
+        track_ids = []
+        for track in tracks:
+            tid = track.get("rating_key") or track.get("track_id") or track.get("id")
+            if tid:
+                track_ids.append(str(tid))
+        if not track_ids:
+            return
+        self._worker_client.set_blacklisted(
+            self._config_path,
+            track_ids,
+            True,
+            self._get_worker_overrides(),
+        )
+
+    @Slot()
+    def _on_view_blacklist(self) -> None:
+        if not self._worker_client:
+            return
+        if self._blacklist_window is None:
+            self._blacklist_window = BlacklistWindow(
+                self._worker_client,
+                config_path_provider=lambda: self._config_path,
+                overrides_provider=self._get_worker_overrides,
+                parent=self,
+            )
+        self._blacklist_window.show()
+        self._blacklist_window.raise_()
+        self._blacklist_window.activateWindow()
+        self._blacklist_window.refresh()
 
     # ─────────────────────────────────────────────────────────────────────────
     # Export Handlers
@@ -1336,7 +1535,7 @@ class MainWindow(QMainWindow):
             plex_base_url = self._config_model.get("plex.base_url")
             import os
             plex_token = os.getenv("PLEX_TOKEN") or self._config_model.get("plex.token")
-            plex_configured = plex_enabled and plex_base_url and plex_token
+            plex_configured = bool(plex_enabled and plex_base_url and plex_token)
 
         # Show export dialog
         dialog = ExportPlexDialog(
@@ -1473,6 +1672,21 @@ class MainWindow(QMainWindow):
             artist = self._settings.value("state/artist")
             if artist:
                 self._artist_edit.setText(str(artist))
+            genre = self._settings.value("state/genre")
+            if genre:
+                self._genre_edit.setText(str(genre))
+            genre_mode = self._settings.value("state/genre_mode")
+            if genre_mode and hasattr(self, '_genre_mode_group'):
+                for button in self._genre_mode_group.buttons():
+                    if button.property("mode_id") == genre_mode:
+                        button.setChecked(True)
+                        break
+            sonic_mode = self._settings.value("state/sonic_mode")
+            if sonic_mode and hasattr(self, '_sonic_mode_group'):
+                for button in self._sonic_mode_group.buttons():
+                    if button.property("mode_id") == sonic_mode:
+                        button.setChecked(True)
+                        break
             preset = self._settings.value("state/preset")
             if preset:
                 self._pending_preset_name = str(preset)
@@ -1490,7 +1704,16 @@ class MainWindow(QMainWindow):
             self._settings.setValue("state/config_path", self._config_path)
             self._settings.setValue("state/mode", self._mode_combo.currentText())
             self._settings.setValue("state/artist", self._artist_edit.text())
+            self._settings.setValue("state/genre", self._genre_edit.text())
             self._settings.setValue("state/filter", self._track_table.get_filter_text())
+
+            # Save mode selections
+            genre_mode, sonic_mode = self._get_selected_modes()
+            if genre_mode:
+                self._settings.setValue("state/genre_mode", genre_mode)
+            if sonic_mode:
+                self._settings.setValue("state/sonic_mode", sonic_mode)
+
             if self._active_preset_name:
                 self._settings.setValue("state/preset", self._active_preset_name)
             else:

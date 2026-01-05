@@ -33,8 +33,8 @@ class CandidateConfig:
     use_genre_discovery: bool = False  # Enable dynamic mode (sonic + genre)
     sonic_ratio: float = 0.6  # Sonic tracks ratio in dynamic mode
     genre_ratio: float = 0.4  # Genre tracks ratio in dynamic mode
-    min_track_duration_seconds: int = 46  # Filter short tracks
-    max_track_duration_seconds: int = 720  # Filter long tracks
+    min_track_duration_seconds: int = 47  # Filter short tracks (hard minimum)
+    max_track_duration_seconds: int = 720  # Filter long tracks (hard maximum)
     # Title deduplication settings
     title_dedupe_enabled: bool = True
     title_dedupe_threshold: float = 0.85
@@ -417,8 +417,8 @@ def generate_candidates_dynamic(
                     if track_duration_ms < min_duration_ms:
                         logger.debug(f"Skipping {full_track_data.get('title')} - too short ({track_duration_ms}ms < {min_duration_ms}ms)")
                         continue
-                    if track_duration_ms > max_duration_ms:
-                        logger.debug(f"Skipping {full_track_data.get('title')} - too long ({track_duration_ms}ms > {max_duration_ms}ms)")
+                    if track_duration_ms >= max_duration_ms:
+                        logger.debug(f"Skipping {full_track_data.get('title')} - too long ({track_duration_ms}ms >= {max_duration_ms}ms)")
                         continue
 
                 # Found a good track - add it with full library data

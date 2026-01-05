@@ -51,6 +51,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
 from src.artist_key_db import ensure_artist_key_schema
+from src.blacklist_db import ensure_blacklist_schema
 from src.config_loader import Config
 from src.genre_normalization import normalize_genre_list
 from src.string_utils import normalize_artist_key
@@ -121,6 +122,7 @@ class LibraryScanner:
                 self.conn.rollback()
                 self._has_fingerprints = self._column_exists("tracks", "file_mtime_ns")
         ensure_artist_key_schema(self.conn, logger=logger)
+        ensure_blacklist_schema(self.conn, logger=logger)
 
     def _table_exists(self, table_name: str) -> bool:
         cursor = self.conn.cursor()
@@ -1093,7 +1095,7 @@ if __name__ == "__main__":
     log_level = resolve_log_level(args)
     if args.verbose and not args.debug and not args.quiet and args.log_level.upper() == "INFO":
         log_level = "DEBUG"
-    log_file = getattr(args, 'log_file', None) or 'scan_library.log'
+    log_file = getattr(args, 'log_file', None) or 'logs/scan_library.log'
     configure_logging(level=log_level, log_file=log_file)
 
     scanner = LibraryScanner()

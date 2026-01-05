@@ -87,7 +87,7 @@ def update_db(db_path: Path, mapping: Dict[str, str]) -> Tuple[int, int]:
 def main():
     args = parse_args()
     log_level = resolve_log_level(args)
-    log_file = getattr(args, "log_file", None) or "import_mbids.log"
+    log_file = getattr(args, "log_file", None) or "logs/import_mbids.log"
     configure_logging(level=log_level, log_file=log_file)
 
     mapping_path = Path(args.mapping)

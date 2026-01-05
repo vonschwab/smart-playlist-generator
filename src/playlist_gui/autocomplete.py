@@ -34,6 +34,8 @@ class DatabaseCompleter(QObject):
         self._tracks: List[Tuple[str, str, str]] = []  # (title, artist, album)
         self._track_display: List[str] = []  # "Title - Artist" format for display
         self._track_artist_keys: List[str] = []
+        self._genres: List[str] = []
+        self._genre_entries: List[Tuple[str, str]] = []  # (display, normalized)
         self._loaded = False
 
     def set_database(self, db_path: str) -> None:
@@ -91,6 +93,17 @@ class DatabaseCompleter(QObject):
                 else:
                     display = title
                 self._track_display.append(display)
+
+            # Load distinct genres from track_effective_genres
+            # Genres are now properly atomized in the database (one genre per row)
+            cursor.execute("""
+                SELECT DISTINCT genre
+                FROM track_effective_genres
+                WHERE genre IS NOT NULL AND genre != ''
+                ORDER BY genre COLLATE NOCASE
+            """)
+            self._genre_entries = [(row[0], row[0].lower().strip()) for row in cursor.fetchall() if row[0]]
+            self._genres = [genre for genre, _ in self._genre_entries]
 
             conn.close()
             self._loaded = True
@@ -161,6 +174,26 @@ class DatabaseCompleter(QObject):
         """Get number of tracks."""
         return len(self._tracks)
 
+    def get_genres(self) -> List[str]:
+        """Get list of all genres."""
+        if not self._loaded:
+            self.load_data()
+        return self._genres
+
+    def filter_genres(self, query: str) -> List[str]:
+        """Filter genres containing normalized query."""
+        if not self._loaded:
+            self.load_data()
+        normalized = query.lower().strip()
+        if not normalized:
+            return self._genres
+        return [genre for genre, norm in self._genre_entries if normalized in norm]
+
+    @property
+    def genre_count(self) -> int:
+        """Get number of genres."""
+        return len(self._genres)
+
 
 class CaseInsensitiveCompleter(QCompleter):
     """
@@ -178,6 +211,53 @@ class CaseInsensitiveCompleter(QCompleter):
     def update_items(self, items: List[str]) -> None:
         """Update the completer items."""
         self._model.setStringList(items)
+
+
+class GenreSimilarityCompleter(QCompleter):
+    """Genre completer showing both matches and similar genres."""
+
+    def __init__(self, items: List[str], parent=None):
+        self._all_genres = items
+        self._model = QStringListModel(items)
+        super().__init__(self._model, parent)
+        self.setCaseSensitivity(Qt.CaseInsensitive)
+        self.setCompletionMode(QCompleter.UnfilteredPopupCompletion)
+        self.setMaxVisibleItems(15)
+        self._similarity_calculator = None
+
+    def _get_similarity_calculator(self):
+        """Lazy-load GenreSimilarityV2."""
+        if self._similarity_calculator is None:
+            try:
+                from src.genre_similarity_v2 import GenreSimilarityV2
+                self._similarity_calculator = GenreSimilarityV2()
+            except Exception as e:
+                logger.warning(f"Failed to load GenreSimilarityV2: {e}")
+        return self._similarity_calculator
+
+    def update_items_with_similarity(self, query: str, direct_matches: List[str]) -> None:
+        """Update with both direct matches and similar genres (15 total)."""
+        suggestions = []
+        seen = set()
+
+        # Add direct matches first (up to 10)
+        for genre in direct_matches[:10]:
+            suggestions.append(genre)
+            seen.add(genre.lower())
+
+        # Add similar genres if space remains
+        if direct_matches and len(suggestions) < 15:
+            calc = self._get_similarity_calculator()
+            if calc:
+                seed_genre = direct_matches[0]
+                similar = calc.get_similar_genres(seed_genre, min_similarity=0.7)
+
+                for genre, score in similar:
+                    if genre.lower() not in seen and len(suggestions) < 15:
+                        suggestions.append(f"{genre} (similar)")
+                        seen.add(genre.lower())
+
+        self._model.setStringList(suggestions)
 
 
 def setup_artist_completer(line_edit: QLineEdit, completer_data: DatabaseCompleter) -> QCompleter:
@@ -263,3 +343,24 @@ def update_track_completer(
     if completer:
         model = QStringListModel(tracks)
         completer.setModel(model)
+
+
+def setup_genre_completer(line_edit: QLineEdit, completer_data: DatabaseCompleter) -> QCompleter:
+    """Setup genre autocomplete with similarity suggestions."""
+    completer = GenreSimilarityCompleter(completer_data.get_genres(), line_edit)
+    line_edit.setCompleter(completer)
+
+    def refresh(query: str) -> None:
+        comp = line_edit.completer()
+        if not comp:
+            return
+        try:
+            if isinstance(comp, GenreSimilarityCompleter):
+                direct_matches = completer_data.filter_genres(query)
+                comp.update_items_with_similarity(query, direct_matches)
+            comp.complete()
+        except RuntimeError:
+            return
+
+    line_edit.textChanged.connect(refresh)
+    return completer

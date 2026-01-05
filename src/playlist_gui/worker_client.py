@@ -16,7 +16,7 @@ import uuid
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 from .utils.redaction import redact_text
 from .utils.bounded_buffer import BoundedBuffer
 
@@ -340,7 +340,9 @@ class WorkerClient(QObject):
         overrides: Dict[str, Any],
         mode: str = "history",
         artist: Optional[str] = None,
+        genre: Optional[str] = None,
         track: Optional[str] = None,
+        seed_tracks: Optional[List[str]] = None,
         tracks: int = 30,
         job_id: Optional[str] = None,
     ) -> Optional[str]:
@@ -350,9 +352,11 @@ class WorkerClient(QObject):
         Args:
             config_path: Path to base config YAML
             overrides: Override values to merge
-            mode: "history" or "artist"
+            mode: "history", "artist", or "genre"
             artist: Artist name (required if mode is "artist")
+            genre: Genre name (required if mode is "genre")
             track: Optional seed track title
+            seed_tracks: Optional list of seed track titles
             tracks: Number of tracks to generate
 
         Returns:
@@ -361,8 +365,12 @@ class WorkerClient(QObject):
         args = {"mode": mode, "tracks": tracks}
         if artist:
             args["artist"] = artist
+        if genre:
+            args["genre"] = genre
         if track:
             args["track"] = track
+        if seed_tracks:
+            args["seed_tracks"] = seed_tracks
 
         return self.send_command(
             {
@@ -434,6 +442,42 @@ class WorkerClient(QObject):
                 "cmd": "build_artifacts",
                 "base_config_path": config_path,
                 "overrides": overrides or {},
+            },
+            job_id=job_id,
+        )
+
+    def fetch_blacklist(
+        self,
+        config_path: str,
+        overrides: Optional[Dict[str, Any]] = None,
+        job_id: Optional[str] = None,
+    ) -> Optional[str]:
+        """Fetch blacklisted tracks."""
+        return self.send_command(
+            {
+                "cmd": "blacklist_fetch",
+                "base_config_path": config_path,
+                "overrides": overrides or {},
+            },
+            job_id=job_id,
+        )
+
+    def set_blacklisted(
+        self,
+        config_path: str,
+        track_ids: List[str],
+        value: bool,
+        overrides: Optional[Dict[str, Any]] = None,
+        job_id: Optional[str] = None,
+    ) -> Optional[str]:
+        """Set blacklist flag for track ids."""
+        return self.send_command(
+            {
+                "cmd": "blacklist_set",
+                "base_config_path": config_path,
+                "overrides": overrides or {},
+                "track_ids": track_ids,
+                "value": bool(value),
             },
             job_id=job_id,
         )

@@ -1,31 +1,37 @@
 """
 Genre Normalization Module - Taxonomy v1
 =========================================
-Deterministic normalization and splitting of raw genre strings.
+DEPRECATED: This module is deprecated and will be removed in July 2026.
+Use src.genre.normalize_unified instead.
 
-Rules:
-- Lowercase + trim
-- Remove diacritics (e.g., "électronique" -> "electronique" -> "electronic")
-- Standardize separators: comma, slash, ampersand, semicolon, pipe
-- Split multi-genre strings into atomic tokens
-- Normalize common synonyms/abbreviations
-- Keep tokens "human canonical" (no over-stemming)
-- Drop empty/placeholder markers like "__EMPTY__"
+This module now delegates to the unified implementation via deprecation wrappers.
+All functions maintain backward compatibility but will issue deprecation warnings.
+
+Migration:
+    # Old (deprecated):
+    from src.genre.normalize import normalize_and_split_genre
+
+    # New (recommended):
+    from src.genre.normalize_unified import normalize_and_split_genre
 """
 
 import re
 import unicodedata
+import warnings
 from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional, Set, Tuple
 
+# Issue deprecation warning on module import
+warnings.warn(
+    "src.genre.normalize module is deprecated and will be removed in July 2026. "
+    "Use src.genre.normalize_unified instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
-class GenreAction(Enum):
-    """Action taken during normalization."""
-    KEEP = "KEEP"           # No change
-    MAP = "MAP"             # Single token changed
-    SPLIT_MAP = "SPLIT+MAP" # Multiple tokens produced
-    DROP = "DROP"           # Empty/placeholder
+# Import GenreAction from unified module for backward compatibility
+from .normalize_unified import GenreAction
 
 
 # High-impact compound translations
@@ -300,158 +306,68 @@ def _normalize_single_token(token: str) -> Optional[str]:
     return token
 
 
-def normalize_genre_token(raw: str) -> Optional[str]:
+def normalize_genre_token(raw: str, apply_translations: bool = True, apply_synonyms: bool = True) -> Optional[str]:
     """
-    Normalize a single raw genre string to a canonical token.
-    Does NOT split - use normalize_and_split_genre for multi-token strings.
+    DEPRECATED: Use src.genre.normalize_unified.normalize_genre_token() instead.
 
-    Returns None if the token should be dropped.
+    This function delegates to the unified implementation.
+    Will be removed in July 2026.
     """
-    if not raw:
-        return None
-
-    processed = _preprocess_raw(raw)
-    processed, _ = _apply_phrase_map(processed)
-
-    # If phrase map produced multiple tokens, just take the first one
-    # (This function is for single-token normalization)
-    tokens = _split_on_delimiters(processed)
-    if not tokens:
-        return None
-
-    return _normalize_single_token(tokens[0])
+    from .normalize_unified import normalize_genre_token as unified_normalize
+    return unified_normalize(raw, apply_translations=apply_translations, apply_synonyms=apply_synonyms)
 
 
-def normalize_and_split_genre(raw: str) -> List[str]:
+def normalize_and_split_genre(raw: str, apply_translations: bool = True, apply_synonyms: bool = True) -> List[str]:
     """
-    Normalize a raw genre string and split into atomic canonical tokens.
+    DEPRECATED: Use src.genre.normalize_unified.normalize_and_split_genre() instead.
 
-    This is the main entry point for genre normalization.
-
-    Rules:
-    - Lowercase + trim
-    - Remove diacritics
-    - Apply phrase map for known patterns
-    - Split on delimiters (semicolon, comma, slash, pipe, ampersand with spaces)
-    - Normalize each token via synonym map
-    - Filter out meta-tags and drop tokens
-    - Return deduplicated list preserving order
-
-    Args:
-        raw: Raw genre string (may contain multiple genres)
-
-    Returns:
-        List of normalized canonical tokens (may be empty)
+    This function delegates to the unified implementation.
+    Will be removed in July 2026.
     """
-    if not raw:
-        return []
-
-    processed = _preprocess_raw(raw)
-
-    # Check if entire string is a drop token
-    if processed in DROP_TOKENS:
-        return []
-
-    # Apply phrase map
-    processed, _ = _apply_phrase_map(processed)
-
-    # Split on delimiters
-    pieces = _split_on_delimiters(processed)
-
-    # Normalize each piece
-    tokens = []
-    seen = set()
-    for piece in pieces:
-        # Recursively check for nested phrase patterns
-        sub_processed, was_mapped = _apply_phrase_map(piece)
-        if was_mapped:
-            sub_pieces = _split_on_delimiters(sub_processed)
-            for sub_piece in sub_pieces:
-                norm = _normalize_single_token(sub_piece)
-                if norm and norm not in seen:
-                    tokens.append(norm)
-                    seen.add(norm)
-        else:
-            norm = _normalize_single_token(piece)
-            if norm and norm not in seen:
-                tokens.append(norm)
-                seen.add(norm)
-
-    return tokens
+    from .normalize_unified import normalize_and_split_genre as unified_split
+    return unified_split(raw, apply_translations=apply_translations, apply_synonyms=apply_synonyms)
 
 
 def classify_normalization(raw: str, normalized: List[str]) -> GenreAction:
     """
-    Classify what action was taken during normalization.
+    DEPRECATED: Use src.genre.normalize_unified.classify_normalization() instead.
 
-    Args:
-        raw: Original raw genre string
-        normalized: List of normalized tokens
-
-    Returns:
-        GenreAction indicating the transformation type
+    This function delegates to the unified implementation.
+    Will be removed in July 2026.
     """
-    if not raw or raw.strip().lower() in DROP_TOKENS:
-        return GenreAction.DROP
-
-    if not normalized:
-        return GenreAction.DROP
-
-    # Check if it's a simple keep (single token, no change)
-    raw_lower = raw.strip().lower()
-    if len(normalized) == 1:
-        if normalized[0] == raw_lower or normalized[0] == remove_diacritics(raw_lower):
-            return GenreAction.KEEP
-        else:
-            return GenreAction.MAP
-    else:
-        return GenreAction.SPLIT_MAP
+    from .normalize_unified import classify_normalization as unified_classify
+    return unified_classify(raw, normalized)
 
 
 def detect_normalization_flags(raw: str) -> dict:
     """
-    Detect characteristics of the raw genre string.
+    DEPRECATED: Use src.genre.normalize_unified.detect_normalization_flags() instead.
 
-    Returns dict with boolean flags:
-    - has_non_ascii: Contains non-ASCII characters
-    - has_delimiters: Contains splitting delimiters
-    - has_diacritics: Contains accented characters
-    - is_multi_token: Would split into multiple tokens
+    This function delegates to the unified implementation.
+    Will be removed in July 2026.
     """
-    raw_lower = raw.lower() if raw else ""
-
-    has_non_ascii = any(ord(c) > 127 for c in raw_lower)
-    has_delimiters = bool(re.search(r'[;,/|]|\s&\s', raw_lower))
-    has_diacritics = raw_lower != remove_diacritics(raw_lower)
-
-    tokens = normalize_and_split_genre(raw)
-    is_multi_token = len(tokens) > 1
-
-    return {
-        "has_non_ascii": has_non_ascii,
-        "has_delimiters": has_delimiters,
-        "has_diacritics": has_diacritics,
-        "is_multi_token": is_multi_token,
-    }
+    from .normalize_unified import detect_normalization_flags as unified_detect
+    return unified_detect(raw)
 
 
 # Compatibility with existing code
 def normalize_genre_list(genres, filter_broad: bool = True) -> Set[str]:
     """
-    Normalize a list of genre strings.
+    DEPRECATED: Use src.genre.normalize_unified.normalize_genre_list() instead.
 
-    This is a compatibility wrapper for the existing genre_normalization.py interface.
+    This function delegates to the unified implementation.
+    Will be removed in July 2026.
     """
-    result = set()
-    for g in genres:
-        tokens = normalize_and_split_genre(g)
-        result.update(tokens)
-    return result
+    from .normalize_unified import normalize_genre_list as unified_normalize_list
+    return unified_normalize_list(genres, filter_broad=filter_broad)
 
 
-def split_and_normalize(raw: str) -> Set[str]:
+def split_and_normalize(raw: str, apply_translations: bool = True, apply_synonyms: bool = True) -> Set[str]:
     """
-    Compatibility alias for normalize_and_split_genre.
-    Returns a set instead of list.
+    DEPRECATED: Use src.genre.normalize_unified.split_and_normalize() instead.
+
+    This function delegates to the unified implementation.
+    Will be removed in July 2026.
     """
-    return set(normalize_and_split_genre(raw))
+    from .normalize_unified import split_and_normalize as unified_split
+    return unified_split(raw, apply_translations=apply_translations, apply_synonyms=apply_synonyms)

@@ -153,6 +153,13 @@ class JobManager(QObject):
         if self._worker_client.is_busy():
             return
 
+        # Ensure worker is running before dispatching jobs
+        if not self._worker_client.is_running():
+            self._logger.info("Starting worker for job execution")
+            if not self._worker_client.start():
+                self._logger.error("Failed to start worker process")
+                return
+
         next_job = next((job for job in self._jobs if job.status == JobStatus.PENDING), None)
         if not next_job:
             return

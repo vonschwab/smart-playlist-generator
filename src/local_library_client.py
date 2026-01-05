@@ -7,6 +7,7 @@ import json
 import logging
 from typing import List, Dict, Any, Optional
 from .artist_key_db import ensure_artist_key_schema
+from .blacklist_db import ensure_blacklist_schema
 from .similarity_calculator import SimilarityCalculator
 from .string_utils import normalize_artist_key
 
@@ -38,6 +39,7 @@ class LocalLibraryClient:
         self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         ensure_artist_key_schema(self.conn, logger=logger)
+        ensure_blacklist_schema(self.conn, logger=logger)
         logger.debug(f"Connected to database: {self.db_path}")
 
     def get_all_tracks(self, library_id: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -64,6 +66,7 @@ class LocalLibraryClient:
                 musicbrainz_id as mbid
             FROM tracks
             WHERE file_path IS NOT NULL
+              AND is_blacklisted = 0
             ORDER BY artist, album, title
         """)
 
@@ -109,6 +112,7 @@ class LocalLibraryClient:
                 musicbrainz_id as mbid
             FROM tracks
             WHERE track_id = ?
+              AND is_blacklisted = 0
         """, (rating_key,))
 
         row = cursor.fetchone()
@@ -151,6 +155,7 @@ class LocalLibraryClient:
                 musicbrainz_id as mbid
             FROM tracks
             WHERE track_id IN ({placeholders})
+              AND is_blacklisted = 0
             """,
             track_ids,
         )
@@ -238,6 +243,126 @@ class LocalLibraryClient:
         logger.debug(f"Found {len(similar_tracks)} sonic-only similar tracks for {rating_key}")
         return similar_tracks
 
+    def get_tracks_for_genre(self, genre: str, limit: int = 1000) -> List[Dict[str, Any]]:
+        """
+        Get tracks matching a specific genre (normalized).
+
+        Uses a single optimized UNION query to fetch from all genre sources.
+        Genres are already normalized/lowercase in DB, so no LOWER() needed.
+
+        Args:
+            genre: Normalized genre string (already lowercase)
+            limit: Maximum number of tracks to return
+
+        Returns:
+            List of track dictionaries
+        """
+        cursor = self.conn.cursor()
+
+        # Single optimized UNION query - fetches from all sources in one round-trip
+        # Priority: track_effective_genres > album_genres > artist_genres (via UNION order)
+        cursor.execute("""
+            SELECT t.track_id as rating_key,
+                   t.artist, t.artist_key, t.title, t.album,
+                   t.duration_ms as duration, t.file_path, t.musicbrainz_id as mbid,
+                   1 as priority
+            FROM tracks t
+            JOIN track_effective_genres teg ON t.track_id = teg.track_id
+            WHERE teg.genre = ?
+            AND t.file_path IS NOT NULL
+            AND t.is_blacklisted = 0
+
+            UNION
+
+            SELECT t.track_id as rating_key,
+                   t.artist, t.artist_key, t.title, t.album,
+                   t.duration_ms as duration, t.file_path, t.musicbrainz_id as mbid,
+                   2 as priority
+            FROM tracks t
+            JOIN album_genres ag ON t.album_id = ag.album_id
+            WHERE ag.genre = ?
+            AND t.file_path IS NOT NULL
+            AND t.is_blacklisted = 0
+
+            UNION
+
+            SELECT t.track_id as rating_key,
+                   t.artist, t.artist_key, t.title, t.album,
+                   t.duration_ms as duration, t.file_path, t.musicbrainz_id as mbid,
+                   3 as priority
+            FROM tracks t
+            JOIN artist_genres ag ON t.artist = ag.artist
+            WHERE ag.genre = ?
+            AND t.file_path IS NOT NULL
+            AND t.is_blacklisted = 0
+
+            ORDER BY priority ASC, rating_key ASC
+            LIMIT ?
+        """, (genre, genre, genre, limit))
+
+        tracks = []
+        for row in cursor.fetchall():
+            artist_key = row["artist_key"] if "artist_key" in row.keys() and row["artist_key"] else normalize_artist_key(row["artist"] or "")
+            track = {
+                'rating_key': row['rating_key'],
+                'artist': row['artist'] or '',
+                'artist_key': artist_key,
+                'title': row['title'] or '',
+                'album': row['album'] or '',
+                'duration': row['duration'],
+                'file_path': row['file_path'],
+                'mbid': row['mbid']
+            }
+            tracks.append(track)
+
+        logger.debug(f"Found {len(tracks)} tracks for genre '{genre}' (optimized UNION query)")
+        return tracks
+
+    def suggest_similar_genres(self, partial: str, limit: int = 10) -> List[str]:
+        """
+        Suggest genres matching a partial string.
+        Used when exact match fails to help user find the right genre.
+
+        Args:
+            partial: Partial genre string to match (will be normalized)
+            limit: Maximum number of suggestions
+
+        Returns:
+            List of genre suggestions (ranked: exact > prefix > contains; then by frequency)
+        """
+        from src.genre_normalization import normalize_genre_token
+
+        cursor = self.conn.cursor()
+
+        # Normalize the input for consistent matching
+        normalized_partial = normalize_genre_token(partial) or partial.lower()
+
+        # Search across all genre tables for matches
+        # Rank by: exact match > prefix match > contains match, then by frequency
+        cursor.execute("""
+            SELECT genre,
+                   COUNT(*) as freq,
+                   CASE
+                       WHEN LOWER(genre) = LOWER(?) THEN 0
+                       WHEN LOWER(genre) LIKE LOWER(?) THEN 1
+                       ELSE 2
+                   END as match_type
+            FROM (
+                SELECT DISTINCT genre FROM track_effective_genres WHERE LOWER(genre) LIKE LOWER(?)
+                UNION
+                SELECT DISTINCT genre FROM album_genres WHERE LOWER(genre) LIKE LOWER(?)
+                UNION
+                SELECT DISTINCT genre FROM artist_genres WHERE LOWER(genre) LIKE LOWER(?)
+            )
+            GROUP BY genre
+            ORDER BY match_type, freq DESC, genre
+            LIMIT ?
+        """, (normalized_partial, f"{normalized_partial}%",
+              f"%{normalized_partial}%", f"%{normalized_partial}%", f"%{normalized_partial}%", limit))
+
+        suggestions = [row[0] for row in cursor.fetchall()]
+        return suggestions
+
     def get_play_history(self, library_id: Optional[str] = None, days: int = 30) -> List[Dict[str, Any]]:
         """
         Get play history (PLACEHOLDER - returns empty list)
@@ -280,7 +405,10 @@ class LocalLibraryClient:
             File path or None if not found
         """
         cursor = self.conn.cursor()
-        cursor.execute("SELECT file_path FROM tracks WHERE track_id = ?", (rating_key,))
+        cursor.execute(
+            "SELECT file_path FROM tracks WHERE track_id = ? AND is_blacklisted = 0",
+            (rating_key,),
+        )
         row = cursor.fetchone()
         return row['file_path'] if row else None
 
@@ -312,6 +440,7 @@ class LocalLibraryClient:
                 FROM tracks
                 WHERE artist_key LIKE ?
                   AND file_path IS NOT NULL
+                  AND is_blacklisted = 0
                 ORDER BY album, title
             """, (f"%{artist_key}%",))
         else:
@@ -328,6 +457,7 @@ class LocalLibraryClient:
                 FROM tracks
                 WHERE artist_key = ?
                   AND file_path IS NOT NULL
+                  AND is_blacklisted = 0
                 ORDER BY album, title
             """, (artist_key,))
 

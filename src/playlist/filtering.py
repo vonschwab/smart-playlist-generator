@@ -31,7 +31,8 @@ def _assert_recency_stage(stage: str) -> None:
 @dataclass(frozen=True)
 class FilterConfig:
     """Configuration for track filtering operations."""
-    max_duration_seconds: Optional[int] = 720  # 12 minutes
+    min_duration_seconds: int = 47  # 47 seconds minimum (hard filter)
+    max_duration_seconds: int = 720  # 12 minutes maximum (hard filter)
     recency_lookback_days: int = 14
     preserve_seed_tracks: bool = True
     recently_played_filter_enabled: bool = True
@@ -51,29 +52,56 @@ class FilterResult:
     stats: Dict[str, Any] = field(default_factory=dict)
 
 
+def is_valid_duration(track: Dict[str, Any], min_seconds: int = 47, max_seconds: int = 720) -> bool:
+    """
+    Check if track duration is within acceptable range.
+
+    Args:
+        track: Track dictionary with 'duration' field (milliseconds)
+        min_seconds: Minimum duration in seconds (default 47)
+        max_seconds: Maximum duration in seconds (default 720)
+
+    Returns:
+        True if duration is valid, False otherwise
+    """
+    duration_ms = track.get('duration') or 0
+    if duration_ms == 0:
+        return False  # Tracks with unknown duration are excluded
+
+    min_ms = min_seconds * 1000
+    max_ms = max_seconds * 1000
+    return min_ms <= duration_ms <= max_ms
+
+
 def filter_by_duration(
     *,
     tracks: List[Dict[str, Any]],
-    max_duration_seconds: Optional[int],
+    min_duration_seconds: int = 47,
+    max_duration_seconds: int = 720,
 ) -> List[Dict[str, Any]]:
     """
-    Remove tracks above maximum duration.
+    Remove tracks outside acceptable duration range (hard filter).
+
+    Hard Rules:
+    - Minimum: 47 seconds (no intros, skits, or short tracks)
+    - Maximum: 720 seconds (12 minutes, no extended live versions)
 
     Args:
         tracks: List of track dictionaries
-        max_duration_seconds: Maximum duration in seconds (None to skip filtering)
+        min_duration_seconds: Minimum duration in seconds (default 47)
+        max_duration_seconds: Maximum duration in seconds (default 720)
 
     Returns:
         Filtered list of tracks
     """
-    if not max_duration_seconds:
-        return tracks
+    filtered = [t for t in tracks if is_valid_duration(t, min_duration_seconds, max_duration_seconds)]
 
-    max_duration_ms = max_duration_seconds * 1000
-
-    filtered = [t for t in tracks if (t.get('duration') or 0) <= max_duration_ms]
-
-    logger.debug(f"Duration filter: {len(tracks)} -> {len(filtered)} tracks (max={max_duration_seconds}s)")
+    removed = len(tracks) - len(filtered)
+    if removed > 0:
+        logger.debug(
+            f"Duration filter: {len(tracks)} -> {len(filtered)} tracks "
+            f"(removed {removed}: min={min_duration_seconds}s, max={max_duration_seconds}s)"
+        )
 
     return filtered
 
@@ -413,9 +441,10 @@ def apply_filters(
     current_tracks = list(tracks)
     initial_count = len(current_tracks)
 
-    # 1. Duration filtering
+    # 1. Duration filtering (hard min/max)
     current_tracks = filter_by_duration(
         tracks=current_tracks,
+        min_duration_seconds=config.min_duration_seconds,
         max_duration_seconds=config.max_duration_seconds,
     )
     cumulative_stats['duration_filter'] = {

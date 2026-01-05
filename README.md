@@ -1,6 +1,6 @@
 # Playlist Generator
 
-**Version 3.2** - Data Science-powered music playlist generation with a Windows GUI, MusicBrainz MBID enrichment, and the beat3tower DS pipeline.
+**Version 3.3** - Data Science-powered music playlist generation with a Windows GUI, MusicBrainz MBID enrichment, and the beat3tower DS pipeline.
 
 ## Overview
 
@@ -9,7 +9,9 @@ This system generates intelligent playlists by combining:
 - **Pier-Bridge Ordering** - Seed tracks as anchors with beam-search optimized bridges between them
 - **Multi-Segment Analysis** - Captures song dynamics (start, middle, end) for smooth transitions
 - **Normalized Genre Data** - Artist/album/track-level genres from MusicBrainz and Discogs
-- **Multiple Playlist Modes** - Narrow (focused), Dynamic (balanced), Discover (exploratory)
+- **Multiple Playlist Modes** - Strict, Narrow, Dynamic, Discover, Off (independent sonic/genre controls)
+- **Seed List Mode** - Explicit multi-track seeding for artist or mixed-artist playlists
+- **Modularized Pipeline** - Refactors split candidate pools, pier/bridge, scoring, and diagnostics into focused modules
 
 ## Quick Start
 
@@ -46,6 +48,9 @@ python scripts/build_beat3tower_artifacts.py \
 
 # 9. Generate a playlist (CLI)
 python main_app.py --artist "Radiohead" --tracks 30
+
+# Or generate by genre
+python main_app.py --genre "new age" --tracks 30
 
 # 10. Launch the GUI (Windows)
 python -m playlist_gui.app
@@ -93,26 +98,55 @@ See [docs/GOLDEN_COMMANDS.md](docs/GOLDEN_COMMANDS.md) for complete command refe
 
 ## Playlist Modes
 
-| Mode | Description | Use Case |
-|------|-------------|----------|
-| `narrow` | Highly focused, cohesive | Deep dive into a specific sound |
-| `dynamic` | Balanced variety (default) | General listening |
-| `discover` | Maximum exploration | Finding new music connections |
-| `sonic_only` | Pure audio similarity | Ignore genre constraints |
+**Updated in v3.3:** Independent genre and sonic mode controls for fine-grained playlist tuning.
+
+### Genre Modes
+Control how strictly playlists match genre tags:
+- `strict` - Ultra-tight genre matching (single-genre deep dives)
+- `narrow` - Stay close to seed genre (cohesive exploration)
+- `dynamic` - Balanced exploration (default)
+- `discover` - Genre-adjacent exploration (cross-genre discovery)
+- `off` - Ignore genre tags completely (pure sonic matching)
+
+### Sonic Modes
+Control how strictly playlists match audio features:
+- `strict` - Laser-focused sound (ultra-tight sonic matching)
+- `narrow` - Consistent texture (cohesive sound)
+- `dynamic` - Balanced sonic flow (default)
+- `discover` - Sonic variety (varied textures)
+- `off` - Ignore sonic features (pure genre matching)
+
+### Examples
 
 ```bash
-python main_app.py --artist "Radiohead" --ds-mode discover
+# Ultra-cohesive (strict genre + strict sonic)
+python main_app.py --artist "Radiohead" --genre-mode strict --sonic-mode strict
+
+# Same genre, varied sound
+python main_app.py --artist "Bill Evans" --genre-mode narrow --sonic-mode discover
+
+# Pure sonic similarity (ignore genres)
+python main_app.py --genre "ambient" --genre-mode off --sonic-mode dynamic
+
+# Discovery mode (explore connections)
+python main_app.py --genre "jazz" --genre-mode discover --sonic-mode discover
 ```
 
-## DS Run Audits (3.2)
+See [docs/CONFIG.md](docs/CONFIG.md#mode-based-configuration-simplified-tuning) for full mode documentation.
+
+## DS Run Audits (3.3)
 - Per-run markdown audits: add `--audit-run` (optional `--audit-run-dir docs/run_audits`) to record pool sizes, segment gating, scoring, and post-order validation.
 - Infeasible segment handling (optional): add `--pb-backoff` to retry segments with a deterministic `bridge_floor` backoff (attempts are recorded in the audit).
 - Recency invariant: Last.fm/local recency exclusions are applied **pre-order only**; verify logs include exactly one `stage=candidate_pool | Last.fm recency exclusions: ...` line and one `stage=post_order_validation | ...` line.
 
-## GUI Highlights (3.2)
-- Accent-insensitive artist autocomplete (type “Joao” and see “João Gilberto”).
-- Track table export buttons fixed; context menu still available.
-- Progress/log panels wired to worker with request correlation.
+## GUI Highlights (3.3)
+- **Genre Mode** - Generate playlists by genre with smart autocomplete showing both exact matches and similar genres (similarity ≥ 0.7)
+- **Seed List Mode** - Add multiple explicit seed tracks (per-row autocomplete)
+- **Accent-insensitive Autocomplete** - Type "Joao" and see "João Gilberto" for both artist and genre fields
+- **Atomized Genre Data** - All 746 genres properly normalized and split (no compound strings like "indie rock, alternative")
+- **Track Table Export** - Export buttons fixed; context menu still available
+- **Progress/Log Panels** - Wired to worker with request correlation
+- **Run All Button** - One-click pipeline execution (Scan → Genres → Sonic → Artifacts)
 
 ## MBID Enrichment (3.2)
 - `scripts/fetch_mbids_musicbrainz.py` queries MusicBrainz by artist/title (with collab/feature handling) and writes MBIDs to `tracks.musicbrainz_id` (no file writes). Uses skip markers (`__NO_MATCH__`, `__ERROR__`); reprocess with `--force-no-match`/`--force-error` or all with `--force-all`.

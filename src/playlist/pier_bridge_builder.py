@@ -11,7 +11,9 @@ Key features:
 - Candidate pool deduped BEFORE ordering (no duplicate songs by normalized artist+title)
 - Genre gating stays enabled with hard floors (no relaxation)
 - Global used_track_ids prevents duplicates across segments
-- One track per artist per segment (provides implicit min_gap without explicit constraints)
+- One track per artist per segment enforced during beam search
+- Cross-segment min_gap enforced during generation via boundary-aware constraints
+- No post-order filtering or dropping (guarantees exact length)
 - Single seed mode: seed acts as both start AND end pier, creating an arc structure
 - Seed artist is allowed in bridges with same constraints as other artists
 """
@@ -27,11 +29,30 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import numpy as np
 
 from src.features.artifacts import ArtifactBundle, get_sonic_matrix
-from src.title_dedupe import normalize_title_for_dedupe, normalize_artist_key   
+from src.title_dedupe import normalize_title_for_dedupe, normalize_artist_key
 from src.string_utils import sanitize_for_logging
 from src.playlist.identity_keys import identity_keys_for_index
+from src.playlist.artist_identity_resolver import (
+    ArtistIdentityConfig,
+    resolve_artist_identity_keys,
+    format_identity_keys_for_logging,
+)
 from src.playlist.config import resolve_pier_bridge_tuning as _resolve_pier_bridge_tuning_cfg
 from src.playlist.run_audit import InfeasibleHandlingConfig, RunAuditConfig, RunAuditEvent, now_utc_iso
+
+# Phase 3 extracted modules
+from src.playlist.scoring import (
+    compute_transition_score as _compute_transition_score_extracted,
+    compute_bridgeability_score as _compute_bridgeability_score_extracted,
+)
+from src.playlist.segment_pool_builder import (
+    SegmentCandidatePoolBuilder,
+    SegmentPoolConfig,
+)
+from src.playlist.pier_bridge_diagnostics import (
+    SegmentDiagnostics as _SegmentDiagnosticsExtracted,
+    PierBridgeDiagnosticsCollector,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -62,10 +83,14 @@ class PierBridgeConfig:
     weight_bridge: float = 0.6
     weight_transition: float = 0.4
     genre_tiebreak_weight: float = 0.05
-    # Soft genre penalty (does not gate candidates): if edge_genre < threshold, 
+    # Soft genre penalty (does not gate candidates): if edge_genre < threshold,
     # multiply the edge score by (1 - strength).
     genre_penalty_threshold: float = 0.20
     genre_penalty_strength: float = 0.10
+    # Medium-firm duration penalty: asymmetric penalty for candidates longer than pier reference
+    # (does not gate candidates, but significantly reduces score for long tracks)
+    duration_penalty_enabled: bool = True
+    duration_penalty_weight: float = 0.30
     # Segment candidate pool strategy:
     # - "segment_scored": score candidates jointly vs (pierA,pierB) and take top-K
     # - "legacy": neighbors(A) ∪ neighbors(B) ∪ helpers (debug/compat only)
@@ -81,23 +106,9 @@ class PierBridgeConfig:
     disallow_seed_artist_in_interiors: bool = False
 
 
-@dataclass
-class SegmentDiagnostics:
-    """Diagnostics for a single segment."""
-    pier_a_id: str
-    pier_b_id: str
-    target_length: int
-    actual_length: int
-    pool_size_initial: int
-    pool_size_final: int
-    expansions: int
-    beam_width_used: int
-    worst_edge_score: float
-    mean_edge_score: float
-    success: bool
-    bridge_floor_used: float = 0.0
-    backoff_attempts_used: int = 1
-    widened_search: bool = False
+# Backward compatibility: SegmentDiagnostics now imported from extracted module
+# Kept here as alias for existing code
+SegmentDiagnostics = _SegmentDiagnosticsExtracted
 
 
 @dataclass
@@ -974,6 +985,73 @@ class BeamState:
     last_progress: float = 0.0
 
 
+def _compute_duration_penalty(
+    candidate_duration_ms: float,
+    reference_duration_ms: float,
+    weight: float,
+) -> float:
+    """
+    Compute asymmetric duration penalty based on percentage excess over reference track.
+
+    Uses a three-phase geometric curve:
+    - 0-20% excess: Gentle penalties (barely noticeable)
+    - 20-50% excess: Moderate increasing penalties
+    - 50-100% excess: Steep penalties
+    - >100% excess: Severe penalties (track is 2x+ longer than reference)
+
+    Args:
+        candidate_duration_ms: Candidate track duration in milliseconds
+        reference_duration_ms: Reference duration (max of two piers) in milliseconds
+        weight: Penalty weight (default 0.30, range typically 0.10-0.50)
+
+    Returns:
+        Penalty value (>= 0) to subtract from combined_score
+
+    Examples:
+        With weight=0.30 and reference=200s:
+        - 210s (+5% = +10s): penalty ≈ 0.003 (negligible)
+        - 240s (+20% = +40s): penalty ≈ 0.015 (gentle)
+        - 280s (+40% = +80s): penalty ≈ 0.10 (moderate)
+        - 360s (+80% = +160s): penalty ≈ 0.45 (steep)
+        - 400s (+100% = +200s): penalty ≈ 0.75 (severe threshold)
+        - 600s (+200% = +400s): penalty ≈ 3.0 (very severe!)
+    """
+    if candidate_duration_ms <= 0 or reference_duration_ms <= 0:
+        return 0.0
+
+    if candidate_duration_ms <= reference_duration_ms:
+        return 0.0  # No penalty for shorter or equal-length tracks
+
+    # Calculate excess as percentage of reference
+    excess_ratio = (candidate_duration_ms - reference_duration_ms) / reference_duration_ms
+
+    # Three-phase geometric penalty curve
+    if excess_ratio <= 0.20:
+        # Phase 1 (0-20%): Gentle - power 1.5 for sub-linear growth
+        # At 20%: penalty = weight * 0.05
+        penalty = weight * 0.05 * (excess_ratio / 0.20) ** 1.5
+
+    elif excess_ratio <= 0.50:
+        # Phase 2 (20-50%): Moderate - power 2.0 for quadratic growth
+        # At 20%: ~0.015, At 50%: ~0.30
+        phase_ratio = (excess_ratio - 0.20) / 0.30
+        penalty = weight * 0.05 + weight * 0.25 * (phase_ratio ** 2.0)
+
+    elif excess_ratio <= 1.00:
+        # Phase 3 (50-100%): Steep - power 2.5 for accelerating growth
+        # At 50%: ~0.30, At 100%: ~0.75
+        phase_ratio = (excess_ratio - 0.50) / 0.50
+        penalty = weight * 0.30 + weight * 0.45 * (phase_ratio ** 2.5)
+
+    else:
+        # Phase 4 (>100%): Severe - power 3.0 for very steep growth
+        # At 100%: 0.75, At 200%: 3.0, At 300%: 9.0
+        phase_ratio = excess_ratio - 1.00
+        penalty = weight * 0.75 + weight * 2.25 * (phase_ratio ** 3.0)
+
+    return penalty
+
+
 def _beam_search_segment(
     pier_a: int,
     pier_b: int,
@@ -990,11 +1068,24 @@ def _beam_search_segment(
     *,
     artist_key_by_idx: Optional[Dict[int, str]] = None,
     seed_artist_key: Optional[str] = None,
+    recent_global_artists: Optional[List[str]] = None,
+    durations_ms: Optional[np.ndarray] = None,
+    artist_identity_cfg: Optional[ArtistIdentityConfig] = None,
+    bundle: Optional[ArtifactBundle] = None,
 ) -> Tuple[Optional[List[int]], int, int, Optional[str]]:
     """
     Constrained beam search to find path from pier_a to pier_b.
 
     Returns interior track indices (not including piers) or None if no path found.
+
+    Args:
+        recent_global_artists: Artist keys from the last min_gap positions of the
+            global playlist prefix (from previous segments). Used to enforce
+            cross-segment min_gap constraints during generation. If artist_identity_cfg
+            is enabled, these are identity keys (collapsing ensemble variants).
+        durations_ms: Optional array of track durations in milliseconds (parallel to bundle.track_ids)
+        artist_identity_cfg: Optional config for artist identity resolution (ensemble collapsing)
+        bundle: Optional bundle for resolving artist strings to identity keys
     """
 
     genre_penalty_hits = 0
@@ -1046,16 +1137,37 @@ def _beam_search_segment(
 
     # Initialize beam with pier_a
     used_artists_init: Set[str] = set()
+
+    # Add boundary context from previous segments (cross-segment min_gap enforcement)
+    if recent_global_artists:
+        for artist_key in recent_global_artists:
+            if artist_key:
+                used_artists_init.add(str(artist_key))
+
     if artist_key_by_idx is not None:
+        use_identity = artist_identity_cfg is not None and artist_identity_cfg.enabled
+
         if cfg.disallow_pier_artists_in_interiors:
-            ak_a = str(artist_key_by_idx.get(int(pier_a), "") or "")
-            ak_b = str(artist_key_by_idx.get(int(pier_b), "") or "")
-            if ak_a:
-                used_artists_init.add(ak_a)
-            if ak_b:
-                used_artists_init.add(ak_b)
+            # Add pier artist keys to used_artists_init
+            for pier_idx in [pier_a, pier_b]:
+                pier_artist_str = str(artist_key_by_idx.get(int(pier_idx), "") or "")
+                if pier_artist_str:
+                    if use_identity:
+                        # Identity mode: add all identity keys for pier artist
+                        pier_identity_keys = resolve_artist_identity_keys(pier_artist_str, artist_identity_cfg)
+                        used_artists_init.update(pier_identity_keys)
+                    else:
+                        # Legacy mode: single artist key
+                        used_artists_init.add(pier_artist_str)
+
         if cfg.disallow_seed_artist_in_interiors and seed_artist_key:
-            used_artists_init.add(str(seed_artist_key))
+            if use_identity:
+                # Identity mode: resolve seed artist to identity keys
+                seed_identity_keys = resolve_artist_identity_keys(seed_artist_key, artist_identity_cfg)
+                used_artists_init.update(seed_identity_keys)
+            else:
+                # Legacy mode: single seed artist key
+                used_artists_init.add(str(seed_artist_key))
 
     initial_state = BeamState(
         path=[pier_a],
@@ -1076,10 +1188,24 @@ def _beam_search_segment(
             for cand in candidates:
                 if cand in state.used:
                     continue
+
+                # Artist diversity: check if candidate artist already used
                 if artist_key_by_idx is not None:
-                    cand_artist = str(artist_key_by_idx.get(int(cand), "") or "")
-                    if cand_artist and cand_artist in state.used_artists:
-                        continue
+                    use_identity = artist_identity_cfg is not None and artist_identity_cfg.enabled
+
+                    if use_identity:
+                        # Identity mode: resolve to identity keys and check if ANY key is already used
+                        cand_artist_str = str(artist_key_by_idx.get(int(cand), "") or "")
+                        if cand_artist_str:
+                            cand_identity_keys = resolve_artist_identity_keys(cand_artist_str, artist_identity_cfg)
+                            # Reject if ANY identity key overlaps with used_artists
+                            if any(key in state.used_artists for key in cand_identity_keys):
+                                continue
+                    else:
+                        # Legacy mode: single artist key
+                        cand_artist = str(artist_key_by_idx.get(int(cand), "") or "")
+                        if cand_artist and cand_artist in state.used_artists:
+                            continue
                 if min(sim_to_a[cand], sim_to_b[cand]) < cfg.bridge_floor:      
                     continue
                 if progress_active:
@@ -1128,9 +1254,18 @@ def _beam_search_segment(
                 new_used = state.used | {cand}
                 new_used_artists = state.used_artists
                 if artist_key_by_idx is not None:
-                    cand_artist = str(artist_key_by_idx.get(int(cand), "") or "")
-                    if cand_artist:
-                        new_used_artists = state.used_artists | {cand_artist}
+                    use_identity = artist_identity_cfg is not None and artist_identity_cfg.enabled
+                    if use_identity:
+                        # Identity mode: add ALL identity keys to used_artists
+                        cand_artist_str = str(artist_key_by_idx.get(int(cand), "") or "")
+                        if cand_artist_str:
+                            cand_identity_keys = resolve_artist_identity_keys(cand_artist_str, artist_identity_cfg)
+                            new_used_artists = state.used_artists | cand_identity_keys
+                    else:
+                        # Legacy mode: add single artist key
+                        cand_artist = str(artist_key_by_idx.get(int(cand), "") or "")
+                        if cand_artist:
+                            new_used_artists = state.used_artists | {cand_artist}
                 new_last_progress = float(state.last_progress)
                 if progress_active:
                     new_last_progress = float(progress_by_idx.get(int(cand), 0.0))
@@ -1218,6 +1353,7 @@ def _enforce_min_gap_global(
     min_gap: int = 1,
     *,
     bundle: Optional[ArtifactBundle] = None,
+    artist_identity_cfg: Optional[ArtistIdentityConfig] = None,
 ) -> Tuple[List[int], int]:
     """
     Drop tracks that would violate a global min_gap across concatenated segments.
@@ -1225,6 +1361,10 @@ def _enforce_min_gap_global(
     Pier-bridge already enforces one-per-artist per segment, but adjacent
     duplicates can appear at segment boundaries. This pass removes any track
     that would repeat a normalized artist within the last `min_gap` slots.
+
+    If artist_identity_cfg is provided and enabled, uses identity-based matching
+    (collapsing ensemble variants and splitting collaborations). Each collaboration
+    track contributes ALL participant identity keys to the recent window.
     """
     if not indices or min_gap <= 0:
         return indices, 0
@@ -1233,28 +1373,73 @@ def _enforce_min_gap_global(
     output: List[int] = []
     dropped = 0
 
-    for idx in indices:
-        key = ""
-        if bundle is not None:
-            try:
-                key = identity_keys_for_index(bundle, int(idx)).artist_key
-            except Exception:
-                key = ""
-        if not key and artist_keys is not None:
-            try:
-                key = normalize_artist_key(str(artist_keys[int(idx)]))
-            except Exception:
-                key = ""
-        if not key:
-            key = f"unknown_artist:{idx}"
-        if key in recent:
-            dropped += 1
-            continue
+    use_identity = artist_identity_cfg is not None and artist_identity_cfg.enabled
 
-        output.append(idx)
-        recent.append(key)
-        if len(recent) > min_gap:
-            recent.pop(0)
+    for idx in indices:
+        if use_identity:
+            # Identity mode: resolve artist string to identity keys (Set[str])
+            artist_str = ""
+            if bundle is not None:
+                try:
+                    artist_str = identity_keys_for_index(bundle, int(idx)).artist
+                except Exception:
+                    artist_str = ""
+            if not artist_str and artist_keys is not None:
+                try:
+                    artist_str = str(artist_keys[int(idx)])
+                except Exception:
+                    artist_str = ""
+
+            # Resolve to identity keys
+            identity_keys_set = resolve_artist_identity_keys(artist_str, artist_identity_cfg)
+
+            # Check if ANY identity key violates min_gap
+            violated_key = None
+            for identity_key in identity_keys_set:
+                if identity_key in recent:
+                    violated_key = identity_key
+                    break
+
+            if violated_key is not None:
+                dropped += 1
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Rejected candidate idx=%d due to identity_min_gap: key=%r in recent window (distance<=%d)",
+                        idx, violated_key, min_gap
+                    )
+                continue
+
+            # Accept track: add to output and update recent window with ALL identity keys
+            output.append(idx)
+            for identity_key in identity_keys_set:
+                recent.append(identity_key)
+            # Trim recent window to size min_gap
+            while len(recent) > min_gap:
+                recent.pop(0)
+        else:
+            # Legacy mode: single artist key
+            key = ""
+            if bundle is not None:
+                try:
+                    key = identity_keys_for_index(bundle, int(idx)).artist_key
+                except Exception:
+                    key = ""
+            if not key and artist_keys is not None:
+                try:
+                    key = normalize_artist_key(str(artist_keys[int(idx)]))
+                except Exception:
+                    key = ""
+            if not key:
+                key = f"unknown_artist:{idx}"
+
+            if key in recent:
+                dropped += 1
+                continue
+
+            output.append(idx)
+            recent.append(key)
+            if len(recent) > min_gap:
+                recent.pop(0)
 
     return output, dropped
 
@@ -1276,6 +1461,7 @@ def build_pier_bridge_playlist(
     infeasible_handling: Optional[InfeasibleHandlingConfig] = None,
     audit_config: Optional[RunAuditConfig] = None,
     audit_events: Optional[list[RunAuditEvent]] = None,
+    artist_identity_cfg: Optional[ArtistIdentityConfig] = None,
 ) -> PierBridgeResult:
     """
     Build playlist using pier + bridge strategy.
@@ -1489,6 +1675,11 @@ def build_pier_bridge_playlist(
     segment_bridge_floors_used: list[float] = []
     segment_backoff_attempts_used: list[int] = []
 
+    # Boundary context tracking for cross-segment min_gap enforcement
+    # Tracks artist keys from the last min_gap positions of the concatenated result
+    MIN_GAP_GLOBAL = 1  # Cross-segment min_gap constraint
+    recent_boundary_artists: List[str] = []
+
     def _bridge_floor_attempts(initial_floor: float) -> list[float]:
         if not infeasible_handling or not infeasible_handling.enabled:
             return [float(initial_floor)]
@@ -1671,6 +1862,10 @@ def build_pier_bridge_playlist(
                         beam_width,
                         artist_key_by_idx=(cand_artist_keys if cand_artist_keys else None),
                         seed_artist_key=seed_artist_key,
+                        recent_global_artists=recent_boundary_artists if seg_idx > 0 else None,
+                        durations_ms=bundle.durations_ms,
+                        artist_identity_cfg=artist_identity_cfg,
+                        bundle=bundle,
                     )
                     last_failure_reason = beam_failure_reason
 
@@ -1898,6 +2093,39 @@ def build_pier_bridge_playlist(
 
         all_segments.append(full_segment)
 
+        # Update boundary context for next segment (cross-segment min_gap enforcement)
+        # Build the concatenated result so far to extract recent artists
+        current_concat: List[int] = []
+        for concat_seg_idx, concat_seg in enumerate(all_segments):
+            if concat_seg_idx == 0:
+                current_concat.extend(concat_seg)
+            else:
+                current_concat.extend(concat_seg[1:])  # Drop duplicate pier
+
+        # Extract artist keys from the last MIN_GAP_GLOBAL positions
+        # If artist_identity_cfg is enabled, resolve to identity keys (collapsing ensemble variants)
+        recent_boundary_artists = []
+        start_pos = max(0, len(current_concat) - MIN_GAP_GLOBAL)
+        use_identity = artist_identity_cfg is not None and artist_identity_cfg.enabled
+
+        for pos in range(start_pos, len(current_concat)):
+            try:
+                if use_identity:
+                    # Identity mode: resolve artist string to identity keys
+                    artist_str = identity_keys_for_index(bundle, int(current_concat[pos])).artist
+                    if artist_str:
+                        identity_keys_set = resolve_artist_identity_keys(artist_str, artist_identity_cfg)
+                        # Add ALL identity keys to boundary tracking
+                        for identity_key in identity_keys_set:
+                            recent_boundary_artists.append(identity_key)
+                else:
+                    # Legacy mode: single artist_key
+                    artist_key = identity_keys_for_index(bundle, int(current_concat[pos])).artist_key
+                    if artist_key:
+                        recent_boundary_artists.append(str(artist_key))
+            except Exception:
+                continue
+
     # Concatenate segments
     # First segment: keep full [A, ..., B]
     # Subsequent segments: drop first element (the pier) to avoid duplication
@@ -1923,16 +2151,27 @@ def build_pier_bridge_playlist(
                 final_indices.extend(segment[1:])
                 seed_positions.append(len(final_indices) - 1)  # New pier
 
-    # Convert to track IDs (after enforcing cross-segment min_gap to avoid back-to-back repeats)
-    final_indices, dropped = _enforce_min_gap_global(
-        final_indices, bundle.artist_keys, min_gap=1, bundle=bundle
-    )
-    if dropped:
-        logger.debug(
-            "Pier+Bridge: dropped %d tracks to enforce cross-segment min_gap", dropped
-        )
-
+    # Convert to track IDs
+    # Cross-segment min_gap is enforced DURING generation (boundary-aware beam search),
+    # not as a post-order filter. This ensures exact length guarantees.
     final_track_ids = [str(bundle.track_ids[i]) for i in final_indices]
+
+    # Strict length validation: pier-bridge must return EXACTLY the requested number of tracks
+    if len(final_track_ids) != total_tracks:
+        failure_msg = (
+            f"Pier-bridge length mismatch: generated {len(final_track_ids)} tracks "
+            f"but expected exactly {total_tracks}. This indicates a bug in segment generation."
+        )
+        logger.error(failure_msg)
+        return PierBridgeResult(
+            track_ids=[],
+            track_indices=[],
+            seed_positions=[],
+            segment_diagnostics=diagnostics,
+            stats={"error": "length_mismatch", "expected": total_tracks, "actual": len(final_track_ids)},
+            success=False,
+            failure_reason=failure_msg,
+        )
 
     # Compute per-edge transition scores for reporting (matches builder scoring)
     edge_scores: list[dict[str, Any]] = []
@@ -1966,11 +2205,11 @@ def build_pier_bridge_playlist(
             }
         )
 
-    # Recompute seed positions after any min-gap pruning to keep diagnostics consistent
+    # Recompute seed positions from final track IDs for diagnostic accuracy
     seed_positions = [idx for idx, tid in enumerate(final_track_ids) if tid in seed_id_set]
     if len(seed_positions) != (1 if is_single_seed_arc else len(seed_id_set)):
-        logger.debug(
-            "Pier+Bridge: seed count mismatch after pruning (expected %d, found %d)",
+        logger.warning(
+            "Pier+Bridge: seed count mismatch in final result (expected %d, found %d)",
             (1 if is_single_seed_arc else len(seed_id_set)),
             len(seed_positions),
         )
@@ -2084,6 +2323,7 @@ def generate_pier_bridge_playlist(
         track_ids=bundle.track_ids,
         track_titles=bundle.track_titles,
         track_artists=bundle.track_artists,
+        durations_ms=bundle.durations_ms,
         cfg=cfg.candidate,
         random_seed=random_seed,
         X_sonic=X_sonic_for_embed,

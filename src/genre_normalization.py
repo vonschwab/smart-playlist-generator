@@ -1,22 +1,36 @@
 """
 Genre Normalization Module
 ===========================
-Comprehensive genre normalization including:
-- Language translation (French, German, Dutch -> English)
-- Punctuation and separator normalization
-- Synonym mapping
-- Splitting composite tags
+DEPRECATED: This module is deprecated and will be removed in July 2026.
+Use src.genre.normalize_unified instead.
 
-This module ensures consistent genre tagging across the library.
+This module now delegates to the unified implementation via deprecation wrappers.
+All functions maintain backward compatibility but will issue deprecation warnings.
+
+Migration:
+    # Old (deprecated):
+    from src.genre_normalization import normalize_genre_token
+
+    # New (recommended):
+    from src.genre.normalize_unified import normalize_genre_token
 """
 
 import csv
 import logging
 import re
+import warnings
 from pathlib import Path
 from typing import Iterable, Optional, Set, Tuple, Dict
 
 logger = logging.getLogger(__name__)
+
+# Issue deprecation warning on module import
+warnings.warn(
+    "genre_normalization module is deprecated and will be removed in July 2026. "
+    "Use src.genre.normalize_unified instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 
 # Language translation mappings
@@ -91,105 +105,24 @@ SYNONYM_MAPPINGS = {
 
 def normalize_genre_token(raw: str, apply_translations: bool = True, apply_synonyms: bool = True) -> Optional[str]:
     """
-    Normalize a single raw genre string.
+    DEPRECATED: Use src.genre.normalize_unified.normalize_genre_token() instead.
 
-    Steps:
-    - Strip leading/trailing whitespace
-    - Lowercase
-    - Apply language translations (if enabled)
-    - Collapse internal whitespace to a single space
-    - Remove obvious trailing punctuation like commas/semicolons
-    - Replace punctuation variants:
-        * Convert separators like "-", "/", "\\" to spaces (except in known compounds like "r&b")
-        * Normalize '&' to 'and' (e.g., "r&b" -> "r and b")
-    - Apply synonym mappings (if enabled)
-    - Collapse multiple spaces again
-    - If empty after cleaning, return None
-
-    Args:
-        raw: Raw genre string
-        apply_translations: Whether to apply language translations
-        apply_synonyms: Whether to apply synonym mappings
-
-    Returns:
-        Normalized genre string or None if empty
+    This function delegates to the unified implementation.
+    Will be removed in July 2026.
     """
-    if raw is None:
-        return None
-
-    # Trim and lowercase
-    s = raw.strip().lower()
-    if not s:
-        return None
-
-    # Apply language translations first (before other normalization)
-    if apply_translations:
-        # Direct match
-        if s in LANGUAGE_TRANSLATIONS:
-            s = LANGUAGE_TRANSLATIONS[s]
-        else:
-            # Try partial matches for composite tags
-            for foreign, english in LANGUAGE_TRANSLATIONS.items():
-                if foreign in s:
-                    s = s.replace(foreign, english)
-
-    # Replace common separators (\ / -) with spaces
-    # But preserve compound words like "post-rock", "drum-and-bass"
-    s = re.sub(r"[\\/]", " ", s)
-    # Only replace hyphens that have spaces around them or at word boundaries
-    s = re.sub(r"\s+-\s+", " ", s)
-
-    # Normalize ampersand to "and"
-    s = s.replace("&", " and ")
-
-    # Remove trailing punctuation like commas/semicolons
-    s = s.rstrip(";,")
-
-    # Collapse whitespace
-    s = re.sub(r"\s+", " ", s).strip()
-
-    if not s:
-        return None
-
-    # Apply synonym mappings
-    if apply_synonyms and s in SYNONYM_MAPPINGS:
-        s = SYNONYM_MAPPINGS[s]
-
-    return s
+    from .genre.normalize_unified import normalize_genre_token as unified_normalize
+    return unified_normalize(raw, apply_translations=apply_translations, apply_synonyms=apply_synonyms)
 
 
 def split_and_normalize(raw: str, apply_translations: bool = True, apply_synonyms: bool = True) -> Set[str]:
     """
-    Take a raw genre field that may contain multiple genres and return a set of normalized tokens.
+    DEPRECATED: Use src.genre.normalize_unified.split_and_normalize() instead.
 
-    Splitting rules:
-    - Always split on semicolons ';'
-    - Also split on commas ',' and forward slashes '/' as separators
-    - Normalize each piece via normalize_genre_token
-    - Drop Nones/empties
-
-    Args:
-        raw: Raw genre string (may contain multiple genres)
-        apply_translations: Whether to apply language translations
-        apply_synonyms: Whether to apply synonym mappings
-
-    Returns:
-        Set of normalized genre tokens
+    This function delegates to the unified implementation.
+    Will be removed in July 2026.
     """
-    tokens: Set[str] = set()
-    if raw is None:
-        return tokens
-
-    # First pass: split on semicolons
-    pieces = []
-    for part in raw.split(";"):
-        pieces.extend(re.split(r"[,/]", part))
-
-    for piece in pieces:
-        norm = normalize_genre_token(piece, apply_translations=apply_translations, apply_synonyms=apply_synonyms)
-        if norm:
-            tokens.add(norm)
-    return tokens
+    from .genre.normalize_unified import split_and_normalize as unified_split
+    return unified_split(raw, apply_translations=apply_translations, apply_synonyms=apply_synonyms)
 
 
 def normalize_and_filter_genres(
@@ -203,55 +136,32 @@ def normalize_and_filter_genres(
     apply_synonyms: bool = True,
 ) -> Set[str]:
     """
-    Given raw genre strings (possibly composite), return a set of normalized, filtered tokens.
+    DEPRECATED: Use src.genre.normalize_unified.normalize_and_filter_genres() instead.
 
-    Steps:
-    - For each raw genre, split_and_normalize(raw) to get normalized tokens
-    - Union all tokens
-    - Drop tokens in broad_set, garbage_set, meta_set if provided
-    - If canonical_set is provided, keep only tokens present in canonical_set
-
-    Args:
-        raw_genres: Iterable of raw genre strings
-        broad_set: Overly-broad genres to filter out (e.g., "rock", "pop")
-        garbage_set: Garbage/invalid genres to filter out
-        meta_set: Meta tags to filter out (e.g., "seen live", "favorites")
-        canonical_set: If provided, only keep genres in this set (whitelist)
-        apply_translations: Whether to apply language translations
-        apply_synonyms: Whether to apply synonym mappings
-
-    Returns:
-        Set of normalized, filtered genre tokens
+    This function delegates to the unified implementation.
+    Will be removed in July 2026.
     """
-    tokens: Set[str] = set()
-    for g in raw_genres:
-        tokens.update(split_and_normalize(g, apply_translations=apply_translations, apply_synonyms=apply_synonyms))
-
-    def _drop(source: Set[str], drops: Optional[Set[str]]) -> Set[str]:
-        return source if not drops else {t for t in source if t not in drops}
-
-    tokens = _drop(tokens, broad_set)
-    tokens = _drop(tokens, garbage_set)
-    tokens = _drop(tokens, meta_set)
-
-    if canonical_set is not None:
-        tokens = {t for t in tokens if t in canonical_set}
-
-    return tokens
+    from .genre.normalize_unified import normalize_and_filter_genres as unified_filter
+    return unified_filter(
+        raw_genres,
+        broad_set=broad_set,
+        garbage_set=garbage_set,
+        meta_set=meta_set,
+        canonical_set=canonical_set,
+        apply_translations=apply_translations,
+        apply_synonyms=apply_synonyms,
+    )
 
 
 def _load_genre_csv(path: Path) -> Set[str]:
-    """Load genre set from CSV file with 'genre' column."""
-    out: Set[str] = set()
-    if not path.exists():
-        return out
-    with path.open("r", encoding="utf-8", newline="") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            norm = normalize_genre_token(row.get("genre", ""))
-            if norm:
-                out.add(norm)
-    return out
+    """
+    DEPRECATED: Use src.genre.normalize_unified._load_genre_csv() instead.
+
+    This function delegates to the unified implementation.
+    Will be removed in July 2026.
+    """
+    from .genre.normalize_unified import _load_genre_csv as unified_load
+    return unified_load(path)
 
 
 def load_filter_sets(
@@ -260,66 +170,21 @@ def load_filter_sets(
     meta_path: Optional[str] = None,
 ) -> Tuple[Set[str], Set[str], Set[str]]:
     """
-    Load/normalize filter sets for genres.
+    DEPRECATED: Use src.genre.normalize_unified.load_filter_sets() instead.
 
-    Args:
-        broad_filters: Iterable from config.yaml (already in memory)
-        garbage_path: CSV with column 'genre' (optional)
-        meta_path: CSV with column 'genre' (optional)
-
-    Returns:
-        (broad_set, garbage_set, meta_set) as normalized sets
+    This function delegates to the unified implementation.
+    Will be removed in July 2026.
     """
-    broad_set: Set[str] = set()
-    garbage_set: Set[str] = set()
-    meta_set: Set[str] = set()
-
-    if broad_filters:
-        for g in broad_filters:
-            norm = normalize_genre_token(g)
-            if norm:
-                broad_set.add(norm)
-
-    if garbage_path:
-        garbage_set = _load_genre_csv(Path(garbage_path))
-    if meta_path:
-        meta_set = _load_genre_csv(Path(meta_path))
-
-    logger.info(
-        "Loaded filter sets: broad=%d, garbage=%d, meta=%d",
-        len(broad_set),
-        len(garbage_set),
-        len(meta_set),
-    )
-
-    return broad_set, garbage_set, meta_set
+    from .genre.normalize_unified import load_filter_sets as unified_load_filters
+    return unified_load_filters(broad_filters=broad_filters, garbage_path=garbage_path, meta_path=meta_path)
 
 
 def normalize_genre_list(genres: Iterable[str], filter_broad: bool = True) -> Set[str]:
     """
-    Convenience function to normalize a list of genres with default settings.
+    DEPRECATED: Use src.genre.normalize_unified.normalize_genre_list() instead.
 
-    Args:
-        genres: List of raw genre strings
-        filter_broad: Whether to filter overly-broad tags
-
-    Returns:
-        Set of normalized genre tokens
+    This function delegates to the unified implementation.
+    Will be removed in July 2026.
     """
-    # Default broad filters - only filter meta tags and useless descriptors
-    # DO NOT filter actual music genres like rock, pop, indie, electronic!
-    broad_set = {
-        'seen live', 'favorites', 'favourite', 'owned', 'my music',
-        '2000s', '2010s', '2020s', '1990s', '1980s', '1970s',
-        'american', 'british', 'canadian', 'english', 'uk', 'usa',
-        'awesome', 'cool', 'good', 'great', 'catchy',
-        'liked', 'to buy', 'unknown', 'various', 'other', 'misc',
-        'favorites', 'favourite', 'underground', 'classic', 'modern', 'contemporary',
-    } if filter_broad else None
-
-    return normalize_and_filter_genres(
-        genres,
-        broad_set=broad_set,
-        apply_translations=True,
-        apply_synonyms=True
-    )
+    from .genre.normalize_unified import normalize_genre_list as unified_normalize_list
+    return unified_normalize_list(genres, filter_broad=filter_broad)

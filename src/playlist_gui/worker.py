@@ -279,7 +279,28 @@ def load_config_with_overrides(base_path: str, overrides: Dict[str, Any]) -> Dic
                 result[key] = value
         return result
 
-    return deep_merge(config, overrides)
+    merged = deep_merge(config, overrides)
+
+    # Apply mode presets (genre_mode/sonic_mode) to resolve weights and thresholds
+    _apply_mode_presets(merged)
+
+    return merged
+
+
+def _apply_mode_presets(config: Dict[str, Any]) -> None:
+    """
+    Apply genre_mode and sonic_mode presets if specified in config.
+    Modifies config in-place.
+    """
+    playlists_cfg = config.get('playlists', {})
+    if not playlists_cfg:
+        return
+    try:
+        from src.playlist.mode_presets import apply_mode_presets
+    except ImportError:
+        return
+
+    apply_mode_presets(playlists_cfg)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -372,7 +393,15 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
 
     mode = args.get("mode", "history")
     artist = args.get("artist")
+    genre = args.get("genre")
     track_title = args.get("track")
+    seed_tracks = args.get("seed_tracks")
+    if isinstance(seed_tracks, list):
+        seed_tracks = [str(t).strip() for t in seed_tracks if str(t).strip()]
+        if not seed_tracks:
+            seed_tracks = None
+    else:
+        seed_tracks = None
     track_count = args.get("tracks", 30)
 
     emit_log("INFO", f"Starting playlist generation (mode={mode})")
@@ -569,14 +598,25 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
             metadata_client=metadata
         )
 
-        # Get DS mode override from config
+        # Get DS pipeline mode from config
+        # Note: genre_mode and sonic_mode are SEPARATE settings that control weighting,
+        # not the pipeline algorithm. They are already applied to the config via overrides.
         ds_mode = config.get('playlists', {}).get('ds_pipeline', {}).get('mode', 'dynamic')
+
+        # Log which modes are active
+        genre_mode = config.get('playlists', {}).get('genre_mode')
+        sonic_mode = config.get('playlists', {}).get('sonic_mode')
+        if genre_mode:
+            emit_log("INFO", f"Genre mode: {genre_mode}")
+        if sonic_mode:
+            emit_log("INFO", f"Sonic mode: {sonic_mode}")
+        emit_log("INFO", f"DS pipeline mode: {ds_mode}")
 
         # Cancellation check before generation
         check_cancelled()
 
         emit_progress("generate", 60, 100, "Generating playlist")
-        emit_log("INFO", f"Running pipeline with mode={ds_mode}")
+        emit_log("INFO", f"Running playlist generation with mode={ds_mode}")
 
         if mode == "artist" and artist:
             # Single artist mode
@@ -584,6 +624,22 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                 artist,
                 track_count,
                 track_title=track_title,
+                track_titles=seed_tracks,
+                dynamic=(ds_mode == "dynamic"),
+                ds_mode_override=ds_mode,
+            )
+        elif mode == "artist" and seed_tracks:
+            playlist_data = generator.create_playlist_from_seed_tracks(
+                seed_tracks,
+                track_count=track_count,
+                dynamic=(ds_mode == "dynamic"),
+                ds_mode_override=ds_mode,
+            )
+        elif mode == "genre" and genre:
+            # Genre mode
+            playlist_data = generator.create_playlist_for_genre(
+                genre,
+                track_count,
                 dynamic=(ds_mode == "dynamic"),
                 ds_mode_override=ds_mode,
             )
@@ -711,7 +767,7 @@ def handle_scan_library(cmd_data: Dict[str, Any]) -> None:
 
         # LibraryScanner reads music_dir and db_path from config
         scanner = LibraryScanner(config_path=base_path)
-        stats = scanner.scan(quick=False)
+        stats = scanner.run(quick=False)
 
         check_cancelled()
         emit_result("scan", {"stats": stats})
@@ -745,14 +801,22 @@ def handle_update_genres(cmd_data: Dict[str, Any]) -> None:
             sys.path.insert(0, str(project_root))
 
         # Import and run genre updater
-        from scripts.update_genres_v3_normalized import update_genres_main
+        from scripts.update_genres_v3_normalized import NormalizedGenreUpdater
 
         db_path = config.get('library', {}).get('database_path', 'data/metadata.db')
         check_cancelled()
         emit_progress("genres", 20, 100, "Fetching genres")
 
-        # This runs the full genre update
-        stats = update_genres_main(db_path=db_path, config_path=base_path)
+        # This runs the full genre update (artists + albums)
+        updater = NormalizedGenreUpdater(db_path=db_path)
+        emit_progress("genres", 30, 100, "Updating artist genres")
+        updater.update_artist_genres(progress=False)
+        check_cancelled()
+        emit_progress("genres", 60, 100, "Updating album genres")
+        updater.update_album_genres(progress=False)
+        check_cancelled()
+        stats = {"artists_updated": 0, "albums_updated": 0}  # Updater doesn't return detailed stats
+        updater.close()
 
         check_cancelled()
         emit_result("genres", {"stats": stats})
@@ -792,13 +856,19 @@ def handle_update_sonic(cmd_data: Dict[str, Any]) -> None:
         if str(project_root) not in sys.path:
             sys.path.insert(0, str(project_root))
 
-        from scripts.update_sonic import main as update_sonic_main
+        from scripts.update_sonic import SonicFeaturePipeline
 
         db_path = config.get('library', {}).get('database_path', 'data/metadata.db')
         check_cancelled()
         emit_progress("sonic", 20, 100, "Extracting features")
 
-        stats = update_sonic_main(db_path=db_path)
+        # Run sonic analysis with beat3tower
+        pipeline = SonicFeaturePipeline(db_path=db_path, use_beat_sync=False, use_beat3tower=True)
+        emit_progress("sonic", 30, 100, "Analyzing tracks")
+        pipeline.run(limit=None, force=False, progress=False)
+        check_cancelled()
+        stats = pipeline.get_stats()
+        pipeline.close()
 
         check_cancelled()
         emit_result("sonic", {"stats": stats})
@@ -832,7 +902,7 @@ def handle_build_artifacts(cmd_data: Dict[str, Any]) -> None:
         if str(project_root) not in sys.path:
             sys.path.insert(0, str(project_root))
 
-        from scripts.build_beat3tower_artifacts import main as build_artifacts_main
+        from scripts.build_beat3tower_artifacts import build_artifacts
 
         db_path = config.get('library', {}).get('database_path', 'data/metadata.db')
         output_path = config.get('playlists', {}).get('ds_pipeline', {}).get(
@@ -842,11 +912,19 @@ def handle_build_artifacts(cmd_data: Dict[str, Any]) -> None:
         check_cancelled()
         emit_progress("artifacts", 20, 100, "Building matrices")
 
-        build_artifacts_main(
+        # Create argparse-like namespace for build_artifacts
+        from argparse import Namespace
+        args = Namespace(
             db_path=db_path,
-            config_path=base_path,
-            output_path=output_path
+            config=base_path,
+            output=output_path,
+            genre_sim_path=None,
+            max_tracks=0,
+            no_pca=False,
+            pca_variance=0.95,
+            verbose=False
         )
+        build_artifacts(args)
 
         check_cancelled()
         emit_result("artifacts", {"output_path": output_path})
@@ -862,6 +940,49 @@ def handle_build_artifacts(cmd_data: Dict[str, Any]) -> None:
         emit_done("build_artifacts", False, str(e), summary="Artifact build failed")
 
 
+def handle_blacklist_fetch(cmd_data: Dict[str, Any]) -> None:
+    """Fetch blacklisted tracks from metadata DB."""
+    base_path = cmd_data.get("base_config_path", "config.yaml")
+    overrides = cmd_data.get("overrides", {})
+    try:
+        config = load_config_with_overrides(base_path, overrides)
+        db_path = config.get('library', {}).get('database_path', 'data/metadata.db')
+        from src.metadata_client import MetadataClient
+
+        metadata = MetadataClient(db_path)
+        tracks = metadata.fetch_blacklisted_tracks()
+        emit_result("blacklist", {"tracks": tracks, "count": len(tracks)})
+        emit_done("blacklist_fetch", True, f"Fetched {len(tracks)} blacklisted tracks")
+    except Exception as e:
+        tb = traceback.format_exc()
+        emit_error(str(e), tb)
+        emit_done("blacklist_fetch", False, str(e))
+
+
+def handle_blacklist_set(cmd_data: Dict[str, Any]) -> None:
+    """Set blacklisted flag for track ids."""
+    base_path = cmd_data.get("base_config_path", "config.yaml")
+    overrides = cmd_data.get("overrides", {})
+    track_ids = cmd_data.get("track_ids", []) or []
+    value = bool(cmd_data.get("value", True))
+    try:
+        config = load_config_with_overrides(base_path, overrides)
+        db_path = config.get('library', {}).get('database_path', 'data/metadata.db')
+        from src.metadata_client import MetadataClient
+
+        metadata = MetadataClient(db_path)
+        updated = metadata.set_blacklisted([str(t) for t in track_ids], value)
+        emit_result(
+            "blacklist_set",
+            {"track_ids": track_ids, "value": value, "updated": updated},
+        )
+        emit_done("blacklist_set", True, f"Updated {updated} track(s)")
+    except Exception as e:
+        tb = traceback.format_exc()
+        emit_error(str(e), tb)
+        emit_done("blacklist_set", False, str(e))
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Command Router
 # ─────────────────────────────────────────────────────────────────────────────
@@ -875,6 +996,8 @@ TRACKED_COMMAND_HANDLERS = {
     "update_sonic": handle_update_sonic,
     "build_artifacts": handle_build_artifacts,
     "doctor": handle_doctor,
+    "blacklist_fetch": handle_blacklist_fetch,
+    "blacklist_set": handle_blacklist_set,
 }
 
 # Commands that don't have their own request context

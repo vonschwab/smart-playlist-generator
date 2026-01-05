@@ -19,6 +19,9 @@ class CandidatePoolConfig:
     candidates_per_artist: int
     seed_artist_bonus: int
     max_artist_fraction_final: float
+    duration_penalty_enabled: bool = True
+    duration_penalty_weight: float = 0.6
+    duration_cutoff_multiplier: float = 2.5
     broad_filters: tuple[str, ...] = ()
 
 
@@ -266,7 +269,12 @@ def get_min_sonic_similarity(candidate_pool_cfg: dict, mode: Mode) -> Optional[f
     3) Built-in defaults: narrow=0.10, dynamic=0.00, discover/sonic_only=None
     """
     mode = mode.lower()  # type: ignore[assignment]
-    mode_specific = candidate_pool_cfg.get(f"min_sonic_similarity_{mode}")
+    mode_key = f"min_sonic_similarity_{mode}"
+    if mode_key in candidate_pool_cfg and candidate_pool_cfg.get(mode_key) is None:
+        return None
+    if "min_sonic_similarity" in candidate_pool_cfg and candidate_pool_cfg.get("min_sonic_similarity") is None:
+        return None
+    mode_specific = candidate_pool_cfg.get(mode_key)
     base = candidate_pool_cfg.get("min_sonic_similarity")
 
     default = {
@@ -379,6 +387,13 @@ def default_ds_config(
         candidates_per_artist=_candidate_per_artist(max_per_artist_final_est),
         seed_artist_bonus=seed_artist_bonus,
         max_artist_fraction_final=max_artist_fraction_final,
+        duration_penalty_enabled=candidate_pool.get("duration_penalty_enabled", True),
+        duration_penalty_weight=float(
+            candidate_pool.get("duration_penalty_weight", 0.6)
+        ),
+        duration_cutoff_multiplier=float(
+            candidate_pool.get("duration_cutoff_multiplier", 2.5)
+        ),
         broad_filters=tuple(str(b).lower() for b in broad_filters_cfg),
     )
 

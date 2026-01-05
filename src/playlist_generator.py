@@ -1,7 +1,7 @@
 """
-Playlist Generator - Core logic for creating AI-powered playlists
+Playlist Generator - Core logic for creating Data Science-powered playlists
 """
-from typing import List, Dict, Any, Tuple, Optional, Set
+from typing import List, Dict, Any, Tuple, Optional, Set, Sequence
 from collections import Counter, defaultdict
 import random
 import logging
@@ -137,7 +137,7 @@ class PlaylistGenerator:
         if self.similarity_calc is None:
             db_path = None
             try:
-                db_path = self.config.get('library', {}).get('database_path', 'data/metadata.db')
+                db_path = self.config.get('library', 'database_path', 'data/metadata.db')
             except Exception as e:
                 logger.debug(f"Falling back to default metadata path after config read failure: {e}")
                 db_path = 'data/metadata.db'
@@ -152,6 +152,126 @@ class PlaylistGenerator:
         self._pb_backoff_enabled: bool = False
         self._audit_run_enabled: bool = False
         self._audit_run_dir: Optional[str] = None
+
+    def _ensure_metadata_client(self):
+        if self.metadata is None:
+            try:
+                db_path = self.config.get('library', {}).get('database_path', 'data/metadata.db')
+                from src.metadata_client import MetadataClient
+
+                self.metadata = MetadataClient(db_path)
+            except Exception as exc:
+                logger.warning("Metadata DB unavailable (%s)", exc)
+                return None
+        return self.metadata
+
+    def _get_blacklisted_track_ids(self) -> Set[str]:
+        """Fetch blacklisted track ids from the metadata database."""
+        metadata = self._ensure_metadata_client()
+        if metadata is None:
+            return set()
+        try:
+            return set(metadata.fetch_blacklisted_track_ids())
+        except Exception as exc:
+            logger.warning("Failed to fetch blacklist ids (%s)", exc)
+            return set()
+
+    def _build_duration_exclusions_for_ds(
+        self,
+        *,
+        seed_track_ids: Sequence[str],
+        allowed_track_ids: Optional[List[str]],
+        ds_cfg: Dict[str, Any],
+    ) -> Set[str]:
+        metadata = self._ensure_metadata_client()
+        if metadata is None:
+            return set()
+
+        min_seconds = self.config.get("playlists", "min_track_duration_seconds", default=47)
+        min_ms = int(min_seconds * 1000)
+        max_ms = 0
+        cutoff_multiplier = float(
+            (ds_cfg.get("candidate_pool") or {}).get("duration_cutoff_multiplier", 2.5)
+        )
+
+        seed_durations: List[int] = []
+        if seed_track_ids:
+            seed_duration_map = metadata.fetch_track_durations([str(t) for t in seed_track_ids])
+            for tid in seed_track_ids:
+                dur = int(seed_duration_map.get(str(tid), 0))
+                if dur > 0:
+                    seed_durations.append(dur)
+
+        seed_median_ms = 0
+        if seed_durations:
+            seed_durations.sort()
+            mid = len(seed_durations) // 2
+            if len(seed_durations) % 2 == 1:
+                seed_median_ms = seed_durations[mid]
+            else:
+                seed_median_ms = int((seed_durations[mid - 1] + seed_durations[mid]) / 2)
+
+        cutoff_ms = int(seed_median_ms * cutoff_multiplier) if seed_median_ms else 0
+
+        excluded: Set[str] = set()
+        if allowed_track_ids:
+            allowed_set = {str(t) for t in allowed_track_ids}
+            duration_map = metadata.fetch_track_durations(list(allowed_set))
+            for tid in allowed_set:
+                duration_ms = int(duration_map.get(tid, 0))
+                if duration_ms <= 0:
+                    excluded.add(tid)
+                    continue
+                if min_ms > 0 and duration_ms < min_ms:
+                    excluded.add(tid)
+                    continue
+                if cutoff_ms > 0 and duration_ms > cutoff_ms:
+                    excluded.add(tid)
+        else:
+            excluded = metadata.fetch_track_ids_by_duration_limits(
+                min_ms=min_ms,
+                max_ms=max_ms,
+                cutoff_ms=cutoff_ms,
+            )
+
+        if excluded:
+            logger.info(
+                "Duration exclusions (pre-order): excluded=%d min_ms=%s cutoff_ms=%s seed_median_ms=%s",
+                len(excluded),
+                min_ms if min_ms > 0 else "n/a",
+                cutoff_ms if cutoff_ms > 0 else "n/a",
+                seed_median_ms if seed_median_ms > 0 else "n/a",
+            )
+        return excluded
+
+    def _apply_blacklist_to_ids(
+        self,
+        *,
+        allowed_track_ids: Optional[List[str]],
+        excluded_track_ids: Optional[Set[str]],
+        blacklist_ids: Set[str],
+        context: str,
+    ) -> tuple[Optional[List[str]], Set[str], int]:
+        """Apply blacklist to allowed/excluded sets and return updated values."""
+        if not blacklist_ids:
+            return allowed_track_ids, excluded_track_ids or set(), 0
+        removed_from_allowed = 0
+        if allowed_track_ids:
+            before = len(allowed_track_ids)
+            allowed_track_ids = [
+                tid for tid in allowed_track_ids if str(tid) not in blacklist_ids
+            ]
+            removed_from_allowed = before - len(allowed_track_ids)
+        updated_excluded = set(excluded_track_ids or set())
+        updated_excluded.update(blacklist_ids)
+        excluded_from_pool = removed_from_allowed if allowed_track_ids is not None else len(blacklist_ids)
+        logger.info(
+            "Blacklist exclusions: context=%s blacklisted_total=%d excluded_from_pool=%d",
+            context,
+            len(blacklist_ids),
+            excluded_from_pool,
+        )
+        return allowed_track_ids, updated_excluded, removed_from_allowed
 
     def _get_pipeline_choice(self, pipeline_override: Optional[str] = None) -> str:
         return "ds"
@@ -314,6 +434,47 @@ class PlaylistGenerator:
                     )
                 else:
                     logger.debug("No anchor seeds resolved by title+artist match")
+
+            blacklist_ids = self._get_blacklisted_track_ids()
+            if blacklist_ids:
+                if str(seed_to_use) in blacklist_ids:
+                    raise ValueError(
+                        f"Seed track {seed_to_use} is blacklisted; select another seed."
+                    )
+                if anchor_seed_ids_resolved:
+                    before = len(anchor_seed_ids_resolved)
+                    anchor_seed_ids_resolved = [
+                        sid
+                        for sid in anchor_seed_ids_resolved
+                        if str(sid) not in blacklist_ids
+                    ]
+                    removed = before - len(anchor_seed_ids_resolved)
+                    if removed:
+                        logger.info(
+                            "Blacklist exclusions: removed %d anchor seeds",
+                            removed,
+                        )
+                allowed_track_ids, excluded_track_ids, _ = self._apply_blacklist_to_ids(
+                    allowed_track_ids=allowed_track_ids,
+                    excluded_track_ids=excluded_track_ids,
+                    blacklist_ids=blacklist_ids,
+                    context="ds_pipeline",
+                )
+                if allowed_track_ids is not None and not allowed_track_ids:
+                    raise ValueError("All allowed tracks were blacklisted; aborting DS run.")
+
+            seed_ids_for_duration = [str(seed_to_use)]
+            if anchor_seed_ids_resolved:
+                seed_ids_for_duration.extend([str(sid) for sid in anchor_seed_ids_resolved])
+            duration_excluded = self._build_duration_exclusions_for_ds(
+                seed_track_ids=seed_ids_for_duration,
+                allowed_track_ids=allowed_track_ids,
+                ds_cfg=ds_cfg,
+            )
+            if duration_excluded:
+                updated_excluded = set(excluded_track_ids or set())
+                updated_excluded.update(duration_excluded)
+                excluded_track_ids = updated_excluded
         except FileNotFoundError:
             raise FileNotFoundError(f"DS pipeline artifact missing at {artifact_path}")
         except Exception as exc:
@@ -332,8 +493,14 @@ class PlaylistGenerator:
         # Default to 50/50 when genre is enabled
         sonic_weight = genre_cfg.get('sonic_weight', 0.50) if genre_enabled else None
         genre_weight = genre_cfg.get('weight', 0.50) if genre_enabled else None
+        if not genre_enabled:
+            genre_weight = 0.0
+            sonic_weight = genre_cfg.get('sonic_weight', 1.0) or 1.0
 
-        if mode == "sonic_only":
+        mode_overrides_active = bool(
+            playlists_cfg.get("genre_mode") or playlists_cfg.get("sonic_mode")
+        )
+        if mode == "sonic_only" and not mode_overrides_active:
             genre_enabled = False
             min_genre_sim = None
             genre_method = None
@@ -1514,11 +1681,13 @@ class PlaylistGenerator:
         artist_name: str,
         track_count: int = 30,
         track_title: Optional[str] = None,
+        track_titles: Optional[List[str]] = None,
         dynamic: bool = False,
         dry_run: bool = False,
         verbose: bool = False,
         ds_mode_override: Optional[str] = None,
         artist_only: bool = False,
+        anchor_seed_ids: Optional[List[str]] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Create a single playlist for a specific artist without requiring listening history
@@ -1579,9 +1748,89 @@ class PlaylistGenerator:
         for track in artist_tracks:
             track['play_count'] = 0
 
+        fixed_seed_tracks: List[Dict[str, Any]] = []
+        fixed_anchor_ids: Optional[List[str]] = None
+        if anchor_seed_ids:
+            fixed_anchor_ids = [str(tid) for tid in anchor_seed_ids if str(tid).strip()]
+            if fixed_anchor_ids:
+                if track_title:
+                    logger.info("Both track_title and anchor_seed_ids provided; using anchor_seed_ids.")
+                if track_titles:
+                    logger.info("Both track_titles and anchor_seed_ids provided; using anchor_seed_ids.")
+                if hasattr(self.library, "get_tracks_by_ids"):
+                    fetched = self.library.get_tracks_by_ids(fixed_anchor_ids)
+                    lookup = {str(t.get("rating_key")): t for t in fetched or []}
+                    for tid in fixed_anchor_ids:
+                        track = lookup.get(str(tid))
+                        if track:
+                            fixed_seed_tracks.append(track)
+                else:
+                    for tid in fixed_anchor_ids:
+                        track = self.library.get_track_by_key(str(tid))
+                        if track:
+                            fixed_seed_tracks.append(track)
+
+                if fixed_seed_tracks:
+                    artist_key_norm = normalize_artist_key(artist_name)
+                    mismatched = [
+                        t for t in fixed_seed_tracks
+                        if safe_get_artist_key(t) != artist_key_norm
+                    ]
+                    if mismatched:
+                        logger.warning(
+                            "Fixed pier seeds include non-matching artists (%d/%d); filtering to requested artist.",
+                            len(mismatched),
+                            len(fixed_seed_tracks),
+                        )
+                        fixed_seed_tracks = [
+                            t for t in fixed_seed_tracks
+                            if safe_get_artist_key(t) == artist_key_norm
+                        ]
+                    if not fixed_seed_tracks:
+                        logger.warning(
+                            "No fixed pier seeds matched artist '%s'; falling back to default seeds.",
+                            artist_name,
+                        )
+                else:
+                    logger.warning("No tracks found for anchor_seed_ids; falling back to default seeds.")
+        elif track_titles:
+            normalized_titles = [str(t).strip() for t in track_titles if str(t).strip()]
+            if normalized_titles:
+                seen_titles: set[str] = set()
+                for title in normalized_titles:
+                    key = title.casefold()
+                    if key in seen_titles:
+                        continue
+                    seen_titles.add(key)
+                    selected = self._select_canonical_track(artist_tracks, title)
+                    if selected:
+                        fixed_seed_tracks.append(selected)
+                    else:
+                        logger.warning(
+                            "Requested seed track '%s' not found for artist %s",
+                            title,
+                            artist_name,
+                        )
+                if fixed_seed_tracks:
+                    logger.info(
+                        "Using %d fixed seed tracks from title list for %s",
+                        len(fixed_seed_tracks),
+                        artist_name,
+                    )
+                else:
+                    logger.warning(
+                        "No requested seed tracks found for artist %s; falling back to default seeds.",
+                        artist_name,
+                    )
+            else:
+                logger.warning("track_titles provided but empty after normalization; falling back to default seeds.")
+
         # If a specific track title is provided, select canonical match and keep seeds focused
         seed_tracks: List[Dict[str, Any]] = []
-        if track_title:
+        if fixed_seed_tracks:
+            seed_tracks = fixed_seed_tracks
+            logger.info("Using %d fixed pier seeds for %s", len(seed_tracks), artist_name)
+        elif track_title:
             selected = self._select_canonical_track(artist_tracks, track_title)
             if selected:
                 seed_tracks = [selected]
@@ -1592,9 +1841,21 @@ class PlaylistGenerator:
         if not seed_tracks:
             # Get 4 seed tracks (2 most played + 2 random from top 10)
             # Since we don't have play counts, just pick 4 random tracks
+            # Filter by duration before selecting (exclude short/long tracks)
+            from src.playlist.filtering import is_valid_duration
+            valid_tracks = [t for t in artist_tracks if is_valid_duration(t, min_seconds=47, max_seconds=720)]
+            if len(valid_tracks) == 0:
+                raise ValueError(f"Artist '{artist_name}' has no tracks in valid duration range (47s-720s)")
+            if len(valid_tracks) < 4:
+                logger.warning(f"Artist has only {len(valid_tracks)} valid-duration tracks (requested 4); using all valid tracks")
             import random
-            seed_tracks = random.sample(artist_tracks, min(4, len(artist_tracks)))
+            seed_tracks = random.sample(valid_tracks, min(4, len(valid_tracks)))
 
+        anchor_seed_ids_override = None
+        if fixed_seed_tracks:
+            anchor_seed_ids_override = [
+                str(t.get("rating_key")) for t in seed_tracks if t.get("rating_key")
+            ]
         seed_titles = [track.get('title') for track in seed_tracks]
         logger.info(f"Seeds ({len(seed_tracks)}): {', '.join(seed_titles)}")
 
@@ -1612,7 +1873,10 @@ class PlaylistGenerator:
         # DS scope selection
         allowed_track_ids: Optional[List[str]] = None
         if artist_only:
-            ds_candidates = list(artist_tracks)
+            # IMPORTANT: Filter artist_tracks by duration for DS candidate pool
+            # This ensures no tracks outside valid duration range (47s-720s) are selected
+            from src.playlist.filtering import is_valid_duration
+            ds_candidates = [t for t in artist_tracks if is_valid_duration(t, min_seconds=47, max_seconds=720)]
             excluded_ids = set()
             if scrobbles:
                 excluded_ids = self._compute_excluded_from_scrobbles(
@@ -1695,7 +1959,7 @@ class PlaylistGenerator:
         style_allowed_track_ids: Optional[List[str]] = None
         internal_connector_ids: Optional[List[str]] = None
 
-        if style_cfg.enabled and artifact_path and (not artist_only) and (not track_title):
+        if style_cfg.enabled and artifact_path and (not artist_only) and (not track_title) and not fixed_seed_tracks:
             try:
                 bundle = load_artifact_bundle(artifact_path)
                 sonic_cfg = self.config.get("playlists", "sonic", default={}) or {}
@@ -1894,6 +2158,7 @@ class PlaylistGenerator:
                         allowed_track_ids=allowed_track_ids or None,
                         excluded_track_ids=excluded_ids or None,
                         anchor_seed_tracks=seed_tracks,  # Pass full seed track info for title+artist resolution
+                        anchor_seed_ids=anchor_seed_ids_override,
                         artist_style_enabled=False,
                         artist_playlist=True,
                         pool_source=pool_source,
@@ -1981,6 +2246,229 @@ class PlaylistGenerator:
             'title': title,
             'artists': (artist_name,),
             'genres': [],
+            'tracks': final_tracks,
+            'ds_report': getattr(self, "_last_ds_report", None),
+        }
+
+    def create_playlist_for_genre(
+        self,
+        genre_name: str,
+        track_count: int = 30,
+        dynamic: bool = False,
+        dry_run: bool = False,
+        verbose: bool = False,
+        ds_mode_override: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Create a single playlist for a specific genre without requiring listening history
+
+        Args:
+            genre_name: Name of the genre to create playlist for
+            track_count: Target number of tracks in playlist
+            dynamic: Use dynamic mode (lower genre similarity threshold)
+            dry_run: Preview mode (for testing)
+            verbose: Enable verbose edge scoring output
+            ds_mode_override: Override DS mode (narrow/dynamic/discover/sonic_only)
+
+        Returns:
+            Playlist dictionary with tracks and metadata, or None if unable to create
+        """
+        from src.genre_normalization import normalize_genre_token
+
+        # Normalize the genre name
+        normalized_genre = normalize_genre_token(genre_name)
+        if not normalized_genre:
+            logger.warning(f"Genre '{genre_name}' could not be normalized")
+            return None
+
+        logger.info(f"Creating playlist for genre: {genre_name} (normalized: {normalized_genre})")
+
+        # Get tracks matching this genre
+        genre_tracks = self.library.get_tracks_for_genre(normalized_genre, limit=1000)
+
+        if not genre_tracks:
+            # No exact matches - suggest alternatives
+            suggestions = self.library.suggest_similar_genres(normalized_genre, limit=10)
+            logger.warning(f"No tracks found for genre '{normalized_genre}'")
+            if suggestions:
+                logger.info(f"Did you mean one of these genres? {', '.join(suggestions)}")
+            return None
+
+        if len(genre_tracks) < 4:
+            logger.warning(f"Genre '{normalized_genre}' has only {len(genre_tracks)} tracks, need at least 4")
+            return None
+
+        logger.info(f"Found {len(genre_tracks)} tracks for genre '{normalized_genre}'")
+
+        # Add play count (0 for all, since we don't use history for genre mode)
+        for track in genre_tracks:
+            track['play_count'] = 0
+
+        # Select seed tracks (4 seeds for consistency with artist mode)
+        # Use deterministic selection based on random_seed from config
+        # Filter by duration before selecting (exclude short/long tracks)
+        from src.playlist.filtering import is_valid_duration
+        valid_tracks = [t for t in genre_tracks if is_valid_duration(t, min_seconds=47, max_seconds=720)]
+        if len(valid_tracks) == 0:
+            raise ValueError(f"Genre '{genre_name}' has no tracks in valid duration range (47s-720s)")
+        if len(valid_tracks) < 10:
+            raise ValueError(
+                f"Genre '{genre_name}' has only {len(valid_tracks)} valid-duration tracks "
+                f"(minimum 10 required for playlist generation). "
+                f"Total tracks in genre: {len(genre_tracks)}"
+            )
+        if len(valid_tracks) < 4:
+            logger.warning(f"Genre has only {len(valid_tracks)} valid-duration tracks (requested 4); using all valid tracks")
+
+        import random
+        ds_cfg = self.config.get('playlists', 'ds_pipeline', default={}) or {}
+        random_seed = ds_cfg.get('random_seed', 0)
+        rng = random.Random(random_seed)
+        seed_count = min(4, len(valid_tracks))
+        seed_tracks = rng.sample(valid_tracks, seed_count)
+
+        seed_info = [f"{t.get('artist')} - {t.get('title')}" for t in seed_tracks]
+        logger.info(f"Seeds ({len(seed_tracks)}): {', '.join(seed_info[:3])}{'...' if len(seed_info) > 3 else ''}")
+
+        # Prepare recency data (scrobbles for filtering)
+        scrobbles: List[Dict[str, Any]] = []
+        if self.lastfm:
+            try:
+                scrobbles = self._get_lastfm_scrobbles_raw(use_cache=True)
+            except Exception as exc:
+                logger.warning("Last.FM scrobble fetch failed; skipping scrobble recency filter (%s)", exc, exc_info=True)
+
+        # DS scope: use genre tracks as candidate pool (not entire library)
+        # IMPORTANT: Use valid_tracks (duration-filtered) not genre_tracks (unfiltered)
+        ds_candidates = valid_tracks
+        excluded_ids = set()
+
+        if scrobbles:
+            excluded_ids = self._compute_excluded_from_scrobbles(
+                ds_candidates,
+                scrobbles,
+                lookback_days=self.config.recently_played_lookback_days,
+                seed_id=seed_tracks[0].get('rating_key') if seed_tracks else None,
+            )
+            logger.info(f"stage=candidate_pool | Last.fm recency exclusions: before={len(ds_candidates)} after={len(ds_candidates) - len(excluded_ids)} excluded={len(excluded_ids)}")
+
+        allowed_track_ids = [t.get("rating_key") for t in ds_candidates if t.get("rating_key") and str(t.get("rating_key")) not in excluded_ids]
+
+        logger.info(f"DS scope: genre (allowed_ids={len(allowed_track_ids)})")
+
+        # Determine DS mode
+        ds_mode = ds_mode_override or (self.ds_mode_override if hasattr(self, 'ds_mode_override') and self.ds_mode_override else None)
+        if not ds_mode:
+            ds_cfg = self.config.get('playlists', 'ds_pipeline', default={}) or {}
+            ds_mode = "dynamic" if dynamic else ds_cfg.get('mode', 'dynamic')
+
+        logger.info(f"Running pipeline with mode={ds_mode}")
+
+        # Genre mode doesn't use artist_style clustering (no single artist to cluster)
+        # But we still use pier-bridge with the genre seeds as piers
+        style_seed_track_id = seed_tracks[0].get('rating_key') if seed_tracks else None
+        anchor_seed_ids = [s.get('rating_key') for s in seed_tracks if s.get('rating_key')]
+
+        # Call DS pipeline
+        # Note: Pier-bridge may drop 1-2 tracks for cross-segment gap enforcement (quality control)
+        # Accept results within tolerance rather than requiring exact match
+        ds_tracks = None
+        import re
+
+        try:
+            ds_tracks = self._maybe_generate_ds_playlist(
+                seed_track_id=style_seed_track_id,
+                target_length=track_count,
+                mode_override=ds_mode,
+                allowed_track_ids=allowed_track_ids,
+                excluded_track_ids=excluded_ids,
+                anchor_seed_tracks=seed_tracks,  # Pass full seed track info
+                anchor_seed_ids=anchor_seed_ids,
+                artist_style_enabled=False,  # No artist clustering for genre mode
+                artist_playlist=False,  # Genre mode, not artist mode
+                pool_source="library",
+                dry_run=bool(dry_run),
+                audit_context_extra={
+                    "genre": normalized_genre,
+                    "seed_mode": "genre",
+                },
+                internal_connector_ids=None,
+                internal_connector_max_per_segment=0,
+                internal_connector_priority=False,
+            )
+        except ValueError as e:
+            error_msg = str(e)
+            if "length_mismatch" in error_msg and "final=" in error_msg:
+                # Pier-bridge drops tracks for gap enforcement - accept if close enough
+                match = re.search(r'final=(\d+)', error_msg)
+                if match:
+                    actual_length = int(match.group(1))
+                    tolerance = max(3, int(track_count * 0.1))  # Within 3 tracks or 10%
+                    min_acceptable = max(15, int(track_count * 0.5))  # At least 50% or 15 tracks
+
+                    if actual_length < min_acceptable:
+                        logger.error(
+                            f"Genre '{normalized_genre}' candidate pool too small: "
+                            f"got {actual_length} tracks (minimum {min_acceptable}). "
+                            f"Try --ds-mode dynamic or discover for larger pool."
+                        )
+                        raise
+
+                    if actual_length >= track_count - tolerance:
+                        # Close enough - retry with exact actual length to pass validation
+                        logger.warning(
+                            f"Genre mode: Pier-bridge produced {actual_length} tracks (target {track_count}), "
+                            f"accepting result (within tolerance)"
+                        )
+                        ds_tracks = self._maybe_generate_ds_playlist(
+                            seed_track_id=style_seed_track_id,
+                            target_length=actual_length,  # Use actual achievable length
+                            mode_override=ds_mode,
+                            allowed_track_ids=allowed_track_ids,
+                            excluded_track_ids=excluded_ids,
+                            anchor_seed_tracks=seed_tracks,
+                            anchor_seed_ids=anchor_seed_ids,
+                            artist_style_enabled=False,
+                            artist_playlist=False,
+                            pool_source="library",
+                            dry_run=bool(dry_run),
+                            audit_context_extra={
+                                "genre": normalized_genre,
+                                "seed_mode": "genre",
+                                "adjusted_target": True,
+                            },
+                            internal_connector_ids=None,
+                            internal_connector_max_per_segment=0,
+                            internal_connector_priority=False,
+                        )
+                    else:
+                        logger.error(
+                            f"Genre '{normalized_genre}': Pier-bridge produced {actual_length} tracks "
+                            f"(target {track_count}, tolerance {tolerance}). "
+                            f"Try --ds-mode dynamic or reduce --tracks to {actual_length}."
+                        )
+                        raise
+                else:
+                    raise  # Can't parse length, re-raise
+            else:
+                raise  # Not a length mismatch error, re-raise
+
+        if not ds_tracks:
+            logger.warning(f"DS pipeline returned no tracks for genre '{normalized_genre}'")
+            return None
+
+        final_tracks = ds_tracks
+
+        logger.info(f"Generated {len(final_tracks)} tracks for genre '{normalized_genre}'")
+
+        # Print summary
+        title = f"Auto: {normalized_genre.title()}"
+        self._print_playlist_report(final_tracks, artist_name=None, dynamic=dynamic, verbose_edges=verbose)
+
+        return {
+            'title': title,
+            'artists': tuple(set(t.get('artist') for t in final_tracks if t.get('artist'))),
+            'genres': [normalized_genre],
             'tracks': final_tracks,
             'ds_report': getattr(self, "_last_ds_report", None),
         }
@@ -2546,6 +3034,156 @@ class PlaylistGenerator:
             logger.info(f"  Seed artist ({artist}): {sum(1 for t in final_tracks if t.get('artist') == artist)} tracks\n")
 
         return playlists
+
+    def create_playlist_from_seed_tracks(
+        self,
+        seed_tracks: List[str],
+        *,
+        track_count: int = 30,
+        dynamic: bool = False,
+        ds_mode_override: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Create a playlist from explicit seed tracks without requiring an artist name.
+        Seed tracks should be provided in "Title - Artist" format (autocomplete default).
+        """
+        if not seed_tracks:
+            raise ValueError("No seed tracks provided.")
+
+        all_library_tracks = self.library.get_all_tracks()
+
+        def _parse_seed_entry(entry: str) -> tuple[str, str]:
+            title = entry.strip()
+            artist = ""
+            if " - " in title:
+                title_part, artist_part = title.split(" - ", 1)
+                title = title_part.strip()
+                artist = artist_part.strip()
+                if " (" in artist:
+                    artist = artist.split(" (", 1)[0].strip()
+            return title, artist
+
+        resolved_seeds: List[Dict[str, Any]] = []
+        seen_keys: set[str] = set()
+        for entry in seed_tracks:
+            title, artist = _parse_seed_entry(str(entry))
+            if not title:
+                continue
+            if not artist:
+                logger.warning(
+                    "Seed entry '%s' missing artist; skipping.",
+                    entry,
+                )
+                continue
+            artist_key = normalize_artist_key(artist)
+            artist_tracks = [
+                t for t in all_library_tracks if safe_get_artist_key(t) == artist_key
+            ]
+            if not artist_tracks:
+                logger.warning(
+                    "No tracks found for seed artist '%s' (entry '%s')",
+                    artist,
+                    entry,
+                )
+                continue
+            selected = self._select_canonical_track(artist_tracks, title)
+            if not selected:
+                logger.warning(
+                    "Seed track '%s' not found for artist '%s'",
+                    title,
+                    artist,
+                )
+                continue
+            key = str(selected.get("rating_key") or selected.get("track_id") or "")
+            if not key or key in seen_keys:
+                continue
+            seen_keys.add(key)
+            selected["play_count"] = 0
+            resolved_seeds.append(selected)
+
+        if not resolved_seeds:
+            raise ValueError("No valid seed tracks resolved from selection.")
+
+        seed_titles = [t.get("title") for t in resolved_seeds]
+        logger.info("Seeds (%d): %s", len(resolved_seeds), ", ".join(seed_titles))
+
+        scrobbles: List[Dict[str, Any]] = []
+        if self.lastfm:
+            try:
+                scrobbles = self._get_lastfm_scrobbles_raw(use_cache=True)
+            except Exception as exc:
+                logger.warning(
+                    "Last.FM scrobble fetch failed; skipping scrobble recency filter (%s)",
+                    exc,
+                    exc_info=True,
+                )
+
+        excluded_ids = set()
+        if scrobbles:
+            excluded_ids = self._compute_excluded_from_scrobbles(
+                all_library_tracks,
+                scrobbles,
+                lookback_days=self.config.recently_played_lookback_days,
+                seed_id=resolved_seeds[0].get("rating_key"),
+            )
+            if excluded_ids and len(all_library_tracks) - len(excluded_ids) <= 1:
+                logger.warning(
+                    "Recency exclusions would empty DS library candidate set; skipping recency exclusion."
+                )
+                excluded_ids = set()
+
+        ds_tracks = self._maybe_generate_ds_playlist(
+            seed_track_id=resolved_seeds[0].get("rating_key"),
+            target_length=track_count,
+            mode_override=ds_mode_override,
+            anchor_seed_tracks=resolved_seeds,
+            anchor_seed_ids=[s.get("rating_key") for s in resolved_seeds if s.get("rating_key")],
+            excluded_track_ids=excluded_ids or None,
+            artist_playlist=False,
+            pool_source="seeded",
+        )
+
+        if ds_tracks is None:
+            raise ValueError("DS pipeline returned no tracks.")
+
+        last_report = getattr(self, "_last_ds_report", None) or {}
+        is_pier_bridge = (last_report.get("metrics") or {}).get("strategy") == "pier_bridge"
+
+        audit_path = None
+        try:
+            audit_path = (last_report.get("playlist_stats") or {}).get("playlist", {}).get("audit_path")
+        except Exception:
+            audit_path = None
+
+        exempt_pier_ids = {
+            str(t.get("rating_key")) for t in resolved_seeds if t.get("rating_key")
+        }
+        self._post_order_validate_ds_output(
+            ordered_tracks=ds_tracks,
+            expected_length=track_count,
+            excluded_track_ids=set(excluded_ids or set()),
+            exempt_pier_track_ids=exempt_pier_ids,
+            audit_path=str(audit_path) if audit_path else None,
+        )
+
+        if is_pier_bridge:
+            final_tracks = ds_tracks
+        else:
+            final_tracks = self._ensure_seed_tracks_present(
+                resolved_seeds,
+                ds_tracks,
+                track_count,
+            )
+
+        title = "Auto: Seeded"
+        self._print_playlist_report(final_tracks, artist_name="Seeded", dynamic=dynamic)
+        return {
+            "title": title,
+            "artists": tuple(sorted({t.get("artist") for t in resolved_seeds if t.get("artist")})),
+            "genres": [],
+            "tracks": final_tracks,
+            "ds_report": getattr(self, "_last_ds_report", None),
+        }
 
     def _get_additional_artist_tracks(self, artist: str, history: List[Dict[str, Any]],
                                       existing_tracks: List[Dict[str, Any]],
