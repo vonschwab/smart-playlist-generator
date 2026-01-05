@@ -77,3 +77,10 @@ pytest_output.txt
 
 # Development archives
 docs/archive/
+# Audit/test docs
+docs/run_audits/
+docs/DEPRECATION_GUIDE.md
+docs/FEATURE_FLAG_MIGRATION_PLAN.md
+docs/REFACTORING_PROGRESS_SUMMARY.md
+docs/mode_audit_*.md
+
