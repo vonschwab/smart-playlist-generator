@@ -94,3 +94,23 @@ def test_dj_union_pool_includes_local_and_genre_sources():
     assert 2 in result.candidates
     assert 3 in result.candidates
     assert result.diagnostics.get("dj_pool_strategy") == "dj_union"
+
+
+def test_internal_connectors_included_in_pool():
+    bundle = _bundle_for_pool_test()
+    cfg = SegmentPoolConfig(
+        pier_a=0,
+        pier_b=1,
+        X_full_norm=bundle.X_sonic,
+        universe_indices=[0, 1, 2, 3],
+        used_track_ids=set(),
+        bundle=bundle,
+        bridge_floor=0.0,
+        segment_pool_max=3,
+        internal_connectors={2},
+        internal_connector_cap=1,
+        internal_connector_priority=True,
+        pool_strategy="segment_scored",
+    )
+    result = SegmentCandidatePoolBuilder().build(cfg)
+    assert 2 in result.candidates

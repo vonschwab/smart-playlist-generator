@@ -905,6 +905,7 @@ def generate_playlist_ds(
                 pool_union_max = pb_cfg.dj_pooling_k_union_max
                 pool_step_stride = pb_cfg.dj_pooling_step_stride
                 pool_cache_enabled = pb_cfg.dj_pooling_cache_enabled
+                pool_debug_compare_baseline = pb_cfg.dj_pooling_debug_compare_baseline
                 allow_detours_when_far = pb_cfg.dj_allow_detours_when_far
                 far_threshold_sonic = pb_cfg.dj_far_threshold_sonic
                 far_threshold_genre = pb_cfg.dj_far_threshold_genre
@@ -953,6 +954,10 @@ def generate_playlist_ds(
                         pool_step_stride = int(pooling_raw.get("step_stride"))
                     if isinstance(pooling_raw.get("cache_enabled"), bool):
                         pool_cache_enabled = bool(pooling_raw.get("cache_enabled"))
+                    if isinstance(pooling_raw.get("debug_compare_baseline"), bool):
+                        pool_debug_compare_baseline = bool(
+                            pooling_raw.get("debug_compare_baseline")
+                        )
                 if isinstance(dj_raw.get("allow_detours_when_far"), bool):
                     allow_detours_when_far = bool(dj_raw.get("allow_detours_when_far"))
                 far_raw = dj_raw.get("far_thresholds")
@@ -971,6 +976,30 @@ def generate_playlist_ds(
                         connector_max_linear = int(connector_raw.get("max_per_segment_linear"))
                     if isinstance(connector_raw.get("max_per_segment_adventurous"), int):
                         connector_max_adventurous = int(connector_raw.get("max_per_segment_adventurous"))
+                connectors_raw = dj_raw.get("connectors")
+                if isinstance(connectors_raw, dict):
+                    if isinstance(connectors_raw.get("enabled"), bool):
+                        connector_bias_enabled = bool(connectors_raw.get("enabled"))
+                    if isinstance(connectors_raw.get("max_connectors"), int):
+                        connector_max_linear = int(connectors_raw.get("max_connectors"))
+                        connector_max_adventurous = int(connectors_raw.get("max_connectors"))
+                    if isinstance(connectors_raw.get("use_only_when_far"), bool):
+                        allow_detours_when_far = bool(
+                            connectors_raw.get("use_only_when_far")
+                        )
+                    if isinstance(connectors_raw.get("far_threshold"), (int, float)):
+                        far_threshold_sonic = float(connectors_raw.get("far_threshold"))
+                        far_threshold_genre = float(connectors_raw.get("far_threshold"))
+                    far_overrides = connectors_raw.get("far_thresholds")
+                    if isinstance(far_overrides, dict):
+                        if isinstance(far_overrides.get("sonic"), (int, float)):
+                            far_threshold_sonic = float(far_overrides.get("sonic"))
+                        if isinstance(far_overrides.get("genre"), (int, float)):
+                            far_threshold_genre = float(far_overrides.get("genre"))
+                        if isinstance(far_overrides.get("connector_scarcity"), (int, float)):
+                            far_threshold_connector = float(
+                                far_overrides.get("connector_scarcity")
+                            )
                 ladder_raw = dj_raw.get("ladder")
                 if isinstance(ladder_raw, dict):
                     if isinstance(ladder_raw.get("top_labels"), int):
@@ -1012,6 +1041,7 @@ def generate_playlist_ds(
                     dj_pooling_k_union_max=int(pool_union_max),
                     dj_pooling_step_stride=int(pool_step_stride),
                     dj_pooling_cache_enabled=bool(pool_cache_enabled),
+                    dj_pooling_debug_compare_baseline=bool(pool_debug_compare_baseline),
                     dj_allow_detours_when_far=bool(allow_detours_when_far),
                     dj_far_threshold_sonic=float(far_threshold_sonic),
                     dj_far_threshold_genre=float(far_threshold_genre),

@@ -147,6 +147,7 @@ class PierBridgeConfig:
     dj_pooling_k_union_max: int = 900
     dj_pooling_step_stride: int = 1
     dj_pooling_cache_enabled: bool = True
+    dj_pooling_debug_compare_baseline: bool = False
     dj_allow_detours_when_far: bool = True
     dj_far_threshold_sonic: float = 0.45
     dj_far_threshold_genre: float = 0.60
@@ -421,6 +422,62 @@ def _compute_progress_tracking_metrics(
         "p90_abs_dev": float(np.percentile(dev_arr, 90)),
         "max_progress_jump": (float(max_jump) if max_jump is not None else None),
     }
+
+
+def _compute_pool_overlap_metrics(
+    baseline_candidates: List[int],
+    union_candidates: List[int],
+) -> Dict[str, Any]:
+    baseline_set = set(int(i) for i in baseline_candidates)
+    union_set = set(int(i) for i in union_candidates)
+    intersection = baseline_set & union_set
+    union_all = baseline_set | union_set
+    jaccard = float(len(intersection) / len(union_all)) if union_all else 0.0
+    return {
+        "pool_overlap_jaccard": float(jaccard),
+        "pool_overlap_baseline_only": int(len(baseline_set - union_set)),
+        "pool_overlap_union_only": int(len(union_set - baseline_set)),
+        "pool_overlap_intersection": int(len(intersection)),
+        "pool_overlap_baseline_size": int(len(baseline_set)),
+        "pool_overlap_union_size": int(len(union_set)),
+    }
+
+
+def _compute_chosen_source_counts(
+    path: List[int],
+    *,
+    sources: Optional[Dict[str, Set[int]]] = None,
+    baseline_pool: Optional[Set[int]] = None,
+) -> Dict[str, int]:
+    sources = sources or {}
+    local = sources.get("local", set())
+    toward = sources.get("toward", set())
+    genre = sources.get("genre", set())
+    counts = {
+        "chosen_from_local_count": 0,
+        "chosen_from_toward_count": 0,
+        "chosen_from_genre_count": 0,
+        "chosen_from_baseline_count": 0,
+        "chosen_from_multiple_sources_count": 0,
+    }
+    for idx in path:
+        idx = int(idx)
+        membership = 0
+        if idx in local:
+            counts["chosen_from_local_count"] += 1
+            membership += 1
+        if idx in toward:
+            counts["chosen_from_toward_count"] += 1
+            membership += 1
+        if idx in genre:
+            counts["chosen_from_genre_count"] += 1
+            membership += 1
+        if baseline_pool is not None and idx in baseline_pool:
+            counts["chosen_from_baseline_count"] += 1
+            membership += 1
+        if membership > 1:
+            counts["chosen_from_multiple_sources_count"] += 1
+    return counts
 
 
 def _summarize_candidates_for_audit(
@@ -1079,6 +1136,24 @@ def _segment_far_stats(
         "genre_sim": sim_genre,
         "connector_scarcity": scarcity,
     }
+
+
+def _select_connector_candidates(
+    available: List[int],
+    X_full_norm: np.ndarray,
+    pier_a: int,
+    pier_b: int,
+    cap: int,
+) -> List[int]:
+    if cap <= 0 or not available:
+        return []
+    vec_a = X_full_norm[pier_a]
+    vec_b = X_full_norm[pier_b]
+    sims_a = np.dot(X_full_norm[available], vec_a)
+    sims_b = np.dot(X_full_norm[available], vec_b)
+    scores = np.minimum(sims_a, sims_b)
+    order = np.argsort(-scores)
+    return [int(available[int(i)]) for i in order[:cap]]
 
 
 def _order_seeds_by_bridgeability(
@@ -2695,19 +2770,34 @@ def build_pier_bridge_playlist(
                     if dj_connector_cap > 0:
                         available = [int(i) for i in universe if int(i) not in global_used]
                         if allowed_set_indices is not None:
-                            allowed = set(int(i) for i in allowed_set_indices)
+                            allowed = set(int(i) for i in allowed_set_indices)  
                             available = [int(i) for i in available if int(i) in allowed]
                         if available:
-                            vec_a = X_full_norm[pier_a]
-                            vec_b = X_full_norm[pier_b]
-                            sims_a = np.dot(X_full_norm[available], vec_a)
-                            sims_b = np.dot(X_full_norm[available], vec_b)
-                            scores = np.minimum(sims_a, sims_b)
-                            order = np.argsort(-scores)
-                            dj_connectors = [available[int(i)] for i in order[:dj_connector_cap]]
+                            dj_connectors = _select_connector_candidates(
+                                available,
+                                X_full_norm,
+                                pier_a,
+                                pier_b,
+                                dj_connector_cap,
+                            )
                         else:
                             dj_connectors = []
                         pool_diag["dj_connectors_selected"] = int(len(dj_connectors))
+                        pool_diag["dj_connectors_injected_count"] = int(len(dj_connectors))
+                        if dj_connectors:
+                            try:
+                                pool_diag["dj_connectors_preview"] = [
+                                    str(bundle.track_ids[int(i)])
+                                    for i in dj_connectors[:5]
+                                ]
+                            except Exception:
+                                pool_diag["dj_connectors_preview"] = [
+                                    str(int(i)) for i in dj_connectors[:5]
+                                ]
+                            if segment_pool_cache is not None:
+                                segment_pool_cache["dj_connectors"] = set(
+                                    int(i) for i in dj_connectors
+                                )
                         if dj_connectors:
                             if segment_internal_connectors:
                                 segment_internal_connectors = set(segment_internal_connectors) | set(dj_connectors)
@@ -2794,6 +2884,73 @@ def build_pier_bridge_playlist(
                         cand_artist_keys[int(pier_b)] = identity_keys_for_index(bundle, int(pier_b)).artist_key
                     except Exception:
                         cand_artist_keys = {}
+                    if (
+                        bool(cfg.dj_bridging_enabled)
+                        and str(cfg.dj_pooling_strategy or "baseline")
+                        .strip()
+                        .lower()
+                        == "dj_union"
+                        and bool(cfg.dj_pooling_debug_compare_baseline)
+                    ):
+                        baseline_candidates, _, _ = _build_segment_candidate_pool_scored(
+                            pier_a=pier_a,
+                            pier_b=pier_b,
+                            X_full_norm=X_full_norm,
+                            universe_indices=universe,
+                            used_track_ids=global_used,
+                            bundle=bundle,
+                            bridge_floor=float(bridge_floor),
+                            segment_pool_max=int(segment_pool_max),
+                            allowed_set=(
+                                allowed_set_indices
+                                if allowed_set_indices is not None
+                                else None
+                            ),
+                            internal_connectors=segment_internal_connectors,
+                            internal_connector_cap=segment_connector_cap,
+                            internal_connector_priority=internal_connector_priority,
+                            seed_artist_key=seed_artist_key,
+                            disallow_pier_artists_in_interiors=bool(
+                                cfg.disallow_pier_artists_in_interiors
+                            ),
+                            disallow_seed_artist_in_interiors=bool(
+                                cfg.disallow_seed_artist_in_interiors
+                            ),
+                            used_track_keys=used_track_keys,
+                            seed_track_keys=seed_track_keys,
+                            diagnostics=None,
+                            experiment_bridge_scoring_enabled=bool(
+                                cfg.experiment_bridge_scoring_enabled
+                            ),
+                            experiment_bridge_min_weight=float(
+                                cfg.experiment_bridge_min_weight
+                            ),
+                            experiment_bridge_balance_weight=float(
+                                cfg.experiment_bridge_balance_weight
+                            ),
+                            pool_strategy="segment_scored",
+                            interior_length=int(interior_len),
+                            progress_arc_enabled=bool(cfg.progress_arc_enabled),
+                            progress_arc_shape=str(cfg.progress_arc_shape),
+                            X_genre_norm=X_genre_norm,
+                            genre_targets=segment_g_targets,
+                            pool_k_local=0,
+                            pool_k_toward=0,
+                            pool_k_genre=0,
+                            pool_k_union_max=0,
+                            pool_step_stride=int(cfg.dj_pooling_step_stride),
+                            pool_cache_enabled=False,
+                            pooling_cache=None,
+                        )
+                        pool_diag.update(
+                            _compute_pool_overlap_metrics(
+                                baseline_candidates, segment_candidates
+                            )
+                        )
+                        if segment_pool_cache is not None:
+                            segment_pool_cache["dj_baseline_pool"] = set(
+                                int(i) for i in baseline_candidates
+                            )
                 expansion_attempts_used = attempt + 1
                 if attempt == 0:
                     pool_size_initial = len(segment_candidates)
@@ -2847,6 +3004,45 @@ def build_pier_bridge_playlist(
                         g_targets_override=segment_g_targets,
                     )
                     last_failure_reason = beam_failure_reason
+                    if segment_path is not None:
+                        baseline_pool = None
+                        if (
+                            segment_pool_cache is not None
+                            and "dj_baseline_pool" in segment_pool_cache
+                        ):
+                            baseline_pool = segment_pool_cache.get(
+                                "dj_baseline_pool"
+                            )
+                        elif pool_strategy != "dj_union":
+                            baseline_pool = set(int(i) for i in segment_candidates)
+                        sources = None
+                        if segment_pool_cache is not None:
+                            sources = segment_pool_cache.get("dj_pool_sources")
+                        last_pool_diag.update(
+                            _compute_chosen_source_counts(
+                                segment_path,
+                                sources=sources,
+                                baseline_pool=baseline_pool,
+                            )
+                        )
+                        if segment_pool_cache is not None and "dj_connectors" in segment_pool_cache:
+                            connector_set = segment_pool_cache.get("dj_connectors", set())
+                            chosen_connectors = [
+                                int(i) for i in segment_path if int(i) in connector_set
+                            ]
+                            last_pool_diag["dj_connectors_chosen_count"] = int(
+                                len(chosen_connectors)
+                            )
+                            if chosen_connectors:
+                                try:
+                                    last_pool_diag["dj_connectors_chosen_preview"] = [
+                                        str(bundle.track_ids[int(i)])
+                                        for i in chosen_connectors[:5]
+                                    ]
+                                except Exception:
+                                    last_pool_diag["dj_connectors_chosen_preview"] = [
+                                        str(int(i)) for i in chosen_connectors[:5]
+                                    ]
 
                 if segment_path is not None:
                     break
@@ -3295,6 +3491,9 @@ def build_pier_bridge_playlist(
                 "pooling_k_union_max": int(cfg.dj_pooling_k_union_max),
                 "pooling_step_stride": int(cfg.dj_pooling_step_stride),
                 "pooling_cache_enabled": bool(cfg.dj_pooling_cache_enabled),
+                "pooling_debug_compare_baseline": bool(
+                    cfg.dj_pooling_debug_compare_baseline
+                ),
                 "allow_detours_when_far": bool(cfg.dj_allow_detours_when_far),
                 "far_thresholds": {
                     "sonic": float(cfg.dj_far_threshold_sonic),

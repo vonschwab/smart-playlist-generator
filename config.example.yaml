@@ -257,6 +257,7 @@ playlists:
           k_union_max: 900
           step_stride: 1
           cache_enabled: true
+          debug_compare_baseline: false
         allow_detours_when_far: true
         far_thresholds:
           sonic: 0.45
@@ -266,6 +267,11 @@ playlists:
           enabled: true
           max_per_segment_linear: 1
           max_per_segment_adventurous: 3
+        connectors:
+          enabled: false             # Alternate connector bias config (overrides connector_bias when set)
+          max_connectors: 2
+          use_only_when_far: true
+          far_threshold: 0.50
         ladder:
           top_labels: 5
           min_label_weight: 0.05

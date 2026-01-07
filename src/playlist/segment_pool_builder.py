@@ -130,6 +130,9 @@ class SegmentPoolConfig:
     pooling_cache: Optional[Dict[str, Any]] = None
     """Optional cache for per-step pooling computations."""
 
+    pool_debug_compare_baseline: bool = False
+    """If True, caller may compute baseline overlap for diagnostics."""
+
 
 @dataclass
 class SegmentPoolResult:
@@ -687,6 +690,14 @@ class SegmentCandidatePoolBuilder:
         diag["dj_pool_contrib_local"] = int(len([i for i in local_indices if i in combined_set]))
         diag["dj_pool_contrib_toward"] = int(len([i for i in toward_indices if i in combined_set]))
         diag["dj_pool_contrib_genre"] = int(len([i for i in genre_indices if i in combined_set]))
+
+        if config.pooling_cache is not None:
+            config.pooling_cache["dj_pool_sources"] = {
+                "local": set(int(i) for i in local_indices),
+                "toward": set(int(i) for i in toward_indices),
+                "genre": set(int(i) for i in genre_indices),
+                "union": combined_set,
+            }
 
         return combined, diag
 
