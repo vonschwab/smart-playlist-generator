@@ -20,13 +20,16 @@ Key features:
 
 from __future__ import annotations
 
+import heapq
 import itertools
 import logging
 import math
+from pathlib import Path
 from dataclasses import dataclass, field, replace
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
+import yaml
 
 from src.features.artifacts import ArtifactBundle, get_sonic_matrix
 from src.title_dedupe import normalize_title_for_dedupe, normalize_artist_key
@@ -104,6 +107,61 @@ class PierBridgeConfig:
     # Interior artist policies (configured/wired by pipeline for legacy --artist runs).
     disallow_pier_artists_in_interiors: bool = False
     disallow_seed_artist_in_interiors: bool = False
+    # Experiment-only bridge scoring (dry-run/audit only; production disabled).
+    experiment_bridge_scoring_enabled: bool = False
+    experiment_bridge_min_weight: float = 0.25
+    experiment_bridge_balance_weight: float = 0.15
+    # Progress arc scoring (feature-flagged; default disabled).
+    progress_arc_enabled: bool = False
+    progress_arc_weight: float = 0.25
+    progress_arc_shape: str = "linear"
+    progress_arc_tolerance: float = 0.0
+    progress_arc_loss: str = "abs"
+    progress_arc_huber_delta: float = 0.10
+    progress_arc_max_step: Optional[float] = None
+    progress_arc_max_step_mode: str = "penalty"
+    progress_arc_max_step_penalty: float = 0.25
+    progress_arc_autoscale_enabled: bool = False
+    progress_arc_autoscale_min_distance: float = 0.05
+    progress_arc_autoscale_distance_scale: float = 0.50
+    progress_arc_autoscale_per_step_scale: bool = False
+    # Optional genre tie-break band for penalty application (default off).
+    genre_tie_break_band: Optional[float] = None
+    # DJ-style genre bridging (opt-in; default disabled).
+    dj_bridging_enabled: bool = False
+    dj_seed_ordering: str = "auto"  # auto | fixed
+    dj_anchors_must_include_all: bool = True
+    dj_route_shape: str = "linear"  # linear | arc | ladder (MVP uses linear)
+    dj_waypoint_weight: float = 0.15
+    dj_waypoint_floor: float = 0.20
+    dj_waypoint_penalty: float = 0.10
+    dj_waypoint_tie_break_band: Optional[float] = None
+    dj_waypoint_cap: float = 0.05
+    dj_seed_ordering_weight_sonic: float = 0.60
+    dj_seed_ordering_weight_genre: float = 0.20
+    dj_seed_ordering_weight_bridge: float = 0.20
+    dj_pooling_strategy: str = "baseline"  # baseline | dj_union
+    dj_pooling_k_local: int = 200
+    dj_pooling_k_toward: int = 80
+    dj_pooling_k_genre: int = 80
+    dj_pooling_k_union_max: int = 900
+    dj_pooling_step_stride: int = 1
+    dj_pooling_cache_enabled: bool = True
+    dj_allow_detours_when_far: bool = True
+    dj_far_threshold_sonic: float = 0.45
+    dj_far_threshold_genre: float = 0.60
+    dj_far_threshold_connector_scarcity: float = 0.10
+    dj_connector_bias_enabled: bool = True
+    dj_connector_max_per_segment_linear: int = 1
+    dj_connector_max_per_segment_adventurous: int = 3
+    dj_ladder_top_labels: int = 5
+    dj_ladder_min_label_weight: float = 0.05
+    dj_ladder_min_similarity: float = 0.20
+    dj_ladder_max_steps: int = 6
+    dj_waypoint_fallback_k: int = 25
+    dj_micro_piers_enabled: bool = False
+    dj_micro_piers_max: int = 1
+    dj_micro_piers_topk: int = 5
 
 
 # Backward compatibility: SegmentDiagnostics now imported from extracted module
@@ -116,7 +174,7 @@ class PierBridgeResult:
     """Result of pier + bridge playlist construction."""
     track_ids: List[str]
     track_indices: List[int]
-    seed_positions: List[int]  # positions of seeds in final playlist     
+    seed_positions: List[int]  # positions of seeds in final playlist
     segment_diagnostics: List[SegmentDiagnostics]
     stats: Dict[str, Any]
     success: bool = True
@@ -266,6 +324,102 @@ def _dist(values: list[float]) -> dict[str, Optional[float]]:
         "p50": float(np.percentile(arr, 50)),
         "p95": float(np.percentile(arr, 95)),
         "max": float(np.max(arr)),
+    }
+
+
+def _step_fraction(step_idx: int, steps: int) -> float:
+    """Shared step fraction convention for progress + waypoint targets."""
+    if steps <= 0:
+        return 0.0
+    return float(step_idx + 1) / float(steps + 1)
+
+
+def _progress_target_curve(step_idx: int, steps: int, shape: str) -> float:
+    if steps <= 0:
+        return 0.0
+    shape = str(shape or "linear").strip().lower()
+    if shape not in {"linear", "arc"}:
+        shape = "linear"
+    base = _step_fraction(step_idx, steps)
+    if shape == "arc":
+        return 0.5 - 0.5 * math.cos(math.pi * base)
+    return base
+
+
+def _progress_arc_loss_value(err: float, loss: str, huber_delta: float) -> float:
+    err = float(max(0.0, err))
+    loss = str(loss or "abs").strip().lower()
+    if loss == "squared":
+        return float(err * err)
+    if loss == "huber":
+        delta = float(huber_delta) if math.isfinite(float(huber_delta)) else 0.1
+        if delta <= 0:
+            delta = 0.1
+        if err <= delta:
+            return float(0.5 * err * err)
+        return float(delta * (err - 0.5 * delta))
+    return float(err)
+
+
+def _compute_progress_tracking_metrics(
+    *,
+    path: list[int],
+    pier_a: int,
+    pier_b: int,
+    X_full_norm: np.ndarray,
+    shape: str,
+) -> dict[str, Optional[float]]:
+    if not path:
+        return {
+            "mean_abs_dev": None,
+            "p50_abs_dev": None,
+            "p90_abs_dev": None,
+            "max_progress_jump": None,
+        }
+
+    vec_a_full = X_full_norm[pier_a]
+    vec_b_full = X_full_norm[pier_b]
+    d = vec_b_full - vec_a_full
+    denom = float(np.dot(d, d))
+    if (not math.isfinite(denom)) or denom <= 1e-12:
+        return {
+            "mean_abs_dev": None,
+            "p50_abs_dev": None,
+            "p90_abs_dev": None,
+            "max_progress_jump": None,
+        }
+
+    steps = len(path)
+    devs: list[float] = []
+    max_jump = None
+    last_t = None
+    for idx, track_idx in enumerate(path):
+        t_raw = float(np.dot((X_full_norm[int(track_idx)] - vec_a_full), d) / denom)
+        if not math.isfinite(t_raw):
+            continue
+        t = float(max(0.0, min(1.0, t_raw)))
+        target_t = _progress_target_curve(idx, steps, shape)
+        devs.append(abs(t - target_t))
+        if last_t is not None:
+            jump = t - last_t
+            if max_jump is None or jump > max_jump:
+                max_jump = jump
+        last_t = t
+
+    if not devs:
+        return {
+            "mean_abs_dev": None,
+            "p50_abs_dev": None,
+            "p90_abs_dev": None,
+            "max_progress_jump": None,
+        }
+
+    dev_arr = np.array(devs, dtype=float)
+    return {
+        "mean_abs_dev": float(np.mean(dev_arr)),
+        "p50_abs_dev": float(np.percentile(dev_arr, 50)),
+        "p90_abs_dev": float(np.percentile(dev_arr, 90)),
+        "max_progress_jump": (float(max_jump) if max_jump is not None else None),
     }
 
 
@@ -441,11 +595,502 @@ def _compute_bridgeability_score(
     return 0.6 * direct_sim + 0.4 * full_sim
 
 
+def _normalize_vec(vec: np.ndarray) -> np.ndarray:
+    norm = float(np.linalg.norm(vec))
+    if not math.isfinite(norm) or norm <= 1e-12:
+        return vec
+    return vec / norm
+
+
+def _genre_vocab_map(genre_vocab: np.ndarray) -> dict[str, int]:
+    return {str(g).strip().lower(): int(i) for i, g in enumerate(genre_vocab)}
+
+
+def _select_top_genre_labels(
+    g_vec: np.ndarray,
+    genre_vocab: np.ndarray,
+    *,
+    top_n: int,
+    min_weight: float,
+) -> list[str]:
+    if top_n <= 0:
+        return []
+    if g_vec.size == 0:
+        return []
+    weights = np.array(g_vec, dtype=float)
+    if weights.ndim != 1:
+        weights = weights.reshape(-1)
+    if not np.isfinite(weights).any():
+        return []
+    order = np.argsort(-weights)
+    labels: list[str] = []
+    for idx in order:
+        w = float(weights[int(idx)])
+        if w < float(min_weight):
+            break
+        label = str(genre_vocab[int(idx)])
+        if label:
+            labels.append(label)
+        if len(labels) >= int(top_n):
+            break
+    return labels
+
+
+def _load_genre_similarity_graph(
+    path: Path,
+    *,
+    min_similarity: float,
+) -> dict[str, list[tuple[str, float]]]:
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            data = yaml.safe_load(handle) or {}
+    except FileNotFoundError:
+        return {}
+    except Exception:
+        logger.warning("Failed to load genre similarity graph from %s", path, exc_info=True)
+        return {}
+    graph: dict[str, list[tuple[str, float]]] = {}
+    for src, neighbors in data.items():
+        if not isinstance(neighbors, dict):
+            continue
+        edges: list[tuple[str, float]] = []
+        for dst, score in neighbors.items():
+            try:
+                sim = float(score)
+            except Exception:
+                continue
+            if sim < float(min_similarity):
+                continue
+            edges.append((str(dst), float(sim)))
+        if edges:
+            graph[str(src)] = edges
+    return graph
+
+
+def _shortest_genre_path(
+    graph: dict[str, list[tuple[str, float]]],
+    start: str,
+    goal: str,
+    *,
+    max_steps: int,
+) -> Optional[list[str]]:
+    start = str(start)
+    goal = str(goal)
+    if start == goal:
+        return [start]
+    if start not in graph or goal not in graph:
+        return None
+    max_steps = max(1, int(max_steps))
+    pq: list[tuple[float, str, list[str]]] = [(0.0, start, [start])]
+    best_cost: dict[str, float] = {start: 0.0}
+    while pq:
+        cost, node, path = heapq.heappop(pq)
+        if node == goal:
+            return path
+        if len(path) - 1 >= max_steps:
+            continue
+        for neighbor, sim in graph.get(node, []):
+            edge_cost = 1.0 - float(sim)
+            next_cost = cost + edge_cost
+            if next_cost >= best_cost.get(neighbor, float("inf")):
+                continue
+            best_cost[neighbor] = next_cost
+            heapq.heappush(pq, (next_cost, neighbor, path + [neighbor]))
+    return None
+
+
+def _label_to_genre_vector(
+    label: str,
+    *,
+    genre_vocab: np.ndarray,
+    genre_vocab_map: dict[str, int],
+) -> Optional[np.ndarray]:
+    idx = genre_vocab_map.get(str(label).strip().lower())
+    if idx is None:
+        return None
+    vec = np.zeros((len(genre_vocab),), dtype=float)
+    vec[int(idx)] = 1.0
+    return vec
+
+
+def _fallback_genre_vector(
+    pier_idx: int,
+    *,
+    X_full_norm: np.ndarray,
+    X_genre_norm: np.ndarray,
+    k: int,
+) -> Optional[np.ndarray]:
+    if k <= 0:
+        return None
+    if X_genre_norm is None:
+        return None
+    sims = np.dot(X_full_norm, X_full_norm[int(pier_idx)])
+    order = np.argsort(-sims)
+    collected = []
+    for idx in order:
+        if int(idx) == int(pier_idx):
+            continue
+        vec = X_genre_norm[int(idx)]
+        if float(np.linalg.norm(vec)) <= 1e-8:
+            continue
+        collected.append(vec)
+        if len(collected) >= int(k):
+            break
+    if not collected:
+        return None
+    avg = np.mean(np.stack(collected, axis=0), axis=0)
+    return _normalize_vec(avg)
+
+
+def _build_genre_targets(
+    *,
+    pier_a: int,
+    pier_b: int,
+    interior_length: int,
+    X_full_norm: np.ndarray,
+    X_genre_norm: np.ndarray,
+    genre_vocab: np.ndarray,
+    genre_graph: Optional[dict[str, list[tuple[str, float]]]],
+    cfg: PierBridgeConfig,
+    warnings: list[dict[str, Any]],
+) -> Optional[list[np.ndarray]]:
+    if interior_length <= 0:
+        return None
+    if X_genre_norm is None:
+        return None
+    g_a = X_genre_norm[pier_a]
+    g_b = X_genre_norm[pier_b]
+    missing = []
+    if float(np.linalg.norm(g_a)) <= 1e-8:
+        fallback = _fallback_genre_vector(
+            pier_a, X_full_norm=X_full_norm, X_genre_norm=X_genre_norm, k=int(cfg.dj_waypoint_fallback_k)
+        )
+        if fallback is not None:
+            g_a = fallback
+            warnings.append({
+                "type": "genre_fallback",
+                "scope": "anchor",
+                "anchor_id": int(pier_a),
+                "fallback": "neighbor_avg",
+                "k": int(cfg.dj_waypoint_fallback_k),
+            })
+        else:
+            missing.append(int(pier_a))
+    if float(np.linalg.norm(g_b)) <= 1e-8:
+        fallback = _fallback_genre_vector(
+            pier_b, X_full_norm=X_full_norm, X_genre_norm=X_genre_norm, k=int(cfg.dj_waypoint_fallback_k)
+        )
+        if fallback is not None:
+            g_b = fallback
+            warnings.append({
+                "type": "genre_fallback",
+                "scope": "anchor",
+                "anchor_id": int(pier_b),
+                "fallback": "neighbor_avg",
+                "k": int(cfg.dj_waypoint_fallback_k),
+            })
+        else:
+            missing.append(int(pier_b))
+    if missing:
+        warnings.append({
+            "type": "genre_missing",
+            "scope": "segment",
+            "message": "Genre guidance reduced because metadata is missing; consider adding genres.",
+            "missing_anchor_indices": missing,
+        })
+        return None
+
+    route_shape = str(cfg.dj_route_shape or "linear").strip().lower()
+    if route_shape not in {"linear", "arc", "ladder"}:
+        route_shape = "linear"
+
+    if route_shape != "ladder" or not genre_graph:
+        g_targets: list[np.ndarray] = []
+        for i in range(int(interior_length)):
+            if route_shape == "arc":
+                frac = _progress_target_curve(i, interior_length, "arc")
+            else:
+                frac = _step_fraction(i, interior_length)
+            g = (1.0 - frac) * g_a + frac * g_b
+            g_targets.append(_normalize_vec(g))
+        return g_targets
+
+    vocab_map = _genre_vocab_map(genre_vocab)
+    labels_a = _select_top_genre_labels(
+        g_a, genre_vocab, top_n=int(cfg.dj_ladder_top_labels), min_weight=float(cfg.dj_ladder_min_label_weight)
+    )
+    labels_b = _select_top_genre_labels(
+        g_b, genre_vocab, top_n=int(cfg.dj_ladder_top_labels), min_weight=float(cfg.dj_ladder_min_label_weight)
+    )
+    if not labels_a or not labels_b:
+        warnings.append({
+            "type": "genre_ladder_unavailable",
+            "scope": "segment",
+            "message": "Genre ladder disabled; falling back to linear drift.",
+        })
+        return _build_genre_targets(
+            pier_a=pier_a,
+            pier_b=pier_b,
+            interior_length=interior_length,
+            X_full_norm=X_full_norm,
+            X_genre_norm=X_genre_norm,
+            genre_vocab=genre_vocab,
+            genre_graph=None,
+            cfg=replace(cfg, dj_route_shape="linear"),
+            warnings=warnings,
+        )
+
+    path_labels = None
+    for la in labels_a:
+        for lb in labels_b:
+            path_labels = _shortest_genre_path(
+                genre_graph,
+                la,
+                lb,
+                max_steps=int(cfg.dj_ladder_max_steps),
+            )
+            if path_labels:
+                break
+        if path_labels:
+            break
+    if not path_labels:
+        warnings.append({
+            "type": "genre_ladder_unavailable",
+            "scope": "segment",
+            "message": "Genre ladder disabled; falling back to linear drift.",
+        })
+        return _build_genre_targets(
+            pier_a=pier_a,
+            pier_b=pier_b,
+            interior_length=interior_length,
+            X_full_norm=X_full_norm,
+            X_genre_norm=X_genre_norm,
+            genre_vocab=genre_vocab,
+            genre_graph=None,
+            cfg=replace(cfg, dj_route_shape="linear"),
+            warnings=warnings,
+        )
+
+    waypoint_vecs: list[np.ndarray] = []
+    for label in path_labels:
+        vec = _label_to_genre_vector(label, genre_vocab=genre_vocab, genre_vocab_map=vocab_map)
+        if vec is not None:
+            waypoint_vecs.append(_normalize_vec(vec))
+    if len(waypoint_vecs) < 2:
+        warnings.append({
+            "type": "genre_ladder_unavailable",
+            "scope": "segment",
+            "message": "Genre ladder disabled; falling back to linear drift.",
+        })
+        return _build_genre_targets(
+            pier_a=pier_a,
+            pier_b=pier_b,
+            interior_length=interior_length,
+            X_full_norm=X_full_norm,
+            X_genre_norm=X_genre_norm,
+            genre_vocab=genre_vocab,
+            genre_graph=None,
+            cfg=replace(cfg, dj_route_shape="linear"),
+            warnings=warnings,
+        )
+
+    g_targets = []
+    steps = int(interior_length)
+    for i in range(steps):
+        frac = _step_fraction(i, steps)
+        scaled = frac * float(len(waypoint_vecs) - 1)
+        idx = int(math.floor(scaled))
+        if idx >= len(waypoint_vecs) - 1:
+            g = waypoint_vecs[-1]
+        else:
+            local = scaled - float(idx)
+            g = (1.0 - local) * waypoint_vecs[idx] + local * waypoint_vecs[idx + 1]
+            g = _normalize_vec(g)
+        g_targets.append(g)
+    return g_targets
+
+
+def _attempt_micro_pier_split(
+    *,
+    pier_a: int,
+    pier_b: int,
+    interior_length: int,
+    candidates: list[int],
+    X_full: np.ndarray,
+    X_full_norm: np.ndarray,
+    X_start: Optional[np.ndarray],
+    X_mid: Optional[np.ndarray],
+    X_end: Optional[np.ndarray],
+    X_genre_norm: Optional[np.ndarray],
+    cfg: PierBridgeConfig,
+    beam_width: int,
+    artist_key_by_idx: Optional[Dict[int, str]],
+    seed_artist_key: Optional[str],
+    recent_global_artists: Optional[List[str]],
+    durations_ms: Optional[np.ndarray],
+    artist_identity_cfg: Optional[ArtistIdentityConfig],
+    bundle: Optional[ArtifactBundle],
+    warnings: list[dict[str, Any]],
+    X_genre_vocab: Optional[np.ndarray],
+    genre_graph: Optional[dict[str, list[tuple[str, float]]]],
+) -> Optional[list[int]]:
+    if interior_length < 2 or not candidates:
+        return None
+    max_micro = max(1, int(cfg.dj_micro_piers_max))
+    topk = max(1, int(cfg.dj_micro_piers_topk))
+
+    vec_a = X_full_norm[pier_a]
+    vec_b = X_full_norm[pier_b]
+    cand_list = [int(i) for i in candidates]
+    sims_a = np.dot(X_full_norm[cand_list], vec_a)
+    sims_b = np.dot(X_full_norm[cand_list], vec_b)
+    bridge_scores = np.minimum(sims_a, sims_b)
+    order = np.argsort(-bridge_scores)
+    micro_candidates = [cand_list[int(i)] for i in order[:topk]]
+
+    left_len = interior_length // 2
+    right_len = interior_length - left_len - 1
+    if right_len < 0:
+        return None
+
+    for micro_idx in micro_candidates[:max_micro]:
+        left_g_targets = None
+        right_g_targets = None
+        if X_genre_norm is not None and X_genre_vocab is not None and bool(cfg.dj_bridging_enabled):
+            left_g_targets = _build_genre_targets(
+                pier_a=pier_a,
+                pier_b=micro_idx,
+                interior_length=left_len,
+                X_full_norm=X_full_norm,
+                X_genre_norm=X_genre_norm,
+                genre_vocab=X_genre_vocab,
+                genre_graph=genre_graph,
+                cfg=cfg,
+                warnings=warnings,
+            )
+            right_g_targets = _build_genre_targets(
+                pier_a=micro_idx,
+                pier_b=pier_b,
+                interior_length=right_len,
+                X_full_norm=X_full_norm,
+                X_genre_norm=X_genre_norm,
+                genre_vocab=X_genre_vocab,
+                genre_graph=genre_graph,
+                cfg=cfg,
+                warnings=warnings,
+            )
+
+        keys_map = dict(artist_key_by_idx or {})
+        if bundle is not None:
+            try:
+                keys_map[int(pier_a)] = identity_keys_for_index(bundle, int(pier_a)).artist_key
+                keys_map[int(pier_b)] = identity_keys_for_index(bundle, int(pier_b)).artist_key
+                keys_map[int(micro_idx)] = identity_keys_for_index(bundle, int(micro_idx)).artist_key
+            except Exception:
+                pass
+
+        left_path, _, _, _ = _beam_search_segment(
+            pier_a,
+            micro_idx,
+            left_len,
+            cand_list,
+            X_full,
+            X_full_norm,
+            X_start,
+            X_mid,
+            X_end,
+            X_genre_norm,
+            cfg,
+            beam_width,
+            artist_key_by_idx=(keys_map if keys_map else None),
+            seed_artist_key=seed_artist_key,
+            recent_global_artists=recent_global_artists,
+            durations_ms=durations_ms,
+            artist_identity_cfg=artist_identity_cfg,
+            bundle=bundle,
+            g_targets_override=left_g_targets,
+        )
+        if left_path is None:
+            continue
+
+        used_left = set(int(i) for i in left_path)
+        right_candidates = [int(i) for i in cand_list if int(i) not in used_left and int(i) != int(micro_idx)]
+
+        right_path, _, _, _ = _beam_search_segment(
+            micro_idx,
+            pier_b,
+            right_len,
+            right_candidates,
+            X_full,
+            X_full_norm,
+            X_start,
+            X_mid,
+            X_end,
+            X_genre_norm,
+            cfg,
+            beam_width,
+            artist_key_by_idx=(keys_map if keys_map else None),
+            seed_artist_key=seed_artist_key,
+            recent_global_artists=recent_global_artists,
+            durations_ms=durations_ms,
+            artist_identity_cfg=artist_identity_cfg,
+            bundle=bundle,
+            g_targets_override=right_g_targets,
+        )
+        if right_path is None:
+            continue
+
+        warnings.append({
+            "type": "micro_pier_used",
+            "scope": "segment",
+            "message": "Inserted a micro-pier connector to bridge a difficult segment.",
+            "micro_pier_index": int(micro_idx),
+        })
+        return left_path + [int(micro_idx)] + right_path
+
+    return None
+
+
+def _segment_far_stats(
+    *,
+    pier_a: int,
+    pier_b: int,
+    X_full_norm: np.ndarray,
+    X_genre_norm: Optional[np.ndarray],
+    universe: list[int],
+    used_track_ids: Set[int],
+    bridge_floor: float,
+) -> dict[str, Optional[float]]:
+    sim_sonic = float(np.dot(X_full_norm[pier_a], X_full_norm[pier_b]))
+    sim_genre = None
+    if X_genre_norm is not None:
+        sim_genre = float(np.dot(X_genre_norm[pier_a], X_genre_norm[pier_b]))
+    available = [int(i) for i in universe if int(i) not in used_track_ids]
+    scarcity = None
+    if available:
+        vec_a = X_full_norm[pier_a]
+        vec_b = X_full_norm[pier_b]
+        sims_a = np.dot(X_full_norm[available], vec_a)
+        sims_b = np.dot(X_full_norm[available], vec_b)
+        gate = np.minimum(sims_a, sims_b) >= float(bridge_floor)
+        scarcity = float(np.mean(gate)) if gate.size > 0 else None
+    return {
+        "sonic_sim": sim_sonic,
+        "genre_sim": sim_genre,
+        "connector_scarcity": scarcity,
+    }
+
+
 def _order_seeds_by_bridgeability(
     seed_indices: List[int],
     X_full_norm: np.ndarray,
     X_start_norm: Optional[np.ndarray],
     X_end_norm: Optional[np.ndarray],
+    X_genre_norm: Optional[np.ndarray] = None,
+    *,
+    weight_sonic: float = 0.0,
+    weight_genre: float = 0.0,
+    weight_bridge: float = 1.0,
 ) -> List[int]:
     """
     Order seed indices to maximize total bridgeability.
@@ -456,6 +1101,32 @@ def _order_seeds_by_bridgeability(
     if n <= 1:
         return seed_indices
 
+    weight_sonic = float(weight_sonic) if math.isfinite(float(weight_sonic)) else 0.0
+    weight_genre = float(weight_genre) if math.isfinite(float(weight_genre)) else 0.0
+    weight_bridge = float(weight_bridge) if math.isfinite(float(weight_bridge)) else 0.0
+    weight_sonic = max(0.0, weight_sonic)
+    weight_genre = max(0.0, weight_genre)
+    weight_bridge = max(0.0, weight_bridge)
+    total_weight = weight_sonic + weight_genre + weight_bridge
+    if total_weight <= 1e-9:
+        weight_bridge = 1.0
+        total_weight = 1.0
+    weight_sonic /= total_weight
+    weight_genre /= total_weight
+    weight_bridge /= total_weight
+
+    def _pair_score(a: int, b: int) -> float:
+        score = 0.0
+        if weight_bridge > 0:
+            score += weight_bridge * _compute_bridgeability_score(
+                a, b, X_full_norm, X_start_norm, X_end_norm
+            )
+        if weight_sonic > 0:
+            score += weight_sonic * float(np.dot(X_full_norm[a], X_full_norm[b]))
+        if weight_genre > 0 and X_genre_norm is not None:
+            score += weight_genre * float(np.dot(X_genre_norm[a], X_genre_norm[b]))
+        return score
+
     if n <= 6:
         # Exhaustive search for small seed counts
         best_order = None
@@ -464,10 +1135,7 @@ def _order_seeds_by_bridgeability(
         for perm in itertools.permutations(seed_indices):
             total_score = 0.0
             for i in range(len(perm) - 1):
-                total_score += _compute_bridgeability_score(
-                    perm[i], perm[i + 1],
-                    X_full_norm, X_start_norm, X_end_norm
-                )
+                total_score += _pair_score(perm[i], perm[i + 1])
             if total_score > best_score:
                 best_score = total_score
                 best_order = list(perm)
@@ -488,10 +1156,7 @@ def _order_seeds_by_bridgeability(
             best_score = -float('inf')
 
             for candidate in remaining:
-                score = _compute_bridgeability_score(
-                    current, candidate,
-                    X_full_norm, X_start_norm, X_end_norm
-                )
+                score = _pair_score(current, candidate)
                 if score > best_score:
                     best_score = score
                     best_next = candidate
@@ -704,6 +1369,37 @@ def _build_segment_candidate_pool_legacy(
     return filtered
 
 
+def _compute_bridge_score(
+    sim_a: float,
+    sim_b: float,
+    *,
+    experiment_enabled: bool,
+    experiment_min_weight: float,
+    experiment_balance_weight: float,
+) -> float:
+    denom = sim_a + sim_b
+    hmean = 0.0 if denom <= 1e-9 else (2.0 * sim_a * sim_b) / denom
+    if not experiment_enabled:
+        return float(hmean)
+
+    min_weight = max(0.0, min(1.0, float(experiment_min_weight)))
+    balance_weight = max(0.0, min(1.0 - min_weight, float(experiment_balance_weight)))
+    hmean_weight = max(0.0, 1.0 - min_weight - balance_weight)
+
+    min_sim = min(sim_a, sim_b)
+    balance = 1.0 - abs(sim_a - sim_b)
+    if balance < 0.0:
+        balance = 0.0
+    elif balance > 1.0:
+        balance = 1.0
+
+    return float(
+        (hmean_weight * hmean)
+        + (min_weight * min_sim)
+        + (balance_weight * balance)
+    )
+
+
 def _build_segment_candidate_pool_scored(
     *,
     pier_a: int,
@@ -724,255 +1420,74 @@ def _build_segment_candidate_pool_scored(
     used_track_keys: Optional[Set[tuple[str, str]]] = None,
     seed_track_keys: Optional[Set[tuple[str, str]]] = None,
     diagnostics: Optional[Dict[str, Any]] = None,
+    experiment_bridge_scoring_enabled: bool = False,
+    experiment_bridge_min_weight: float = 0.25,
+    experiment_bridge_balance_weight: float = 0.15,
+    pool_strategy: str = "segment_scored",
+    interior_length: int = 0,
+    progress_arc_enabled: bool = False,
+    progress_arc_shape: str = "linear",
+    X_genre_norm: Optional[np.ndarray] = None,
+    genre_targets: Optional[List[np.ndarray]] = None,
+    pool_k_local: int = 0,
+    pool_k_toward: int = 0,
+    pool_k_genre: int = 0,
+    pool_k_union_max: int = 0,
+    pool_step_stride: int = 1,
+    pool_cache_enabled: bool = True,
+    pooling_cache: Optional[Dict[str, Any]] = None,
 ) -> tuple[List[int], Dict[int, str], Dict[int, str]]:
     """
     Segment-local candidate pool builder ("segment_scored").
 
-    Builds a segment candidate pool by scoring candidates jointly vs BOTH endpoints (pier A and pier B),
-    applying structural exclusions (used ids, allowed-set clamp, artist policies, track_key collisions),
-    gating by bridge_floor, then taking top-K by harmonic_mean(simA, simB).
+    Builds a segment candidate pool by scoring candidates jointly vs BOTH endpoints
+    (pier A and pier B), applying structural exclusions (used ids, allowed-set
+    clamp, artist policies, track_key collisions), gating by bridge_floor, then
+    taking top-K by harmonic_mean(simA, simB).
 
     Returns:
       - candidates: list[int] indices for beam search
       - artist_key_by_idx: mapping for candidates (robust identity key)
       - title_key_by_idx: mapping for candidates (normalized title key)
     """
-    segment_pool_max = int(max(0, segment_pool_max))
-    if segment_pool_max <= 0:
-        if diagnostics is not None:
-            diagnostics.update(
-                {
-                    "pool_strategy": "segment_scored",
-                    "base_universe": int(len(universe_indices)),
-                    "excluded_used_track_ids": 0,
-                    "excluded_allowed_set": 0,
-                    "excluded_seed_artist_policy": 0,
-                    "excluded_pier_artist_policy": 0,
-                    "excluded_track_key_collision": 0,
-                    "excluded_track_key_collision_with_piers": 0,
-                    "eligible_after_structural": 0,
-                    "below_bridge_floor": 0,
-                    "pass_bridge_floor": 0,
-                    "collapsed_by_artist_key": 0,
-                    "selected_external": 0,
-                    "internal_connectors_candidates": 0,
-                    "internal_connectors_pass_gate": 0,
-                    "internal_connectors_selected": 0,
-                    "final": 0,
-                    "segment_pool_max": int(segment_pool_max),
-                }
-            )
-        return [], {}, {}
-
-    used_track_keys = used_track_keys or set()
-    seed_track_keys = seed_track_keys or set()
-
-    # Endpoint artist keys (robust identity), for optional policies
-    pier_a_artist_key = identity_keys_for_index(bundle, pier_a).artist_key
-    pier_b_artist_key = identity_keys_for_index(bundle, pier_b).artist_key
-
-    excluded_used = 0
-    excluded_allowed = 0
-    excluded_seed_artist = 0
-    excluded_pier_artist = 0
-    excluded_track_key = 0
-    excluded_track_key_with_piers = 0
-
-    artist_key_by_idx: Dict[int, str] = {}
-    title_key_by_idx: Dict[int, str] = {}
-
-    # Structural filtering (segment-local): used ids, allowed-set clamp, policies, track_key collisions
-    structural: List[int] = []
-    for idx in universe_indices:
-        i = int(idx)
-        if i in used_track_ids:
-            excluded_used += 1
-            continue
-        if allowed_set is not None and i not in allowed_set:
-            excluded_allowed += 1
-            continue
-
-        keys = identity_keys_for_index(bundle, i)
-        ak = keys.artist_key
-        tk = keys.title_key
-        artist_key_by_idx[i] = ak
-        title_key_by_idx[i] = tk
-
-        if disallow_seed_artist_in_interiors and seed_artist_key and ak == seed_artist_key:
-            excluded_seed_artist += 1
-            continue
-        if disallow_pier_artists_in_interiors and ak in {pier_a_artist_key, pier_b_artist_key}:
-            excluded_pier_artist += 1
-            continue
-
-        if keys.track_key in used_track_keys:
-            excluded_track_key += 1
-            if keys.track_key in seed_track_keys:
-                excluded_track_key_with_piers += 1
-            continue
-
-        structural.append(i)
-
-    if not structural:
-        if diagnostics is not None:
-            diagnostics.update(
-                {
-                    "pool_strategy": "segment_scored",
-                    "base_universe": int(len(universe_indices)),
-                    "excluded_used_track_ids": int(excluded_used),
-                    "excluded_allowed_set": int(excluded_allowed),
-                    "excluded_seed_artist_policy": int(excluded_seed_artist),
-                    "excluded_pier_artist_policy": int(excluded_pier_artist),
-                    "excluded_track_key_collision": int(excluded_track_key),
-                    "excluded_track_key_collision_with_piers": int(excluded_track_key_with_piers),
-                    "eligible_after_structural": 0,
-                    "below_bridge_floor": 0,
-                    "pass_bridge_floor": 0,
-                    "collapsed_by_artist_key": 0,
-                    "selected_external": 0,
-                    "internal_connectors_candidates": 0,
-                    "internal_connectors_pass_gate": 0,
-                    "internal_connectors_selected": 0,
-                    "final": 0,
-                    "segment_pool_max": int(segment_pool_max),
-                }
-            )
-        return [], {}, {}
-
-    sim_to_a = np.dot(X_full_norm, X_full_norm[pier_a])
-    sim_to_b = np.dot(X_full_norm, X_full_norm[pier_b])
-
-    below_bridge_floor = 0
-    passing: List[int] = []
-    bridge_sim: Dict[int, float] = {}
-    for i in structural:
-        sim_a = float(sim_to_a[i])
-        sim_b = float(sim_to_b[i])
-        if min(sim_a, sim_b) < float(bridge_floor):
-            below_bridge_floor += 1
-            continue
-        denom = sim_a + sim_b
-        hmean = 0.0 if denom <= 1e-9 else (2.0 * sim_a * sim_b) / denom
-        bridge_sim[i] = float(hmean)
-        passing.append(i)
-
-    # Rank by bridge_sim (two-sided), then apply 1-per-artist_key within the segment.
-    passing_sorted = sorted(passing, key=lambda i: (-float(bridge_sim.get(i, 0.0)), int(i)))
-
-    # Internal connectors (optional; still gated + policy-checked)
-    internal_candidates = 0
-    internal_pass_gate = 0
-    internal_selected: List[int] = []
-    internal_ranked: List[tuple[float, int]] = []
-    if internal_connectors:
-        for idx in internal_connectors:
-            i = int(idx)
-            if i in used_track_ids:
-                continue
-            if allowed_set is not None and i not in allowed_set:
-                continue
-            keys = identity_keys_for_index(bundle, i)
-            ak = keys.artist_key
-            tk = keys.title_key
-            artist_key_by_idx[i] = ak
-            title_key_by_idx[i] = tk
-
-            if disallow_seed_artist_in_interiors and seed_artist_key and ak == seed_artist_key:
-                continue
-            if disallow_pier_artists_in_interiors and ak in {pier_a_artist_key, pier_b_artist_key}:
-                continue
-            if keys.track_key in used_track_keys:
-                continue
-
-            internal_candidates += 1
-            sim_a = float(sim_to_a[i])
-            sim_b = float(sim_to_b[i])
-            if min(sim_a, sim_b) < float(bridge_floor):
-                continue
-            internal_pass_gate += 1
-            denom = sim_a + sim_b
-            hmean = 0.0 if denom <= 1e-9 else (2.0 * sim_a * sim_b) / denom
-            internal_ranked.append((float(hmean), i))
-        internal_ranked.sort(key=lambda t: (-t[0], t[1]))
-
-    selected_external: List[int] = []
-    collapsed_by_artist = 0
-
-    if internal_connector_priority:
-        # Select internal connectors first, then fill from external candidates.
-        used_artists: Set[str] = set()
-        cap = int(internal_connector_cap) if int(internal_connector_cap) > 0 else len(internal_ranked)
-        for _score, i in internal_ranked:
-            ak = artist_key_by_idx.get(i) or identity_keys_for_index(bundle, i).artist_key
-            if ak in used_artists:
-                continue
-            internal_selected.append(i)
-            used_artists.add(ak)
-            if len(internal_selected) >= cap:
-                break
-
-        for i in passing_sorted:
-            ak = artist_key_by_idx.get(i) or identity_keys_for_index(bundle, i).artist_key
-            if ak in used_artists:
-                collapsed_by_artist += 1
-                continue
-            used_artists.add(ak)
-            selected_external.append(i)
-            if len(selected_external) >= int(segment_pool_max):
-                break
-        combined = list(dict.fromkeys(internal_selected + selected_external))
-    else:
-        # Select external first, then add internal connectors up to cap.
-        used_artists = set()
-        for i in passing_sorted:
-            ak = artist_key_by_idx.get(i) or identity_keys_for_index(bundle, i).artist_key
-            if ak in used_artists:
-                collapsed_by_artist += 1
-                continue
-            used_artists.add(ak)
-            selected_external.append(i)
-            if len(selected_external) >= int(segment_pool_max):
-                break
-
-        cap = int(internal_connector_cap) if int(internal_connector_cap) > 0 else len(internal_ranked)
-        for _score, i in internal_ranked:
-            ak = artist_key_by_idx.get(i) or identity_keys_for_index(bundle, i).artist_key
-            if ak in used_artists:
-                continue
-            internal_selected.append(i)
-            used_artists.add(ak)
-            if len(internal_selected) >= cap:
-                break
-        combined = list(dict.fromkeys(selected_external + internal_selected))
-
-    if diagnostics is not None:
-        diagnostics.update(
-            {
-                "pool_strategy": "segment_scored",
-                "base_universe": int(len(universe_indices)),
-                "excluded_used_track_ids": int(excluded_used),
-                "excluded_allowed_set": int(excluded_allowed),
-                "excluded_seed_artist_policy": int(excluded_seed_artist),
-                "excluded_pier_artist_policy": int(excluded_pier_artist),
-                "excluded_track_key_collision": int(excluded_track_key),
-                "excluded_track_key_collision_with_piers": int(excluded_track_key_with_piers),
-                "eligible_after_structural": int(len(structural)),
-                "below_bridge_floor": int(below_bridge_floor),
-                "pass_bridge_floor": int(len(passing)),
-                "collapsed_by_artist_key": int(collapsed_by_artist),
-                "selected_external": int(len(selected_external)),
-                "internal_connectors_candidates": int(internal_candidates),
-                "internal_connectors_pass_gate": int(internal_pass_gate),
-                "internal_connectors_selected": int(len(internal_selected)),
-                "final": int(len(combined)),
-                "segment_pool_max": int(segment_pool_max),
-            }
-        )
-
-    # Only return mappings for indices in the final candidate list (beam search scope)
-    artist_key_final = {i: artist_key_by_idx.get(i, "") for i in combined}
-    title_key_final = {i: title_key_by_idx.get(i, "") for i in combined}
-    return combined, artist_key_final, title_key_final
+    pool_cfg = SegmentPoolConfig(
+        pier_a=int(pier_a),
+        pier_b=int(pier_b),
+        X_full_norm=X_full_norm,
+        universe_indices=list(universe_indices),
+        used_track_ids=set(int(i) for i in used_track_ids),
+        bundle=bundle,
+        bridge_floor=float(bridge_floor),
+        segment_pool_max=int(segment_pool_max),
+        allowed_set=allowed_set,
+        internal_connectors=internal_connectors,
+        internal_connector_cap=int(internal_connector_cap),
+        internal_connector_priority=bool(internal_connector_priority),
+        seed_artist_key=seed_artist_key,
+        disallow_pier_artists_in_interiors=bool(disallow_pier_artists_in_interiors),
+        disallow_seed_artist_in_interiors=bool(disallow_seed_artist_in_interiors),
+        used_track_keys=used_track_keys,
+        seed_track_keys=seed_track_keys,
+        diagnostics=diagnostics,
+        experiment_bridge_scoring_enabled=bool(experiment_bridge_scoring_enabled),
+        experiment_bridge_min_weight=float(experiment_bridge_min_weight),
+        experiment_bridge_balance_weight=float(experiment_bridge_balance_weight),
+        pool_strategy=str(pool_strategy),
+        pool_k_local=int(pool_k_local),
+        pool_k_toward=int(pool_k_toward),
+        pool_k_genre=int(pool_k_genre),
+        pool_k_union_max=int(pool_k_union_max),
+        pool_step_stride=int(pool_step_stride),
+        pool_cache_enabled=bool(pool_cache_enabled),
+        interior_length=int(interior_length),
+        progress_arc_enabled=bool(progress_arc_enabled),
+        progress_arc_shape=str(progress_arc_shape),
+        X_genre_norm=X_genre_norm,
+        genre_targets=genre_targets,
+        pooling_cache=pooling_cache,
+    )
+    result = SegmentCandidatePoolBuilder().build(pool_cfg)
+    return result.candidates, result.artist_key_by_idx, result.title_key_by_idx
 
 
 @dataclass
@@ -1072,6 +1587,9 @@ def _beam_search_segment(
     durations_ms: Optional[np.ndarray] = None,
     artist_identity_cfg: Optional[ArtistIdentityConfig] = None,
     bundle: Optional[ArtifactBundle] = None,
+    arc_stats: Optional[Dict[str, Any]] = None,
+    genre_cache_stats: Optional[Dict[str, int]] = None,
+    g_targets_override: Optional[List[np.ndarray]] = None,
 ) -> Tuple[Optional[List[int]], int, int, Optional[str]]:
     """
     Constrained beam search to find path from pier_a to pier_b.
@@ -1095,6 +1613,71 @@ def _beam_search_segment(
         penalty_strength = 0.0
     penalty_strength = float(max(0.0, min(1.0, penalty_strength)))
     penalty_threshold = float(cfg.genre_penalty_threshold)
+    genre_tie_break_band = cfg.genre_tie_break_band
+    if isinstance(genre_tie_break_band, (int, float)) and math.isfinite(float(genre_tie_break_band)):
+        genre_tie_break_band = float(genre_tie_break_band)
+        if genre_tie_break_band <= 0:
+            genre_tie_break_band = None
+    else:
+        genre_tie_break_band = None
+
+    waypoint_enabled = bool(cfg.dj_bridging_enabled) and X_genre_norm is not None
+    waypoint_weight = float(cfg.dj_waypoint_weight)
+    if not math.isfinite(waypoint_weight):
+        waypoint_weight = 0.0
+    waypoint_floor = float(cfg.dj_waypoint_floor)
+    if not math.isfinite(waypoint_floor):
+        waypoint_floor = 0.0
+    waypoint_penalty = float(cfg.dj_waypoint_penalty)
+    if not math.isfinite(waypoint_penalty):
+        waypoint_penalty = 0.0
+    waypoint_cap = float(cfg.dj_waypoint_cap)
+    if not math.isfinite(waypoint_cap):
+        waypoint_cap = 0.0
+    waypoint_cap = float(max(0.0, waypoint_cap))
+    waypoint_tie_break_band = cfg.dj_waypoint_tie_break_band
+    if isinstance(waypoint_tie_break_band, (int, float)) and math.isfinite(float(waypoint_tie_break_band)):
+        waypoint_tie_break_band = float(waypoint_tie_break_band)
+        if waypoint_tie_break_band <= 0:
+            waypoint_tie_break_band = None
+    else:
+        waypoint_tie_break_band = None
+
+    g_targets: Optional[List[np.ndarray]] = None
+    if waypoint_enabled and interior_length > 0:
+        if g_targets_override is not None and len(g_targets_override) == int(interior_length):
+            g_targets = g_targets_override
+        else:
+            g_a = X_genre_norm[pier_a]
+            g_b = X_genre_norm[pier_b]
+            if float(np.linalg.norm(g_a)) <= 1e-8 or float(np.linalg.norm(g_b)) <= 1e-8:
+                waypoint_enabled = False
+            else:
+                g_targets = []
+                for i in range(interior_length):
+                    frac = _step_fraction(i, interior_length)
+                    g = (1.0 - frac) * g_a + frac * g_b
+                    norm = float(np.linalg.norm(g))
+                    if norm <= 1e-12:
+                        g = g_a
+                    else:
+                        g = g / norm
+                    g_targets.append(g)
+    if waypoint_weight <= 0 and waypoint_penalty <= 0:
+        waypoint_enabled = False
+
+    def _waypoint_delta(sim: Optional[float]) -> float:
+        if sim is None or not math.isfinite(float(sim)):
+            return 0.0
+        delta = float(waypoint_weight) * float(sim)
+        if waypoint_cap > 0:
+            delta = float(max(-waypoint_cap, min(waypoint_cap, delta)))
+        if waypoint_penalty > 0 and waypoint_floor > 0 and float(sim) < waypoint_floor:
+            penalty = waypoint_penalty * (waypoint_floor - float(sim))
+            if waypoint_cap > 0:
+                penalty = min(waypoint_cap, penalty)
+            delta -= float(penalty)
+        return float(delta)
 
     if interior_length == 0:
         # Check if direct transition meets floor
@@ -1114,7 +1697,51 @@ def _beam_search_segment(
     progress_weight = float(cfg.progress_penalty_weight) if math.isfinite(float(cfg.progress_penalty_weight)) else 0.0
     progress_weight = float(max(0.0, progress_weight))
 
+    progress_arc_enabled = bool(cfg.progress_arc_enabled)
+    progress_arc_weight = float(cfg.progress_arc_weight)
+    if not math.isfinite(progress_arc_weight):
+        progress_arc_weight = 0.0
+    progress_arc_weight = float(max(0.0, progress_arc_weight))
+    progress_arc_shape = str(cfg.progress_arc_shape or "linear").strip().lower()
+    if progress_arc_shape not in {"linear", "arc"}:
+        progress_arc_shape = "linear"
+    progress_arc_tolerance = float(cfg.progress_arc_tolerance)
+    if not math.isfinite(progress_arc_tolerance):
+        progress_arc_tolerance = 0.0
+    progress_arc_tolerance = float(max(0.0, progress_arc_tolerance))
+    progress_arc_loss = str(cfg.progress_arc_loss or "abs").strip().lower()
+    if progress_arc_loss not in {"abs", "squared", "huber"}:
+        progress_arc_loss = "abs"
+    progress_arc_huber_delta = float(cfg.progress_arc_huber_delta)
+    if not math.isfinite(progress_arc_huber_delta) or progress_arc_huber_delta <= 0:
+        progress_arc_huber_delta = 0.10
+    progress_arc_max_step = cfg.progress_arc_max_step
+    if isinstance(progress_arc_max_step, (int, float)) and math.isfinite(float(progress_arc_max_step)):
+        progress_arc_max_step = float(progress_arc_max_step)
+        if progress_arc_max_step <= 0:
+            progress_arc_max_step = None
+    else:
+        progress_arc_max_step = None
+    progress_arc_max_step_mode = str(cfg.progress_arc_max_step_mode or "penalty").strip().lower()
+    if progress_arc_max_step_mode not in {"penalty", "gate"}:
+        progress_arc_max_step_mode = "penalty"
+    progress_arc_max_step_penalty = float(cfg.progress_arc_max_step_penalty)
+    if not math.isfinite(progress_arc_max_step_penalty):
+        progress_arc_max_step_penalty = 0.0
+    progress_arc_max_step_penalty = float(max(0.0, progress_arc_max_step_penalty))
+    progress_arc_autoscale_enabled = bool(cfg.progress_arc_autoscale_enabled)
+    progress_arc_autoscale_min_distance = float(cfg.progress_arc_autoscale_min_distance)
+    if not math.isfinite(progress_arc_autoscale_min_distance):
+        progress_arc_autoscale_min_distance = 0.0
+    progress_arc_autoscale_min_distance = float(max(0.0, progress_arc_autoscale_min_distance))
+    progress_arc_autoscale_distance_scale = float(cfg.progress_arc_autoscale_distance_scale)
+    if not math.isfinite(progress_arc_autoscale_distance_scale) or progress_arc_autoscale_distance_scale <= 0:
+        progress_arc_autoscale_distance_scale = 0.0
+    progress_arc_autoscale_per_step_scale = bool(cfg.progress_arc_autoscale_per_step_scale)
+    progress_arc_effective_weight = 0.0
+
     progress_by_idx: Dict[int, float] = {}
+    ab_distance: Optional[float] = None
     if progress_active:
         vec_a_full = X_full_norm[pier_a]
         vec_b_full = X_full_norm[pier_b]
@@ -1123,6 +1750,17 @@ def _beam_search_segment(
         if (not math.isfinite(denom)) or denom <= 1e-12:
             progress_active = False
         else:
+            ab_distance = float(math.sqrt(denom))
+            progress_arc_effective_weight = float(progress_arc_weight)
+            if progress_arc_enabled and progress_arc_autoscale_enabled:
+                if ab_distance < progress_arc_autoscale_min_distance:
+                    progress_arc_effective_weight = 0.0
+                elif progress_arc_autoscale_distance_scale > 0:
+                    scale = min(1.0, ab_distance / progress_arc_autoscale_distance_scale)
+                    progress_arc_effective_weight *= float(scale)
+            if progress_arc_enabled and progress_arc_autoscale_per_step_scale:
+                progress_arc_effective_weight *= 1.0 / float(max(1, interior_length))
+
             progress_by_idx[pier_a] = 0.0
             progress_by_idx[pier_b] = 1.0
             for cand in candidates:
@@ -1130,10 +1768,69 @@ def _beam_search_segment(
                 t_raw = float(np.dot((X_full_norm[i] - vec_a_full), d) / denom)
                 t = 0.0 if not math.isfinite(t_raw) else float(max(0.0, min(1.0, t_raw)))
                 progress_by_idx[i] = t
+    if arc_stats is not None:
+        arc_stats.update(
+            {
+                "enabled": bool(progress_arc_enabled and progress_active),
+                "shape": str(progress_arc_shape),
+                "base_weight": float(progress_arc_weight),
+                "effective_weight": float(progress_arc_effective_weight),
+                "tolerance": float(progress_arc_tolerance),
+                "loss": str(progress_arc_loss),
+                "huber_delta": float(progress_arc_huber_delta),
+                "max_step": (float(progress_arc_max_step) if progress_arc_max_step is not None else None),
+                "max_step_mode": str(progress_arc_max_step_mode),
+                "max_step_penalty": float(progress_arc_max_step_penalty),
+                "autoscale": {
+                    "enabled": bool(progress_arc_autoscale_enabled),
+                    "min_distance": float(progress_arc_autoscale_min_distance),
+                    "distance_scale": float(progress_arc_autoscale_distance_scale),
+                    "per_step_scale": bool(progress_arc_autoscale_per_step_scale),
+                },
+                "ab_distance": (float(ab_distance) if ab_distance is not None else None),
+                "steps": int(interior_length),
+            }
+        )
 
     vec_b_full = X_full_norm[pier_b]
     sim_to_a = np.dot(X_full_norm, X_full_norm[pier_a])
     sim_to_b = np.dot(X_full_norm, X_full_norm[pier_b])
+
+    genre_cache: Dict[tuple[int, int], float] = {}
+    genre_cache_hits = 0
+    genre_cache_misses = 0
+
+    def _get_genre_sim(a_idx: int, b_idx: int) -> Optional[float]:
+        nonlocal genre_cache_hits, genre_cache_misses
+        if X_genre_norm is None:
+            return None
+        key = (int(a_idx), int(b_idx))
+        if key in genre_cache:
+            genre_cache_hits += 1
+            return genre_cache[key]
+        genre_cache_misses += 1
+        val = float(np.dot(X_genre_norm[a_idx], X_genre_norm[b_idx]))
+        genre_cache[key] = val
+        return val
+
+    def _progress_arc_loss(cand_t: float, target_t: float) -> float:
+        err0 = abs(float(cand_t) - float(target_t))
+        err = max(0.0, err0 - progress_arc_tolerance)
+        return _progress_arc_loss_value(err, progress_arc_loss, progress_arc_huber_delta)
+
+    def _record_genre_cache_stats() -> None:
+        if genre_cache_stats is None:
+            return
+        total = int(genre_cache_hits + genre_cache_misses)
+        hit_rate = float(genre_cache_hits) / float(total) if total > 0 else None
+        genre_cache_stats.update(
+            {
+                "hits": int(genre_cache_hits),
+                "misses": int(genre_cache_misses),
+                "hit_rate": float(hit_rate) if hit_rate is not None else None,
+                "entries": int(len(genre_cache)),
+            }
+        )
 
     # Initialize beam with pier_a
     used_artists_init: Set[str] = set()
@@ -1180,10 +1877,22 @@ def _beam_search_segment(
 
     for step in range(interior_length):
         next_beam: List[BeamState] = []
-        target_t = float(step + 1) / float(interior_length + 1)
+        target_t = _step_fraction(step, interior_length)
+        experiment_target_t = (
+            _progress_target_curve(step, interior_length, progress_arc_shape)
+            if progress_arc_enabled
+            else target_t
+        )
+        g_target = g_targets[step] if waypoint_enabled and g_targets is not None else None
 
         for state in beam:
             current = state.path[-1]
+            apply_tie_break = (
+                (genre_tie_break_band is not None and X_genre_norm is not None and penalty_strength > 0)
+                or (waypoint_enabled and waypoint_tie_break_band is not None)
+            )
+            cand_entries: list[tuple[int, float, float, float, Optional[float], Optional[float]]] = []
+            best_score = -float("inf")
 
             for cand in candidates:
                 if cand in state.used:
@@ -1206,12 +1915,20 @@ def _beam_search_segment(
                         cand_artist = str(artist_key_by_idx.get(int(cand), "") or "")
                         if cand_artist and cand_artist in state.used_artists:
                             continue
-                if min(sim_to_a[cand], sim_to_b[cand]) < cfg.bridge_floor:      
+
+                if min(sim_to_a[cand], sim_to_b[cand]) < cfg.bridge_floor:
                     continue
+
+                cand_t = 0.0
                 if progress_active:
                     cand_t = float(progress_by_idx.get(int(cand), 0.0))
                     if cand_t < float(state.last_progress) - progress_eps:
                         continue
+                    if progress_arc_enabled and progress_arc_max_step is not None:
+                        step_jump = float(cand_t) - float(state.last_progress)
+                        if progress_arc_max_step_mode == "gate":
+                            if step_jump > float(progress_arc_max_step) + progress_eps:
+                                continue
 
                 # Compute transition score
                 trans_score = _compute_transition_score(
@@ -1236,49 +1953,118 @@ def _beam_search_segment(
                 )
                 if progress_active and progress_weight > 0:
                     combined_score -= progress_weight * abs(float(cand_t) - target_t)
-                edges_scored += 1
+                if progress_active and progress_arc_enabled and progress_arc_effective_weight > 0:
+                    combined_score -= progress_arc_effective_weight * _progress_arc_loss(
+                        float(cand_t),
+                        experiment_target_t,
+                    )
+                if progress_active and progress_arc_enabled and progress_arc_max_step is not None:
+                    step_jump = float(cand_t) - float(state.last_progress)
+                    if step_jump > float(progress_arc_max_step):
+                        if progress_arc_max_step_mode == "penalty" and progress_arc_max_step_penalty > 0:
+                            combined_score -= progress_arc_max_step_penalty * (step_jump - float(progress_arc_max_step))
+
+                genre_sim = None
                 if X_genre_norm is not None:
-                    genre_sim = float(np.dot(X_genre_norm[current], X_genre_norm[cand]))
-                    if math.isfinite(genre_sim):
+                    genre_sim = _get_genre_sim(int(current), int(cand))
+                    if genre_sim is not None and math.isfinite(genre_sim):
                         if cfg.genre_tiebreak_weight:
                             combined_score += cfg.genre_tiebreak_weight * genre_sim
-                        if (
-                            penalty_strength > 0
-                            and genre_sim < penalty_threshold
-                        ):
+
+                waypoint_sim = None
+                if waypoint_enabled and g_target is not None and X_genre_norm is not None:
+                    waypoint_sim = float(np.dot(X_genre_norm[cand], g_target))
+
+                edges_scored += 1
+
+                if apply_tie_break:
+                    cand_entries.append((int(cand), float(cand_t), float(combined_score), float(dest_pull), genre_sim, waypoint_sim))
+                    if combined_score > best_score:
+                        best_score = float(combined_score)
+                else:
+                    if genre_sim is not None and math.isfinite(genre_sim):
+                        if penalty_strength > 0 and genre_sim < penalty_threshold:
                             combined_score *= (1.0 - penalty_strength)
                             genre_penalty_hits += 1
+                    if waypoint_enabled:
+                        combined_score += _waypoint_delta(waypoint_sim)
+                    new_score = state.score + combined_score + dest_pull
+                    new_path = state.path + [cand]
+                    new_used = state.used | {cand}
+                    new_used_artists = state.used_artists
+                    if artist_key_by_idx is not None:
+                        use_identity = artist_identity_cfg is not None and artist_identity_cfg.enabled
+                        if use_identity:
+                            # Identity mode: add ALL identity keys to used_artists
+                            cand_artist_str = str(artist_key_by_idx.get(int(cand), "") or "")
+                            if cand_artist_str:
+                                cand_identity_keys = resolve_artist_identity_keys(cand_artist_str, artist_identity_cfg)
+                                new_used_artists = state.used_artists | cand_identity_keys
+                        else:
+                            # Legacy mode: add single artist key
+                            cand_artist = str(artist_key_by_idx.get(int(cand), "") or "")
+                            if cand_artist:
+                                new_used_artists = state.used_artists | {cand_artist}
+                    new_last_progress = float(state.last_progress)
+                    if progress_active:
+                        new_last_progress = float(progress_by_idx.get(int(cand), 0.0))
 
-                new_score = state.score + combined_score + dest_pull
-                new_path = state.path + [cand]
-                new_used = state.used | {cand}
-                new_used_artists = state.used_artists
-                if artist_key_by_idx is not None:
-                    use_identity = artist_identity_cfg is not None and artist_identity_cfg.enabled
-                    if use_identity:
-                        # Identity mode: add ALL identity keys to used_artists
-                        cand_artist_str = str(artist_key_by_idx.get(int(cand), "") or "")
-                        if cand_artist_str:
-                            cand_identity_keys = resolve_artist_identity_keys(cand_artist_str, artist_identity_cfg)
-                            new_used_artists = state.used_artists | cand_identity_keys
-                    else:
-                        # Legacy mode: add single artist key
-                        cand_artist = str(artist_key_by_idx.get(int(cand), "") or "")
-                        if cand_artist:
-                            new_used_artists = state.used_artists | {cand_artist}
-                new_last_progress = float(state.last_progress)
-                if progress_active:
-                    new_last_progress = float(progress_by_idx.get(int(cand), 0.0))
+                    next_beam.append(BeamState(
+                        path=new_path,
+                        score=new_score,
+                        used=new_used,
+                        used_artists=new_used_artists,
+                        last_progress=new_last_progress,
+                    ))
 
-                next_beam.append(BeamState(
-                    path=new_path,
-                    score=new_score,
-                    used=new_used,
-                    used_artists=new_used_artists,
-                    last_progress=new_last_progress,
-                ))
+            if apply_tie_break and cand_entries:
+                for cand, cand_t, base_score, dest_pull, genre_sim, waypoint_sim in cand_entries:
+                    combined_score = float(base_score)
+                    if genre_sim is not None and math.isfinite(genre_sim):
+                        if genre_tie_break_band is not None:
+                            if (best_score - combined_score) <= float(genre_tie_break_band):
+                                if penalty_strength > 0 and genre_sim < penalty_threshold:
+                                    combined_score *= (1.0 - penalty_strength)
+                                    genre_penalty_hits += 1
+                        else:
+                            if penalty_strength > 0 and genre_sim < penalty_threshold:
+                                combined_score *= (1.0 - penalty_strength)
+                                genre_penalty_hits += 1
+                    if waypoint_enabled:
+                        if waypoint_tie_break_band is None:
+                            combined_score += _waypoint_delta(waypoint_sim)
+                        elif (best_score - combined_score) <= float(waypoint_tie_break_band):
+                            combined_score += _waypoint_delta(waypoint_sim)
+
+                    new_score = state.score + combined_score + float(dest_pull)
+                    new_path = state.path + [cand]
+                    new_used = state.used | {cand}
+                    new_used_artists = state.used_artists
+                    if artist_key_by_idx is not None:
+                        use_identity = artist_identity_cfg is not None and artist_identity_cfg.enabled
+                        if use_identity:
+                            cand_artist_str = str(artist_key_by_idx.get(int(cand), "") or "")
+                            if cand_artist_str:
+                                cand_identity_keys = resolve_artist_identity_keys(cand_artist_str, artist_identity_cfg)
+                                new_used_artists = state.used_artists | cand_identity_keys
+                        else:
+                            cand_artist = str(artist_key_by_idx.get(int(cand), "") or "")
+                            if cand_artist:
+                                new_used_artists = state.used_artists | {cand_artist}
+                    new_last_progress = float(state.last_progress)
+                    if progress_active:
+                        new_last_progress = float(progress_by_idx.get(int(cand), 0.0))
+
+                    next_beam.append(BeamState(
+                        path=new_path,
+                        score=new_score,
+                        used=new_used,
+                        used_artists=new_used_artists,
+                        last_progress=new_last_progress,
+                    ))
 
         if not next_beam:
+            _record_genre_cache_stats()
             return None, genre_penalty_hits, edges_scored, f"no valid continuations at step={step}"
 
         # Keep top beam_width states
@@ -1302,8 +2088,8 @@ def _beam_search_segment(
         final_edge_score = final_trans
         edges_scored += 1
         if X_genre_norm is not None:
-            genre_sim = float(np.dot(X_genre_norm[last], X_genre_norm[pier_b]))
-            if math.isfinite(genre_sim):
+            genre_sim = _get_genre_sim(int(last), int(pier_b))
+            if genre_sim is not None and math.isfinite(genre_sim):
                 if cfg.genre_tiebreak_weight:
                     final_edge_score += cfg.genre_tiebreak_weight * genre_sim
                 if (
@@ -1319,9 +2105,11 @@ def _beam_search_segment(
             best_final = state
 
     if best_final is None:
+        _record_genre_cache_stats()
         return None, genre_penalty_hits, edges_scored, "no valid final connection to destination"
 
     # Return interior tracks (exclude pier_a which is path[0])
+    _record_genre_cache_stats()
     return best_final.path[1:], genre_penalty_hits, edges_scored, None
 
 
@@ -1605,6 +2393,64 @@ def build_pier_bridge_playlist(
         denom_g = np.linalg.norm(X_genre_use, axis=1, keepdims=True) + 1e-12
         X_genre_norm = X_genre_use / denom_g
 
+    warnings: list[dict[str, Any]] = []
+    if bool(cfg.dj_bridging_enabled):
+        if X_genre_norm is None:
+            warnings.append({
+                "type": "genre_missing",
+                "scope": "global",
+                "message": "Genre guidance reduced because metadata is missing; consider adding genres.",
+                "anchors_missing": int(num_seeds),
+            })
+        else:
+            seed_vecs = X_genre_norm[seed_indices]
+            norms = np.linalg.norm(seed_vecs, axis=1)
+            missing_ids = [
+                str(bundle.track_ids[idx])
+                for idx, nval in zip(seed_indices, norms)
+                if float(nval) <= 1e-8
+            ]
+            if missing_ids:
+                warnings.append({
+                    "type": "genre_missing",
+                    "scope": "anchors",
+                    "message": "Genre guidance reduced because metadata is missing; consider adding genres.",
+                    "missing_anchor_ids": missing_ids,
+                })
+        if bool(cfg.dj_anchors_must_include_all) and len(seed_indices) != len(seed_track_ids):
+            warnings.append({
+                "type": "anchor_deduped",
+                "scope": "anchors",
+                "message": "Duplicate anchors were removed while must_include_all is set.",
+                "requested_count": int(len(seed_track_ids)),
+                "resolved_count": int(len(seed_indices)),
+            })
+
+    genre_graph: Optional[dict[str, list[tuple[str, float]]]] = None
+    if bool(cfg.dj_bridging_enabled):
+        route_shape = str(cfg.dj_route_shape or "linear").strip().lower()
+        if route_shape == "ladder":
+            genre_vocab = getattr(bundle, "genre_vocab", None)
+            if genre_vocab is None:
+                warnings.append({
+                    "type": "genre_ladder_unavailable",
+                    "scope": "global",
+                    "message": "Genre ladder disabled; missing genre vocab.",
+                })
+            else:
+                repo_root = Path(__file__).resolve().parents[2]
+                genre_yaml = repo_root / "data" / "genre_similarity.yaml"
+                genre_graph = _load_genre_similarity_graph(
+                    genre_yaml,
+                    min_similarity=float(cfg.dj_ladder_min_similarity),
+                )
+                if not genre_graph:
+                    warnings.append({
+                        "type": "genre_ladder_unavailable",
+                        "scope": "global",
+                        "message": "Genre ladder disabled; similarity graph unavailable.",
+                    })
+
     # Precompute allowed indices set if caller passed allowed_track_ids_set.
     # (In style-aware runs, the bundle is often already restricted, but this still
     # acts as a hard gate for candidate admission inside pier-bridge.)
@@ -1618,10 +2464,33 @@ def build_pier_bridge_playlist(
         # Ensure piers are always allowed
         allowed_set_indices.update(seed_indices)
 
-    # Order seeds by bridgeability
-    ordered_seeds = _order_seeds_by_bridgeability(
-        seed_indices, X_full_norm, X_start_norm, X_end_norm
-    )
+    # Order seeds by bridgeability (or preserve order if fixed)
+    seed_ordering = str(cfg.dj_seed_ordering or "auto").strip().lower()
+    if seed_ordering not in {"auto", "fixed"}:
+        warnings.append({
+            "type": "seed_ordering_invalid",
+            "scope": "anchors",
+            "message": f"Unknown seed_ordering '{seed_ordering}', defaulting to auto.",
+        })
+        seed_ordering = "auto"
+    if bool(cfg.dj_bridging_enabled) and seed_ordering == "fixed":
+        ordered_seeds = list(seed_indices)
+    else:
+        if bool(cfg.dj_bridging_enabled):
+            ordered_seeds = _order_seeds_by_bridgeability(
+                seed_indices,
+                X_full_norm,
+                X_start_norm,
+                X_end_norm,
+                X_genre_norm,
+                weight_sonic=float(cfg.dj_seed_ordering_weight_sonic),
+                weight_genre=float(cfg.dj_seed_ordering_weight_genre),
+                weight_bridge=float(cfg.dj_seed_ordering_weight_bridge),
+            )
+        else:
+            ordered_seeds = _order_seeds_by_bridgeability(
+                seed_indices, X_full_norm, X_start_norm, X_end_norm
+            )
 
     logger.info("Pier+Bridge: seed order = %s",
                [str(bundle.track_ids[i]) for i in ordered_seeds])
@@ -1651,7 +2520,7 @@ def build_pier_bridge_playlist(
                segment_lengths, total_interior)
 
     # Build segments
-    global_used: Set[int] = set(ordered_seeds)  # Seeds are already "used"      
+    global_used: Set[int] = set(ordered_seeds)  # Seeds are already "used"
     # Track-key dedupe across the full run: prevent "same song twice" even if track_id differs.
     seed_artist_key: Optional[str] = None
     try:
@@ -1711,6 +2580,44 @@ def build_pier_bridge_playlist(
         logger.info("Building segment %d: %s -> %s (interior=%d)",
                    seg_idx, pier_a_id, pier_b_id, interior_len)
 
+        segment_g_targets: Optional[list[np.ndarray]] = None
+        segment_far_stats: Optional[dict[str, Optional[float]]] = None
+        segment_is_far = False
+        if bool(cfg.dj_bridging_enabled) and X_genre_norm is not None:
+            genre_vocab = getattr(bundle, "genre_vocab", None)
+            if genre_vocab is not None:
+                segment_g_targets = _build_genre_targets(
+                    pier_a=pier_a,
+                    pier_b=pier_b,
+                    interior_length=interior_len,
+                    X_full_norm=X_full_norm,
+                    X_genre_norm=X_genre_norm,
+                    genre_vocab=genre_vocab,
+                    genre_graph=genre_graph,
+                    cfg=cfg,
+                    warnings=warnings,
+                )
+            segment_far_stats = _segment_far_stats(
+                pier_a=pier_a,
+                pier_b=pier_b,
+                X_full_norm=X_full_norm,
+                X_genre_norm=X_genre_norm,
+                universe=universe,
+                used_track_ids=global_used,
+                bridge_floor=float(cfg.bridge_floor),
+            )
+            if segment_far_stats:
+                sonic_sim = segment_far_stats.get("sonic_sim")
+                genre_sim = segment_far_stats.get("genre_sim")
+                scarcity = segment_far_stats.get("connector_scarcity")
+                if sonic_sim is not None and (1.0 - float(sonic_sim)) > float(cfg.dj_far_threshold_sonic):
+                    segment_is_far = True
+                if genre_sim is not None and (1.0 - float(genre_sim)) > float(cfg.dj_far_threshold_genre):
+                    segment_is_far = True
+                if scarcity is not None and float(scarcity) < float(cfg.dj_far_threshold_connector_scarcity):
+                    segment_is_far = True
+        segment_allow_detours = bool(cfg.dj_allow_detours_when_far) and segment_is_far
+
         # Optional bridge_floor backoff on infeasible segments (default OFF)
         segment_path: Optional[List[int]] = None
         chosen_bridge_floor = float(cfg.bridge_floor)
@@ -1757,13 +2664,57 @@ def build_pier_bridge_playlist(
             last_pool_diag: Dict[str, Any] = {}
             last_segment_candidates: List[int] = []
             last_candidate_artist_keys: Dict[int, str] = {}
+            last_arc_stats: Dict[str, Any] = {}
+            last_genre_cache_stats: Dict[str, int] = {}
+            segment_pool_cache: Optional[Dict[str, Any]] = (
+                {} if bool(cfg.dj_pooling_cache_enabled) else None
+            )
             last_segment_pool_max = int(segment_pool_max)
             last_beam_width = int(beam_width)
 
             for attempt in range(max_expansion_attempts):
                 pool_diag: Dict[str, Any] = {}
                 cand_artist_keys: Dict[int, str] = {}
-                if str(cfg.segment_pool_strategy).strip().lower() == "legacy":
+                arc_stats_segment: Dict[str, Any] = {}
+                genre_cache_stats_segment: Dict[str, int] = {}
+                pool_strategy = str(cfg.segment_pool_strategy).strip().lower()
+                dj_pooling_strategy = str(cfg.dj_pooling_strategy or "baseline").strip().lower()
+                if bool(cfg.dj_bridging_enabled) and dj_pooling_strategy == "dj_union":
+                    pool_strategy = "dj_union"
+
+                segment_internal_connectors = internal_connector_indices
+                segment_connector_cap = int(internal_connector_max_per_segment)
+                if bool(cfg.dj_bridging_enabled) and bool(cfg.dj_connector_bias_enabled) and segment_allow_detours:
+                    adventurous = str(cfg.dj_route_shape or "linear").strip().lower() in {"arc", "ladder"}
+                    dj_connector_cap = (
+                        int(cfg.dj_connector_max_per_segment_adventurous)
+                        if adventurous
+                        else int(cfg.dj_connector_max_per_segment_linear)
+                    )
+                    dj_connector_cap = max(0, dj_connector_cap)
+                    if dj_connector_cap > 0:
+                        available = [int(i) for i in universe if int(i) not in global_used]
+                        if allowed_set_indices is not None:
+                            allowed = set(int(i) for i in allowed_set_indices)
+                            available = [int(i) for i in available if int(i) in allowed]
+                        if available:
+                            vec_a = X_full_norm[pier_a]
+                            vec_b = X_full_norm[pier_b]
+                            sims_a = np.dot(X_full_norm[available], vec_a)
+                            sims_b = np.dot(X_full_norm[available], vec_b)
+                            scores = np.minimum(sims_a, sims_b)
+                            order = np.argsort(-scores)
+                            dj_connectors = [available[int(i)] for i in order[:dj_connector_cap]]
+                        else:
+                            dj_connectors = []
+                        pool_diag["dj_connectors_selected"] = int(len(dj_connectors))
+                        if dj_connectors:
+                            if segment_internal_connectors:
+                                segment_internal_connectors = set(segment_internal_connectors) | set(dj_connectors)
+                            else:
+                                segment_internal_connectors = set(dj_connectors)
+                            segment_connector_cap = max(segment_connector_cap, dj_connector_cap)
+                if pool_strategy == "legacy":
                     # Legacy/compat strategy (combined neighbor pooling).
                     neighbors_m = min(int(cfg.initial_neighbors_m) * (2 ** int(attempt)), int(cfg.max_neighbors_m))
                     bridge_helpers = min(int(cfg.initial_bridge_helpers) * (2 ** int(attempt)), int(cfg.max_bridge_helpers))
@@ -1781,8 +2732,8 @@ def build_pier_bridge_playlist(
                         artist_keys=bundle.artist_keys,
                         bridge_floor=float(bridge_floor),
                         allowed_set=(allowed_set_indices if allowed_set_indices is not None else None),
-                        internal_connectors=internal_connector_indices,
-                        internal_connector_cap=internal_connector_max_per_segment,
+                        internal_connectors=segment_internal_connectors,
+                        internal_connector_cap=segment_connector_cap,
                         internal_connector_priority=internal_connector_priority,
                         diagnostics=pool_diag,
                     )
@@ -1794,6 +2745,7 @@ def build_pier_bridge_playlist(
                     except Exception:
                         cand_artist_keys = {}
                 else:
+                    pool_diag["pool_strategy"] = pool_strategy
                     segment_candidates, cand_artist_keys, _cand_title_keys = _build_segment_candidate_pool_scored(
                         pier_a=pier_a,
                         pier_b=pier_b,
@@ -1804,8 +2756,8 @@ def build_pier_bridge_playlist(
                         bridge_floor=float(bridge_floor),
                         segment_pool_max=int(segment_pool_max),
                         allowed_set=allowed_set_indices if allowed_set_indices is not None else None,
-                        internal_connectors=internal_connector_indices,
-                        internal_connector_cap=internal_connector_max_per_segment,
+                        internal_connectors=segment_internal_connectors,
+                        internal_connector_cap=segment_connector_cap,
                         internal_connector_priority=internal_connector_priority,
                         seed_artist_key=seed_artist_key,
                         disallow_pier_artists_in_interiors=bool(cfg.disallow_pier_artists_in_interiors),
@@ -1813,6 +2765,28 @@ def build_pier_bridge_playlist(
                         used_track_keys=used_track_keys,
                         seed_track_keys=seed_track_keys,
                         diagnostics=pool_diag,
+                        experiment_bridge_scoring_enabled=bool(
+                            cfg.experiment_bridge_scoring_enabled
+                        ),
+                        experiment_bridge_min_weight=float(
+                            cfg.experiment_bridge_min_weight
+                        ),
+                        experiment_bridge_balance_weight=float(
+                            cfg.experiment_bridge_balance_weight
+                        ),
+                        pool_strategy=str(pool_strategy),
+                        interior_length=int(interior_len),
+                        progress_arc_enabled=bool(cfg.progress_arc_enabled),
+                        progress_arc_shape=str(cfg.progress_arc_shape),
+                        X_genre_norm=X_genre_norm,
+                        genre_targets=segment_g_targets,
+                        pool_k_local=int(cfg.dj_pooling_k_local),
+                        pool_k_toward=int(cfg.dj_pooling_k_toward),
+                        pool_k_genre=int(cfg.dj_pooling_k_genre),
+                        pool_k_union_max=int(cfg.dj_pooling_k_union_max),
+                        pool_step_stride=int(cfg.dj_pooling_step_stride),
+                        pool_cache_enabled=bool(cfg.dj_pooling_cache_enabled),
+                        pooling_cache=segment_pool_cache,
                     )
                     try:
                         cand_artist_keys = dict(cand_artist_keys)
@@ -1825,8 +2799,10 @@ def build_pier_bridge_playlist(
                     pool_size_initial = len(segment_candidates)
                 pool_size_final = len(segment_candidates)
                 last_pool_diag = dict(pool_diag)
-                last_segment_candidates = list(segment_candidates)        
+                last_segment_candidates = list(segment_candidates)
                 last_candidate_artist_keys = dict(cand_artist_keys)
+                last_arc_stats = dict(arc_stats_segment)
+                last_genre_cache_stats = dict(genre_cache_stats_segment)
                 last_segment_pool_max = int(segment_pool_max)
                 last_beam_width = int(beam_width)
 
@@ -1866,6 +2842,9 @@ def build_pier_bridge_playlist(
                         durations_ms=bundle.durations_ms,
                         artist_identity_cfg=artist_identity_cfg,
                         bundle=bundle,
+                        arc_stats=arc_stats_segment,
+                        genre_cache_stats=genre_cache_stats_segment,
+                        g_targets_override=segment_g_targets,
                     )
                     last_failure_reason = beam_failure_reason
 
@@ -1931,7 +2910,9 @@ def build_pier_bridge_playlist(
                             "expansion_attempts": int(expansion_attempts_used),
                             "bridge_floor": float(bridge_floor),
                             "widened": bool(widened),
-                            "segment_pool_strategy": str(cfg.segment_pool_strategy),
+                            "segment_pool_strategy": str(
+                                last_pool_diag.get("pool_strategy", cfg.segment_pool_strategy)
+                            ),
                             "segment_pool_max": int(last_segment_pool_max),
                             "beam_width": int(last_beam_width),
                             "pool_counts": dict(last_pool_diag),
@@ -1944,6 +2925,8 @@ def build_pier_bridge_playlist(
                                 "threshold": float(cfg_attempt.genre_penalty_threshold),
                                 "strength": float(cfg_attempt.genre_penalty_strength),
                             },
+                            "genre_cache": dict(last_genre_cache_stats),
+                            "progress_arc": dict(last_arc_stats),
                             "top_candidates": top_rows,
                             "reason": ("success" if segment_path is not None else last_failure_reason),
                         },
@@ -1954,6 +2937,13 @@ def build_pier_bridge_playlist(
                 chosen_bridge_floor = float(bridge_floor)
                 beam_width_used = int(last_beam_width)
                 if audit_enabled:
+                    arc_tracking = _compute_progress_tracking_metrics(
+                        path=segment_path,
+                        pier_a=pier_a,
+                        pier_b=pier_b,
+                        X_full_norm=X_full_norm,
+                        shape=str(cfg_attempt.progress_arc_shape),
+                    )
                     audit_events.append(
                         RunAuditEvent(
                             kind="segment_success",
@@ -1963,12 +2953,40 @@ def build_pier_bridge_playlist(
                                 "bridge_floor_used": float(chosen_bridge_floor),
                                 "backoff_attempts_used": int(backoff_used_count),
                                 "widened_search": bool(widened_search_used),
+                                "progress_arc_tracking": arc_tracking,
                             },
                         )
                     )
                 break
 
         if segment_path is None:
+            if bool(cfg.dj_bridging_enabled) and bool(cfg.dj_micro_piers_enabled) and segment_allow_detours:
+                micro_path = _attempt_micro_pier_split(
+                    pier_a=pier_a,
+                    pier_b=pier_b,
+                    interior_length=interior_len,
+                    candidates=last_segment_candidates,
+                    X_full=X_full_tr_norm,
+                    X_full_norm=X_full_norm,
+                    X_start=X_start_tr_norm,
+                    X_mid=X_mid_tr_norm,
+                    X_end=X_end_tr_norm,
+                    X_genre_norm=X_genre_norm,
+                    cfg=cfg_attempt,
+                    beam_width=beam_width,
+                    artist_key_by_idx=last_candidate_artist_keys,
+                    seed_artist_key=seed_artist_key,
+                    recent_global_artists=recent_boundary_artists if seg_idx > 0 else None,
+                    durations_ms=bundle.durations_ms,
+                    artist_identity_cfg=artist_identity_cfg,
+                    bundle=bundle,
+                    warnings=warnings,
+                    X_genre_vocab=getattr(bundle, "genre_vocab", None),
+                    genre_graph=genre_graph,
+                )
+                if micro_path is not None and len(micro_path) == interior_len:
+                    segment_path = micro_path
+
             if audit_enabled:
                 audit_events.append(
                     RunAuditEvent(
@@ -2060,7 +3078,7 @@ def build_pier_bridge_playlist(
                 scores_dbg.append((final_score, sim_a, sim_b, hmean, trans, cand))
             scores_dbg = sorted(scores_dbg, key=lambda t: t[0], reverse=True)[:10]
             dbg_rows = []
-            for final_score, sim_a, sim_b, hmean, trans, cand in scores_dbg:    
+            for final_score, sim_a, sim_b, hmean, trans, cand in scores_dbg:
                 keys = identity_keys_for_index(bundle, int(cand))
                 artist = (
                     str(bundle.track_artists[cand])
@@ -2223,7 +3241,7 @@ def build_pier_bridge_playlist(
         "actual_tracks": len(final_indices),
         "universe_size": len(universe),
         "segments_built": len(all_segments),
-        "segments_successful": sum(1 for d in diagnostics if d.success),        
+        "segments_successful": sum(1 for d in diagnostics if d.success),
         "total_expansions": sum(d.expansions for d in diagnostics),
         "edge_scores": edge_scores,
         "min_transition": float(np.min(transition_vals)) if transition_vals else None,
@@ -2233,6 +3251,7 @@ def build_pier_bridge_playlist(
         "soft_genre_penalty_edges_scored": int(soft_genre_penalty_edges_scored_total),
         "segment_bridge_floors_used": [float(x) for x in segment_bridge_floors_used],
         "segment_backoff_attempts_used": [int(x) for x in segment_backoff_attempts_used],
+        "warnings": warnings,
         "config": {
             "transition_floor": cfg.transition_floor,
             "transition_weights": cfg.transition_weights,
@@ -2242,8 +3261,81 @@ def build_pier_bridge_playlist(
             "genre_tiebreak_weight": float(cfg.genre_tiebreak_weight),
             "genre_penalty_threshold": float(cfg.genre_penalty_threshold),
             "genre_penalty_strength": float(cfg.genre_penalty_strength),
+            "genre_tie_break_band": (
+                float(cfg.genre_tie_break_band) if cfg.genre_tie_break_band is not None else None
+            ),
             "bridge_floor": float(cfg.bridge_floor),
             "infeasible_handling_enabled": bool(infeasible_handling and infeasible_handling.enabled),
+            "experiment_bridge_scoring": {
+                "enabled": bool(cfg.experiment_bridge_scoring_enabled),
+                "min_weight": float(cfg.experiment_bridge_min_weight),
+                "balance_weight": float(cfg.experiment_bridge_balance_weight),
+            },
+            "dj_bridging": {
+                "enabled": bool(cfg.dj_bridging_enabled),
+                "seed_ordering": str(cfg.dj_seed_ordering),
+                "anchors_must_include_all": bool(cfg.dj_anchors_must_include_all),
+                "route_shape": str(cfg.dj_route_shape),
+                "waypoint_weight": float(cfg.dj_waypoint_weight),
+                "waypoint_floor": float(cfg.dj_waypoint_floor),
+                "waypoint_penalty": float(cfg.dj_waypoint_penalty),
+                "waypoint_tie_break_band": (
+                    float(cfg.dj_waypoint_tie_break_band) if cfg.dj_waypoint_tie_break_band is not None else None
+                ),
+                "waypoint_cap": float(cfg.dj_waypoint_cap),
+                "seed_ordering_weights": {
+                    "sonic": float(cfg.dj_seed_ordering_weight_sonic),
+                    "genre": float(cfg.dj_seed_ordering_weight_genre),
+                    "bridge": float(cfg.dj_seed_ordering_weight_bridge),
+                },
+                "pooling_strategy": str(cfg.dj_pooling_strategy),
+                "pooling_k_local": int(cfg.dj_pooling_k_local),
+                "pooling_k_toward": int(cfg.dj_pooling_k_toward),
+                "pooling_k_genre": int(cfg.dj_pooling_k_genre),
+                "pooling_k_union_max": int(cfg.dj_pooling_k_union_max),
+                "pooling_step_stride": int(cfg.dj_pooling_step_stride),
+                "pooling_cache_enabled": bool(cfg.dj_pooling_cache_enabled),
+                "allow_detours_when_far": bool(cfg.dj_allow_detours_when_far),
+                "far_thresholds": {
+                    "sonic": float(cfg.dj_far_threshold_sonic),
+                    "genre": float(cfg.dj_far_threshold_genre),
+                    "connector_scarcity": float(cfg.dj_far_threshold_connector_scarcity),
+                },
+                "connector_bias": {
+                    "enabled": bool(cfg.dj_connector_bias_enabled),
+                    "max_per_segment_linear": int(cfg.dj_connector_max_per_segment_linear),
+                    "max_per_segment_adventurous": int(cfg.dj_connector_max_per_segment_adventurous),
+                },
+                "ladder": {
+                    "top_labels": int(cfg.dj_ladder_top_labels),
+                    "min_label_weight": float(cfg.dj_ladder_min_label_weight),
+                    "min_similarity": float(cfg.dj_ladder_min_similarity),
+                    "max_steps": int(cfg.dj_ladder_max_steps),
+                },
+                "waypoint_fallback_k": int(cfg.dj_waypoint_fallback_k),
+                "micro_piers": {
+                    "enabled": bool(cfg.dj_micro_piers_enabled),
+                    "max": int(cfg.dj_micro_piers_max),
+                    "topk": int(cfg.dj_micro_piers_topk),
+                },
+            },
+            "progress_arc": {
+                "enabled": bool(cfg.progress_arc_enabled),
+                "weight": float(cfg.progress_arc_weight),
+                "shape": str(cfg.progress_arc_shape),
+                "tolerance": float(cfg.progress_arc_tolerance),
+                "loss": str(cfg.progress_arc_loss),
+                "huber_delta": float(cfg.progress_arc_huber_delta),
+                "max_step": (float(cfg.progress_arc_max_step) if cfg.progress_arc_max_step is not None else None),
+                "max_step_mode": str(cfg.progress_arc_max_step_mode),
+                "max_step_penalty": float(cfg.progress_arc_max_step_penalty),
+                "autoscale": {
+                    "enabled": bool(cfg.progress_arc_autoscale_enabled),
+                    "min_distance": float(cfg.progress_arc_autoscale_min_distance),
+                    "distance_scale": float(cfg.progress_arc_autoscale_distance_scale),
+                    "per_step_scale": bool(cfg.progress_arc_autoscale_per_step_scale),
+                },
+            },
         },
     }
 

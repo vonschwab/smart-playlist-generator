@@ -40,7 +40,7 @@ from pathlib import Path as SysPath
 _ROOT = SysPath(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
-from src.string_utils import normalize_song_title
+from src.string_utils import normalize_match_string, normalize_song_title
 from src.logging_utils import ProgressLogger, configure_logging, add_logging_args, resolve_log_level
 
 MBZ_BASE = "https://musicbrainz.org/ws/2"
@@ -338,6 +338,18 @@ def similarity(a: str, b: str) -> float:
     return difflib.SequenceMatcher(None, normalize_simple(a), normalize_simple(b)).ratio()
 
 
+def title_similarity(title: str, mb_title: str) -> float:
+    base = similarity(title, mb_title)
+    stripped_title = normalize_match_string(title, is_artist=False)
+    stripped_mb_title = normalize_match_string(mb_title, is_artist=False)
+    if stripped_title or stripped_mb_title:
+        base = max(
+            base,
+            difflib.SequenceMatcher(None, stripped_title, stripped_mb_title).ratio(),
+        )
+    return base
+
+
 def best_artist_similarity(artist: str, mb_artist: str) -> float:
     base = similarity(artist, mb_artist)
     split_re = re.compile(r"\s*(?:&|/|,|\+|;|feat\.?|featuring)\s*", re.IGNORECASE)
@@ -347,6 +359,9 @@ def best_artist_similarity(artist: str, mb_artist: str) -> float:
         artist_join = " & ".join(sorted(artist_parts))
         mb_join = " & ".join(sorted(mb_parts))
         base = max(base, similarity(artist_join, mb_join))
+        for artist_part in artist_parts:
+            for mb_part in mb_parts:
+                base = max(base, similarity(artist_part, mb_part))
     return base
 
 
@@ -418,7 +433,7 @@ def main() -> None:
                 dur_diff = None
                 if duration_ms is not None and mb_len is not None:
                     dur_diff = abs(int(mb_len) - int(duration_ms))
-                title_sim = similarity(title, mb_title)
+                title_sim = title_similarity(title, mb_title)
                 artist_sim = best_artist_similarity(artist, mb_artist or "")
 
                 if artist_sim < 0.40 or title_sim < 0.55:
@@ -439,23 +454,33 @@ def main() -> None:
 
                 if duration_ms is not None and mb_len is not None and dur_diff is not None:
                     if dur_diff > args.duration_tolerance_ms:
-                        skipped += 1
-                    _update_mbid_status(
-                        conn,
-                        track_id,
-                        REJECT_MARKER,
-                        MBID_STATUS_NO_MATCH,
-                        last_error="duration_mismatch",
-                    )
-                    logger.debug(
-                        "[REJECT] %s - %s vs %s - %s (duration mismatch: %s ms)",
-                        artist,
-                        title,
-                        mb_artist,
-                        mb_title,
-                        dur_diff,
-                    )
-                    continue
+                        # Allow slight duration drift when title/artist are very strong.
+                        if artist_sim < 0.85 or title_sim < 0.85:
+                            skipped += 1
+                            _update_mbid_status(
+                                conn,
+                                track_id,
+                                REJECT_MARKER,
+                                MBID_STATUS_NO_MATCH,
+                                last_error="duration_mismatch",
+                            )
+                            logger.debug(
+                                "[REJECT] %s - %s vs %s - %s (duration mismatch: %s ms)",
+                                artist,
+                                title,
+                                mb_artist,
+                                mb_title,
+                                dur_diff,
+                            )
+                            continue
+                        logger.debug(
+                            "[MATCH] %s - %s vs %s - %s (duration out of tolerance: %s ms; strong title/artist)",
+                            artist,
+                            title,
+                            mb_artist,
+                            mb_title,
+                            dur_diff,
+                        )
                 elif mb_len is None:
                     if mb_score < 80 and (artist_sim < 0.7 or title_sim < 0.7):
                         skipped += 1

@@ -727,6 +727,308 @@ def generate_playlist_ds(
                         progress_penalty_weight=float(progress_raw.get("penalty_weight")),
                     )
 
+            genre_raw = pb_overrides.get("genre")
+            if isinstance(genre_raw, dict):
+                tie_break_band = genre_raw.get("tie_break_band")
+                if isinstance(tie_break_band, (int, float)):
+                    pb_cfg = replace(
+                        pb_cfg,
+                        genre_tie_break_band=float(tie_break_band),
+                    )
+
+            experiment_enabled = False
+            experiment_min_weight = float(pb_cfg.experiment_bridge_min_weight)
+            experiment_balance_weight = float(pb_cfg.experiment_bridge_balance_weight)
+            experiments_raw = pb_overrides.get("experiments")
+            progress_arc_enabled = False
+            progress_arc_weight = float(pb_cfg.progress_arc_weight)
+            progress_arc_shape = str(pb_cfg.progress_arc_shape or "linear")
+            progress_arc_tolerance = float(pb_cfg.progress_arc_tolerance)
+            progress_arc_loss = str(pb_cfg.progress_arc_loss or "abs")
+            progress_arc_huber_delta = float(pb_cfg.progress_arc_huber_delta)
+            progress_arc_max_step = pb_cfg.progress_arc_max_step
+            progress_arc_max_step_mode = str(pb_cfg.progress_arc_max_step_mode or "penalty")
+            progress_arc_max_step_penalty = float(pb_cfg.progress_arc_max_step_penalty)
+            progress_arc_autoscale_enabled = bool(pb_cfg.progress_arc_autoscale_enabled)
+            progress_arc_autoscale_min_distance = float(pb_cfg.progress_arc_autoscale_min_distance)
+            progress_arc_autoscale_distance_scale = float(pb_cfg.progress_arc_autoscale_distance_scale)
+            progress_arc_autoscale_per_step_scale = bool(pb_cfg.progress_arc_autoscale_per_step_scale)
+            progress_arc_source = None
+
+            progress_arc_raw = pb_overrides.get("progress_arc")
+            if isinstance(progress_arc_raw, dict):
+                progress_arc_source = "pier_bridge.progress_arc"
+                if isinstance(progress_arc_raw.get("enabled"), bool):
+                    progress_arc_enabled = bool(progress_arc_raw.get("enabled"))
+                if isinstance(progress_arc_raw.get("weight"), (int, float)):
+                    progress_arc_weight = float(progress_arc_raw.get("weight"))
+                if isinstance(progress_arc_raw.get("shape"), str) and progress_arc_raw.get("shape").strip():
+                    progress_arc_shape = str(progress_arc_raw.get("shape")).strip().lower()
+                if isinstance(progress_arc_raw.get("tolerance"), (int, float)):
+                    progress_arc_tolerance = float(progress_arc_raw.get("tolerance"))
+                if isinstance(progress_arc_raw.get("loss"), str) and progress_arc_raw.get("loss").strip():
+                    progress_arc_loss = str(progress_arc_raw.get("loss")).strip().lower()
+                if isinstance(progress_arc_raw.get("huber_delta"), (int, float)):
+                    progress_arc_huber_delta = float(progress_arc_raw.get("huber_delta"))
+                if isinstance(progress_arc_raw.get("max_step"), (int, float)):
+                    progress_arc_max_step = float(progress_arc_raw.get("max_step"))
+                elif progress_arc_raw.get("max_step") is None:
+                    progress_arc_max_step = None
+                if isinstance(progress_arc_raw.get("max_step_mode"), str) and progress_arc_raw.get("max_step_mode").strip():
+                    progress_arc_max_step_mode = str(progress_arc_raw.get("max_step_mode")).strip().lower()
+                if isinstance(progress_arc_raw.get("max_step_penalty"), (int, float)):
+                    progress_arc_max_step_penalty = float(progress_arc_raw.get("max_step_penalty"))
+                autoscale_raw = progress_arc_raw.get("autoscale")
+                if isinstance(autoscale_raw, dict):
+                    if isinstance(autoscale_raw.get("enabled"), bool):
+                        progress_arc_autoscale_enabled = bool(autoscale_raw.get("enabled"))
+                    if isinstance(autoscale_raw.get("min_distance"), (int, float)):
+                        progress_arc_autoscale_min_distance = float(autoscale_raw.get("min_distance"))
+                    if isinstance(autoscale_raw.get("distance_scale"), (int, float)):
+                        progress_arc_autoscale_distance_scale = float(autoscale_raw.get("distance_scale"))
+                    if isinstance(autoscale_raw.get("per_step_scale"), bool):
+                        progress_arc_autoscale_per_step_scale = bool(autoscale_raw.get("per_step_scale"))
+
+            if isinstance(experiments_raw, dict):
+                bridge_scoring_raw = experiments_raw.get("bridge_scoring", {})
+                if isinstance(bridge_scoring_raw, dict):
+                    if isinstance(bridge_scoring_raw.get("enabled"), bool):
+                        experiment_enabled = bool(bridge_scoring_raw.get("enabled"))
+                    if isinstance(bridge_scoring_raw.get("min_weight"), (int, float)):
+                        experiment_min_weight = float(bridge_scoring_raw.get("min_weight"))
+                    if isinstance(bridge_scoring_raw.get("balance_weight"), (int, float)):
+                        experiment_balance_weight = float(bridge_scoring_raw.get("balance_weight"))
+                progress_raw = experiments_raw.get("progress_arc", {})
+                if isinstance(progress_raw, dict) and progress_arc_source is None:
+                    progress_arc_source = "pier_bridge.experiments.progress_arc"
+                    if isinstance(progress_raw.get("enabled"), bool):
+                        progress_arc_enabled = bool(progress_raw.get("enabled"))
+                    if isinstance(progress_raw.get("weight"), (int, float)):
+                        progress_arc_weight = float(progress_raw.get("weight"))
+                    if isinstance(progress_raw.get("shape"), str) and progress_raw.get("shape").strip():
+                        progress_arc_shape = str(progress_raw.get("shape")).strip().lower()
+                    if isinstance(progress_raw.get("tolerance"), (int, float)):
+                        progress_arc_tolerance = float(progress_raw.get("tolerance"))
+                    if isinstance(progress_raw.get("loss"), str) and progress_raw.get("loss").strip():
+                        progress_arc_loss = str(progress_raw.get("loss")).strip().lower()
+                    if isinstance(progress_raw.get("huber_delta"), (int, float)):
+                        progress_arc_huber_delta = float(progress_raw.get("huber_delta"))
+                    if isinstance(progress_raw.get("max_step"), (int, float)):
+                        progress_arc_max_step = float(progress_raw.get("max_step"))
+                    elif progress_raw.get("max_step") is None:
+                        progress_arc_max_step = None
+                    if isinstance(progress_raw.get("max_step_mode"), str) and progress_raw.get("max_step_mode").strip():
+                        progress_arc_max_step_mode = str(progress_raw.get("max_step_mode")).strip().lower()
+                    if isinstance(progress_raw.get("max_step_penalty"), (int, float)):
+                        progress_arc_max_step_penalty = float(progress_raw.get("max_step_penalty"))
+                    autoscale_raw = progress_raw.get("autoscale")
+                    if isinstance(autoscale_raw, dict):
+                        if isinstance(autoscale_raw.get("enabled"), bool):
+                            progress_arc_autoscale_enabled = bool(autoscale_raw.get("enabled"))
+                        if isinstance(autoscale_raw.get("min_distance"), (int, float)):
+                            progress_arc_autoscale_min_distance = float(autoscale_raw.get("min_distance"))
+                        if isinstance(autoscale_raw.get("distance_scale"), (int, float)):
+                            progress_arc_autoscale_distance_scale = float(autoscale_raw.get("distance_scale"))
+                        if isinstance(autoscale_raw.get("per_step_scale"), bool):
+                            progress_arc_autoscale_per_step_scale = bool(autoscale_raw.get("per_step_scale"))
+
+            experiments_allowed = bool(dry_run or (audit_cfg and audit_cfg.enabled))
+            if experiment_enabled and not experiments_allowed:
+                logger.info(
+                    "Pier-bridge experiment bridge scoring ignored outside dry-run/audit."
+                )
+                experiment_enabled = False
+            if progress_arc_enabled and progress_arc_source == "pier_bridge.experiments.progress_arc" and not experiments_allowed:
+                logger.info(
+                    "Pier-bridge experiment progress arc ignored outside dry-run/audit."
+                )
+                progress_arc_enabled = False
+
+            if experiment_enabled:
+                pb_cfg = replace(
+                    pb_cfg,
+                    experiment_bridge_scoring_enabled=True,
+                    experiment_bridge_min_weight=float(experiment_min_weight),
+                    experiment_bridge_balance_weight=float(experiment_balance_weight),
+                )
+                logger.info(
+                    "Pier-bridge experiment: bridge scoring enabled (min_weight=%.2f balance_weight=%.2f)",
+                    float(experiment_min_weight),
+                    float(experiment_balance_weight),
+                )
+            if progress_arc_enabled:
+                pb_cfg = replace(
+                    pb_cfg,
+                    progress_arc_enabled=True,
+                    progress_arc_weight=float(progress_arc_weight),
+                    progress_arc_shape=str(progress_arc_shape),
+                    progress_arc_tolerance=float(progress_arc_tolerance),       
+                    progress_arc_loss=str(progress_arc_loss),
+                    progress_arc_huber_delta=float(progress_arc_huber_delta),
+                    progress_arc_max_step=progress_arc_max_step,
+                    progress_arc_max_step_mode=str(progress_arc_max_step_mode),
+                    progress_arc_max_step_penalty=float(progress_arc_max_step_penalty),
+                    progress_arc_autoscale_enabled=bool(progress_arc_autoscale_enabled),
+                    progress_arc_autoscale_min_distance=float(progress_arc_autoscale_min_distance),
+                    progress_arc_autoscale_distance_scale=float(progress_arc_autoscale_distance_scale),
+                    progress_arc_autoscale_per_step_scale=bool(progress_arc_autoscale_per_step_scale),
+                )
+                logger.info(
+                    "Pier-bridge progress arc enabled (weight=%.2f shape=%s source=%s)",
+                    float(progress_arc_weight),
+                    str(progress_arc_shape),
+                    str(progress_arc_source or "default"),
+                )
+
+            dj_raw = pb_overrides.get("dj_bridging")
+            if isinstance(dj_raw, dict):
+                dj_enabled = bool(dj_raw.get("enabled", pb_cfg.dj_bridging_enabled))
+                seed_ordering = dj_raw.get("seed_ordering", pb_cfg.dj_seed_ordering)
+                route_shape = dj_raw.get("route_shape", pb_cfg.dj_route_shape)
+                pooling_raw = dj_raw.get("pooling")
+                pool_strategy = pb_cfg.dj_pooling_strategy
+                anchors_raw = dj_raw.get("anchors")
+                anchors_must_include_all = pb_cfg.dj_anchors_must_include_all
+                if isinstance(anchors_raw, dict) and isinstance(anchors_raw.get("must_include_all"), bool):
+                    anchors_must_include_all = bool(anchors_raw.get("must_include_all"))
+                waypoint_weight = pb_cfg.dj_waypoint_weight
+                waypoint_floor = pb_cfg.dj_waypoint_floor
+                waypoint_penalty = pb_cfg.dj_waypoint_penalty
+                waypoint_tie_break_band = pb_cfg.dj_waypoint_tie_break_band
+                waypoint_cap = pb_cfg.dj_waypoint_cap
+                seed_ordering_weight_sonic = pb_cfg.dj_seed_ordering_weight_sonic
+                seed_ordering_weight_genre = pb_cfg.dj_seed_ordering_weight_genre
+                seed_ordering_weight_bridge = pb_cfg.dj_seed_ordering_weight_bridge
+                pool_k_local = pb_cfg.dj_pooling_k_local
+                pool_k_toward = pb_cfg.dj_pooling_k_toward
+                pool_k_genre = pb_cfg.dj_pooling_k_genre
+                pool_union_max = pb_cfg.dj_pooling_k_union_max
+                pool_step_stride = pb_cfg.dj_pooling_step_stride
+                pool_cache_enabled = pb_cfg.dj_pooling_cache_enabled
+                allow_detours_when_far = pb_cfg.dj_allow_detours_when_far
+                far_threshold_sonic = pb_cfg.dj_far_threshold_sonic
+                far_threshold_genre = pb_cfg.dj_far_threshold_genre
+                far_threshold_connector = pb_cfg.dj_far_threshold_connector_scarcity
+                connector_bias_enabled = pb_cfg.dj_connector_bias_enabled
+                connector_max_linear = pb_cfg.dj_connector_max_per_segment_linear
+                connector_max_adventurous = pb_cfg.dj_connector_max_per_segment_adventurous
+                ladder_top_labels = pb_cfg.dj_ladder_top_labels
+                ladder_min_label_weight = pb_cfg.dj_ladder_min_label_weight
+                ladder_min_similarity = pb_cfg.dj_ladder_min_similarity
+                ladder_max_steps = pb_cfg.dj_ladder_max_steps
+                waypoint_fallback_k = pb_cfg.dj_waypoint_fallback_k
+                micro_piers_enabled = pb_cfg.dj_micro_piers_enabled
+                micro_piers_max = pb_cfg.dj_micro_piers_max
+                micro_piers_topk = pb_cfg.dj_micro_piers_topk
+                if isinstance(dj_raw.get("waypoint_weight"), (int, float)):
+                    waypoint_weight = float(dj_raw.get("waypoint_weight"))
+                if isinstance(dj_raw.get("waypoint_floor"), (int, float)):
+                    waypoint_floor = float(dj_raw.get("waypoint_floor"))
+                if isinstance(dj_raw.get("waypoint_penalty"), (int, float)):
+                    waypoint_penalty = float(dj_raw.get("waypoint_penalty"))
+                if isinstance(dj_raw.get("waypoint_tie_break_band"), (int, float)):
+                    waypoint_tie_break_band = float(dj_raw.get("waypoint_tie_break_band"))
+                elif "waypoint_tie_break_band" in dj_raw and dj_raw.get("waypoint_tie_break_band") is None:
+                    waypoint_tie_break_band = None
+                if isinstance(dj_raw.get("waypoint_cap"), (int, float)):
+                    waypoint_cap = float(dj_raw.get("waypoint_cap"))
+                if isinstance(dj_raw.get("seed_ordering_weight_sonic"), (int, float)):
+                    seed_ordering_weight_sonic = float(dj_raw.get("seed_ordering_weight_sonic"))
+                if isinstance(dj_raw.get("seed_ordering_weight_genre"), (int, float)):
+                    seed_ordering_weight_genre = float(dj_raw.get("seed_ordering_weight_genre"))
+                if isinstance(dj_raw.get("seed_ordering_weight_bridge"), (int, float)):
+                    seed_ordering_weight_bridge = float(dj_raw.get("seed_ordering_weight_bridge"))
+                if isinstance(pooling_raw, dict):
+                    if isinstance(pooling_raw.get("strategy"), str):
+                        pool_strategy = str(pooling_raw.get("strategy"))
+                    if isinstance(pooling_raw.get("k_local"), int):
+                        pool_k_local = int(pooling_raw.get("k_local"))
+                    if isinstance(pooling_raw.get("k_toward"), int):
+                        pool_k_toward = int(pooling_raw.get("k_toward"))
+                    if isinstance(pooling_raw.get("k_genre"), int):
+                        pool_k_genre = int(pooling_raw.get("k_genre"))
+                    if isinstance(pooling_raw.get("k_union_max"), int):
+                        pool_union_max = int(pooling_raw.get("k_union_max"))
+                    if isinstance(pooling_raw.get("step_stride"), int):
+                        pool_step_stride = int(pooling_raw.get("step_stride"))
+                    if isinstance(pooling_raw.get("cache_enabled"), bool):
+                        pool_cache_enabled = bool(pooling_raw.get("cache_enabled"))
+                if isinstance(dj_raw.get("allow_detours_when_far"), bool):
+                    allow_detours_when_far = bool(dj_raw.get("allow_detours_when_far"))
+                far_raw = dj_raw.get("far_thresholds")
+                if isinstance(far_raw, dict):
+                    if isinstance(far_raw.get("sonic"), (int, float)):
+                        far_threshold_sonic = float(far_raw.get("sonic"))
+                    if isinstance(far_raw.get("genre"), (int, float)):
+                        far_threshold_genre = float(far_raw.get("genre"))
+                    if isinstance(far_raw.get("connector_scarcity"), (int, float)):
+                        far_threshold_connector = float(far_raw.get("connector_scarcity"))
+                connector_raw = dj_raw.get("connector_bias")
+                if isinstance(connector_raw, dict):
+                    if isinstance(connector_raw.get("enabled"), bool):
+                        connector_bias_enabled = bool(connector_raw.get("enabled"))
+                    if isinstance(connector_raw.get("max_per_segment_linear"), int):
+                        connector_max_linear = int(connector_raw.get("max_per_segment_linear"))
+                    if isinstance(connector_raw.get("max_per_segment_adventurous"), int):
+                        connector_max_adventurous = int(connector_raw.get("max_per_segment_adventurous"))
+                ladder_raw = dj_raw.get("ladder")
+                if isinstance(ladder_raw, dict):
+                    if isinstance(ladder_raw.get("top_labels"), int):
+                        ladder_top_labels = int(ladder_raw.get("top_labels"))
+                    if isinstance(ladder_raw.get("min_label_weight"), (int, float)):
+                        ladder_min_label_weight = float(ladder_raw.get("min_label_weight"))
+                    if isinstance(ladder_raw.get("min_similarity"), (int, float)):
+                        ladder_min_similarity = float(ladder_raw.get("min_similarity"))
+                    if isinstance(ladder_raw.get("max_steps"), int):
+                        ladder_max_steps = int(ladder_raw.get("max_steps"))
+                if isinstance(dj_raw.get("waypoint_fallback_k"), int):
+                    waypoint_fallback_k = int(dj_raw.get("waypoint_fallback_k"))
+                micro_raw = dj_raw.get("micro_piers")
+                if isinstance(micro_raw, dict):
+                    if isinstance(micro_raw.get("enabled"), bool):
+                        micro_piers_enabled = bool(micro_raw.get("enabled"))
+                    if isinstance(micro_raw.get("max"), int):
+                        micro_piers_max = int(micro_raw.get("max"))
+                    if isinstance(micro_raw.get("topk"), int):
+                        micro_piers_topk = int(micro_raw.get("topk"))
+                pb_cfg = replace(
+                    pb_cfg,
+                    dj_bridging_enabled=bool(dj_enabled),
+                    dj_seed_ordering=str(seed_ordering),
+                    dj_route_shape=str(route_shape),
+                    dj_anchors_must_include_all=bool(anchors_must_include_all),
+                    dj_waypoint_weight=float(waypoint_weight),
+                    dj_waypoint_floor=float(waypoint_floor),
+                    dj_waypoint_penalty=float(waypoint_penalty),
+                    dj_waypoint_tie_break_band=waypoint_tie_break_band,
+                    dj_waypoint_cap=float(waypoint_cap),
+                    dj_seed_ordering_weight_sonic=float(seed_ordering_weight_sonic),
+                    dj_seed_ordering_weight_genre=float(seed_ordering_weight_genre),
+                    dj_seed_ordering_weight_bridge=float(seed_ordering_weight_bridge),
+                    dj_pooling_strategy=str(pool_strategy),
+                    dj_pooling_k_local=int(pool_k_local),
+                    dj_pooling_k_toward=int(pool_k_toward),
+                    dj_pooling_k_genre=int(pool_k_genre),
+                    dj_pooling_k_union_max=int(pool_union_max),
+                    dj_pooling_step_stride=int(pool_step_stride),
+                    dj_pooling_cache_enabled=bool(pool_cache_enabled),
+                    dj_allow_detours_when_far=bool(allow_detours_when_far),
+                    dj_far_threshold_sonic=float(far_threshold_sonic),
+                    dj_far_threshold_genre=float(far_threshold_genre),
+                    dj_far_threshold_connector_scarcity=float(far_threshold_connector),
+                    dj_connector_bias_enabled=bool(connector_bias_enabled),
+                    dj_connector_max_per_segment_linear=int(connector_max_linear),
+                    dj_connector_max_per_segment_adventurous=int(connector_max_adventurous),
+                    dj_ladder_top_labels=int(ladder_top_labels),
+                    dj_ladder_min_label_weight=float(ladder_min_label_weight),
+                    dj_ladder_min_similarity=float(ladder_min_similarity),
+                    dj_ladder_max_steps=int(ladder_max_steps),
+                    dj_waypoint_fallback_k=int(waypoint_fallback_k),
+                    dj_micro_piers_enabled=bool(micro_piers_enabled),
+                    dj_micro_piers_max=int(micro_piers_max),
+                    dj_micro_piers_topk=int(micro_piers_topk),
+                )
+
             logger.info(
                 "Pier-bridge segment policy: artist_playlist=%s strategy=%s pool_max=%d progress=%s disallow_seed_artist_in_interiors=%s disallow_pier_artists_in_interiors=%s",
                 bool(artist_playlist),
@@ -770,6 +1072,11 @@ def generate_playlist_ds(
                                 "genre_tiebreak_weight": float(tuning.genre_tiebreak_weight),
                                 "genre_penalty_threshold": float(tuning.genre_penalty_threshold),
                                 "genre_penalty_strength": float(tuning.genre_penalty_strength),
+                                "genre_tie_break_band": (
+                                    float(pb_cfg.genre_tie_break_band)
+                                    if pb_cfg.genre_tie_break_band is not None
+                                    else None
+                                ),
                                 "segment_pool_strategy": str(pb_cfg.segment_pool_strategy),
                                 "segment_pool_max": int(pb_cfg.segment_pool_max),
                                 "max_segment_pool_max": int(pb_cfg.max_segment_pool_max),
@@ -777,6 +1084,30 @@ def generate_playlist_ds(
                                     "enabled": bool(pb_cfg.progress_enabled),
                                     "monotonic_epsilon": float(pb_cfg.progress_monotonic_epsilon),
                                     "penalty_weight": float(pb_cfg.progress_penalty_weight),
+                                },
+                                "experiments": {
+                                    "bridge_scoring": {
+                                        "enabled": bool(pb_cfg.experiment_bridge_scoring_enabled),
+                                        "min_weight": float(pb_cfg.experiment_bridge_min_weight),
+                                        "balance_weight": float(pb_cfg.experiment_bridge_balance_weight),
+                                    },
+                                },
+                                "progress_arc": {
+                                    "enabled": bool(pb_cfg.progress_arc_enabled),
+                                    "weight": float(pb_cfg.progress_arc_weight),
+                                    "shape": str(pb_cfg.progress_arc_shape),
+                                    "tolerance": float(pb_cfg.progress_arc_tolerance),
+                                    "loss": str(pb_cfg.progress_arc_loss),
+                                    "huber_delta": float(pb_cfg.progress_arc_huber_delta),
+                                    "max_step": (float(pb_cfg.progress_arc_max_step) if pb_cfg.progress_arc_max_step is not None else None),
+                                    "max_step_mode": str(pb_cfg.progress_arc_max_step_mode),
+                                    "max_step_penalty": float(pb_cfg.progress_arc_max_step_penalty),
+                                    "autoscale": {
+                                        "enabled": bool(pb_cfg.progress_arc_autoscale_enabled),
+                                        "min_distance": float(pb_cfg.progress_arc_autoscale_min_distance),
+                                        "distance_scale": float(pb_cfg.progress_arc_autoscale_distance_scale),
+                                        "per_step_scale": bool(pb_cfg.progress_arc_autoscale_per_step_scale),
+                                    },
                                 },
                                 "disallow_seed_artist_in_interiors": bool(pb_cfg.disallow_seed_artist_in_interiors),
                                 "disallow_pier_artists_in_interiors": bool(pb_cfg.disallow_pier_artists_in_interiors),
@@ -905,6 +1236,7 @@ def generate_playlist_ds(
                     "min_transition": min_transition,
                     "mean_transition": mean_transition,
                     "repair_applied": False,  # No repair in pier bridge mode
+                    "warnings": (pb_result.stats or {}).get("warnings") or [],
                 },
                 params_requested={"strategy": "pier_bridge"},
                 params_effective={"strategy": "pier_bridge", "pier_config": pb_cfg.__dict__},

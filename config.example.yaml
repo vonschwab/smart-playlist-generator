@@ -201,6 +201,9 @@ playlists:
       # final_edge_score *= (1 - strength)
       soft_genre_penalty_threshold: 0.20
       soft_genre_penalty_strength: 0.10
+      # Optional genre tie-break band for penalty application (default: off).
+      genre:
+        tie_break_band: null  # e.g. 0.02 to apply penalty only on close calls
       # Segment-local candidate pool strategy (recommended).
       # "segment_scored" builds a per-segment pool by scoring candidates jointly vs BOTH
       # endpoints (pier A and pier B), rather than unioning neighbor lists.
@@ -214,6 +217,65 @@ playlists:
         enabled: true
         monotonic_epsilon: 0.05
         penalty_weight: 0.15
+      # Optional: progress arc scoring to shape segment pacing (default OFF).   
+      progress_arc:
+        enabled: false
+        weight: 0.25
+        shape: arc               # linear or arc
+        tolerance: 0.05          # dead-zone around target progress
+        loss: abs                # abs, squared, huber
+        huber_delta: 0.10
+        max_step: null           # max forward progress jump; null disables
+        max_step_mode: penalty   # penalty or gate
+        max_step_penalty: 0.25
+        autoscale:
+          enabled: false
+          min_distance: 0.05
+          distance_scale: 0.50
+          per_step_scale: false
+
+      # Optional: DJ-style genre waypoint guidance (default OFF).
+      dj_bridging:
+        enabled: false
+        seed_ordering: auto          # auto | fixed
+        seed_ordering_weight_sonic: 0.60
+        seed_ordering_weight_genre: 0.20
+        seed_ordering_weight_bridge: 0.20
+        anchors:
+          must_include_all: true
+        route_shape: linear          # linear | arc | ladder
+        waypoint_weight: 0.15
+        waypoint_floor: 0.20
+        waypoint_penalty: 0.10
+        waypoint_tie_break_band: null
+        waypoint_cap: 0.05
+        pooling:
+          strategy: baseline        # baseline | dj_union
+          k_local: 200
+          k_toward: 80
+          k_genre: 80
+          k_union_max: 900
+          step_stride: 1
+          cache_enabled: true
+        allow_detours_when_far: true
+        far_thresholds:
+          sonic: 0.45
+          genre: 0.60
+          connector_scarcity: 0.10
+        connector_bias:
+          enabled: true
+          max_per_segment_linear: 1
+          max_per_segment_adventurous: 3
+        ladder:
+          top_labels: 5
+          min_label_weight: 0.05
+          min_similarity: 0.20
+          max_steps: 6
+        waypoint_fallback_k: 25
+        micro_piers:
+          enabled: false
+          max: 1
+          topk: 5
 
       # Duration penalty (geometric): penalizes bridge candidates based on percentage excess
       # over pier tracks. Uses a three-phase curve that accelerates from gentle to severe.

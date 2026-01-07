@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set
+import math
 
 import numpy as np
 
@@ -80,6 +81,55 @@ class SegmentPoolConfig:
     diagnostics: Optional[Dict[str, Any]] = None
     """Optional diagnostics dict to populate."""
 
+    experiment_bridge_scoring_enabled: bool = False
+    """Enable experimental bridge scoring for diagnostics/dry runs only."""
+
+    experiment_bridge_min_weight: float = 0.25
+    """Weight for min(sim_a, sim_b) in experimental bridge score."""
+
+    experiment_bridge_balance_weight: float = 0.15
+    """Weight for balance term in experimental bridge score."""
+
+    # DJ union pooling (testing/opt-in only)
+    pool_strategy: str = "segment_scored"
+    """Pooling strategy: segment_scored (baseline) or dj_union."""
+
+    pool_k_local: int = 0
+    """Top-K local sonic neighbors (S1)."""
+
+    pool_k_toward: int = 0
+    """Top-K toward-B neighbors per step (S2)."""
+
+    pool_k_genre: int = 0
+    """Top-K genre-waypoint neighbors per step (S3)."""
+
+    pool_k_union_max: int = 0
+    """Max union size after dedupe."""
+
+    pool_step_stride: int = 1
+    """Stride for per-step targets (reduces compute)."""
+
+    pool_cache_enabled: bool = True
+    """Cache per-step top-K computations within a segment."""
+
+    interior_length: int = 0
+    """Interior length for the segment (used for step targets)."""
+
+    progress_arc_enabled: bool = False
+    """Whether to use arc-shaped progress for toward-B targets."""
+
+    progress_arc_shape: str = "linear"
+    """Progress arc shape for toward-B targets."""
+
+    X_genre_norm: Optional[np.ndarray] = None
+    """Normalized genre vectors (optional, for S3)."""
+
+    genre_targets: Optional[List[np.ndarray]] = None
+    """Optional per-step genre targets (same basis as X_genre_norm)."""
+
+    pooling_cache: Optional[Dict[str, Any]] = None
+    """Optional cache for per-step pooling computations."""
+
 
 @dataclass
 class SegmentPoolResult:
@@ -130,6 +180,17 @@ class SegmentCandidatePoolBuilder:
         used_track_keys = config.used_track_keys or set()
         seed_track_keys = config.seed_track_keys or set()
 
+        pool_strategy = str(config.pool_strategy or "segment_scored").strip().lower()
+        if pool_strategy not in {"segment_scored", "dj_union"}:
+            pool_strategy = "segment_scored"
+
+        universe_indices = list(config.universe_indices)
+        dj_diag: Dict[str, Any] = {}
+        if pool_strategy == "dj_union":
+            union_indices, dj_diag = self._build_dj_union_pool(config)
+            if union_indices:
+                universe_indices = union_indices
+
         # Get endpoint artist keys for policy enforcement
         pier_a_artist_key = identity_keys_for_index(config.bundle, config.pier_a).artist_key
         pier_b_artist_key = identity_keys_for_index(config.bundle, config.pier_b).artist_key
@@ -137,6 +198,8 @@ class SegmentCandidatePoolBuilder:
         # Phase 1: Structural filtering
         structural_result = self._apply_structural_filters(
             config=config,
+            universe_indices=universe_indices,
+            pool_strategy=pool_strategy,
             pier_a_artist_key=pier_a_artist_key,
             pier_b_artist_key=pier_b_artist_key,
             used_track_keys=used_track_keys,
@@ -144,6 +207,8 @@ class SegmentCandidatePoolBuilder:
         )
 
         if not structural_result.candidates:
+            if dj_diag:
+                structural_result.diagnostics.update(dj_diag)
             return self._empty_result_with_diagnostics(
                 config,
                 segment_pool_max,
@@ -190,6 +255,7 @@ class SegmentCandidatePoolBuilder:
             **bridge_result.diagnostics,
             **internal_result.diagnostics,
             **final_result.diagnostics,
+            **dj_diag,
         }
 
         # Only return mappings for indices in the final candidate list
@@ -212,6 +278,36 @@ class SegmentCandidatePoolBuilder:
             diagnostics=diagnostics,
         )
 
+    @staticmethod
+    def _compute_bridge_score(
+        sim_a: float,
+        sim_b: float,
+        config: SegmentPoolConfig,
+    ) -> float:
+        denom = sim_a + sim_b
+        hmean = 0.0 if denom <= 1e-9 else (2.0 * sim_a * sim_b) / denom
+        if not config.experiment_bridge_scoring_enabled:
+            return float(hmean)
+
+        min_weight = float(config.experiment_bridge_min_weight)
+        min_weight = max(0.0, min(1.0, min_weight))
+        balance_weight = float(config.experiment_bridge_balance_weight)
+        balance_weight = max(0.0, min(1.0 - min_weight, balance_weight))
+        hmean_weight = max(0.0, 1.0 - min_weight - balance_weight)
+
+        min_sim = min(sim_a, sim_b)
+        balance = 1.0 - abs(sim_a - sim_b)
+        if balance < 0.0:
+            balance = 0.0
+        elif balance > 1.0:
+            balance = 1.0
+
+        return float(
+            (hmean_weight * hmean)
+            + (min_weight * min_sim)
+            + (balance_weight * balance)
+        )
+
     def _empty_result(
         self,
         config: SegmentPoolConfig,
@@ -219,7 +315,7 @@ class SegmentCandidatePoolBuilder:
     ) -> SegmentPoolResult:
         """Return empty result when segment_pool_max <= 0."""
         diagnostics = {
-            "pool_strategy": "segment_scored",
+            "pool_strategy": str(config.pool_strategy or "segment_scored"),
             "base_universe": int(len(config.universe_indices)),
             "excluded_used_track_ids": 0,
             "excluded_allowed_set": 0,
@@ -291,6 +387,8 @@ class SegmentCandidatePoolBuilder:
     def _apply_structural_filters(
         self,
         config: SegmentPoolConfig,
+        universe_indices: List[int],
+        pool_strategy: str,
         pier_a_artist_key: str,
         pier_b_artist_key: str,
         used_track_keys: Set[tuple[str, str]],
@@ -308,7 +406,7 @@ class SegmentCandidatePoolBuilder:
         title_key_by_idx: Dict[int, str] = {}
         structural: List[int] = []
 
-        for idx in config.universe_indices:
+        for idx in universe_indices:
             i = int(idx)
 
             # Exclude already-used tracks
@@ -355,7 +453,7 @@ class SegmentCandidatePoolBuilder:
             structural.append(i)
 
         diagnostics = {
-            "pool_strategy": "segment_scored",
+            "pool_strategy": str(pool_strategy),
             "base_universe": int(len(config.universe_indices)),
             "excluded_used_track_ids": int(excluded_used),
             "excluded_allowed_set": int(excluded_allowed),
@@ -407,10 +505,7 @@ class SegmentCandidatePoolBuilder:
                 below_bridge_floor += 1
                 continue
 
-            # Harmonic mean of similarities
-            denom = sim_a + sim_b
-            hmean = 0.0 if denom <= 1e-9 else (2.0 * sim_a * sim_b) / denom
-            bridge_sim[i] = float(hmean)
+            bridge_sim[i] = self._compute_bridge_score(sim_a, sim_b, config)
             passing.append(i)
 
         # Sort by bridge score (descending), then by index (ascending)
@@ -420,6 +515,22 @@ class SegmentCandidatePoolBuilder:
 
         diagnostics["below_bridge_floor"] = int(below_bridge_floor)
         diagnostics["pass_bridge_floor"] = int(len(passing))
+        diagnostics["bridge_score_mode"] = (
+            "experimental"
+            if config.experiment_bridge_scoring_enabled
+            else "hmean"
+        )
+        if config.experiment_bridge_scoring_enabled:
+            min_weight = max(0.0, min(1.0, float(config.experiment_bridge_min_weight)))
+            balance_weight = max(
+                0.0,
+                min(1.0 - min_weight, float(config.experiment_bridge_balance_weight)),
+            )
+            diagnostics["bridge_score_weights"] = {
+                "hmean": float(max(0.0, 1.0 - min_weight - balance_weight)),
+                "min": float(min_weight),
+                "balance": float(balance_weight),
+            }
 
         return self._BridgeScoreResult(
             passing_candidates=passing,
@@ -427,6 +538,157 @@ class SegmentCandidatePoolBuilder:
             bridge_sim=bridge_sim,
             diagnostics=diagnostics,
         )
+
+    @staticmethod
+    def _step_fraction(step_idx: int, steps: int) -> float:
+        if steps <= 0:
+            return 0.0
+        return float(step_idx + 1) / float(steps + 1)
+
+    @classmethod
+    def _progress_target(cls, step_idx: int, steps: int, *, shape: str, enabled: bool) -> float:
+        if not enabled:
+            return cls._step_fraction(step_idx, steps)
+        shape = str(shape or "linear").strip().lower()
+        if shape not in {"linear", "arc"}:
+            shape = "linear"
+        frac = cls._step_fraction(step_idx, steps)
+        if shape == "arc":
+            return 0.5 - 0.5 * math.cos(math.pi * frac)
+        return frac
+
+    def _build_dj_union_pool(
+        self,
+        config: SegmentPoolConfig,
+    ) -> tuple[List[int], Dict[str, Any]]:
+        diag: Dict[str, Any] = {
+            "dj_pool_strategy": "dj_union",
+            "dj_pool_k_local": int(config.pool_k_local),
+            "dj_pool_k_toward": int(config.pool_k_toward),
+            "dj_pool_k_genre": int(config.pool_k_genre),
+            "dj_pool_k_union_max": int(config.pool_k_union_max),
+            "dj_pool_step_stride": int(config.pool_step_stride),
+        }
+
+        available = [int(i) for i in config.universe_indices if int(i) not in config.used_track_ids]
+        if config.allowed_set is not None:
+            allowed = set(int(i) for i in config.allowed_set)
+            available = [int(i) for i in available if int(i) in allowed]
+
+        diag["dj_pool_available"] = int(len(available))
+        if not available:
+            return [], diag
+
+        cand_indices = np.array(available, dtype=int)
+        cand_mat = config.X_full_norm[cand_indices]
+        vec_a = config.X_full_norm[config.pier_a]
+        vec_b = config.X_full_norm[config.pier_b]
+        sim_a = np.dot(cand_mat, vec_a)
+        sim_b = np.dot(cand_mat, vec_b)
+
+        k_local = max(0, int(config.pool_k_local))
+        k_toward = max(0, int(config.pool_k_toward))
+        k_genre = max(0, int(config.pool_k_genre))
+        union_max = max(0, int(config.pool_k_union_max))
+
+        local_indices: List[int] = []
+        if k_local > 0:
+            k_a = max(1, k_local // 2) if k_local > 1 else 1
+            k_b = k_local - k_a
+            order_a = np.argsort(-sim_a)[:k_a]
+            local_indices.extend([int(cand_indices[i]) for i in order_a])
+            if k_b > 0:
+                order_b = np.argsort(-sim_b)[:k_b]
+                local_indices.extend([int(cand_indices[i]) for i in order_b])
+
+        toward_indices: List[int] = []
+        if k_toward > 0 and int(config.interior_length) > 0:
+            stride = max(1, int(config.pool_step_stride))
+            cache = config.pooling_cache if config.pool_cache_enabled else None
+            toward_cache = None
+            if cache is not None:
+                toward_cache = cache.setdefault("toward", {})
+            steps = int(config.interior_length)
+            for step in range(0, steps, stride):
+                if toward_cache is not None and step in toward_cache:
+                    toward_indices.extend(toward_cache[step])
+                    continue
+                t = self._progress_target(
+                    step,
+                    steps,
+                    shape=str(config.progress_arc_shape),
+                    enabled=bool(config.progress_arc_enabled),
+                )
+                target = (1.0 - t) * vec_a + t * vec_b
+                norm = float(np.linalg.norm(target))
+                if not math.isfinite(norm) or norm <= 1e-12:
+                    continue
+                target = target / norm
+                sims = np.dot(cand_mat, target)
+                order = np.argsort(-sims)[:k_toward]
+                picked = [int(cand_indices[i]) for i in order]
+                toward_indices.extend(picked)
+                if toward_cache is not None:
+                    toward_cache[step] = picked
+
+        genre_indices: List[int] = []
+        if (
+            k_genre > 0
+            and config.X_genre_norm is not None
+            and config.genre_targets is not None
+            and int(config.interior_length) > 0
+        ):
+            stride = max(1, int(config.pool_step_stride))
+            cache = config.pooling_cache if config.pool_cache_enabled else None
+            genre_cache = None
+            if cache is not None:
+                genre_cache = cache.setdefault("genre", {})
+            steps = int(config.interior_length)
+            cand_genre = config.X_genre_norm[cand_indices]
+            for step in range(0, steps, stride):
+                if step >= len(config.genre_targets):
+                    break
+                if genre_cache is not None and step in genre_cache:
+                    genre_indices.extend(genre_cache[step])
+                    continue
+                target = config.genre_targets[step]
+                sims = np.dot(cand_genre, target)
+                order = np.argsort(-sims)[:k_genre]
+                picked = [int(cand_indices[i]) for i in order]
+                genre_indices.extend(picked)
+                if genre_cache is not None:
+                    genre_cache[step] = picked
+
+        diag["dj_pool_source_local"] = int(len(local_indices))
+        diag["dj_pool_source_toward"] = int(len(toward_indices))
+        diag["dj_pool_source_genre"] = int(len(genre_indices))
+
+        combined_raw = local_indices + toward_indices + genre_indices
+        combined = list(dict.fromkeys(combined_raw))
+        diag["dj_pool_union_raw"] = int(len(combined_raw))
+        diag["dj_pool_union_deduped"] = int(len(combined))
+
+        if union_max > 0 and len(combined) > union_max:
+            sim_a_all = np.dot(config.X_full_norm, vec_a)
+            sim_b_all = np.dot(config.X_full_norm, vec_b)
+            scores = []
+            for idx in combined:
+                denom = float(sim_a_all[idx] + sim_b_all[idx])
+                if denom <= 1e-9:
+                    score = 0.0
+                else:
+                    score = (2.0 * float(sim_a_all[idx]) * float(sim_b_all[idx])) / denom
+                scores.append(score)
+            order = np.argsort(-np.array(scores))[:union_max]
+            combined = [combined[int(i)] for i in order]
+        diag["dj_pool_union_capped"] = int(len(combined))
+
+        combined_set = set(combined)
+        diag["dj_pool_contrib_local"] = int(len([i for i in local_indices if i in combined_set]))
+        diag["dj_pool_contrib_toward"] = int(len([i for i in toward_indices if i in combined_set]))
+        diag["dj_pool_contrib_genre"] = int(len([i for i in genre_indices if i in combined_set]))
+
+        return combined, diag
 
     @dataclass
     class _InternalConnectorResult:
@@ -501,9 +763,8 @@ class SegmentCandidatePoolBuilder:
                 continue
 
             internal_pass_gate += 1
-            denom = sim_a + sim_b
-            hmean = 0.0 if denom <= 1e-9 else (2.0 * sim_a * sim_b) / denom
-            internal_ranked.append((float(hmean), i))
+            score = self._compute_bridge_score(sim_a, sim_b, config)
+            internal_ranked.append((float(score), i))
 
         # Sort internal connectors by score
         internal_ranked.sort(key=lambda t: (-t[0], t[1]))
