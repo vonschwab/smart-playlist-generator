@@ -124,14 +124,20 @@ class SegmentPoolConfig:
     X_genre_norm: Optional[np.ndarray] = None
     """Normalized genre vectors (optional, for S3)."""
 
+    X_genre_norm_idf: Optional[np.ndarray] = None
+    """IDF-weighted normalized genre vectors (Phase 2, optional for S3)."""
+
     genre_targets: Optional[List[np.ndarray]] = None
-    """Optional per-step genre targets (same basis as X_genre_norm)."""
+    """Optional per-step genre targets (same basis as X_genre_norm/X_genre_norm_idf)."""
 
     pooling_cache: Optional[Dict[str, Any]] = None
     """Optional cache for per-step pooling computations."""
 
     pool_debug_compare_baseline: bool = False
     """If True, caller may compute baseline overlap for diagnostics."""
+
+    pool_verbose: bool = False
+    """Phase 3 fix: If True, log verbose per-step pool breakdown."""
 
 
 @dataclass
@@ -647,7 +653,9 @@ class SegmentCandidatePoolBuilder:
             if cache is not None:
                 genre_cache = cache.setdefault("genre", {})
             steps = int(config.interior_length)
-            cand_genre = config.X_genre_norm[cand_indices]
+            # Use IDF-weighted matrix if available (Phase 2)
+            X_genre_for_pooling = config.X_genre_norm_idf if config.X_genre_norm_idf is not None else config.X_genre_norm
+            cand_genre = X_genre_for_pooling[cand_indices]
             for step in range(0, steps, stride):
                 if step >= len(config.genre_targets):
                     break
@@ -665,6 +673,65 @@ class SegmentCandidatePoolBuilder:
         diag["dj_pool_source_local"] = int(len(local_indices))
         diag["dj_pool_source_toward"] = int(len(toward_indices))
         diag["dj_pool_source_genre"] = int(len(genre_indices))
+
+        # Phase 3 fix: Verbose logging for debugging genre pool issues
+        if hasattr(config, "pool_verbose") and bool(config.pool_verbose):
+            import logging
+            logger = logging.getLogger(__name__)
+
+            # Compute overlaps
+            local_set = set(local_indices)
+            toward_set = set(toward_indices)
+            genre_set = set(genre_indices)
+            overlap_local_genre = len(local_set & genre_set)
+            overlap_toward_genre = len(toward_set & genre_set)
+            overlap_local_toward = len(local_set & toward_set)
+
+            # Log comprehensive breakdown (INFO level for visibility)
+            logger.info(
+                "[DJ Pool Debug] Segment pool breakdown:"
+            )
+            logger.info(
+                "  Raw sizes: S1_local=%d S2_toward=%d S3_genre=%d",
+                len(local_indices), len(toward_indices), len(genre_indices)
+            )
+            logger.info(
+                "  Config: k_local=%d k_toward=%d k_genre=%d union_max=%d stride=%d",
+                k_local, k_toward, k_genre, union_max, max(1, int(config.pool_step_stride))
+            )
+            logger.info(
+                "  Prerequisites: has_X_genre=%s has_X_genre_idf=%s has_targets=%s interior_len=%d",
+                config.X_genre_norm is not None,
+                config.X_genre_norm_idf is not None,
+                config.genre_targets is not None,
+                int(config.interior_length)
+            )
+            logger.info(
+                "  Overlaps: local∩genre=%d toward∩genre=%d local∩toward=%d",
+                overlap_local_genre, overlap_toward_genre, overlap_local_toward
+            )
+
+            # If genre pool is empty, explain why
+            if len(genre_indices) == 0:
+                if k_genre <= 0:
+                    logger.info("  Genre pool empty: k_genre=%d (disabled)", k_genre)
+                elif config.X_genre_norm is None:
+                    logger.info("  Genre pool empty: X_genre_norm is None")
+                elif config.genre_targets is None or len(config.genre_targets) == 0:
+                    logger.info("  Genre pool empty: genre_targets is None or empty (len=%s)",
+                               len(config.genre_targets) if config.genre_targets else 0)
+                elif int(config.interior_length) <= 0:
+                    logger.info("  Genre pool empty: interior_length=%d", int(config.interior_length))
+                else:
+                    logger.info("  Genre pool empty: unknown reason (all prerequisites met but no candidates returned)")
+
+            # Log which genre matrix is being used
+            if config.X_genre_norm_idf is not None:
+                logger.info("  Genre pooling matrix: X_genre_norm_idf (IDF-weighted)")
+            elif config.X_genre_norm is not None:
+                logger.info("  Genre pooling matrix: X_genre_norm (normalized, no IDF)")
+            else:
+                logger.info("  Genre pooling matrix: None")
 
         combined_raw = local_indices + toward_indices + genre_indices
         combined = list(dict.fromkeys(combined_raw))

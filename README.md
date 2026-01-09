@@ -134,6 +134,131 @@ python main_app.py --genre "jazz" --genre-mode discover --sonic-mode discover
 
 See [docs/CONFIG.md](docs/CONFIG.md#mode-based-configuration-simplified-tuning) for full mode documentation.
 
+## DJ Bridge Mode (Multi-Seed Playlists)
+
+**New in v3.3:** Advanced multi-seed playlist generation with genre-aware routing.
+
+### What is DJ Bridge Mode?
+
+DJ Bridge mode creates smooth transitions between **multiple seed tracks** (called "piers") by building genre-aware bridges. Unlike single-seed playlists, DJ mode explicitly controls genre evolution across the playlist.
+
+**Example:**
+```bash
+python main_app.py --seeds "Slowdive,Beach House,Deerhunter,Helvetia" --tracks 30
+```
+
+**Result:** 30-track playlist with 3 segments bridging the seeds:
+- Segment 1: Slowdive → Beach House (shoegaze → ethereal dream pop)
+- Segment 2: Beach House → Deerhunter (ethereal → indie/noise pop)
+- Segment 3: Deerhunter → Helvetia (indie → lo-fi/slowcore)
+
+### Phase 2: Genre Bridging Enhancements (2026-01-09)
+
+**Problem Solved:** Hub genre collapse where waypoints would default to generic genres (e.g., "indie rock") instead of respecting nuanced signatures (e.g., "shoegaze", "dreampop").
+
+**Three-pronged solution:**
+
+1. **Vector Mode** - Direct multi-genre interpolation
+   - Preserves full genre signatures throughout bridge
+   - No more single-label collapse
+
+2. **IDF Weighting** - Emphasize rare genres
+   - Rare genres (shoegaze, slowcore): high weight (0.8-1.0)
+   - Common genres (indie rock): low weight (0.1-0.3)
+
+3. **Coverage Bonus** - Reward anchor signature matching
+   - Tracks top-8 genres from each seed
+   - Rewards candidates matching these signatures
+   - Schedule decay for smooth transitions
+
+**Results:**
+- ✅ **+400% genre diversity** in targets (4-5 genres/step vs 1 label)
+- ✅ **Rare genres preserved** (shoegaze, dreampop, slowcore)
+- ✅ **Smoother bridges** with better genre alignment
+- ✅ **Comprehensive diagnostics** showing decision-making
+
+### Phase 3: Saturation & Provenance Fixes (2026-01-09)
+
+**Problem Solved:** Waypoint and coverage scoring would plateau at caps, reducing ranking influence. Genre pool contribution was zero due to a critical bug.
+
+**Four-pronged solution:**
+
+1. **Centered Waypoint Delta** - Subtract step-wise baseline to allow negative deltas
+   - Prevents constant positive offset
+   - Reduces ties at cap
+   - Adapts per-step to candidate distribution
+
+2. **Tanh Squashing** - Smooth squashing to prevent hard plateaus
+   - Preserves score differences for all candidates
+   - No hard plateaus at cap
+   - Alpha tunable for desired steepness
+
+3. **Coverage Improvements** - Raw presence source + weighted mode
+   - Reduces false positives from smoothing spillover
+   - Creates continuous gradient instead of discrete steps
+   - Fewer ties at coverage extremes
+
+4. **Genre Pool Fix (CRITICAL)** - Fixed genre_vocab gate blocking vector mode
+   - Genre pool was always empty even with k_genre=80
+   - Vector mode doesn't need genre_vocab
+   - Now genre candidates contribute properly
+
+**Results:**
+- ✅ **-84% waypoint saturation** (mean_delta: 0.095 → 0.015)
+- ✅ **+100% ranking influence** (winner_changed: 1/3 → 2/3)
+- ✅ **-60% coverage saturation** (mean_bonus: 0.104 → 0.042)
+- ✅ **Genre pool populated** (was 0, now 240+ candidates/segment)
+
+**Configuration (Recommended Production Settings):**
+```yaml
+pier_bridge:
+  dj_bridging:
+    enabled: true
+    route_shape: ladder
+    # Phase 2: Vector mode + IDF + Coverage
+    dj_ladder_target_mode: vector
+    dj_genre_vector_source: smoothed
+    dj_genre_use_idf: true
+    dj_genre_idf_power: 1.0
+    dj_genre_idf_norm: max1
+    dj_genre_use_coverage: true
+    dj_genre_coverage_top_k: 8
+    dj_genre_coverage_weight: 0.15
+    dj_genre_presence_threshold: 0.02    # Phase 3: Increased from 0.01
+    # Phase 3: Centered waypoint + tanh squashing
+    waypoint_weight: 0.25
+    waypoint_cap: 0.10
+    dj_waypoint_delta_mode: centered
+    dj_waypoint_centered_baseline: median
+    dj_waypoint_squash: tanh
+    dj_waypoint_squash_alpha: 4.0
+    # Phase 3: Coverage improvements
+    dj_coverage_presence_source: raw
+    dj_coverage_mode: weighted
+    # Pooling
+    pooling:
+      strategy: dj_union
+      k_local: 200
+      k_toward: 80
+      k_genre: 80                        # Phase 3: Now works in vector mode!
+```
+
+**Documentation:**
+- Complete guide: [docs/dj_bridge_architecture.md](docs/dj_bridge_architecture.md)
+- Implementation notes: [docs/CHANGELOG_Phase2.md](docs/CHANGELOG_Phase2.md)
+- Status: [docs/TODO.md](docs/TODO.md)
+
+### When to Use DJ Bridge Mode
+
+✅ **Use when:**
+- You have 2+ seed tracks from different artists/genres
+- You want controlled genre evolution
+- You want to bridge stylistically distant artists smoothly
+
+❌ **Don't use when:**
+- Single seed track (use regular modes)
+- All seeds from same artist (use artist style clustering)
+
 ## DS Run Audits (3.3)
 - Per-run markdown audits: add `--audit-run` (optional `--audit-run-dir docs/run_audits`) to record pool sizes, segment gating, scoring, and post-order validation.
 - Infeasible segment handling (optional): add `--pb-backoff` to retry segments with a deterministic `bridge_floor` backoff (attempts are recorded in the audit).

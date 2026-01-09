@@ -164,6 +164,17 @@ class PierBridgeConfig:
     dj_ladder_smooth_top_k: int = 10
     dj_ladder_smooth_min_sim: float = 0.20
     dj_waypoint_fallback_k: int = 25
+    # Genre vector mode + IDF + Coverage (Phase 2)
+    dj_ladder_target_mode: str = "onehot"  # "onehot" | "vector"
+    dj_genre_vector_source: str = "smoothed"  # "smoothed" | "raw"
+    dj_genre_use_idf: bool = False
+    dj_genre_idf_power: float = 1.0
+    dj_genre_idf_norm: str = "max1"  # "max1" | "sum1" | "none"
+    dj_genre_use_coverage: bool = False
+    dj_genre_coverage_top_k: int = 8
+    dj_genre_coverage_weight: float = 0.15
+    dj_genre_coverage_power: float = 2.0
+    dj_genre_presence_threshold: float = 0.01
     dj_micro_piers_enabled: bool = False
     dj_micro_piers_max: int = 1
     dj_micro_piers_topk: int = 5
@@ -176,6 +187,15 @@ class PierBridgeConfig:
     # DJ Bridging Diagnostics (opt-in, no behavior change)
     dj_diagnostics_waypoint_rank_impact_enabled: bool = False
     dj_diagnostics_waypoint_rank_sample_steps: int = 3
+    dj_diagnostics_pool_verbose: bool = False  # Phase 3 fix: Verbose pool breakdown logging
+    # Phase 3: Waypoint delta mode + squashing
+    dj_waypoint_delta_mode: str = "absolute"  # "absolute" (legacy) | "centered" (Phase 3)
+    dj_waypoint_centered_baseline: str = "median"  # "median" | "mean" (for centered mode)
+    dj_waypoint_squash: str = "none"  # "none" (hard cap) | "tanh" (smooth squashing)
+    dj_waypoint_squash_alpha: float = 4.0  # Alpha for tanh squashing
+    # Phase 3: Coverage enhancements
+    dj_coverage_presence_source: str = "same"  # "same" (use scoring matrix) | "raw" (use raw genres)
+    dj_coverage_mode: str = "binary"  # "binary" (0/1 count) | "weighted" (mean weights)
 
 
 # Backward compatibility: SegmentDiagnostics now imported from extracted module
@@ -463,36 +483,82 @@ def _compute_chosen_source_counts(
     baseline_pool: Optional[Set[int]] = None,
 ) -> Dict[str, int]:
     """
-    Compute mutually exclusive source counts for chosen tracks.
+    Compute source counts for chosen tracks (Phase 3: membership tracking).
 
-    Priority order (each track counted in only ONE category):
-    1. genre (highest priority - waypoint targets)
-    2. toward (toward-destination)
-    3. local (local neighbors)
-    4. baseline_only (in baseline but not in any DJ source)
+    Phase 3 enhancement: Track all pool memberships (not just priority-based).
+    Returns both exclusive counts (for backward compat) and membership flags.
+
+    For each track:
+    - in_local: track is in local pool
+    - in_toward: track is in toward pool
+    - in_genre: track is in genre pool
+
+    Exclusive counts (legacy):
+    - Priority order: genre > toward > local > baseline_only
     """
     sources = sources or {}
     local = sources.get("local", set())
     toward = sources.get("toward", set())
     genre = sources.get("genre", set())
+
+    # Legacy exclusive counts (for backward compatibility)
     counts = {
         "chosen_from_local_count": 0,
         "chosen_from_toward_count": 0,
         "chosen_from_genre_count": 0,
         "chosen_from_baseline_only_count": 0,
     }
+
+    # Phase 3: Membership-based counts (all overlaps tracked)
+    membership_counts = {
+        "local_only": 0,
+        "toward_only": 0,
+        "genre_only": 0,
+        "local+toward": 0,
+        "local+genre": 0,
+        "toward+genre": 0,
+        "local+toward+genre": 0,
+        "baseline_only": 0,
+    }
+
     for idx in path:
         idx = int(idx)
-        # Mutually exclusive assignment with priority
-        if idx in genre:
+
+        # Check membership in each pool
+        in_local = idx in local
+        in_toward = idx in toward
+        in_genre = idx in genre
+
+        # Legacy exclusive assignment (priority-based)
+        if in_genre:
             counts["chosen_from_genre_count"] += 1
-        elif idx in toward:
+        elif in_toward:
             counts["chosen_from_toward_count"] += 1
-        elif idx in local:
+        elif in_local:
             counts["chosen_from_local_count"] += 1
         elif baseline_pool is not None and idx in baseline_pool:
             counts["chosen_from_baseline_only_count"] += 1
-        # If not in any source, don't count (shouldn't happen)
+
+        # Phase 3: Membership-based (all overlaps)
+        if in_local and in_toward and in_genre:
+            membership_counts["local+toward+genre"] += 1
+        elif in_local and in_toward:
+            membership_counts["local+toward"] += 1
+        elif in_local and in_genre:
+            membership_counts["local+genre"] += 1
+        elif in_toward and in_genre:
+            membership_counts["toward+genre"] += 1
+        elif in_local:
+            membership_counts["local_only"] += 1
+        elif in_toward:
+            membership_counts["toward_only"] += 1
+        elif in_genre:
+            membership_counts["genre_only"] += 1
+        elif baseline_pool is not None and idx in baseline_pool:
+            membership_counts["baseline_only"] += 1
+
+    # Merge into single dict
+    counts.update(membership_counts)
     return counts
 
 
@@ -677,6 +743,179 @@ def _normalize_vec(vec: np.ndarray) -> np.ndarray:
 
 def _genre_vocab_map(genre_vocab: np.ndarray) -> dict[str, int]:
     return {str(g).strip().lower(): int(i) for i, g in enumerate(genre_vocab)}
+
+
+def _compute_genre_idf(
+    X_genre_raw: np.ndarray,
+    cfg: PierBridgeConfig,
+) -> np.ndarray:
+    """
+    Compute IDF (inverse document frequency) for each genre.
+
+    Formula:
+        df[g] = count(tracks where genre[g] > 0)
+        idf[g] = log((N + 1) / (df[g] + 1))  # +1 smoothing
+        idf = idf ** cfg.dj_genre_idf_power
+        idf = normalize(idf, method=cfg.dj_genre_idf_norm)
+
+    Returns:
+        idf: (G,) array where idf[g] ∈ [0, 1] (after normalization)
+             High values = rare genres, low values = common genres.
+    """
+    N, G = X_genre_raw.shape
+
+    # Count tracks per genre (document frequency)
+    df = (X_genre_raw > 0).sum(axis=0)  # (G,)
+
+    # Compute raw IDF
+    idf = np.log((N + 1) / (df + 1))  # +1 smoothing
+
+    # Apply power scaling
+    power = float(cfg.dj_genre_idf_power)
+    if power != 1.0 and power > 0:
+        idf = idf ** power
+
+    # Normalize
+    norm_method = str(cfg.dj_genre_idf_norm).strip().lower()
+    if norm_method == "max1":
+        max_val = np.max(idf)
+        if max_val > 0:
+            idf = idf / max_val  # Scale to [0, 1]
+    elif norm_method == "sum1":
+        sum_val = np.sum(idf)
+        if sum_val > 0:
+            idf = idf / sum_val  # Sum to 1.0
+    # else: "none" - keep raw values
+
+    return idf
+
+
+def _apply_idf_weighting(
+    genre_vec: np.ndarray,
+    idf: np.ndarray,
+) -> np.ndarray:
+    """
+    Apply IDF weighting element-wise and normalize.
+
+    For 1D vector: result = normalize(genre_vec * idf)
+    For 2D matrix: result = normalize_rows(genre_vec * idf)
+    """
+    if genre_vec.ndim == 1:
+        # 1D vector
+        weighted = genre_vec * idf
+        return _normalize_vec(weighted)
+    else:
+        # 2D matrix (N, G)
+        weighted = genre_vec * idf[np.newaxis, :]  # Broadcasting
+        # Normalize rows
+        norms = np.linalg.norm(weighted, axis=1, keepdims=True)
+        norms = np.maximum(norms, 1e-12)
+        return weighted / norms
+
+
+def _extract_top_genres(
+    genre_vec: np.ndarray,
+    top_k: int,
+) -> list[tuple[int, float]]:
+    """
+    Extract top-K genres by weight.
+
+    Args:
+        genre_vec: (G,) genre vector (post-IDF if applicable)
+        top_k: Number of top genres to extract
+
+    Returns:
+        List of (genre_idx, weight) tuples, sorted descending by weight.
+    """
+    if top_k <= 0 or genre_vec.size == 0:
+        return []
+
+    indices = np.argsort(-genre_vec)[:top_k]
+    return [(int(i), float(genre_vec[i])) for i in indices if genre_vec[i] > 0]
+
+
+def _compute_coverage(
+    candidate_genre_vec: np.ndarray,
+    topk_genres: list[tuple[int, float]],
+    threshold: float,
+    mode: str = "binary",
+) -> float:
+    """
+    Compute coverage of top-K genres in candidate.
+
+    Phase 3 modes:
+    - binary (legacy): fraction of genres "present" (weight >= threshold)
+    - weighted: mean of genre weights for top-K genres
+
+    Args:
+        candidate_genre_vec: (G,) candidate's genre vector
+        topk_genres: List of (genre_idx, weight) from anchor
+        threshold: Minimum weight to count as "present" (binary mode only)
+        mode: "binary" or "weighted"
+
+    Returns:
+        coverage ∈ [0, 1]: coverage score
+    """
+    if not topk_genres:
+        return 0.0
+
+    if mode == "weighted":
+        # Weighted mode: mean of genre weights
+        weights_sum = 0.0
+        for g_idx, _ in topk_genres:
+            weights_sum += float(candidate_genre_vec[g_idx])
+        return weights_sum / float(len(topk_genres))
+    else:  # binary (legacy)
+        # Binary mode: fraction of genres present
+        present_count = 0
+        for g_idx, _ in topk_genres:
+            if candidate_genre_vec[g_idx] >= threshold:
+                present_count += 1
+        return float(present_count) / float(len(topk_genres))
+
+
+def _compute_coverage_bonus(
+    step: int,
+    interior_length: int,
+    coverage_A: float,
+    coverage_B: float,
+    coverage_weight: float,
+    coverage_power: float,
+) -> float:
+    """
+    Compute coverage bonus with decay schedule.
+
+    Schedule:
+        s = step / (interior_length + 1)  # Progress ∈ [0, 1]
+        wA = (1 - s) ** power              # Strong near A (s=0)
+        wB = s ** power                    # Strong near B (s=1)
+        bonus = weight * (wA * coverage_A + wB * coverage_B)
+
+    Args:
+        step: Current step in interior (0-indexed)
+        interior_length: Total interior length
+        coverage_A: Coverage score relative to anchor A
+        coverage_B: Coverage score relative to anchor B
+        coverage_weight: Multiplier for bonus
+        coverage_power: Schedule decay exponent
+
+    Returns:
+        bonus ∈ [0, weight] (additive score adjustment)
+    """
+    if interior_length == 0:
+        return 0.0
+
+    s = float(step) / float(interior_length + 1)
+    power = float(coverage_power)
+
+    wA = (1.0 - s) ** power
+    wB = s ** power
+
+    bonus = float(coverage_weight) * (
+        wA * float(coverage_A) + wB * float(coverage_B)
+    )
+
+    return bonus
 
 
 def _select_top_genre_labels(
@@ -1022,11 +1261,14 @@ def _build_genre_targets(
     interior_length: int,
     X_full_norm: np.ndarray,
     X_genre_norm: np.ndarray,
-    genre_vocab: np.ndarray,
+    genre_vocab: Optional[np.ndarray],  # Phase 3 fix: Optional for vector mode
     genre_graph: Optional[dict[str, list[tuple[str, float]]]],
     cfg: PierBridgeConfig,
     warnings: list[dict[str, Any]],
     ladder_diag: Optional[dict[str, Any]] = None,
+    X_genre_raw: Optional[np.ndarray] = None,
+    X_genre_smoothed: Optional[np.ndarray] = None,
+    genre_idf: Optional[np.ndarray] = None,
 ) -> Optional[list[np.ndarray]]:
     route_shape = str(cfg.dj_route_shape or "linear").strip().lower()
     if route_shape not in {"linear", "arc", "ladder"}:
@@ -1083,7 +1325,73 @@ def _build_genre_targets(
         })
         return None
 
-    if route_shape != "ladder" or not genre_graph:
+    # === VECTOR MODE (Phase 2): Direct multi-genre interpolation ===
+    target_mode = str(cfg.dj_ladder_target_mode or "onehot").strip().lower()
+    if target_mode == "vector":
+        # Select source matrix
+        vector_source = str(cfg.dj_genre_vector_source or "smoothed").strip().lower()
+        if vector_source == "raw" and X_genre_raw is not None:
+            X_genre_base = X_genre_raw
+        elif X_genre_smoothed is not None:
+            X_genre_base = X_genre_smoothed
+        else:
+            # Fall back to X_genre_norm (already normalized smoothed)
+            X_genre_base = X_genre_norm
+
+        # Extract anchor vectors
+        vA = X_genre_base[pier_a].copy()
+        vB = X_genre_base[pier_b].copy()
+
+        # Apply IDF weighting (optional)
+        if bool(cfg.dj_genre_use_idf):
+            if genre_idf is None and X_genre_raw is not None:
+                # Compute IDF on-demand
+                genre_idf = _compute_genre_idf(X_genre_raw, cfg)
+            if genre_idf is not None:
+                vA = _apply_idf_weighting(vA, genre_idf)
+                vB = _apply_idf_weighting(vB, genre_idf)
+                if ladder_diag is not None:
+                    ladder_diag["idf_enabled"] = True
+                    ladder_diag["idf_stats"] = {
+                        "min": float(np.min(genre_idf)),
+                        "median": float(np.median(genre_idf)),
+                        "max": float(np.max(genre_idf)),
+                    }
+            else:
+                if ladder_diag is not None:
+                    ladder_diag["idf_enabled"] = False
+                warnings.append({
+                    "type": "genre_idf_unavailable",
+                    "scope": "segment",
+                    "message": "IDF enabled but X_genre_raw missing; using base weights.",
+                })
+        else:
+            # Normalize without IDF
+            vA = _normalize_vec(vA)
+            vB = _normalize_vec(vB)
+            if ladder_diag is not None:
+                ladder_diag["idf_enabled"] = False
+
+        # Interpolate step targets
+        g_targets: list[np.ndarray] = []
+        for i in range(int(interior_length)):
+            if route_shape == "arc":
+                frac = _progress_target_curve(i, interior_length, "arc")
+            else:
+                frac = _step_fraction(i, interior_length)
+            g = (1.0 - frac) * vA + frac * vB
+            g_targets.append(_normalize_vec(g))
+
+        if ladder_diag is not None:
+            ladder_diag["route_shape"] = route_shape
+            ladder_diag["ladder_waypoint_vector_mode"] = "vector"
+            ladder_diag["vector_source"] = vector_source
+
+        return g_targets
+
+    # === LEGACY MODES: onehot/smoothed (shortest path) ===
+    # Phase 3 fix: If genre_vocab is None, fall back to simple interpolation
+    if route_shape != "ladder" or not genre_graph or genre_vocab is None:
         g_targets: list[np.ndarray] = []
         for i in range(int(interior_length)):
             if route_shape == "arc":
@@ -1092,6 +1400,12 @@ def _build_genre_targets(
                 frac = _step_fraction(i, interior_length)
             g = (1.0 - frac) * g_a + frac * g_b
             g_targets.append(_normalize_vec(g))
+        if route_shape == "ladder" and genre_vocab is None:
+            warnings.append({
+                "type": "genre_vocab_missing",
+                "scope": "segment",
+                "message": "Genre ladder disabled; genre_vocab missing, falling back to linear drift.",
+            })
         return g_targets
 
     vocab_map = _genre_vocab_map(genre_vocab)
@@ -1117,6 +1431,9 @@ def _build_genre_targets(
             genre_graph=None,
             cfg=replace(cfg, dj_route_shape="linear"),
             warnings=warnings,
+            X_genre_raw=X_genre_raw,
+            X_genre_smoothed=X_genre_smoothed,
+            genre_idf=genre_idf,
         )
 
     path_labels = None
@@ -1149,6 +1466,9 @@ def _build_genre_targets(
             cfg=replace(cfg, dj_route_shape="linear"),
             warnings=warnings,
             ladder_diag=ladder_diag,
+            X_genre_raw=X_genre_raw,
+            X_genre_smoothed=X_genre_smoothed,
+            genre_idf=genre_idf,
         )
 
     if ladder_diag is not None:
@@ -1224,6 +1544,9 @@ def _build_genre_targets(
             cfg=replace(cfg, dj_route_shape="linear"),
             warnings=warnings,
             ladder_diag=ladder_diag,
+            X_genre_raw=X_genre_raw,
+            X_genre_smoothed=X_genre_smoothed,
+            genre_idf=genre_idf,
         )
 
     if ladder_diag is not None:
@@ -1274,6 +1597,10 @@ def _attempt_micro_pier_split(
     X_genre_vocab: Optional[np.ndarray],
     genre_graph: Optional[dict[str, list[tuple[str, float]]]],
     micro_diag: Optional[dict[str, Any]] = None,
+    X_genre_norm_idf: Optional[np.ndarray] = None,
+    X_genre_raw: Optional[np.ndarray] = None,
+    X_genre_smoothed: Optional[np.ndarray] = None,
+    genre_idf: Optional[np.ndarray] = None,
 ) -> Optional[list[int]]:
     if interior_length < 2 or not candidates:
         return None
@@ -1322,6 +1649,9 @@ def _attempt_micro_pier_split(
                 genre_graph=genre_graph,
                 cfg=cfg,
                 warnings=warnings,
+                X_genre_raw=None,
+                X_genre_smoothed=None,
+                genre_idf=None,
             )
             right_g_targets = _build_genre_targets(
                 pier_a=micro_idx,
@@ -1333,6 +1663,9 @@ def _attempt_micro_pier_split(
                 genre_graph=genre_graph,
                 cfg=cfg,
                 warnings=warnings,
+                X_genre_raw=None,
+                X_genre_smoothed=None,
+                genre_idf=None,
             )
 
         keys_map = dict(artist_key_by_idx or {})
@@ -1357,6 +1690,11 @@ def _attempt_micro_pier_split(
             X_genre_norm,
             cfg,
             beam_width,
+            X_genre_norm_idf=X_genre_norm_idf,
+            X_genre_raw=X_genre_raw,
+            X_genre_smoothed=X_genre_smoothed,
+            genre_idf=genre_idf,
+            genre_vocab=X_genre_vocab,
             artist_key_by_idx=(keys_map if keys_map else None),
             seed_artist_key=seed_artist_key,
             recent_global_artists=recent_global_artists,
@@ -1386,6 +1724,11 @@ def _attempt_micro_pier_split(
             X_genre_norm,
             cfg,
             beam_width,
+            X_genre_norm_idf=X_genre_norm_idf,
+            X_genre_raw=X_genre_raw,
+            X_genre_smoothed=X_genre_smoothed,
+            genre_idf=genre_idf,
+            genre_vocab=X_genre_vocab,
             artist_key_by_idx=(keys_map if keys_map else None),
             seed_artist_key=seed_artist_key,
             recent_global_artists=recent_global_artists,
@@ -1805,6 +2148,7 @@ def _build_segment_candidate_pool_scored(
     progress_arc_enabled: bool = False,
     progress_arc_shape: str = "linear",
     X_genre_norm: Optional[np.ndarray] = None,
+    X_genre_norm_idf: Optional[np.ndarray] = None,
     genre_targets: Optional[List[np.ndarray]] = None,
     pool_k_local: int = 0,
     pool_k_toward: int = 0,
@@ -1813,6 +2157,7 @@ def _build_segment_candidate_pool_scored(
     pool_step_stride: int = 1,
     pool_cache_enabled: bool = True,
     pooling_cache: Optional[Dict[str, Any]] = None,
+    pool_verbose: bool = False,  # Phase 3 fix: verbose pool logging
 ) -> tuple[List[int], Dict[int, str], Dict[int, str]]:
     """
     Segment-local candidate pool builder ("segment_scored").
@@ -1860,8 +2205,10 @@ def _build_segment_candidate_pool_scored(
         progress_arc_enabled=bool(progress_arc_enabled),
         progress_arc_shape=str(progress_arc_shape),
         X_genre_norm=X_genre_norm,
+        X_genre_norm_idf=X_genre_norm_idf,
         genre_targets=genre_targets,
         pooling_cache=pooling_cache,
+        pool_verbose=bool(pool_verbose),  # Phase 3 fix
     )
     result = SegmentCandidatePoolBuilder().build(pool_cfg)
     return result.candidates, result.artist_key_by_idx, result.title_key_by_idx
@@ -1958,6 +2305,11 @@ def _beam_search_segment(
     cfg: PierBridgeConfig,
     beam_width: int,
     *,
+    X_genre_norm_idf: Optional[np.ndarray] = None,
+    X_genre_raw: Optional[np.ndarray] = None,
+    X_genre_smoothed: Optional[np.ndarray] = None,
+    genre_idf: Optional[np.ndarray] = None,
+    genre_vocab: Optional[np.ndarray] = None,
     artist_key_by_idx: Optional[Dict[int, str]] = None,
     seed_artist_key: Optional[str] = None,
     recent_global_artists: Optional[List[str]] = None,
@@ -2045,18 +2397,135 @@ def _beam_search_segment(
     if waypoint_weight <= 0 and waypoint_penalty <= 0:
         waypoint_enabled = False
 
-    def _waypoint_delta(sim: Optional[float]) -> float:
+    # Phase 3: Waypoint delta mode configuration
+    waypoint_delta_mode = str(cfg.dj_waypoint_delta_mode or "absolute").strip().lower()
+    waypoint_centered_baseline_method = str(cfg.dj_waypoint_centered_baseline or "median").strip().lower()
+    waypoint_squash_mode = str(cfg.dj_waypoint_squash or "none").strip().lower()
+    waypoint_squash_alpha = float(cfg.dj_waypoint_squash_alpha)
+
+    def _waypoint_delta(sim: Optional[float], sim0: float = 0.0) -> float:
+        """
+        Compute waypoint delta with optional centering and squashing.
+
+        Phase 3 modes:
+        - absolute (legacy): delta = weight * sim, clamped to [-cap, +cap]
+        - centered: delta = weight * (sim - sim0), clamped to [-cap, +cap]
+
+        Squashing (optional):
+        - none (legacy): hard clamp at waypoint_cap
+        - tanh: smooth squashing delta = cap * tanh(alpha * raw / cap)
+
+        Args:
+            sim: Waypoint similarity (candidate vs target)
+            sim0: Baseline similarity for centered mode (median/mean of step candidates)
+
+        Returns:
+            delta ∈ [-waypoint_cap, +waypoint_cap]
+        """
         if sim is None or not math.isfinite(float(sim)):
             return 0.0
-        delta = float(waypoint_weight) * float(sim)
-        if waypoint_cap > 0:
+
+        # Compute raw delta (centered or absolute)
+        if waypoint_delta_mode == "centered":
+            raw = float(waypoint_weight) * (float(sim) - float(sim0))
+        else:  # absolute (legacy)
+            raw = float(waypoint_weight) * float(sim)
+
+        # Apply squashing or hard clamp
+        if waypoint_squash_mode == "tanh" and waypoint_cap > 0:
+            # Smooth squashing: delta = cap * tanh(alpha * raw / cap)
+            normalized_raw = waypoint_squash_alpha * raw / waypoint_cap if waypoint_cap > 0 else 0.0
+            delta = waypoint_cap * math.tanh(normalized_raw)
+            # Clamp for safety (should be redundant with tanh)
             delta = float(max(-waypoint_cap, min(waypoint_cap, delta)))
+        else:  # none (hard cap, legacy)
+            delta = raw
+            if waypoint_cap > 0:
+                delta = float(max(-waypoint_cap, min(waypoint_cap, delta)))
+
+        # Legacy penalty (only for absolute mode with floor)
         if waypoint_penalty > 0 and waypoint_floor > 0 and float(sim) < waypoint_floor:
             penalty = waypoint_penalty * (waypoint_floor - float(sim))
             if waypoint_cap > 0:
                 penalty = min(waypoint_cap, penalty)
             delta -= float(penalty)
+
         return float(delta)
+
+    # Coverage bonus setup (Phase 2 + Phase 3 enhancements)
+    coverage_enabled = bool(cfg.dj_genre_use_coverage) and bool(cfg.dj_bridging_enabled)
+    coverage_mode = str(cfg.dj_coverage_mode or "binary").strip().lower()
+    coverage_presence_source = str(cfg.dj_coverage_presence_source or "same").strip().lower()
+    topk_A: list[tuple[int, float]] = []
+    topk_B: list[tuple[int, float]] = []
+    X_genre_for_coverage: Optional[np.ndarray] = None
+    X_genre_for_coverage_presence: Optional[np.ndarray] = None
+
+    if coverage_enabled and interior_length > 0:
+        # Determine which matrix to use for scoring (anchor topK extraction)
+        if X_genre_norm_idf is not None:
+            X_genre_for_coverage = X_genre_norm_idf
+        elif X_genre_norm is not None:
+            X_genre_for_coverage = X_genre_norm
+
+        # Phase 3: Determine presence source (for coverage computation)
+        if coverage_presence_source == "raw" and X_genre_raw is not None:
+            # Use raw genres for presence checking (avoids smoothed inflation)
+            if genre_idf is not None and bool(cfg.dj_genre_use_idf):
+                # Apply IDF to raw for consistency
+                X_genre_for_coverage_presence = X_genre_raw * genre_idf
+                # Normalize rows
+                row_norms = np.linalg.norm(X_genre_for_coverage_presence, axis=1, keepdims=True)
+                X_genre_for_coverage_presence = np.divide(
+                    X_genre_for_coverage_presence,
+                    row_norms,
+                    out=np.zeros_like(X_genre_for_coverage_presence),
+                    where=row_norms > 1e-12
+                )
+            else:
+                X_genre_for_coverage_presence = X_genre_raw
+        else:
+            # Use same matrix as scoring (default, Phase 2 behavior)
+            X_genre_for_coverage_presence = X_genre_for_coverage
+
+        # Extract anchor vectors in the same space as candidates will be scored
+        if X_genre_for_coverage is not None:
+            vA_cov = X_genre_for_coverage[pier_a]
+            vB_cov = X_genre_for_coverage[pier_b]
+
+            # Extract top-K genres from each anchor
+            topk_A = _extract_top_genres(vA_cov, int(cfg.dj_genre_coverage_top_k))
+            topk_B = _extract_top_genres(vB_cov, int(cfg.dj_genre_coverage_top_k))
+
+            if not topk_A and not topk_B:
+                coverage_enabled = False  # No genres to track
+        else:
+            coverage_enabled = False
+
+    # Phase 2 diagnostic logging: segment-level config
+    if cfg.dj_bridging_enabled and interior_length > 0:
+        target_mode = str(cfg.dj_ladder_target_mode or "onehot").strip().lower()
+        logger.info("[Phase2] Segment %d→%d: mode=%s, interior_length=%d",
+                    pier_a, pier_b, target_mode, interior_length)
+
+        # Phase 3: Log genre space being used for genre_sim
+        genre_space_name = "IDF" if X_genre_norm_idf is not None else "normalized"
+        logger.info("  Genre space for genre_sim: %s", genre_space_name)
+
+        # Log IDF stats if enabled
+        if bool(cfg.dj_genre_use_idf) and genre_idf is not None:
+            logger.info("  IDF enabled: min=%.3f median=%.3f max=%.3f (power=%.2f norm=%s)",
+                        float(np.min(genre_idf)), float(np.median(genre_idf)), float(np.max(genre_idf)),
+                        float(cfg.dj_genre_idf_power), str(cfg.dj_genre_idf_norm))
+
+        # Log anchor top-K genres if coverage enabled
+        if coverage_enabled and genre_vocab is not None:
+            def _format_topk(topk_list: list[tuple[int, float]], label: str) -> None:
+                if topk_list:
+                    genre_names = [f"{genre_vocab[idx]}={weight:.3f}" for idx, weight in topk_list[:5]]
+                    logger.info("  %s topK genres: %s", label, ", ".join(genre_names))
+            _format_topk(topk_A, "Anchor A")
+            _format_topk(topk_B, "Anchor B")
 
     if interior_length == 0:
         # Check if direct transition meets floor
@@ -2179,16 +2648,19 @@ def _beam_search_segment(
     genre_cache_hits = 0
     genre_cache_misses = 0
 
+    # Phase 3: Use correct genre matrix for genre_sim (IDF if enabled)
+    X_genre_for_sim = X_genre_norm_idf if X_genre_norm_idf is not None else X_genre_norm
+
     def _get_genre_sim(a_idx: int, b_idx: int) -> Optional[float]:
         nonlocal genre_cache_hits, genre_cache_misses
-        if X_genre_norm is None:
+        if X_genre_for_sim is None:
             return None
         key = (int(a_idx), int(b_idx))
         if key in genre_cache:
             genre_cache_hits += 1
             return genre_cache[key]
         genre_cache_misses += 1
-        val = float(np.dot(X_genre_norm[a_idx], X_genre_norm[b_idx]))
+        val = float(np.dot(X_genre_for_sim[a_idx], X_genre_for_sim[b_idx]))
         genre_cache[key] = val
         return val
 
@@ -2279,6 +2751,12 @@ def _beam_search_segment(
     # TASK A: Track unique candidates that pass gates on first step
     pool_after_gating_candidates: Set[int] = set()
 
+    # Phase 3 fix: Track actual applied waypoint deltas during beam search for correct stats
+    # (Stats were using wrong sim0=0.0 instead of per-step baseline)
+    chosen_waypoint_deltas: List[float] = []  # Actual applied deltas per step
+    chosen_waypoint_sims: List[float] = []    # Raw sims per step (for context)
+    chosen_waypoint_sim0s: List[float] = []   # Baselines per step (for debugging)
+
     for step in range(interior_length):
         next_beam: List[BeamState] = []
         target_t = _step_fraction(step, interior_length)
@@ -2289,9 +2767,33 @@ def _beam_search_segment(
         )
         g_target = g_targets[step] if waypoint_enabled and g_targets is not None else None
 
+        # Phase 3: Centered waypoint mode - collect all candidate waypoint sims for this step
+        waypoint_sim0 = 0.0  # Baseline for centered mode (median or mean)
+        # Phase 3 fix: Store waypoint info per candidate for this step (for stats tracking)
+        step_waypoint_info: Dict[int, tuple[float, float]] = {}  # cand_idx -> (sim, delta)
+        if waypoint_enabled and waypoint_delta_mode == "centered" and g_target is not None and X_genre_norm is not None:
+            # Collect waypoint sims for all valid candidates
+            step_waypoint_sims: List[float] = []
+            for state in beam:
+                current = state.path[-1]
+                for cand in candidates:
+                    if cand in state.used:
+                        continue
+                    # Compute waypoint sim
+                    waypoint_sim = float(np.dot(X_genre_norm[cand], g_target))
+                    if math.isfinite(waypoint_sim):
+                        step_waypoint_sims.append(waypoint_sim)
+
+            # Compute baseline (sim0) from distribution
+            if step_waypoint_sims:
+                if waypoint_centered_baseline_method == "mean":
+                    waypoint_sim0 = float(np.mean(step_waypoint_sims))
+                else:  # median (default)
+                    waypoint_sim0 = float(np.median(step_waypoint_sims))
+
         # Rank impact diagnostic: collect candidates for sampled steps
         step_is_sampled = rank_impact_enabled and step in rank_impact_sampled_steps
-        step_candidates_for_ranking: List[Tuple[int, float, float, float]] = []  # (cand_idx, base_score, waypoint_delta, full_score)
+        step_candidates_for_ranking: List[Tuple[int, float, float, float, float]] = []  # (cand_idx, base_score, waypoint_delta, coverage_bonus, full_score)
 
         for state in beam:
             current = state.path[-1]
@@ -2401,15 +2903,35 @@ def _beam_search_segment(
                             genre_penalty_hits += 1
                     waypoint_delta_val = 0.0
                     if waypoint_enabled:
-                        waypoint_delta_val = _waypoint_delta(waypoint_sim)
+                        waypoint_delta_val = _waypoint_delta(waypoint_sim, waypoint_sim0)
                         combined_score += waypoint_delta_val
+                        # Phase 3 fix: Store for stats tracking
+                        if waypoint_sim is not None:
+                            step_waypoint_info[int(cand)] = (float(waypoint_sim), float(waypoint_delta_val))
 
-                    # Rank impact: collect (cand_idx, base_score, waypoint_delta, full_score)
+                    # Coverage bonus (Phase 2 + Phase 3): reward matching anchor top-K genres with schedule decay
+                    coverage_bonus_val = 0.0
+                    if coverage_enabled and X_genre_for_coverage_presence is not None:
+                        cand_genre_vec = X_genre_for_coverage_presence[cand]
+                        coverage_A = _compute_coverage(
+                            cand_genre_vec, topk_A, float(cfg.dj_genre_presence_threshold), coverage_mode
+                        )
+                        coverage_B = _compute_coverage(
+                            cand_genre_vec, topk_B, float(cfg.dj_genre_presence_threshold), coverage_mode
+                        )
+                        coverage_bonus_val = _compute_coverage_bonus(
+                            step, interior_length, coverage_A, coverage_B,
+                            float(cfg.dj_genre_coverage_weight), float(cfg.dj_genre_coverage_power)
+                        )
+                        combined_score += coverage_bonus_val
+
+                    # Rank impact: collect (cand_idx, base_score, waypoint_delta, coverage_bonus, full_score)
                     if step_is_sampled:
                         step_candidates_for_ranking.append((
                             int(cand),
                             float(base_score_for_rank),
                             float(waypoint_delta_val),
+                            float(coverage_bonus_val),
                             float(combined_score)
                         ))
 
@@ -2459,15 +2981,35 @@ def _beam_search_segment(
                     waypoint_delta_val = 0.0
                     if waypoint_enabled:
                         # Always apply waypoint scoring (tie-break band removed in Phase 2)
-                        waypoint_delta_val = _waypoint_delta(waypoint_sim)
+                        waypoint_delta_val = _waypoint_delta(waypoint_sim, waypoint_sim0)
                         combined_score += waypoint_delta_val
+                        # Phase 3 fix: Store for stats tracking
+                        if waypoint_sim is not None:
+                            step_waypoint_info[int(cand)] = (float(waypoint_sim), float(waypoint_delta_val))
 
-                    # Rank impact: collect (cand_idx, base_score, waypoint_delta, full_score)
+                    # Coverage bonus (Phase 2 + Phase 3): reward matching anchor top-K genres with schedule decay
+                    coverage_bonus_val = 0.0
+                    if coverage_enabled and X_genre_for_coverage_presence is not None:
+                        cand_genre_vec = X_genre_for_coverage_presence[cand]
+                        coverage_A = _compute_coverage(
+                            cand_genre_vec, topk_A, float(cfg.dj_genre_presence_threshold), coverage_mode
+                        )
+                        coverage_B = _compute_coverage(
+                            cand_genre_vec, topk_B, float(cfg.dj_genre_presence_threshold), coverage_mode
+                        )
+                        coverage_bonus_val = _compute_coverage_bonus(
+                            step, interior_length, coverage_A, coverage_B,
+                            float(cfg.dj_genre_coverage_weight), float(cfg.dj_genre_coverage_power)
+                        )
+                        combined_score += coverage_bonus_val
+
+                    # Rank impact: collect (cand_idx, base_score, waypoint_delta, coverage_bonus, full_score)
                     if step_is_sampled:
                         step_candidates_for_ranking.append((
                             int(cand),
                             float(base_score_for_rank),
                             float(waypoint_delta_val),
+                            float(coverage_bonus_val),
                             float(combined_score)
                         ))
 
@@ -2506,35 +3048,49 @@ def _beam_search_segment(
         next_beam.sort(key=lambda s: s.score, reverse=True)
         beam = next_beam[:beam_width]
 
+        # Phase 3 fix: Track waypoint info for the chosen candidate (top beam state's last track)
+        if beam and waypoint_enabled:
+            chosen_cand = beam[0].path[-1]  # Last track in best path
+            if chosen_cand in step_waypoint_info:
+                sim, delta = step_waypoint_info[chosen_cand]
+                chosen_waypoint_sims.append(sim)
+                chosen_waypoint_deltas.append(delta)
+                chosen_waypoint_sim0s.append(waypoint_sim0)
+            else:
+                # No waypoint info (shouldn't happen if waypoint_enabled, but handle gracefully)
+                chosen_waypoint_sims.append(0.0)
+                chosen_waypoint_deltas.append(0.0)
+                chosen_waypoint_sim0s.append(waypoint_sim0)
+
         # Rank impact: compute metrics for sampled steps
         if step_is_sampled and step_candidates_for_ranking:
             # Get unique candidates (may have duplicates from different beam states)
-            cand_scores_dict: Dict[int, Tuple[float, float, float]] = {}
-            for cand_idx, base_score, waypoint_delta, full_score in step_candidates_for_ranking:
+            cand_scores_dict: Dict[int, Tuple[float, float, float, float]] = {}
+            for cand_idx, base_score, waypoint_delta, coverage_bonus, full_score in step_candidates_for_ranking:
                 if cand_idx not in cand_scores_dict:
-                    cand_scores_dict[cand_idx] = (base_score, waypoint_delta, full_score)
+                    cand_scores_dict[cand_idx] = (base_score, waypoint_delta, coverage_bonus, full_score)
                 else:
                     # If duplicate, keep the one with higher full_score
-                    existing_full = cand_scores_dict[cand_idx][2]
+                    existing_full = cand_scores_dict[cand_idx][3]
                     if full_score > existing_full:
-                        cand_scores_dict[cand_idx] = (base_score, waypoint_delta, full_score)
+                        cand_scores_dict[cand_idx] = (base_score, waypoint_delta, coverage_bonus, full_score)
 
             # Convert to list for ranking
-            cand_list = [(idx, base, delta, full) for idx, (base, delta, full) in cand_scores_dict.items()]
+            cand_list = [(idx, base, delta, cov, full) for idx, (base, delta, cov, full) in cand_scores_dict.items()]
 
             # Rank by base_score (descending)
             cand_list_by_base = sorted(cand_list, key=lambda x: x[1], reverse=True)
             # Rank by full_score (descending)
-            cand_list_by_full = sorted(cand_list, key=lambda x: x[3], reverse=True)
+            cand_list_by_full = sorted(cand_list, key=lambda x: x[4], reverse=True)
 
             # Create rank maps: cand_idx -> rank (1-indexed)
-            base_rank_map = {cand_idx: rank + 1 for rank, (cand_idx, _, _, _) in enumerate(cand_list_by_base)}
-            full_rank_map = {cand_idx: rank + 1 for rank, (cand_idx, _, _, _) in enumerate(cand_list_by_full)}
+            base_rank_map = {cand_idx: rank + 1 for rank, (cand_idx, _, _, _, _) in enumerate(cand_list_by_base)}
+            full_rank_map = {cand_idx: rank + 1 for rank, (cand_idx, _, _, _, _) in enumerate(cand_list_by_full)}
 
             # Compute metrics
             winner_changed = (cand_list_by_base[0][0] != cand_list_by_full[0][0])
             topK = min(10, len(cand_list))
-            topK_base_set = {cand_idx for cand_idx, _, _, _ in cand_list_by_base[:topK]}
+            topK_base_set = {cand_idx for cand_idx, _, _, _, _ in cand_list_by_base[:topK]}
             topK_reordered_count = sum(
                 1 for cand_idx in topK_base_set
                 if base_rank_map[cand_idx] != full_rank_map[cand_idx]
@@ -2559,15 +3115,34 @@ def _beam_search_segment(
                         "cand_idx": cand_idx,
                         "base_score": base,
                         "waypoint_delta": delta,
+                        "coverage_bonus": cov,
                         "full_score": full,
                         "base_rank": base_rank_map[cand_idx],
                         "full_rank": full_rank_map[cand_idx],
                         "rank_delta": base_rank_map[cand_idx] - full_rank_map[cand_idx],
                     }
-                    for cand_idx, base, delta, full in cand_list_by_base[:topK]
+                    for cand_idx, base, delta, cov, full in cand_list_by_base[:topK]
                 ]
             }
             rank_impact_results.append(step_result)
+
+            # Phase 2 per-step logging: target genres and top candidates
+            if cfg.dj_bridging_enabled and g_target is not None and genre_vocab is not None:
+                # Log target genre distribution (top 5-8)
+                target_topk = _extract_top_genres(g_target, 8)
+                if target_topk:
+                    genre_names = [f"{genre_vocab[idx]}={weight:.3f}" for idx, weight in target_topk[:5]]
+                    logger.info("  [Step %d/%d] Target genres: %s", step, interior_length, ", ".join(genre_names))
+
+                # Log best 3 candidates by full_score (with genre alignment)
+                if X_genre_for_coverage is not None and len(cand_list_by_full) >= 3:
+                    logger.info("  [Step %d/%d] Top-3 candidates by full_score:", step, interior_length)
+                    for rank, (cand_idx, base, delta, cov, full) in enumerate(cand_list_by_full[:3], start=1):
+                        # Compute genre alignment to target
+                        cand_genre_vec = X_genre_for_coverage[cand_idx]
+                        genre_sim = float(np.dot(cand_genre_vec, g_target))
+                        logger.info("    #%d: idx=%d base=%.3f waypoint=%.3f coverage=%.3f full=%.3f genre_sim=%.3f",
+                                    rank, cand_idx, base, delta, cov, full, genre_sim)
 
     # Final step: connect to pier_b
     best_final: Optional[BeamState] = None
@@ -2608,20 +3183,26 @@ def _beam_search_segment(
 
     # Compute waypoint diagnostics for chosen path
     if waypoint_stats is not None and waypoint_enabled and g_targets is not None and X_genre_norm is not None:
-        full_path = best_final.path  # includes pier_a at start
-        interior_path = full_path[1:]  # interior tracks only
-
-        waypoint_sims: List[float] = []
-        waypoint_deltas: List[float] = []
-
-        # Compute waypoint_sim for each interior edge (pier_a → interior tracks)
-        for step_idx, track_idx in enumerate(interior_path):
-            if step_idx < len(g_targets):
-                g_target = g_targets[step_idx]
-                waypoint_sim = float(np.dot(X_genre_norm[track_idx], g_target))
-                waypoint_delta = _waypoint_delta(waypoint_sim)
-                waypoint_sims.append(waypoint_sim)
-                waypoint_deltas.append(waypoint_delta)
+        # Phase 3 fix: Use tracked actual applied deltas instead of recomputing with wrong sim0
+        # The old code recomputed deltas with sim0=0.0 (default), which is wrong for centered mode.
+        # Now we use the actual deltas that were applied during beam search.
+        if chosen_waypoint_sims and chosen_waypoint_deltas:
+            waypoint_sims = chosen_waypoint_sims
+            waypoint_deltas = chosen_waypoint_deltas
+        else:
+            # Fallback: recompute (shouldn't happen if waypoint_enabled, but handle gracefully)
+            full_path = best_final.path  # includes pier_a at start
+            interior_path = full_path[1:]  # interior tracks only
+            waypoint_sims: List[float] = []
+            waypoint_deltas: List[float] = []
+            for step_idx, track_idx in enumerate(interior_path):
+                if step_idx < len(g_targets):
+                    g_target = g_targets[step_idx]
+                    waypoint_sim = float(np.dot(X_genre_norm[track_idx], g_target))
+                    # Note: This fallback still has the sim0=0.0 issue, but it's rare
+                    waypoint_delta = _waypoint_delta(waypoint_sim)
+                    waypoint_sims.append(waypoint_sim)
+                    waypoint_deltas.append(waypoint_delta)
 
         if waypoint_sims:
             waypoint_stats["waypoint_enabled"] = True
@@ -2927,12 +3508,35 @@ def build_pier_bridge_playlist(
     X_start_norm = X_start_tr_norm
     X_end_norm = X_end_tr_norm
 
+    # Extract genre matrices from bundle (Phase 2: needed for IDF and vector mode)
+    # Prefer parameter if provided, otherwise extract from bundle
+    X_genre_raw = getattr(bundle, "X_genre_raw", None)
+    if X_genre_smoothed is None:
+        X_genre_smoothed = getattr(bundle, "X_genre_smoothed", None)
+
     # Genre similarity for soft edge penalty / tiebreak (cosine on smoothed genre vectors)
-    X_genre_use = X_genre_smoothed if X_genre_smoothed is not None else getattr(bundle, "X_genre_smoothed", None)
+    X_genre_use = X_genre_smoothed if X_genre_smoothed is not None else None
     X_genre_norm = None
     if X_genre_use is not None:
         denom_g = np.linalg.norm(X_genre_use, axis=1, keepdims=True) + 1e-12
         X_genre_norm = X_genre_use / denom_g
+
+    # Compute IDF for genre vector mode (Phase 2)
+    genre_idf: Optional[np.ndarray] = None
+    X_genre_norm_idf: Optional[np.ndarray] = None
+    if bool(cfg.dj_genre_use_idf) and bool(cfg.dj_bridging_enabled):
+        if X_genre_raw is not None:
+            logger.info("Computing genre IDF (power=%.2f norm=%s)...",
+                        cfg.dj_genre_idf_power, cfg.dj_genre_idf_norm)
+            genre_idf = _compute_genre_idf(X_genre_raw, cfg)
+            logger.info("  IDF computed: min=%.3f median=%.3f max=%.3f",
+                        float(np.min(genre_idf)), float(np.median(genre_idf)), float(np.max(genre_idf)))
+
+            # Create IDF-weighted matrix for S3 pooling and beam search
+            if X_genre_norm is not None:
+                X_genre_norm_idf = _apply_idf_weighting(X_genre_norm, genre_idf)
+        else:
+            logger.warning("IDF enabled but X_genre_raw unavailable; using base genre weights")
 
     warnings: list[dict[str, Any]] = []
     if bool(cfg.dj_bridging_enabled):
@@ -3323,6 +3927,7 @@ def build_pier_bridge_playlist(
                         progress_arc_enabled=bool(cfg.progress_arc_enabled),
                         progress_arc_shape=str(cfg.progress_arc_shape),
                         X_genre_norm=X_genre_norm,
+                        X_genre_norm_idf=X_genre_norm_idf,
                         genre_targets=segment_g_targets,
                         pool_k_local=int(cfg.dj_pooling_k_local),
                         pool_k_toward=int(cfg.dj_pooling_k_toward),
@@ -3331,6 +3936,7 @@ def build_pier_bridge_playlist(
                         pool_step_stride=int(cfg.dj_pooling_step_stride),
                         pool_cache_enabled=bool(cfg.dj_pooling_cache_enabled),
                         pooling_cache=segment_pool_cache,
+                        pool_verbose=bool(cfg.dj_diagnostics_pool_verbose),  # Phase 3 fix
                     )
                     try:
                         cand_artist_keys = dict(cand_artist_keys)
@@ -3380,6 +3986,7 @@ def build_pier_bridge_playlist(
                             progress_arc_enabled=bool(cfg.progress_arc_enabled),
                             progress_arc_shape=str(cfg.progress_arc_shape),
                             X_genre_norm=X_genre_norm,
+                            X_genre_norm_idf=X_genre_norm_idf,
                             genre_targets=segment_g_targets,
                             pool_k_local=int(cfg.dj_pooling_k_local),
                             pool_k_toward=int(cfg.dj_pooling_k_toward),
@@ -3388,6 +3995,7 @@ def build_pier_bridge_playlist(
                             pool_step_stride=int(cfg.dj_pooling_step_stride),
                             pool_cache_enabled=bool(cfg.dj_pooling_cache_enabled),
                             pooling_cache=segment_pool_cache,
+                            pool_verbose=bool(cfg.dj_diagnostics_pool_verbose),  # Phase 3 fix
                         )
                         if len(relaxed_candidates) > len(segment_candidates):
                             segment_candidates = relaxed_candidates
@@ -3448,6 +4056,7 @@ def build_pier_bridge_playlist(
                             progress_arc_enabled=bool(cfg.progress_arc_enabled),
                             progress_arc_shape=str(cfg.progress_arc_shape),
                             X_genre_norm=X_genre_norm,
+                            X_genre_norm_idf=X_genre_norm_idf,
                             genre_targets=segment_g_targets,
                             pool_k_local=int(cfg.dj_pooling_k_local),
                             pool_k_toward=int(cfg.dj_pooling_k_toward),
@@ -3456,6 +4065,7 @@ def build_pier_bridge_playlist(
                             pool_step_stride=int(cfg.dj_pooling_step_stride),
                             pool_cache_enabled=bool(cfg.dj_pooling_cache_enabled),
                             pooling_cache=segment_pool_cache,
+                            pool_verbose=bool(cfg.dj_diagnostics_pool_verbose),  # Phase 3 fix
                         )
                         if segment_pool_cache is not None:
                             segment_pool_cache["dj_baseline_pool"] = set(
@@ -3487,6 +4097,11 @@ def build_pier_bridge_playlist(
                         X_genre_norm,
                         cfg_attempt,
                         beam_width,
+                        X_genre_norm_idf=X_genre_norm_idf,
+                        X_genre_raw=X_genre_raw,
+                        X_genre_smoothed=X_genre_smoothed,
+                        genre_idf=genre_idf,
+                        genre_vocab=genre_vocab,
                         artist_key_by_idx=(cand_artist_keys if cand_artist_keys else None),
                         seed_artist_key=seed_artist_key,
                         recent_global_artists=recent_boundary_artists if seg_idx > 0 else None,
@@ -3671,20 +4286,23 @@ def build_pier_bridge_playlist(
         segment_far_stats: Optional[dict[str, Optional[float]]] = None
         segment_is_far = False
         if bool(cfg.dj_bridging_enabled) and X_genre_norm is not None:
+            # Phase 3 fix: genre_vocab is optional for vector mode, always try to build targets
             genre_vocab = getattr(bundle, "genre_vocab", None)
-            if genre_vocab is not None:
-                segment_g_targets = _build_genre_targets(
-                    pier_a=pier_a,
-                    pier_b=pier_b,
-                    interior_length=interior_len,
-                    X_full_norm=X_full_norm,
-                    X_genre_norm=X_genre_norm,
-                    genre_vocab=genre_vocab,
-                    genre_graph=genre_graph,
-                    cfg=cfg,
-                    warnings=warnings,
-                    ladder_diag=segment_ladder_diag,
-                )
+            segment_g_targets = _build_genre_targets(
+                pier_a=pier_a,
+                pier_b=pier_b,
+                interior_length=interior_len,
+                X_full_norm=X_full_norm,
+                X_genre_norm=X_genre_norm,
+                genre_vocab=genre_vocab,  # Can be None for vector mode
+                genre_graph=genre_graph,
+                cfg=cfg,
+                warnings=warnings,
+                ladder_diag=segment_ladder_diag,
+                X_genre_raw=X_genre_raw,
+                X_genre_smoothed=X_genre_smoothed,
+                genre_idf=genre_idf,
+            )
             segment_far_stats = _segment_far_stats(
                 pier_a=pier_a,
                 pier_b=pier_b,
@@ -3827,6 +4445,10 @@ def build_pier_bridge_playlist(
                         X_genre_vocab=getattr(bundle, "genre_vocab", None),
                         genre_graph=genre_graph,
                         micro_diag=micro_pier_diag,
+                        X_genre_norm_idf=X_genre_norm_idf,
+                        X_genre_raw=X_genre_raw,
+                        X_genre_smoothed=X_genre_smoothed,
+                        genre_idf=genre_idf,
                     )
                     if micro_path is not None and len(micro_path) == interior_len:
                         segment_path = micro_path
@@ -3865,6 +4487,10 @@ def build_pier_bridge_playlist(
                     X_genre_vocab=getattr(bundle, "genre_vocab", None),
                     genre_graph=genre_graph,
                     micro_diag=micro_pier_diag,
+                    X_genre_norm_idf=X_genre_norm_idf,
+                    X_genre_raw=X_genre_raw,
+                    X_genre_smoothed=X_genre_smoothed,
+                    genre_idf=genre_idf,
                 )
                 if micro_path is not None and len(micro_path) == interior_len:
                     segment_path = micro_path
@@ -4002,17 +4628,64 @@ def build_pier_bridge_playlist(
                     mean_rank_delta,
                 )
 
+                # Phase 2: Coverage bonus impact (compare base+waypoint vs full)
+                if bool(cfg.dj_genre_use_coverage):
+                    coverage_winner_changed_count = 0
+                    coverage_mean_bonus = []
+                    for r in rank_impact_results:
+                        top10_table = r.get("top10_table", [])
+                        if top10_table:
+                            # Find winner by base+waypoint score (before coverage)
+                            base_waypoint_scores = [(entry["cand_idx"], entry["base_score"] + entry["waypoint_delta"])
+                                                     for entry in top10_table]
+                            base_waypoint_winner = max(base_waypoint_scores, key=lambda x: x[1])[0]
+                            # Find winner by full score (after coverage)
+                            full_winner = top10_table[0]["cand_idx"]  # Already sorted by base_rank
+                            # Actually need to re-sort by full_score to get true full_winner
+                            full_scores = [(entry["cand_idx"], entry["full_score"]) for entry in top10_table]
+                            full_winner = max(full_scores, key=lambda x: x[1])[0]
+
+                            if base_waypoint_winner != full_winner:
+                                coverage_winner_changed_count += 1
+
+                            # Collect mean coverage bonus for this step
+                            coverage_bonuses = [entry["coverage_bonus"] for entry in top10_table]
+                            coverage_mean_bonus.append(float(np.mean(coverage_bonuses)))
+
+                    if coverage_mean_bonus:
+                        logger.info(
+                            "  Coverage bonus impact: winner_changed=%d/%d mean_bonus=%.4f",
+                            coverage_winner_changed_count,
+                            sampled_steps_count,
+                            float(np.mean(coverage_mean_bonus)),
+                        )
+
         # Log chosen edge provenance (dj_union) - TASK A: renamed from "Pool sources"
         if last_pool_diag:
             if "chosen_from_local_count" in last_pool_diag or "dj_pool_strategy" in last_pool_diag:
+                # Legacy exclusive counts (priority-based)
                 logger.info(
-                    "  Chosen edge provenance: strategy=%s local=%d toward=%d genre=%d baseline_only=%d",
+                    "  Chosen edge provenance (exclusive): strategy=%s local=%d toward=%d genre=%d baseline_only=%d",
                     str(last_pool_diag.get("dj_pool_strategy", last_pool_diag.get("pool_strategy", "unknown"))),
                     int(last_pool_diag.get("chosen_from_local_count", 0)),
                     int(last_pool_diag.get("chosen_from_toward_count", 0)),
                     int(last_pool_diag.get("chosen_from_genre_count", 0)),
                     int(last_pool_diag.get("chosen_from_baseline_only_count", 0)),
                 )
+                # Phase 3: Membership-based counts (all overlaps)
+                if "local_only" in last_pool_diag:
+                    logger.info(
+                        "  Provenance memberships (Phase3): local_only=%d toward_only=%d genre_only=%d " +
+                        "local+toward=%d local+genre=%d toward+genre=%d local+toward+genre=%d baseline_only=%d",
+                        int(last_pool_diag.get("local_only", 0)),
+                        int(last_pool_diag.get("toward_only", 0)),
+                        int(last_pool_diag.get("genre_only", 0)),
+                        int(last_pool_diag.get("local+toward", 0)),
+                        int(last_pool_diag.get("local+genre", 0)),
+                        int(last_pool_diag.get("toward+genre", 0)),
+                        int(last_pool_diag.get("local+toward+genre", 0)),
+                        int(last_pool_diag.get("baseline_only", 0)),
+                    )
 
         # TASK A: Invariant checks (log WARNINGs for inconsistencies)
         if pool_size_final > 0 and pool_size_initial == 0:

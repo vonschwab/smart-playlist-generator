@@ -6,10 +6,10 @@
 
 ## 🔴 High Priority
 
-### Artist Identity Resolution Not Working
-**Status:** Bug
-**Severity:** High
-**Impact:** Playlists contain duplicate artists despite artist diversity constraints
+### ✅ FIXED: Artist Identity Resolution Not Working
+**Status:** Fixed (2026-01-09)
+**Severity:** High (was)
+**Impact:** Playlists contained duplicate artists despite artist diversity constraints
 
 **Observed Behavior:**
 From `docs/dj_union_ladder_playlist_log.txt`:
@@ -36,39 +36,90 @@ Artist identity resolution should normalize artist names and prevent duplicates 
 - `config.yaml` (artist identity settings)
 - Artist identity database/mappings
 
-**Potential Fixes:**
-- Enable artist identity resolution if disabled
-- Add artist name normalization rules for common variants ("Fela Kuti" → "Fela Ransome-Kuti")
-- Increase `min_gap` constraint
-- Add cross-segment artist tracking (global used_artists set)
+**Fix Applied (2026-01-09):**
+- ✅ Enabled artist identity resolution in `config.yaml`:
+  ```yaml
+  constraints:
+    artist_identity:
+      enabled: true
+      strip_trailing_ensemble_terms: true
+  ```
+- ✅ Enabled pier artist exclusion in `config.yaml`:
+  ```yaml
+  pier_bridge:
+    disallow_pier_artists_in_interiors: true   # Pier artists excluded from their own bridges
+    disallow_seed_artist_in_interiors: false   # Seed artist allowed everywhere
+  ```
+- ✅ Updated `config.example.yaml` with documentation and examples
+- ✅ All 40 DJ/pier-bridge tests passing
+
+**Expected Results:**
+- "Fela Kuti" and "Fela Ransome-Kuti and the Africa '70" now recognized as same artist
+- "Herbie Hancock Trio" normalized to "Herbie Hancock"
+- Pier artists excluded from their own bridge segments (e.g., Ramones excluded from Ramones→Replacements)
+- Per-segment constraint (1 track per artist) still enforced
+- Cross-segment MIN_GAP=1 (allows artist repeating across segments if not adjacent, per user preference)
 
 ---
 
 ## 🟡 Medium Priority
 
-### Pool-to-Selection Gap for Genre Waypoint Tracks
-**Status:** Tuning needed
-**Severity:** Medium
-**Impact:** Genre waypoint tracks added to pool but rarely selected
+### ✅ RESOLVED: Hub Genre Collapse in DJ Bridging
+**Status:** Fixed (2026-01-09 - Phase 2)
+**Severity:** Medium (was)
+**Impact:** Genre waypoints collapsed to hub genres ("indie rock") instead of respecting specific genres ("shoegaze", "dreampop", "slowcore")
 
-**Observed Behavior:**
-From recent diagnostics:
+**Problem:**
+Shortest-path label selection in ladder mode picked generic hub genres:
+- Slowdive→Deerhunter bridge: all waypoints = "indie rock"
+- Lost nuanced genre signatures (shoegaze, dreampop, noise pop)
+- S3 genre pool candidates rarely selected
+
+**Root Cause:**
+1. **Onehot mode**: Shortest-path algorithm selects single-label waypoints → loss of multi-genre information
+2. **Equal genre weighting**: Common genres (indie rock) weighted same as rare genres (shoegaze)
+3. **Weak genre signal**: Waypoint scoring alone insufficient to prefer genre-aligned candidates
+
+**Fix Applied (Phase 2 - 2026-01-09):**
+- ✅ **Vector Mode**: Direct multi-genre interpolation bypasses shortest-path
+  - Preserves full genre signatures throughout bridge
+  - Interpolates between anchor vectors: `g = (1-s)*vA + s*vB`
+- ✅ **IDF Weighting**: Down-weights common genres like stop-words
+  - Formula: `idf = log((N+1)/(df+1))^power`
+  - Rare genres (shoegaze) → high weight (0.8-1.0)
+  - Common genres (indie rock) → low weight (0.1-0.3)
+- ✅ **Coverage Bonus**: Rewards candidates matching anchor's top-K genres
+  - Schedule decay: `wA=(1-s)^power, wB=s^power`
+  - Bonus weight: 0.15 (additive to score)
+  - Tracks top-8 genres per anchor
+
+**Results (from logs):**
 ```
-Segment 0: chosen_from_genre_count=1 (out of 9 tracks)
-Segment 1: chosen_from_genre_count=1 (out of 9 tracks)
-Segment 2: chosen_from_genre_count=0 (out of 8 tracks)
+Segment 0 (Slowdive→Beach House):
+  Anchor A topK: shoegaze=0.383, dream pop=0.323, psychedelic=0.272, noise pop=0.228
+  Target [Step 0]: shoegaze=0.386, dream pop=0.327, psychedelic=0.252, noise pop=0.222
+
+Coverage bonus impact: winner_changed=1/3 mean_bonus=0.104
+IDF stats: min=0.052 median=0.641 max=1.000
+Mode: vector (not onehot)
 ```
 
-**Analysis:**
-- Genre waypoint tracks are in the pool (S3 source)
-- Beam search prefers "toward" and "local" tracks
-- Waypoint scoring influence increased (0.15→0.25) helps but may need further tuning
+**Config Added:**
+```yaml
+dj_ladder_target_mode: vector
+dj_genre_use_idf: true
+dj_genre_use_coverage: true
+dj_genre_coverage_weight: 0.15
+```
 
-**Potential Solutions:**
-- Further increase `waypoint_weight` (0.25 → 0.30-0.35)
-- Increase `waypoint_cap` (0.10 → 0.15)
-- Add genre source preference bonus in beam search scoring
-- Adjust pool source balancing (increase `k_genre` relative to `k_toward`)
+**Files Modified:**
+- `pier_bridge_builder.py` (~350 lines): IDF helpers, vector mode, coverage bonus, logging
+- `segment_pool_builder.py` (~25 lines): IDF parameter passthrough
+- `pipeline.py` (~40 lines): Phase 2 config parsing
+- `config.yaml`: Phase 2 settings enabled
+
+**Documentation:**
+- See `docs/dj_bridge_architecture.md` for complete Phase 2 design
 
 ---
 
@@ -119,6 +170,18 @@ Ladder route planning uses shortest path in genre graph with onehot or smoothed 
 ---
 
 ## ✅ Recently Completed
+
+### Phase 2: Genre Bridging Vector Mode + IDF + Coverage (2026-01-09)
+- ✅ Implemented vector mode for genre targets (bypasses shortest-path label selection)
+- ✅ Added IDF (Inverse Document Frequency) weighting to emphasize rare genres
+- ✅ Added coverage bonus to reward matching anchor's top-K genres with schedule decay
+- ✅ Added comprehensive diagnostic logging (per-segment, per-step, winner impact)
+- ✅ Fixed hub genre collapse (Slowdive→Deerhunter now uses shoegaze/dreampop, not indie rock)
+- ✅ Config parsing for 10 new Phase 2 parameters
+- ✅ All existing tests passing, no regressions
+- **Impact:** Multi-genre signatures preserved, rare genres emphasized, better genre alignment
+- **Files:** `pier_bridge_builder.py` (~350 lines), `segment_pool_builder.py` (~25 lines), `pipeline.py` (~40 lines)
+- **Documentation:** `docs/dj_bridge_architecture.md`
 
 ### Waypoint Rank Impact Diagnostic (2026-01-09)
 - ✅ Added opt-in diagnostic to measure waypoint scoring influence

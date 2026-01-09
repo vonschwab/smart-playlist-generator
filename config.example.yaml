@@ -184,6 +184,22 @@ playlists:
       transition_floor_narrow: 0.45
       # transition_floor: 0.35  # Optional global override for all modes
       center_transitions: true # Center X_start/X_end matrices for scoring
+      # Artist identity resolution (normalize artist names for better deduplication)
+      artist_identity:
+        enabled: true         # Enable artist name normalization (recommended)
+        strip_trailing_ensemble_terms: true  # Remove "Orchestra", "Trio", etc.
+        split_delimiters:     # Collaboration delimiters to split on
+          - ","               # "Artist A, Artist B"
+          - " & "             # "Artist A & Artist B"
+          - " and "           # "Artist A and Artist B"
+          - " feat. "         # "Artist A feat. Artist B"
+          - " feat "
+          - " featuring "
+          - " ft. "
+          - " ft "
+          - " with "          # "Artist A with Artist B"
+          - " x "             # "Artist A x Artist B"
+          - " + "             # "Artist A + Artist B"
 
     # Pier-bridge ordering/scoring (applies to all playlists when pipeline=ds)
     pier_bridge:
@@ -210,6 +226,14 @@ playlists:
       segment_pool_strategy: segment_scored
       segment_pool_max: 400
       max_segment_pool_max: 1200
+
+      # Artist exclusion rules for bridge segment interiors
+      # Controls whether pier/seed artists can appear in bridge segments
+      disallow_pier_artists_in_interiors: true   # Exclude pier artists from their own bridge segments (recommended)
+      disallow_seed_artist_in_interiors: false   # Allow seed artist in all segments (only affects single-seed mode)
+      # Example: If piers are [Ramones, Replacements, Pavement]:
+      #   - Ramones→Replacements: Ramones excluded (pier A), Replacements excluded (pier B)
+      #   - Replacements→Pavement: Ramones allowed (not a pier), Replacements excluded (pier A), Pavement excluded (pier B)
 
       # Progress constraint (A→B) to reduce "teleporting" / bouncing during bridges.
       # Uses projection onto the AB direction in the sonic similarity space.
@@ -320,6 +344,106 @@ playlists:
           # Default: false (disabled, zero cost)
           waypoint_rank_impact_enabled: false
           waypoint_rank_sample_steps: 3  # Sample up to N evenly-spaced beam steps
+
+        # ==================================================================================
+        # PHASE 2 + PHASE 3: Genre Bridging Enhancements
+        # ==================================================================================
+        # Phase 2 fixes hub genre collapse (waypoints defaulting to generic genres).
+        # Phase 3 fixes saturation issues (waypoint/coverage scores plateauing at cap).
+        #
+        # Phase 2: Vector Mode + IDF + Coverage
+        # - Vector Mode: Direct multi-genre interpolation (bypasses shortest-path labels)
+        # - IDF Weighting: Emphasize rare genres (shoegaze), suppress common (indie rock)
+        # - Coverage Bonus: Reward matching anchor's top-K signature genres
+        #
+        # Phase 3: Saturation & Provenance Fixes
+        # - Centered Waypoint Delta: Subtract step-wise baseline to allow negative deltas
+        # - Tanh Squashing: Smooth squashing to prevent hard plateaus at cap
+        # - Coverage Improvements: Raw presence source + weighted mode for better gradient
+        # - Logging Fixes: Genre_sim uses IDF space when enabled
+        # - Provenance Tracking: Membership-based overlap accounting (not priority-based)
+        #
+        # See docs/dj_bridge_architecture.md for complete documentation.
+        # ==================================================================================
+
+        # IMPORTANT: These settings must be nested under pier_bridge.dj_bridging as shown.
+        # The exact nesting is required for config parsing (see pipeline.py lines 1089-1139).
+
+        # Vector Mode (Phase 2) - CRITICAL for fixing hub genre collapse
+        # - "vector": Direct multi-genre interpolation, preserves full genre signatures (RECOMMENDED)
+        # - "onehot": Shortest-path label selection (legacy, causes hub collapse)
+        dj_ladder_target_mode: vector        # onehot | vector
+
+        # Vector source matrix (when mode=vector)
+        # - "smoothed": Similarity-weighted genre vectors (recommended)
+        # - "raw": Binary genre vectors (0/1 per genre)
+        dj_genre_vector_source: smoothed     # smoothed | raw
+
+        # IDF Weighting (Phase 2) - Emphasize rare genres, suppress common genres
+        # Formula: idf[g] = log((N+1)/(df[g]+1))^power
+        # Effect: Rare genres (shoegaze) → high weight (0.8-1.0)
+        #         Common genres (indie rock) → low weight (0.1-0.3)
+        dj_genre_use_idf: true               # Enable IDF weighting (RECOMMENDED)
+        dj_genre_idf_power: 1.0              # IDF exponent (1.0 = standard log formula)
+        dj_genre_idf_norm: max1              # Normalization: max1 | sum1 | none
+
+        # Coverage Bonus (Phase 2) - Reward matching anchor's top-K genres
+        # Tracks top-K genres from each anchor (pier A, pier B)
+        # Rewards candidates that match these signature genres
+        # Schedule decay: wA=(1-s)^power (strong near A), wB=s^power (strong near B)
+        dj_genre_use_coverage: true          # Enable coverage bonus (RECOMMENDED)
+        dj_genre_coverage_top_k: 8           # Track top-N genres per anchor
+        dj_genre_coverage_weight: 0.15       # Coverage bonus weight (additive to score)
+                                             # NOTE: If weighted coverage is too strong, use 0.10 as safe fallback
+        dj_genre_coverage_power: 2.0         # Schedule decay power (2.0 = quadratic)
+        dj_genre_presence_threshold: 0.02    # Min genre weight to count as "present" (2%)
+                                             # NOTE: Smoothed vectors inflate presence; tune 0.02-0.05 as needed
+
+        # Phase 3: Centered Waypoint Delta (fixes waypoint saturation)
+        # - "absolute": Legacy mode (delta = weight * sim), can pin at cap
+        # - "centered": Subtract step baseline (delta = weight * (sim - sim0)), allows negative deltas
+        dj_waypoint_delta_mode: centered     # absolute | centered (RECOMMENDED: centered)
+        dj_waypoint_centered_baseline: median  # median | mean (for centered mode)
+
+        # Phase 3: Waypoint Squashing (prevents hard plateaus at cap)
+        # - "none": Hard clamp at waypoint_cap (legacy, causes plateaus)
+        # - "tanh": Smooth squashing (delta = cap * tanh(alpha * raw / cap))
+        dj_waypoint_squash: tanh             # none | tanh (RECOMMENDED: tanh)
+        dj_waypoint_squash_alpha: 4.0        # Alpha for tanh squashing (higher = steeper, 4.0 recommended)
+
+        # Phase 3: Coverage Presence Source (fixes smoothed inflation)
+        # - "same": Use same matrix as scoring (can inflate presence with smoothed vectors)
+        # - "raw": Use raw genres for presence check (avoids false positives)
+        dj_coverage_presence_source: raw     # same | raw (RECOMMENDED: raw with smoothed targets)
+
+        # Phase 3: Coverage Mode (fixes coverage ties/saturation)
+        # - "binary": Count genres present (0/1 per genre), discrete values
+        # - "weighted": Mean of genre weights, creates gradient
+        dj_coverage_mode: weighted           # binary | weighted (RECOMMENDED: weighted)
+
+        # Production Config Example (Recommended Defaults):
+        # This configuration is stable and non-saturating for most use cases.
+        #
+        # dj_ladder_target_mode: vector
+        # dj_genre_vector_source: smoothed
+        # dj_genre_use_idf: true
+        # dj_genre_idf_power: 1.0
+        # dj_genre_idf_norm: max1
+        # dj_genre_use_coverage: true
+        # dj_genre_coverage_top_k: 8
+        # dj_genre_coverage_weight: 0.15
+        # dj_genre_coverage_power: 2.0
+        # dj_genre_presence_threshold: 0.02
+        # waypoint_weight: 0.25
+        # waypoint_cap: 0.10
+        # dj_waypoint_delta_mode: centered
+        # dj_waypoint_centered_baseline: median
+        # dj_waypoint_squash: tanh
+        # dj_waypoint_squash_alpha: 4.0
+        # dj_coverage_presence_source: raw
+        # dj_coverage_mode: weighted
+        # pooling.strategy: dj_union
+        # route_shape: ladder
 
       # Duration penalty (geometric): penalizes bridge candidates based on percentage excess
       # over pier tracks. Uses a three-phase curve that accelerates from gentle to severe.

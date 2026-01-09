@@ -1080,12 +1080,67 @@ def generate_playlist_ds(
                 # DJ diagnostics (opt-in, default false)
                 diagnostics_rank_impact_enabled = pb_cfg.dj_diagnostics_waypoint_rank_impact_enabled
                 diagnostics_rank_sample_steps = pb_cfg.dj_diagnostics_waypoint_rank_sample_steps
+                diagnostics_pool_verbose = pb_cfg.dj_diagnostics_pool_verbose  # Phase 3 fix
                 diagnostics_raw = dj_raw.get("diagnostics")
                 if isinstance(diagnostics_raw, dict):
                     if isinstance(diagnostics_raw.get("waypoint_rank_impact_enabled"), bool):
                         diagnostics_rank_impact_enabled = bool(diagnostics_raw.get("waypoint_rank_impact_enabled"))
                     if isinstance(diagnostics_raw.get("waypoint_rank_sample_steps"), int):
                         diagnostics_rank_sample_steps = int(diagnostics_raw.get("waypoint_rank_sample_steps"))
+                    if isinstance(diagnostics_raw.get("pool_verbose"), bool):  # Phase 3 fix
+                        diagnostics_pool_verbose = bool(diagnostics_raw.get("pool_verbose"))
+                # Phase 2: Vector mode + IDF + Coverage
+                ladder_target_mode = pb_cfg.dj_ladder_target_mode
+                genre_vector_source = pb_cfg.dj_genre_vector_source
+                genre_use_idf = pb_cfg.dj_genre_use_idf
+                genre_idf_power = pb_cfg.dj_genre_idf_power
+                genre_idf_norm = pb_cfg.dj_genre_idf_norm
+                genre_use_coverage = pb_cfg.dj_genre_use_coverage
+                genre_coverage_top_k = pb_cfg.dj_genre_coverage_top_k
+                genre_coverage_weight = pb_cfg.dj_genre_coverage_weight
+                genre_coverage_power = pb_cfg.dj_genre_coverage_power
+                genre_presence_threshold = pb_cfg.dj_genre_presence_threshold
+                if isinstance(dj_raw.get("dj_ladder_target_mode"), str):
+                    ladder_target_mode = str(dj_raw.get("dj_ladder_target_mode"))
+                if isinstance(dj_raw.get("dj_genre_vector_source"), str):
+                    genre_vector_source = str(dj_raw.get("dj_genre_vector_source"))
+                if isinstance(dj_raw.get("dj_genre_use_idf"), bool):
+                    genre_use_idf = bool(dj_raw.get("dj_genre_use_idf"))
+                if isinstance(dj_raw.get("dj_genre_idf_power"), (int, float)):
+                    genre_idf_power = float(dj_raw.get("dj_genre_idf_power"))
+                if isinstance(dj_raw.get("dj_genre_idf_norm"), str):
+                    genre_idf_norm = str(dj_raw.get("dj_genre_idf_norm"))
+                if isinstance(dj_raw.get("dj_genre_use_coverage"), bool):
+                    genre_use_coverage = bool(dj_raw.get("dj_genre_use_coverage"))
+                if isinstance(dj_raw.get("dj_genre_coverage_top_k"), int):
+                    genre_coverage_top_k = int(dj_raw.get("dj_genre_coverage_top_k"))
+                if isinstance(dj_raw.get("dj_genre_coverage_weight"), (int, float)):
+                    genre_coverage_weight = float(dj_raw.get("dj_genre_coverage_weight"))
+                if isinstance(dj_raw.get("dj_genre_coverage_power"), (int, float)):
+                    genre_coverage_power = float(dj_raw.get("dj_genre_coverage_power"))
+                if isinstance(dj_raw.get("dj_genre_presence_threshold"), (int, float)):
+                    genre_presence_threshold = float(dj_raw.get("dj_genre_presence_threshold"))
+
+                # Phase 3: Waypoint delta mode + squashing + coverage enhancements
+                waypoint_delta_mode = pb_cfg.dj_waypoint_delta_mode
+                waypoint_centered_baseline = pb_cfg.dj_waypoint_centered_baseline
+                waypoint_squash = pb_cfg.dj_waypoint_squash
+                waypoint_squash_alpha = pb_cfg.dj_waypoint_squash_alpha
+                coverage_presence_source = pb_cfg.dj_coverage_presence_source
+                coverage_mode = pb_cfg.dj_coverage_mode
+                if isinstance(dj_raw.get("dj_waypoint_delta_mode"), str):
+                    waypoint_delta_mode = str(dj_raw.get("dj_waypoint_delta_mode"))
+                if isinstance(dj_raw.get("dj_waypoint_centered_baseline"), str):
+                    waypoint_centered_baseline = str(dj_raw.get("dj_waypoint_centered_baseline"))
+                if isinstance(dj_raw.get("dj_waypoint_squash"), str):
+                    waypoint_squash = str(dj_raw.get("dj_waypoint_squash"))
+                if isinstance(dj_raw.get("dj_waypoint_squash_alpha"), (int, float)):
+                    waypoint_squash_alpha = float(dj_raw.get("dj_waypoint_squash_alpha"))
+                if isinstance(dj_raw.get("dj_coverage_presence_source"), str):
+                    coverage_presence_source = str(dj_raw.get("dj_coverage_presence_source"))
+                if isinstance(dj_raw.get("dj_coverage_mode"), str):
+                    coverage_mode = str(dj_raw.get("dj_coverage_mode"))
+
                 pb_cfg = replace(
                     pb_cfg,
                     dj_bridging_enabled=bool(dj_enabled),
@@ -1134,6 +1189,24 @@ def generate_playlist_ds(
                     dj_relaxation_allow_floor_relaxation=bool(relax_allow_floor),
                     dj_diagnostics_waypoint_rank_impact_enabled=bool(diagnostics_rank_impact_enabled),
                     dj_diagnostics_waypoint_rank_sample_steps=int(diagnostics_rank_sample_steps),
+                    dj_diagnostics_pool_verbose=bool(diagnostics_pool_verbose),  # Phase 3 fix
+                    dj_ladder_target_mode=str(ladder_target_mode),
+                    dj_genre_vector_source=str(genre_vector_source),
+                    dj_genre_use_idf=bool(genre_use_idf),
+                    dj_genre_idf_power=float(genre_idf_power),
+                    dj_genre_idf_norm=str(genre_idf_norm),
+                    dj_genre_use_coverage=bool(genre_use_coverage),
+                    dj_genre_coverage_top_k=int(genre_coverage_top_k),
+                    dj_genre_coverage_weight=float(genre_coverage_weight),
+                    dj_genre_coverage_power=float(genre_coverage_power),
+                    dj_genre_presence_threshold=float(genre_presence_threshold),
+                    # Phase 3 parameters
+                    dj_waypoint_delta_mode=str(waypoint_delta_mode),
+                    dj_waypoint_centered_baseline=str(waypoint_centered_baseline),
+                    dj_waypoint_squash=str(waypoint_squash),
+                    dj_waypoint_squash_alpha=float(waypoint_squash_alpha),
+                    dj_coverage_presence_source=str(coverage_presence_source),
+                    dj_coverage_mode=str(coverage_mode),
                 )
 
             logger.info(

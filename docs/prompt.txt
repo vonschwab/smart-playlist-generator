@@ -1,0 +1,112 @@
+You are Claude Code in the playlist generator repo on branch (dj-ordering). We just ran with Phase 2 + Phase 3 enabled and got a new log: /mnt/data/playlist_generator.log.
+
+Two things are now GOOD:
+- Waypoint saturation is improved (mean_delta is no longer pinned at 0.10; waypoint rank impact shows winner_changed=3/3 in some segments).
+- genre_sim logging is correct (“Genre space for genre_sim: IDF” appears per segment).
+
+One thing is STILL wrong / suspicious:
+- Genre pool contribution is consistently ZERO.
+  - Exclusive provenance: genre=0 for every segment
+  - Membership buckets: genre_only=0, toward+genre=0, local+genre=0, local+toward+genre=0
+  - This is true even though config has dj_pooling_k_genre=80.
+
+Your job: determine WHY genre candidates are never contributing, and fix it (or prove they are being built but always dominated). Keep changes minimal and behind diagnostics flags by default.
+
+--------------------------------------------------------------------
+STEP 0 — Reproduce and pinpoint in code
+--------------------------------------------------------------------
+0.1 Read the log file and extract the segment IDs and the provenance lines to use as a baseline for expected changes:
+- /mnt/data/playlist_generator.log
+We need to see at least one segment where genre membership becomes non-zero OR a definitive explanation why it should be zero.
+
+0.2 Identify the full code path for DJ union pooling:
+- Where local/toward/genre lists are constructed per step
+- Where they are gated
+- Where union + dedup happens
+- Where membership/provenance flags are set and logged
+
+Likely touchpoints:
+- src/playlist/segment_pool_builder.py (dj_union pooling)
+- src/playlist/pier_bridge_builder.py (beam step candidate assembly + provenance logging)
+- any helper that computes genre similarity ranking for k_genre
+- ensure track_id vs row_idx consistency
+
+--------------------------------------------------------------------
+STEP 1 — Determine whether the genre list is empty, dropped, or just losing
+--------------------------------------------------------------------
+Add a SINGLE diagnostics flag (default false):
+- pier_bridge.dj_bridging.diagnostics.pool_verbose: false
+
+When enabled, emit per-step (sampled, like existing rank-impact sampling) a compact summary:
+
+For each sampled step:
+- n_local_raw, n_toward_raw, n_genre_raw (sizes before gate)
+- n_local_after_gate, n_toward_after_gate, n_genre_after_gate
+- overlap counts:
+  - overlap(local, genre)
+  - overlap(toward, genre)
+  - overlap(local, toward)
+- n_union_after_dedup
+- if n_genre_raw==0 or n_genre_after_gate==0, log ONE reason:
+  - missing g_target? k_genre=0? genre matrix missing? idf matrix missing? filtered to empty?
+
+Also log ONCE per segment:
+- the actual config values used: k_local, k_toward, k_genre, union_max
+- which genre matrix is used for pooling: X_genre_norm_idf vs X_genre_norm
+
+Important: keep logs concise and behind the flag.
+
+--------------------------------------------------------------------
+STEP 2 — Fix the root cause (depending on what you find)
+--------------------------------------------------------------------
+Possible failure modes to check and fix:
+
+A) Genre candidates not built
+- g_target isn’t being passed into genre pooling
+- wrong nesting/config key means k_genre is effectively 0
+- IDF matrix isn’t passed to segment_pool_builder so genre scoring fails or returns empty
+
+B) Genre candidates built but dropped
+- gating is applied incorrectly to genre list (e.g. using wrong ID space)
+- union dedup accidentally discards genre list before membership is recorded
+
+C) Genre candidates built and present but membership flags are wrong
+- membership check compares track_id to row_idx or vice versa
+- genre_ids stored in a different ID space than chosen_id
+
+D) Genre candidates present but never win
+- prove it by logging “best genre candidate rank”
+Add, when pool_verbose is enabled:
+- best_genre_candidate_id and its rank in the final sorted candidates
+- its (base, waypoint, coverage, full) scores
+This tells us if genre is always dominated vs missing.
+
+Implement the smallest code change needed:
+- If it’s an ID-space mismatch, fix conversions at the boundary and add an assert in debug mode.
+- If union construction is dropping provenance, preserve membership sets through the union.
+
+--------------------------------------------------------------------
+STEP 3 — Clean up 2 small reporting inconsistencies (optional but quick)
+--------------------------------------------------------------------
+If you can do it without scope creep:
+- DS pipeline log prints distinct_artists=0 but final stats show Unique artists > 0.
+- “Seed artist (Seeded): 0 tracks” appears misleading given seed tracks are present.
+Investigate and correct those counters or the log labels.
+
+--------------------------------------------------------------------
+STEP 4 — Validate with a rerun
+--------------------------------------------------------------------
+Rerun the same scenario as the log baseline and confirm:
+
+- Provenance memberships includes at least one genre-related bucket (toward+genre, local+genre, etc.)
+  OR you have clear debug evidence that:
+  - n_genre_raw is non-zero but genre candidates never win (with ranks and scores),
+  - and why that is acceptable.
+
+Provide in your final response:
+- files changed + key line regions
+- example log excerpt showing the new pool_verbose summary
+- example provenance membership line showing genre involvement (or proof of dominance)
+- next tuning suggestions if genre pool is present but dominated (e.g., temporarily increase k_genre or add a small “genre pool prior” bonus).
+
+Proceed now.
