@@ -15,7 +15,7 @@ Classes extracted from pier_bridge_builder.py:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -70,6 +70,66 @@ class SegmentDiagnostics:
 
     widened_search: bool = False
     """Whether search was widened during construction."""
+
+    route_shape: str = "linear"
+    """Route shape used for DJ bridging (linear|arc|ladder)."""
+
+    ladder_waypoint_labels: List[str] = field(default_factory=list)
+    """Waypoint labels for ladder routing (truncated)."""
+
+    ladder_waypoint_count: int = 0
+    """Total number of ladder waypoints found."""
+
+    ladder_waypoint_vector_mode: str = "onehot"
+    """Vector mode for ladder waypoints (onehot|smoothed)."""
+
+    ladder_waypoint_vector_stats: List[Dict[str, Any]] = field(default_factory=list)
+    """Optional sparsity/top-label stats for smoothed waypoint vectors."""
+
+    relaxation_attempts: List[Dict[str, Any]] = field(default_factory=list)
+    """Per-segment DJ relaxation attempt diagnostics."""
+
+    relaxation_success_attempt: Optional[int] = None
+    """Index of successful relaxation attempt, if any."""
+
+    micro_pier_used: bool = False
+    """Whether a micro-pier fallback was used for this segment."""
+
+    micro_pier_track_id: Optional[str] = None
+    """Track ID of the inserted micro-pier connector, if any."""
+
+    micro_pier_metric_value: Optional[float] = None
+    """Selection metric value for the chosen micro-pier."""
+
+    micro_pier_left_success: Optional[bool] = None
+    """Whether the left subsegment succeeded in micro-pier fallback."""
+
+    micro_pier_right_success: Optional[bool] = None
+    """Whether the right subsegment succeeded in micro-pier fallback."""
+
+    waypoint_enabled: bool = False
+    """Whether waypoint scoring was enabled for this segment."""
+
+    mean_waypoint_sim: Optional[float] = None
+    """Mean waypoint similarity across chosen edges."""
+
+    p50_waypoint_sim: Optional[float] = None
+    """Median waypoint similarity across chosen edges."""
+
+    p90_waypoint_sim: Optional[float] = None
+    """P90 waypoint similarity across chosen edges."""
+
+    min_waypoint_sim: Optional[float] = None
+    """Minimum waypoint similarity across chosen edges."""
+
+    max_waypoint_sim: Optional[float] = None
+    """Maximum waypoint similarity across chosen edges."""
+
+    waypoint_delta_applied_count: int = 0
+    """Number of edges where waypoint delta was non-zero."""
+
+    mean_waypoint_delta: Optional[float] = None
+    """Mean waypoint delta (score adjustment) across chosen edges."""
 
 
 class PierBridgeDiagnosticsCollector:

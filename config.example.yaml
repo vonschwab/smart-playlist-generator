@@ -235,6 +235,20 @@ playlists:
           per_step_scale: false
 
       # Optional: DJ-style genre waypoint guidance (default OFF).
+      #
+      # To enable DJ bridging with full genre-waypoint routing:
+      #   1. Set enabled: true
+      #   2. Set pooling.strategy: dj_union (for S1+S2+S3 union pooling)
+      #   3. Set route_shape: ladder (for genre graph routing)
+      #   4. Ensure genre metadata exists in your library
+      #
+      # Example minimal config for DJ bridging:
+      #   dj_bridging:
+      #     enabled: true
+      #     route_shape: ladder
+      #     pooling:
+      #       strategy: dj_union
+      #
       dj_bridging:
         enabled: false
         seed_ordering: auto          # auto | fixed
@@ -250,6 +264,12 @@ playlists:
         waypoint_tie_break_band: null
         waypoint_cap: 0.05
         pooling:
+          # Pool construction strategy for segment candidates
+          # - baseline: neighbors(A) ∪ neighbors(B) (default, safe fallback)
+          # - dj_union: local + toward-B + genre-waypoint union (S1+S2+S3, genre-aware)
+          #
+          # IMPORTANT: Use nested 'pooling.strategy' key as shown below.
+          # The flat key 'dj_pooling_strategy' is deprecated and will log a warning.
           strategy: baseline        # baseline | dj_union
           k_local: 200
           k_toward: 80
@@ -277,11 +297,29 @@ playlists:
           min_label_weight: 0.05
           min_similarity: 0.20
           max_steps: 6
+          use_smoothed_waypoint_vectors: false
+          smooth_top_k: 10
+          smooth_min_sim: 0.20
+        relaxation:
+          enabled: false
+          max_attempts: 4
+          emit_warnings: true
+          allow_floor_relaxation: false
         waypoint_fallback_k: 25
         micro_piers:
           enabled: false
           max: 1
+          max_micro_piers_per_segment: 1
+          candidate_source: union_pool  # connectors | union_pool | both
           topk: 5
+          top_k: 5
+          selection_metric: max_min_sim
+        diagnostics:
+          # Waypoint rank impact diagnostic (opt-in, NO behavior change)
+          # Measures whether waypoint scoring can change candidate rankings
+          # Default: false (disabled, zero cost)
+          waypoint_rank_impact_enabled: false
+          waypoint_rank_sample_steps: 3  # Sample up to N evenly-spaced beam steps
 
       # Duration penalty (geometric): penalizes bridge candidates based on percentage excess
       # over pier tracks. Uses a three-phase curve that accelerates from gentle to severe.

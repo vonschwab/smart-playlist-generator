@@ -1,0 +1,155 @@
+INFO: Loaded config: config.yaml
+INFO: Loaded autocomplete: 2207 artists, 35931 tracks, 746 genres
+INFO: Loaded autocomplete: 2207 artists, 35931 tracks, 746 genres
+INFO: Worker process started (pid=2796)
+INFO: Worker process started
+INFO: Sent command to worker: generate_playlist
+INFO: Starting generation (mode=artist, tracks=30, genre_mode=narrow, sonic_mode=narrow), seed_tracks=['Holy Hell - Eddie Chacon (Sundown)', 'Gecko Sound - John Carroll Kirby (Blowout)', 'Miles Away - Kaidi Tatham (Miles Away)', 'Black Byrd - Donald Byrd (Black Byrd)']
+INFO: worker: Worker started, ready for commands
+INFO: worker: Starting playlist generation (mode=artist)
+INFO: worker progress: init 0/100 Loading configuration
+INFO: worker: Genre mode 'narrow': Stay close to seed genre with some flexibility
+INFO: worker: Sonic mode 'narrow': Strict sonic coherence - familiar sound
+INFO: worker progress: init 10/100 Configuration loaded
+INFO: worker: Loading application modules...
+INFO: worker progress: init 20/100 Loading modules
+INFO: worker progress: init 30/100 Initializing library client
+INFO: worker: Loaded 76 genre entries from YAML overrides
+INFO: worker: Taxonomy v1 enabled for structured genre similarity
+INFO: worker: Loaded genre similarity matrix with 76 genres
+INFO: worker: Genre vocabulary size: 78
+INFO: worker: Genre similarity V2 enabled (method: ensemble, weight: 0.4, min: 0.3)
+INFO: worker: Initialized LocalLibraryClient (local library mode)
+INFO: worker progress: init 40/100 Initializing track matcher
+INFO: worker: Initialized TrackMatcher with metadata database
+INFO: worker: Initialized metadata database: data/metadata.db
+INFO: worker: Initialized Last.FM client for user: vonschwab
+INFO: worker progress: init 50/100 Initializing playlist generator
+INFO: worker: Loaded artifact data\artifacts\beat3tower_32k\data_matrices_step1.npz | tracks=35930 | X_sonic=(35930, 137) | X_genre_raw=(35930, 729) | X_genre_smoothed=(35930, 729)
+INFO: worker: Genre mode: narrow
+INFO: worker: Sonic mode: narrow
+INFO: worker: DS pipeline mode: dynamic
+INFO: worker progress: generate 60/100 Generating playlist
+INFO: worker: Running playlist generation with mode=dynamic
+INFO: worker: Retrieved 35930 tracks from local library
+INFO: worker: Seeds (4): Holy Hell, Gecko Sound, Miles Away, Black Byrd
+INFO: worker: Last.FM cache hit for vonschwab (age=0.0 days, cached_days=90)
+INFO: worker: Last.FM cache hit for vonschwab (days=90, tracks=4791); checking for new scrobbles
+INFO: worker: Fetching Last.FM history since 2026-01-09T00:19:07 (days=90)
+INFO: worker: Total pages to fetch: 1
+INFO: worker: Fetched 12 tracks from Last.FM
+INFO: worker: Saved merged Last.FM history to cache for vonschwab (days=90, tracks=4792)
+INFO: worker: Retrieved 4792 raw scrobbles from Last.FM for recency filtering
+INFO: worker: stage=candidate_pool | Last.fm recency exclusions: before=35930 after=34642 excluded=1288 lookback_days=14 scrobbles=4792 keys=1208 exempt=1
+INFO: worker: Loaded artifact data\artifacts\beat3tower_32k\data_matrices_step1.npz | tracks=35930 | X_sonic=(35930, 137) | X_genre_raw=(35930, 729) | X_genre_smoothed=(35930, 729)
+INFO: worker: Resolved 4/4 anchor seeds by title+artist match
+INFO: worker: Blacklist exclusions: context=ds_pipeline blacklisted_total=1 excluded_from_pool=1
+INFO: worker: Duration exclusions (pre-order): excluded=1085 min_ms=46000 cutoff_ms=697705 seed_median_ms=279082
+INFO: worker: Invoking DS pipeline seed=a7cf50c432f58d0df81fcbb22c4bd674 mode=dynamic target_length=30 allowed_ids=0 artist_style_enabled=False pool_source=seeded genre_gate=enabled (min_sim=0.4)
+INFO: worker: Genre params: sonic_weight=0.5185185185185185 genre_weight=0.48148148148148145 min_genre_sim=0.4 method=ensemble
+INFO: worker: Passing 4 anchor_seed_ids to pipeline: ['a7cf50c432f58d0df81fcbb22c4bd674', '0162b31f59e5b9abd0ee9b94b60d111b', 'cf1f43bf350a8b7d85295b4f8e7c009e', 'a898bb0691633543c0b34b3aeb6b71ab']
+INFO: worker: DS_PIPELINE_RUNNER: anchor_seed_ids=4 (pier-bridge always enabled)
+INFO: worker: Loaded artifact data\artifacts\beat3tower_32k\data_matrices_step1.npz | tracks=35930 | X_sonic=(35930, 137) | X_genre_raw=(35930, 729) | X_genre_smoothed=(35930, 729)
+INFO: worker: DS pipeline tuning dials: sonic_weight=0.5185185185185185, genre_weight=0.48148148148148145, min_genre_sim=0.4, genre_method=ensemble
+INFO: worker: Sonic admission uses 4 seeds (max similarity across seeds)
+INFO: worker: Applying hybrid embedding weights: w_sonic=0.519, w_genre=0.481 (normalized from 0.519, 0.481)
+INFO: worker: Candidate pool genre gating: method=ensemble, min_threshold=0.400, mode=dynamic
+INFO: worker: Sonic floor applied: mode=dynamic floor=0.18 before=33564 after=6996 rejected=6294
+INFO: worker: Sonic sim distribution: min=-0.337 p05=-0.100 median=0.148 p95=0.492 max=0.985
+INFO: worker: Genre hard gate applied: 1532 candidates excluded (mode=dynamic)
+INFO: worker: Candidate pool: mode=dynamic floor=0.18 admitted=1200 rejected_sonic=6294 total=33564 min=-0.337 p05=-0.100 median=0.148 p95=0.492 max=0.985
+INFO: worker: PIPELINE STRATEGY: pier-bridge (anchor_seed_ids=4)
+INFO: worker: ENTERING PIER-BRIDGE PATH with 4 anchor seeds
+INFO: worker: All 4 pier seeds found in bundle
+INFO: worker: Pier seeds (4): ['a7cf50c432f58d0df81fcbb22c4bd674:Holy Hell', '0162b31f59e5b9abd0ee9b94b60d111b:Gecko Sound', 'cf1f43bf350a8b7d85295b4f8e7c009e:Miles Away', 'a898bb0691633543c0b34b3aeb6b71ab:Black Byrd']
+INFO: worker: Pier bridge candidate pool deduped: 5464 → 5046 tracks
+INFO: worker: Pier-bridge tuning resolved: mode=dynamic transition_floor=0.20 bridge_floor=0.03 weight_bridge=0.60 weight_transition=0.40 genre_tiebreak_weight=0.05 genre_penalty_threshold=0.20 genre_penalty_strength=0.10
+INFO: worker: Pier-bridge segment policy: artist_playlist=False strategy=segment_scored pool_max=400 progress=True disallow_seed_artist_in_interiors=False disallow_pier_artists_in_interiors=False
+INFO: worker: Pier+Bridge: 4 seeds, target 30 tracks
+INFO: worker: Pier+Bridge: universe size after dedupe and seed exclusion: 5046
+INFO: worker: Seed ordering: evaluated 24 permutations, best_score=1.2886
+INFO: worker: Pier+Bridge: seed order = ['0162b31f59e5b9abd0ee9b94b60d111b', 'a898bb0691633543c0b34b3aeb6b71ab', 'a7cf50c432f58d0df81fcbb22c4bd674', 'cf1f43bf350a8b7d85295b4f8e7c009e']
+INFO: worker: Pier+Bridge: segment lengths = [9, 9, 8] (total_interior=26)
+INFO: worker: Building segment 0: 0162b31f59e5b9abd0ee9b94b60d111b -> a898bb0691633543c0b34b3aeb6b71ab (interior=9)
+INFO: worker: Segment 0 attempt 1: bridge_floor=0.03 widened=False pool_after_gate=128
+INFO: worker: Segment 0: 0162b31f59e5b9abd0ee9b94b60d111b -> a898bb0691633543c0b34b3aeb6b71ab bridge_floor=0.03 pool_before=128 pool_after=127
+INFO: worker:   Waypoint stats: enabled=True mean_sim=0.586 p50=0.602 p90=0.743 delta_applied=9/9 mean_delta=0.0990
+INFO: worker:   Waypoint rank impact: sampled_steps=3 winner_changed=1/3 topK_reordered=5.0/10 mean_rank_delta=8.1
+INFO: worker:   Chosen edge provenance: strategy=dj_union local=0 toward=8 genre=1 baseline_only=0
+INFO: worker:   Ladder route: shape=linear mode=onehot waypoints=1 labels=jazz
+INFO: worker: Building segment 1: a898bb0691633543c0b34b3aeb6b71ab -> a7cf50c432f58d0df81fcbb22c4bd674 (interior=9)
+INFO: worker: Segment 1 attempt 1: bridge_floor=0.03 widened=False pool_after_gate=157
+INFO: worker: Segment 1: a898bb0691633543c0b34b3aeb6b71ab -> a7cf50c432f58d0df81fcbb22c4bd674 bridge_floor=0.03 pool_before=157 pool_after=156
+INFO: worker:   Waypoint stats: enabled=True mean_sim=0.390 p50=0.377 p90=0.512 delta_applied=9/9 mean_delta=0.0897
+INFO: worker:   Waypoint rank impact: sampled_steps=3 winner_changed=1/3 topK_reordered=8.7/10 mean_rank_delta=13.4
+INFO: worker:   Chosen edge provenance: strategy=dj_union local=0 toward=8 genre=1 baseline_only=0
+INFO: worker:   Ladder route: shape=ladder mode=onehot waypoints=3 labels=jazz, soul, rnb
+INFO: worker: Building segment 2: a7cf50c432f58d0df81fcbb22c4bd674 -> cf1f43bf350a8b7d85295b4f8e7c009e (interior=8)
+INFO: worker: Segment 2 attempt 1: bridge_floor=0.03 widened=False pool_after_gate=142
+INFO: worker: Segment 2: a7cf50c432f58d0df81fcbb22c4bd674 -> cf1f43bf350a8b7d85295b4f8e7c009e bridge_floor=0.03 pool_before=142 pool_after=141
+INFO: worker:   Waypoint stats: enabled=True mean_sim=0.391 p50=0.401 p90=0.495 delta_applied=8/8 mean_delta=0.0883
+INFO: worker:   Waypoint rank impact: sampled_steps=3 winner_changed=1/3 topK_reordered=9.0/10 mean_rank_delta=12.0
+INFO: worker:   Chosen edge provenance: strategy=dj_union local=0 toward=8 genre=0 baseline_only=0
+INFO: worker:   Ladder route: shape=ladder mode=onehot waypoints=3 labels=rnb, soul, jazz
+INFO: worker: Pier+Bridge complete: 30 tracks, 3 segments, 3 successful
+INFO: worker: Pier bridge result: 30 tracks, 3 segments, success=True
+INFO: worker: {"pipeline": "ds", "mode": "dynamic", "seed_track_id": "a7cf50c432f58d0df81fcbb22c4bd674", "length": 30, "random_seed": 0, "metrics": {"below_floor": 0, "min_transition": 0.49954104545326583, "mean_transition": 0.7657435433081228, "gap_sum": null, "gap_p90": null, "seed_sim_min": null, "seed_sim_mean": null, "artist_counts": null, "distinct_artists": null, "strategy": "pier_bridge", "repair_applied": false, "num_segments": 3}, "effective": {"sonic_variant": {"variant": "tower_pca", "dim": 32, "tower_dims": [21, 83, 33], "tower_fallback": false, "tower_weights": [0.2, 0.5, 0.3], "tower_pca_dims": [8, 16, 8], "tower_pca_requested": [8, 16, 8], "pre_scaled": true, "mean_norm": 3.2452455877218136}, "embedding": {"n_components_sonic": 32, "n_components_genre": 32, "w_sonic": 0.5185185185185185, "w_genre": 0.48148148148148145, "pre_scaled_sonic": true, "pre_scaled_genre": false, "use_pca_sonic": false, "use_pca_genre": true}, "candidate_pool": {"similarity_floor": 0.2, "max_pool_size": 1200, "target_artists": 22, "candidates_per_artist": 6, "seed_artist_bonus": 2, "min_sonic_similarity": 0.18, "genre_method": "ensemble", "min_genre_similarity": 0.4}, "playlist": {"strategy": "pier_bridge", "pier_config": {"transition_floor": 0.2, "bridge_floor": 0.03, "center_transitions": true, "transition_weights": [0.5, 0.25, 0.15], "sonic_variant": "tower_pca", "initial_neighbors_m": 100, "initial_bridge_helpers": 50, "max_neighbors_m": 400, "max_bridge_helpers": 200, "initial_beam_width": 20, "max_beam_width": 100, "max_expansion_attempts": 4, "eta_destination_pull": 0.1, "weight_end_start": 0.7, "weight_mid_mid": 0.15, "weight_full_full": 0.15, "weight_bridge": 0.6, "weight_transition": 0.4, "genre_tiebreak_weight": 0.05, "genre_penalty_threshold": 0.2, "genre_penalty_strength": 0.1, "duration_penalty_enabled": true, "duration_penalty_weight": 0.3, "segment_pool_strategy": "segment_scored", "segment_pool_max": 400, "max_segment_pool_max": 1200, "progress_enabled": true, "progress_monotonic_epsilon": 0.05, "progress_penalty_weight": 0.15, "disallow_pier_artists_in_interiors": false, "disallow_seed_artist_in_interiors": false, "experiment_bridge_scoring_enabled": false, "experiment_bridge_min_weight": 0.25, "experiment_bridge_balance_weight": 0.15, "progress_arc_enabled": false, "progress_arc_weight": 0.25, "progress_arc_shape": "linear", "progress_arc_tolerance": 0.0, "progress_arc_loss": "abs", "progress_arc_huber_delta": 0.1, "progress_arc_max_step": null, "progress_arc_max_step_mode": "penalty", "progress_arc_max_step_penalty": 0.25, "progress_arc_autoscale_enabled": false, "progress_arc_autoscale_min_distance": 0.05, "progress_arc_autoscale_distance_scale": 0.5, "progress_arc_autoscale_per_step_scale": false, "genre_tie_break_band": null, "dj_bridging_enabled": true, "dj_seed_ordering": "auto", "dj_anchors_must_include_all": true, "dj_route_shape": "ladder", "dj_waypoint_weight": 0.25, "dj_waypoint_floor": 0.2, "dj_waypoint_penalty": 0.1, "dj_waypoint_tie_break_band": null, "dj_waypoint_cap": 0.1, "dj_seed_ordering_weight_sonic": 0.6, "dj_seed_ordering_weight_genre": 0.2, "dj_seed_ordering_weight_bridge": 0.2, "dj_pooling_strategy": "dj_union", "dj_pooling_k_local": 200, "dj_pooling_k_toward": 80, "dj_pooling_k_genre": 80, "dj_pooling_k_union_max": 900, "dj_pooling_step_stride": 1, "dj_pooling_cache_enabled": true, "dj_pooling_debug_compare_baseline": false, "dj_allow_detours_when_far": true, "dj_far_threshold_sonic": 0.45, "dj_far_threshold_genre": 0.6, "dj_far_threshold_connector_scarcity": 0.1, "dj_connector_bias_enabled": true, "dj_connector_max_per_segment_linear": 1, "dj_connector_max_per_segment_adventurous": 3, "dj_ladder_top_labels": 5, "dj_ladder_min_label_weight": 0.05, "dj_ladder_min_similarity": 0.2, "dj_ladder_max_steps": 6, "dj_ladder_use_smoothed_waypoint_vectors": false, "dj_ladder_smooth_top_k": 10, "dj_ladder_smooth_min_sim": 0.2, "dj_waypoint_fallback_k": 25, "dj_micro_piers_enabled": false, "dj_micro_piers_max": 1, "dj_micro_piers_topk": 5, "dj_micro_piers_candidate_source": "union_pool", "dj_micro_piers_selection_metric": "max_min_sim", "dj_relaxation_enabled": false, "dj_relaxation_max_attempts": 4, "dj_relaxation_emit_warnings": true, "dj_relaxation_allow_floor_relaxation": false, "dj_diagnostics_waypoint_rank_impact_enabled": true, "dj_diagnostics_waypoint_rank_sample_steps": 3}}}}
+INFO: worker: Candidate pool SUMMARY: size=1200 distinct_artists=305 eligible_artists=776
+INFO: worker: Candidate pool EXCLUSIONS: total_candidates=33564 below_floor=20274 below_genre=1532 artist_cap_excluded=4264 eligible=5464
+INFO: worker: DS pipeline success pipeline=ds seed=a7cf50c432f58d0df81fcbb22c4bd674 mode=dynamic requested_len=30 actual_len=30 distinct_artists=0 max_artist=None min_transition=0.49954104545326583 mean_transition=0.7657435433081228 below_floor=0
+INFO: worker: stage=post_order_validation | recency_overlap=0 | final_size=30 | expected=30
+INFO: worker: ================================================================================
+INFO: worker: PLAYLIST TRACKLIST  (pipeline=ds | seed="Seeded")
+INFO: worker: ================================================================================
+INFO: worker: Track 01: John Carroll Kirby - Gecko Sound (dur=7:17, T=n/a)
+INFO: worker: Track 02: Herbie Hancock - Gentle thoughts (dur=7:04, T=0.729)
+INFO: worker: Track 03: Thundercat, DOMi & JD BECK - NOT TiGHT (dur=4:08, T=0.708)
+INFO: worker: Track 04: Kurt Rosenwinkel, DOMi & JD BECK - WHOA (dur=4:03, T=0.856)
+INFO: worker: Track 05: Kamasi Washington - Cherokee (dur=8:14, T=0.720)
+INFO: worker: Track 06: Orlando Julius, Ashiko - Ashiko (dur=8:01, T=0.786)
+INFO: worker: Track 07: Tony Allen - Road Safety (dur=8:08, T=0.857)
+INFO: worker: Track 08: D\u0101M\u2010FunK - Feel [id=3368fcbd87c3e4cb8b4383d655c7fffe] (dur=6:07, T=0.709)
+INFO: worker: Track 09: Maxwell - Welcome (Remastered 2021) (dur=5:17, T=0.841)
+INFO: worker: Track 10: Prince - Lady Cab Driver (dur=8:19, T=0.816)
+INFO: worker: Track 11: Donald Byrd - Black Byrd (dur=7:23, T=0.697)
+INFO: worker: Track 12: Fela Ransome-Kuti and the Africa '70 - You No Go Die... Unless (dur=7:33, T=0.851)
+INFO: worker: Track 13: Herbie Hancock - Tell Everybody (Disco Version) (dur=7:48, T=0.813)
+INFO: worker: Track 14: KNOWER - What Did I Do To You ft. John Escreet and Aya Toyoshima (dur=2:48, T=0.870)
+INFO: worker: Track 15: Fela Kuti - J'Ehin J'Ehin (Chop Teeth, Chop Teeth) (dur=7:26, T=0.856)
+INFO: worker: Track 16: Michael Jackson - Off The Wall (dur=4:06, T=0.866)
+INFO: worker: Track 17: Prince - The Ballad Of Dorothy Parker (2020 Remaster) (dur=4:03, T=0.776)
+INFO: worker: Track 18: Takuya Kuroda - Piri Piri (dur=7:04, T=0.732)
+INFO: worker: Track 19: Sly & The Family Stone - Runnin' Away  (dur=2:57, T=0.757)
+INFO: worker: Track 20: Yaya Bey - sir princess bad bitch (dur=2:38, T=0.802)
+INFO: worker: Track 21: Eddie Chacon - Holy Hell (dur=3:12, T=0.778)
+INFO: worker: Track 22: James Brown - Don't Tell A Lie About Me And I Won't Tell The Truth On You (dur=5:12, T=0.703)
+INFO: worker: Track 23: Patrice Rushen - Music Of The Earth (dur=3:59, T=0.804)
+INFO: worker: Track 24: F.O.E. - In My Jungle (dur=6:35, T=0.625)
+INFO: worker: Track 25: Maxwell - Ascension (Don't Ever Wonder) (Remastered 2021) (dur=5:45, T=0.880)
+INFO: worker: Track 26: Marvin Gaye - Turn On Some Music (dur=5:08, T=0.799)
+INFO: worker: Track 27: Jessy Lanza - 5785021 (dur=4:39, T=0.615)
+INFO: worker: Track 28: Herbie Hancock - Swamp rat (dur=6:25, T=0.786)
+INFO: worker: Track 29: Kaidi Tatham - Hipsteppin' (dur=3:55, T=0.500)
+INFO: worker: Track 30: Kaidi Tatham - Miles Away (dur=4:39, T=0.675)
+INFO: worker: ================================================================================
+INFO: worker: PLAYLIST STATISTICS
+INFO: worker: ================================================================================
+INFO: worker: Total tracks: 30
+INFO: worker: Unique artists: 25
+INFO: worker: Edge score summaries:
+INFO: worker:   T transition: mean=0.766  p10=0.665  p50=0.786  p90=0.859  p99=0.877  min=0.500  below_floor=0 (floor=0.2 gamma=1.0 centered=True)
+INFO: worker:   S sonic:      mean=0.599  p10=0.475  p50=0.606  p90=0.736  p99=0.771  min=0.283
+INFO: worker:   G genre:      mean=0.619  p10=0.434  p50=0.606  p90=0.764  p99=1.000  min=0.330
+INFO: worker: Weakest transitions (bottom 3 by T):
+INFO: worker:   #01  T=0.500  S=0.606  G=0.793  Herbie Hancock - Swamp rat (idx=10189) -> Kaidi Tatham - Hipsteppin' (idx=12054)
+INFO: worker:   #02  T=0.615  S=0.436  G=0.749  Marvin Gaye - Turn On Some Music (idx=13765) -> Jessy Lanza - 5785021 (idx=11259)
+INFO: worker:   #03  T=0.625  S=0.550  G=0.586  Patrice Rushen - Music Of The Earth (idx=29423) -> F.O.E. - In My Jungle (idx=25741)
+INFO: worker:   - Seed artist (Seeded): 0 tracks (0.0%)
+INFO: worker: Total duration: 170.2 minutes
+INFO: worker: ================================================================================
+INFO: worker progress: generate 90/100 Formatting results
+INFO: Received playlist: Auto: Seeded
+INFO: worker progress: complete 100/100 Done
+INFO: worker done: generate_playlist ok=True cancelled=False summary=Generated 30 tracks
+INFO: Sent command to worker: doctor
+INFO: worker done: doctor ok=True cancelled=False summary=Doctor complete

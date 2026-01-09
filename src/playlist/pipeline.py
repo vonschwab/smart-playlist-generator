@@ -917,10 +917,31 @@ def generate_playlist_ds(
                 ladder_min_label_weight = pb_cfg.dj_ladder_min_label_weight
                 ladder_min_similarity = pb_cfg.dj_ladder_min_similarity
                 ladder_max_steps = pb_cfg.dj_ladder_max_steps
+                ladder_use_smoothed = pb_cfg.dj_ladder_use_smoothed_waypoint_vectors
+                ladder_smooth_top_k = pb_cfg.dj_ladder_smooth_top_k
+                ladder_smooth_min_sim = pb_cfg.dj_ladder_smooth_min_sim
                 waypoint_fallback_k = pb_cfg.dj_waypoint_fallback_k
                 micro_piers_enabled = pb_cfg.dj_micro_piers_enabled
                 micro_piers_max = pb_cfg.dj_micro_piers_max
                 micro_piers_topk = pb_cfg.dj_micro_piers_topk
+                micro_piers_candidate_source = pb_cfg.dj_micro_piers_candidate_source
+                micro_piers_selection_metric = pb_cfg.dj_micro_piers_selection_metric
+                relax_enabled = pb_cfg.dj_relaxation_enabled
+                relax_max_attempts = pb_cfg.dj_relaxation_max_attempts
+                relax_emit_warnings = pb_cfg.dj_relaxation_emit_warnings
+                relax_allow_floor = pb_cfg.dj_relaxation_allow_floor_relaxation
+                route_raw = dj_raw.get("route")
+                if isinstance(route_raw, dict):
+                    if isinstance(route_raw.get("shape"), str):
+                        route_shape = str(route_raw.get("shape"))
+                    if isinstance(route_raw.get("max_hops"), int):
+                        ladder_max_steps = int(route_raw.get("max_hops"))
+                    if isinstance(route_raw.get("top_n_genres"), int):
+                        ladder_top_labels = int(route_raw.get("top_n_genres"))
+                    if isinstance(route_raw.get("min_genre_weight"), (int, float)):
+                        ladder_min_label_weight = float(route_raw.get("min_genre_weight"))
+                    if isinstance(route_raw.get("use_similarity_smoothed_waypoints"), bool):
+                        ladder_use_smoothed = bool(route_raw.get("use_similarity_smoothed_waypoints"))
                 if isinstance(dj_raw.get("waypoint_weight"), (int, float)):
                     waypoint_weight = float(dj_raw.get("waypoint_weight"))
                 if isinstance(dj_raw.get("waypoint_floor"), (int, float)):
@@ -957,6 +978,18 @@ def generate_playlist_ds(
                     if isinstance(pooling_raw.get("debug_compare_baseline"), bool):
                         pool_debug_compare_baseline = bool(
                             pooling_raw.get("debug_compare_baseline")
+                        )
+                # Fallback: flat-key alias for backward compatibility
+                # (deprecated; prefer nested dj_bridging.pooling.strategy)
+                if isinstance(dj_raw.get("dj_pooling_strategy"), str):
+                    flat_key_strategy = str(dj_raw.get("dj_pooling_strategy")).strip().lower()
+                    # Only use flat key if nested pooling.strategy was not set
+                    if pool_strategy == pb_cfg.dj_pooling_strategy and flat_key_strategy != pb_cfg.dj_pooling_strategy:
+                        pool_strategy = flat_key_strategy
+                        logger.warning(
+                            "DJ bridging: flat key 'dj_pooling_strategy=%s' is deprecated; "
+                            "use nested 'dj_bridging.pooling.strategy' instead",
+                            flat_key_strategy
                         )
                 if isinstance(dj_raw.get("allow_detours_when_far"), bool):
                     allow_detours_when_far = bool(dj_raw.get("allow_detours_when_far"))
@@ -1010,6 +1043,22 @@ def generate_playlist_ds(
                         ladder_min_similarity = float(ladder_raw.get("min_similarity"))
                     if isinstance(ladder_raw.get("max_steps"), int):
                         ladder_max_steps = int(ladder_raw.get("max_steps"))
+                    if isinstance(ladder_raw.get("use_smoothed_waypoint_vectors"), bool):
+                        ladder_use_smoothed = bool(ladder_raw.get("use_smoothed_waypoint_vectors"))
+                    if isinstance(ladder_raw.get("smooth_top_k"), int):
+                        ladder_smooth_top_k = int(ladder_raw.get("smooth_top_k"))
+                    if isinstance(ladder_raw.get("smooth_min_sim"), (int, float)):
+                        ladder_smooth_min_sim = float(ladder_raw.get("smooth_min_sim"))
+                relaxation_raw = dj_raw.get("relaxation")
+                if isinstance(relaxation_raw, dict):
+                    if isinstance(relaxation_raw.get("enabled"), bool):
+                        relax_enabled = bool(relaxation_raw.get("enabled"))
+                    if isinstance(relaxation_raw.get("max_attempts"), int):
+                        relax_max_attempts = int(relaxation_raw.get("max_attempts"))
+                    if isinstance(relaxation_raw.get("emit_warnings"), bool):
+                        relax_emit_warnings = bool(relaxation_raw.get("emit_warnings"))
+                    if isinstance(relaxation_raw.get("allow_floor_relaxation"), bool):
+                        relax_allow_floor = bool(relaxation_raw.get("allow_floor_relaxation"))
                 if isinstance(dj_raw.get("waypoint_fallback_k"), int):
                     waypoint_fallback_k = int(dj_raw.get("waypoint_fallback_k"))
                 micro_raw = dj_raw.get("micro_piers")
@@ -1018,8 +1067,25 @@ def generate_playlist_ds(
                         micro_piers_enabled = bool(micro_raw.get("enabled"))
                     if isinstance(micro_raw.get("max"), int):
                         micro_piers_max = int(micro_raw.get("max"))
+                    if isinstance(micro_raw.get("max_micro_piers_per_segment"), int):
+                        micro_piers_max = int(micro_raw.get("max_micro_piers_per_segment"))
                     if isinstance(micro_raw.get("topk"), int):
                         micro_piers_topk = int(micro_raw.get("topk"))
+                    if isinstance(micro_raw.get("top_k"), int):
+                        micro_piers_topk = int(micro_raw.get("top_k"))
+                    if isinstance(micro_raw.get("candidate_source"), str):
+                        micro_piers_candidate_source = str(micro_raw.get("candidate_source"))
+                    if isinstance(micro_raw.get("selection_metric"), str):
+                        micro_piers_selection_metric = str(micro_raw.get("selection_metric"))
+                # DJ diagnostics (opt-in, default false)
+                diagnostics_rank_impact_enabled = pb_cfg.dj_diagnostics_waypoint_rank_impact_enabled
+                diagnostics_rank_sample_steps = pb_cfg.dj_diagnostics_waypoint_rank_sample_steps
+                diagnostics_raw = dj_raw.get("diagnostics")
+                if isinstance(diagnostics_raw, dict):
+                    if isinstance(diagnostics_raw.get("waypoint_rank_impact_enabled"), bool):
+                        diagnostics_rank_impact_enabled = bool(diagnostics_raw.get("waypoint_rank_impact_enabled"))
+                    if isinstance(diagnostics_raw.get("waypoint_rank_sample_steps"), int):
+                        diagnostics_rank_sample_steps = int(diagnostics_raw.get("waypoint_rank_sample_steps"))
                 pb_cfg = replace(
                     pb_cfg,
                     dj_bridging_enabled=bool(dj_enabled),
@@ -1053,10 +1119,21 @@ def generate_playlist_ds(
                     dj_ladder_min_label_weight=float(ladder_min_label_weight),
                     dj_ladder_min_similarity=float(ladder_min_similarity),
                     dj_ladder_max_steps=int(ladder_max_steps),
+                    dj_ladder_use_smoothed_waypoint_vectors=bool(ladder_use_smoothed),
+                    dj_ladder_smooth_top_k=int(ladder_smooth_top_k),
+                    dj_ladder_smooth_min_sim=float(ladder_smooth_min_sim),
                     dj_waypoint_fallback_k=int(waypoint_fallback_k),
                     dj_micro_piers_enabled=bool(micro_piers_enabled),
                     dj_micro_piers_max=int(micro_piers_max),
                     dj_micro_piers_topk=int(micro_piers_topk),
+                    dj_micro_piers_candidate_source=str(micro_piers_candidate_source),
+                    dj_micro_piers_selection_metric=str(micro_piers_selection_metric),
+                    dj_relaxation_enabled=bool(relax_enabled),
+                    dj_relaxation_max_attempts=int(relax_max_attempts),
+                    dj_relaxation_emit_warnings=bool(relax_emit_warnings),
+                    dj_relaxation_allow_floor_relaxation=bool(relax_allow_floor),
+                    dj_diagnostics_waypoint_rank_impact_enabled=bool(diagnostics_rank_impact_enabled),
+                    dj_diagnostics_waypoint_rank_sample_steps=int(diagnostics_rank_sample_steps),
                 )
 
             logger.info(
