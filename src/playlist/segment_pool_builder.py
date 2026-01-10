@@ -641,6 +641,22 @@ class SegmentCandidatePoolBuilder:
                     toward_cache[step] = picked
 
         genre_indices: List[int] = []
+        # Task A: Hard diagnostic check for genre pool prerequisites
+        import logging
+        logger = logging.getLogger(__name__)
+        if k_genre > 0:
+            has_X = config.X_genre_norm is not None
+            has_targets = config.genre_targets is not None
+            has_targets_len = len(config.genre_targets) if config.genre_targets else 0
+            interior = int(config.interior_length)
+
+            # Warn if prerequisites are missing
+            if not has_X:
+                logger.warning("[Genre Pool] k_genre=%d but X_genre_norm is None - genre pool disabled", k_genre)
+            elif not has_targets or has_targets_len == 0:
+                logger.warning("[Genre Pool] k_genre=%d X_genre_norm=present but genre_targets=%s (len=%d) interior=%d - genre pool disabled",
+                              k_genre, has_targets, has_targets_len, interior)
+
         if (
             k_genre > 0
             and config.X_genre_norm is not None
@@ -674,19 +690,20 @@ class SegmentCandidatePoolBuilder:
         diag["dj_pool_source_toward"] = int(len(toward_indices))
         diag["dj_pool_source_genre"] = int(len(genre_indices))
 
+        # Task B: Always-on pool composition summary
+        local_set = set(local_indices)
+        toward_set = set(toward_indices)
+        genre_set = set(genre_indices)
+        overlap_local_toward = len(local_set & toward_set)
+        overlap_local_genre = len(local_set & genre_set)
+        overlap_toward_genre = len(toward_set & genre_set)
+
+        logger.info("  DJ union pool: S1_local=%d S2_toward=%d S3_genre=%d | overlaps: L∩T=%d L∩G=%d T∩G=%d",
+                   len(local_indices), len(toward_indices), len(genre_indices),
+                   overlap_local_toward, overlap_local_genre, overlap_toward_genre)
+
         # Phase 3 fix: Verbose logging for debugging genre pool issues
         if hasattr(config, "pool_verbose") and bool(config.pool_verbose):
-            import logging
-            logger = logging.getLogger(__name__)
-
-            # Compute overlaps
-            local_set = set(local_indices)
-            toward_set = set(toward_indices)
-            genre_set = set(genre_indices)
-            overlap_local_genre = len(local_set & genre_set)
-            overlap_toward_genre = len(toward_set & genre_set)
-            overlap_local_toward = len(local_set & toward_set)
-
             # Log comprehensive breakdown (INFO level for visibility)
             logger.info(
                 "[DJ Pool Debug] Segment pool breakdown:"
@@ -737,6 +754,10 @@ class SegmentCandidatePoolBuilder:
         combined = list(dict.fromkeys(combined_raw))
         diag["dj_pool_union_raw"] = int(len(combined_raw))
         diag["dj_pool_union_deduped"] = int(len(combined))
+
+        logger.info("  DJ union dedup: raw=%d → deduped=%d (%.1f%% reduction)",
+                   len(combined_raw), len(combined),
+                   100.0 * (1.0 - len(combined) / max(1, len(combined_raw))))
 
         if union_max > 0 and len(combined) > union_max:
             sim_a_all = np.dot(config.X_full_norm, vec_a)

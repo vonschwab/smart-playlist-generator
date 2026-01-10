@@ -481,6 +481,7 @@ def _compute_chosen_source_counts(
     *,
     sources: Optional[Dict[str, Set[int]]] = None,
     baseline_pool: Optional[Set[int]] = None,
+    log_per_track: bool = False,
 ) -> Dict[str, int]:
     """
     Compute source counts for chosen tracks (Phase 3: membership tracking).
@@ -496,6 +497,9 @@ def _compute_chosen_source_counts(
     Exclusive counts (legacy):
     - Priority order: genre > toward > local > baseline_only
     """
+    import logging
+    logger = logging.getLogger(__name__)
+
     sources = sources or {}
     local = sources.get("local", set())
     toward = sources.get("toward", set())
@@ -521,13 +525,26 @@ def _compute_chosen_source_counts(
         "baseline_only": 0,
     }
 
-    for idx in path:
+    for step, idx in enumerate(path):
         idx = int(idx)
 
         # Check membership in each pool
         in_local = idx in local
         in_toward = idx in toward
         in_genre = idx in genre
+
+        # Task C: Per-track membership logging
+        if log_per_track:
+            memberships = []
+            if in_local:
+                memberships.append("L")
+            if in_toward:
+                memberships.append("T")
+            if in_genre:
+                memberships.append("G")
+            if not memberships and baseline_pool is not None and idx in baseline_pool:
+                memberships.append("B")
+            logger.info("    [Track %d] idx=%d pools=%s", step, idx, "+".join(memberships) if memberships else "NONE")
 
         # Legacy exclusive assignment (priority-based)
         if in_genre:
@@ -4139,6 +4156,7 @@ def build_pier_bridge_playlist(
                                 segment_path,
                                 sources=sources,
                                 baseline_pool=baseline_pool,
+                                log_per_track=bool(cfg.dj_diagnostics_pool_verbose),  # Task C
                             )
                         )
                         if segment_pool_cache is not None and "dj_connectors" in segment_pool_cache:
