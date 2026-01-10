@@ -89,12 +89,15 @@ See [docs/GOLDEN_COMMANDS.md](docs/GOLDEN_COMMANDS.md) for complete command refe
 │   ├── metadata.db          # Track database
 │   ├── genre_similarity.yaml # Genre relationship matrix
 │   └── artifacts/           # DS pipeline matrices
-└── docs/
+└── docs/                    # Documentation
+    ├── README.md            # Documentation index (start here)
     ├── GOLDEN_COMMANDS.md   # Command reference
     ├── ARCHITECTURE.md      # System architecture
     ├── CONFIG.md            # Configuration reference
     └── TROUBLESHOOTING.md   # Common issues
 ```
+
+For complete documentation, see [docs/README.md](docs/README.md).
 
 ## Playlist Modes
 
