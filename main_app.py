@@ -628,6 +628,36 @@ def main():
         action="store_true",
         help="Enable optional pier-bridge infeasible backoff for this run (see playlists.ds_pipeline.pier_bridge.infeasible_handling).",
     )
+    parser.add_argument(
+        "--pb-experiment-bridge-scoring",
+        action="store_true",
+        help="Enable experimental pier-bridge segment scoring (dry-run/audit only).",
+    )
+    parser.add_argument(
+        "--pb-experiment-bridge-min-weight",
+        type=float,
+        help="Experimental bridge score weight for min(sim_a, sim_b).",
+    )
+    parser.add_argument(
+        "--pb-experiment-bridge-balance-weight",
+        type=float,
+        help="Experimental bridge score weight for balance between endpoints.",
+    )
+    parser.add_argument(
+        "--pb-experiment-progress-arc",
+        action="store_true",
+        help="Enable progress-arc beam scoring for this run (sets pier_bridge.progress_arc).",
+    )
+    parser.add_argument(
+        "--pb-experiment-progress-weight",
+        type=float,
+        help="Experimental progress score weight for beam search.",
+    )
+    parser.add_argument(
+        "--pb-experiment-progress-shape",
+        choices=["linear", "arc"],
+        help="Experimental progress target shape for beam search.",
+    )
     # Add standard logging arguments
     add_logging_args(parser)
     args = parser.parse_args()
@@ -693,6 +723,34 @@ def main():
             playlists_cfg['sonic_mode'] = sonic_mode
         if genre_mode or sonic_mode:
             apply_mode_presets(playlists_cfg)
+
+        if (
+            getattr(args, "pb_experiment_bridge_scoring", False)
+            or getattr(args, "pb_experiment_bridge_min_weight", None) is not None
+            or getattr(args, "pb_experiment_bridge_balance_weight", None) is not None
+        ):
+            ds_cfg = playlists_cfg.setdefault("ds_pipeline", {})
+            pb_cfg = ds_cfg.setdefault("pier_bridge", {})
+            experiments_cfg = pb_cfg.setdefault("experiments", {})
+            bridge_cfg = experiments_cfg.setdefault("bridge_scoring", {})
+            bridge_cfg["enabled"] = True
+            if getattr(args, "pb_experiment_bridge_min_weight", None) is not None:
+                bridge_cfg["min_weight"] = float(args.pb_experiment_bridge_min_weight)
+            if getattr(args, "pb_experiment_bridge_balance_weight", None) is not None:
+                bridge_cfg["balance_weight"] = float(args.pb_experiment_bridge_balance_weight)
+        if (
+            getattr(args, "pb_experiment_progress_arc", False)
+            or getattr(args, "pb_experiment_progress_weight", None) is not None
+            or getattr(args, "pb_experiment_progress_shape", None) is not None
+        ):
+            ds_cfg = playlists_cfg.setdefault("ds_pipeline", {})
+            pb_cfg = ds_cfg.setdefault("pier_bridge", {})
+            progress_cfg = pb_cfg.setdefault("progress_arc", {})
+            progress_cfg["enabled"] = True
+            if getattr(args, "pb_experiment_progress_weight", None) is not None:
+                progress_cfg["weight"] = float(args.pb_experiment_progress_weight)
+            if getattr(args, "pb_experiment_progress_shape", None) is not None:
+                progress_cfg["shape"] = str(args.pb_experiment_progress_shape)
 
         # Runtime flags (do not change defaults unless enabled)
         if getattr(args, "audit_run", False):

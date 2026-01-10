@@ -88,6 +88,58 @@ Audio feature extraction using 3-tower architecture:
 - `sonic_variant.py`: Preprocessing variants (tower_pca, robust_whiten)
 - `hybrid.py`: Combined sonic + genre embeddings
 
+### DJ Bridge Mode (`playlist/pier_bridge_builder.py`)
+Advanced multi-seed playlist generation with genre-aware routing between "pier" tracks:
+
+**Core Concept:**
+- Multiple seed tracks (piers) serve as anchors
+- System builds smooth genre-aware bridges between them
+- Each segment optimizes transitions using beam search
+
+**Phase 2 Enhancements (2026-01-09):**
+Comprehensive fix for hub genre collapse where waypoints would default to generic genres:
+
+1. **Vector Mode**: Direct multi-genre interpolation bypassing shortest-path label selection
+   - Formula: `g = (1-s)*vA + s*vB`
+   - Preserves full genre signatures throughout bridge
+   - No more single-label collapse
+
+2. **IDF Weighting**: Down-weights common genres like stop-words in text retrieval
+   - Formula: `idf = log((N+1)/(df+1))^power`
+   - Rare genres (shoegaze, slowcore): high weight (0.8-1.0)
+   - Common genres (indie rock): low weight (0.1-0.3)
+
+3. **Coverage Bonus**: Rewards candidates matching anchor's top-K signature genres
+   - Schedule decay: strong near anchors, weak in middle
+   - Influences 33% of sampled steps
+   - Mean bonus: 0.104 per step
+
+**Results:**
+- +400% genre diversity in targets (1 label → 4-5 genres/step)
+- Rare genres preserved and emphasized
+- Smoother genre transitions with better alignment
+
+**Phase 3 Enhancements (2026-01-09):**
+Fixes saturation issues where waypoint/coverage scoring would plateau at caps:
+
+1. **Centered Waypoint Delta**: Subtract step-wise baseline to allow negative deltas (-84% mean_delta, unsaturated)
+2. **Tanh Squashing**: Smooth squashing prevents hard plateaus at cap (+100% winner_changed influence)
+3. **Coverage Improvements**: Raw presence source + weighted mode for continuous gradient (-60% saturation)
+4. **Provenance Overlaps**: Membership-based tracking reveals pool contribution vs overlap
+
+**Configuration:**
+```yaml
+pier_bridge:
+  dj_bridging:
+    enabled: true
+    route_shape: ladder
+    dj_ladder_target_mode: vector       # Phase 2: Multi-genre targets
+    dj_genre_use_idf: true              # Phase 2: IDF weighting
+    dj_genre_use_coverage: true         # Phase 2: Coverage bonus
+```
+
+**Complete documentation:** See [dj_bridge_architecture.md](dj_bridge_architecture.md) for full technical details, implementation notes, and diagnostic logging guide.
+
 ## Database Schema
 
 ```sql

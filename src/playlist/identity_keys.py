@@ -8,7 +8,6 @@ from src.features.artifacts import ArtifactBundle
 from src.string_utils import normalize_artist_key as _normalize_artist_key_punct
 from src.string_utils import normalize_match_string, normalize_artist_name
 from src.title_dedupe import normalize_title_for_dedupe
-from src.artist_utils import extract_primary_artist  # Deprecated, kept for backward compat
 
 
 def normalize_primary_artist_key(value: str) -> str:
@@ -21,7 +20,7 @@ def normalize_primary_artist_key(value: str) -> str:
       - "Artist A x Artist B" (treat as collab)
       - "Bill Evans Trio" vs "Bill Evans" (ensemble normalization)
 
-    Uses extract_primary_artist() which handles ensemble suffixes (Trio, Quartet, etc.)
+    Uses normalize_artist_name() which handles ensemble suffixes (Trio, Quartet, etc.)
     and collaboration markers properly.
     """
     if not value:
@@ -32,8 +31,14 @@ def normalize_primary_artist_key(value: str) -> str:
     # Treat "x" / "×" collaborations similarly to "feat" to avoid bypassing 1-per-artist constraints.
     text = text.replace("×", " x ")
     text = re.sub(r"\s+x\s+", " feat ", text, flags=re.IGNORECASE)
-    # Use extract_primary_artist for ensemble normalization
-    return extract_primary_artist(text, lowercase=True)
+    # Use normalize_artist_name for ensemble normalization (legacy-compatible settings)
+    return normalize_artist_name(
+        text,
+        strip_ensemble=True,
+        strip_collaborations=True,
+        lowercase=True,
+        normalize_unicode=False,
+    )
 
 
 def normalize_title_key(value: str) -> str:
@@ -95,4 +100,3 @@ def identity_keys_for_index(bundle: ArtifactBundle, idx: int) -> TrackIdentityKe
         title_key = f"unknown_title:{tid}"
 
     return TrackIdentityKeys(artist_key=artist_key, title_key=title_key)
-
