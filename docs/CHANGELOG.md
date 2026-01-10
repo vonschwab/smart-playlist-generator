@@ -1,7 +1,8 @@
 # Playlist Generator v3.4 - DJ Bridge Mode & Multi-Seed Playlists
 
 **Release Date:** 2026-01-10
-**Branch:** `dj-ordering` (59 commits)
+**Version:** 3.4.0
+**Branch:** `release/v3.4` (60 commits from dj-ordering)
 **Focus:** Multi-seed playlist generation with genre-aware bridging
 
 ---
@@ -177,9 +178,9 @@ dj_waypoint_delta_mode: centered # Allow negative deltas
 
 ---
 
-## 👥 Artist Identity Resolution (v3.3 → v3.4 Enhancement)
+## 👥 Artist Identity Resolution (Enhanced in v3.4)
 
-### The Problem (v3.3)
+### The Problem (Fixed in v3.4)
 
 **Featured artists were invisible:**
 - "Charli XCX feat. MØ" → system only saw "charli xcx"
@@ -519,10 +520,11 @@ All test suites passing:
 2. Enable artist identity: `constraints.artist_identity.enabled: true`
 3. Use seed list mode with 2+ seeds
 
-**Migration from v3.3:**
-- Existing playlists continue to work
-- Single-seed playlists use traditional mode
-- DJ mode only activates with 2+ seeds
+**Upgrading to v3.4:**
+- All existing v3.3 playlists continue to work without changes
+- Single-seed playlists unaffected (use traditional mode)
+- DJ Bridge Mode only activates with 2+ seeds
+- Enable artist identity for collaboration-aware diversity
 
 ---
 
@@ -538,9 +540,10 @@ Special thanks to the code review process for identifying critical bugs in artis
 ---
 
 **Version:** 3.4.0
-**Branch:** `dj-ordering`
-**Commits:** 59
+**Branch:** `release/v3.4`
+**Commits:** 60 (from dj-ordering)
 **Release Type:** Major Feature Release
+**Tag:** v3.4.0
 **Documentation:** `docs/DJ_BRIDGE_ARCHITECTURE.md` (54KB comprehensive guide)
 
 For complete technical details, see `DJ_BRIDGE_ARCHITECTURE.md` and commit history.

@@ -1,17 +1,28 @@
 # Playlist Generator
 
-**Version 3.3** - Data Science-powered music playlist generation with a Windows GUI, MusicBrainz MBID enrichment, and the beat3tower DS pipeline.
+**Version 3.4** - DJ Bridge Mode for multi-seed playlists with genre-aware bridging, intelligent union pooling, and comprehensive diagnostics.
 
 ## Overview
 
 This system generates intelligent playlists by combining:
+- **DJ Bridge Mode** - Multi-seed playlists (2-10 seeds) with genre-aware routing and smooth transitions
+- **Union Pooling Strategy** - Three specialized candidate pools (local, toward, genre) with intelligent deduplication
 - **Beat3Tower Sonic Analysis** - 137-dimensional audio feature vectors (rhythm, timbre, harmony)
-- **Pier-Bridge Ordering** - Seed tracks as anchors with beam-search optimized bridges between them
-- **Multi-Segment Analysis** - Captures song dynamics (start, middle, end) for smooth transitions
-- **Normalized Genre Data** - Artist/album/track-level genres from MusicBrainz and Discogs
-- **Multiple Playlist Modes** - Strict, Narrow, Dynamic, Discover, Off (independent sonic/genre controls)
-- **Seed List Mode** - Explicit multi-track seeding for artist or mixed-artist playlists
-- **Modularized Pipeline** - Refactors split candidate pools, pier/bridge, scoring, and diagnostics into focused modules
+- **Genre Waypoint Planning** - Vector mode interpolation preserving multi-genre signatures with IDF weighting
+- **Beam Search** - Explores multiple paths with waypoint guidance, coverage bonus, and cross-segment artist diversity
+- **Artist Identity Resolution** - Collaboration-aware constraints that block featured artists and ensemble variants
+- **Comprehensive Diagnostics** - Pool visibility, per-track membership, waypoint saturation metrics
+
+## What's New in v3.4
+
+✨ **DJ Bridge Mode** - Generate smooth multi-seed playlists by creating genre-aware bridges between 2-10 seed tracks
+🎯 **Union Pooling** - Intelligent combination of local, toward, and genre pools for balanced exploration-exploitation
+📊 **Vector Mode & IDF Weighting** - Preserves multi-genre signatures while emphasizing rare genres
+👥 **Collaboration-Aware Diversity** - Artist identity resolution now blocks featured artists and ensemble variants
+⚡ **Performance** - 30× speedup in genre pool computation via transition score caching
+📈 **Diagnostics** - Comprehensive logging showing pool composition, track membership, and waypoint saturation
+
+For complete details, see [docs/CHANGELOG.md](docs/CHANGELOG.md) and [docs/DJ_BRIDGE_ARCHITECTURE.md](docs/DJ_BRIDGE_ARCHITECTURE.md).
 
 ## Quick Start
 

@@ -17,7 +17,7 @@ Welcome to the Playlist Generator documentation. This index provides an overview
 - **[TECHNICAL_PLAYLIST_GENERATION_FLOW.md](TECHNICAL_PLAYLIST_GENERATION_FLOW.md)** - Detailed playlist generation flow
 
 ### Release Notes
-- **[CHANGELOG_Phase2.md](CHANGELOG_Phase2.md)** - DJ Bridging Phase 2 release notes
+- **[CHANGELOG.md](CHANGELOG.md)** - v3.4 release notes (DJ Bridge Mode)
 - **[TODO.md](TODO.md)** - Current roadmap and pending work
 
 ### Development
