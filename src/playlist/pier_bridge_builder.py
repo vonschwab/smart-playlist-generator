@@ -2503,7 +2503,15 @@ def _beam_search_segment(
                     where=row_norms > 1e-12
                 )
             else:
-                X_genre_for_coverage_presence = X_genre_raw
+                # Normalize raw vectors to prevent coverage >1 in weighted mode
+                # (raw weights can exceed 1.0, e.g., track/album source weights are 1.2)
+                row_norms = np.linalg.norm(X_genre_raw, axis=1, keepdims=True)
+                X_genre_for_coverage_presence = np.divide(
+                    X_genre_raw,
+                    row_norms,
+                    out=np.zeros_like(X_genre_raw),
+                    where=row_norms > 1e-12
+                )
         else:
             # Use same matrix as scoring (default, Phase 2 behavior)
             X_genre_for_coverage_presence = X_genre_for_coverage
@@ -2791,7 +2799,7 @@ def _beam_search_segment(
         waypoint_sim0 = 0.0  # Baseline for centered mode (median or mean)
         # Phase 3 fix: Store waypoint info per candidate for this step (for stats tracking)
         step_waypoint_info: Dict[int, tuple[float, float]] = {}  # cand_idx -> (sim, delta)
-        if waypoint_enabled and waypoint_delta_mode == "centered" and g_target is not None and X_genre_norm is not None:
+        if waypoint_enabled and waypoint_delta_mode == "centered" and g_target is not None and X_genre_for_sim is not None:
             # Collect waypoint sims for all valid candidates
             step_waypoint_sims: List[float] = []
             for state in beam:
@@ -2799,8 +2807,8 @@ def _beam_search_segment(
                 for cand in candidates:
                     if cand in state.used:
                         continue
-                    # Compute waypoint sim
-                    waypoint_sim = float(np.dot(X_genre_norm[cand], g_target))
+                    # Compute waypoint sim (using IDF-weighted matrix when available)
+                    waypoint_sim = float(np.dot(X_genre_for_sim[cand], g_target))
                     if math.isfinite(waypoint_sim):
                         step_waypoint_sims.append(waypoint_sim)
 
@@ -2906,8 +2914,9 @@ def _beam_search_segment(
                             combined_score += cfg.genre_tiebreak_weight * genre_sim
 
                 waypoint_sim = None
-                if waypoint_enabled and g_target is not None and X_genre_norm is not None:
-                    waypoint_sim = float(np.dot(X_genre_norm[cand], g_target))
+                if waypoint_enabled and g_target is not None and X_genre_for_sim is not None:
+                    # Use IDF-weighted matrix when available to match target space
+                    waypoint_sim = float(np.dot(X_genre_for_sim[cand], g_target))
 
                 edges_scored += 1
 
@@ -3121,7 +3130,7 @@ def _beam_search_segment(
 
             # Task E: Saturation metrics
             waypoint_deltas = [delta for _, _, delta, _, _ in cand_list]
-            cap = float(cfg.waypoint_cap)
+            cap = float(cfg.dj_waypoint_cap)
             frac_near_cap = 0.0
             frac_at_cap = 0.0
             if waypoint_deltas and cap > 0:

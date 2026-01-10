@@ -740,7 +740,7 @@ def generate_playlist_ds(
             experiment_min_weight = float(pb_cfg.experiment_bridge_min_weight)
             experiment_balance_weight = float(pb_cfg.experiment_bridge_balance_weight)
             experiments_raw = pb_overrides.get("experiments")
-            progress_arc_enabled = False
+            progress_arc_enabled = bool(pb_cfg.progress_arc_enabled)
             progress_arc_weight = float(pb_cfg.progress_arc_weight)
             progress_arc_shape = str(pb_cfg.progress_arc_shape or "linear")
             progress_arc_tolerance = float(pb_cfg.progress_arc_tolerance)
@@ -856,13 +856,14 @@ def generate_playlist_ds(
                     float(experiment_min_weight),
                     float(experiment_balance_weight),
                 )
-            if progress_arc_enabled:
+            # Apply progress_arc override (can enable or disable)
+            if progress_arc_source is not None:
                 pb_cfg = replace(
                     pb_cfg,
-                    progress_arc_enabled=True,
+                    progress_arc_enabled=progress_arc_enabled,
                     progress_arc_weight=float(progress_arc_weight),
                     progress_arc_shape=str(progress_arc_shape),
-                    progress_arc_tolerance=float(progress_arc_tolerance),       
+                    progress_arc_tolerance=float(progress_arc_tolerance),
                     progress_arc_loss=str(progress_arc_loss),
                     progress_arc_huber_delta=float(progress_arc_huber_delta),
                     progress_arc_max_step=progress_arc_max_step,
@@ -873,12 +874,15 @@ def generate_playlist_ds(
                     progress_arc_autoscale_distance_scale=float(progress_arc_autoscale_distance_scale),
                     progress_arc_autoscale_per_step_scale=bool(progress_arc_autoscale_per_step_scale),
                 )
-                logger.info(
-                    "Pier-bridge progress arc enabled (weight=%.2f shape=%s source=%s)",
-                    float(progress_arc_weight),
-                    str(progress_arc_shape),
-                    str(progress_arc_source or "default"),
-                )
+                if progress_arc_enabled:
+                    logger.info(
+                        "Pier-bridge progress arc enabled (weight=%.2f shape=%s source=%s)",
+                        float(progress_arc_weight),
+                        str(progress_arc_shape),
+                        str(progress_arc_source),
+                    )
+                else:
+                    logger.info("Pier-bridge progress arc disabled by override (source=%s)", str(progress_arc_source))
 
             dj_raw = pb_overrides.get("dj_bridging")
             if isinstance(dj_raw, dict):
