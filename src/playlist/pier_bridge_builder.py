@@ -2726,7 +2726,15 @@ def _beam_search_segment(
         if cfg.disallow_pier_artists_in_interiors:
             # Add pier artist keys to used_artists_init
             for pier_idx in [pier_a, pier_b]:
-                pier_artist_str = str(artist_key_by_idx.get(int(pier_idx), "") or "")
+                # Use raw artist string to preserve collaborations
+                pier_artist_str = ""
+                if bundle is not None and bundle.track_artists is not None:
+                    try:
+                        pier_artist_str = str(bundle.track_artists[int(pier_idx)] or "")
+                    except Exception:
+                        pier_artist_str = str(artist_key_by_idx.get(int(pier_idx), "") or "")
+                else:
+                    pier_artist_str = str(artist_key_by_idx.get(int(pier_idx), "") or "")
                 if pier_artist_str:
                     if use_identity:
                         # Identity mode: add all identity keys for pier artist
@@ -2841,8 +2849,16 @@ def _beam_search_segment(
                     use_identity = artist_identity_cfg is not None and artist_identity_cfg.enabled
 
                     if use_identity:
-                        # Identity mode: resolve to identity keys and check if ANY key is already used
-                        cand_artist_str = str(artist_key_by_idx.get(int(cand), "") or "")
+                        # Identity mode: use raw artist string to preserve collaborations
+                        # (artist_key_by_idx has collaborations stripped, which prevents detection of featured artists)
+                        cand_artist_str = ""
+                        if bundle is not None and bundle.track_artists is not None:
+                            try:
+                                cand_artist_str = str(bundle.track_artists[int(cand)] or "")
+                            except Exception:
+                                cand_artist_str = str(artist_key_by_idx.get(int(cand), "") or "")
+                        else:
+                            cand_artist_str = str(artist_key_by_idx.get(int(cand), "") or "")
                         if cand_artist_str:
                             cand_identity_keys = resolve_artist_identity_keys(cand_artist_str, artist_identity_cfg)
                             # Reject if ANY identity key overlaps with used_artists
@@ -2971,8 +2987,16 @@ def _beam_search_segment(
                     if artist_key_by_idx is not None:
                         use_identity = artist_identity_cfg is not None and artist_identity_cfg.enabled
                         if use_identity:
-                            # Identity mode: add ALL identity keys to used_artists
-                            cand_artist_str = str(artist_key_by_idx.get(int(cand), "") or "")
+                            # Identity mode: use raw artist string to preserve collaborations
+                            # (artist_key_by_idx has collaborations stripped, which prevents detection of featured artists)
+                            cand_artist_str = ""
+                            if bundle is not None and bundle.track_artists is not None:
+                                try:
+                                    cand_artist_str = str(bundle.track_artists[int(cand)] or "")
+                                except Exception:
+                                    cand_artist_str = str(artist_key_by_idx.get(int(cand), "") or "")
+                            else:
+                                cand_artist_str = str(artist_key_by_idx.get(int(cand), "") or "")
                             if cand_artist_str:
                                 cand_identity_keys = resolve_artist_identity_keys(cand_artist_str, artist_identity_cfg)
                                 new_used_artists = state.used_artists | cand_identity_keys
@@ -3049,7 +3073,16 @@ def _beam_search_segment(
                     if artist_key_by_idx is not None:
                         use_identity = artist_identity_cfg is not None and artist_identity_cfg.enabled
                         if use_identity:
-                            cand_artist_str = str(artist_key_by_idx.get(int(cand), "") or "")
+                            # Identity mode: use raw artist string to preserve collaborations
+                            # (artist_key_by_idx has collaborations stripped, which prevents detection of featured artists)
+                            cand_artist_str = ""
+                            if bundle is not None and bundle.track_artists is not None:
+                                try:
+                                    cand_artist_str = str(bundle.track_artists[int(cand)] or "")
+                                except Exception:
+                                    cand_artist_str = str(artist_key_by_idx.get(int(cand), "") or "")
+                            else:
+                                cand_artist_str = str(artist_key_by_idx.get(int(cand), "") or "")
                             if cand_artist_str:
                                 cand_identity_keys = resolve_artist_identity_keys(cand_artist_str, artist_identity_cfg)
                                 new_used_artists = state.used_artists | cand_identity_keys
@@ -3332,11 +3365,12 @@ def _enforce_min_gap_global(
 
     for idx in indices:
         if use_identity:
-            # Identity mode: resolve artist string to identity keys (Set[str])
+            # Identity mode: use raw artist string to preserve collaborations
+            # (identity_keys_for_index has collaborations stripped)
             artist_str = ""
-            if bundle is not None:
+            if bundle is not None and bundle.track_artists is not None:
                 try:
-                    artist_str = identity_keys_for_index(bundle, int(idx)).artist
+                    artist_str = str(bundle.track_artists[int(idx)] or "")
                 except Exception:
                     artist_str = ""
             if not artist_str and artist_keys is not None:
@@ -4860,8 +4894,13 @@ def build_pier_bridge_playlist(
         for pos in range(start_pos, len(current_concat)):
             try:
                 if use_identity:
-                    # Identity mode: resolve artist string to identity keys
-                    artist_str = identity_keys_for_index(bundle, int(current_concat[pos])).artist
+                    # Identity mode: use raw artist string to preserve collaborations
+                    artist_str = ""
+                    if bundle is not None and bundle.track_artists is not None:
+                        try:
+                            artist_str = str(bundle.track_artists[int(current_concat[pos])] or "")
+                        except Exception:
+                            pass
                     if artist_str:
                         identity_keys_set = resolve_artist_identity_keys(artist_str, artist_identity_cfg)
                         # Add ALL identity keys to boundary tracking
