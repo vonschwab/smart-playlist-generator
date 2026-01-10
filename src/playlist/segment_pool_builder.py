@@ -139,6 +139,10 @@ class SegmentPoolConfig:
     pool_verbose: bool = False
     """Phase 3 fix: If True, log verbose per-step pool breakdown."""
 
+    genre_pool_transition_blend: float = 0.0
+    """Task D: Blend weight for transition scores in genre pool selection (0.0-1.0).
+    0.0 = pure genre similarity (default), 1.0 = pure transition quality."""
+
 
 @dataclass
 class SegmentPoolResult:
@@ -672,15 +676,41 @@ class SegmentCandidatePoolBuilder:
             # Use IDF-weighted matrix if available (Phase 2)
             X_genre_for_pooling = config.X_genre_norm_idf if config.X_genre_norm_idf is not None else config.X_genre_norm
             cand_genre = X_genre_for_pooling[cand_indices]
+
+            # Task D: Optional transition blending for genre pool competitiveness
+            blend = float(config.genre_pool_transition_blend)
+            use_blend = blend > 0.0
+
             for step in range(0, steps, stride):
                 if step >= len(config.genre_targets):
                     break
                 if genre_cache is not None and step in genre_cache:
                     genre_indices.extend(genre_cache[step])
                     continue
+
                 target = config.genre_targets[step]
-                sims = np.dot(cand_genre, target)
-                order = np.argsort(-sims)[:k_genre]
+                genre_sims = np.dot(cand_genre, target)
+
+                # Task D Option D1: Blend with transition scores
+                if use_blend:
+                    # Compute transition quality (harmonic mean of pier similarities)
+                    transition_scores = np.zeros(len(cand_indices), dtype=float)
+                    for i in range(len(cand_indices)):
+                        sa = float(sim_a[i])
+                        sb = float(sim_b[i])
+                        denom = sa + sb
+                        if denom > 1e-9:
+                            transition_scores[i] = (2.0 * sa * sb) / denom
+                        else:
+                            transition_scores[i] = 0.0
+
+                    # Blend: (1-blend)*genre + blend*transition
+                    blended_scores = (1.0 - blend) * genre_sims + blend * transition_scores
+                    order = np.argsort(-blended_scores)[:k_genre]
+                else:
+                    # Pure genre similarity (default)
+                    order = np.argsort(-genre_sims)[:k_genre]
+
                 picked = [int(cand_indices[i]) for i in order]
                 genre_indices.extend(picked)
                 if genre_cache is not None:

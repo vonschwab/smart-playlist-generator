@@ -188,6 +188,7 @@ class PierBridgeConfig:
     dj_diagnostics_waypoint_rank_impact_enabled: bool = False
     dj_diagnostics_waypoint_rank_sample_steps: int = 3
     dj_diagnostics_pool_verbose: bool = False  # Phase 3 fix: Verbose pool breakdown logging
+    dj_genre_pool_transition_blend: float = 0.0  # Task D: Blend weight for genre pool (0.0-1.0)
     # Phase 3: Waypoint delta mode + squashing
     dj_waypoint_delta_mode: str = "absolute"  # "absolute" (legacy) | "centered" (Phase 3)
     dj_waypoint_centered_baseline: str = "median"  # "median" | "mean" (for centered mode)
@@ -2175,6 +2176,7 @@ def _build_segment_candidate_pool_scored(
     pool_cache_enabled: bool = True,
     pooling_cache: Optional[Dict[str, Any]] = None,
     pool_verbose: bool = False,  # Phase 3 fix: verbose pool logging
+    genre_pool_transition_blend: float = 0.0,  # Task D: Blend weight for genre pool
 ) -> tuple[List[int], Dict[int, str], Dict[int, str]]:
     """
     Segment-local candidate pool builder ("segment_scored").
@@ -2226,6 +2228,7 @@ def _build_segment_candidate_pool_scored(
         genre_targets=genre_targets,
         pooling_cache=pooling_cache,
         pool_verbose=bool(pool_verbose),  # Phase 3 fix
+        genre_pool_transition_blend=float(genre_pool_transition_blend),  # Task D
     )
     result = SegmentCandidatePoolBuilder().build(pool_cfg)
     return result.candidates, result.artist_key_by_idx, result.title_key_by_idx
@@ -3954,6 +3957,7 @@ def build_pier_bridge_playlist(
                         pool_cache_enabled=bool(cfg.dj_pooling_cache_enabled),
                         pooling_cache=segment_pool_cache,
                         pool_verbose=bool(cfg.dj_diagnostics_pool_verbose),  # Phase 3 fix
+                        genre_pool_transition_blend=float(cfg.dj_genre_pool_transition_blend),  # Task D
                     )
                     try:
                         cand_artist_keys = dict(cand_artist_keys)
@@ -4013,6 +4017,7 @@ def build_pier_bridge_playlist(
                             pool_cache_enabled=bool(cfg.dj_pooling_cache_enabled),
                             pooling_cache=segment_pool_cache,
                             pool_verbose=bool(cfg.dj_diagnostics_pool_verbose),  # Phase 3 fix
+                            genre_pool_transition_blend=float(cfg.dj_genre_pool_transition_blend),  # Task D
                         )
                         if len(relaxed_candidates) > len(segment_candidates):
                             segment_candidates = relaxed_candidates
@@ -4083,6 +4088,7 @@ def build_pier_bridge_playlist(
                             pool_cache_enabled=bool(cfg.dj_pooling_cache_enabled),
                             pooling_cache=segment_pool_cache,
                             pool_verbose=bool(cfg.dj_diagnostics_pool_verbose),  # Phase 3 fix
+                            genre_pool_transition_blend=float(cfg.dj_genre_pool_transition_blend),  # Task D
                         )
                         if segment_pool_cache is not None:
                             segment_pool_cache["dj_baseline_pool"] = set(

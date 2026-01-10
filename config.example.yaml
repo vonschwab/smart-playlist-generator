@@ -297,7 +297,7 @@ playlists:
           strategy: baseline        # baseline | dj_union
           k_local: 200
           k_toward: 80
-          k_genre: 80
+          k_genre: 0  # Opt-in: Set >0 to enable genre pool (discovery mode)
           k_union_max: 900
           step_stride: 1
           cache_enabled: true
