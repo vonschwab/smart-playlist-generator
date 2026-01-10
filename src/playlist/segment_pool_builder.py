@@ -681,6 +681,20 @@ class SegmentCandidatePoolBuilder:
             blend = float(config.genre_pool_transition_blend)
             use_blend = blend > 0.0
 
+            # Precompute transition scores once per segment (not per step)
+            transition_scores = None
+            if use_blend:
+                # Compute transition quality (harmonic mean of pier similarities)
+                transition_scores = np.zeros(len(cand_indices), dtype=float)
+                for i in range(len(cand_indices)):
+                    sa = float(sim_a[i])
+                    sb = float(sim_b[i])
+                    denom = sa + sb
+                    if denom > 1e-9:
+                        transition_scores[i] = (2.0 * sa * sb) / denom
+                    else:
+                        transition_scores[i] = 0.0
+
             for step in range(0, steps, stride):
                 if step >= len(config.genre_targets):
                     break
@@ -691,19 +705,8 @@ class SegmentCandidatePoolBuilder:
                 target = config.genre_targets[step]
                 genre_sims = np.dot(cand_genre, target)
 
-                # Task D Option D1: Blend with transition scores
+                # Task D Option D1: Blend with precomputed transition scores
                 if use_blend:
-                    # Compute transition quality (harmonic mean of pier similarities)
-                    transition_scores = np.zeros(len(cand_indices), dtype=float)
-                    for i in range(len(cand_indices)):
-                        sa = float(sim_a[i])
-                        sb = float(sim_b[i])
-                        denom = sa + sb
-                        if denom > 1e-9:
-                            transition_scores[i] = (2.0 * sa * sb) / denom
-                        else:
-                            transition_scores[i] = 0.0
-
                     # Blend: (1-blend)*genre + blend*transition
                     blended_scores = (1.0 - blend) * genre_sims + blend * transition_scores
                     order = np.argsort(-blended_scores)[:k_genre]

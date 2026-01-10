@@ -2676,8 +2676,35 @@ def _beam_search_segment(
     genre_cache_hits = 0
     genre_cache_misses = 0
 
-    # Phase 3: Use correct genre matrix for genre_sim (IDF if enabled)
-    X_genre_for_sim = X_genre_norm_idf if X_genre_norm_idf is not None else X_genre_norm
+    # Phase 3: Use correct genre matrix for genre_sim (matching target construction)
+    # Must use same source (raw vs smoothed) and IDF settings as used for g_targets
+    vector_source = str(cfg.dj_genre_vector_source or "smoothed").strip().lower()
+    if vector_source == "raw" and X_genre_raw is not None:
+        # Raw mode: use raw matrix, apply IDF if enabled
+        if bool(cfg.dj_genre_use_idf) and genre_idf is not None:
+            # Apply IDF weighting to raw matrix
+            X_genre_for_sim = X_genre_raw * genre_idf
+            # Normalize rows
+            row_norms = np.linalg.norm(X_genre_for_sim, axis=1, keepdims=True)
+            X_genre_for_sim = np.divide(
+                X_genre_for_sim,
+                row_norms,
+                out=np.zeros_like(X_genre_for_sim),
+                where=row_norms > 1e-12
+            )
+        else:
+            # Raw mode without IDF: normalize raw matrix
+            X_genre_for_sim = X_genre_raw.copy()
+            row_norms = np.linalg.norm(X_genre_for_sim, axis=1, keepdims=True)
+            X_genre_for_sim = np.divide(
+                X_genre_for_sim,
+                row_norms,
+                out=np.zeros_like(X_genre_for_sim),
+                where=row_norms > 1e-12
+            )
+    else:
+        # Smoothed mode (default): use IDF-weighted if available, else normalized
+        X_genre_for_sim = X_genre_norm_idf if X_genre_norm_idf is not None else X_genre_norm
 
     def _get_genre_sim(a_idx: int, b_idx: int) -> Optional[float]:
         nonlocal genre_cache_hits, genre_cache_misses
