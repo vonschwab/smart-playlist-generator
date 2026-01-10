@@ -3119,6 +3119,15 @@ def _beam_search_segment(
             mean_abs_rank_delta = float(np.mean(rank_deltas)) if rank_deltas else 0.0
             max_rank_jump = int(max(rank_deltas)) if rank_deltas else 0
 
+            # Task E: Saturation metrics
+            waypoint_deltas = [delta for _, _, delta, _, _ in cand_list]
+            cap = float(cfg.waypoint_cap)
+            frac_near_cap = 0.0
+            frac_at_cap = 0.0
+            if waypoint_deltas and cap > 0:
+                frac_near_cap = sum(1 for d in waypoint_deltas if abs(d) > 0.8 * cap) / len(waypoint_deltas)
+                frac_at_cap = sum(1 for d in waypoint_deltas if abs(d) > 0.9 * cap) / len(waypoint_deltas)
+
             # Store step result
             step_result = {
                 "step": step,
@@ -3129,6 +3138,13 @@ def _beam_search_segment(
                 "mean_abs_rank_delta": mean_abs_rank_delta,
                 "max_rank_jump": max_rank_jump,
                 "total_candidates": len(cand_list),
+                # Task E: Saturation diagnostics
+                "waypoint_sim0": waypoint_sim0,
+                "waypoint_delta_mean": float(np.mean(waypoint_deltas)) if waypoint_deltas else 0.0,
+                "waypoint_delta_p50": float(np.percentile(waypoint_deltas, 50)) if waypoint_deltas else 0.0,
+                "waypoint_delta_p90": float(np.percentile(waypoint_deltas, 90)) if waypoint_deltas else 0.0,
+                "waypoint_frac_near_cap": frac_near_cap,
+                "waypoint_frac_at_cap": frac_at_cap,
                 # Top-10 table for detailed logging (optional)
                 "top10_table": [
                     {
@@ -4650,6 +4666,24 @@ def build_pier_bridge_playlist(
                     mean_reordered,
                     mean_topK,
                     mean_rank_delta,
+                )
+
+                # Task E: Saturation diagnostics
+                mean_sim0 = float(np.mean([r.get("waypoint_sim0", 0.0) for r in rank_impact_results]))
+                mean_delta_mean = float(np.mean([r.get("waypoint_delta_mean", 0.0) for r in rank_impact_results]))
+                mean_delta_p50 = float(np.mean([r.get("waypoint_delta_p50", 0.0) for r in rank_impact_results]))
+                mean_delta_p90 = float(np.mean([r.get("waypoint_delta_p90", 0.0) for r in rank_impact_results]))
+                mean_frac_near_cap = float(np.mean([r.get("waypoint_frac_near_cap", 0.0) for r in rank_impact_results]))
+                mean_frac_at_cap = float(np.mean([r.get("waypoint_frac_at_cap", 0.0) for r in rank_impact_results]))
+
+                logger.info(
+                    "  Waypoint saturation: sim0=%.3f delta(mean=%.4f p50=%.4f p90=%.4f) near_cap=%.1f%% at_cap=%.1f%%",
+                    mean_sim0,
+                    mean_delta_mean,
+                    mean_delta_p50,
+                    mean_delta_p90,
+                    100.0 * mean_frac_near_cap,
+                    100.0 * mean_frac_at_cap,
                 )
 
                 # Phase 2: Coverage bonus impact (compare base+waypoint vs full)
