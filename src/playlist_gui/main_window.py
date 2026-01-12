@@ -44,8 +44,11 @@ from .config.config_model import ConfigModel
 from .config.presets import PresetManager, install_builtin_presets
 from .gui_logging import LogEmitter
 from .jobs import JobManager, JobType
+from .policy import derive_runtime_config, merge_overrides
+from .ui_state import UIStateModel
 from .widgets.advanced_panel import AdvancedSettingsPanel
 from .widgets.export_dialog import ExportLocalDialog, ExportPlexDialog
+from .widgets.generate_panel import GeneratePanel
 from .widgets.jobs_panel import JobsPanel
 from .widgets.log_panel import LogPanel
 from .widgets.seed_tracks_input import SeedTracksInput
@@ -54,6 +57,10 @@ from .blacklist_window import BlacklistWindow
 from .worker_client import WorkerClient
 from .diagnostics.checks import CheckResult
 from .diagnostics.manager import DiagnosticsManager
+
+
+# Feature flag for new Generate Panel UI (Phase 2)
+_USE_GENERATE_PANEL_V2 = True
 
 
 class DebugReportSignals(QObject):
@@ -141,6 +148,7 @@ class MainWindow(QMainWindow):
         self._current_tracks: list = []
         self._blacklist_window: Optional[BlacklistWindow] = None
         self._seed_tracks_input: Optional[SeedTracksInput] = None
+        self._generate_panel: Optional[GeneratePanel] = None
 
         # Install built-in presets
         install_builtin_presets(self._preset_manager)
@@ -211,165 +219,188 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self._banner_frame)
 
         # ─────────────────────────────────────────────────────────────────────
-        # Top controls - Clean, artist-focused interface
+        # Generation Controls - Use new GeneratePanel or legacy UI
         # ─────────────────────────────────────────────────────────────────────
-        top_row = QHBoxLayout()
-        top_row.setSpacing(12)
+        if _USE_GENERATE_PANEL_V2:
+            # New Phase 2 GeneratePanel with PolicyLayer integration
+            self._generate_panel = GeneratePanel(db_path=str(Path(self._config_path).parent / "data" / "metadata.db"))
+            self._generate_panel.generate_requested.connect(self._on_generate_v2)
+            self._generate_panel.regenerate_requested.connect(self._on_generate_v2)
+            self._generate_panel.new_seeds_requested.connect(self._on_generate_v2)
+            self._generate_panel.cancel_requested.connect(self._on_cancel)
+            main_layout.addWidget(self._generate_panel)
 
-        # Mode selector
-        top_row.addWidget(QLabel("Mode:"))
-        self._mode_combo = QComboBox()
-        self._mode_combo.addItems(["Artist", "Genre", "History"])  # Artist first (default)
-        self._mode_combo.currentTextChanged.connect(self._on_mode_changed)
-        top_row.addWidget(self._mode_combo)
+            # Expose internal progress bar/label for compatibility
+            self._progress_bar = self._generate_panel._progress_bar
+            self._stage_label = self._generate_panel._stage_label
+            self._generate_btn = self._generate_panel._generate_btn
+            self._cancel_btn = self._generate_panel._cancel_btn
 
-        top_row.addSpacing(10)
+            # Create placeholders for legacy UI elements (not visible but prevent AttributeError)
+            self._mode_combo = QComboBox()  # Hidden placeholder
+            self._artist_label = QLabel()
+            self._artist_edit = QLineEdit()
+            self._genre_label = QLabel()
+            self._genre_edit = QLineEdit()
+        else:
+            # Legacy UI (pre-Phase 2)
+            top_row = QHBoxLayout()
+            top_row.setSpacing(12)
 
-        # Artist input with autocomplete
-        self._artist_label = QLabel("Artist:")
-        top_row.addWidget(self._artist_label)
-        self._artist_edit = QLineEdit()
-        self._artist_edit.setPlaceholderText("Start typing artist name...")
-        self._artist_edit.setFixedWidth(220)
-        self._artist_edit.textChanged.connect(self._on_artist_changed)
-        top_row.addWidget(self._artist_edit)
+            # Mode selector
+            top_row.addWidget(QLabel("Mode:"))
+            self._mode_combo = QComboBox()
+            self._mode_combo.addItems(["Artist", "Genre", "History"])  # Artist first (default)
+            self._mode_combo.currentTextChanged.connect(self._on_mode_changed)
+            top_row.addWidget(self._mode_combo)
 
-        top_row.addSpacing(10)
+            top_row.addSpacing(10)
 
-        # Track seeds input (optional) with per-row autocomplete
-        self._seed_tracks_input = SeedTracksInput()
-        top_row.addWidget(self._seed_tracks_input)
+            # Artist input with autocomplete
+            self._artist_label = QLabel("Artist:")
+            top_row.addWidget(self._artist_label)
+            self._artist_edit = QLineEdit()
+            self._artist_edit.setPlaceholderText("Start typing artist name...")
+            self._artist_edit.setFixedWidth(220)
+            self._artist_edit.textChanged.connect(self._on_artist_changed)
+            top_row.addWidget(self._artist_edit)
 
-        top_row.addSpacing(10)
+            top_row.addSpacing(10)
 
-        # Genre input
-        self._genre_label = QLabel("Genre:")
-        top_row.addWidget(self._genre_label)
-        self._genre_edit = QLineEdit()
-        self._genre_edit.setPlaceholderText("Start typing genre name...")
-        self._genre_edit.setFixedWidth(220)
-        top_row.addWidget(self._genre_edit)
+            # Track seeds input (optional) with per-row autocomplete
+            self._seed_tracks_input = SeedTracksInput()
+            top_row.addWidget(self._seed_tracks_input)
 
-        top_row.addStretch()
+            top_row.addSpacing(10)
 
-        # Generate button
-        self._generate_btn = QPushButton("Generate")
-        self._generate_btn.setFixedWidth(100)
-        self._generate_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #4a86c7;
-                color: white;
-                font-weight: bold;
-                border-radius: 4px;
-                padding: 6px;
-            }
-            QPushButton:hover {
-                background-color: #5a96d7;
-            }
-            QPushButton:disabled {
-                background-color: #999;
-            }
-        """)
-        self._generate_btn.clicked.connect(self._on_generate)
-        top_row.addWidget(self._generate_btn)
+            # Genre input
+            self._genre_label = QLabel("Genre:")
+            top_row.addWidget(self._genre_label)
+            self._genre_edit = QLineEdit()
+            self._genre_edit.setPlaceholderText("Start typing genre name...")
+            self._genre_edit.setFixedWidth(220)
+            top_row.addWidget(self._genre_edit)
 
-        # Cancel button
-        self._cancel_btn = QPushButton("Cancel")
-        self._cancel_btn.setFixedWidth(80)
-        self._cancel_btn.setEnabled(False)  # Disabled by default
-        self._cancel_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #c74a4a;
-                color: white;
-                font-weight: bold;
-                border-radius: 4px;
-                padding: 6px;
-            }
-            QPushButton:hover {
-                background-color: #d75a5a;
-            }
-            QPushButton:disabled {
-                background-color: #999;
-            }
-        """)
-        self._cancel_btn.clicked.connect(self._on_cancel)
-        top_row.addWidget(self._cancel_btn)
+            top_row.addStretch()
 
-        main_layout.addLayout(top_row)
+            # Generate button
+            self._generate_btn = QPushButton("Generate")
+            self._generate_btn.setFixedWidth(100)
+            self._generate_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #4a86c7;
+                    color: white;
+                    font-weight: bold;
+                    border-radius: 4px;
+                    padding: 6px;
+                }
+                QPushButton:hover {
+                    background-color: #5a96d7;
+                }
+                QPushButton:disabled {
+                    background-color: #999;
+                }
+            """)
+            self._generate_btn.clicked.connect(self._on_generate)
+            top_row.addWidget(self._generate_btn)
 
-        # ─────────────────────────────────────────────────────────────────────
-        # Similarity Tuning Row (Genre/Sonic Mode Selectors)
-        # ─────────────────────────────────────────────────────────────────────
-        tuning_row = QHBoxLayout()
-        tuning_row.setSpacing(20)
-        tuning_row.setContentsMargins(0, 8, 0, 8)
+            # Cancel button
+            self._cancel_btn = QPushButton("Cancel")
+            self._cancel_btn.setFixedWidth(80)
+            self._cancel_btn.setEnabled(False)  # Disabled by default
+            self._cancel_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #c74a4a;
+                    color: white;
+                    font-weight: bold;
+                    border-radius: 4px;
+                    padding: 6px;
+                }
+                QPushButton:hover {
+                    background-color: #d75a5a;
+                }
+                QPushButton:disabled {
+                    background-color: #999;
+                }
+            """)
+            self._cancel_btn.clicked.connect(self._on_cancel)
+            top_row.addWidget(self._cancel_btn)
 
-        # Genre Mode Section
-        genre_section = QHBoxLayout()
-        genre_section.addWidget(QLabel("<b>Genre:</b>"))
+            main_layout.addLayout(top_row)
 
-        self._genre_mode_group = QButtonGroup(self)
-        genre_modes = [
-            ("strict", "Strict"),
-            ("narrow", "Narrow"),
-            ("dynamic", "Dynamic"),
-            ("discover", "Discover"),
-            ("off", "Off")
-        ]
+            # ─────────────────────────────────────────────────────────────────────
+            # Similarity Tuning Row (Genre/Sonic Mode Selectors)
+            # ─────────────────────────────────────────────────────────────────────
+            tuning_row = QHBoxLayout()
+            tuning_row.setSpacing(20)
+            tuning_row.setContentsMargins(0, 8, 0, 8)
 
-        for mode_id, mode_label in genre_modes:
-            radio = QRadioButton(mode_label)
-            radio.setProperty("mode_id", mode_id)
-            self._genre_mode_group.addButton(radio)
-            genre_section.addWidget(radio)
-            if mode_id == "dynamic":  # Default
-                radio.setChecked(True)
+            # Genre Mode Section
+            genre_section = QHBoxLayout()
+            genre_section.addWidget(QLabel("<b>Genre:</b>"))
 
-        tuning_row.addLayout(genre_section)
-        tuning_row.addSpacing(30)
+            self._genre_mode_group = QButtonGroup(self)
+            genre_modes = [
+                ("strict", "Strict"),
+                ("narrow", "Narrow"),
+                ("dynamic", "Dynamic"),
+                ("discover", "Discover"),
+                ("off", "Off")
+            ]
 
-        # Sonic Mode Section
-        sonic_section = QHBoxLayout()
-        sonic_section.addWidget(QLabel("<b>Sonic:</b>"))
+            for mode_id, mode_label in genre_modes:
+                radio = QRadioButton(mode_label)
+                radio.setProperty("mode_id", mode_id)
+                self._genre_mode_group.addButton(radio)
+                genre_section.addWidget(radio)
+                if mode_id == "dynamic":  # Default
+                    radio.setChecked(True)
 
-        self._sonic_mode_group = QButtonGroup(self)
-        sonic_modes = [
-            ("strict", "Strict"),
-            ("narrow", "Narrow"),
-            ("dynamic", "Dynamic"),
-            ("discover", "Discover"),
-            ("off", "Off")
-        ]
+            tuning_row.addLayout(genre_section)
+            tuning_row.addSpacing(30)
 
-        for mode_id, mode_label in sonic_modes:
-            radio = QRadioButton(mode_label)
-            radio.setProperty("mode_id", mode_id)
-            self._sonic_mode_group.addButton(radio)
-            sonic_section.addWidget(radio)
-            if mode_id == "dynamic":  # Default
-                radio.setChecked(True)
+            # Sonic Mode Section
+            sonic_section = QHBoxLayout()
+            sonic_section.addWidget(QLabel("<b>Sonic:</b>"))
 
-        tuning_row.addLayout(sonic_section)
-        tuning_row.addStretch()
+            self._sonic_mode_group = QButtonGroup(self)
+            sonic_modes = [
+                ("strict", "Strict"),
+                ("narrow", "Narrow"),
+                ("dynamic", "Dynamic"),
+                ("discover", "Discover"),
+                ("off", "Off")
+            ]
 
-        main_layout.addLayout(tuning_row)
+            for mode_id, mode_label in sonic_modes:
+                radio = QRadioButton(mode_label)
+                radio.setProperty("mode_id", mode_id)
+                self._sonic_mode_group.addButton(radio)
+                sonic_section.addWidget(radio)
+                if mode_id == "dynamic":  # Default
+                    radio.setChecked(True)
 
-        # ─────────────────────────────────────────────────────────────────────
-        # Progress bar
-        # ─────────────────────────────────────────────────────────────────────
-        progress_row = QHBoxLayout()
+            tuning_row.addLayout(sonic_section)
+            tuning_row.addStretch()
 
-        self._progress_bar = QProgressBar()
-        self._progress_bar.setRange(0, 100)
-        self._progress_bar.setValue(0)
-        self._progress_bar.setTextVisible(True)
-        progress_row.addWidget(self._progress_bar)
+            main_layout.addLayout(tuning_row)
 
-        self._stage_label = QLabel("")
-        self._stage_label.setFixedWidth(200)
-        progress_row.addWidget(self._stage_label)
+            # ─────────────────────────────────────────────────────────────────────
+            # Progress bar
+            # ─────────────────────────────────────────────────────────────────────
+            progress_row = QHBoxLayout()
 
-        main_layout.addLayout(progress_row)
+            self._progress_bar = QProgressBar()
+            self._progress_bar.setRange(0, 100)
+            self._progress_bar.setValue(0)
+            self._progress_bar.setTextVisible(True)
+            progress_row.addWidget(self._progress_bar)
+
+            self._stage_label = QLabel("")
+            self._stage_label.setFixedWidth(200)
+            progress_row.addWidget(self._stage_label)
+
+            main_layout.addLayout(progress_row)
 
         # ─────────────────────────────────────────────────────────────────────
         # Track table (center)
@@ -508,6 +539,11 @@ class MainWindow(QMainWindow):
             self._advanced_panel = AdvancedSettingsPanel(self._config_model)
             self._advanced_panel.override_changed.connect(self._on_override_changed)
             layout.addWidget(self._advanced_panel, stretch=1)
+
+            # Disable policy-owned controls when using Phase 2 UI
+            if _USE_GENERATE_PANEL_V2:
+                from .policy import POLICY_OWNED_KEYS
+                self._advanced_panel.disable_policy_owned_controls(POLICY_OWNED_KEYS)
         else:
             placeholder = QLabel("Load a config file to see settings")
             placeholder.setAlignment(Qt.AlignCenter)
@@ -717,13 +753,17 @@ class MainWindow(QMainWindow):
         self._db_completer = DatabaseCompleter(db_path)
 
         if self._db_completer.load_data():
-            # Setup artist autocomplete
-            setup_artist_completer(self._artist_edit, self._db_completer)
+            # Setup autocomplete for legacy UI
+            if not _USE_GENERATE_PANEL_V2:
+                setup_artist_completer(self._artist_edit, self._db_completer)
+                setup_genre_completer(self._genre_edit, self._db_completer)
+                if self._seed_tracks_input:
+                    self._seed_tracks_input.set_completer_data(self._db_completer)
 
-            # Setup genre autocomplete
-            setup_genre_completer(self._genre_edit, self._db_completer)
-            if self._seed_tracks_input:
-                self._seed_tracks_input.set_completer_data(self._db_completer)
+            # Setup autocomplete for new GeneratePanel
+            if self._generate_panel:
+                self._generate_panel.set_completer_data(self._db_completer)
+                self._generate_panel.set_db_path(db_path)
 
             # Update database info
             if hasattr(self, '_db_info_label'):
@@ -924,6 +964,10 @@ class MainWindow(QMainWindow):
         self._generate_btn.setEnabled(not is_busy)
         self._cancel_btn.setEnabled(is_busy)
 
+        # Update GeneratePanel if using Phase 2 UI
+        if self._generate_panel:
+            self._generate_panel.set_generating(is_busy)
+
         # Disable/enable tools menu items when busy
         # (Tools menu is at index 2 in the menu bar)
         if hasattr(self, '_tools_menu'):
@@ -1053,6 +1097,87 @@ class MainWindow(QMainWindow):
             log_msg += f", seed_tracks={seed_tracks}"
         elif track:
             log_msg += f", seed_track={track}"
+        self._log_panel.append_log("INFO", log_msg)
+
+    @Slot(dict)
+    def _on_generate_v2(self, ui_state_dict: dict) -> None:
+        """Handle generation with Phase 2 PolicyLayer integration."""
+        if self._is_generating:
+            return
+
+        if not self._config_model:
+            QMessageBox.warning(self, "No Config", "Please load a configuration file first.")
+            return
+
+        # Refresh diagnostics but avoid worker doctor when busy
+        include_worker = not (self._worker_client and self._worker_client.is_busy())
+        self._run_diagnostics(show_banner_on_fail=True, include_worker=include_worker)
+
+        if not self._ensure_artifacts_ready():
+            return
+
+        # Start worker if not running
+        if not self._worker_client.is_running():
+            if not self._worker_client.start():
+                QMessageBox.critical(self, "Worker Error", "Failed to start worker process.")
+                return
+
+        # Reconstruct UIStateModel from dict
+        ui_state = UIStateModel(**ui_state_dict)
+
+        # Get seed artist keys for policy evaluation (Seeds mode only)
+        seed_artist_keys = None
+        if ui_state.mode == "seeds" and self._generate_panel:
+            seed_artist_keys = self._generate_panel.get_seed_artist_keys()
+
+        # Derive policy from UI state
+        policy = derive_runtime_config(ui_state, seed_artist_keys=seed_artist_keys)
+
+        # Log policy decisions
+        for note in policy.notes:
+            self._log_panel.append_log("DEBUG", f"Policy: {note}")
+
+        # Get user overrides from Advanced Panel
+        user_overrides = self._config_model.get_overrides()
+
+        # Merge with policy overrides (policy wins for POLICY_OWNED_KEYS)
+        final_overrides = merge_overrides(user_overrides, policy.overrides)
+
+        # Clear previous results
+        self._track_table.clear()
+        self._progress_bar.setValue(0)
+        self._stage_label.setText("Starting...")
+        self._is_generating = True
+
+        if self._generate_panel:
+            self._generate_panel.set_generating(True)
+
+        # Determine mode-specific parameters
+        artist = ui_state.primary_artist() if ui_state.mode == "artist" else None
+        seed_tracks = ui_state.seed_track_ids if ui_state.mode == "seeds" else []
+
+        # Send command to worker
+        self._worker_client.generate_playlist(
+            config_path=self._config_path,
+            overrides=final_overrides,
+            mode=ui_state.mode,
+            artist=artist,
+            genre=None,  # Genre mode removed in Phase 2
+            track=None,
+            seed_tracks=seed_tracks,
+            tracks=ui_state.track_count,
+        )
+
+        # Log generation start
+        log_msg = f"Starting generation (mode={ui_state.mode}, tracks={ui_state.track_count}"
+        log_msg += f", cohesion={ui_state.cohesion}"
+        if policy.dj_bridging_enabled:
+            log_msg += ", dj_bridging=ON"
+        log_msg += ")"
+        if artist:
+            log_msg += f", artist={artist}"
+        if seed_tracks:
+            log_msg += f", seeds={len(seed_tracks)}"
         self._log_panel.append_log("INFO", log_msg)
 
     def _run_diagnostics(self, show_banner_on_fail: bool = False, force: bool = False, include_worker: bool = True) -> None:
@@ -1356,9 +1481,12 @@ class MainWindow(QMainWindow):
 
             # Prefer artist input in Artist mode; fall back to first track
             artist_name = ""
-            if self._mode_combo.currentText() == "Artist":
-                artist_name = self._artist_edit.text().strip()
-            elif tracks:
+            if not _USE_GENERATE_PANEL_V2:
+                if self._mode_combo.currentText() == "Artist":
+                    artist_name = self._artist_edit.text().strip()
+            elif self._generate_panel:
+                artist_name = self._generate_panel.get_primary_artist() or ""
+            if not artist_name and tracks:
                 artist_name = tracks[0].get("artist", "")
             self._current_artist_name = artist_name
 
@@ -1368,6 +1496,13 @@ class MainWindow(QMainWindow):
             self._export_plex_btn.setEnabled(has_tracks)
 
             self._log_panel.append_log("INFO", f"Received playlist: {playlist.get('name', 'Unknown')}")
+
+            # Check for incomplete generation (Phase 2 feature)
+            if _USE_GENERATE_PANEL_V2:
+                requested = playlist.get("requested_count", 0)
+                actual = len(tracks)
+                if requested > 0 and actual < requested:
+                    self._show_generation_incomplete_dialog(actual, requested)
         elif result_type == "doctor":
             checks_raw = data.get("checks", [])
             if self._diagnostics:
@@ -1410,7 +1545,47 @@ class MainWindow(QMainWindow):
         else:
             self._stage_label.setText("Failed")
             self._status_bar.showMessage(f"Failed: {cmd} - {detail}")
+            # Show failure dialog for Phase 2 UI on generation failure
+            if _USE_GENERATE_PANEL_V2 and cmd == "generate_playlist":
+                self._show_generation_failure_dialog(detail)
         self._logger.info("worker done: %s ok=%s cancelled=%s summary=%s", cmd, ok, cancelled, summary or detail)
+
+    def _show_generation_failure_dialog(self, reason: str) -> None:
+        """Show blocking dialog for generation failure (Phase 2 UI)."""
+        dialog = QMessageBox(self)
+        dialog.setIcon(QMessageBox.Warning)
+        dialog.setWindowTitle("Generation Failed")
+        dialog.setText(f"Playlist generation failed:\n{reason}")
+
+        suggestions = [
+            "Check the logs panel for detailed error information",
+            "Verify your library artifacts are up to date (Build Artifacts)",
+            "Try a different artist or seed tracks",
+            "Adjust cohesion toward 'Wide' or 'Discover' for more candidates",
+        ]
+        dialog.setDetailedText("Suggestions:\n" + "\n".join(f"- {s}" for s in suggestions))
+
+        dialog.exec()
+
+    def _show_generation_incomplete_dialog(self, actual: int, requested: int) -> None:
+        """Show blocking dialog for incomplete generation (Phase 2 UI)."""
+        dialog = QMessageBox(self)
+        dialog.setIcon(QMessageBox.Information)
+        dialog.setWindowTitle("Generation Incomplete")
+        dialog.setText(
+            f"Generated {actual} tracks instead of {requested} requested.\n\n"
+            "This may happen when there aren't enough eligible tracks."
+        )
+
+        suggestions = [
+            f"Reduce track count (currently {requested})",
+            "Adjust cohesion toward 'Wide' or 'Discover' for more variety",
+            "Relax recency filter (increase days or disable)",
+            "Try different seed tracks or artist",
+        ]
+        dialog.setDetailedText("Suggestions:\n" + "\n".join(f"- {s}" for s in suggestions))
+
+        dialog.exec()
 
     @Slot()
     def _on_worker_started(self) -> None:
@@ -1429,6 +1604,8 @@ class MainWindow(QMainWindow):
             self._cancel_btn.setEnabled(False)
             self._progress_bar.setValue(0)
             self._stage_label.setText("Worker stopped")
+            if self._generate_panel:
+                self._generate_panel.set_generating(False)
         if self._worker_client and self._worker_client.was_busy_on_last_exit():
             self._show_banner("Worker exited unexpectedly. Copy Debug Report?")
 
