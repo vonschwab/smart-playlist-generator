@@ -965,7 +965,7 @@ class AdvancedSettingsPanel(QScrollArea):
         Args:
             policy_owned_keys: Set of dot-notation key paths (e.g., "playlists.genre_mode")
         """
-        tooltip = "Controlled by main UI (Cohesion/Recency/Spacing)"
+        tooltip = "Controlled by main UI (Genre/Sonic/Recency/Spacing)"
 
         for key_path in policy_owned_keys:
             if key_path in self._controls:

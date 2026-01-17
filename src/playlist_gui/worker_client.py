@@ -338,12 +338,14 @@ class WorkerClient(QObject):
         self,
         config_path: str,
         overrides: Dict[str, Any],
-        mode: str = "history",
+        mode: str = "artist",
         artist: Optional[str] = None,
         genre: Optional[str] = None,
         track: Optional[str] = None,
         seed_tracks: Optional[List[str]] = None,
         tracks: int = 30,
+        genre_mode: Optional[str] = None,
+        sonic_mode: Optional[str] = None,
         job_id: Optional[str] = None,
     ) -> Optional[str]:
         """
@@ -352,12 +354,14 @@ class WorkerClient(QObject):
         Args:
             config_path: Path to base config YAML
             overrides: Override values to merge
-            mode: "history", "artist", or "genre"
+            mode: "artist", "seeds", or "genre"
             artist: Artist name (required if mode is "artist")
             genre: Genre name (required if mode is "genre")
             track: Optional seed track title
             seed_tracks: Optional list of seed track titles
             tracks: Number of tracks to generate
+            genre_mode: Optional genre mode override
+            sonic_mode: Optional sonic mode override
 
         Returns:
             The request_id if sent successfully, None otherwise
@@ -371,6 +375,10 @@ class WorkerClient(QObject):
             args["track"] = track
         if seed_tracks:
             args["seed_tracks"] = seed_tracks
+        if genre_mode:
+            args["genre_mode"] = genre_mode
+        if sonic_mode:
+            args["sonic_mode"] = sonic_mode
 
         return self.send_command(
             {

@@ -84,14 +84,14 @@ def resolve_track_from_display(
         # Try to find exact match with title and artist
         if artist:
             cursor.execute("""
-                SELECT id, title, artist, album, artist_key
+                SELECT track_id, title, artist, album, artist_key
                 FROM tracks
                 WHERE title = ? AND artist = ?
                 LIMIT 1
             """, (title, artist))
         else:
             cursor.execute("""
-                SELECT id, title, artist, album, artist_key
+                SELECT track_id, title, artist, album, artist_key
                 FROM tracks
                 WHERE title = ?
                 LIMIT 1
@@ -103,14 +103,14 @@ def resolve_track_from_display(
             # Try case-insensitive match
             if artist:
                 cursor.execute("""
-                    SELECT id, title, artist, album, artist_key
+                    SELECT track_id, title, artist, album, artist_key
                     FROM tracks
                     WHERE LOWER(title) = LOWER(?) AND LOWER(artist) = LOWER(?)
                     LIMIT 1
                 """, (title, artist))
             else:
                 cursor.execute("""
-                    SELECT id, title, artist, album, artist_key
+                    SELECT track_id, title, artist, album, artist_key
                     FROM tracks
                     WHERE LOWER(title) = LOWER(?)
                     LIMIT 1

@@ -5,10 +5,8 @@ A native Windows desktop application for Data Science-powered playlist generatio
 ## Features
 
 ### Simple, Clean Interface
-- **Artist Mode** (default): Generate playlists from a specific artist and optional seed list (Seed List mode)
-- **Genre Mode**: Generate playlists by genre with smart autocomplete showing exact matches and similar genres (similarity ≥ 0.7)
-- **History Mode**: Generate playlists from your Last.FM listening history
-- **Seed List Mode**: Add multiple explicit seed tracks with per-row autocomplete
+- **Artist Mode** (default): Generate playlists from a specific artist and optional seed list
+- **Seeds Mode**: Add multiple explicit seed tracks with per-row autocomplete
 - **Predictive Autocomplete**: Artist, seed track, and genre inputs query your music database with accent-insensitive matching
 - **Real-time Progress**: Visual progress bar with stage information during generation
 
@@ -297,9 +295,7 @@ When you adjust one slider, others in the same group adjust proportionally.
 ### Playlist Settings
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Playlists per batch | 8 | Number of playlists in History mode |
 | Tracks per playlist | 30 | Target playlist length |
-| Seed count | 5 | Tracks from history to seed from |
 | Similar per seed | 20 | Candidates per seed track |
 
 ### Hybrid Weights (sum to 1.0)

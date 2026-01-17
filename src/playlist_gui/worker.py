@@ -38,10 +38,12 @@ import sys
 import sqlite3
 import threading
 import traceback
+from bisect import bisect_right
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+import numpy as np
 import yaml
 
 from .utils.redaction import redact_text
@@ -303,9 +305,131 @@ def _apply_mode_presets(config: Dict[str, Any]) -> None:
     apply_mode_presets(playlists_cfg)
 
 
+def _derive_cohesion_label(
+    genre_mode: Optional[str],
+    sonic_mode: Optional[str],
+) -> Optional[str]:
+    if not genre_mode or not sonic_mode:
+        return None
+    genre_mode = str(genre_mode).lower()
+    sonic_mode = str(sonic_mode).lower()
+    if genre_mode != sonic_mode:
+        return None
+    return {
+        "strict": "tight",
+        "narrow": "balanced",
+        "dynamic": "wide",
+        "discover": "discover",
+    }.get(genre_mode)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Command Handlers
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _build_seed_similarity_components(
+    *,
+    tracks: list[dict[str, Any]],
+    ds_report: dict[str, Any],
+    edge_map: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, dict[str, Optional[float]]]]:
+    """
+    Build T/S1/S2 similarity components for sonic + genre.
+
+    T: similarity to immediately preceding track (transition edge score)
+    S1: similarity to the most recent seed track before this track
+    S2: similarity to the next seed track after this track
+    """
+    if not ds_report:
+        return {}
+
+    artifact_path = ds_report.get("artifact_path")
+    seed_track_id = ds_report.get("seed_track_id")
+    anchor_seed_ids = ds_report.get("anchor_seed_ids") or []
+    if not artifact_path or not seed_track_id:
+        return {}
+
+    track_ids: list[str] = []
+    for track in tracks:
+        tid = track.get("rating_key") or track.get("id") or track.get("track_id")
+        track_ids.append(str(tid) if tid is not None else "")
+
+    if not track_ids:
+        return {}
+
+    seed_ids = [str(seed_track_id)] + [str(sid) for sid in anchor_seed_ids if sid]
+    seed_set = set(seed_ids)
+
+    try:
+        from src.features.artifacts import load_artifact_bundle
+        from src.similarity.sonic_variant import compute_sonic_variant_norm
+
+        bundle = load_artifact_bundle(artifact_path)
+    except Exception:
+        return {}
+
+    track_idx_by_id = bundle.track_id_to_index
+    track_indices = [track_idx_by_id.get(tid) for tid in track_ids]
+    seed_positions = [
+        idx for idx, tid in enumerate(track_ids)
+        if tid in seed_set and track_indices[idx] is not None
+    ]
+    if not seed_positions:
+        return {}
+
+    sonic_variant = ds_report.get("sonic_variant") or "raw"
+    X_sonic = getattr(bundle, "X_sonic", None)
+    X_genre = getattr(bundle, "X_genre_smoothed", None)
+    if X_sonic is None:
+        return {}
+
+    X_sonic_norm, _ = compute_sonic_variant_norm(X_sonic, sonic_variant)
+    X_genre_norm = None
+    if X_genre is not None:
+        denom = np.linalg.norm(X_genre, axis=1, keepdims=True) + 1e-12
+        X_genre_norm = X_genre / denom
+
+    def _dot(mat: Optional[np.ndarray], a: Optional[int], b: Optional[int]) -> Optional[float]:
+        if mat is None or a is None or b is None:
+            return None
+        return float(np.dot(mat[a], mat[b]))
+
+    components: dict[str, dict[str, dict[str, Optional[float]]]] = {}
+    for idx, track_id in enumerate(track_ids):
+        if not track_id:
+            continue
+        cur_idx = track_indices[idx]
+        if cur_idx is None:
+            continue
+
+        prev_seed_pos_idx = bisect_right(seed_positions, idx) - 1
+        prev_seed_pos = seed_positions[prev_seed_pos_idx] if prev_seed_pos_idx >= 0 else None
+        next_seed_pos_idx = bisect_right(seed_positions, idx)
+        next_seed_pos = seed_positions[next_seed_pos_idx] if next_seed_pos_idx < len(seed_positions) else None
+
+        prev_seed_idx = track_indices[prev_seed_pos] if prev_seed_pos is not None else None
+        next_seed_idx = track_indices[next_seed_pos] if next_seed_pos is not None else None
+
+        s1_sonic = _dot(X_sonic_norm, cur_idx, prev_seed_idx)
+        s2_sonic = _dot(X_sonic_norm, cur_idx, next_seed_idx)
+        s1_genre = _dot(X_genre_norm, cur_idx, prev_seed_idx)
+        s2_genre = _dot(X_genre_norm, cur_idx, next_seed_idx)
+
+        if prev_seed_pos is not None and prev_seed_pos == idx:
+            s1_sonic = 1.0
+            if X_genre_norm is not None:
+                s1_genre = 1.0
+
+        edge = edge_map.get(track_id, {})
+        t_sonic = edge.get("S")
+        t_genre = edge.get("G")
+
+        components[track_id] = {
+            "sonic": {"t": t_sonic, "s1": s1_sonic, "s2": s2_sonic},
+            "genre": {"t": t_genre, "s1": s1_genre, "s2": s2_genre},
+        }
+
+    return components
 def handle_doctor(cmd_data: Dict[str, Any]) -> None:
     """Quick diagnostics."""
     checks = []
@@ -391,7 +515,7 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
     overrides = cmd_data.get("overrides", {})
     args = cmd_data.get("args", {})
 
-    mode = args.get("mode", "history")
+    mode = args.get("mode", "artist")
     artist = args.get("artist")
     genre = args.get("genre")
     track_title = args.get("track")
@@ -604,13 +728,22 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
         ds_mode = config.get('playlists', {}).get('ds_pipeline', {}).get('mode', 'dynamic')
 
         # Log which modes are active
-        genre_mode = config.get('playlists', {}).get('genre_mode')
-        sonic_mode = config.get('playlists', {}).get('sonic_mode')
+        genre_mode = args.get("genre_mode") or config.get('playlists', {}).get(
+            'genre_mode'
+        )
+        sonic_mode = args.get("sonic_mode") or config.get('playlists', {}).get(
+            'sonic_mode'
+        )
         if genre_mode:
             emit_log("INFO", f"Genre mode: {genre_mode}")
         if sonic_mode:
             emit_log("INFO", f"Sonic mode: {sonic_mode}")
         emit_log("INFO", f"DS pipeline mode: {ds_mode}")
+
+        cohesion = args.get("cohesion") or _derive_cohesion_label(
+            genre_mode,
+            sonic_mode,
+        )
 
         # Cancellation check before generation
         check_cancelled()
@@ -627,13 +760,25 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                 track_titles=seed_tracks,
                 dynamic=(ds_mode == "dynamic"),
                 ds_mode_override=ds_mode,
+                cohesion=cohesion,
             )
-        elif mode == "artist" and seed_tracks:
+        elif mode == "seeds" and seed_tracks:
+            # Seeds mode (Phase 2 UI)
             playlist_data = generator.create_playlist_from_seed_tracks(
                 seed_tracks,
                 track_count=track_count,
                 dynamic=(ds_mode == "dynamic"),
                 ds_mode_override=ds_mode,
+                cohesion=cohesion,
+            )
+        elif mode == "artist" and seed_tracks:
+            # Legacy seeds mode (old UI sent mode="artist" with seed_tracks)
+            playlist_data = generator.create_playlist_from_seed_tracks(
+                seed_tracks,
+                track_count=track_count,
+                dynamic=(ds_mode == "dynamic"),
+                ds_mode_override=ds_mode,
+                cohesion=cohesion,
             )
         elif mode == "genre" and genre:
             # Genre mode
@@ -642,17 +787,14 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                 track_count,
                 dynamic=(ds_mode == "dynamic"),
                 ds_mode_override=ds_mode,
+                cohesion=cohesion,
             )
         else:
-            # History mode - generate batch
-            playlist_count = config.get('playlists', {}).get('count', 8)
-            playlists = generator.create_playlist_batch(
-                playlist_count,
-                dynamic=(ds_mode == "dynamic"),
-                ds_mode_override=ds_mode,
+            # Fallback for unknown modes or missing required parameters
+            raise ValueError(
+                "Invalid mode or missing parameters: "
+                f"mode={mode}, artist={artist}, seed_tracks={seed_tracks}"
             )
-            # Use first playlist
-            playlist_data = playlists[0] if playlists else None
 
         # Cancellation check after generation, before output
         check_cancelled()
@@ -668,6 +810,12 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                 or []
             )
             edge_map = {str(edge.get("cur_id")): edge for edge in edge_scores if edge.get("cur_id")}
+
+            similarity_components = _build_seed_similarity_components(
+                tracks=tracks,
+                ds_report=ds_report,
+                edge_map=edge_map,
+            )
 
             formatted_tracks = []
 
@@ -696,6 +844,17 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                     or track.get('G')
                     or edge.get('G')
                 )
+                components = similarity_components.get(str(rating_key)) if rating_key else None
+                if components:
+                    sonic_comp = components.get("sonic")
+                    genre_comp = components.get("genre")
+                    if sonic_comp and sonic_comp.get("t") is not None:
+                        sonic_sim = sonic_comp.get("t")
+                    if genre_comp and genre_comp.get("t") is not None:
+                        genre_sim = genre_comp.get("t")
+                else:
+                    sonic_comp = None
+                    genre_comp = None
 
                 formatted_tracks.append({
                     "position": i,
@@ -707,6 +866,8 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                     "file_path": track.get('file_path', ''),
                     "sonic_similarity": sonic_sim,
                     "genre_similarity": genre_sim,
+                    "sonic_similarity_components": sonic_comp,
+                    "genre_similarity_components": genre_comp,
                     "genres": genres,
                 })
 
@@ -814,6 +975,9 @@ def handle_update_genres(cmd_data: Dict[str, Any]) -> None:
         check_cancelled()
         emit_progress("genres", 60, 100, "Updating album genres")
         updater.update_album_genres(progress=False)
+        check_cancelled()
+        emit_progress("genres", 80, 100, "Updating file tag genres")
+        updater.update_track_genres()
         check_cancelled()
         stats = {"artists_updated": 0, "albums_updated": 0}  # Updater doesn't return detailed stats
         updater.close()

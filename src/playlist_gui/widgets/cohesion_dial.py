@@ -31,10 +31,10 @@ COHESION_LABELS = {
     "discover": "Discover",
 }
 COHESION_TOOLTIPS = {
-    "tight": "Very similar tracks - strict genre and sonic matching",
-    "balanced": "Moderate similarity - good balance of cohesion and variety",
-    "wide": "More variety - dynamic matching allows stylistic exploration",
-    "discover": "Maximum exploration - discover new sounds and genres",
+    "tight": "Strict genre + sonic similarity (stay very close to the seed)",
+    "balanced": "Moderate genre + sonic similarity (balanced cohesion/variety)",
+    "wide": "Looser genre + sonic similarity (explore nearby styles)",
+    "discover": "Very loose genre + sonic similarity (explore farthest)",
 }
 
 
@@ -44,16 +44,67 @@ class CohesionDial(QWidget):
 
     Provides a slider with discrete positions for selecting playlist cohesion level.
     Emits cohesion_changed signal when value changes.
+
+    Args:
+        compact: If True, use a single-row compact layout suitable for toolbars.
     """
 
     cohesion_changed = Signal(str)  # Emits: "tight", "balanced", "wide", "discover"
 
-    def __init__(self, parent: QWidget | None = None):
+    def __init__(self, compact: bool = False, parent: QWidget | None = None):
         super().__init__(parent)
         self._current_value: CohesionLevel = "balanced"
+        self._compact = compact
         self._setup_ui()
 
     def _setup_ui(self) -> None:
+        if self._compact:
+            self._setup_compact_ui()
+        else:
+            self._setup_full_ui()
+
+    def _setup_compact_ui(self) -> None:
+        """Compact single-row layout for toolbars."""
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        # Label
+        header_label = QLabel("Cohesion:")
+        header_label.setObjectName("controlLabel")
+        layout.addWidget(header_label)
+
+        # Slider (narrower)
+        self._slider = QSlider(Qt.Horizontal)
+        self._slider.setMinimum(0)
+        self._slider.setMaximum(3)
+        self._slider.setValue(1)  # Default: balanced (index 1)
+        self._slider.setTickPosition(QSlider.TicksBelow)
+        self._slider.setTickInterval(1)
+        self._slider.setPageStep(1)
+        self._slider.setSingleStep(1)
+        self._slider.setFixedWidth(100)
+        self._slider.setObjectName("cohesionSlider")
+        self._slider.setToolTip(
+            "Controls how strictly BOTH genre and sonic similarity are enforced."
+        )
+        self._slider.valueChanged.connect(self._on_slider_changed)
+        layout.addWidget(self._slider)
+
+        # Current value label
+        self._value_label = QLabel(COHESION_LABELS[self._current_value])
+        self._value_label.setObjectName("cohesionValue")
+        self._value_label.setFixedWidth(55)
+        layout.addWidget(self._value_label)
+
+        # Tooltip
+        self.setToolTip(
+            "Controls how strictly BOTH genre and sonic similarity are enforced.\n"
+            "Tight stays close to the seed; Discover explores much farther."
+        )
+
+    def _setup_full_ui(self) -> None:
+        """Full vertical layout with tick labels."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
@@ -66,7 +117,7 @@ class CohesionDial(QWidget):
         header_row.addWidget(header_label)
 
         self._value_label = QLabel(COHESION_LABELS[self._current_value])
-        self._value_label.setStyleSheet("color: #4a86c7; font-weight: bold;")
+        self._value_label.setObjectName("cohesionValue")
         header_row.addWidget(self._value_label)
 
         header_row.addStretch()
@@ -85,31 +136,7 @@ class CohesionDial(QWidget):
         self._slider.setPageStep(1)
         self._slider.setSingleStep(1)
         self._slider.setFixedWidth(200)
-        self._slider.setStyleSheet("""
-            QSlider::groove:horizontal {
-                border: 1px solid #bbb;
-                background: #e0e0e0;
-                height: 8px;
-                border-radius: 4px;
-            }
-            QSlider::sub-page:horizontal {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #4a86c7, stop:1 #6aa6e7);
-                border: 1px solid #4a86c7;
-                height: 8px;
-                border-radius: 4px;
-            }
-            QSlider::handle:horizontal {
-                background: #4a86c7;
-                border: 1px solid #3a76b7;
-                width: 16px;
-                margin: -5px 0;
-                border-radius: 8px;
-            }
-            QSlider::handle:horizontal:hover {
-                background: #5a96d7;
-            }
-        """)
+        self._slider.setObjectName("cohesionSlider")
         self._slider.valueChanged.connect(self._on_slider_changed)
         slider_row.addWidget(self._slider)
 
@@ -121,7 +148,7 @@ class CohesionDial(QWidget):
 
         for level in COHESION_LEVELS:
             label = QLabel(COHESION_LABELS[level])
-            label.setStyleSheet("font-size: 10px; color: #666;")
+            label.setObjectName("cohesionTickLabel")
             label.setAlignment(Qt.AlignCenter)
             label.setToolTip(COHESION_TOOLTIPS[level])
             labels_row.addWidget(label)
@@ -130,8 +157,8 @@ class CohesionDial(QWidget):
 
         # Set tooltip for the whole widget
         self.setToolTip(
-            "Control how similar tracks in the playlist should be.\n"
-            "Tight = very similar, Discover = maximum variety."
+            "Controls how strictly BOTH genre and sonic similarity are enforced.\n"
+            "Tight stays close to the seed; Discover explores much farther."
         )
 
     def _on_slider_changed(self, value: int) -> None:

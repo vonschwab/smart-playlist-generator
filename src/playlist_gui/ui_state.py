@@ -25,18 +25,22 @@ class UIStateModel:
     # ─────────────────────────────────────────────────────────────────────────
     # Top-level mode
     # ─────────────────────────────────────────────────────────────────────────
-    mode: Literal["artist", "history", "seeds"] = "artist"
+    mode: Literal["artist", "seeds"] = "artist"
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Cohesion (replaces separate genre_mode + sonic_mode)
-    # Monotonic progression: tight → balanced → wide → discover
+    # Genre/Sonic modes (strictness controls for matching)
     # ─────────────────────────────────────────────────────────────────────────
-    cohesion: Literal["tight", "balanced", "wide", "discover"] = "balanced"
+    genre_mode: Literal["strict", "narrow", "dynamic", "discover"] = "narrow"
+    sonic_mode: Literal["strict", "narrow", "dynamic", "discover"] = "narrow"
 
     # ─────────────────────────────────────────────────────────────────────────
     # Track count
     # ─────────────────────────────────────────────────────────────────────────
     track_count: int = 30
+
+    # Diversity bonus (soft)
+    # ─────────────────────────────────────────────────────────────────────────
+    diversity_gamma: float = 0.04
 
     # ─────────────────────────────────────────────────────────────────────────
     # Recency filter (hard exclude; never relaxed by policy)
@@ -61,13 +65,20 @@ class UIStateModel:
     Multi-artist journeys are a future feature.
     """
 
-    artist_presence: Literal["low", "medium", "high", "max"] = "medium"
+    artist_presence: Literal[
+        "very_low",
+        "low",
+        "medium",
+        "high",
+        "very_high",
+    ] = "medium"
     """
     Target percentage of playlist from the seed artist(s):
+    - very_low: ~5%
     - low: ~10%
-    - medium: ~25%
-    - high: ~40%
-    - max: ~60%
+    - medium: ~12.5%
+    - high: ~20%
+    - very_high: ~33%
     """
 
     artist_variety: Literal["focused", "balanced", "sprawling"] = "balanced"
@@ -77,12 +88,6 @@ class UIStateModel:
     - balanced: moderate diversity
     - sprawling: wide stylistic spread
     """
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # History mode specific
-    # ─────────────────────────────────────────────────────────────────────────
-    history_window_days: int = 30
-    """Time window for history-based generation (7/14/30/90)."""
 
     # ─────────────────────────────────────────────────────────────────────────
     # Seed(s) mode specific

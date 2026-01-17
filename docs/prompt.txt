@@ -1,0 +1,86 @@
+You are Claude Code in a Python + PySide6 project. I want you to do a VISUAL/UI POLISH PASS on the new GeneratePanel V2 to make the app feel modern, readable, and “pleasant,” while keeping all functionality intact.
+
+Important constraints:
+- Do NOT change playlist generation logic, policy behavior, or backend protocols unless required by UI polish.
+- Focus on layout hierarchy, spacing, typography, visual grouping, and consistent styling.
+- Prefer small, reviewable commits.
+
+Input reference:
+- Use the current UI screenshot as “before” reference (the UI feels flat, scattered, and has too much empty space).
+- The UI code you’ll likely touch lives in:
+  - src/playlist_gui/widgets/generate_panel.py
+  - src/playlist_gui/widgets/mode_panels.py
+  - src/playlist_gui/widgets/cohesion_dial.py
+  - src/playlist_gui/widgets/seed_chips.py
+  - src/playlist_gui/main_window.py
+  - src/playlist_gui/widgets/advanced_panel.py
+
+## Goals (what “pleasing” means here)
+1) Strong hierarchy:
+   - A compact top “setup” area (mode + global controls) that reads like a toolbar.
+   - A clearly separated “inputs” area for the current mode.
+   - The playlist table gets the majority of the screen.
+   - Logs are present but feel like a collapsible/secondary drawer, not a giant slab.
+
+2) Visual grouping:
+   - Replace scattered controls + hard separators with 2–3 “cards” / grouped panels.
+   - Use consistent margins/padding (e.g., 12–16px outer margins, 8–12px internal spacing).
+   - Make related controls sit together: Cohesion + Length + Recency + Spacing should be one grouped row.
+
+3) Design system via QSS + palette:
+   - Use the Qt “Fusion” style with a coherent dark palette (not default gray-on-gray).
+   - Create a small QSS theme file (e.g., src/playlist_gui/theme.qss) and load it in main_window.py.
+   - Improve legibility: slightly larger default font, better contrast, focus/hover states.
+   - Buttons:
+     - Generate = primary (accent color)
+     - Regenerate/New Seeds = secondary
+     - Export buttons = disabled until there are tracks (keep behavior)
+   - Remove ugly borders; use subtle panel backgrounds and rounded corners sparingly.
+
+4) Layout changes (suggested target layout)
+- Top header row (single line):
+  [ Mode segmented control ]   [ Cohesion dial ] [ Length ] [ Recency toggle + days + plays ] [ Artist spacing ]   (right aligned) [ Generate / Regenerate / New Seeds ]
+- Below header:
+  A “Mode Inputs” card that changes per mode
+    - Artist(s): artist chips field, presence dropdown, variety slider grouped together
+    - History: window dropdown, source selector if exists
+    - Seed(s): search+add row, seed chips list, auto-order toggle + hint text
+- Main area:
+  Playlist table fills remaining space
+- Bottom:
+  Logs in a collapsible panel or QSplitter section with a smaller default height (remember last size)
+
+Implement this with QVBoxLayout + QSplitter so the user can resize table vs logs.
+
+5) Fix any UI-visible paper cuts you encounter while polishing:
+- Example: warnings like “Failed to load autocomplete data: no such column: id” should not spam the log on startup.
+  If it’s a real bug, fix it; if it’s expected, make it log once and degrade gracefully.
+
+## Work Plan (deliverable-driven)
+A) First, audit and document:
+- Where the main layouts are built (widget tree)
+- What’s currently causing the “huge empty space” / stretched controls
+- Which widgets lack consistent size policies or margins
+
+B) Produce a short “UI polish plan” markdown:
+docs/ui_ux/phase_notes/phase_ui_polish_plan.md
+Include:
+- before/after layout sketch (ASCII is fine)
+- which files you’ll modify
+- the QSS/palette decisions
+
+C) Implement in 2–3 commits:
+1) Layout restructure (no theme yet)
+2) Theme (Fusion palette + QSS file) + minor widget styling improvements
+3) Final tweaks: spacing, alignment, button emphasis, log panel default sizing, any small UI bugs found
+
+## Acceptance criteria
+- The controls read in a clear top-to-bottom order with minimal scanning.
+- Mode-specific inputs are grouped and don’t float in a sea of empty space.
+- Playlist table dominates the screen.
+- Logs are accessible but not visually dominant (collapsible or smaller by default).
+- Primary/secondary button styling is obvious.
+- No repeated startup log spam for known UI issues.
+- Provide 1–2 screenshots (or at least describe the before/after layout changes precisely).
+
+Proceed with the audit + plan doc first, then implement the changes.

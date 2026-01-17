@@ -4,6 +4,7 @@ Track Table Model - QAbstractTableModel for playlist tracks
 Provides a proper model/view implementation for efficient display of playlist tracks.
 Supports sorting by any column and role-based data access.
 """
+import math
 from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import (
@@ -94,6 +95,19 @@ def normalize_duration(value: Any) -> int:
         return 0
 
 
+def format_similarity_components(value: Any) -> str:
+    """Format a similarity component value for display."""
+    try:
+        if value is None:
+            return ""
+        num = float(value)
+        if math.isnan(num):
+            return ""
+        return f"{num:.3f}"
+    except (TypeError, ValueError):
+        return ""
+
+
 class TrackTableModel(QAbstractTableModel):
     """
     Table model for playlist tracks.
@@ -151,6 +165,17 @@ class TrackTableModel(QAbstractTableModel):
                 ms = normalize_duration(value)
                 return format_duration(ms)
             elif col in (Column.SONIC_SIM, Column.GENRE_SIM):
+                comp_key = (
+                    "sonic_similarity_components"
+                    if col == Column.SONIC_SIM
+                    else "genre_similarity_components"
+                )
+                components = track.get(comp_key)
+                if isinstance(components, dict):
+                    t_val = format_similarity_components(components.get("t"))
+                    s1_val = format_similarity_components(components.get("s1"))
+                    s2_val = format_similarity_components(components.get("s2"))
+                    return f"T({t_val})/S1({s1_val})/S2({s2_val})"
                 try:
                     return f"{float(value):.3f}"
                 except (TypeError, ValueError):

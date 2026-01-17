@@ -9,8 +9,9 @@ Manages a list of seed tracks with support for:
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
@@ -25,6 +26,65 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def compute_seed_order(chips: List["SeedChip"]) -> List[int]:
+    """
+    Compute an ordering of seeds to maximize bridging potential.
+
+    This is a GUI-side heuristic that works without feature vectors.
+    The backend may further refine the order if needed.
+
+    Strategy:
+    1. Group seeds by artist_key
+    2. Interleave groups round-robin style to maximize variety
+    3. This creates a sequence like: A1, B1, C1, A2, B2, C2, ...
+       which helps bridging find transitions between different artists.
+
+    Args:
+        chips: List of SeedChip objects to order
+
+    Returns:
+        List of indices representing the new order.
+        e.g., [2, 0, 1] means old[2] becomes new[0], etc.
+    """
+    if len(chips) <= 1:
+        return list(range(len(chips)))
+
+    # Group indices by artist_key, preserving order within each group
+    artist_groups: Dict[str, List[int]] = {}
+    group_order: List[str] = []  # Track order of first appearance
+
+    for i, chip in enumerate(chips):
+        key = chip.artist_key or f"__unknown_{i}__"
+        if key not in artist_groups:
+            artist_groups[key] = []
+            group_order.append(key)
+        artist_groups[key].append(i)
+
+    # If all same artist, just return original order
+    if len(artist_groups) == 1:
+        return list(range(len(chips)))
+
+    # Round-robin interleave: pick one from each artist group in rotation
+    # This maximizes variety and creates natural bridge points
+    ordered_indices: List[int] = []
+    group_iterators = [iter(artist_groups[key]) for key in group_order]
+
+    while group_iterators:
+        remaining = []
+        for it in group_iterators:
+            try:
+                ordered_indices.append(next(it))
+            except StopIteration:
+                pass
+            else:
+                remaining.append(it)
+        group_iterators = remaining
+
+    return ordered_indices
 
 
 @dataclass
@@ -80,7 +140,7 @@ class SeedChipsList(QWidget):
         header_row.addStretch()
 
         self._clear_btn = QPushButton("Clear All")
-        self._clear_btn.setFixedWidth(70)
+        self._clear_btn.setMinimumWidth(90)
         self._clear_btn.setStyleSheet("font-size: 11px;")
         self._clear_btn.clicked.connect(self.clear)
         self._clear_btn.setEnabled(False)
@@ -93,24 +153,7 @@ class SeedChipsList(QWidget):
         self._list.setMinimumHeight(80)
         self._list.setMaximumHeight(150)
         self._list.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        self._list.setStyleSheet("""
-            QListWidget {
-                border: 1px solid #ccc;
-                border-radius: 4px;
-                background: #fafafa;
-            }
-            QListWidget::item {
-                padding: 4px 8px;
-                border-bottom: 1px solid #eee;
-            }
-            QListWidget::item:selected {
-                background: #e3f2fd;
-                color: black;
-            }
-            QListWidget::item:hover {
-                background: #f5f5f5;
-            }
-        """)
+        # Use global theme for list styling to match the dark UI.
 
         # Enable drag-drop reordering
         self._list.setDragDropMode(QAbstractItemView.InternalMove)
@@ -178,6 +221,7 @@ class SeedChipsList(QWidget):
         Add a seed chip to the list.
 
         Returns False if track_id already exists.
+        When auto-order is enabled, the list is re-sorted after adding.
         """
         # Check for duplicates
         if any(c.track_id == chip.track_id for c in self._chips):
@@ -185,11 +229,15 @@ class SeedChipsList(QWidget):
 
         self._chips.append(chip)
 
-        # Add to list widget
-        item = QListWidgetItem(chip.display)
-        item.setData(Qt.UserRole, chip.track_id)
-        item.setToolTip(f"Track ID: {chip.track_id}\nArtist: {chip.artist}")
-        self._list.addItem(item)
+        # Apply auto-ordering if enabled (will also rebuild display)
+        if self._auto_order and len(self._chips) > 1:
+            self._apply_auto_order()
+        else:
+            # Add to list widget manually
+            item = QListWidgetItem(chip.display)
+            item.setData(Qt.UserRole, chip.track_id)
+            item.setToolTip(f"Track ID: {chip.track_id}\nArtist: {chip.artist}")
+            self._list.addItem(item)
 
         self._update_ui()
         self.seeds_changed.emit()
@@ -224,6 +272,15 @@ class SeedChipsList(QWidget):
         """Get list of track IDs in current order."""
         return [chip.track_id for chip in self._chips]
 
+    def get_seed_display_strings(self) -> List[str]:
+        """
+        Get list of seed display strings for backend communication.
+
+        The backend expects "Title - Artist" format, not raw track IDs.
+        This method provides the format needed for create_playlist_from_seed_tracks().
+        """
+        return [chip.display for chip in self._chips]
+
     def get_seed_artist_keys(self) -> List[str]:
         """Get list of artist keys in current order."""
         return [chip.artist_key for chip in self._chips]
@@ -243,12 +300,44 @@ class SeedChipsList(QWidget):
         When enabled, seeds are ordered for optimal DJ bridging.
         When disabled, user can manually drag-reorder seeds.
         """
+        was_enabled = self._auto_order
         self._auto_order = enabled
         self._update_ui()
+
+        # Apply auto-ordering when toggled ON
+        if enabled and not was_enabled:
+            self._apply_auto_order()
 
     def get_auto_order(self) -> bool:
         """Check if auto-ordering is enabled."""
         return self._auto_order
+
+    def _apply_auto_order(self) -> None:
+        """
+        Apply automatic ordering to maximize bridging potential.
+
+        Called when auto-order is enabled and seeds change.
+        Uses a simple heuristic that interleaves artists for variety.
+        """
+        if len(self._chips) <= 1:
+            return
+
+        try:
+            new_order = compute_seed_order(self._chips)
+
+            # Apply the new order when it changes, then refresh the list
+            if new_order != list(range(len(self._chips))):
+                self._chips = [self._chips[i] for i in new_order]
+            self._rebuild_list_display()
+
+            logger.debug(
+                "Auto-ordered %d seeds: %s",
+                len(self._chips),
+                [c.display[:30] for c in self._chips],
+            )
+        except Exception as e:
+            # If ordering fails, log warning and continue with current order
+            logger.warning("Auto-ordering failed: %s", e)
 
     def reorder_for_bridging(self, new_order: List[int]) -> None:
         """
@@ -272,6 +361,12 @@ class SeedChipsList(QWidget):
     def set_seeds(self, chips: List[SeedChip]) -> None:
         """Replace all seeds with a new list."""
         self._chips = list(chips)
-        self._rebuild_list_display()
+
+        # Apply auto-ordering if enabled
+        if self._auto_order and len(self._chips) > 1:
+            self._apply_auto_order()
+        else:
+            self._rebuild_list_display()
+
         self._update_ui()
         self.seeds_changed.emit()

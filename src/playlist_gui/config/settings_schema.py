@@ -66,18 +66,6 @@ SETTINGS_SCHEMA: List[SettingSpec] = [
     # Playlist Counts
     # ─────────────────────────────────────────────────────────────────────────
     SettingSpec(
-        key_path="playlists.count",
-        label="Playlists per batch",
-        setting_type=SettingType.INT,
-        group="Playlist Settings",
-        default=8,
-        min_value=1,
-        max_value=20,
-        step=1,
-        tooltip="Number of playlists to generate in batch mode",
-        description="When generating from listening history, this controls how many separate playlists are created in one batch. Each playlist will have different seed tracks from your recent listening."
-    ),
-    SettingSpec(
         key_path="playlists.tracks_per_playlist",
         label="Tracks per playlist",
         setting_type=SettingType.INT,
@@ -88,18 +76,6 @@ SETTINGS_SCHEMA: List[SettingSpec] = [
         step=5,
         tooltip="Target number of tracks per playlist",
         description="The target length for each generated playlist. The actual count may vary slightly based on available candidates and constraint enforcement."
-    ),
-    SettingSpec(
-        key_path="playlists.seed_count",
-        label="Seed count",
-        setting_type=SettingType.INT,
-        group="Playlist Settings",
-        default=5,
-        min_value=1,
-        max_value=20,
-        step=1,
-        tooltip="Number of seed tracks from listening history",
-        description="How many of your recently played tracks are used as 'seeds' to find similar music. More seeds = more variety in the playlist, but potentially less cohesion. For focused playlists, try 2-3 seeds."
     ),
     SettingSpec(
         key_path="playlists.similar_per_seed",

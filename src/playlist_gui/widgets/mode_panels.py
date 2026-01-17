@@ -1,11 +1,12 @@
 """
 Mode Panels - Mode-specific control panels for the Generate UI.
 
-Each mode (Artist/History/Seeds) has its own panel with controls
+Each mode (Artist/Seeds) has its own panel with controls
 specific to that generation mode.
 """
 from __future__ import annotations
 
+import logging
 from typing import List, Literal, Optional
 
 from PySide6.QtCore import Qt, Signal
@@ -19,15 +20,18 @@ from PySide6.QtWidgets import (
     QSlider,
     QVBoxLayout,
     QWidget,
+    QSizePolicy,
 )
 
 from ..autocomplete import DatabaseCompleter, setup_artist_completer, setup_track_completer
 from ..seed_resolver import resolve_track_from_display
 from .seed_chips import SeedChip, SeedChipsList
 
+logger = logging.getLogger(__name__)
+
 
 # Type aliases
-PresenceLevel = Literal["low", "medium", "high", "max"]
+PresenceLevel = Literal["very_low", "low", "medium", "high", "very_high"]
 VarietyLevel = Literal["focused", "balanced", "sprawling"]
 
 
@@ -46,6 +50,7 @@ class ArtistModePanel(QWidget):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         self._db_completer: Optional[DatabaseCompleter] = None
         self._artists: List[str] = []
         self._setup_ui()
@@ -78,24 +83,51 @@ class ArtistModePanel(QWidget):
 
         # Presence and variety row
         tuning_row = QHBoxLayout()
-        tuning_row.setSpacing(20)
+        tuning_row.setContentsMargins(0, 0, 0, 0)
+        tuning_row.setSpacing(8)
 
         # Presence dropdown
-        presence_section = QHBoxLayout()
+        presence_container = QWidget()
+        presence_container.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
+        presence_section = QHBoxLayout(presence_container)
+        presence_section.setSpacing(6)
+        presence_section.setContentsMargins(0, 0, 0, 0)
         presence_section.addWidget(QLabel("Presence:"))
         self._presence_combo = QComboBox()
-        self._presence_combo.addItems(["Low (~10%)", "Medium (~25%)", "High (~40%)", "Max (~60%)"])
-        self._presence_combo.setCurrentIndex(1)  # Default: Medium
+        self._presence_combo.addItems(
+            [
+                "Very Low (~5%)",
+                "Low (~10%)",
+                "Medium (~12.5%)",
+                "High (~20%)",
+                "Very High (~33%)",
+            ]
+        )
+        self._presence_combo.setCurrentIndex(2)  # Default: Medium
         self._presence_combo.setToolTip(
             "How much of the playlist should feature the seed artist?\n"
-            "Low = few tracks, Max = majority of tracks"
+            "Very Low = few tracks, Very High = strong seed presence"
         )
+        self._presence_combo.setFixedWidth(180)
         presence_section.addWidget(self._presence_combo)
-        tuning_row.addLayout(presence_section)
+        tuning_row.addWidget(presence_container)
 
         # Variety slider
-        variety_section = QHBoxLayout()
-        variety_section.addWidget(QLabel("Variety:"))
+        variety_container = QWidget()
+        variety_container.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
+        variety_section = QHBoxLayout(variety_container)
+        variety_section.setContentsMargins(0, 0, 0, 0)
+        variety_section.setSpacing(4)
+        variety_label = QLabel("Variety:")
+        variety_label.setFixedWidth(52)
+        variety_help = (
+            "Controls stylistic spread within the seed artist's neighborhood.\n"
+            "Focused stays close to the core sound, Balanced mixes nearby styles,\n"
+            "Sprawling reaches farther while keeping artist influence.\n"
+            "Genre/Sonic modes set strictness; Variety sets spread."
+        )
+        variety_label.setToolTip(variety_help)
+        variety_section.addWidget(variety_label)
 
         self._variety_slider = QSlider(Qt.Horizontal)
         self._variety_slider.setMinimum(0)
@@ -103,15 +135,16 @@ class ArtistModePanel(QWidget):
         self._variety_slider.setValue(1)  # Default: balanced
         self._variety_slider.setTickPosition(QSlider.TicksBelow)
         self._variety_slider.setTickInterval(1)
-        self._variety_slider.setFixedWidth(100)
+        self._variety_slider.setFixedWidth(140)
+        self._variety_slider.setToolTip(variety_help)
         self._variety_slider.valueChanged.connect(self._on_variety_changed)
         variety_section.addWidget(self._variety_slider)
 
         self._variety_label = QLabel("Balanced")
-        self._variety_label.setFixedWidth(70)
+        self._variety_label.setFixedWidth(80)
         variety_section.addWidget(self._variety_label)
 
-        tuning_row.addLayout(variety_section)
+        tuning_row.addWidget(variety_container)
         tuning_row.addStretch()
 
         layout.addLayout(tuning_row)
@@ -152,7 +185,13 @@ class ArtistModePanel(QWidget):
     def get_presence(self) -> PresenceLevel:
         """Get selected presence level."""
         index = self._presence_combo.currentIndex()
-        levels: List[PresenceLevel] = ["low", "medium", "high", "max"]
+        levels: List[PresenceLevel] = [
+            "very_low",
+            "low",
+            "medium",
+            "high",
+            "very_high",
+        ]
         return levels[index]
 
     def get_variety(self) -> VarietyLevel:
@@ -168,70 +207,8 @@ class ArtistModePanel(QWidget):
     def clear(self) -> None:
         """Clear all inputs."""
         self._artist_edit.clear()
-        self._presence_combo.setCurrentIndex(1)
+        self._presence_combo.setCurrentIndex(2)
         self._variety_slider.setValue(1)
-
-
-class HistoryModePanel(QWidget):
-    """
-    History mode controls.
-
-    Features:
-    - Time window selection (how far back to look for listening history)
-    """
-
-    window_changed = Signal(int)  # Emits days value
-
-    def __init__(self, parent: QWidget | None = None):
-        super().__init__(parent)
-        self._setup_ui()
-
-    def _setup_ui(self) -> None:
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-
-        # Time window row
-        window_row = QHBoxLayout()
-        window_row.addWidget(QLabel("Time window:"))
-
-        self._window_combo = QComboBox()
-        self._window_combo.addItems(["Last 7 days", "Last 14 days", "Last 30 days", "Last 90 days"])
-        self._window_combo.setCurrentIndex(2)  # Default: 30 days
-        self._window_combo.currentIndexChanged.connect(self._on_window_changed)
-        self._window_combo.setToolTip(
-            "How far back to look at your listening history.\n"
-            "Longer windows include more variety but may be less current."
-        )
-        window_row.addWidget(self._window_combo)
-
-        window_row.addStretch()
-        layout.addLayout(window_row)
-
-        # Info label
-        info = QLabel(
-            "<i>Generate a playlist based on your recent listening patterns.</i>"
-        )
-        info.setStyleSheet("color: #888; font-size: 11px;")
-        layout.addWidget(info)
-
-        layout.addStretch()
-
-    def _on_window_changed(self, index: int) -> None:
-        """Handle window selection change."""
-        self.window_changed.emit(self.get_window())
-
-    def get_window(self) -> int:
-        """Get selected time window in days."""
-        index = self._window_combo.currentIndex()
-        windows = [7, 14, 30, 90]
-        return windows[index]
-
-    def set_window(self, days: int) -> None:
-        """Set time window programmatically."""
-        windows = [7, 14, 30, 90]
-        if days in windows:
-            self._window_combo.setCurrentIndex(windows.index(days))
 
 
 class SeedsModePanel(QWidget):
@@ -249,6 +226,7 @@ class SeedsModePanel(QWidget):
 
     def __init__(self, db_path: str = "data/metadata.db", parent: QWidget | None = None):
         super().__init__(parent)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         self._db_path = db_path
         self._db_completer: Optional[DatabaseCompleter] = None
         self._setup_ui()
@@ -269,7 +247,7 @@ class SeedsModePanel(QWidget):
         search_row.addWidget(self._track_edit, stretch=1)
 
         self._add_btn = QPushButton("Add Seed")
-        self._add_btn.setFixedWidth(80)
+        self._add_btn.setMinimumWidth(100)
         self._add_btn.clicked.connect(self._on_add_seed)
         search_row.addWidget(self._add_btn)
 
@@ -297,7 +275,7 @@ class SeedsModePanel(QWidget):
 
         # Remove selected button
         self._remove_btn = QPushButton("Remove Selected")
-        self._remove_btn.setFixedWidth(110)
+        self._remove_btn.setMinimumWidth(130)
         self._remove_btn.setEnabled(False)
         self._remove_btn.clicked.connect(self._chips_list.remove_selected)
         order_row.addWidget(self._remove_btn)
@@ -308,10 +286,7 @@ class SeedsModePanel(QWidget):
         self._dj_hint = QLabel(
             "Genre enrichment requires 2+ seeds from different artists."
         )
-        self._dj_hint.setStyleSheet(
-            "color: #856404; background: #fff3cd; border: 1px solid #ffc107; "
-            "border-radius: 4px; padding: 6px; font-size: 11px;"
-        )
+        self._dj_hint.setObjectName("warningHint")
         self._dj_hint.setWordWrap(True)
         self._dj_hint.hide()
         layout.addWidget(self._dj_hint)
@@ -325,17 +300,42 @@ class SeedsModePanel(QWidget):
         if not display:
             return
 
-        # Resolve to SeedChip
-        chip = resolve_track_from_display(display, self._db_path)
+        chip: Optional[SeedChip] = None
+
+        # Preferred: use completer's cached data (no parsing required)
+        if self._db_completer and self._db_completer.is_loaded():
+            track_data = self._db_completer.get_track_data_by_display(display)
+            if track_data:
+                track_id, title, artist, album, artist_key = track_data
+                # Reconstruct display for consistency
+                if artist:
+                    final_display = f"{title} - {artist}"
+                    if album:
+                        final_display += f" ({album})"
+                else:
+                    final_display = title
+                chip = SeedChip(
+                    track_id=track_id,
+                    display=final_display,
+                    artist_key=artist_key,
+                    title=title,
+                    artist=artist,
+                )
+
+        # Fallback: use database query (string parsing required)
+        if chip is None:
+            logger.warning(
+                "Seed resolution fallback triggered for display '%s' - "
+                "completer data unavailable or track not found in cache",
+                display,
+            )
+            chip = resolve_track_from_display(display, self._db_path)
+
         if chip:
             if self._chips_list.add_seed(chip):
                 self._track_edit.clear()
-            else:
-                # Duplicate - visual feedback could be added
-                pass
-        else:
-            # Track not found - could show error feedback
-            pass
+            # else: duplicate - visual feedback could be added
+        # else: track not found - could show error feedback
 
     def _on_seeds_changed(self) -> None:
         """Handle seeds list change."""
@@ -377,6 +377,15 @@ class SeedsModePanel(QWidget):
     def get_seed_track_ids(self) -> List[str]:
         """Get list of track IDs."""
         return self._chips_list.get_seed_track_ids()
+
+    def get_seed_display_strings(self) -> List[str]:
+        """
+        Get list of seed display strings for backend communication.
+
+        Returns "Title - Artist (Album)" format strings that the backend
+        can parse and use for track lookup.
+        """
+        return self._chips_list.get_seed_display_strings()
 
     def get_seed_artist_keys(self) -> List[str]:
         """Get list of artist keys."""

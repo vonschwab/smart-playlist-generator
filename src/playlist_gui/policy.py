@@ -35,12 +35,16 @@ POLICY_OWNED_KEYS: Set[str] = {
     "playlists.ds_pipeline.constraints.min_gap",
     # Track count
     "playlists.tracks_per_playlist",
+    # Diversity bonus
+    "playlists.ds_pipeline.scoring.gamma",
     # DJ bridging core settings (gated by policy rules)
     "playlists.ds_pipeline.pier_bridge.dj_bridging.enabled",
     "playlists.ds_pipeline.pier_bridge.dj_bridging.seed_ordering",
     # Pooling strategy (tied to DJ bridging gating)
     "playlists.ds_pipeline.pier_bridge.dj_bridging.pooling.strategy",
     "playlists.ds_pipeline.pier_bridge.dj_bridging.pooling.k_genre",
+    # Artist presence (seed artist share)
+    "playlists.ds_pipeline.candidate_pool.max_artist_fraction",
 }
 """
 Keys that policy must always win for, even if Advanced Panel has values.
@@ -49,17 +53,10 @@ This ensures the simplified UI controls take precedence.
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Cohesion mapping
+# Genre/Sonic mode validation
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Monotonic progression: tight < balanced < wide < discover
-# Maps cohesion level to (genre_mode, sonic_mode)
-COHESION_MAP: Dict[str, tuple[str, str]] = {
-    "tight": ("strict", "strict"),
-    "balanced": ("narrow", "narrow"),
-    "wide": ("dynamic", "dynamic"),
-    "discover": ("discover", "discover"),
-}
+VALID_MODES: Set[str] = {"strict", "narrow", "dynamic", "discover"}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -69,6 +66,15 @@ COHESION_MAP: Dict[str, tuple[str, str]] = {
 SPACING_MAP: Dict[str, int] = {
     "normal": 6,
     "strong": 9,
+}
+
+# Artist presence mapping (seed artist target share via per-artist cap)
+PRESENCE_MAP: Dict[str, float] = {
+    "very_low": 0.05,
+    "low": 0.10,
+    "medium": 0.125,
+    "high": 0.20,
+    "very_high": 0.33,
 }
 
 
@@ -235,17 +241,29 @@ def derive_runtime_config(
     notes: List[str] = []
 
     # ─────────────────────────────────────────────────────────────────────
-    # 1. Cohesion mapping → genre_mode + sonic_mode
+    # 1. Genre/Sonic modes
     # ─────────────────────────────────────────────────────────────────────
-    genre_mode, sonic_mode = COHESION_MAP.get(ui.cohesion, ("dynamic", "dynamic"))
+    genre_mode = ui.genre_mode if ui.genre_mode in VALID_MODES else "dynamic"
+    sonic_mode = ui.sonic_mode if ui.sonic_mode in VALID_MODES else "dynamic"
     _set_nested(overrides, "playlists.genre_mode", genre_mode)
     _set_nested(overrides, "playlists.sonic_mode", sonic_mode)
-    notes.append(f"Cohesion '{ui.cohesion}' → genre_mode={genre_mode}, sonic_mode={sonic_mode}")
+    notes.append(f"Genre mode: {genre_mode}")
+    notes.append(f"Sonic mode: {sonic_mode}")
 
     # ─────────────────────────────────────────────────────────────────────
     # 2. Track count
-    # ─────────────────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────     
     _set_nested(overrides, "playlists.tracks_per_playlist", ui.track_count)
+
+    # ─────────────────────────────────────────────────────────────────────     
+    # 2b. Diversity bonus (soft)
+    # ─────────────────────────────────────────────────────────────────────     
+    _set_nested(
+        overrides,
+        "playlists.ds_pipeline.scoring.gamma",
+        float(ui.diversity_gamma),
+    )
+    notes.append(f"Diversity gamma: {float(ui.diversity_gamma):.3f}")
 
     # ─────────────────────────────────────────────────────────────────────
     # 3. Recency filter (never relaxed by policy)
@@ -269,9 +287,32 @@ def derive_runtime_config(
     # 4. Artist spacing → min_gap
     # ─────────────────────────────────────────────────────────────────────
     min_gap = SPACING_MAP.get(ui.artist_spacing, 6)
+
+    # Override: For same-artist seed playlists, disable artist diversity
+    # to allow repeated use of the seed artist in interior positions
+    if seed_artist_keys and len(set(seed_artist_keys)) == 1:
+        min_gap = 0
+        notes.append(f"Artist spacing '{ui.artist_spacing}' → min_gap={min_gap} (overridden: all seeds same artist)")
+    else:
+        notes.append(f"Artist spacing '{ui.artist_spacing}' → min_gap={min_gap}")
+
     _set_nested(overrides, "playlists.ds_pipeline.constraints.min_gap", min_gap)
     decisions.min_gap = min_gap
-    notes.append(f"Artist spacing '{ui.artist_spacing}' → min_gap={min_gap}")
+
+    # ─────────────────────────────────────────────────────────────────────     
+    # 4b. Artist presence (artist mode only)
+    # ─────────────────────────────────────────────────────────────────────     
+    if ui.mode == "artist":
+        max_artist_fraction = PRESENCE_MAP.get(ui.artist_presence, 0.125)
+        _set_nested(
+            overrides,
+            "playlists.ds_pipeline.candidate_pool.max_artist_fraction",
+            max_artist_fraction,
+        )
+        notes.append(
+            f"Artist presence '{ui.artist_presence}' → "
+            f"max_artist_fraction={max_artist_fraction:.3f}"
+        )
 
     # ─────────────────────────────────────────────────────────────────────
     # 5. DJ bridging gating
@@ -281,9 +322,6 @@ def derive_runtime_config(
     if ui.mode == "artist":
         # DJ bridging disabled in artist mode
         notes.append("DJ bridging disabled: mode is 'artist' (single-artist mode)")
-    elif ui.mode == "history":
-        # DJ bridging disabled in history mode
-        notes.append("DJ bridging disabled: mode is 'history'")
     elif ui.mode == "seeds":
         # Evaluate DJ bridging eligibility for seeds mode
         seed_count = ui.seed_count()
@@ -311,6 +349,8 @@ def derive_runtime_config(
                     f"DJ bridging enabled: {seed_count} seeds from "
                     f"{unique_artists} unique artists"
                 )
+    else:
+        notes.append(f"DJ bridging disabled: unsupported mode '{ui.mode}'")
 
     decisions.dj_bridging_enabled = dj_bridging_enabled
     _set_nested(
@@ -342,14 +382,14 @@ def derive_runtime_config(
     # ─────────────────────────────────────────────────────────────────────
     # 7. Genre pool gating
     # ─────────────────────────────────────────────────────────────────────
-    # Genre pool (S3 in dj_union strategy) is desired when cohesion == "discover"
-    genre_pool_enabled = ui.cohesion == "discover"
+    # Genre pool (S3 in dj_union strategy) is desired when genre_mode == "discover"
+    genre_pool_enabled = genre_mode == "discover"
     decisions.genre_pool_enabled = genre_pool_enabled
 
     if genre_pool_enabled:
-        notes.append("Genre pool: enabled (cohesion is 'discover')")
+        notes.append("Genre pool: enabled (genre_mode is 'discover')")
     else:
-        notes.append(f"Genre pool: disabled (cohesion is '{ui.cohesion}')")
+        notes.append(f"Genre pool: disabled (genre_mode is '{genre_mode}')")
 
     # Genre pool requires DJ bridging to actually work
     # (verified: dj_union pooling strategy is DJ-only)
