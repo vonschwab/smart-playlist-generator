@@ -34,7 +34,7 @@ GENRE_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "weight": 0.65,
         "sonic_weight": 0.35,
         "min_genre_similarity": 0.40,
-        "min_genre_similarity_narrow": 0.50,
+        "min_genre_similarity_narrow": 0.42,  # Relaxed from 0.50 (Phase 2B)
         "description": "Stay close to seed genre with some flexibility",
         "use_case": "Familiar playlists that stay within genre boundaries",
     },
@@ -42,7 +42,7 @@ GENRE_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "enabled": True,
         "weight": 0.50,
         "sonic_weight": 0.50,
-        "min_genre_similarity": 0.30,
+        "min_genre_similarity": 0.25,  # Relaxed from 0.30 (Phase 2B)
         "min_genre_similarity_narrow": 0.40,
         "description": "Balanced genre exploration (default)",
         "use_case": "Standard playlists with balanced genre/sonic weighting",
@@ -77,7 +77,7 @@ SONIC_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "enabled": True,
         "weight": 0.85,
         "candidate_pool_multiplier": 0.6,
-        "min_sonic_similarity": 0.28,
+        "min_sonic_similarity": 0.20,  # Relaxed from 0.28 (Phase 2A)
         "description": "Ultra-tight sonic matching - very similar sound",
         "use_case": "Extremely cohesive sound with minimal variation",
     },
@@ -85,7 +85,7 @@ SONIC_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "enabled": True,
         "weight": 0.70,
         "candidate_pool_multiplier": 0.8,
-        "min_sonic_similarity": 0.18,
+        "min_sonic_similarity": 0.12,  # Relaxed from 0.18 (Phase 2A)
         "description": "Strict sonic coherence - familiar sound",
         "use_case": "Cohesive playlists with consistent sonic character",
     },
@@ -93,7 +93,7 @@ SONIC_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "enabled": True,
         "weight": 0.50,
         "candidate_pool_multiplier": 1.0,
-        "min_sonic_similarity": 0.10,
+        "min_sonic_similarity": 0.05,  # Relaxed from 0.10 (Phase 2A)
         "description": "Balanced sonic flow (default)",
         "use_case": "Standard playlists with moderate sonic variation",
     },
@@ -101,7 +101,7 @@ SONIC_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "enabled": True,
         "weight": 0.35,
         "candidate_pool_multiplier": 1.2,
-        "min_sonic_similarity": 0.02,
+        "min_sonic_similarity": 0.00,  # Disabled from 0.02 (Phase 2A)
         "description": "Broader sonic palette - varied textures",
         "use_case": "Exploratory playlists with diverse sonic textures",
     },

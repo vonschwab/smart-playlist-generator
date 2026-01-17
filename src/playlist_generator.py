@@ -1688,6 +1688,7 @@ class PlaylistGenerator:
         ds_mode_override: Optional[str] = None,
         artist_only: bool = False,
         anchor_seed_ids: Optional[List[str]] = None,
+        seed_epoch: int = 0,
     ) -> Optional[Dict[str, Any]]:
         """
         Create a single playlist for a specific artist without requiring listening history
@@ -1747,6 +1748,8 @@ class PlaylistGenerator:
         # Add play count (0 for all, since we don't have history)
         for track in artist_tracks:
             track['play_count'] = 0
+
+        ds_cfg = self.config.get('playlists', 'ds_pipeline', default={}) or {}
 
         fixed_seed_tracks: List[Dict[str, Any]] = []
         fixed_anchor_ids: Optional[List[str]] = None
@@ -1849,7 +1852,10 @@ class PlaylistGenerator:
             if len(valid_tracks) < 4:
                 logger.warning(f"Artist has only {len(valid_tracks)} valid-duration tracks (requested 4); using all valid tracks")
             import random
-            seed_tracks = random.sample(valid_tracks, min(4, len(valid_tracks)))
+            base_seed = int(ds_cfg.get("random_seed", 0) or 0)
+            seed_epoch_val = int(seed_epoch or 0)
+            rng = random.Random(base_seed + seed_epoch_val)
+            seed_tracks = rng.sample(valid_tracks, min(4, len(valid_tracks)))
 
         anchor_seed_ids_override = None
         if fixed_seed_tracks:
@@ -1922,7 +1928,6 @@ class PlaylistGenerator:
         # ─────────────────────────────────────────────────────────────────────
         # Style-aware artist mode (optional; config-gated)
         # ─────────────────────────────────────────────────────────────────────
-        ds_cfg = self.config.get('playlists', 'ds_pipeline', default={}) or {}
         style_cfg_raw = ds_cfg.get("artist_style", {}) or {}
         style_cfg = ArtistStyleConfig(
             enabled=bool(style_cfg_raw.get("enabled", False)),
@@ -1934,8 +1939,10 @@ class PlaylistGenerator:
             pool_balance_mode=style_cfg_raw.get("pool_balance_mode", "equal"),
             internal_connector_priority=style_cfg_raw.get("internal_connector_priority", True),
             internal_connector_max_per_segment=style_cfg_raw.get("internal_connector_max_per_segment", 2),
-            bridge_floor_narrow=style_cfg_raw.get("bridge_floor", {}).get("narrow", 0.08),
-            bridge_floor_dynamic=style_cfg_raw.get("bridge_floor", {}).get("dynamic", 0.03),
+            medoid_top_k=style_cfg_raw.get("medoid_top_k", 5),
+            bridge_floor_strict=style_cfg_raw.get("bridge_floor", {}).get("strict", 0.10),
+            bridge_floor_narrow=style_cfg_raw.get("bridge_floor", {}).get("narrow", 0.05),
+            bridge_floor_dynamic=style_cfg_raw.get("bridge_floor", {}).get("dynamic", 0.02),
             bridge_weight=style_cfg_raw.get("bridge_score_weights", {}).get("bridge", 0.7),
             transition_weight=style_cfg_raw.get("bridge_score_weights", {}).get("transition", 0.3),
             genre_tiebreak_weight=style_cfg_raw.get("genre_tiebreak_weight", 0.05),
@@ -1967,12 +1974,17 @@ class PlaylistGenerator:
                     explicit_variant=getattr(self, "sonic_variant", None),
                     config_variant=ds_cfg.get("sonic_variant") or sonic_cfg.get("sim_variant"),
                 )
+                base_seed = int(ds_cfg.get("random_seed", 0) or 0)
+                seed_epoch_val = int(seed_epoch or 0)
+                cluster_seed = base_seed + seed_epoch_val
+                medoid_top_k = 1 if seed_epoch_val <= 0 else max(1, int(style_cfg.medoid_top_k or 1))
                 clusters, medoids, medoids_by_cluster, X_norm = cluster_artist_tracks(
                     bundle=bundle,
                     artist_name=artist_name,
                     cfg=style_cfg,
-                    random_seed=ds_cfg.get("random_seed", 0),
+                    random_seed=cluster_seed,
                     sonic_variant=sonic_variant_cfg,
+                    medoid_top_k=medoid_top_k,
                 )
                 if not medoids:
                     raise ValueError("Style clustering returned no medoids")
@@ -2023,6 +2035,8 @@ class PlaylistGenerator:
                     "artist": str(artist_name),
                     "ds_mode": str(ds_mode_effective),
                     "sonic_variant": str(sonic_variant_cfg),
+                    "seed_epoch": int(seed_epoch or 0),
+                    "medoid_top_k": int(medoid_top_k),
                     "global_sonic_floor": float(min_sonic),
                     "clusters": [
                         {
@@ -2821,8 +2835,9 @@ class PlaylistGenerator:
                 pool_balance_mode=style_cfg_raw.get("pool_balance_mode", "equal"),
                 internal_connector_priority=style_cfg_raw.get("internal_connector_priority", True),
                 internal_connector_max_per_segment=style_cfg_raw.get("internal_connector_max_per_segment", 2),
-                bridge_floor_narrow=style_cfg_raw.get("bridge_floor", {}).get("narrow", 0.08),
-                bridge_floor_dynamic=style_cfg_raw.get("bridge_floor", {}).get("dynamic", 0.03),
+                bridge_floor_strict=style_cfg_raw.get("bridge_floor", {}).get("strict", 0.10),
+                bridge_floor_narrow=style_cfg_raw.get("bridge_floor", {}).get("narrow", 0.05),
+                bridge_floor_dynamic=style_cfg_raw.get("bridge_floor", {}).get("dynamic", 0.02),
                 bridge_weight=style_cfg_raw.get("bridge_score_weights", {}).get("bridge", 0.7),
                 transition_weight=style_cfg_raw.get("bridge_score_weights", {}).get("transition", 0.3),
                 genre_tiebreak_weight=style_cfg_raw.get("genre_tiebreak_weight", 0.05),

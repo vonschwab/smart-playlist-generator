@@ -69,29 +69,31 @@ playlists:
 
 **NEW in v3.2:** Instead of manually tuning genre/sonic weights and thresholds, you can use simple mode presets that configure everything automatically.
 
+**UPDATED in v3.4.1 (Phase 1-3A):** Threshold relaxation to improve feasibility for narrow/dynamic modes. Strict mode now provides the ultra-cohesive filtering that narrow previously attempted. Narrow mode allows justified exploration while maintaining coherence.
+
 ### Genre Modes
 
 Control how strictly playlists match genre tags:
 
-| Mode | Description | Genre Weight | Threshold | Use Case |
-|------|-------------|--------------|-----------|----------|
-| `strict` | Ultra-tight genre matching | 0.80 | 0.50 | Single-genre deep dives |
-| `narrow` | Stay close to seed genre | 0.65 | 0.40 | Cohesive genre exploration |
-| `dynamic` | Balanced exploration | 0.50 | 0.30 | General use (default) |
+| Mode | Description | Genre Weight | Threshold (Narrow) | Use Case |
+|------|-------------|--------------|-------------------|----------|
+| `strict` | Ultra-tight genre matching (may fail) | 0.80 | 0.60 | Single-genre deep dives |
+| `narrow` | Cohesive with justified exploration | 0.65 | 0.42 (was 0.50) | Familiar genre space |
+| `dynamic` | Balanced exploration | 0.50 | 0.25 (was 0.30) | General use (default) |
 | `discover` | Genre-adjacent exploration | 0.35 | 0.20 | Cross-genre discovery |
-| `off` | Sonic-only mode | 0.00 | 0.00 | Ignore genre tags completely |
+| `off` | Sonic-only mode | 0.00 | N/A | Ignore genre tags completely |
 
 ### Sonic Modes
 
 Control how strictly playlists match audio features (rhythm, timbre, harmony):
 
-| Mode | Description | Sonic Weight | Pool Control | Use Case |
-|------|-------------|--------------|--------------|----------|
-| `strict` | Ultra-tight sonic matching | 0.85 | Tight pool | Laser-focused sound |
-| `narrow` | Cohesive sound | 0.70 | Tighter pool | Consistent texture |
-| `dynamic` | Balanced sonic flow | 0.50 | Standard pool | General use (default) |
-| `discover` | Varied textures | 0.35 | Wider pool | Sonic variety |
-| `off` | Genre-only mode | 0.00 | Maximum pool | Ignore sonic features |
+| Mode | Description | Sonic Weight | Sonic Floor | Use Case |
+|------|-------------|--------------|-------------|----------|
+| `strict` | Ultra-tight sonic matching (may fail) | 0.85 | 0.20 | Laser-focused sound |
+| `narrow` | Cohesive sound with flexibility | 0.70 | 0.12 (was 0.18) | Consistent texture |
+| `dynamic` | Balanced sonic flow | 0.50 | 0.05 (was 0.10) | General use (default) |
+| `discover` | Varied textures | 0.35 | 0.00 (disabled) | Maximum sonic variety |
+| `off` | Genre-only mode | 0.00 | N/A | Ignore sonic features |
 
 ### Configuration Examples
 
@@ -287,9 +289,10 @@ playlists:
 ```
 
 ### Pier-Bridge Tuning (per mode)
-Pier-bridge uses per-mode defaults when you don’t specify overrides:
-- `dynamic`: `transition_floor=0.35`, `bridge_floor=0.03`, weights `bridge=0.6`, `transition=0.4`
-- `narrow`: `transition_floor=0.45`, `bridge_floor=0.08`, weights `bridge=0.7`, `transition=0.3`
+Pier-bridge uses per-mode defaults when you don't specify overrides:
+- `strict`: `transition_floor=0.45`, `bridge_floor=0.10`, weights `bridge=0.7`, `transition=0.3`
+- `narrow`: `transition_floor=0.45`, `bridge_floor=0.05` (was 0.08), weights `bridge=0.7`, `transition=0.3`
+- `dynamic`: `transition_floor=0.35`, `bridge_floor=0.02` (was 0.03), weights `bridge=0.6`, `transition=0.4`
 
 Overrides are supported via:
 - `playlists.ds_pipeline.constraints.transition_floor_dynamic`

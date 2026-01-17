@@ -151,8 +151,9 @@ playlists:
       internal_connector_priority: true
       internal_connector_max_per_segment: 2
       bridge_floor:
-        narrow: 0.08
-        dynamic: 0.03
+        strict: 0.10   # Ultra-cohesive (Phase 1)
+        narrow: 0.05   # Relaxed from 0.08 (Phase 3A)
+        dynamic: 0.02  # Relaxed from 0.03 (Phase 3A)
       bridge_score_weights:
         dynamic:
           bridge: 0.6
@@ -204,8 +205,9 @@ playlists:
     # Pier-bridge ordering/scoring (applies to all playlists when pipeline=ds)
     pier_bridge:
       # Bridge-local gate: require min(sim_to_pier_A, sim_to_pier_B) >= floor
-      bridge_floor_dynamic: 0.03
-      bridge_floor_narrow: 0.08
+      bridge_floor_strict: 0.10   # Ultra-cohesive (Phase 1)
+      bridge_floor_narrow: 0.05   # Relaxed from 0.08 (Phase 3A)
+      bridge_floor_dynamic: 0.02  # Relaxed from 0.03 (Phase 3A)
       # Edge scoring weights (bridge harmonic mean vs local transition)
       weight_bridge_dynamic: 0.6
       weight_transition_dynamic: 0.4

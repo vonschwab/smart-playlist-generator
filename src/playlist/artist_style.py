@@ -22,8 +22,10 @@ class ArtistStyleConfig:
     pool_balance_mode: str = "equal"  # equal | proportional_capped
     internal_connector_priority: bool = True
     internal_connector_max_per_segment: int = 2
-    bridge_floor_narrow: float = 0.08
-    bridge_floor_dynamic: float = 0.03
+    medoid_top_k: int = 5
+    bridge_floor_strict: float = 0.10    # Phase 1 (ultra-cohesive)
+    bridge_floor_narrow: float = 0.05    # Relaxed from 0.08 (Phase 3A)
+    bridge_floor_dynamic: float = 0.02   # Relaxed from 0.03 (Phase 3A)
     bridge_weight: float = 0.7
     transition_weight: float = 0.3
     genre_tiebreak_weight: float = 0.05
@@ -80,12 +82,19 @@ def _medoids_for_cluster(
     centroid: np.ndarray,
     bundle_track_ids: Sequence[str],
     per_cluster: int,
+    rng: np.random.Generator,
+    top_k: int,
 ) -> List[int]:
     if not indices:
         return []
     sims = np.dot(X[indices], centroid)
     order = np.argsort(-sims)
-    medoids: List[int] = [indices[int(order[0])]]
+    top_k = max(1, min(int(top_k), len(indices)))
+    if top_k == 1:
+        medoid_idx = int(order[0])
+    else:
+        medoid_idx = int(order[int(rng.integers(0, top_k))])
+    medoids: List[int] = [indices[medoid_idx]]
     if per_cluster > 1 and len(indices) > 1:
         # pick farthest from first medoid to diversify
         first_vec = X[medoids[0]]
@@ -111,6 +120,7 @@ def cluster_artist_tracks(
     cfg: ArtistStyleConfig,
     random_seed: int = 0,
     sonic_variant: Optional[str] = None,
+    medoid_top_k: int = 1,
 ) -> Tuple[List[List[int]], List[int], List[List[int]], np.ndarray]:
     """Cluster artist tracks in sonic space and return clusters + medoids."""   
     artist_key = normalize_artist_key(artist_name)
@@ -157,6 +167,8 @@ def cluster_artist_tracks(
             centroids[c],
             track_ids,
             cfg.piers_per_cluster,
+            rng,
+            medoid_top_k,
         )
         medoids_by_cluster.append(medoid_list)
         medoids.extend(medoid_list)
