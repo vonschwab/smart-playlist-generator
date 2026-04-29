@@ -8,7 +8,7 @@ lastfm:
   username: ''
   history_days: 90
 openai:
-  api_key: YOUR_OPENAI_API_KEY
+  api_key: example-openai-api-key
   model: gpt-4o-mini
 plex:
   enabled: false
@@ -232,7 +232,7 @@ playlists:
       # Artist exclusion rules for bridge segment interiors
       # Controls whether pier/seed artists can appear in bridge segments
       disallow_pier_artists_in_interiors: true   # Exclude pier artists from their own bridge segments (recommended)
-      disallow_seed_artist_in_interiors: false   # Allow seed artist in all segments (only affects single-seed mode)
+      disallow_seed_artist_in_interiors: false   # Allow seed artist in all segments (only affects multi-seed mode; Artist mode always disallows)
       # Example: If piers are [Ramones, Replacements, Pavement]:
       #   - Ramones→Replacements: Ramones excluded (pier A), Replacements excluded (pier B)
       #   - Replacements→Pavement: Ramones allowed (not a pier), Replacements excluded (pier A), Pavement excluded (pier B)

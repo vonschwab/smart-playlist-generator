@@ -61,6 +61,9 @@ class WorkerClient(QObject):
     result_received = Signal(str, dict, object)  # result_type, data, job_id
     error_received = Signal(str, str, object)  # message, traceback, job_id
     done_received = Signal(str, bool, str, bool, object, str)  # cmd, ok, detail, cancelled, job_id, summary
+    checkpoint_received = Signal(dict, object)  # checkpoint_data, job_id
+    verbose_log_received = Signal(str, str, dict, object)  # level, message, context, job_id
+    performance_received = Signal(dict, object)  # performance_data, job_id
     worker_started = Signal()
     worker_stopped = Signal(int, str)  # exit_code, exit_status
     busy_changed = Signal(bool)  # is_busy
@@ -343,9 +346,11 @@ class WorkerClient(QObject):
         genre: Optional[str] = None,
         track: Optional[str] = None,
         seed_tracks: Optional[List[str]] = None,
+        seed_track_ids: Optional[List[str]] = None,
         tracks: int = 30,
         genre_mode: Optional[str] = None,
         sonic_mode: Optional[str] = None,
+        include_collaborations: bool = False,
         job_id: Optional[str] = None,
     ) -> Optional[str]:
         """
@@ -359,6 +364,7 @@ class WorkerClient(QObject):
             genre: Genre name (required if mode is "genre")
             track: Optional seed track title
             seed_tracks: Optional list of seed track titles
+            seed_track_ids: Optional list of seed track IDs (for exact matching)
             tracks: Number of tracks to generate
             genre_mode: Optional genre mode override
             sonic_mode: Optional sonic mode override
@@ -375,10 +381,14 @@ class WorkerClient(QObject):
             args["track"] = track
         if seed_tracks:
             args["seed_tracks"] = seed_tracks
+        if seed_track_ids:
+            args["seed_track_ids"] = seed_track_ids
         if genre_mode:
             args["genre_mode"] = genre_mode
         if sonic_mode:
             args["sonic_mode"] = sonic_mode
+        if include_collaborations:
+            args["include_collaborations"] = True
 
         return self.send_command(
             {
@@ -499,6 +509,32 @@ class WorkerClient(QObject):
                 "overrides": overrides or {},
             }
         )
+
+    def update_logging_level(self, verbose: bool) -> None:
+        """
+        Update the logging level for the worker.
+
+        Args:
+            verbose: If True, set to DEBUG level; otherwise set to INFO level.
+        """
+        # Update local logging level
+        import logging as py_logging
+        try:
+            from .. import logging_utils
+            level = py_logging.DEBUG if verbose else py_logging.INFO
+            logging_utils.set_log_level(level)
+        except ImportError:
+            pass
+
+        # Send command to worker to update its logging level
+        if self._running and self._process:
+            self.send_command(
+                {
+                    "cmd": "set_logging_level",
+                    "level": "DEBUG" if verbose else "INFO",
+                },
+                track_request=False
+            )
 
     # ─────────────────────────────────────────────────────────────────────────
     # Private Methods
@@ -658,6 +694,31 @@ class WorkerClient(QObject):
             # Clear active request when done
             if event_request_id == self._active_request_id or not event_request_id:
                 self._clear_active_request()
+        elif event_type == "checkpoint":
+            # Emit checkpoint data for resumable operations
+            checkpoint_data = {
+                "stage": event.get("stage", ""),
+                "items_completed": event.get("items_completed", 0),
+                "resumable_state": event.get("resumable_state", {}),
+            }
+            self.checkpoint_received.emit(checkpoint_data, event_job_id)
+        elif event_type == "verbose_log":
+            # Emit verbose log (only when verbose mode enabled)
+            self.verbose_log_received.emit(
+                event.get("level", "DEBUG"),
+                event.get("message", ""),
+                event.get("context", {}),
+                event_job_id,
+            )
+        elif event_type == "performance":
+            # Emit performance metrics
+            performance_data = {
+                "stage": event.get("stage", ""),
+                "elapsed_seconds": event.get("elapsed_seconds", 0.0),
+                "items_processed": event.get("items_processed", 0),
+                "throughput": event.get("throughput", 0.0),
+            }
+            self.performance_received.emit(performance_data, event_job_id)
 
         try:
             self._event_buffer.append(redact_text(line))

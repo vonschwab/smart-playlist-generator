@@ -38,6 +38,7 @@ env/
 
 # Testing
 .pytest_cache/
+.pytest-tmp/
 .tox/
 .coverage
 htmlcov/
@@ -56,6 +57,8 @@ data/metadata.db-shm
 data/metadata.db-wal
 data/artifacts/
 data/sonic_backups/
+data/genre_cache.json
+data/test_genre_cache.json
 data/*.npz
 data/*.csv
 

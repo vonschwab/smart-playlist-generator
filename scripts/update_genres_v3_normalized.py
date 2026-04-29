@@ -32,9 +32,10 @@ sys.path.insert(0, str(ROOT_DIR))
 from src.logging_utils import ProgressLogger
 from src.config_loader import Config
 from src.multi_source_genre_fetcher import MusicBrainzGenreFetcher
-from src.genre_normalization import normalize_genre_list
+from src.genre.normalize_unified import normalize_genre_list
 from src.artist_key_db import ensure_artist_key_schema
 from src.string_utils import normalize_artist_key
+from src.genre_cache import GenreCache
 
 # Logging will be configured in main() - just get the logger here
 logger = logging.getLogger('update_genres')
@@ -118,6 +119,12 @@ class NormalizedGenreUpdater:
 
         # Initialize API clients
         self.musicbrainz = MusicBrainzGenreFetcher()
+
+        # Initialize genre cache (90 day TTL)
+        cache_file = ROOT_DIR / 'data' / 'genre_cache.json'
+        self.genre_cache = GenreCache(cache_file, ttl_days=90)
+        cache_stats = self.genre_cache.get_stats()
+        logger.info(f"Genre cache loaded: {cache_stats['fresh']} fresh, {cache_stats['stale']} stale entries")
 
         self._init_db()
         logger.info("Initialized Normalized Genre Updater V3")
@@ -229,6 +236,82 @@ class NormalizedGenreUpdater:
         """Track-level genre fetching from Last.FM is disabled; return empty list."""
         return []
 
+    def _fetch_artist_genres_with_cache(self, artist: str) -> Optional[List[str]]:
+        """
+        Fetch artist genres with cache support.
+
+        Args:
+            artist: Artist name
+
+        Returns:
+            List of genres if found, None if not found, empty list if marked empty
+        """
+        try:
+            # Step 1: Search for artist to get MBID
+            search_url = "https://musicbrainz.org/ws/2/artist/"
+            params = {
+                'query': f'artist:"{artist}"',
+                'fmt': 'json',
+                'limit': 1
+            }
+
+            response = self.musicbrainz.session.get(search_url, params=params)
+            response.raise_for_status()
+            time.sleep(1.1)  # Rate limit
+
+            data = response.json()
+
+            if not data.get('artists'):
+                logger.debug(f"MusicBrainz: No results for {artist}")
+                return None
+
+            artist_mbid = data['artists'][0]['id']
+
+            # Step 2: Check cache
+            cached_genres = self.genre_cache.get(artist_mbid)
+            if cached_genres is not None:
+                logger.debug(f"Cache hit for {artist} ({artist_mbid})")
+                # Return None for empty cache marker
+                return None if cached_genres == ['__EMPTY__'] else cached_genres
+
+            # Step 3: Fetch from API
+            artist_url = f"https://musicbrainz.org/ws/2/artist/{artist_mbid}"
+            params = {'fmt': 'json', 'inc': 'tags+genres'}
+
+            response = self.musicbrainz.session.get(artist_url, params=params)
+            response.raise_for_status()
+            time.sleep(1.1)
+
+            artist_data = response.json()
+
+            # Extract genres
+            genres = []
+            for genre in artist_data.get('genres', []):
+                if genre.get('name'):
+                    genres.append(genre['name'].lower())
+
+            for tag in artist_data.get('tags', []):
+                if tag.get('name') and tag.get('count', 0) >= 3:
+                    tag_name = tag['name'].lower()
+                    if tag_name not in genres:
+                        genres.append(tag_name)
+
+            genres = genres[:10]  # Limit to top 10
+
+            # Step 4: Store in cache
+            cache_value = genres if genres else ['__EMPTY__']
+            self.genre_cache.set(artist_mbid, cache_value, source="musicbrainz")
+
+            if not genres:
+                return None
+
+            logger.debug(f"API fetch for {artist} ({artist_mbid}): {len(genres)} genres")
+            return genres
+
+        except Exception as e:
+            logger.debug(f"Error fetching genres for {artist}: {e}")
+            return None
+
     def update_artist_genres(
         self,
         limit: Optional[int] = None,
@@ -282,7 +365,8 @@ class NormalizedGenreUpdater:
             try:
                 # MusicBrainz artist genres (if needed)
                 if needs_musicbrainz:
-                    mb_genres = self.musicbrainz.fetch_musicbrainz_artist_genres(artist)
+                    # Use cache-aware method
+                    mb_genres = self._fetch_artist_genres_with_cache(artist)
                     if mb_genres:
                         self._store_artist_genres(artist, mb_genres, 'musicbrainz_artist')
                         set_enrichment_status(self.conn, "artist", key, STATUS_OK, last_error=None)
@@ -342,12 +426,18 @@ class NormalizedGenreUpdater:
             prog.finish()
 
         elapsed = time.time() - start_time
+
+        # Save cache
+        self.genre_cache.save()
+        cache_stats = self.genre_cache.get_stats()
+
         logger.info("\n" + "=" * 70)
         logger.info(f"Artist Genres Complete: {total - stats['failed']}/{total} in {elapsed:.1f}s")
         logger.info(f"  Direct MusicBrainz: {stats['musicbrainz']}")
         logger.info(f"  Inherited (collab): {stats['inherited']}")
         logger.info(f"  No genres found: {stats['empty']}")
         logger.info(f"  Failed: {stats['failed']}")
+        logger.info(f"  Cache: {cache_stats['total']} entries ({cache_stats['fresh']} fresh)")
         logger.info("=" * 70)
 
     def update_album_genres(

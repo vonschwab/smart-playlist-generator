@@ -43,7 +43,7 @@ class TestGenreNormalization:
 
     def test_normalization_lowercases_and_strips(self):
         """Genre normalization should lowercase and strip whitespace."""
-        from src.genre_normalization import normalize_genre_token
+        from src.genre.normalize_unified import normalize_genre_token
 
         assert normalize_genre_token("New Age") == "new age"
         assert normalize_genre_token(" PROGRESSIVE ROCK ") == "progressive rock"

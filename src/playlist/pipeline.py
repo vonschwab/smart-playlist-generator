@@ -514,30 +514,29 @@ def generate_playlist_ds(
         else:
             logger.info("All %d pier seeds found in bundle", len(anchor_seed_ids))
 
-        # 2. Deduplicate seeds by title (keep first occurrence)
+        # 2. Deduplicate seeds by (artist, title) track key (keep first occurrence)
         pier_seed_indices = list(dict.fromkeys(pier_seed_indices))
         if bundle.track_titles is not None:
-            seen_titles: set[str] = set()
+            seen_track_keys: set[tuple[str, str]] = set()
             dedupe_indices: list[int] = []
             for idx in pier_seed_indices:
-                title = bundle.track_titles[idx] or ""
-                norm_title = normalize_title_for_dedupe(str(title), mode="loose")
-                if norm_title not in seen_titles:
-                    seen_titles.add(norm_title)
+                track_key = identity_keys_for_index(bundle, idx).track_key
+                if track_key not in seen_track_keys:
+                    seen_track_keys.add(track_key)
                     dedupe_indices.append(idx)
                 else:
-                    logger.debug("Removing duplicate-titled pier seed: %s", title)
+                    title = bundle.track_titles[idx] or ""
+                    artist = bundle.track_artists[idx] if bundle.track_artists is not None else ""
+                    logger.debug("Removing duplicate pier seed: %s - %s", artist, title)
             pier_seed_indices = dedupe_indices
 
         # Ensure primary seed is included
         if seed_idx not in pier_seed_indices:
             should_insert = True
             if bundle.track_titles is not None:
-                seed_title = bundle.track_titles[seed_idx] or ""
-                norm_seed = normalize_title_for_dedupe(str(seed_title), mode="loose")
+                seed_track_key = identity_keys_for_index(bundle, seed_idx).track_key
                 for idx in pier_seed_indices:
-                    anchor_title = bundle.track_titles[idx] or ""
-                    if normalize_title_for_dedupe(str(anchor_title), mode="loose") == norm_seed:
+                    if identity_keys_for_index(bundle, idx).track_key == seed_track_key:
                         should_insert = False
                         break
             if should_insert:
@@ -678,17 +677,19 @@ def generate_playlist_ds(
             )
 
             # Segment-local pier-bridge policy defaults (with optional overrides).
-            disallow_seed_raw = pb_overrides.get("disallow_seed_artist_in_interiors")
-            if isinstance(disallow_seed_raw, bool):
+            # CRITICAL: For artist playlists, seed artist must ONLY appear as piers (design principle)
+            if artist_playlist:
                 pb_cfg = replace(
                     pb_cfg,
-                    disallow_seed_artist_in_interiors=bool(disallow_seed_raw),
+                    disallow_seed_artist_in_interiors=True,
                 )
             else:
-                pb_cfg = replace(
-                    pb_cfg,
-                    disallow_seed_artist_in_interiors=bool(artist_playlist),
-                )
+                disallow_seed_raw = pb_overrides.get("disallow_seed_artist_in_interiors")
+                if isinstance(disallow_seed_raw, bool):
+                    pb_cfg = replace(
+                        pb_cfg,
+                        disallow_seed_artist_in_interiors=bool(disallow_seed_raw),
+                    )
 
             disallow_pier_raw = pb_overrides.get("disallow_pier_artists_in_interiors")
             if isinstance(disallow_pier_raw, bool):
@@ -1347,15 +1348,76 @@ def generate_playlist_ds(
                 artist_identity_cfg=artist_identity_cfg,
             )
             if not pb_result.success:
+                # Build diagnostic error message
+                pool_stats = pool.stats or {}
+                failure_reason = str(pb_result.failure_reason or "pier-bridge failed")
+
+                # Detect bottleneck type
+                admitted = pool_stats.get("pool_size", len(pool_indices))
+                rejected_sonic = pool_stats.get("below_sonic_similarity", 0)
+                rejected_genre = pool_stats.get("below_genre_similarity", 0)
+                total_considered = pool_stats.get("total_candidates_considered", 0)
+
+                # Determine if genre gating is the bottleneck
+                diagnostic_msg = failure_reason
+                if admitted == 0 and rejected_genre > 0:
+                    # Genre gating eliminated all candidates
+                    passed_sonic = total_considered - rejected_sonic if total_considered > rejected_sonic else 0
+                    diagnostic_msg = (
+                        f"{failure_reason}\n\n"
+                        f"🔍 Root cause: GENRE ISOLATION\n"
+                        f"   - {passed_sonic} tracks passed sonic similarity\n"
+                        f"   - ALL {rejected_genre} were rejected by genre filter (min_similarity={cfg.genre_gate_min_similarity:.2f})\n"
+                        f"   - Zero candidates remained for playlist generation\n\n"
+                        f"💡 This artist's genres are too isolated from your library.\n"
+                        f"   Suggestions:\n"
+                        f"   - Reduce genre mode from {cfg.mode} to 'narrow' or 'dynamic'\n"
+                        f"   - Add more music in similar genres to your library\n"
+                        f"   - Use genre mode 'discover' to disable hard genre filtering"
+                    )
+                elif admitted == 0 and rejected_sonic > 0:
+                    # Sonic similarity eliminated all candidates
+                    diagnostic_msg = (
+                        f"{failure_reason}\n\n"
+                        f"🔍 Root cause: SONIC ISOLATION\n"
+                        f"   - {rejected_sonic} of {total_considered} tracks rejected by sonic floor\n"
+                        f"   - Zero candidates remained for playlist generation\n\n"
+                        f"💡 This artist's sound is too sonically isolated from your library.\n"
+                        f"   Suggestions:\n"
+                        f"   - Reduce sonic mode from {cfg.mode} to 'narrow' or 'dynamic'\n"
+                        f"   - Add more sonically similar music to your library"
+                    )
+                elif admitted > 0 and admitted < 10:
+                    # Small pool passed filters but not enough for bridging
+                    diagnostic_msg = (
+                        f"{failure_reason}\n\n"
+                        f"🔍 Root cause: INSUFFICIENT CANDIDATE POOL\n"
+                        f"   - Only {admitted} candidates passed all filters\n"
+                        f"   - Rejected: {rejected_sonic} sonic, {rejected_genre} genre\n"
+                        f"   - Need more candidates to bridge between {len(seed_track_ids_for_pier)} seeds\n\n"
+                        f"💡 The candidate pool is too small for multi-seed bridging.\n"
+                        f"   Suggestions:\n"
+                        f"   - Use fewer seeds (1-2 instead of {len(seed_track_ids_for_pier)})\n"
+                        f"   - Reduce filtering: set genre/sonic modes to 'discover'\n"
+                        f"   - Choose seeds that are more sonically/genre similar to each other"
+                    )
+
                 if audit_events is not None and audit_context is not None and audit_path is not None:
                     audit_events.append(
                         RunAuditEvent(
                             kind="final_failure",
                             ts_utc=now_utc_iso(),
                             payload={
-                                "failure_reason": str(pb_result.failure_reason or "pier-bridge failed"),
+                                "failure_reason": failure_reason,
+                                "diagnostic_msg": diagnostic_msg,
                                 "segment_bridge_floors_used": (pb_result.stats or {}).get("segment_bridge_floors_used"),
                                 "segment_backoff_attempts_used": (pb_result.stats or {}).get("segment_backoff_attempts_used"),
+                                "pool_diagnostics": {
+                                    "admitted": admitted,
+                                    "rejected_sonic": rejected_sonic,
+                                    "rejected_genre": rejected_genre,
+                                    "total_considered": total_considered,
+                                },
                             },
                         )
                     )
@@ -1369,9 +1431,9 @@ def generate_playlist_ds(
                     except Exception as exc:
                         logger.exception("Failed to write run audit report: %s", exc)
                     raise ValueError(
-                        f"Pier-bridge failed: {pb_result.failure_reason} (audit: {audit_path})"
+                        f"{diagnostic_msg}\n\n(Detailed audit: {audit_path})"
                     )
-                raise ValueError(f"Pier-bridge failed: {pb_result.failure_reason}")
+                raise ValueError(diagnostic_msg)
 
             # 6. Log diagnostics
             logger.info(

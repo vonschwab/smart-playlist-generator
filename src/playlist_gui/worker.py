@@ -48,6 +48,14 @@ import yaml
 
 from .utils.redaction import redact_text
 
+# Import cancellation infrastructure
+try:
+    from ..cancellation import CancellationToken, CancelledException
+except ImportError:
+    # Fallback if module not found
+    CancellationToken = None
+    CancelledException = Exception
+
 
 # Protocol version
 PROTOCOL_VERSION = 1
@@ -133,6 +141,23 @@ class WorkerState:
 
 # Global worker state
 _worker_state = WorkerState()
+
+# Global cancellation token for current operation
+_current_cancellation_token: Optional[CancellationToken] = None
+_token_lock = threading.Lock()
+
+
+def set_cancellation_token(token: Optional[CancellationToken]) -> None:
+    """Set the cancellation token for the current operation."""
+    global _current_cancellation_token
+    with _token_lock:
+        _current_cancellation_token = token
+
+
+def get_cancellation_token() -> Optional[CancellationToken]:
+    """Get the current cancellation token."""
+    with _token_lock:
+        return _current_cancellation_token
 
 
 def check_cancelled() -> None:
@@ -229,6 +254,69 @@ def emit_done(
     emit_event(event)
 
 
+def emit_checkpoint(stage: str, items_completed: int, resumable_state: Optional[Dict[str, Any]] = None) -> None:
+    """
+    Emit a checkpoint event for resumable operations.
+
+    Args:
+        stage: Stage name (e.g., 'scan', 'genres')
+        items_completed: Number of items completed so far
+        resumable_state: Optional state data for resumption (e.g., last file processed)
+    """
+    event = {
+        "type": "checkpoint",
+        "stage": stage,
+        "items_completed": items_completed,
+    }
+    if resumable_state:
+        event["resumable_state"] = resumable_state
+    emit_event(event)
+
+
+def emit_verbose_log(level: str, message: str, context: Optional[Dict[str, Any]] = None) -> None:
+    """
+    Emit a verbose log event (only sent when verbose mode is enabled).
+
+    Args:
+        level: Log level (DEBUG, INFO, WARNING, ERROR)
+        message: Log message
+        context: Optional context data (file path, item name, etc.)
+    """
+    import datetime
+    event = {
+        "type": "verbose_log",
+        "level": level,
+        "message": redact_text(message),
+        "timestamp": datetime.datetime.now().isoformat(),
+    }
+    if context:
+        event["context"] = context
+    emit_event(event)
+
+
+def emit_performance(stage: str, elapsed_seconds: float, items_processed: int, throughput: Optional[float] = None) -> None:
+    """
+    Emit a performance metrics event.
+
+    Args:
+        stage: Stage name (e.g., 'scan', 'genres')
+        elapsed_seconds: Time elapsed for this stage
+        items_processed: Number of items processed
+        throughput: Optional throughput (items/sec), calculated if not provided
+    """
+    if throughput is None and elapsed_seconds > 0:
+        throughput = items_processed / elapsed_seconds
+
+    event = {
+        "type": "performance",
+        "stage": stage,
+        "elapsed_seconds": round(elapsed_seconds, 2),
+        "items_processed": items_processed,
+        "throughput": round(throughput, 2) if throughput else 0.0,
+    }
+    emit_event(event)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Logging Integration
 # ─────────────────────────────────────────────────────────────────────────────
@@ -303,24 +391,6 @@ def _apply_mode_presets(config: Dict[str, Any]) -> None:
         return
 
     apply_mode_presets(playlists_cfg)
-
-
-def _derive_cohesion_label(
-    genre_mode: Optional[str],
-    sonic_mode: Optional[str],
-) -> Optional[str]:
-    if not genre_mode or not sonic_mode:
-        return None
-    genre_mode = str(genre_mode).lower()
-    sonic_mode = str(sonic_mode).lower()
-    if genre_mode != sonic_mode:
-        return None
-    return {
-        "strict": "tight",
-        "narrow": "balanced",
-        "dynamic": "wide",
-        "discover": "discover",
-    }.get(genre_mode)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -501,6 +571,11 @@ def handle_cancel(cmd_data: Dict[str, Any]) -> None:
 
     if _worker_state.request_cancel(target_request_id):
         emit_log("WARNING", f"Cancellation requested for {target_request_id}", request_id=target_request_id)
+
+        # Signal the cancellation token if available
+        token = get_cancellation_token()
+        if token:
+            token.cancel(f"User requested cancellation for {target_request_id}")
     else:
         current = _worker_state.get_request_id()
         if current:
@@ -526,7 +601,15 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
             seed_tracks = None
     else:
         seed_tracks = None
+    seed_track_ids = args.get("seed_track_ids")
+    if isinstance(seed_track_ids, list):
+        seed_track_ids = [str(t).strip() for t in seed_track_ids if str(t).strip()]
+        if not seed_track_ids:
+            seed_track_ids = None
+    else:
+        seed_track_ids = None
     track_count = args.get("tracks", 30)
+    include_collaborations = bool(args.get("include_collaborations", False))
 
     emit_log("INFO", f"Starting playlist generation (mode={mode})")
     emit_progress("init", 0, 100, "Loading configuration")
@@ -740,11 +823,6 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
             emit_log("INFO", f"Sonic mode: {sonic_mode}")
         emit_log("INFO", f"DS pipeline mode: {ds_mode}")
 
-        cohesion = args.get("cohesion") or _derive_cohesion_label(
-            genre_mode,
-            sonic_mode,
-        )
-
         # Cancellation check before generation
         check_cancelled()
 
@@ -760,7 +838,7 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                 track_titles=seed_tracks,
                 dynamic=(ds_mode == "dynamic"),
                 ds_mode_override=ds_mode,
-                cohesion=cohesion,
+                include_collaborations=include_collaborations,
             )
         elif mode == "seeds" and seed_tracks:
             # Seeds mode (Phase 2 UI)
@@ -769,7 +847,7 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                 track_count=track_count,
                 dynamic=(ds_mode == "dynamic"),
                 ds_mode_override=ds_mode,
-                cohesion=cohesion,
+                seed_track_ids=seed_track_ids,
             )
         elif mode == "artist" and seed_tracks:
             # Legacy seeds mode (old UI sent mode="artist" with seed_tracks)
@@ -778,7 +856,7 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                 track_count=track_count,
                 dynamic=(ds_mode == "dynamic"),
                 ds_mode_override=ds_mode,
-                cohesion=cohesion,
+                seed_track_ids=seed_track_ids,
             )
         elif mode == "genre" and genre:
             # Genre mode
@@ -787,7 +865,6 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                 track_count,
                 dynamic=(ds_mode == "dynamic"),
                 ds_mode_override=ds_mode,
-                cohesion=cohesion,
             )
         else:
             # Fallback for unknown modes or missing required parameters
@@ -907,8 +984,15 @@ def handle_scan_library(cmd_data: Dict[str, Any]) -> None:
     base_path = cmd_data.get("base_config_path", "config.yaml")
     overrides = cmd_data.get("overrides", {})
 
-    emit_log("INFO", "Starting library scan")
+    # Check if force flag is set for full scan
+    force = overrides.get('force', False)
+    scan_type = "full scan" if force else "quick scan (incremental)"
+    emit_log("INFO", f"Starting library scan ({scan_type})")
     emit_progress("scan", 0, 100, "Initializing")
+
+    # Create cancellation token for this operation
+    cancellation_token = CancellationToken() if CancellationToken else None
+    set_cancellation_token(cancellation_token)
 
     try:
         config = load_config_with_overrides(base_path, overrides)
@@ -927,8 +1011,13 @@ def handle_scan_library(cmd_data: Dict[str, Any]) -> None:
         emit_progress("scan", 10, 100, f"Scanning {music_dir}")
 
         # LibraryScanner reads music_dir and db_path from config
-        scanner = LibraryScanner(config_path=base_path)
-        stats = scanner.run(quick=False)
+        # Default to quick=True (incremental) unless force=True in overrides
+        quick = not force
+        scanner = LibraryScanner(config_path=base_path, cancellation_token=cancellation_token)
+        stats = scanner.run(
+            quick=quick,
+            cleanup=True,  # Always cleanup missing files during pipeline
+        )
 
         check_cancelled()
         emit_result("scan", {"stats": stats})
@@ -939,12 +1028,42 @@ def handle_scan_library(cmd_data: Dict[str, Any]) -> None:
         emit_done("scan_library", True, f"Scanned {total} files", summary=summary)
 
     except CancellationError:
-        emit_log("INFO", "Library scan cancelled")
+        emit_log("INFO", "Library scan cancelled by user")
         emit_done("scan_library", False, "Cancelled by user", cancelled=True, summary="Scan cancelled")
+    except CancelledException as e:
+        # Graceful cancellation with checkpoint
+        progress_data = getattr(e, 'progress', {})
+        items_completed = progress_data.get('items_completed', 0)
+        total_items = progress_data.get('total_items', 0)
+        stats = progress_data.get('stats', {})
+
+        emit_log("INFO", f"Library scan cancelled: {e}")
+
+        # Emit checkpoint for potential resumption
+        emit_checkpoint(
+            stage="scan",
+            items_completed=items_completed,
+            resumable_state={
+                "last_file_index": progress_data.get('last_file_index', 0),
+                "stats": stats,
+                "base_config_path": base_path,
+                "overrides": overrides,
+            }
+        )
+
+        # Emit partial results
+        if stats:
+            emit_result("scan", {"stats": stats})
+
+        summary = f"Scan cancelled: {items_completed}/{total_items} files processed"
+        emit_done("scan_library", False, str(e), cancelled=True, summary=summary)
     except Exception as e:
         tb = traceback.format_exc()
         emit_error(str(e), tb)
         emit_done("scan_library", False, str(e), summary="Scan failed")
+    finally:
+        # Clear cancellation token
+        set_cancellation_token(None)
 
 
 def handle_update_genres(cmd_data: Dict[str, Any]) -> None:
@@ -1086,6 +1205,9 @@ def handle_build_artifacts(cmd_data: Dict[str, Any]) -> None:
             max_tracks=0,
             no_pca=False,
             pca_variance=0.95,
+            clip_sigma=3.0,
+            random_seed=42,
+            no_genre_normalization=False,
             verbose=False
         )
         build_artifacts(args)
@@ -1165,8 +1287,30 @@ TRACKED_COMMAND_HANDLERS = {
 }
 
 # Commands that don't have their own request context
+def handle_set_logging_level(cmd_data: Dict[str, Any]) -> None:
+    """
+    Handle set_logging_level command - update worker logging level.
+
+    This is an untracked command that doesn't produce tracked events.
+    """
+    level = cmd_data.get("level", "INFO").upper()
+    valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR"]
+
+    if level not in valid_levels:
+        emit_log("WARNING", f"Invalid log level: {level}, using INFO")
+        level = "INFO"
+
+    try:
+        from . import logging_utils
+        logging_utils.set_log_level(level)
+        emit_log("INFO", f"Logging level changed to {level}")
+    except Exception as e:
+        emit_log("ERROR", f"Failed to change logging level: {e}")
+
+
 UNTRACKED_COMMAND_HANDLERS = {
     "cancel": handle_cancel,
+    "set_logging_level": handle_set_logging_level,
 }
 
 

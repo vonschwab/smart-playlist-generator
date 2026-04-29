@@ -145,6 +145,18 @@ class ArtistModePanel(QWidget):
         variety_section.addWidget(self._variety_label)
 
         tuning_row.addWidget(variety_container)
+
+        # Include collaborations checkbox
+        self._collabs_check = QCheckBox("Include collaborations")
+        self._collabs_check.setToolTip(
+            "Mix collaboration tracks into the seed pool.\n"
+            "Examples: \"Miles Davis Quintet\", \"Greg Foat & Art Themen\",\n"
+            "\"Miles Davis & John Coltrane\". Recognises &, and, feat./ft.,\n"
+            "with, +, /, comma, and ensemble suffixes (trio, quartet,\n"
+            "quintet, sextet, group, band, ensemble, orchestra)."
+        )
+        tuning_row.addWidget(self._collabs_check)
+
         tuning_row.addStretch()
 
         layout.addLayout(tuning_row)
@@ -200,6 +212,14 @@ class ArtistModePanel(QWidget):
         levels: List[VarietyLevel] = ["focused", "balanced", "sprawling"]
         return levels[value]
 
+    def get_include_collaborations(self) -> bool:
+        """Whether collaboration tracks should join the seed pool."""
+        return self._collabs_check.isChecked()
+
+    def set_include_collaborations(self, checked: bool) -> None:
+        """Set the collaboration toggle programmatically."""
+        self._collabs_check.setChecked(bool(checked))
+
     def set_artist(self, artist: str) -> None:
         """Set artist text programmatically."""
         self._artist_edit.setText(artist)
@@ -209,6 +229,7 @@ class ArtistModePanel(QWidget):
         self._artist_edit.clear()
         self._presence_combo.setCurrentIndex(2)
         self._variety_slider.setValue(1)
+        self._collabs_check.setChecked(False)
 
 
 class SeedsModePanel(QWidget):

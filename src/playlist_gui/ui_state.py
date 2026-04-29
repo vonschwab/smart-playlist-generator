@@ -25,11 +25,17 @@ class UIStateModel:
     # ─────────────────────────────────────────────────────────────────────────
     # Top-level mode
     # ─────────────────────────────────────────────────────────────────────────
-    mode: Literal["artist", "seeds"] = "artist"
+    mode: Literal["artist", "seeds", "history"] = "artist"
 
     # ─────────────────────────────────────────────────────────────────────────
     # Genre/Sonic modes (strictness controls for matching)
     # ─────────────────────────────────────────────────────────────────────────
+    cohesion: Literal["tight", "balanced", "wide", "discover"] = "balanced"
+    """
+    Backward-compatible aggregate control for genre_mode and sonic_mode.
+    Newer UI paths may set genre_mode/sonic_mode directly.
+    """
+
     genre_mode: Literal["strict", "narrow", "dynamic", "discover"] = "narrow"
     sonic_mode: Literal["strict", "narrow", "dynamic", "discover"] = "narrow"
 
@@ -50,6 +56,8 @@ class UIStateModel:
     recency_enabled: bool = True
     recency_days: int = 14
     recency_plays_threshold: int = 1
+
+    history_window_days: int = 30
 
     # ─────────────────────────────────────────────────────────────────────────
     # Artist spacing
@@ -87,6 +95,15 @@ class UIStateModel:
     - focused: tight style clustering
     - balanced: moderate diversity
     - sprawling: wide stylistic spread
+    """
+
+    include_collaborations: bool = False
+    """
+    When True, collaboration tracks (e.g. "Miles Davis Quintet",
+    "Greg Foat & Art Themen", "Miles Davis & John Coltrane") are mixed
+    into the seed candidate pool alongside solo tracks. When False,
+    only exact-artist tracks are used unless the artist has < 4 solo
+    tracks (in which case collaborations are added as a fallback).
     """
 
     # ─────────────────────────────────────────────────────────────────────────

@@ -87,7 +87,7 @@ class TestGenreModuleImports:
     """Test that genre submodule is importable."""
 
     def test_genre_normalization(self):
-        from src.genre_normalization import normalize_genre_list
+        from src.genre.normalize_unified import normalize_genre_list
         assert normalize_genre_list is not None
 
     def test_genre_normalize(self):

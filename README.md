@@ -1,6 +1,6 @@
 # Playlist Generator
 
-**Version 3.4** - DJ Bridge Mode for multi-seed playlists with genre-aware bridging, intelligent union pooling, and comprehensive diagnostics.
+**Version 3.5** - Quality-of-life release with faster scans, resumable GUI jobs, genre caching, and improved artist/collaboration handling.
 
 ## Overview
 
@@ -13,14 +13,13 @@ This system generates intelligent playlists by combining:
 - **Artist Identity Resolution** - Collaboration-aware constraints that block featured artists and ensemble variants
 - **Comprehensive Diagnostics** - Pool visibility, per-track membership, waypoint saturation metrics
 
-## What's New in v3.4
+## What's New in v3.5
 
-✨ **DJ Bridge Mode** - Generate smooth multi-seed playlists by creating genre-aware bridges between 2-10 seed tracks
-🎯 **Union Pooling** - Intelligent combination of local, toward, and genre pools for balanced exploration-exploitation
-📊 **Vector Mode & IDF Weighting** - Preserves multi-genre signatures while emphasizing rare genres
-👥 **Collaboration-Aware Diversity** - Artist identity resolution now blocks featured artists and ensemble variants
-⚡ **Performance** - 30× speedup in genre pool computation via transition score caching
-📈 **Diagnostics** - Comprehensive logging showing pool composition, track membership, and waypoint saturation
+⚡ **Faster Library Scans** - Batch-oriented scan updates reduce overhead for large local libraries
+🧭 **Resumable GUI Jobs** - Long-running worker jobs can emit checkpoints and expose richer job details
+💾 **Genre Lookup Cache** - MusicBrainz/Discogs genre lookups are cached to reduce repeated API work
+👥 **Collaboration-Aware Artist Style** - Artist clustering can include collaborations when requested
+📈 **Diagnostics** - Verbose worker logs, performance metrics, and collaboration inspection tools improve debugging
 
 For complete details, see [docs/CHANGELOG.md](docs/CHANGELOG.md) and [docs/DJ_BRIDGE_ARCHITECTURE.md](docs/DJ_BRIDGE_ARCHITECTURE.md).
 

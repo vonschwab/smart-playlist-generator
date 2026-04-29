@@ -424,6 +424,9 @@ class GeneratePanel(QWidget):
             artist_queries=self._artist_panel.get_artists() if mode == "artist" else [],
             artist_presence=self._artist_panel.get_presence() if mode == "artist" else "medium",
             artist_variety=self._artist_panel.get_variety() if mode == "artist" else "balanced",
+            include_collaborations=(
+                self._artist_panel.get_include_collaborations() if mode == "artist" else False
+            ),
             seed_track_ids=self._seeds_panel.get_seed_track_ids() if mode == "seeds" else [],
             seed_auto_order=self._seeds_panel.get_auto_order() if mode == "seeds" else True,
         )
@@ -433,6 +436,12 @@ class GeneratePanel(QWidget):
         if self._get_current_mode() != "seeds":
             return []
         return self._seeds_panel.get_seed_artist_keys()
+
+    def get_seed_track_ids(self) -> List[str]:
+        """Get list of seed track IDs for exact track matching."""
+        if self._get_current_mode() != "seeds":
+            return []
+        return self._seeds_panel.get_seed_track_ids()
 
     def get_seed_display_strings(self) -> List[str]:
         """

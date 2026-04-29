@@ -26,7 +26,7 @@ from typing import List, Optional
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
-from src.genre_normalization import normalize_genre_list
+from src.genre.normalize_unified import normalize_genre_list
 from src.logging_utils import configure_logging
 
 try:

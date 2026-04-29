@@ -728,6 +728,15 @@ class MainWindow(QMainWindow):
         tools_menu.addAction("Update &Sonic Features", self._on_update_sonic)
         tools_menu.addAction("&Build Artifacts", self._on_build_artifacts)
 
+        # Settings menu
+        settings_menu = QMenu("&Settings", self)
+        menubar.addMenu(settings_menu)
+
+        self._verbose_logging_action = settings_menu.addAction("&Verbose Logging")
+        self._verbose_logging_action.setCheckable(True)
+        self._verbose_logging_action.setChecked(False)
+        self._verbose_logging_action.triggered.connect(self._on_verbose_logging_toggled)
+
         # View menu
         view_menu = QMenu("&View", self)
         menubar.addMenu(view_menu)
@@ -1206,8 +1215,12 @@ class MainWindow(QMainWindow):
 
         # Determine mode-specific parameters
         artist = ui_state.primary_artist() if ui_state.mode == "artist" else None
-        # Use display strings for backend communication (backend expects "Title - Artist" format)
-        # seed_track_ids stores stable IDs internally, but backend parses display strings
+        # Pass both track IDs (for exact matching) and display strings (fallback)
+        seed_track_ids = (
+            self._generate_panel.get_seed_track_ids()
+            if ui_state.mode == "seeds" and self._generate_panel
+            else []
+        )
         seed_tracks = (
             self._generate_panel.get_seed_display_strings()
             if ui_state.mode == "seeds" and self._generate_panel
@@ -1223,9 +1236,11 @@ class MainWindow(QMainWindow):
             genre=None,  # Genre mode removed in Phase 2
             track=None,
             seed_tracks=seed_tracks,
+            seed_track_ids=seed_track_ids,
             tracks=ui_state.track_count,
             genre_mode=ui_state.genre_mode,
             sonic_mode=ui_state.sonic_mode,
+            include_collaborations=ui_state.include_collaborations,
         )
 
         # Log generation start
@@ -1239,6 +1254,8 @@ class MainWindow(QMainWindow):
         log_msg += ")"
         if artist:
             log_msg += f", artist={artist}"
+            if ui_state.include_collaborations:
+                log_msg += ", collabs=ON"
         if seed_tracks:
             log_msg += f", seeds={len(seed_tracks)}"
         self._log_panel.append_log("INFO", log_msg)
@@ -1708,6 +1725,13 @@ class MainWindow(QMainWindow):
         self._blacklist_window.raise_()
         self._blacklist_window.activateWindow()
         self._blacklist_window.refresh()
+
+    def _on_verbose_logging_toggled(self, checked: bool) -> None:
+        """Handle verbose logging toggle."""
+        self._logger.info(f"Verbose logging {'enabled' if checked else 'disabled'}")
+        if self._worker_client:
+            # Update worker logging level
+            self._worker_client.update_logging_level(checked)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Export Handlers

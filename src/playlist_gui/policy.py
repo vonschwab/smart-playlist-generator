@@ -58,6 +58,17 @@ This ensures the simplified UI controls take precedence.
 
 VALID_MODES: Set[str] = {"strict", "narrow", "dynamic", "discover"}
 
+COHESION_MAP: Dict[str, tuple[str, str]] = {
+    "tight": ("strict", "strict"),
+    "balanced": ("narrow", "narrow"),
+    "wide": ("dynamic", "dynamic"),
+    "discover": ("discover", "discover"),
+}
+"""
+Backward-compatible mapping from the original cohesion dial to explicit
+genre/sonic modes.
+"""
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Artist spacing mapping
@@ -243,8 +254,15 @@ def derive_runtime_config(
     # ─────────────────────────────────────────────────────────────────────
     # 1. Genre/Sonic modes
     # ─────────────────────────────────────────────────────────────────────
-    genre_mode = ui.genre_mode if ui.genre_mode in VALID_MODES else "dynamic"
-    sonic_mode = ui.sonic_mode if ui.sonic_mode in VALID_MODES else "dynamic"
+    if (
+        getattr(ui, "cohesion", None) in COHESION_MAP
+        and ui.genre_mode == "narrow"
+        and ui.sonic_mode == "narrow"
+    ):
+        genre_mode, sonic_mode = COHESION_MAP[ui.cohesion]
+    else:
+        genre_mode = ui.genre_mode if ui.genre_mode in VALID_MODES else "dynamic"
+        sonic_mode = ui.sonic_mode if ui.sonic_mode in VALID_MODES else "dynamic"
     _set_nested(overrides, "playlists.genre_mode", genre_mode)
     _set_nested(overrides, "playlists.sonic_mode", sonic_mode)
     notes.append(f"Genre mode: {genre_mode}")
