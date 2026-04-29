@@ -971,6 +971,7 @@ class LibraryScanner:
         progress_interval: float = 15.0,
         progress_every: int = 500,
         verbose_each: bool = False,
+        resume_from_checkpoint: Optional[Dict] = None,
     ):
         """
         Run the library scan
@@ -980,6 +981,7 @@ class LibraryScanner:
             limit: Maximum number of files to process
             cleanup: If True, remove tracks with missing files
             force_cleanup: If True, allow deletion even when discovery looks invalid
+            resume_from_checkpoint: Optional checkpoint state from a cancelled scan.
         """
         logger.info("=" * 70)
         logger.info("Music Library Scanner")
@@ -1013,15 +1015,32 @@ class LibraryScanner:
         if force_cleanup:
             safe_to_delete = True
 
-        # Cleanup missing files if requested and safe
-        if cleanup and safe_to_delete:
+        resume_state = resume_from_checkpoint or {}
+        resume_index = max(0, int(resume_state.get("last_file_index", 0) or 0))
+        if resume_index:
+            logger.info("Resuming scan from checkpoint index %d", resume_index)
+
+        if cleanup and safe_to_delete and not resume_index:
             self.cleanup_missing_files()
+        elif cleanup and resume_index:
+            logger.info("Cleanup requested but skipped while resuming from checkpoint.")
         elif cleanup and not safe_to_delete:
             logger.info("Cleanup requested but skipped due to safety guard.")
 
         if limit:
             files = files[:limit]
             logger.info(f"Limited to {limit} files")
+
+        if resume_index:
+            if resume_index >= len(files):
+                logger.info("Checkpoint index %d is at or beyond %d files; nothing left to process", resume_index, len(files))
+                prior_stats = dict(resume_state.get("stats") or {})
+                prior_stats.setdefault("total", len(files))
+                prior_stats.setdefault("new", 0)
+                prior_stats.setdefault("updated", 0)
+                prior_stats.setdefault("failed", 0)
+                return prior_stats
+            logger.info("Skipping %d already processed files from checkpoint", resume_index)
 
         if not files:
             logger.info("No files to process")
@@ -1035,11 +1054,17 @@ class LibraryScanner:
             'updated': 0,
             'failed': 0
         }
+        if resume_index:
+            stats.update({
+                key: int(value)
+                for key, value in (resume_state.get("stats") or {}).items()
+                if key in {"new", "updated", "failed"} and isinstance(value, int)
+            })
         if quick:
             stats["modified_reasons"] = dict(self._last_modified_reasons)
             stats["modified_examples"] = dict(self._last_modified_examples)
 
-        logger.info(f"\nProcessing {len(files)} files...")
+        logger.info(f"\nProcessing {len(files) - resume_index} of {len(files)} files...")
 
         prog = ProgressLogger(
             logger,
@@ -1053,7 +1078,7 @@ class LibraryScanner:
 
         # Process files in batches for better performance (3-4x speedup)
         batch_size = 100
-        for batch_start in range(0, len(files), batch_size):
+        for batch_start in range(resume_index, len(files), batch_size):
             # Check for cancellation at batch boundaries
             if self.cancellation_token.is_cancelled():
                 # Commit partial progress

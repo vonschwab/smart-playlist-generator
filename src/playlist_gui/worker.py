@@ -48,13 +48,18 @@ import yaml
 
 from .utils.redaction import redact_text
 
-# Import cancellation infrastructure
 try:
     from ..cancellation import CancellationToken, CancelledException
 except ImportError:
-    # Fallback if module not found
-    CancellationToken = None
-    CancelledException = Exception
+    try:
+        from src.cancellation import CancellationToken, CancelledException
+    except ImportError:
+        CancellationToken = None
+
+        class CancelledException(Exception):
+            """Fallback cancellation type; never aliases broad Exception."""
+
+            pass
 
 
 # Protocol version
@@ -986,7 +991,10 @@ def handle_scan_library(cmd_data: Dict[str, Any]) -> None:
 
     # Check if force flag is set for full scan
     force = overrides.get('force', False)
+    resume_from_checkpoint = overrides.get("resume_from_checkpoint") or {}
     scan_type = "full scan" if force else "quick scan (incremental)"
+    if resume_from_checkpoint:
+        scan_type = f"{scan_type}, resuming"
     emit_log("INFO", f"Starting library scan ({scan_type})")
     emit_progress("scan", 0, 100, "Initializing")
 
@@ -1017,6 +1025,7 @@ def handle_scan_library(cmd_data: Dict[str, Any]) -> None:
         stats = scanner.run(
             quick=quick,
             cleanup=True,  # Always cleanup missing files during pipeline
+            resume_from_checkpoint=resume_from_checkpoint,
         )
 
         check_cancelled()

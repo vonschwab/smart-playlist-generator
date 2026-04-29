@@ -81,26 +81,77 @@ def resolve_track_from_display(
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
-        # Try to find exact match with title and artist
         if artist:
-            cursor.execute("""
-                SELECT track_id, title, artist, album, artist_key
-                FROM tracks
-                WHERE title = ? AND artist = ?
-                LIMIT 1
-            """, (title, artist))
+            if album:
+                cursor.execute("""
+                    SELECT track_id, title, artist, album, artist_key
+                    FROM tracks
+                    WHERE title = ? AND artist = ? AND album = ?
+                    LIMIT 1
+                """, (title, artist, album))
+            else:
+                cursor.execute("""
+                    SELECT track_id, title, artist, album, artist_key
+                    FROM tracks
+                    WHERE title = ? AND artist = ?
+                    LIMIT 1
+                """, (title, artist))
         else:
-            cursor.execute("""
-                SELECT track_id, title, artist, album, artist_key
-                FROM tracks
-                WHERE title = ?
-                LIMIT 1
-            """, (title,))
+            if album:
+                cursor.execute("""
+                    SELECT track_id, title, artist, album, artist_key
+                    FROM tracks
+                    WHERE title = ? AND album = ?
+                    LIMIT 1
+                """, (title, album))
+            else:
+                cursor.execute("""
+                    SELECT track_id, title, artist, album, artist_key
+                    FROM tracks
+                    WHERE title = ?
+                    LIMIT 1
+                """, (title,))
 
         row = cursor.fetchone()
 
         if not row:
             # Try case-insensitive match
+            if artist:
+                if album:
+                    cursor.execute("""
+                        SELECT track_id, title, artist, album, artist_key
+                        FROM tracks
+                        WHERE LOWER(title) = LOWER(?)
+                          AND LOWER(artist) = LOWER(?)
+                          AND LOWER(album) = LOWER(?)
+                        LIMIT 1
+                    """, (title, artist, album))
+                else:
+                    cursor.execute("""
+                        SELECT track_id, title, artist, album, artist_key
+                        FROM tracks
+                        WHERE LOWER(title) = LOWER(?) AND LOWER(artist) = LOWER(?)
+                        LIMIT 1
+                    """, (title, artist))
+            else:
+                if album:
+                    cursor.execute("""
+                        SELECT track_id, title, artist, album, artist_key
+                        FROM tracks
+                        WHERE LOWER(title) = LOWER(?) AND LOWER(album) = LOWER(?)
+                        LIMIT 1
+                    """, (title, album))
+                else:
+                    cursor.execute("""
+                        SELECT track_id, title, artist, album, artist_key
+                        FROM tracks
+                        WHERE LOWER(title) = LOWER(?)
+                        LIMIT 1
+                    """, (title,))
+
+            row = cursor.fetchone()
+
+        if not row and album:
             if artist:
                 cursor.execute("""
                     SELECT track_id, title, artist, album, artist_key
@@ -115,7 +166,6 @@ def resolve_track_from_display(
                     WHERE LOWER(title) = LOWER(?)
                     LIMIT 1
                 """, (title,))
-
             row = cursor.fetchone()
 
         conn.close()
