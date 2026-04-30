@@ -1310,7 +1310,7 @@ def handle_set_logging_level(cmd_data: Dict[str, Any]) -> None:
         level = "INFO"
 
     try:
-        from . import logging_utils
+        from src import logging_utils
         logging_utils.set_log_level(level)
         emit_log("INFO", f"Logging level changed to {level}")
     except Exception as e:

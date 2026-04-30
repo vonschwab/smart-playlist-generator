@@ -3521,6 +3521,11 @@ class PlaylistGenerator:
                         pool_source="seeded",
                     )
                     logger.info("✓ Fallback 1 succeeded (pier artists allowed, min_gap=3)")
+                    try:
+                        self.config.config["playlists"]["ds_pipeline"]["pier_bridge"]["disallow_pier_artists_in_interiors"] = original_disallow
+                        self.config.config["playlists"]["ds_pipeline"]["artist_spacing_min_gap"] = original_min_gap
+                    except Exception:
+                        pass
                 except ValueError as e2:
                     fallback_attempts.append(("allow_pier_gap3", str(e2)))
                     logger.warning("Fallback 1 failed: %s", e2)
