@@ -1,3 +1,24 @@
+# Playlist Generator Changelog
+
+## v3.5.0 - Quality-of-Life Improvements
+
+**Release Date:** 2026-04-29
+**Version:** 3.5.0
+**Branch:** `release/v3.5`
+**Focus:** Faster scans, resumable GUI jobs, cache-backed genre updates, and diagnostics
+
+### Highlights
+
+- Added cancellation/checkpoint infrastructure for long-running GUI worker operations.
+- Added job details UI with progress, checkpoint, error, and performance diagnostics.
+- Added persistent genre lookup caching for MusicBrainz/Discogs metadata refreshes.
+- Improved library scan throughput with batch-oriented processing.
+- Improved artist-style clustering with collaboration-aware matching and duration-aware medoid selection.
+- Added verbose worker logging and performance event plumbing for easier debugging.
+- Updated genre normalization imports in tests to the unified genre module path.
+
+---
+
 # Playlist Generator v3.4 - DJ Bridge Mode & Multi-Seed Playlists
 
 **Release Date:** 2026-01-10

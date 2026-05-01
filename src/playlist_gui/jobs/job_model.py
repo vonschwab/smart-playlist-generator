@@ -57,6 +57,8 @@ class Job:
     traceback: str = ""
     base_config_path: Optional[str] = None
     overrides: dict = field(default_factory=dict, repr=False, compare=False)
+    checkpoint_data: Optional[Dict] = field(default=None, repr=False, compare=False)
+    can_resume: bool = False
 
     def progress_percent(self) -> int:
         if self.progress_total <= 0:
@@ -96,6 +98,8 @@ class Job:
             "error_message": self.error_message,
             "traceback": self.traceback,
             "base_config_path": self.base_config_path,
+            "checkpoint_data": self.checkpoint_data,
+            "can_resume": self.can_resume,
         }
 
     @staticmethod
@@ -140,6 +144,8 @@ class Job:
             error_message=payload.get("error_message", ""),
             traceback=payload.get("traceback", ""),
             base_config_path=payload.get("base_config_path"),
+            checkpoint_data=payload.get("checkpoint_data"),
+            can_resume=bool(payload.get("can_resume", False)),
         )
 
 

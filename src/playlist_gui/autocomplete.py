@@ -32,8 +32,10 @@ class DatabaseCompleter(QObject):
         self._artists: List[str] = []
         self._artist_entries: List[Tuple[str, str]] = []  # (display, artist_key)
         self._tracks: List[Tuple[str, str, str]] = []  # (title, artist, album)
+        self._track_ids: List[str] = []  # Database track IDs for stable resolution
         self._track_display: List[str] = []  # "Title - Artist" format for display
         self._track_artist_keys: List[str] = []
+        self._track_display_to_index: dict[str, int] = {}  # Fast lookup by display
         self._genres: List[str] = []
         self._genre_entries: List[Tuple[str, str]] = []  # (display, normalized)
         self._loaded = False
@@ -69,23 +71,25 @@ class DatabaseCompleter(QObject):
                     self._artist_entries.append((artist, artist_key))
             self._artists = [artist for artist, _ in self._artist_entries]
 
-            # Load tracks with artist and album
+            # Load tracks with artist, album, and ID for stable resolution
             cursor.execute("""
-                SELECT title, artist, album, artist_key
+                SELECT track_id, title, artist, album, artist_key
                 FROM tracks
                 WHERE title IS NOT NULL AND title != ''
                 ORDER BY title COLLATE NOCASE
                 LIMIT 50000
             """)
             rows = cursor.fetchall()
-            self._tracks = [(row[0], row[1], row[2]) for row in rows]
+            self._track_ids = [str(row[0]) for row in rows]
+            self._tracks = [(row[1], row[2], row[3]) for row in rows]
             self._track_artist_keys = [
-                row[3] or normalize_artist_key(row[1]) for row in rows
+                row[4] or normalize_artist_key(row[2]) for row in rows
             ]
 
-            # Create display format for tracks
+            # Create display format for tracks and build lookup index
             self._track_display = []
-            for title, artist, album in self._tracks:
+            self._track_display_to_index = {}
+            for i, (title, artist, album) in enumerate(self._tracks):
                 if artist:
                     display = f"{title} - {artist}"
                     if album:
@@ -93,6 +97,7 @@ class DatabaseCompleter(QObject):
                 else:
                     display = title
                 self._track_display.append(display)
+                self._track_display_to_index[display] = i
 
             # Load distinct genres from track_effective_genres
             # Genres are now properly atomized in the database (one genre per row)
@@ -145,6 +150,50 @@ class DatabaseCompleter(QObject):
             return self._tracks[idx]
         except (ValueError, IndexError):
             return None
+
+    def get_track_data_by_display(
+        self, display: str
+    ) -> Optional[Tuple[str, str, str, str, str]]:
+        """
+        Get complete track data from a display string.
+
+        This is the preferred method for seed resolution - uses cached data
+        instead of re-querying the database.
+
+        Args:
+            display: Track display string "Title - Artist (Album)"
+
+        Returns:
+            (track_id, title, artist, album, artist_key) or None if not found
+        """
+        if not self._loaded:
+            return None
+
+        idx = self._track_display_to_index.get(display)
+        if idx is None:
+            return None
+
+        try:
+            title, artist, album = self._tracks[idx]
+            return (
+                self._track_ids[idx],
+                title,
+                artist or "",
+                album or "",
+                self._track_artist_keys[idx],
+            )
+        except IndexError:
+            return None
+
+    def get_track_id_by_display(self, display: str) -> Optional[str]:
+        """Get track ID from display string. Returns None if not found."""
+        if not self._loaded:
+            return None
+
+        idx = self._track_display_to_index.get(display)
+        if idx is not None and idx < len(self._track_ids):
+            return self._track_ids[idx]
+        return None
 
     def get_artist_tracks(self, artist: str) -> List[str]:
         """Get track display strings for a specific artist."""

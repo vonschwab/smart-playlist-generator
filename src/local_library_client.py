@@ -330,7 +330,7 @@ class LocalLibraryClient:
         Returns:
             List of genre suggestions (ranked: exact > prefix > contains; then by frequency)
         """
-        from src.genre_normalization import normalize_genre_token
+        from src.genre.normalize_unified import normalize_genre_token
 
         cursor = self.conn.cursor()
 

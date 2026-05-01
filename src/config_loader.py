@@ -113,6 +113,13 @@ class Config:
         """Get Last.FM history days"""
         return self.config.get('lastfm', {}).get('history_days', 90)
 
+    def get_ds_artifact_path(self) -> str:
+        """Get DS pipeline artifact path."""
+        return self.config.get('playlists', {}).get('ds_pipeline', {}).get(
+            'artifact_path',
+            'data/artifacts/beat3tower_32k/data_matrices_step1.npz',
+        )
+
     @property
     def min_duration_minutes(self) -> int:
         """Get minimum playlist duration in minutes"""

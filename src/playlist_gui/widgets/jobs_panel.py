@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..jobs import Job, JobManager, JobStatus, JobTableModel
+from .job_details_dialog import JobDetailsDialog
 
 
 class JobsPanel(QWidget):
@@ -88,6 +89,7 @@ class JobsPanel(QWidget):
         self._table.verticalHeader().setVisible(False)
         self._table.setSortingEnabled(True)
         self._table.sortByColumn(5, Qt.DescendingOrder)  # Last run
+        self._table.doubleClicked.connect(self._on_job_double_clicked)
         layout.addWidget(self._table)
 
     def _connect_signals(self) -> None:
@@ -157,3 +159,17 @@ class JobsPanel(QWidget):
             active is not None and active.status in (JobStatus.RUNNING, JobStatus.CANCELLING)
         )
         self._cancel_pending_btn.setEnabled(pending_count > 0)
+
+    def _on_job_double_clicked(self, index) -> None:
+        """Open job details dialog when a job is double-clicked."""
+        if not index.isValid():
+            return
+
+        # Get the job from the model
+        job = self._model.data(index, Qt.UserRole)
+        if not job:
+            return
+
+        # Open details dialog
+        dialog = JobDetailsDialog(job, parent=self)
+        dialog.exec()

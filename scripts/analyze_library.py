@@ -592,6 +592,7 @@ def stage_scan(ctx: Dict) -> Dict:
     scan_stats = scanner.run(
         quick=quick,
         limit=limit,
+        cleanup=True,  # Always cleanup missing files during analyze pipeline
         progress=getattr(args, "progress", True),
         progress_interval=getattr(args, "progress_interval", 15.0),
         progress_every=getattr(args, "progress_every", 500),

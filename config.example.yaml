@@ -8,7 +8,7 @@ lastfm:
   username: ''
   history_days: 90
 openai:
-  api_key: YOUR_OPENAI_API_KEY
+  api_key: example-openai-api-key
   model: gpt-4o-mini
 plex:
   enabled: false
@@ -151,8 +151,9 @@ playlists:
       internal_connector_priority: true
       internal_connector_max_per_segment: 2
       bridge_floor:
-        narrow: 0.08
-        dynamic: 0.03
+        strict: 0.10   # Ultra-cohesive (Phase 1)
+        narrow: 0.05   # Relaxed from 0.08 (Phase 3A)
+        dynamic: 0.02  # Relaxed from 0.03 (Phase 3A)
       bridge_score_weights:
         dynamic:
           bridge: 0.6
@@ -204,8 +205,9 @@ playlists:
     # Pier-bridge ordering/scoring (applies to all playlists when pipeline=ds)
     pier_bridge:
       # Bridge-local gate: require min(sim_to_pier_A, sim_to_pier_B) >= floor
-      bridge_floor_dynamic: 0.03
-      bridge_floor_narrow: 0.08
+      bridge_floor_strict: 0.10   # Ultra-cohesive (Phase 1)
+      bridge_floor_narrow: 0.05   # Relaxed from 0.08 (Phase 3A)
+      bridge_floor_dynamic: 0.02  # Relaxed from 0.03 (Phase 3A)
       # Edge scoring weights (bridge harmonic mean vs local transition)
       weight_bridge_dynamic: 0.6
       weight_transition_dynamic: 0.4
@@ -230,7 +232,7 @@ playlists:
       # Artist exclusion rules for bridge segment interiors
       # Controls whether pier/seed artists can appear in bridge segments
       disallow_pier_artists_in_interiors: true   # Exclude pier artists from their own bridge segments (recommended)
-      disallow_seed_artist_in_interiors: false   # Allow seed artist in all segments (only affects single-seed mode)
+      disallow_seed_artist_in_interiors: false   # Allow seed artist in all segments (only affects multi-seed mode; Artist mode always disallows)
       # Example: If piers are [Ramones, Replacements, Pavement]:
       #   - Ramones→Replacements: Ramones excluded (pier A), Replacements excluded (pier B)
       #   - Replacements→Pavement: Ramones allowed (not a pier), Replacements excluded (pier A), Pavement excluded (pier B)

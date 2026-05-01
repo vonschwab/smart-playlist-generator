@@ -202,7 +202,7 @@ def build_ds_artifacts(
     norm_artist_expr = "norm_artist" if has_norm_artist else "artist"
     cursor.execute(
         f"""
-        SELECT track_id, artist, title, album, {norm_artist_expr} as norm_artist, sonic_features
+        SELECT track_id, artist, title, album, {norm_artist_expr} as norm_artist, sonic_features, duration_ms
         FROM tracks
         WHERE sonic_features IS NOT NULL
         {limit_clause}
@@ -216,6 +216,7 @@ def build_ds_artifacts(
     artist_keys: List[str] = []
     track_artists: List[str] = []
     track_titles: List[str] = []
+    durations_ms: List[int] = []
     X_sonic: List[np.ndarray] = []
     X_sonic_start: List[np.ndarray] = []
     X_sonic_mid: List[np.ndarray] = []
@@ -279,6 +280,7 @@ def build_ds_artifacts(
         artist_keys.append(_normalize_artist_key(norm_artist, track_id))
         track_artists.append(artist)
         track_titles.append(title)
+        durations_ms.append(row["duration_ms"] if row["duration_ms"] is not None else 0)
         X_sonic.append(base_vec)
         X_sonic_start.append(start_vec)
         X_sonic_mid.append(mid_vec)
@@ -311,6 +313,7 @@ def build_ds_artifacts(
     artist_keys = [artist_keys[i] for i in filtered_indices]
     track_artists = [track_artists[i] for i in filtered_indices]
     track_titles = [track_titles[i] for i in filtered_indices]
+    durations_ms = [durations_ms[i] for i in filtered_indices]
     X_sonic = [X_sonic[i] for i in filtered_indices]
     X_sonic_start = [X_sonic_start[i] for i in filtered_indices]
     X_sonic_mid = [X_sonic_mid[i] for i in filtered_indices]
@@ -358,6 +361,13 @@ def build_ds_artifacts(
     X_sonic_start_arr = np.vstack(X_sonic_start)
     X_sonic_mid_arr = np.vstack(X_sonic_mid)
     X_sonic_end_arr = np.vstack(X_sonic_end)
+    durations_ms_arr = np.array(durations_ms, dtype=np.int32)
+
+    # Log duration statistics
+    valid_durations = durations_ms_arr[durations_ms_arr > 0]
+    if len(valid_durations) > 0:
+        mean_dur_sec = float(np.mean(valid_durations)) / 1000.0
+        logger.info(f"Duration statistics: {len(valid_durations)}/{len(durations_ms_arr)} tracks with duration (mean={mean_dur_sec:.1f}s)")
 
     layout = calc._sonic_feature_layout or {}
     names, units = _derive_schema(layout, X_sonic_arr.shape[1])
@@ -379,6 +389,7 @@ def build_ds_artifacts(
         track_titles=np.array(track_titles),
         artist_keys=np.array(artist_keys),
         genre_vocab=np.array(vocab),
+        durations_ms=durations_ms_arr,
     )
 
     stats = {

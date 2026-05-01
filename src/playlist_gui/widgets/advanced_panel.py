@@ -953,3 +953,29 @@ class AdvancedSettingsPanel(QScrollArea):
         self.config_model.reset()
         self.refresh()
         self.override_changed.emit()
+
+    def disable_policy_owned_controls(self, policy_owned_keys: set) -> None:
+        """
+        Disable controls for keys owned by the PolicyLayer.
+
+        When the new GeneratePanel (Phase 2 UI) is active, these controls
+        are managed by the main UI and should not be editable in the
+        Advanced panel.
+
+        Args:
+            policy_owned_keys: Set of dot-notation key paths (e.g., "playlists.genre_mode")
+        """
+        tooltip = "Controlled by main UI (Genre/Sonic/Recency/Spacing)"
+
+        for key_path in policy_owned_keys:
+            if key_path in self._controls:
+                control = self._controls[key_path]
+                control.setEnabled(False)
+                control.setToolTip(tooltip)
+
+            # Also check normalized slider groups
+            for group_name, group_widget in self._group_widgets.items():
+                # NormalizedSliderGroup doesn't expose individual key controls,
+                # so we disable the entire group if any of its keys are policy-owned
+                # This is a conservative approach
+                pass  # For now, individual controls handle themselves

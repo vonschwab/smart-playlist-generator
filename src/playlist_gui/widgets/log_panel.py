@@ -52,7 +52,7 @@ class LogPanel(QWidget):
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._auto_scroll = True
-        self._entries: List[Tuple[str, str]] = []  # (level, message)
+        self._entries: List[Tuple[str, str, bool]] = []  # (level, message, is_verbose)
         self._entries_bytes = 0
         self._max_entries = 2000
         self._max_bytes = 2 * 1024 * 1024
@@ -79,6 +79,13 @@ class LogPanel(QWidget):
             check.stateChanged.connect(self._on_filter_changed)
             toolbar.addWidget(check)
             self._level_checks[level] = check
+
+        # Show verbose logs toggle (for worker verbose_log events)
+        self._show_verbose_check = QCheckBox("Show Verbose")
+        self._show_verbose_check.setChecked(True)
+        self._show_verbose_check.setToolTip("Show detailed verbose logs from worker operations")
+        self._show_verbose_check.stateChanged.connect(self._on_filter_changed)
+        toolbar.addWidget(self._show_verbose_check)
 
         toolbar.addStretch()
 
@@ -136,21 +143,43 @@ class LogPanel(QWidget):
         return priorities.get(level.upper(), 1)
 
     @Slot(str, str)
-    def append_log(self, level: str, message: str) -> None:
+    def append_log(self, level: str, message: str, is_verbose: bool = False) -> None:
         """
         Append a log message to the display.
 
         Args:
             level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
             message: Log message text
+            is_verbose: Whether this is a verbose worker log
         """
         level = level.upper()
         message = redact_text(message)
 
-        self._entries.append((level, message))
+        self._entries.append((level, message, is_verbose))
         self._entries_bytes += self._entry_size(level, message)
         self._trim_entries()
         self._refresh_view()
+
+    @Slot(str, str, dict, object)
+    def append_verbose_log(self, level: str, message: str, context: dict, job_id: Optional[str]) -> None:
+        """
+        Append a verbose log event from the worker.
+
+        Args:
+            level: Log level (DEBUG, INFO, WARNING, ERROR)
+            message: Log message text
+            context: Additional context data
+            job_id: Associated job ID (optional)
+        """
+        # Format message with context if present
+        if context:
+            context_str = ", ".join(f"{k}={v}" for k, v in context.items() if v)
+            message = f"{message} [{context_str}]"
+
+        if job_id:
+            message = f"[Job {job_id[:8]}] {message}"
+
+        self.append_log(level, message, is_verbose=True)
 
     def _refresh_view(self) -> None:
         """Rebuild the visible log view based on filters/search."""
@@ -158,15 +187,31 @@ class LogPanel(QWidget):
             return
 
         enabled_levels = self._get_enabled_levels()
+        show_verbose = self._show_verbose_check.isChecked() if hasattr(self, "_show_verbose_check") else True
         query = (self._search_edit.text() or "").lower()
 
         self._text_edit.clear()
 
-        for level, msg in self._entries:
+        for entry in self._entries:
+            # Handle both old and new tuple formats for backward compatibility
+            if len(entry) == 3:
+                level, msg, is_verbose = entry
+            else:
+                level, msg = entry
+                is_verbose = False
+
+            # Filter by level
             if level not in enabled_levels:
                 continue
+
+            # Filter by verbose setting
+            if is_verbose and not show_verbose:
+                continue
+
+            # Filter by search query
             if query and query not in f"{level} {msg}".lower():
                 continue
+
             self._append_to_view(level, msg)
 
         if self._auto_scroll:
@@ -201,7 +246,10 @@ class LogPanel(QWidget):
     def _trim_entries(self) -> None:
         """Ensure the in-memory buffer stays within bounds."""
         while self._entries and (len(self._entries) > self._max_entries or self._entries_bytes > self._max_bytes):
-            old_level, old_msg = self._entries.pop(0)
+            entry = self._entries.pop(0)
+            # Handle both old and new tuple formats
+            old_level = entry[0]
+            old_msg = entry[1]
             self._entries_bytes -= self._entry_size(old_level, old_msg)
             if self._entries_bytes < 0:
                 self._entries_bytes = 0

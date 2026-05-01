@@ -38,13 +38,28 @@ import sys
 import sqlite3
 import threading
 import traceback
+from bisect import bisect_right
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+import numpy as np
 import yaml
 
 from .utils.redaction import redact_text
+
+try:
+    from ..cancellation import CancellationToken, CancelledException
+except ImportError:
+    try:
+        from src.cancellation import CancellationToken, CancelledException
+    except ImportError:
+        CancellationToken = None
+
+        class CancelledException(Exception):
+            """Fallback cancellation type; never aliases broad Exception."""
+
+            pass
 
 
 # Protocol version
@@ -131,6 +146,23 @@ class WorkerState:
 
 # Global worker state
 _worker_state = WorkerState()
+
+# Global cancellation token for current operation
+_current_cancellation_token: Optional[CancellationToken] = None
+_token_lock = threading.Lock()
+
+
+def set_cancellation_token(token: Optional[CancellationToken]) -> None:
+    """Set the cancellation token for the current operation."""
+    global _current_cancellation_token
+    with _token_lock:
+        _current_cancellation_token = token
+
+
+def get_cancellation_token() -> Optional[CancellationToken]:
+    """Get the current cancellation token."""
+    with _token_lock:
+        return _current_cancellation_token
 
 
 def check_cancelled() -> None:
@@ -227,6 +259,69 @@ def emit_done(
     emit_event(event)
 
 
+def emit_checkpoint(stage: str, items_completed: int, resumable_state: Optional[Dict[str, Any]] = None) -> None:
+    """
+    Emit a checkpoint event for resumable operations.
+
+    Args:
+        stage: Stage name (e.g., 'scan', 'genres')
+        items_completed: Number of items completed so far
+        resumable_state: Optional state data for resumption (e.g., last file processed)
+    """
+    event = {
+        "type": "checkpoint",
+        "stage": stage,
+        "items_completed": items_completed,
+    }
+    if resumable_state:
+        event["resumable_state"] = resumable_state
+    emit_event(event)
+
+
+def emit_verbose_log(level: str, message: str, context: Optional[Dict[str, Any]] = None) -> None:
+    """
+    Emit a verbose log event (only sent when verbose mode is enabled).
+
+    Args:
+        level: Log level (DEBUG, INFO, WARNING, ERROR)
+        message: Log message
+        context: Optional context data (file path, item name, etc.)
+    """
+    import datetime
+    event = {
+        "type": "verbose_log",
+        "level": level,
+        "message": redact_text(message),
+        "timestamp": datetime.datetime.now().isoformat(),
+    }
+    if context:
+        event["context"] = context
+    emit_event(event)
+
+
+def emit_performance(stage: str, elapsed_seconds: float, items_processed: int, throughput: Optional[float] = None) -> None:
+    """
+    Emit a performance metrics event.
+
+    Args:
+        stage: Stage name (e.g., 'scan', 'genres')
+        elapsed_seconds: Time elapsed for this stage
+        items_processed: Number of items processed
+        throughput: Optional throughput (items/sec), calculated if not provided
+    """
+    if throughput is None and elapsed_seconds > 0:
+        throughput = items_processed / elapsed_seconds
+
+    event = {
+        "type": "performance",
+        "stage": stage,
+        "elapsed_seconds": round(elapsed_seconds, 2),
+        "items_processed": items_processed,
+        "throughput": round(throughput, 2) if throughput else 0.0,
+    }
+    emit_event(event)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Logging Integration
 # ─────────────────────────────────────────────────────────────────────────────
@@ -306,6 +401,110 @@ def _apply_mode_presets(config: Dict[str, Any]) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 # Command Handlers
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _build_seed_similarity_components(
+    *,
+    tracks: list[dict[str, Any]],
+    ds_report: dict[str, Any],
+    edge_map: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, dict[str, Optional[float]]]]:
+    """
+    Build T/S1/S2 similarity components for sonic + genre.
+
+    T: similarity to immediately preceding track (transition edge score)
+    S1: similarity to the most recent seed track before this track
+    S2: similarity to the next seed track after this track
+    """
+    if not ds_report:
+        return {}
+
+    artifact_path = ds_report.get("artifact_path")
+    seed_track_id = ds_report.get("seed_track_id")
+    anchor_seed_ids = ds_report.get("anchor_seed_ids") or []
+    if not artifact_path or not seed_track_id:
+        return {}
+
+    track_ids: list[str] = []
+    for track in tracks:
+        tid = track.get("rating_key") or track.get("id") or track.get("track_id")
+        track_ids.append(str(tid) if tid is not None else "")
+
+    if not track_ids:
+        return {}
+
+    seed_ids = [str(seed_track_id)] + [str(sid) for sid in anchor_seed_ids if sid]
+    seed_set = set(seed_ids)
+
+    try:
+        from src.features.artifacts import load_artifact_bundle
+        from src.similarity.sonic_variant import compute_sonic_variant_norm
+
+        bundle = load_artifact_bundle(artifact_path)
+    except Exception:
+        return {}
+
+    track_idx_by_id = bundle.track_id_to_index
+    track_indices = [track_idx_by_id.get(tid) for tid in track_ids]
+    seed_positions = [
+        idx for idx, tid in enumerate(track_ids)
+        if tid in seed_set and track_indices[idx] is not None
+    ]
+    if not seed_positions:
+        return {}
+
+    sonic_variant = ds_report.get("sonic_variant") or "raw"
+    X_sonic = getattr(bundle, "X_sonic", None)
+    X_genre = getattr(bundle, "X_genre_smoothed", None)
+    if X_sonic is None:
+        return {}
+
+    X_sonic_norm, _ = compute_sonic_variant_norm(X_sonic, sonic_variant)
+    X_genre_norm = None
+    if X_genre is not None:
+        denom = np.linalg.norm(X_genre, axis=1, keepdims=True) + 1e-12
+        X_genre_norm = X_genre / denom
+
+    def _dot(mat: Optional[np.ndarray], a: Optional[int], b: Optional[int]) -> Optional[float]:
+        if mat is None or a is None or b is None:
+            return None
+        return float(np.dot(mat[a], mat[b]))
+
+    components: dict[str, dict[str, dict[str, Optional[float]]]] = {}
+    for idx, track_id in enumerate(track_ids):
+        if not track_id:
+            continue
+        cur_idx = track_indices[idx]
+        if cur_idx is None:
+            continue
+
+        prev_seed_pos_idx = bisect_right(seed_positions, idx) - 1
+        prev_seed_pos = seed_positions[prev_seed_pos_idx] if prev_seed_pos_idx >= 0 else None
+        next_seed_pos_idx = bisect_right(seed_positions, idx)
+        next_seed_pos = seed_positions[next_seed_pos_idx] if next_seed_pos_idx < len(seed_positions) else None
+
+        prev_seed_idx = track_indices[prev_seed_pos] if prev_seed_pos is not None else None
+        next_seed_idx = track_indices[next_seed_pos] if next_seed_pos is not None else None
+
+        s1_sonic = _dot(X_sonic_norm, cur_idx, prev_seed_idx)
+        s2_sonic = _dot(X_sonic_norm, cur_idx, next_seed_idx)
+        s1_genre = _dot(X_genre_norm, cur_idx, prev_seed_idx)
+        s2_genre = _dot(X_genre_norm, cur_idx, next_seed_idx)
+
+        if prev_seed_pos is not None and prev_seed_pos == idx:
+            s1_sonic = 1.0
+            if X_genre_norm is not None:
+                s1_genre = 1.0
+
+        edge = edge_map.get(track_id, {})
+        t_sonic = edge.get("S")
+        t_genre = edge.get("G")
+
+        components[track_id] = {
+            "sonic": {"t": t_sonic, "s1": s1_sonic, "s2": s2_sonic},
+            "genre": {"t": t_genre, "s1": s1_genre, "s2": s2_genre},
+        }
+
+    return components
 def handle_doctor(cmd_data: Dict[str, Any]) -> None:
     """Quick diagnostics."""
     checks = []
@@ -377,6 +576,11 @@ def handle_cancel(cmd_data: Dict[str, Any]) -> None:
 
     if _worker_state.request_cancel(target_request_id):
         emit_log("WARNING", f"Cancellation requested for {target_request_id}", request_id=target_request_id)
+
+        # Signal the cancellation token if available
+        token = get_cancellation_token()
+        if token:
+            token.cancel(f"User requested cancellation for {target_request_id}")
     else:
         current = _worker_state.get_request_id()
         if current:
@@ -391,7 +595,7 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
     overrides = cmd_data.get("overrides", {})
     args = cmd_data.get("args", {})
 
-    mode = args.get("mode", "history")
+    mode = args.get("mode", "artist")
     artist = args.get("artist")
     genre = args.get("genre")
     track_title = args.get("track")
@@ -402,7 +606,15 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
             seed_tracks = None
     else:
         seed_tracks = None
+    seed_track_ids = args.get("seed_track_ids")
+    if isinstance(seed_track_ids, list):
+        seed_track_ids = [str(t).strip() for t in seed_track_ids if str(t).strip()]
+        if not seed_track_ids:
+            seed_track_ids = None
+    else:
+        seed_track_ids = None
     track_count = args.get("tracks", 30)
+    include_collaborations = bool(args.get("include_collaborations", False))
 
     emit_log("INFO", f"Starting playlist generation (mode={mode})")
     emit_progress("init", 0, 100, "Loading configuration")
@@ -604,8 +816,12 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
         ds_mode = config.get('playlists', {}).get('ds_pipeline', {}).get('mode', 'dynamic')
 
         # Log which modes are active
-        genre_mode = config.get('playlists', {}).get('genre_mode')
-        sonic_mode = config.get('playlists', {}).get('sonic_mode')
+        genre_mode = args.get("genre_mode") or config.get('playlists', {}).get(
+            'genre_mode'
+        )
+        sonic_mode = args.get("sonic_mode") or config.get('playlists', {}).get(
+            'sonic_mode'
+        )
         if genre_mode:
             emit_log("INFO", f"Genre mode: {genre_mode}")
         if sonic_mode:
@@ -627,13 +843,25 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                 track_titles=seed_tracks,
                 dynamic=(ds_mode == "dynamic"),
                 ds_mode_override=ds_mode,
+                include_collaborations=include_collaborations,
             )
-        elif mode == "artist" and seed_tracks:
+        elif mode == "seeds" and seed_tracks:
+            # Seeds mode (Phase 2 UI)
             playlist_data = generator.create_playlist_from_seed_tracks(
                 seed_tracks,
                 track_count=track_count,
                 dynamic=(ds_mode == "dynamic"),
                 ds_mode_override=ds_mode,
+                seed_track_ids=seed_track_ids,
+            )
+        elif mode == "artist" and seed_tracks:
+            # Legacy seeds mode (old UI sent mode="artist" with seed_tracks)
+            playlist_data = generator.create_playlist_from_seed_tracks(
+                seed_tracks,
+                track_count=track_count,
+                dynamic=(ds_mode == "dynamic"),
+                ds_mode_override=ds_mode,
+                seed_track_ids=seed_track_ids,
             )
         elif mode == "genre" and genre:
             # Genre mode
@@ -644,15 +872,11 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                 ds_mode_override=ds_mode,
             )
         else:
-            # History mode - generate batch
-            playlist_count = config.get('playlists', {}).get('count', 8)
-            playlists = generator.create_playlist_batch(
-                playlist_count,
-                dynamic=(ds_mode == "dynamic"),
-                ds_mode_override=ds_mode,
+            # Fallback for unknown modes or missing required parameters
+            raise ValueError(
+                "Invalid mode or missing parameters: "
+                f"mode={mode}, artist={artist}, seed_tracks={seed_tracks}"
             )
-            # Use first playlist
-            playlist_data = playlists[0] if playlists else None
 
         # Cancellation check after generation, before output
         check_cancelled()
@@ -668,6 +892,12 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                 or []
             )
             edge_map = {str(edge.get("cur_id")): edge for edge in edge_scores if edge.get("cur_id")}
+
+            similarity_components = _build_seed_similarity_components(
+                tracks=tracks,
+                ds_report=ds_report,
+                edge_map=edge_map,
+            )
 
             formatted_tracks = []
 
@@ -696,6 +926,17 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                     or track.get('G')
                     or edge.get('G')
                 )
+                components = similarity_components.get(str(rating_key)) if rating_key else None
+                if components:
+                    sonic_comp = components.get("sonic")
+                    genre_comp = components.get("genre")
+                    if sonic_comp and sonic_comp.get("t") is not None:
+                        sonic_sim = sonic_comp.get("t")
+                    if genre_comp and genre_comp.get("t") is not None:
+                        genre_sim = genre_comp.get("t")
+                else:
+                    sonic_comp = None
+                    genre_comp = None
 
                 formatted_tracks.append({
                     "position": i,
@@ -707,6 +948,8 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                     "file_path": track.get('file_path', ''),
                     "sonic_similarity": sonic_sim,
                     "genre_similarity": genre_sim,
+                    "sonic_similarity_components": sonic_comp,
+                    "genre_similarity_components": genre_comp,
                     "genres": genres,
                 })
 
@@ -746,8 +989,18 @@ def handle_scan_library(cmd_data: Dict[str, Any]) -> None:
     base_path = cmd_data.get("base_config_path", "config.yaml")
     overrides = cmd_data.get("overrides", {})
 
-    emit_log("INFO", "Starting library scan")
+    # Check if force flag is set for full scan
+    force = overrides.get('force', False)
+    resume_from_checkpoint = overrides.get("resume_from_checkpoint") or {}
+    scan_type = "full scan" if force else "quick scan (incremental)"
+    if resume_from_checkpoint:
+        scan_type = f"{scan_type}, resuming"
+    emit_log("INFO", f"Starting library scan ({scan_type})")
     emit_progress("scan", 0, 100, "Initializing")
+
+    # Create cancellation token for this operation
+    cancellation_token = CancellationToken() if CancellationToken else None
+    set_cancellation_token(cancellation_token)
 
     try:
         config = load_config_with_overrides(base_path, overrides)
@@ -766,8 +1019,14 @@ def handle_scan_library(cmd_data: Dict[str, Any]) -> None:
         emit_progress("scan", 10, 100, f"Scanning {music_dir}")
 
         # LibraryScanner reads music_dir and db_path from config
-        scanner = LibraryScanner(config_path=base_path)
-        stats = scanner.run(quick=False)
+        # Default to quick=True (incremental) unless force=True in overrides
+        quick = not force
+        scanner = LibraryScanner(config_path=base_path, cancellation_token=cancellation_token)
+        stats = scanner.run(
+            quick=quick,
+            cleanup=True,  # Always cleanup missing files during pipeline
+            resume_from_checkpoint=resume_from_checkpoint,
+        )
 
         check_cancelled()
         emit_result("scan", {"stats": stats})
@@ -778,12 +1037,42 @@ def handle_scan_library(cmd_data: Dict[str, Any]) -> None:
         emit_done("scan_library", True, f"Scanned {total} files", summary=summary)
 
     except CancellationError:
-        emit_log("INFO", "Library scan cancelled")
+        emit_log("INFO", "Library scan cancelled by user")
         emit_done("scan_library", False, "Cancelled by user", cancelled=True, summary="Scan cancelled")
+    except CancelledException as e:
+        # Graceful cancellation with checkpoint
+        progress_data = getattr(e, 'progress', {})
+        items_completed = progress_data.get('items_completed', 0)
+        total_items = progress_data.get('total_items', 0)
+        stats = progress_data.get('stats', {})
+
+        emit_log("INFO", f"Library scan cancelled: {e}")
+
+        # Emit checkpoint for potential resumption
+        emit_checkpoint(
+            stage="scan",
+            items_completed=items_completed,
+            resumable_state={
+                "last_file_index": progress_data.get('last_file_index', 0),
+                "stats": stats,
+                "base_config_path": base_path,
+                "overrides": overrides,
+            }
+        )
+
+        # Emit partial results
+        if stats:
+            emit_result("scan", {"stats": stats})
+
+        summary = f"Scan cancelled: {items_completed}/{total_items} files processed"
+        emit_done("scan_library", False, str(e), cancelled=True, summary=summary)
     except Exception as e:
         tb = traceback.format_exc()
         emit_error(str(e), tb)
         emit_done("scan_library", False, str(e), summary="Scan failed")
+    finally:
+        # Clear cancellation token
+        set_cancellation_token(None)
 
 
 def handle_update_genres(cmd_data: Dict[str, Any]) -> None:
@@ -814,6 +1103,9 @@ def handle_update_genres(cmd_data: Dict[str, Any]) -> None:
         check_cancelled()
         emit_progress("genres", 60, 100, "Updating album genres")
         updater.update_album_genres(progress=False)
+        check_cancelled()
+        emit_progress("genres", 80, 100, "Updating file tag genres")
+        updater.update_track_genres()
         check_cancelled()
         stats = {"artists_updated": 0, "albums_updated": 0}  # Updater doesn't return detailed stats
         updater.close()
@@ -922,6 +1214,9 @@ def handle_build_artifacts(cmd_data: Dict[str, Any]) -> None:
             max_tracks=0,
             no_pca=False,
             pca_variance=0.95,
+            clip_sigma=3.0,
+            random_seed=42,
+            no_genre_normalization=False,
             verbose=False
         )
         build_artifacts(args)
@@ -1001,8 +1296,30 @@ TRACKED_COMMAND_HANDLERS = {
 }
 
 # Commands that don't have their own request context
+def handle_set_logging_level(cmd_data: Dict[str, Any]) -> None:
+    """
+    Handle set_logging_level command - update worker logging level.
+
+    This is an untracked command that doesn't produce tracked events.
+    """
+    level = cmd_data.get("level", "INFO").upper()
+    valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR"]
+
+    if level not in valid_levels:
+        emit_log("WARNING", f"Invalid log level: {level}, using INFO")
+        level = "INFO"
+
+    try:
+        from src import logging_utils
+        logging_utils.set_log_level(level)
+        emit_log("INFO", f"Logging level changed to {level}")
+    except Exception as e:
+        emit_log("ERROR", f"Failed to change logging level: {e}")
+
+
 UNTRACKED_COMMAND_HANDLERS = {
     "cancel": handle_cancel,
+    "set_logging_level": handle_set_logging_level,
 }
 
 

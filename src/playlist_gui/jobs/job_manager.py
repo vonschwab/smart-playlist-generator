@@ -48,6 +48,7 @@ class JobManager(QObject):
         self._worker_client.done_received.connect(self._on_done_received)
         self._worker_client.busy_changed.connect(self._on_busy_changed)
         self._worker_client.worker_stopped.connect(self._on_worker_stopped)
+        self._worker_client.checkpoint_received.connect(self._on_checkpoint_received)
 
     # Public API ---------------------------------------------------------
     def jobs(self) -> List[Job]:
@@ -292,3 +293,99 @@ class JobManager(QObject):
             self._store.save_history(self._jobs)
             self.queue_changed.emit()
         self._crashed = True
+
+    @Slot(dict, object)
+    def _on_checkpoint_received(self, checkpoint_data: Dict, job_id: Optional[str]) -> None:
+        """
+        Handle checkpoint event from worker.
+
+        Stores checkpoint data for potential job resumption.
+        """
+        job = self._find_job(job_id or self._active_job_id)
+        if not job:
+            self._logger.warning("Checkpoint received for unknown job: %s", job_id)
+            return
+
+        # Store checkpoint data
+        job.checkpoint_data = checkpoint_data
+        job.can_resume = True
+
+        # Update progress from checkpoint
+        items_completed = checkpoint_data.get("items_completed", 0)
+        total_items = checkpoint_data.get("total_items") or checkpoint_data.get("resumable_state", {}).get("total_items", 100)
+        if total_items > 0:
+            job.progress_current = items_completed
+            job.progress_total = total_items
+
+        stage = checkpoint_data.get("stage", "")
+        if stage:
+            job.stage = f"{stage} (checkpoint)"
+
+        self._logger.info(
+            "Checkpoint saved for job %s: %d/%d items",
+            job.job_id,
+            items_completed,
+            total_items
+        )
+
+        self.job_updated.emit(job)
+        self._store.save_history(self._jobs)
+
+    def resume_job(self, job_id: str) -> Optional[Job]:
+        """
+        Resume a previously cancelled job from its last checkpoint.
+
+        Args:
+            job_id: ID of the job to resume
+
+        Returns:
+            The resumed job, or None if job cannot be resumed
+        """
+        job = self._find_job(job_id)
+        if not job:
+            self._logger.error("Cannot resume job %s: not found", job_id)
+            return None
+
+        if not job.can_resume:
+            self._logger.error("Cannot resume job %s: no checkpoint data", job_id)
+            return None
+
+        if job.status not in {JobStatus.CANCELLED, JobStatus.FAILED}:
+            self._logger.error("Cannot resume job %s: invalid status %s", job_id, job.status)
+            return None
+
+        # Create a new job with the checkpoint data
+        resumed_job = Job(
+            job_id=str(uuid.uuid4()),
+            job_type=job.job_type,
+            status=JobStatus.PENDING,
+            base_config_path=job.base_config_path,
+        )
+
+        # Copy checkpoint state to new job's overrides
+        checkpoint_state = job.checkpoint_data.get("resumable_state", {})
+        resumed_job.overrides = dict(job.overrides or {})
+        resumed_job.overrides["resume_from_checkpoint"] = checkpoint_state
+
+        # Set progress from checkpoint
+        items_completed = job.checkpoint_data.get("items_completed", 0)
+        total_items = job.checkpoint_data.get("total_items", 100)
+        resumed_job.progress_current = items_completed
+        resumed_job.progress_total = total_items
+        resumed_job.stage = f"Resuming from {items_completed}/{total_items}"
+
+        self._jobs.append(resumed_job)
+        self._logger.info(
+            "Resuming job %s (type=%s) from checkpoint with %d/%d items completed",
+            resumed_job.job_id,
+            resumed_job.job_type.value,
+            items_completed,
+            total_items
+        )
+
+        self.job_added.emit(resumed_job)
+        self.queue_changed.emit()
+        self._auto_start_blocked = False
+        self._start_next_job()
+
+        return resumed_job

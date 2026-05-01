@@ -7,8 +7,45 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import numpy as np
 
 from src.string_utils import normalize_artist_key
+from src.playlist.history_analyzer import is_collaboration_of
 
 logger = logging.getLogger(__name__)
+
+
+def _artist_indices_in_bundle(
+    bundle,
+    artist_name: str,
+    *,
+    include_collaborations: bool = False,
+) -> List[int]:
+    """
+    Return bundle indices whose artist matches the named artist.
+
+    Strict mode (default): match by normalized artist key.
+    Inclusive mode: also accept tracks whose raw artist string is a
+    collaboration containing the named artist (e.g. "Greg Foat & Art Themen",
+    "Maston & Greg Foat"). Uses history_analyzer.is_collaboration_of so the
+    collab patterns stay defined in one place.
+    """
+    if bundle.artist_keys is None:
+        return []
+    artist_key = normalize_artist_key(artist_name)
+    raw_artists = getattr(bundle, "track_artists", None)
+    indices: List[int] = []
+    for i, ak in enumerate(bundle.artist_keys):
+        if normalize_artist_key(str(ak)) == artist_key:
+            indices.append(i)
+            continue
+        if include_collaborations and raw_artists is not None:
+            try:
+                raw = str(raw_artists[i] or "")
+            except Exception:
+                raw = ""
+            if raw and is_collaboration_of(
+                collaboration_name=raw, base_artist=artist_name
+            ):
+                indices.append(i)
+    return indices
 
 
 @dataclass(frozen=True)
@@ -22,11 +59,16 @@ class ArtistStyleConfig:
     pool_balance_mode: str = "equal"  # equal | proportional_capped
     internal_connector_priority: bool = True
     internal_connector_max_per_segment: int = 2
-    bridge_floor_narrow: float = 0.08
-    bridge_floor_dynamic: float = 0.03
+    medoid_top_k: int = 5
+    bridge_floor_strict: float = 0.10    # Phase 1 (ultra-cohesive)
+    bridge_floor_narrow: float = 0.05    # Relaxed from 0.08 (Phase 3A)
+    bridge_floor_dynamic: float = 0.02   # Relaxed from 0.03 (Phase 3A)
     bridge_weight: float = 0.7
     transition_weight: float = 0.3
     genre_tiebreak_weight: float = 0.05
+    # Medoid selection weighting (to avoid interludes/outliers)
+    medoid_similarity_weight: float = 0.7  # Weight for sonic similarity to cluster centroid
+    medoid_duration_weight: float = 0.3    # Weight for duration typicality (avoid outliers)
 
 
 def _select_k(track_count: int, cfg: ArtistStyleConfig) -> int:
@@ -74,33 +116,154 @@ def _kmeans(X: np.ndarray, k: int, rng: np.random.Generator) -> Tuple[np.ndarray
     return labels, centroids
 
 
+def _compute_artist_duration_stats(durations_ms: np.ndarray, artist_indices: List[int]) -> Dict[str, float]:
+    """
+    Compute duration statistics for the artist's catalog for adaptive outlier detection.
+
+    Uses IQR method which is robust to skewed distributions (works for both punk and prog bands).
+    """
+    if not artist_indices:
+        return {}
+
+    artist_durations_sec = durations_ms[artist_indices] / 1000.0
+
+    q1 = float(np.percentile(artist_durations_sec, 25))
+    q3 = float(np.percentile(artist_durations_sec, 75))
+    iqr = q3 - q1
+
+    return {
+        'mean': float(np.mean(artist_durations_sec)),
+        'median': float(np.median(artist_durations_sec)),
+        'std': float(np.std(artist_durations_sec)),
+        'q1': q1,
+        'q3': q3,
+        'iqr': iqr,
+        'min': float(np.min(artist_durations_sec)),
+        'max': float(np.max(artist_durations_sec)),
+        # Lower fence: Q1 - 1.5*IQR (standard outlier detection)
+        'lower_fence': q1 - 1.5 * iqr,
+    }
+
+
+def _duration_outlier_score(duration_sec: float, stats: Dict[str, float]) -> float:
+    """
+    Calculate how much of an outlier a duration is.
+
+    Returns:
+        0.0 = typical duration for this artist
+        1.0 = extreme outlier (way too short)
+
+    Uses IQR-based method so it adapts to each artist's typical range.
+    For example:
+    - Punk band with 1.5 min avg: a 30s track would be an outlier
+    - Prog band with 8 min avg: a 30s track would be an outlier
+    - But a 1.5 min track would only be an outlier for the prog band
+    """
+    if not stats:
+        return 0.0
+
+    lower_fence = stats['lower_fence']
+
+    # Not an outlier
+    if duration_sec >= lower_fence:
+        return 0.0
+
+    # Calculate how far below the fence (normalized by IQR)
+    iqr = stats['iqr']
+    if iqr < 1e-6:  # All tracks same duration (edge case)
+        return 0.0
+
+    distance_below = lower_fence - duration_sec
+    outlier_magnitude = distance_below / iqr
+
+    # Cap at 1.0 (extreme outlier)
+    return min(1.0, outlier_magnitude / 2.0)  # Divided by 2 so 3*IQR below = 1.0
+
+
 def _medoids_for_cluster(
     X: np.ndarray,
     indices: List[int],
     centroid: np.ndarray,
     bundle_track_ids: Sequence[str],
     per_cluster: int,
+    rng: np.random.Generator,
+    top_k: int,
+    artist_duration_stats: Optional[Dict[str, float]] = None,
+    track_durations_ms: Optional[np.ndarray] = None,
+    similarity_weight: float = 0.7,
+    duration_weight: float = 0.3,
 ) -> List[int]:
+    """
+    Select medoids using weighted scoring that penalizes duration outliers.
+
+    Weighting strategy (configurable):
+    - similarity_weight (default 70%): similarity to cluster centroid (sonic cohesion)
+    - duration_weight (default 30%): duration typicality (avoid extreme outliers)
+
+    This ensures we pick representative tracks that are sonically central
+    but not weird interludes/outros. The weights adapt to each artist's catalog,
+    so it works for both punk bands (short tracks typical) and prog bands (long tracks typical).
+    """
     if not indices:
         return []
+
+    # Base similarity to centroid
     sims = np.dot(X[indices], centroid)
-    order = np.argsort(-sims)
-    medoids: List[int] = [indices[int(order[0])]]
+
+    # Initialize duration weights (default to 1.0 = no penalty)
+    duration_weights = np.ones(len(indices))
+
+    # Apply duration outlier penalty if we have duration data
+    if artist_duration_stats and track_durations_ms is not None:
+        for i, idx in enumerate(indices):
+            duration_sec = track_durations_ms[idx] / 1000.0
+            outlier_score = _duration_outlier_score(duration_sec, artist_duration_stats)
+
+            # Convert outlier score to weight (1.0 = typical, 0.0 = extreme outlier)
+            duration_weights[i] = 1.0 - outlier_score
+
+    # Combined weighted score (configurable weights)
+    scores = sims * similarity_weight + duration_weights * duration_weight
+
+    # Select from top-k by combined score
+    order = np.argsort(-scores)
+    top_k_val = max(1, min(int(top_k), len(indices)))
+    medoid_idx = int(order[int(rng.integers(0, top_k_val))])
+
+    medoids: List[int] = [indices[medoid_idx]]
+
     if per_cluster > 1 and len(indices) > 1:
-        # pick farthest from first medoid to diversify
+        # Pick farthest from first medoid to diversify
+        # But still respect the quality scores
         first_vec = X[medoids[0]]
         sims2 = np.dot(X[indices], first_vec)
-        order2 = np.argsort(sims2)
+
+        # Combine diversity (low similarity to first) with quality (high overall score)
+        diversity_scores = (1.0 - sims2) * 0.6 + scores * 0.4
+        order2 = np.argsort(-diversity_scores)
+
         for idx in order2:
             cand = indices[int(idx)]
             if cand not in medoids:
                 medoids.append(cand)
             if len(medoids) >= per_cluster:
                 break
-    logger.debug(
-        "Cluster medoids selected: %s",
-        [str(bundle_track_ids[i]) for i in medoids],
-    )
+
+    # Debug logging
+    if artist_duration_stats and track_durations_ms is not None:
+        medoid_info = []
+        for m in medoids:
+            cluster_local_idx = indices.index(m)
+            dur_sec = track_durations_ms[m] / 1000.0
+            score = scores[cluster_local_idx]
+            medoid_info.append(f"{bundle_track_ids[m]} ({dur_sec:.0f}s, score={score:.3f})")
+        logger.debug("Cluster medoids selected (weighted): %s", medoid_info)
+    else:
+        logger.debug(
+            "Cluster medoids selected: %s",
+            [str(bundle_track_ids[i]) for i in medoids],
+        )
+
     return medoids
 
 
@@ -111,12 +274,13 @@ def cluster_artist_tracks(
     cfg: ArtistStyleConfig,
     random_seed: int = 0,
     sonic_variant: Optional[str] = None,
+    medoid_top_k: int = 1,
+    include_collaborations: bool = False,
 ) -> Tuple[List[List[int]], List[int], List[List[int]], np.ndarray]:
-    """Cluster artist tracks in sonic space and return clusters + medoids."""   
-    artist_key = normalize_artist_key(artist_name)
+    """Cluster artist tracks in sonic space and return clusters + medoids."""
     track_ids = bundle.track_ids
     if bundle.artist_keys is None:
-        raise ValueError("Artifact missing artist_keys for clustering.")        
+        raise ValueError("Artifact missing artist_keys for clustering.")
     X_raw = getattr(bundle, "X_sonic", None)
     if X_raw is None:
         raise ValueError("Artifact missing X_sonic for clustering.")
@@ -124,14 +288,35 @@ def cluster_artist_tracks(
 
     variant = resolve_sonic_variant(explicit_variant=sonic_variant, config_variant=None)
     X_norm, variant_stats = compute_sonic_variant_norm(X_raw, variant)
-    artist_indices = [
-        i for i, ak in enumerate(bundle.artist_keys)
-        if normalize_artist_key(str(ak)) == artist_key
-    ]
+    artist_indices = _artist_indices_in_bundle(
+        bundle, artist_name, include_collaborations=include_collaborations
+    )
+    if include_collaborations:
+        # Count solo vs collab purely for visibility in the log.
+        solo_only = _artist_indices_in_bundle(bundle, artist_name)
+        logger.info(
+            "Artist style clustering scope: artist=%s solo=%d collab=%d total=%d",
+            artist_name, len(solo_only), len(artist_indices) - len(solo_only),
+            len(artist_indices),
+        )
     if len(artist_indices) < max(3, cfg.cluster_k_min):
         raise ValueError(f"Not enough tracks to cluster for artist {artist_name}")
     k = _select_k(len(artist_indices), cfg)
     rng = np.random.default_rng(random_seed)
+
+    # Compute artist-specific duration statistics for adaptive outlier detection
+    artist_duration_stats = None
+    if bundle.durations_ms is not None:
+        artist_duration_stats = _compute_artist_duration_stats(bundle.durations_ms, artist_indices)
+        logger.debug(
+            "Artist duration stats for %s: mean=%.1fs, median=%.1fs, Q1=%.1fs, Q3=%.1fs, lower_fence=%.1fs",
+            artist_name,
+            artist_duration_stats['mean'],
+            artist_duration_stats['median'],
+            artist_duration_stats['q1'],
+            artist_duration_stats['q3'],
+            artist_duration_stats['lower_fence'],
+        )
     retries = 0
     while True:
         labels, centroids = _kmeans(X_norm[artist_indices], k=k, rng=rng)
@@ -156,7 +341,13 @@ def cluster_artist_tracks(
             members_local,
             centroids[c],
             track_ids,
-            cfg.piers_per_cluster,
+            medoid_top_k,  # Use calculated medoid_top_k based on presence, not cfg.piers_per_cluster
+            rng,
+            medoid_top_k,
+            artist_duration_stats,
+            bundle.durations_ms,
+            cfg.medoid_similarity_weight,
+            cfg.medoid_duration_weight,
         )
         medoids_by_cluster.append(medoid_list)
         medoids.extend(medoid_list)
@@ -228,21 +419,36 @@ def build_balanced_candidate_pool(
     pool_balance_mode: str,
     global_floor: Optional[float],
     artist_key: str,
+    artist_name: Optional[str] = None,
+    include_collaborations: bool = False,
 ) -> List[str]:
     """Build union of per-cluster sub-pools with balancing."""
     all_candidates: List[int] = []
     track_ids = bundle.track_ids
     total_tracks = X_norm.shape[0]
-    for cluster_idx, pier_indices in enumerate(cluster_piers):
-        if not pier_indices:
-            continue
-        pier_vecs = X_norm[pier_indices]
-        sims = np.max(np.dot(X_norm, pier_vecs.T), axis=1)
+    # Mask of tracks that count as the seed artist (incl. collaborations when
+    # opted in). These are excluded from the *external* candidate pool because
+    # they are intended to be piers, not bridge fillers.
+    if include_collaborations and artist_name:
+        seed_artist_indices = set(
+            _artist_indices_in_bundle(
+                bundle, artist_name, include_collaborations=True
+            )
+        )
+        mask_artist = np.array(
+            [i in seed_artist_indices for i in range(total_tracks)], dtype=bool
+        )
+    else:
         mask_artist = np.array([
             normalize_artist_key(str(bundle.artist_keys[i])) == artist_key
             if bundle.artist_keys is not None else False
             for i in range(total_tracks)
         ], dtype=bool)
+    for cluster_idx, pier_indices in enumerate(cluster_piers):
+        if not pier_indices:
+            continue
+        pier_vecs = X_norm[pier_indices]
+        sims = np.max(np.dot(X_norm, pier_vecs.T), axis=1)
         sims[mask_artist] = -1.0  # exclude artist for external pool
         if global_floor is not None:
             sims = np.where(sims < global_floor, -1.0, sims)

@@ -22,7 +22,7 @@ from typing import List, Tuple, Set
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
-from src.genre_normalization import normalize_genre_list
+from src.genre.normalize_unified import normalize_genre_list
 
 
 def find_compound_genres(conn: sqlite3.Connection) -> List[Tuple]:

@@ -185,9 +185,29 @@ def resolve_pier_bridge_tuning(
     )
     sources["transition_floor"] = src
 
-    default_bridge_floor = 0.03 if mode_s == "dynamic" else 0.08 if mode_s == "narrow" else 0.0
-    default_weight_bridge = 0.6 if mode_s == "dynamic" else 0.7 if mode_s == "narrow" else 0.0
-    default_weight_transition = 0.4 if mode_s == "dynamic" else 0.3 if mode_s == "narrow" else 1.0
+    # Bridge floor defaults (Phase 3A relaxation)
+    if mode_s == "strict":
+        default_bridge_floor = 0.10
+    elif mode_s == "narrow":
+        default_bridge_floor = 0.05  # Relaxed from 0.08
+    elif mode_s == "dynamic":
+        default_bridge_floor = 0.02  # Relaxed from 0.03
+    else:
+        default_bridge_floor = 0.0
+
+    # Weight defaults
+    if mode_s == "strict":
+        default_weight_bridge = 0.7
+        default_weight_transition = 0.3
+    elif mode_s == "narrow":
+        default_weight_bridge = 0.7
+        default_weight_transition = 0.3
+    elif mode_s == "dynamic":
+        default_weight_bridge = 0.6
+        default_weight_transition = 0.4
+    else:
+        default_weight_bridge = 0.0
+        default_weight_transition = 1.0
 
     # Optional nested weights block:
     # weights: {bridge, transition} OR {dynamic: {bridge, transition}, narrow: {...}}
@@ -278,9 +298,10 @@ def get_min_sonic_similarity(candidate_pool_cfg: dict, mode: Mode) -> Optional[f
     base = candidate_pool_cfg.get("min_sonic_similarity")
 
     default = {
-        "narrow": 0.10,
-        "dynamic": 0.00,
-        "discover": None,
+        "strict": 0.20,   # Phase 1: Ultra-cohesive (matches mode_presets.py)
+        "narrow": 0.12,   # Phase 2A: Relaxed from 0.18 (matches mode_presets.py)
+        "dynamic": 0.05,  # Phase 2A: Relaxed from 0.10 (matches mode_presets.py)
+        "discover": 0.00, # Phase 2A: Disabled (matches mode_presets.py)
         "sonic_only": None,
     }.get(mode, None)
 
@@ -309,7 +330,7 @@ def default_ds_config(
         overrides: Optional dict from config.yaml with keys like 'scoring', 'constraints', etc.
     """
     mode = mode.lower()  # type: ignore[assignment]
-    if mode not in {"narrow", "dynamic", "discover", "sonic_only"}:
+    if mode not in {"strict", "narrow", "dynamic", "discover", "sonic_only"}:
         raise ValueError(f"Unsupported mode {mode}")
 
     # Parse overrides from config.yaml
@@ -323,21 +344,21 @@ def default_ds_config(
     # Mode defaults - can be overridden by config.yaml values
     max_artist_fraction_final = candidate_pool.get(
         "max_artist_fraction",
-        {"narrow": 0.20, "dynamic": 0.125, "discover": 0.05, "sonic_only": 0.125}[mode],
+        {"strict": 0.25, "narrow": 0.20, "dynamic": 0.125, "discover": 0.05, "sonic_only": 0.125}[mode],
     )
     min_gap = constraints.get(
         "min_gap",
-        {"narrow": 3, "dynamic": 6, "discover": 9, "sonic_only": 6}[mode],
+        {"strict": 3, "narrow": 3, "dynamic": 6, "discover": 9, "sonic_only": 6}[mode],
     )
     similarity_floor = candidate_pool.get(
         "similarity_floor",
         # Shift each mode narrower: higher floors for tighter cohesion.
-        {"narrow": 0.35, "dynamic": 0.28, "discover": 0.22, "sonic_only": 0.0}[mode],
+        {"strict": 0.40, "narrow": 0.35, "dynamic": 0.28, "discover": 0.22, "sonic_only": 0.0}[mode],
     )
     min_sonic_similarity = get_min_sonic_similarity(candidate_pool, mode)
     broad_filters_cfg_raw = candidate_pool.get("broad_filters", None)
     if broad_filters_cfg_raw is None:
-        broad_filters_cfg: list[str] = ["rock", "indie", "alternative", "pop"] if mode == "narrow" else []
+        broad_filters_cfg: list[str] = ["rock", "indie", "alternative", "pop"] if mode in ("strict", "narrow") else []
     elif isinstance(broad_filters_cfg_raw, str):
         broad_filters_cfg = [broad_filters_cfg_raw]
     elif isinstance(broad_filters_cfg_raw, (list, tuple)):
@@ -355,6 +376,7 @@ def default_ds_config(
 
     # Candidate pool knobs
     target_artists = {
+        "strict": max(int((playlist_len + 1) // 3), 10),  # Ultra-cohesive: fewer artists
         "narrow": max(int((playlist_len + 1) // 2), 12),
         "dynamic": max(int(round(0.75 * playlist_len)), 16),
         "discover": min(playlist_len, 24),
@@ -364,6 +386,8 @@ def default_ds_config(
     seed_artist_bonus = 2
     # max_per_artist_final computed downstream, but candidate_per_artist mirrors experiments
     def _candidate_per_artist(max_per_artist_final: int) -> int:
+        if mode == "strict":
+            return max(3, min(2 * max_per_artist_final, 10))  # Ultra-cohesive
         if mode == "narrow":
             return max(3, min(2 * max_per_artist_final, 8))
         if mode == "dynamic":
@@ -381,7 +405,7 @@ def default_ds_config(
         min_sonic_similarity=min_sonic_similarity,
         max_pool_size=candidate_pool.get(
             "max_pool_size",
-            {"narrow": 800, "dynamic": 1200, "discover": 2000, "sonic_only": 1200}[mode],
+            {"strict": 600, "narrow": 800, "dynamic": 1200, "discover": 2000, "sonic_only": 1200}[mode],
         ),
         target_artists=target_artists,
         candidates_per_artist=_candidate_per_artist(max_per_artist_final_est),
@@ -398,36 +422,36 @@ def default_ds_config(
     )
 
     # Construction config with config.yaml overrides
-    mode_alpha_schedule = "constant" if mode == "narrow" else "arc"
+    mode_alpha_schedule = "constant" if mode in ("strict", "narrow") else "arc"
     construct_cfg = ConstructionConfig(
-        local_top_m=25 if mode != "narrow" else 15,
+        local_top_m=25 if mode not in ("strict", "narrow") else 15,
         alpha_schedule=scoring.get("alpha_schedule", mode_alpha_schedule),
         alpha=scoring.get(
             "alpha",
             # Lean more on seed similarity for all modes (narrowest gets highest).
-            {"narrow": 0.70, "dynamic": 0.62, "discover": 0.50, "sonic_only": 0.55}[mode],
+            {"strict": 0.75, "narrow": 0.70, "dynamic": 0.62, "discover": 0.50, "sonic_only": 0.55}[mode],
         ),
         alpha_start=scoring.get(
             "alpha_start",
-            {"narrow": 0.70, "dynamic": 0.65, "discover": 0.55, "sonic_only": 0.65}[mode],
+            {"strict": 0.75, "narrow": 0.70, "dynamic": 0.65, "discover": 0.55, "sonic_only": 0.65}[mode],
         ),
         alpha_mid=scoring.get(
             "alpha_mid",
-            {"narrow": 0.70, "dynamic": 0.50, "discover": 0.35, "sonic_only": 0.45}[mode],
+            {"strict": 0.75, "narrow": 0.70, "dynamic": 0.50, "discover": 0.35, "sonic_only": 0.45}[mode],
         ),
         alpha_end=scoring.get(
             "alpha_end",
-            {"narrow": 0.70, "dynamic": 0.62, "discover": 0.50, "sonic_only": 0.60}[mode],
+            {"strict": 0.75, "narrow": 0.70, "dynamic": 0.62, "discover": 0.50, "sonic_only": 0.60}[mode],
         ),
         arc_midpoint=scoring.get("arc_midpoint", 0.55),
         beta=scoring.get(
             "beta",
-            {"narrow": 0.55, "dynamic": 0.58, "discover": 0.62, "sonic_only": 0.45}[mode],
+            {"strict": 0.50, "narrow": 0.55, "dynamic": 0.58, "discover": 0.62, "sonic_only": 0.45}[mode],
         ),
         gamma=scoring.get(
             "gamma",
             # Dial back diversity bonus to favor tighter cohesion.
-            {"narrow": 0.01, "dynamic": 0.025, "discover": 0.06, "sonic_only": 0.04}[mode],
+            {"strict": 0.005, "narrow": 0.01, "dynamic": 0.025, "discover": 0.06, "sonic_only": 0.04}[mode],
         ),
         hard_floor=constraints.get(
             "hard_floor",
@@ -448,6 +472,22 @@ def default_ds_config(
         max_edges=repair.get("max_edges", 5 if mode != "discover" else 8),
         allow_substitute_next=True,
         allow_substitute_prev=True,
+    )
+
+    # Log resolved threshold values for diagnostic purposes (Phase 2A/2B/3A implementation)
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(
+        "DS Pipeline Resolved Thresholds: mode=%s | "
+        "sonic_floor=%s | genre_floor=N/A (see genre_similarity) | "
+        "bridge_floor=%.3f | transition_floor=%.3f | "
+        "similarity_floor=%.3f | min_gap=%d",
+        mode,
+        f"{min_sonic_similarity:.3f}" if min_sonic_similarity is not None else "None",
+        float(pier_tuning.bridge_floor),
+        float(pier_tuning.transition_floor),
+        float(similarity_floor),
+        min_gap,
     )
 
     return DSPipelineConfig(

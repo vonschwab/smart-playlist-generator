@@ -430,12 +430,15 @@ def build_candidate_pool(
             dtype=float,
         )
         if sims.size:
+            # Include genre gating stats in log message
+            genre_msg = f" rejected_genre={below_genre_count}" if below_genre_count > 0 else ""
             logger.info(
-                "Candidate pool: mode=%s floor=%.2f admitted=%d rejected_sonic=%d total=%d min=%.3f p05=%.3f median=%.3f p95=%.3f max=%.3f",
+                "Candidate pool: mode=%s floor=%.2f admitted=%d rejected_sonic=%d%s total=%d min=%.3f p05=%.3f median=%.3f p95=%.3f max=%.3f",
                 mode,
                 sonic_floor if sonic_floor is not None else float("nan"),
                 len(pool_indices),
                 below_sonic_floor,
+                genre_msg,
                 total_candidates,
                 float(np.min(sims)),
                 float(np.percentile(sims, 5)),

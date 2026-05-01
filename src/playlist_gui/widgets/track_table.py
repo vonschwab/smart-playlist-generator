@@ -154,14 +154,14 @@ class TrackTable(QWidget):
         header = self._table.horizontalHeader()
         header.setStretchLastSection(False)
 
-        # Column resize modes
-        header.setSectionResizeMode(Column.INDEX, QHeaderView.ResizeToContents)
+        # Column resize modes (all interactive so users can balance spacing)
+        header.setSectionResizeMode(Column.INDEX, QHeaderView.Interactive)
         header.setSectionResizeMode(Column.ARTIST, QHeaderView.Interactive)
-        header.setSectionResizeMode(Column.TITLE, QHeaderView.Stretch)
+        header.setSectionResizeMode(Column.TITLE, QHeaderView.Interactive)
         header.setSectionResizeMode(Column.ALBUM, QHeaderView.Interactive)
-        header.setSectionResizeMode(Column.DURATION, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(Column.SONIC_SIM, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(Column.GENRE_SIM, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(Column.DURATION, QHeaderView.Interactive)
+        header.setSectionResizeMode(Column.SONIC_SIM, QHeaderView.Interactive)
+        header.setSectionResizeMode(Column.GENRE_SIM, QHeaderView.Interactive)
         header.setSectionResizeMode(Column.GENRES, QHeaderView.Interactive)
         header.setSectionResizeMode(Column.FILE_PATH, QHeaderView.Interactive)
 
@@ -195,6 +195,32 @@ class TrackTable(QWidget):
     def set_filter_text(self, text: str) -> None:
         """Restore filter text."""
         self._filter_edit.setText(text or "")
+
+    def get_header_state(self):
+        """Return the header state for persistence."""
+        return self._table.horizontalHeader().saveState()
+
+    def restore_header_state(self, state) -> None:
+        """Restore header state (column widths/order)."""
+        if state:
+            self._table.horizontalHeader().restoreState(state)
+
+    def get_column_visibility_state(self) -> dict:
+        """Return column visibility state for persistence."""
+        return {str(col): bool(visible) for col, visible in self._column_visibility.items()}
+
+    def apply_column_visibility_state(self, state: dict) -> None:
+        """Apply column visibility state."""
+        if not state:
+            return
+        for col_key, visible in state.items():
+            try:
+                col = int(col_key)
+            except (TypeError, ValueError):
+                continue
+            if col in self._column_visibility:
+                self._column_visibility[col] = bool(visible)
+        self._apply_column_visibility()
 
     def _setup_shortcuts(self) -> None:
         """Setup keyboard shortcuts."""

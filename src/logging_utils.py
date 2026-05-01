@@ -35,6 +35,36 @@ def set_run_id(run_id: Optional[str]) -> None:
     _run_id = run_id
 
 
+def set_log_level(level: Union[str, int]) -> None:
+    """
+    Dynamically change the log level for all console handlers.
+
+    Args:
+        level: Log level as string ('DEBUG', 'INFO', 'WARNING', 'ERROR') or int (logging.DEBUG, etc.)
+    """
+    if isinstance(level, str):
+        level = getattr(logging, level.upper(), logging.INFO)
+
+    root = logging.getLogger()
+    for handler in root.handlers:
+        if isinstance(handler, logging.StreamHandler) and getattr(handler, _HANDLER_TAG, False):
+            handler.setLevel(level)
+
+
+def get_log_level() -> str:
+    """
+    Get the current log level of console handlers.
+
+    Returns:
+        Log level name as string ('DEBUG', 'INFO', 'WARNING', 'ERROR')
+    """
+    root = logging.getLogger()
+    for handler in root.handlers:
+        if isinstance(handler, logging.StreamHandler) and getattr(handler, _HANDLER_TAG, False):
+            return logging.getLevelName(handler.level)
+    return 'INFO'
+
+
 def _build_formatter(fmt: str, datefmt: Optional[str] = None) -> logging.Formatter:
     return logging.Formatter(fmt, datefmt=datefmt)
 

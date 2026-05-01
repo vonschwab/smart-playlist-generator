@@ -3678,6 +3678,7 @@ def build_pier_bridge_playlist(
             })
 
     genre_graph: Optional[dict[str, list[tuple[str, float]]]] = None
+    genre_vocab: Optional[np.ndarray] = None
     if bool(cfg.dj_bridging_enabled):
         route_shape = str(cfg.dj_route_shape or "linear").strip().lower()
         if route_shape == "ladder":

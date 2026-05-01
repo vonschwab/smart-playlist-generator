@@ -1,0 +1,144 @@
+"""
+UI State Model - Single source of truth for generation UI state.
+
+This dataclass captures all user-facing controls for playlist generation,
+independent of the underlying config format. The PolicyLayer derives
+runtime configuration from this state.
+
+Created: Phase 1 of GUI "Just Works" implementation
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import List, Literal, Optional
+
+
+@dataclass
+class UIStateModel:
+    """
+    Single source of truth for "Generate" UI state.
+
+    All fields have sensible defaults matching the target UX.
+    The PolicyLayer reads this to derive runtime config overrides.
+    """
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Top-level mode
+    # ─────────────────────────────────────────────────────────────────────────
+    mode: Literal["artist", "seeds", "history"] = "artist"
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Genre/Sonic modes (strictness controls for matching)
+    # ─────────────────────────────────────────────────────────────────────────
+    cohesion: Literal["tight", "balanced", "wide", "discover"] = "balanced"
+    """
+    Backward-compatible aggregate control for genre_mode and sonic_mode.
+    Newer UI paths may set genre_mode/sonic_mode directly.
+    """
+
+    genre_mode: Literal["strict", "narrow", "dynamic", "discover"] = "narrow"
+    sonic_mode: Literal["strict", "narrow", "dynamic", "discover"] = "narrow"
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Track count
+    # ─────────────────────────────────────────────────────────────────────────
+    track_count: int = 30
+
+    # Diversity bonus (soft)
+    # ─────────────────────────────────────────────────────────────────────────
+    diversity_gamma: float = 0.04
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Recency filter (hard exclude; never relaxed by policy)
+    # Semantics: exclude tracks played >= recency_plays_threshold times
+    #            in the last recency_days days
+    # ─────────────────────────────────────────────────────────────────────────
+    recency_enabled: bool = True
+    recency_days: int = 14
+    recency_plays_threshold: int = 1
+
+    history_window_days: int = 30
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Artist spacing
+    # ─────────────────────────────────────────────────────────────────────────
+    artist_spacing: Literal["normal", "strong"] = "normal"
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Artist(s) mode specific
+    # ─────────────────────────────────────────────────────────────────────────
+    artist_queries: List[str] = field(default_factory=list)
+    """
+    Artist name chips. For now, only the first is used by the backend.
+    Multi-artist journeys are a future feature.
+    """
+
+    artist_presence: Literal[
+        "very_low",
+        "low",
+        "medium",
+        "high",
+        "very_high",
+    ] = "medium"
+    """
+    Target percentage of playlist from the seed artist(s):
+    - very_low: ~5%
+    - low: ~10%
+    - medium: ~12.5%
+    - high: ~20%
+    - very_high: ~33%
+    """
+
+    artist_variety: Literal["focused", "balanced", "sprawling"] = "balanced"
+    """
+    Controls internal artist seed dispersion (clustering variance).
+    - focused: tight style clustering
+    - balanced: moderate diversity
+    - sprawling: wide stylistic spread
+    """
+
+    include_collaborations: bool = False
+    """
+    When True, collaboration tracks (e.g. "Miles Davis Quintet",
+    "Greg Foat & Art Themen", "Miles Davis & John Coltrane") are mixed
+    into the seed candidate pool alongside solo tracks. When False,
+    only exact-artist tracks are used unless the artist has < 4 solo
+    tracks (in which case collaborations are added as a fallback).
+    """
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Seed(s) mode specific
+    # ─────────────────────────────────────────────────────────────────────────
+    seed_track_ids: List[str] = field(default_factory=list)
+    """
+    Stable track IDs for seeds. These should be database IDs, not display strings.
+    The Seeds UI must resolve track names to IDs before populating this field.
+    """
+
+    seed_auto_order: bool = True
+    """
+    When True, seeds are reordered for optimal bridging flow.
+    When False, seeds are used in the order provided by the user.
+
+    Implementation note (verified from pier_bridge_builder.py):
+    - seed_auto_order=True maps to dj_seed_ordering="auto" (optimizes order)
+    - seed_auto_order=False maps to dj_seed_ordering="fixed" (preserves order)
+    """
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Helper methods
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def primary_artist(self) -> Optional[str]:
+        """
+        Return the first artist chip, or None if empty.
+
+        Used for single-artist mode until multi-artist journeys are implemented.
+        """
+        if self.artist_queries:
+            return self.artist_queries[0]
+        return None
+
+    def seed_count(self) -> int:
+        """Return the number of seed tracks."""
+        return len(self.seed_track_ids)

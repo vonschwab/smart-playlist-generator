@@ -7,6 +7,7 @@ import random
 import logging
 import time
 import os
+import math
 import numpy as np
 from .artist_utils import extract_primary_artist
 from .similarity_calculator import SimilarityCalculator
@@ -23,6 +24,8 @@ from src.playlist.artist_style import (
     cluster_artist_tracks,
     get_internal_connectors,
     order_clusters,
+    _select_k,
+    _artist_indices_in_bundle,
 )
 from src.playlist.pier_bridge_builder import PierBridgeConfig, resolve_pier_bridge_tuning
 from src.playlist.config import default_ds_config, get_min_sonic_similarity
@@ -123,7 +126,26 @@ def _convert_seconds_to_ms(seconds: Optional[int]) -> int:
 class PlaylistGenerator:
     """Generates playlists based on listening history and similarity"""
 
-    def __init__(self, library_client, config, lastfm_client=None, track_matcher=None, metadata_client=None):
+    def __init__(
+        self,
+        library_client=None,
+        config=None,
+        lastfm_client=None,
+        track_matcher=None,
+        metadata_client=None,
+        config_path: Optional[str] = None,
+    ):
+        if config_path is not None:
+            from src.config_loader import Config
+            from src.local_library_client import LocalLibraryClient
+
+            config = config or Config(config_path)
+            library_client = library_client or LocalLibraryClient(
+                db_path=config.get("library", "database_path", default="data/metadata.db")
+            )
+        if library_client is None or config is None:
+            raise TypeError("PlaylistGenerator requires library_client and config, or config_path")
+
         self.library = library_client
         self.config = config
         self.lastfm = lastfm_client
@@ -413,19 +435,105 @@ class PlaylistGenerator:
             # Resolve anchor seed tracks to bundle track_ids by matching title+artist
             # anchor_seed_ids are Plex rating_keys which don't match bundle track_ids (MD5 hashes)
             if anchor_seed_tracks and len(anchor_seed_tracks) > 1 and bundle.track_artists is not None and bundle.track_titles is not None:
+                from src.title_dedupe import calculate_version_preference_score
+
                 anchor_seed_ids_resolved = []
                 for seed_track in anchor_seed_tracks:
                     seed_title = str(seed_track.get('title', '')).strip().lower()
                     seed_artist_name = normalize_artist_key(str(seed_track.get('artist', '')))
+                    seed_album = str(seed_track.get('album', '')).strip()
+                    # Check both track_id and rating_key for MD5 hash
+                    seed_track_id_hash = str(seed_track.get('track_id') or seed_track.get('rating_key') or '')
+
                     if not seed_title or not seed_artist_name:
                         continue
-                    # Find matching track in bundle
+
+                    # Find ALL matching tracks in bundle (may be multiple versions)
+                    candidate_indices = []
                     for idx in range(len(bundle.track_artists)):
                         bundle_artist = normalize_artist_key(str(bundle.track_artists[idx]))
                         bundle_title = str(bundle.track_titles[idx]).strip().lower()
                         if bundle_artist == seed_artist_name and bundle_title == seed_title:
-                            anchor_seed_ids_resolved.append(str(bundle.track_ids[idx]))
-                            break
+                            candidate_indices.append(idx)
+
+                    if not candidate_indices:
+                        continue
+
+                    # If multiple matches, try to match by track_id (MD5) first
+                    matched_idx = None
+                    if len(candidate_indices) > 1 and seed_track_id_hash:
+                        for idx in candidate_indices:
+                            if str(bundle.track_ids[idx]) == seed_track_id_hash:
+                                matched_idx = idx
+                                logger.debug(
+                                    "Matched seed '%s - %s' by exact track_id",
+                                    seed_artist_name, seed_title
+                                )
+                                break
+
+                    # If no exact track_id match and we have multiple candidates, use album-based disambiguation
+                    if matched_idx is None and len(candidate_indices) > 1:
+                        # Get album info for each candidate from library
+                        candidate_albums = []
+                        for idx in candidate_indices:
+                            candidate_track_id = str(bundle.track_ids[idx])
+                            candidate_track = self.library.get_track_by_key(candidate_track_id)
+                            candidate_album = str(candidate_track.get('album', '')) if candidate_track else ''
+                            candidate_albums.append((idx, candidate_album))
+
+                        if seed_album:
+                            # Check if seed album has version keywords
+                            album_lower = seed_album.lower()
+                            version_keywords = ['instrumental', 'live', 'acoustic', 'remix', 'demo', 'remaster']
+                            seed_has_version = any(kw in album_lower for kw in version_keywords)
+
+                            if seed_has_version:
+                                # Seed wants a specific version - prefer exact album match or matching version keyword
+                                for idx, candidate_album in candidate_albums:
+                                    if candidate_album.lower() == album_lower:
+                                        matched_idx = idx
+                                        logger.debug(
+                                            "Matched seed '%s - %s' (album=%s) by exact album match",
+                                            seed_artist_name, seed_title, seed_album
+                                        )
+                                        break
+                                # If no exact match, look for matching version keyword
+                                if matched_idx is None:
+                                    for kw in version_keywords:
+                                        if kw in album_lower:
+                                            for idx, candidate_album in candidate_albums:
+                                                if kw in candidate_album.lower():
+                                                    matched_idx = idx
+                                                    logger.debug(
+                                                        "Matched seed '%s - %s' (album=%s) by version keyword '%s'",
+                                                        seed_artist_name, seed_title, seed_album, kw
+                                                    )
+                                                    break
+                                            if matched_idx is not None:
+                                                break
+                            else:
+                                # Seed wants standard/album version - avoid tracks with version keywords in album
+                                # Prefer candidates WITHOUT version keywords in their album names
+                                best_idx = None
+                                for idx, candidate_album in candidate_albums:
+                                    candidate_album_lower = candidate_album.lower()
+                                    has_version_in_album = any(kw in candidate_album_lower for kw in version_keywords)
+                                    if not has_version_in_album:
+                                        best_idx = idx
+                                        break
+                                if best_idx is not None:
+                                    matched_idx = best_idx
+                                    logger.debug(
+                                        "Matched seed '%s - %s' (album=%s) by preferring non-version album",
+                                        seed_artist_name, seed_title, seed_album
+                                    )
+
+                    # Use first match if only one candidate or no disambiguation worked
+                    if matched_idx is None:
+                        matched_idx = candidate_indices[0]
+
+                    anchor_seed_ids_resolved.append(str(bundle.track_ids[matched_idx]))
+
                 if anchor_seed_ids_resolved:
                     logger.info(
                         "Resolved %d/%d anchor seeds by title+artist match",
@@ -438,9 +546,32 @@ class PlaylistGenerator:
             blacklist_ids = self._get_blacklisted_track_ids()
             if blacklist_ids:
                 if str(seed_to_use) in blacklist_ids:
-                    raise ValueError(
-                        f"Seed track {seed_to_use} is blacklisted; select another seed."
+                    logger.warning(
+                        "Seed track %s is blacklisted; searching for alternative seed from same artist",
+                        seed_to_use
                     )
+                    # Try to find a non-blacklisted track by the same artist
+                    alternative_seed = None
+                    if seed_artist and bundle.track_artists is not None:
+                        artist_norm = normalize_artist_key(seed_artist)
+                        for idx, artist in enumerate(bundle.track_artists):
+                            candidate_id = str(bundle.track_ids[idx])
+                            if (normalize_artist_key(str(artist)) == artist_norm and
+                                candidate_id not in blacklist_ids):
+                                alternative_seed = candidate_id
+                                logger.info(
+                                    "Found alternative non-blacklisted seed: %s (artist: %s)",
+                                    alternative_seed,
+                                    seed_artist
+                                )
+                                break
+
+                    if alternative_seed:
+                        seed_to_use = alternative_seed
+                    else:
+                        raise ValueError(
+                            f"Seed track {seed_to_use} is blacklisted and no non-blacklisted alternative found for artist '{seed_artist or 'unknown'}'"
+                        )
                 if anchor_seed_ids_resolved:
                     before = len(anchor_seed_ids_resolved)
                     anchor_seed_ids_resolved = [
@@ -1678,7 +1809,7 @@ class PlaylistGenerator:
 
     def create_playlist_for_artist(
         self,
-        artist_name: str,
+        artist_name: Optional[str] = None,
         track_count: int = 30,
         track_title: Optional[str] = None,
         track_titles: Optional[List[str]] = None,
@@ -1688,6 +1819,12 @@ class PlaylistGenerator:
         ds_mode_override: Optional[str] = None,
         artist_only: bool = False,
         anchor_seed_ids: Optional[List[str]] = None,
+        seed_epoch: int = 0,
+        include_collaborations: bool = False,
+        artist: Optional[str] = None,
+        num_tracks: Optional[int] = None,
+        mode: Optional[str] = None,
+        random_seed: Optional[int] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Create a single playlist for a specific artist without requiring listening history
@@ -1699,6 +1836,18 @@ class PlaylistGenerator:
         Returns:
             Playlist dictionary with tracks and metadata, or None if unable to create
         """
+        if artist_name is None:
+            artist_name = artist
+        if artist_name is None:
+            raise ValueError("artist_name is required")
+        if num_tracks is not None:
+            track_count = num_tracks
+        if mode is not None:
+            ds_mode_override = mode
+            dynamic = mode == "dynamic"
+        if random_seed is not None:
+            self.config.config.setdefault("playlists", {}).setdefault("ds_pipeline", {})["random_seed"] = random_seed
+
         logger.info(f"Creating playlist for artist: {artist_name}")
 
         # Get all tracks by this artist from local library
@@ -1711,32 +1860,50 @@ class PlaylistGenerator:
             if safe_get_artist_key(t) == artist_key
         ]
 
-        # If we don't have enough tracks (or zero), search for collaborations
-        if len(artist_tracks) < 4:
-            logger.info(f"Artist has only {len(artist_tracks)} exact match tracks, searching for collaborations...")
+        # Mix in collaborations when explicitly requested, or as a fallback when
+        # the artist has too few solo tracks to seed from.
+        solo_count = len(artist_tracks)
+        seek_collaborations = include_collaborations or solo_count < 4
+        if seek_collaborations:
+            if include_collaborations:
+                logger.info(
+                    "Include-collaborations enabled (%d solo tracks); searching for collaborations...",
+                    solo_count,
+                )
+            else:
+                logger.info(
+                    "Artist has only %d exact match tracks, searching for collaborations...",
+                    solo_count,
+                )
 
-            # Search for collaboration tracks
-            collaboration_tracks = [t for t in all_library_tracks
-                                  if self._is_collaboration_of(t.get('artist', ''), artist_name)]
+            solo_ids = {t.get('rating_key') for t in artist_tracks if t.get('rating_key')}
+            collaboration_tracks = [
+                t for t in all_library_tracks
+                if t.get('rating_key') not in solo_ids
+                and self._is_collaboration_of(t.get('artist', ''), artist_name)
+            ]
 
             if collaboration_tracks:
-                # Group by collaboration artist name for logging
-                collab_artists = {}
+                collab_artists: Dict[str, int] = {}
                 for track in collaboration_tracks:
                     collab_artist = track.get('artist', '')
-                    if collab_artist not in collab_artists:
-                        collab_artists[collab_artist] = 0
-                    collab_artists[collab_artist] += 1
-
+                    collab_artists[collab_artist] = collab_artists.get(collab_artist, 0) + 1
                 for collab_artist, count in collab_artists.items():
                     logger.info(f"  Found collaboration: {collab_artist} ({count} tracks)")
 
-                # Combine exact matches and collaborations
                 artist_tracks.extend(collaboration_tracks)
-                logger.info(f"Found {len(artist_tracks)} total tracks ({len(artist_tracks) - len(collaboration_tracks)} solo, {len(collaboration_tracks)} collaborations)")
-            else:
-                logger.warning(f"Artist has only {len(artist_tracks)} tracks and no collaborations found, need at least 4")
+                logger.info(
+                    "Found %d total tracks (%d solo, %d collaborations)",
+                    len(artist_tracks), solo_count, len(collaboration_tracks),
+                )
+            elif solo_count < 4:
+                logger.warning(
+                    "Artist has only %d tracks and no collaborations found, need at least 4",
+                    solo_count,
+                )
                 return None
+            elif include_collaborations:
+                logger.info("No collaboration tracks found for %s; using solo tracks only", artist_name)
 
         if len(artist_tracks) < 4:
             logger.warning(f"Artist has only {len(artist_tracks)} total tracks (including collaborations), need at least 4")
@@ -1747,6 +1914,8 @@ class PlaylistGenerator:
         # Add play count (0 for all, since we don't have history)
         for track in artist_tracks:
             track['play_count'] = 0
+
+        ds_cfg = self.config.get('playlists', 'ds_pipeline', default={}) or {}
 
         fixed_seed_tracks: List[Dict[str, Any]] = []
         fixed_anchor_ids: Optional[List[str]] = None
@@ -1849,7 +2018,10 @@ class PlaylistGenerator:
             if len(valid_tracks) < 4:
                 logger.warning(f"Artist has only {len(valid_tracks)} valid-duration tracks (requested 4); using all valid tracks")
             import random
-            seed_tracks = random.sample(valid_tracks, min(4, len(valid_tracks)))
+            base_seed = int(ds_cfg.get("random_seed", 0) or 0)
+            seed_epoch_val = int(seed_epoch or 0)
+            rng = random.Random(base_seed + seed_epoch_val)
+            seed_tracks = rng.sample(valid_tracks, min(4, len(valid_tracks)))
 
         anchor_seed_ids_override = None
         if fixed_seed_tracks:
@@ -1922,7 +2094,6 @@ class PlaylistGenerator:
         # ─────────────────────────────────────────────────────────────────────
         # Style-aware artist mode (optional; config-gated)
         # ─────────────────────────────────────────────────────────────────────
-        ds_cfg = self.config.get('playlists', 'ds_pipeline', default={}) or {}
         style_cfg_raw = ds_cfg.get("artist_style", {}) or {}
         style_cfg = ArtistStyleConfig(
             enabled=bool(style_cfg_raw.get("enabled", False)),
@@ -1934,8 +2105,10 @@ class PlaylistGenerator:
             pool_balance_mode=style_cfg_raw.get("pool_balance_mode", "equal"),
             internal_connector_priority=style_cfg_raw.get("internal_connector_priority", True),
             internal_connector_max_per_segment=style_cfg_raw.get("internal_connector_max_per_segment", 2),
-            bridge_floor_narrow=style_cfg_raw.get("bridge_floor", {}).get("narrow", 0.08),
-            bridge_floor_dynamic=style_cfg_raw.get("bridge_floor", {}).get("dynamic", 0.03),
+            medoid_top_k=style_cfg_raw.get("medoid_top_k", 5),
+            bridge_floor_strict=style_cfg_raw.get("bridge_floor", {}).get("strict", 0.10),
+            bridge_floor_narrow=style_cfg_raw.get("bridge_floor", {}).get("narrow", 0.05),
+            bridge_floor_dynamic=style_cfg_raw.get("bridge_floor", {}).get("dynamic", 0.02),
             bridge_weight=style_cfg_raw.get("bridge_score_weights", {}).get("bridge", 0.7),
             transition_weight=style_cfg_raw.get("bridge_score_weights", {}).get("transition", 0.3),
             genre_tiebreak_weight=style_cfg_raw.get("genre_tiebreak_weight", 0.05),
@@ -1967,16 +2140,59 @@ class PlaylistGenerator:
                     explicit_variant=getattr(self, "sonic_variant", None),
                     config_variant=ds_cfg.get("sonic_variant") or sonic_cfg.get("sim_variant"),
                 )
+                base_seed = int(ds_cfg.get("random_seed", 0) or 0)
+                seed_epoch_val = int(seed_epoch or 0)
+                cluster_seed = base_seed + seed_epoch_val
+
+                # Calculate medoid_top_k based on presence setting (max_artist_fraction)
+                # to ensure the playlist has the desired number of seed artist piers
+                max_artist_fraction = ds_cfg.get("candidate_pool", {}).get("max_artist_fraction", 0.125)
+                target_pier_count = max(3, round(track_count * max_artist_fraction))
+
+                # Predict number of clusters to calculate piers per cluster
+                artist_key_norm = normalize_artist_key(artist_name)
+                artist_track_count = len(_artist_indices_in_bundle(
+                    bundle, artist_name, include_collaborations=include_collaborations
+                ))
+                predicted_k = _select_k(artist_track_count, style_cfg)
+
+                # Calculate medoid_top_k (piers per cluster) to achieve target pier count
+                medoid_top_k_calculated = max(1, math.ceil(target_pier_count / predicted_k))
+
+                # Override with explicit config value or seed_epoch logic if present
+                if seed_epoch_val > 0 and style_cfg.medoid_top_k:
+                    medoid_top_k = max(1, int(style_cfg.medoid_top_k))
+                else:
+                    medoid_top_k = medoid_top_k_calculated
+
+                logger.info(
+                    "Artist presence pier calculation: max_artist_fraction=%.3f target_piers=%d "
+                    "predicted_clusters=%d medoid_top_k=%d (track_count=%d)",
+                    max_artist_fraction, target_pier_count, predicted_k, medoid_top_k, track_count
+                )
+
                 clusters, medoids, medoids_by_cluster, X_norm = cluster_artist_tracks(
                     bundle=bundle,
                     artist_name=artist_name,
                     cfg=style_cfg,
-                    random_seed=ds_cfg.get("random_seed", 0),
+                    random_seed=cluster_seed,
                     sonic_variant=sonic_variant_cfg,
+                    medoid_top_k=medoid_top_k,
+                    include_collaborations=include_collaborations,
                 )
                 if not medoids:
                     raise ValueError("Style clustering returned no medoids")
                 ordered_medoids = order_clusters(medoids, X_norm)
+
+                # Cap medoids to target_pier_count to avoid ceiling overshoot
+                # (e.g., 5 clusters × ceil(6/5)=2 per cluster = 10, but we want 6)
+                if len(ordered_medoids) > target_pier_count:
+                    logger.info(
+                        "Capping medoids from %d to target_pier_count=%d",
+                        len(ordered_medoids), target_pier_count
+                    )
+                    ordered_medoids = ordered_medoids[:target_pier_count]
+
                 cluster_piers = medoids_by_cluster
 
                 # Global admission floor (same as DS candidate admission)
@@ -1991,19 +2207,11 @@ class PlaylistGenerator:
                     pool_balance_mode=style_cfg.pool_balance_mode,
                     global_floor=min_sonic,
                     artist_key=artist_key_norm,
+                    artist_name=artist_name,
+                    include_collaborations=include_collaborations,
                 )
-                internal_connector_ids = (
-                    get_internal_connectors(
-                        bundle=bundle,
-                        artist_key=artist_key_norm,
-                        exclude_indices=medoids,
-                        global_floor=min_sonic,
-                        pier_indices=medoids,
-                        X_norm=X_norm,
-                    )
-                    if style_cfg.internal_connector_priority
-                    else []
-                )
+                # Internal connectors disabled for Artist mode - seed artist should ONLY appear as piers
+                internal_connector_ids = []
                 pier_ids = [str(bundle.track_ids[m]) for m in ordered_medoids]
                 style_allowed_track_ids = list(dict.fromkeys(pier_ids + external_pool + list(internal_connector_ids or [])))
                 if not style_allowed_track_ids:
@@ -2023,6 +2231,8 @@ class PlaylistGenerator:
                     "artist": str(artist_name),
                     "ds_mode": str(ds_mode_effective),
                     "sonic_variant": str(sonic_variant_cfg),
+                    "seed_epoch": int(seed_epoch or 0),
+                    "medoid_top_k": int(medoid_top_k),
                     "global_sonic_floor": float(min_sonic),
                     "clusters": [
                         {
@@ -2124,25 +2334,78 @@ class PlaylistGenerator:
                 pool_source = "legacy_fallback"
 
         if using_artist_style and style_seed_track_id and style_allowed_track_ids:
-            ds_tracks = self._maybe_generate_ds_playlist(
-                seed_track_id=style_seed_track_id,
-                target_length=track_count,
-                mode_override=ds_mode_effective,
-                seed_artist=artist_name,
-                allowed_track_ids=style_allowed_track_ids,
-                excluded_track_ids=excluded_ids or None,
-                anchor_seed_tracks=style_anchor_tracks,
-                anchor_seed_ids=style_anchor_ids,
-                pier_bridge_config=pier_cfg,
-                internal_connector_ids=internal_connector_ids,
-                internal_connector_max_per_segment=style_cfg.internal_connector_max_per_segment,
-                internal_connector_priority=style_cfg.internal_connector_priority,
-                artist_style_enabled=True,
-                artist_playlist=True,
-                pool_source=pool_source,
-                dry_run=bool(dry_run),
-                audit_context_extra={"style_summary": style_summary},
-            )
+            # Try with genre gating first, fallback to no-genre-gate mode if genre isolation detected
+            fallback_used = False
+            try:
+                ds_tracks = self._maybe_generate_ds_playlist(
+                    seed_track_id=style_seed_track_id,
+                    target_length=track_count,
+                    mode_override=ds_mode_effective,
+                    seed_artist=artist_name,
+                    allowed_track_ids=style_allowed_track_ids,
+                    excluded_track_ids=excluded_ids or None,
+                    anchor_seed_tracks=style_anchor_tracks,
+                    anchor_seed_ids=style_anchor_ids,
+                    pier_bridge_config=pier_cfg,
+                    internal_connector_ids=internal_connector_ids,
+                    internal_connector_max_per_segment=style_cfg.internal_connector_max_per_segment,
+                    internal_connector_priority=style_cfg.internal_connector_priority,
+                    artist_style_enabled=True,
+                    artist_playlist=True,
+                    pool_source=pool_source,
+                    dry_run=bool(dry_run),
+                    audit_context_extra={"style_summary": style_summary},
+                )
+            except ValueError as e:
+                error_msg = str(e)
+                # Check if this is genre isolation failure (zero candidates after genre gate)
+                if "pool_after_gate 0" in error_msg and "interior_len" in error_msg:
+                    logger.warning(
+                        "❌ Genre isolation detected for '%s': Zero candidates passed genre similarity filter",
+                        artist_name
+                    )
+                    logger.info(
+                        "🔄 Fallback: Retrying without genre gating (artist=%s, mode=%s)",
+                        artist_name,
+                        ds_mode_effective
+                    )
+
+                    # Retry without genre gating by temporarily overriding config
+                    original_gate_enabled = self.config.config.get("playlists", {}).get("ds_pipeline", {}).get("genre_gate_enabled", True)
+                    try:
+                        # Disable genre gating
+                        self.config.config.setdefault("playlists", {}).setdefault("ds_pipeline", {})["genre_gate_enabled"] = False
+
+                        ds_tracks = self._maybe_generate_ds_playlist(
+                            seed_track_id=style_seed_track_id,
+                            target_length=track_count,
+                            mode_override=ds_mode_effective,
+                            seed_artist=artist_name,
+                            allowed_track_ids=style_allowed_track_ids,
+                            excluded_track_ids=excluded_ids or None,
+                            anchor_seed_tracks=style_anchor_tracks,
+                            anchor_seed_ids=style_anchor_ids,
+                            pier_bridge_config=pier_cfg,
+                            internal_connector_ids=internal_connector_ids,
+                            internal_connector_max_per_segment=style_cfg.internal_connector_max_per_segment,
+                            internal_connector_priority=style_cfg.internal_connector_priority,
+                            artist_style_enabled=True,
+                            artist_playlist=True,
+                            pool_source=pool_source,
+                            dry_run=bool(dry_run),
+                            audit_context_extra={"style_summary": style_summary},
+                        )
+                        fallback_used = True
+                        logger.warning(
+                            "✓ Fallback succeeded: Generated playlist for '%s' without genre filtering (quality may be lower)",
+                            artist_name
+                        )
+                    finally:
+                        # Restore original setting
+                        self.config.config["playlists"]["ds_pipeline"]["genre_gate_enabled"] = original_gate_enabled
+                else:
+                    # Different error, re-raise
+                    raise
         else:
             logger.info("Artist style mode DISABLED: using legacy seed selection")
             for i, seed_track in enumerate(seed_tracks):
@@ -2242,22 +2505,34 @@ class PlaylistGenerator:
                 logger.info("Recency diag: post-order filtering disabled; no edge diff computed.")
         title = f"Auto: {artist_name}"
         self._print_playlist_report(final_tracks, artist_name=artist_name, dynamic=dynamic, verbose_edges=verbose)
-        return {
+
+        # Add fallback info if genre-gating was bypassed
+        result = {
             'title': title,
+            'name': title,
             'artists': (artist_name,),
             'genres': [],
             'tracks': final_tracks,
+            'track_ids': [str(t.get('rating_key') or t.get('track_id') or '') for t in final_tracks],
             'ds_report': getattr(self, "_last_ds_report", None),
         }
+        if fallback_used:
+            result['genre_gate_fallback'] = True
+            result['quality_warning'] = f"{artist_name}'s genres are isolated from your library - playlist generated without genre filtering"
+        return result
 
     def create_playlist_for_genre(
         self,
-        genre_name: str,
+        genre_name: Optional[str] = None,
         track_count: int = 30,
         dynamic: bool = False,
         dry_run: bool = False,
         verbose: bool = False,
         ds_mode_override: Optional[str] = None,
+        genre: Optional[str] = None,
+        num_tracks: Optional[int] = None,
+        mode: Optional[str] = None,
+        random_seed: Optional[int] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Create a single playlist for a specific genre without requiring listening history
@@ -2273,7 +2548,19 @@ class PlaylistGenerator:
         Returns:
             Playlist dictionary with tracks and metadata, or None if unable to create
         """
-        from src.genre_normalization import normalize_genre_token
+        from src.genre.normalize_unified import normalize_genre_token
+
+        if genre_name is None:
+            genre_name = genre
+        if genre_name is None:
+            raise ValueError("genre_name is required")
+        if num_tracks is not None:
+            track_count = num_tracks
+        if mode is not None:
+            ds_mode_override = mode
+            dynamic = mode == "dynamic"
+        if random_seed is not None:
+            self.config.config.setdefault("playlists", {}).setdefault("ds_pipeline", {})["random_seed"] = random_seed
 
         # Normalize the genre name
         normalized_genre = normalize_genre_token(genre_name)
@@ -2467,9 +2754,11 @@ class PlaylistGenerator:
 
         return {
             'title': title,
+            'name': title,
             'artists': tuple(set(t.get('artist') for t in final_tracks if t.get('artist'))),
             'genres': [normalized_genre],
             'tracks': final_tracks,
+            'track_ids': [str(t.get('rating_key') or t.get('track_id') or '') for t in final_tracks],
             'ds_report': getattr(self, "_last_ds_report", None),
         }
 
@@ -2821,8 +3110,9 @@ class PlaylistGenerator:
                 pool_balance_mode=style_cfg_raw.get("pool_balance_mode", "equal"),
                 internal_connector_priority=style_cfg_raw.get("internal_connector_priority", True),
                 internal_connector_max_per_segment=style_cfg_raw.get("internal_connector_max_per_segment", 2),
-                bridge_floor_narrow=style_cfg_raw.get("bridge_floor", {}).get("narrow", 0.08),
-                bridge_floor_dynamic=style_cfg_raw.get("bridge_floor", {}).get("dynamic", 0.03),
+                bridge_floor_strict=style_cfg_raw.get("bridge_floor", {}).get("strict", 0.10),
+                bridge_floor_narrow=style_cfg_raw.get("bridge_floor", {}).get("narrow", 0.05),
+                bridge_floor_dynamic=style_cfg_raw.get("bridge_floor", {}).get("dynamic", 0.02),
                 bridge_weight=style_cfg_raw.get("bridge_score_weights", {}).get("bridge", 0.7),
                 transition_weight=style_cfg_raw.get("bridge_score_weights", {}).get("transition", 0.3),
                 genre_tiebreak_weight=style_cfg_raw.get("genre_tiebreak_weight", 0.05),
@@ -2851,16 +3141,47 @@ class PlaylistGenerator:
                         explicit_variant=getattr(self, "sonic_variant", None),
                         config_variant=ds_cfg.get("sonic_variant") or sonic_cfg.get("sim_variant"),
                     )
+
+                    # Calculate medoid_top_k based on presence setting (max_artist_fraction)
+                    max_artist_fraction = ds_cfg.get("candidate_pool", {}).get("max_artist_fraction", 0.125)
+                    target_pier_count = max(3, round(target_playlist_size * max_artist_fraction))
+
+                    # Predict number of clusters to calculate piers per cluster
+                    artist_key_norm = normalize_artist_key(artist)
+                    artist_track_count = sum(
+                        1 for ak in bundle.artist_keys
+                        if normalize_artist_key(str(ak)) == artist_key_norm
+                    )
+                    predicted_k = _select_k(artist_track_count, style_cfg)
+                    medoid_top_k = max(1, math.ceil(target_pier_count / predicted_k))
+
+                    logger.info(
+                        "Artist presence pier calculation: max_artist_fraction=%.3f target_piers=%d "
+                        "predicted_clusters=%d medoid_top_k=%d (track_count=%d)",
+                        max_artist_fraction, target_pier_count, predicted_k, medoid_top_k, target_playlist_size
+                    )
+
                     clusters, medoids, medoids_by_cluster, X_norm = cluster_artist_tracks(
                         bundle=bundle,
                         artist_name=artist,
                         cfg=style_cfg,
                         random_seed=ds_cfg.get("random_seed", 0),
                         sonic_variant=sonic_variant_cfg,
+                        medoid_top_k=medoid_top_k,
                     )
                     if not medoids:
                         raise ValueError("Style clustering returned no medoids")
                     ordered_medoids = order_clusters(medoids, X_norm)
+
+                    # Cap medoids to target_pier_count to avoid ceiling overshoot
+                    # (e.g., 5 clusters × ceil(6/5)=2 per cluster = 10, but we want 6)
+                    if len(ordered_medoids) > target_pier_count:
+                        logger.info(
+                            "Capping medoids from %d to target_pier_count=%d",
+                            len(ordered_medoids), target_pier_count
+                        )
+                        ordered_medoids = ordered_medoids[:target_pier_count]
+
                     cluster_piers = medoids_by_cluster
                     min_sonic = get_min_sonic_similarity(ds_cfg.get("candidate_pool", {}), ds_mode_effective)
                     artist_key = normalize_artist_key(artist)
@@ -2873,14 +3194,8 @@ class PlaylistGenerator:
                         global_floor=min_sonic,
                         artist_key=artist_key,
                     )
-                    internal_connectors = get_internal_connectors(
-                        bundle=bundle,
-                        artist_key=artist_key,
-                        exclude_indices=medoids,
-                        global_floor=min_sonic,
-                        pier_indices=medoids,
-                        X_norm=X_norm,
-                    ) if style_cfg.internal_connector_priority else []
+                    # Internal connectors disabled for Artist mode - seed artist should ONLY appear as piers
+                    internal_connectors = []
                     pier_ids = [str(bundle.track_ids[m]) for m in ordered_medoids]
                     allowed_track_ids = list(dict.fromkeys(pier_ids + external_pool + internal_connectors))
                     if not allowed_track_ids:
@@ -3042,64 +3357,94 @@ class PlaylistGenerator:
         track_count: int = 30,
         dynamic: bool = False,
         ds_mode_override: Optional[str] = None,
+        seed_track_ids: Optional[List[str]] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Create a playlist from explicit seed tracks without requiring an artist name.
         Seed tracks should be provided in "Title - Artist" format (autocomplete default).
+        If seed_track_ids are provided, they will be used for exact track matching.
         """
         if not seed_tracks:
             raise ValueError("No seed tracks provided.")
 
         all_library_tracks = self.library.get_all_tracks()
 
-        def _parse_seed_entry(entry: str) -> tuple[str, str]:
-            title = entry.strip()
-            artist = ""
-            if " - " in title:
-                title_part, artist_part = title.split(" - ", 1)
-                title = title_part.strip()
-                artist = artist_part.strip()
-                if " (" in artist:
-                    artist = artist.split(" (", 1)[0].strip()
-            return title, artist
-
         resolved_seeds: List[Dict[str, Any]] = []
         seen_keys: set[str] = set()
-        for entry in seed_tracks:
-            title, artist = _parse_seed_entry(str(entry))
-            if not title:
-                continue
-            if not artist:
+
+        # If track IDs are provided, use direct lookup for exact matching
+        if seed_track_ids and len(seed_track_ids) == len(seed_tracks):
+            logger.info("Using track IDs for exact seed track matching")
+            for track_id, display_str in zip(seed_track_ids, seed_tracks):
+                track = self.library.get_track_by_key(track_id)
+                if not track:
+                    logger.warning(
+                        "Seed track ID '%s' (%s) not found in library; skipping",
+                        track_id,
+                        display_str,
+                    )
+                    continue
+                key = str(track.get("rating_key") or track.get("track_id") or "")
+                if not key or key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                track["play_count"] = 0
+                resolved_seeds.append(track)
+        else:
+            # Fall back to display string parsing (legacy behavior)
+            if seed_track_ids:
                 logger.warning(
-                    "Seed entry '%s' missing artist; skipping.",
-                    entry,
+                    "Track ID count (%d) doesn't match seed count (%d); using display string parsing",
+                    len(seed_track_ids),
+                    len(seed_tracks),
                 )
-                continue
-            artist_key = normalize_artist_key(artist)
-            artist_tracks = [
-                t for t in all_library_tracks if safe_get_artist_key(t) == artist_key
-            ]
-            if not artist_tracks:
-                logger.warning(
-                    "No tracks found for seed artist '%s' (entry '%s')",
-                    artist,
-                    entry,
-                )
-                continue
-            selected = self._select_canonical_track(artist_tracks, title)
-            if not selected:
-                logger.warning(
-                    "Seed track '%s' not found for artist '%s'",
-                    title,
-                    artist,
-                )
-                continue
-            key = str(selected.get("rating_key") or selected.get("track_id") or "")
-            if not key or key in seen_keys:
-                continue
-            seen_keys.add(key)
-            selected["play_count"] = 0
-            resolved_seeds.append(selected)
+
+            def _parse_seed_entry(entry: str) -> tuple[str, str]:
+                title = entry.strip()
+                artist = ""
+                if " - " in title:
+                    title_part, artist_part = title.split(" - ", 1)
+                    title = title_part.strip()
+                    artist = artist_part.strip()
+                    if " (" in artist:
+                        artist = artist.split(" (", 1)[0].strip()
+                return title, artist
+
+            for entry in seed_tracks:
+                title, artist = _parse_seed_entry(str(entry))
+                if not title:
+                    continue
+                if not artist:
+                    logger.warning(
+                        "Seed entry '%s' missing artist; skipping.",
+                        entry,
+                    )
+                    continue
+                artist_key = normalize_artist_key(artist)
+                artist_tracks = [
+                    t for t in all_library_tracks if safe_get_artist_key(t) == artist_key
+                ]
+                if not artist_tracks:
+                    logger.warning(
+                        "No tracks found for seed artist '%s' (entry '%s')",
+                        artist,
+                        entry,
+                    )
+                    continue
+                selected = self._select_canonical_track(artist_tracks, title)
+                if not selected:
+                    logger.warning(
+                        "Seed track '%s' not found for artist '%s'",
+                        title,
+                        artist,
+                    )
+                    continue
+                key = str(selected.get("rating_key") or selected.get("track_id") or "")
+                if not key or key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                selected["play_count"] = 0
+                resolved_seeds.append(selected)
 
         if not resolved_seeds:
             raise ValueError("No valid seed tracks resolved from selection.")
@@ -3132,16 +3477,140 @@ class PlaylistGenerator:
                 )
                 excluded_ids = set()
 
-        ds_tracks = self._maybe_generate_ds_playlist(
-            seed_track_id=resolved_seeds[0].get("rating_key"),
-            target_length=track_count,
-            mode_override=ds_mode_override,
-            anchor_seed_tracks=resolved_seeds,
-            anchor_seed_ids=[s.get("rating_key") for s in resolved_seeds if s.get("rating_key")],
-            excluded_track_ids=excluded_ids or None,
-            artist_playlist=False,
-            pool_source="seeded",
-        )
+        # Try generation with progressive fallback on insufficient pool
+        ds_tracks = None
+        fallback_attempts = []
+
+        # Attempt 1: Normal generation
+        try:
+            ds_tracks = self._maybe_generate_ds_playlist(
+                seed_track_id=resolved_seeds[0].get("rating_key"),
+                target_length=track_count,
+                mode_override=ds_mode_override,
+                anchor_seed_tracks=resolved_seeds,
+                anchor_seed_ids=[s.get("rating_key") for s in resolved_seeds if s.get("rating_key")],
+                excluded_track_ids=excluded_ids or None,
+                artist_playlist=False,
+                pool_source="seeded",
+            )
+        except ValueError as e:
+            error_msg = str(e)
+            # Check if this is the specific "insufficient pool" error
+            if "pool_after_gate" in error_msg and "interior_len" in error_msg:
+                logger.warning("Initial generation failed due to insufficient pool: %s", error_msg)
+                fallback_attempts.append(("normal", error_msg))
+
+                # Attempt 2: Allow pier artists in interiors + reduce artist spacing
+                logger.info("Fallback 1: Allowing pier artists in interiors, reducing artist spacing to 3")
+                try:
+                    original_disallow = self.config.config.get("playlists", {}).get("ds_pipeline", {}).get("pier_bridge", {}).get("disallow_pier_artists_in_interiors", True)
+                    original_min_gap = self.config.config.get("playlists", {}).get("ds_pipeline", {}).get("artist_spacing_min_gap", 6)
+
+                    # Temporarily relax constraints
+                    self.config.config.setdefault("playlists", {}).setdefault("ds_pipeline", {}).setdefault("pier_bridge", {})["disallow_pier_artists_in_interiors"] = False
+                    self.config.config["playlists"]["ds_pipeline"]["artist_spacing_min_gap"] = 3
+
+                    ds_tracks = self._maybe_generate_ds_playlist(
+                        seed_track_id=resolved_seeds[0].get("rating_key"),
+                        target_length=track_count,
+                        mode_override=ds_mode_override,
+                        anchor_seed_tracks=resolved_seeds,
+                        anchor_seed_ids=[s.get("rating_key") for s in resolved_seeds if s.get("rating_key")],
+                        excluded_track_ids=excluded_ids or None,
+                        artist_playlist=False,
+                        pool_source="seeded",
+                    )
+                    logger.info("✓ Fallback 1 succeeded (pier artists allowed, min_gap=3)")
+                    try:
+                        self.config.config["playlists"]["ds_pipeline"]["pier_bridge"]["disallow_pier_artists_in_interiors"] = original_disallow
+                        self.config.config["playlists"]["ds_pipeline"]["artist_spacing_min_gap"] = original_min_gap
+                    except Exception:
+                        pass
+                except ValueError as e2:
+                    fallback_attempts.append(("allow_pier_gap3", str(e2)))
+                    logger.warning("Fallback 1 failed: %s", e2)
+
+                    # Attempt 3: Reduce artist spacing to 0
+                    if ds_tracks is None:
+                        logger.info("Fallback 2: Reducing artist spacing to 0")
+                        try:
+                            self.config.config["playlists"]["ds_pipeline"]["artist_spacing_min_gap"] = 0
+
+                            ds_tracks = self._maybe_generate_ds_playlist(
+                                seed_track_id=resolved_seeds[0].get("rating_key"),
+                                target_length=track_count,
+                                mode_override=ds_mode_override,
+                                anchor_seed_tracks=resolved_seeds,
+                                anchor_seed_ids=[s.get("rating_key") for s in resolved_seeds if s.get("rating_key")],
+                                excluded_track_ids=excluded_ids or None,
+                                artist_playlist=False,
+                                pool_source="seeded",
+                            )
+                            logger.info("✓ Fallback 2 succeeded (pier artists allowed, min_gap=0)")
+                        except ValueError as e3:
+                            fallback_attempts.append(("allow_pier_gap0", str(e3)))
+                            logger.warning("Fallback 2 failed: %s", e3)
+
+                    # Attempt 4: Reduce playlist length to 20 tracks
+                    if ds_tracks is None and track_count > 20:
+                        logger.info("Fallback 3: Reducing target length to 20 tracks")
+                        try:
+                            ds_tracks = self._maybe_generate_ds_playlist(
+                                seed_track_id=resolved_seeds[0].get("rating_key"),
+                                target_length=20,
+                                mode_override=ds_mode_override,
+                                anchor_seed_tracks=resolved_seeds,
+                                anchor_seed_ids=[s.get("rating_key") for s in resolved_seeds if s.get("rating_key")],
+                                excluded_track_ids=excluded_ids or None,
+                                artist_playlist=False,
+                                pool_source="seeded",
+                            )
+                            logger.info("✓ Fallback 3 succeeded (20 tracks, pier artists allowed, min_gap=0)")
+                        except ValueError as e4:
+                            fallback_attempts.append(("shorter_20", str(e4)))
+                            logger.warning("Fallback 3 failed: %s", e4)
+
+                    # Attempt 5: Disable recency filter as last resort
+                    if ds_tracks is None and excluded_ids:
+                        logger.info("Fallback 4 (LAST RESORT): Disabling recency filter")
+                        try:
+                            ds_tracks = self._maybe_generate_ds_playlist(
+                                seed_track_id=resolved_seeds[0].get("rating_key"),
+                                target_length=min(20, track_count),
+                                mode_override=ds_mode_override,
+                                anchor_seed_tracks=resolved_seeds,
+                                anchor_seed_ids=[s.get("rating_key") for s in resolved_seeds if s.get("rating_key")],
+                                excluded_track_ids=None,  # Disable recency exclusions
+                                artist_playlist=False,
+                                pool_source="seeded",
+                            )
+                            logger.info("✓ Fallback 4 succeeded (no recency filter, 20 tracks, pier artists allowed, min_gap=0)")
+                        except ValueError as e5:
+                            fallback_attempts.append(("no_recency", str(e5)))
+                            logger.error("Fallback 4 failed: %s", e5)
+
+                    # Restore original values
+                    try:
+                        self.config.config["playlists"]["ds_pipeline"]["pier_bridge"]["disallow_pier_artists_in_interiors"] = original_disallow
+                        self.config.config["playlists"]["ds_pipeline"]["artist_spacing_min_gap"] = original_min_gap
+                    except Exception:
+                        pass
+
+                # If all fallbacks failed, provide detailed error
+                if ds_tracks is None:
+                    fallback_summary = "\n".join([f"  - {mode}: {err[:100]}" for mode, err in fallback_attempts])
+                    raise ValueError(
+                        f"Unable to generate playlist even with progressive fallbacks.\n"
+                        f"Seeds are too sonically/genre-isolated from your library.\n\n"
+                        f"Attempts made:\n{fallback_summary}\n\n"
+                        f"Suggestions:\n"
+                        f"  - Try fewer seeds (2-3 instead of 4)\n"
+                        f"  - Choose seeds that are more sonically similar to each other\n"
+                        f"  - Add more music to your library in these genres"
+                    )
+            else:
+                # Different error, re-raise
+                raise
 
         if ds_tracks is None:
             raise ValueError("DS pipeline returned no tracks.")
@@ -3158,9 +3627,11 @@ class PlaylistGenerator:
         exempt_pier_ids = {
             str(t.get("rating_key")) for t in resolved_seeds if t.get("rating_key")
         }
+        # Use actual returned length for validation (may be shorter if fallback reduced target)
+        actual_target_length = len(ds_tracks) if ds_tracks else track_count
         self._post_order_validate_ds_output(
             ordered_tracks=ds_tracks,
-            expected_length=track_count,
+            expected_length=actual_target_length,
             excluded_track_ids=set(excluded_ids or set()),
             exempt_pier_track_ids=exempt_pier_ids,
             audit_path=str(audit_path) if audit_path else None,
@@ -3177,12 +3648,20 @@ class PlaylistGenerator:
 
         title = "Auto: Seeded"
         self._print_playlist_report(final_tracks, artist_name="Seeded", dynamic=dynamic)
+
+        # Add fallback info to report if fallbacks were used
+        fallback_used = len(fallback_attempts) > 0
+        if fallback_used:
+            logger.info("✓ Playlist generated using fallback mode (relaxed constraints)")
+
         return {
             "title": title,
             "artists": tuple(sorted({t.get("artist") for t in resolved_seeds if t.get("artist")})),
             "genres": [],
             "tracks": final_tracks,
             "ds_report": getattr(self, "_last_ds_report", None),
+            "fallback_mode_used": fallback_used,
+            "fallback_attempts": fallback_attempts if fallback_used else None,
         }
 
     def _get_additional_artist_tracks(self, artist: str, history: List[Dict[str, Any]],
