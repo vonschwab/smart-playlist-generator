@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -50,8 +51,25 @@ def _ensure_first_dim(name: str, arr: Optional[np.ndarray], expected: int) -> No
 
 
 def load_artifact_bundle(path: str | Path) -> ArtifactBundle:
-    """Load NPZ, validate required keys, build track_id_to_index, and return bundle."""
-    artifact_path = Path(path)
+    """Load NPZ, validate required keys, build track_id_to_index, and return bundle.
+
+    Cached: a single playlist generation calls this 3-7 times with the same
+    artifact path, decoding ~20 MB of matrices each time. The path-keyed
+    cache (maxsize=2 to handle primary + dev/test artifacts) collapses
+    those into one decode per distinct path. Bundles are treated as
+    read-only by all call sites.
+
+    To force a re-read (e.g. after rebuilding artifacts on disk), call
+    `load_artifact_bundle.cache_clear()`.
+    """
+    return _load_artifact_bundle_cached(Path(path))
+
+
+load_artifact_bundle.cache_clear = lambda: _load_artifact_bundle_cached.cache_clear()  # type: ignore[attr-defined]
+
+
+@functools.lru_cache(maxsize=2)
+def _load_artifact_bundle_cached(artifact_path: Path) -> ArtifactBundle:
     data = np.load(artifact_path, allow_pickle=True)
 
     required_keys = {
