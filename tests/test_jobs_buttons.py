@@ -11,6 +11,7 @@ class FakeWorkerClient(QObject):
     done_received = Signal(str, bool, str, bool, object, str)
     busy_changed = Signal(bool)
     worker_stopped = Signal(int, str)
+    checkpoint_received = Signal(dict, object)
 
     def __init__(self):
         super().__init__()

@@ -20,6 +20,9 @@ class DummyBundle:
         self.track_artists = track_artists
         self.track_titles = track_titles
         self.track_id_to_index = {str(t): i for i, t in enumerate(track_ids)}
+        # ArtifactBundle has Optional[np.ndarray] = None for these; the prod
+        # cluster_artist_tracks code path checks them, so the mock must mirror.
+        self.durations_ms = None
 
 
 def test_selects_multiple_clusters_and_medoids():
