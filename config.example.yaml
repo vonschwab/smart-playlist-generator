@@ -7,9 +7,6 @@ lastfm:
   api_key: ''
   username: ''
   history_days: 90
-openai:
-  api_key: example-openai-api-key
-  model: gpt-4o-mini
 plex:
   enabled: false
   base_url: http://localhost:32400

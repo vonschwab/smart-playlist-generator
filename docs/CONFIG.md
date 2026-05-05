@@ -26,13 +26,6 @@ discogs:
   token: "your_token"                # Get from discogs.com/settings/developers
 ```
 
-### OpenAI (optional, for AI title generation)
-```yaml
-openai:
-  api_key: "your_api_key"            # Get from platform.openai.com
-  model: gpt-4o-mini                 # Model to use
-```
-
 ### Plex (optional, for Plex export)
 ```yaml
 plex:

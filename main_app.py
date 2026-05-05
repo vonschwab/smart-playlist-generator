@@ -18,7 +18,6 @@ from src.console_output import (
 )
 from src.config_loader import Config
 from src.local_library_client import LocalLibraryClient
-from src.openai_client import OpenAIClient
 from src.playlist_generator import PlaylistGenerator
 from src.lastfm_client import LastFMClient
 from src.track_matcher import TrackMatcher
@@ -44,11 +43,6 @@ class PlaylistApp:
         # Initialize library client
         self.logger.info("Initializing Playlist Generator")
         self.library = LocalLibraryClient(db_path="data/metadata.db")
-
-        self.openai = OpenAIClient(
-            api_key=self.config.openai_api_key,
-            model=self.config.openai_model
-        )
 
         # Initialize Last.FM client (history-only). Only create if credentials exist.
         self.lastfm = None

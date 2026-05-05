@@ -85,16 +85,6 @@ class Config:
         return self.config['library'].get('music_directory', 'E:\\MUSIC')
     
     @property
-    def openai_api_key(self) -> str:
-        """Get OpenAI API key (with environment variable override)"""
-        return os.getenv('OPENAI_API_KEY') or self.config['openai']['api_key']
-
-    @property
-    def openai_model(self) -> str:
-        """Get OpenAI model"""
-        return self.config['openai'].get('model', 'gpt-4o-mini')
-
-    @property
     def lastfm_api_key(self) -> str:
         """Get Last.FM API key (with environment variable override)"""
         if 'lastfm' not in self.config or 'api_key' not in self.config.get('lastfm', {}):

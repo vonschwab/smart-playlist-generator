@@ -676,15 +676,6 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                 return self.config['library'].get('music_directory', 'E:\\MUSIC')
 
             @property
-            def openai_api_key(self) -> str:
-                import os
-                return os.getenv('OPENAI_API_KEY') or self.config.get('openai', {}).get('api_key', '')
-
-            @property
-            def openai_model(self) -> str:
-                return self.config.get('openai', {}).get('model', 'gpt-4o-mini')
-
-            @property
             def lastfm_api_key(self) -> str:
                 import os
                 return os.getenv('LASTFM_API_KEY') or self.config.get('lastfm', {}).get('api_key', '')
