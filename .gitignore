@@ -78,6 +78,9 @@ Thumbs.db
 .claude/
 pytest_output.txt
 
+# Untracked one-off DB-fix / inspection scripts (kept locally, not versioned)
+scripts/oneoffs/
+
 # Development archives
 docs/archive/
 # Audit/test docs
