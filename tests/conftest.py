@@ -56,15 +56,10 @@ def synthetic_artifact(tmp_path):
     return path, bundle
 
 
-@pytest.fixture()
-def qtbot():
-    """
-    Minimal shim so tests that accept `qtbot` can run without pytest-qt.
-    The fixture isn't used in assertions, so a dummy object is sufficient.
-    """
-    class _DummyQtBot:
-        def __getattr__(self, name):
-            # Allow arbitrary attribute access without failing the test
-            return lambda *args, **kwargs: None
-
-    return _DummyQtBot()
+# Note: the `qtbot` fixture is provided by the `pytest-qt` plugin (declared in
+# the `dev` extras of pyproject.toml). It auto-creates a QApplication and
+# exposes real GUI assertions (waitSignal, mouseClick, etc.). Earlier versions
+# of this conftest defined a no-op _DummyQtBot stub here so tests could run
+# without pytest-qt installed; that meant assertions silently no-opped, which
+# the audit (T#1) flagged as the single biggest test-quality issue. The stub
+# was removed and pytest-qt is now a hard dev dependency.
