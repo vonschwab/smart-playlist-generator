@@ -44,3 +44,21 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+]
+markers = [
+    "smoke: minimal end-to-end check, fast and broadly covering",
+    "integration: exercises multiple modules with real data fixtures",
+    "golden: compares against checked-in golden output files",
+    "gui: requires a Qt application context (use the qtbot fixture)",
+    "slow: takes more than a few seconds; skip in fast feedback loops",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning:pkg_resources",
+]
