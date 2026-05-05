@@ -26,10 +26,11 @@ For complete details, see [docs/CHANGELOG.md](docs/CHANGELOG.md) and [docs/DJ_BR
 ## Quick Start
 
 ```bash
-# 1. Install dependencies
-pip install -r requirements.txt
-pip install -r requirements-gui.txt
-pip install -e .
+# 1. Install dependencies (Python 3.11+ required)
+#    GUI users: pip install -e .[gui]
+#    Headless / CLI-only: pip install -e .
+#    Contributors:        pip install -e .[gui,dev]
+pip install -e .[gui]
 
 # 2. Configure
 cp config.example.yaml config.yaml

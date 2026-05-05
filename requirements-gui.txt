@@ -1,14 +1,4 @@
-# Playlist Generator GUI Dependencies
-# Install with: pip install -r requirements-gui.txt
-
-# Qt framework for native Windows GUI
-PySide6>=6.5.0
-
-# Configuration
-pyyaml>=6.0
-
-# Platform-specific paths (for presets, logs)
-platformdirs>=3.0
-
-# Build tools (optional, for packaging)
-# pyinstaller>=5.0
+# DEPRECATED: GUI dependencies are now declared in pyproject.toml under the [gui] extra.
+# Prefer:  pip install -e .[gui]
+# This file is kept for back-compat with existing scripts/CI that reference it.
+-e .[gui]
