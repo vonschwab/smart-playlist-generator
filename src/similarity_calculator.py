@@ -447,7 +447,8 @@ class SimilarityCalculator:
         if "duration_ms" in seed_row.keys() and seed_row["duration_ms"]:
             seed_duration_s = (seed_row["duration_ms"] or 0) / 1000.0
 
-        # Get all tracks with features
+        # Get all tracks with features. Materialize so we can preload
+        # genre data for them before iterating.
         cursor.execute("""
             SELECT track_id, sonic_features, artist, duration_ms
             FROM tracks
@@ -455,10 +456,18 @@ class SimilarityCalculator:
               AND track_id != ?
               AND is_blacklisted = 0
         """, (track_id,))
+        candidate_rows = cursor.fetchall()
+
+        # Preload combined genres for the entire library in 4 batched
+        # queries. Replaces an N+1 that was running up to 4 queries per
+        # candidate (~144k SQL round-trips on a 36k-track library).
+        combined_genres_map: Dict[str, List[str]] = {}
+        if self.genre_enabled and self.genre_calc and seed_genres:
+            combined_genres_map = self._preload_combined_genres_for_library()
 
         # Calculate similarity for each track
         similarities = []
-        for row in cursor.fetchall():
+        for row in candidate_rows:
             try:
                 candidate_id = row['track_id']
                 candidate_artist = row['artist']
@@ -482,7 +491,7 @@ class SimilarityCalculator:
 
                 # If genre similarity is enabled, calculate hybrid score
                 if self.genre_enabled and self.genre_calc and seed_genres:
-                    candidate_genres = self._get_combined_genres(candidate_id)
+                    candidate_genres = combined_genres_map.get(candidate_id, [])
 
                     # Calculate genre similarity with confidence
                     genre_result = self.genre_calc.calculate_similarity_with_confidence(
@@ -965,6 +974,124 @@ class SimilarityCalculator:
         """
         weighted = self._get_combined_genres_with_weights(track_id)
         return [genre for genre, _ in weighted]
+
+    def _preload_combined_genres_for_library(self) -> Dict[str, List[str]]:
+        """
+        Bulk-load combined genres for every track in the library in 4 SQL
+        queries, mirroring the priority/dedupe/filter logic of
+        ``_get_combined_genres_with_weights``.
+
+        This exists to collapse the catastrophic N+1 in ``find_similar_tracks``
+        (and siblings, eventually): the per-candidate path runs up to four
+        SQL queries inside a 30k+-row loop. The library-wide scan here is
+        O(library) once, and the in-memory lookup is O(1) per candidate.
+
+        Returns a dict of ``track_id -> [genre, genre, ...]`` in the same
+        priority order ``_get_combined_genres`` would return.
+        """
+        cursor = self.conn.cursor()
+
+        # 1. tracks: artist / album / album_id keyed by track_id
+        cursor.execute("""
+            SELECT track_id, artist, album, album_id
+            FROM tracks
+            WHERE is_blacklisted = 0
+        """)
+        track_meta: Dict[str, Tuple[Optional[str], Optional[str], Optional[str]]] = {
+            row['track_id']: (row['artist'], row['album'], row['album_id'])
+            for row in cursor.fetchall()
+        }
+
+        # 2. track_genres
+        cursor.execute("""
+            SELECT track_id, genre
+            FROM track_genres
+            WHERE genre != '__EMPTY__'
+        """)
+        track_genres_map: Dict[str, List[str]] = {}
+        for row in cursor.fetchall():
+            track_genres_map.setdefault(row['track_id'], []).append(row['genre'])
+
+        # 3. album_genres (whole table once; respects use_discogs_album the
+        #    same way the per-track path does)
+        if self.use_discogs_album:
+            cursor.execute("""
+                SELECT album_id, genre
+                FROM album_genres
+                WHERE genre != '__EMPTY__'
+            """)
+        else:
+            cursor.execute("""
+                SELECT album_id, genre
+                FROM album_genres
+                WHERE genre != '__EMPTY__'
+                  AND (source IS NULL OR source NOT LIKE 'discogs_%')
+            """)
+        album_genres_map: Dict[str, List[str]] = {}
+        for row in cursor.fetchall():
+            album_genres_map.setdefault(row['album_id'], []).append(row['genre'])
+
+        # 4. artist_genres
+        cursor.execute("""
+            SELECT artist, genre
+            FROM artist_genres
+        """)
+        artist_genres_map: Dict[str, List[str]] = {}
+        for row in cursor.fetchall():
+            artist_genres_map.setdefault(row['artist'], []).append(row['genre'])
+
+        # Compose with priority ordering, mirroring
+        # _get_combined_genres_with_weights exactly so behavior is identical.
+        track_weight = self.genre_source_weights.get("track", 1.2)
+        album_weight = self.genre_source_weights.get("album", 1.0)
+        artist_weight = self.genre_source_weights.get("artist", 0.4)
+
+        result: Dict[str, List[str]] = {}
+        for tid, (artist_name, album_name, album_id) in track_meta.items():
+            # Resolve album genres against the same album_id candidates the
+            # per-track path tries, in the same order. First match wins.
+            album_genres: List[str] = []
+            if album_id and album_id in album_genres_map:
+                album_genres = album_genres_map[album_id]
+            elif album_name and artist_name:
+                computed_album_id = hashlib.md5(
+                    f"{artist_name}|{album_name}".lower().encode('utf-8')
+                ).hexdigest()[:16]
+                if computed_album_id in album_genres_map:
+                    album_genres = album_genres_map[computed_album_id]
+                else:
+                    legacy_id = f"{artist_name}|{album_name}"
+                    if legacy_id in album_genres_map:
+                        album_genres = album_genres_map[legacy_id]
+
+            t_genres = track_genres_map.get(tid, [])
+            ar_genres = artist_genres_map.get(artist_name, []) if artist_name else []
+
+            sources = [
+                (track_weight, t_genres),
+                (album_weight, album_genres),
+                (artist_weight, ar_genres),
+            ]
+
+            combined_order: List[str] = []
+            seen: Dict[str, Tuple[str, float]] = {}
+            for weight, genres in sources:
+                if not genres:
+                    continue
+                for genre in self._filter_broad_tags(genres):
+                    normalized = self._normalize_genre(genre)
+                    if not normalized:
+                        continue
+                    existing = seen.get(normalized)
+                    if existing is None:
+                        seen[normalized] = (genre, weight)
+                        combined_order.append(normalized)
+                    elif weight > existing[1]:
+                        seen[normalized] = (genre, weight)
+
+            result[tid] = [seen[n][0] for n in combined_order]
+
+        return result
 
     def calculate_transition_similarity(self, from_track_id: str, to_track_id: str) -> Optional[float]:
         """
