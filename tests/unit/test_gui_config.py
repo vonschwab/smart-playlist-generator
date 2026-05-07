@@ -290,8 +290,10 @@ class TestSettingsSchema:
         """Test that schema includes all required key paths."""
         from src.playlist_gui.config.settings_schema import SETTINGS_SCHEMA, get_setting_by_key
 
+        # Note: playlists.count is intentionally NOT in the GUI schema — it's a
+        # batch-mode CLI/config-only parameter. The GUI generates one playlist
+        # per click via the Generate Panel.
         required_keys = [
-            "playlists.count",
             "playlists.tracks_per_playlist",
             "playlists.ds_pipeline.embedding.sonic_weight",
             "playlists.ds_pipeline.tower_weights.rhythm",

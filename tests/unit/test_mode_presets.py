@@ -28,7 +28,8 @@ class TestGenreModePresets:
         assert settings["enabled"] is True
         assert settings["weight"] == 0.50
         assert settings["sonic_weight"] == 0.50
-        assert settings["min_genre_similarity"] == 0.30
+        # Phase 1-3A relaxed dynamic threshold from 0.30 to 0.25 (commit 34f2948).
+        assert settings["min_genre_similarity"] == 0.25
 
     def test_strict_mode_high_threshold(self):
         """Strict mode should have highest threshold and weight."""
@@ -62,7 +63,8 @@ class TestGenreModePresets:
         """Overrides should be applied to preset."""
         settings = resolve_genre_mode("dynamic", {"weight": 0.60})
         assert settings["weight"] == 0.60  # Overridden
-        assert settings["min_genre_similarity"] == 0.30  # Unchanged
+        # Phase 1-3A relaxed dynamic threshold from 0.30 to 0.25 (commit 34f2948).
+        assert settings["min_genre_similarity"] == 0.25  # Unchanged
 
     def test_case_insensitive(self):
         """Mode names should be case-insensitive."""

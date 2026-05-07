@@ -7,23 +7,28 @@ import src.logging_utils as logging_utils
 
 
 def test_no_print_statements():
+    """Library code in src/ must not call print() — use the logging module instead.
+
+    Scripts under scripts/ are user-facing CLIs and may print freely.
+    The lone src/ exception is playlist_gui/worker.py, which deliberately
+    writes NDJSON events to stdout as its IPC protocol with the GUI.
+    """
     root = Path(__file__).resolve().parent.parent
-    sources = list((root.parent / "src").rglob("*.py")) + list((root.parent / "scripts").rglob("*.py"))
-    disallowed = {
+    sources = list((root.parent / "src").rglob("*.py"))
+    exempt = {
         (root.parent / "src" / "playlist_gui" / "worker.py").resolve(),
-        (root.parent / "scripts" / "update_file_genres.py").resolve(),
     }
     offenders = []
     for path in sources:
-        if path in disallowed:
+        if path.resolve() in exempt:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.Call):
                 func = node.func
                 if isinstance(func, ast.Name) and func.id == "print":
-                    offenders.append(str(path))
-    assert not offenders, f"print() calls remain in: {offenders}"
+                    offenders.append(f"{path}:{node.lineno}")
+    assert not offenders, f"print() calls remain in src/: {offenders}"
 
 
 def test_quiet_suppresses_info(monkeypatch):

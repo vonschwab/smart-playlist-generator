@@ -47,4 +47,5 @@ class TestGenreNormalization:
 
         assert normalize_genre_token("New Age") == "new age"
         assert normalize_genre_token(" PROGRESSIVE ROCK ") == "progressive rock"
-        assert normalize_genre_token("Hip-Hop") == "hip-hop"
+        # SYNONYM_MAP canonicalizes "hip-hop" -> "hip hop" (single space, no hyphen).
+        assert normalize_genre_token("Hip-Hop") == "hip hop"

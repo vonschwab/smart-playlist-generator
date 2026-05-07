@@ -445,9 +445,11 @@ def test_transition_floor_config_override_per_mode():
 def test_pier_bridge_tuning_defaults_per_mode():
     from src.playlist.config import resolve_pier_bridge_tuning
 
+    # Phase 1-3A relaxed bridge_floor: dynamic 0.03 -> 0.02, narrow 0.08 -> 0.05
+    # (commit 34f2948).
     dyn, _ = resolve_pier_bridge_tuning(mode="dynamic", similarity_floor=0.2, overrides={})
     assert dyn.transition_floor == 0.35
-    assert dyn.bridge_floor == 0.03
+    assert dyn.bridge_floor == 0.02
     assert dyn.weight_bridge == 0.6
     assert dyn.weight_transition == 0.4
     assert dyn.genre_tiebreak_weight == 0.05
@@ -456,7 +458,7 @@ def test_pier_bridge_tuning_defaults_per_mode():
 
     nar, _ = resolve_pier_bridge_tuning(mode="narrow", similarity_floor=0.2, overrides={})
     assert nar.transition_floor == 0.45
-    assert nar.bridge_floor == 0.08
+    assert nar.bridge_floor == 0.05
     assert nar.weight_bridge == 0.7
     assert nar.weight_transition == 0.3
     assert nar.genre_tiebreak_weight == 0.05
