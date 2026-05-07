@@ -26,9 +26,10 @@ Phase 2 implements the new "Generate" UI that replaces the scattered generation 
 
 ## Feature Flag
 
-The new UI is controlled by `_USE_GENERATE_PANEL_V2 = True` at the top of `main_window.py`.
-
-Set to `False` to revert to the legacy UI for comparison or debugging.
+Historical note: this UI was originally gated by a `_USE_GENERATE_PANEL_V2`
+flag in `main_window.py`. The flag was always `True` in shipped builds, never
+flipped, and was removed along with the legacy v1 path in Tier-0.7. The
+`GeneratePanel` + `PolicyLayer` flow described below is now the only path.
 
 ## Seed Track Resolution
 
