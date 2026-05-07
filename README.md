@@ -60,7 +60,8 @@ python scripts/build_beat3tower_artifacts.py \
 # 9. Generate a playlist (CLI)
 python main_app.py --artist "Radiohead" --tracks 30
 
-# Or generate by genre
+# Or generate by genre (CLI only — the v2 GUI does not currently expose
+# Genre mode; restoration is tracked as roadmap item Tier-2.4)
 python main_app.py --genre "new age" --tracks 30
 
 # 10. Launch the GUI (Windows)
