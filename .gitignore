@@ -81,6 +81,9 @@ pytest_output.txt
 # Untracked one-off DB-fix / inspection scripts (kept locally, not versioned)
 scripts/oneoffs/
 
+# Internal audit / roadmap notes (not part of the shipped repo)
+audit/
+
 # Development archives
 docs/archive/
 # Audit/test docs
