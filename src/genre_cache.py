@@ -8,7 +8,7 @@ import json
 import logging
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, asdict
 
 
@@ -249,7 +249,7 @@ class GenreCache:
         """Get number of entries in cache."""
         return len(self._cache)
 
-    def get_stats(self) -> Dict[str, int]:
+    def get_stats(self) -> Dict[str, Any]:
         """
         Get cache statistics.
 
@@ -259,7 +259,7 @@ class GenreCache:
         total = len(self._cache)
         stale = sum(1 for entry in self._cache.values() if entry.is_stale(self.ttl_days))
 
-        by_source = {}
+        by_source: Dict[str, int] = {}
         for entry in self._cache.values():
             by_source[entry.source] = by_source.get(entry.source, 0) + 1
 

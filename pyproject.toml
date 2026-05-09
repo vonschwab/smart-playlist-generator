@@ -88,6 +88,34 @@ extend-ignore = [
 # Tests can use names like `_` and assertion patterns ruff isn't tuned for.
 "tests/**" = ["F841"]
 
+[tool.mypy]
+# Allowlist policy: by default the codebase is too dense in untyped
+# legacy code for mypy to be useful project-wide. Tier-1.1 turns mypy on
+# only for modules that are already well-typed; new typed modules
+# graduate into the allowlist below as they prove clean.
+python_version = "3.11"
+ignore_missing_imports = true
+follow_imports = "silent"
+warn_unused_configs = true
+
+# Default: silence errors across all of src.*. Specific modules opt
+# back in via the allowlist override below.
+[[tool.mypy.overrides]]
+module = "src.*"
+ignore_errors = true
+
+# Allowlist: modules where mypy errors fail the build. Keep this list
+# growing one PR at a time as legacy code is typed.
+[[tool.mypy.overrides]]
+module = [
+    "src.cancellation",
+    "src.performance_tracker",
+    "src.genre_cache",
+]
+ignore_errors = false
+check_untyped_defs = true
+warn_return_any = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = [
