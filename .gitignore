@@ -41,8 +41,11 @@ env/
 .pytest-tmp/
 .tox/
 .coverage
+coverage.xml
 htmlcov/
 .hypothesis/
+.mypy_cache/
+.ruff_cache/
 
 # Logs
 logs/
