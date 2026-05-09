@@ -239,9 +239,9 @@ def test_pier_bridge_config_matches_golden(scenario_name, tmp_path, monkeypatch)
         captured["pb_cfg"] = kwargs.get("cfg")
         raise _CaptureSentinel("captured")
 
-    # Patch the call site inside pipeline (the orchestrator) so we intercept
-    # the resolved cfg before pier-bridge construction runs.
-    import src.playlist.pipeline as pipeline_mod
+    # Patch the call site inside the orchestrator module (pipeline.core)
+    # so we intercept the resolved cfg before pier-bridge construction runs.
+    import src.playlist.pipeline.core as pipeline_mod
     monkeypatch.setattr(pipeline_mod, "build_pier_bridge_playlist", _capture_and_short_circuit)
 
     artifact_path = _build_smoke_fixture(tmp_path)

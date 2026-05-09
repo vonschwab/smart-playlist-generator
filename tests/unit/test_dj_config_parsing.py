@@ -173,7 +173,7 @@ def test_flat_key_same_as_default_not_overridden():
     assert pool_strategy == "baseline", "Flat key matching default should not trigger fallback"
 
 
-@mock.patch('src.playlist.pipeline.logger')
+@mock.patch('src.playlist.pipeline.core.logger')
 def test_flat_key_logs_deprecation_warning(mock_logger):
     """Using flat dj_pooling_strategy should log a deprecation warning."""
     pb_cfg = PierBridgeConfig(dj_pooling_strategy="baseline")
