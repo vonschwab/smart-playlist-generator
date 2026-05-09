@@ -21,6 +21,7 @@ from src.playlist.pier_bridge_builder import (
 )
 from src.playlist.artist_identity_resolver import ArtistIdentityConfig
 from src.playlist.pipeline.bundle_restrict import restrict_bundle
+from src.playlist.pipeline.embedding_setup import setup_embedding
 from src.playlist.run_audit import (
     RunAuditContext,
     RunAuditEvent,
@@ -29,8 +30,6 @@ from src.playlist.run_audit import (
     parse_run_audit_config,
     write_markdown_report,
 )
-from src.similarity.hybrid import build_hybrid_embedding
-from src.similarity.sonic_variant import compute_sonic_variant_matrix, resolve_sonic_variant
 
 logger = logging.getLogger(__name__)
 
@@ -210,129 +209,32 @@ def generate_playlist_ds(
                 tw.get("harmony", 0.25),
             )
 
-    resolved_variant = resolve_sonic_variant(explicit_variant=sonic_variant, config_variant=None)
-    variant_stats: dict[str, Any] = {"variant": resolved_variant}
-    X_sonic_for_embed = bundle.X_sonic
-    pre_scaled_sonic = False
-    if bundle.X_sonic is not None:
-        if getattr(bundle, "sonic_variant", None) == resolved_variant and getattr(bundle, "sonic_pre_scaled", False):
-            X_sonic_for_embed = bundle.X_sonic
-            variant_stats = {"variant": resolved_variant, "pre_scaled": True}
-        else:
-            X_sonic_for_embed, variant_stats = compute_sonic_variant_matrix(bundle.X_sonic, resolved_variant, l2=False)
-    else:
-        raise ValueError("Artifact missing X_sonic matrix.")
-    # Warn if the transformed space is too flat (indicates bad artifact/variant)
-    try:
-        sims = np.dot(
-            X_sonic_for_embed / (np.linalg.norm(X_sonic_for_embed, axis=1, keepdims=True) + 1e-12),
-            (X_sonic_for_embed[seed_idx] / (np.linalg.norm(X_sonic_for_embed[seed_idx]) + 1e-12)).T,
-        )
-        p10 = float(np.percentile(sims, 10))
-        p90 = float(np.percentile(sims, 90))
-        if (p90 - p10) < 0.1:
-            logger.warning(
-                "Sonic space appears flat for seed %s (p90-p10=%.3f). Check artifact/variant (resolved=%s).",
-                seed_track_id,
-                p90 - p10,
-                resolved_variant,
-            )
-    except Exception:
-        logger.debug("Skipped flatness heuristic; unable to compute percentile diagnostics.", exc_info=True)
-    pre_scaled_sonic = bool(variant_stats.get("pre_scaled", False))
-
-    # Resolve all seed indices for admission gating (max over seeds)
-    seed_indices_for_floor = [seed_idx]
-    for sid in anchor_seed_ids:
-        idx = bundle.track_id_to_index.get(str(sid))
-        if idx is not None and idx not in seed_indices_for_floor:
-            seed_indices_for_floor.append(idx)
-        elif idx is None:
-            logger.debug("Anchor seed %s not found in bundle for sonic floor", sid)
-    if len(seed_indices_for_floor) > 1:
-        logger.info("Sonic admission uses %d seeds (max similarity across seeds)", len(seed_indices_for_floor))
-
-    # Compute effective hybrid embedding weights
-    # Default to balanced approach: 0.6 sonic / 0.4 genre
-    effective_w_sonic = 0.6
-    effective_w_genre = 0.4
-    if mode == "sonic_only":
-        min_genre_similarity = None
-        effective_w_sonic = 1.0
-        effective_w_genre = 0.0
-        logger.info("Sonic-only mode: disabling genre gate and setting genre weight to 0.")
-
-    if sonic_weight is not None and genre_weight is not None:
-        # Both provided: use them directly (assume they sum to 1.0 or normalize)
-        total = sonic_weight + genre_weight
-        if total > 0:
-            effective_w_sonic = sonic_weight / total
-            effective_w_genre = genre_weight / total
-        logger.info(
-            "Applying hybrid embedding weights: w_sonic=%.3f, w_genre=%.3f (normalized from %.3f, %.3f)",
-            effective_w_sonic, effective_w_genre, sonic_weight, genre_weight
-        )
-    elif sonic_weight is not None:
-        # Only sonic weight provided: genre = 1 - sonic
-        effective_w_sonic = sonic_weight
-        effective_w_genre = 1.0 - sonic_weight
-        logger.info(
-            "Applying hybrid embedding weight: w_sonic=%.3f (w_genre=%.3f inferred)",
-            effective_w_sonic, effective_w_genre
-        )
-    elif genre_weight is not None:
-        # Only genre weight provided: sonic = 1 - genre
-        effective_w_genre = genre_weight
-        effective_w_sonic = 1.0 - genre_weight
-        logger.info(
-            "Applying hybrid embedding weight: w_genre=%.3f (w_sonic=%.3f inferred)",
-            effective_w_genre, effective_w_sonic
-        )
-
-    # Apply optional broad-genre masking for genre embeddings/gating
-    raw_broad_filters = cfg.candidate.broad_filters or ()
-    try:
-        if isinstance(raw_broad_filters, np.ndarray):
-            raw_broad_filters = raw_broad_filters.tolist()
-    except Exception:
-        raw_broad_filters = ()
-    broad_filters = tuple(str(b).lower() for b in raw_broad_filters)
-
-    X_genre_smoothed = bundle.X_genre_smoothed
-    X_genre_raw = bundle.X_genre_raw
-    raw_vocab = getattr(bundle, "genre_vocab", [])
-    try:
-        if hasattr(raw_vocab, "tolist"):
-            genre_vocab: list[str] = list(raw_vocab.tolist())
-        else:
-            genre_vocab = list(raw_vocab or [])
-    except Exception:
-        genre_vocab = [str(g) for g in raw_vocab] if raw_vocab is not None else []
-    genre_mask = None
-    if broad_filters and genre_vocab:
-        genre_mask = np.array([g.lower() not in broad_filters for g in genre_vocab], dtype=bool)
-        if X_genre_smoothed is not None and genre_mask.shape[0] == X_genre_smoothed.shape[1]:
-            X_genre_smoothed = X_genre_smoothed[:, genre_mask]
-            genre_vocab = [g for g, keep in zip(genre_vocab, genre_mask) if keep]
-        if X_genre_raw is not None and genre_mask.shape[0] == X_genre_raw.shape[1]:
-            X_genre_raw = X_genre_raw[:, genre_mask]
-
-    embedding_model = build_hybrid_embedding(
-        X_sonic_for_embed,
-        X_genre_smoothed,
-        n_components_sonic=32,
-        n_components_genre=32,
-        w_sonic=effective_w_sonic,
-        w_genre=effective_w_genre,
+    embedding = setup_embedding(
+        bundle,
+        seed_track_id,
+        seed_idx,
+        anchor_seed_ids=anchor_seed_ids,
+        sonic_variant=sonic_variant,
+        mode=mode,
+        cfg=cfg,
+        sonic_weight=sonic_weight,
+        genre_weight=genre_weight,
+        min_genre_similarity=min_genre_similarity,
         random_seed=random_seed,
-        pre_scaled_sonic=pre_scaled_sonic,
-        use_pca_sonic=not pre_scaled_sonic,
     )
+    # The orchestrator still needs these by name for the remaining phases.
+    min_genre_similarity = embedding.min_genre_similarity
+    resolved_variant = embedding.resolved_variant
+    variant_stats = embedding.variant_stats
+    broad_filters = embedding.broad_filters
+    genre_vocab = embedding.genre_vocab
+    X_genre_raw = embedding.X_genre_raw
+    X_genre_smoothed = embedding.X_genre_smoothed
 
     pool = build_candidate_pool(
         seed_idx=seed_idx,
-        seed_indices=seed_indices_for_floor,
-        embedding=embedding_model.embedding,
+        seed_indices=embedding.seed_indices_for_floor,
+        embedding=embedding.embedding_model.embedding,
         artist_keys=bundle.artist_keys,
         track_ids=bundle.track_ids,
         track_titles=bundle.track_titles,
@@ -340,7 +242,7 @@ def generate_playlist_ds(
         durations_ms=bundle.durations_ms,
         cfg=cfg.candidate,
         random_seed=random_seed,
-        X_sonic=X_sonic_for_embed,
+        X_sonic=embedding.X_sonic_for_embed,
         # NEW: genre-based candidate filtering (skip when min_genre_similarity is None)
         X_genre_raw=X_genre_raw if min_genre_similarity is not None else None,
         X_genre_smoothed=X_genre_smoothed if min_genre_similarity is not None else None,
@@ -1533,7 +1435,7 @@ def generate_playlist_ds(
         params_requested["overrides"] = overrides
     params_effective: Dict[str, Any] = {
         "sonic_variant": variant_stats,
-        "embedding": embedding_model.params_effective,
+        "embedding": embedding.embedding_model.params_effective,
         "candidate_pool": pool.params_effective,
         "playlist": playlist.params_effective,
     }
