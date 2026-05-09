@@ -1,10 +1,12 @@
 """
 Similarity Calculator - Compares sonic features to find similar tracks
 """
+import functools
 import hashlib
 import json
 import logging
 import math
+import re
 import sqlite3
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -781,9 +783,18 @@ class SimilarityCalculator:
 
         return [row['genre'] for row in cursor.fetchall()]
 
-    def _normalize_genre(self, genre: str) -> str:
+    @staticmethod
+    @functools.lru_cache(maxsize=4096)
+    def _normalize_genre(genre: str) -> str:
         """
-        Normalize a genre tag for comparison and deduplication
+        Normalize a genre tag for comparison and deduplication.
+
+        Pure function over the input string — does not touch ``self``. Wrapped
+        in ``lru_cache`` because it's called thousands of times per playlist
+        generation (once per genre per source per track in the bulk preload
+        path) and the regex makes each call non-trivial. Static so the cache
+        is shared across all SimilarityCalculator instances; cache size 4096
+        comfortably covers a real-world genre vocabulary.
 
         Args:
             genre: Raw genre string
@@ -798,7 +809,6 @@ class SimilarityCalculator:
         normalized = genre.lower().strip()
 
         # Replace multiple spaces with single space
-        import re
         normalized = re.sub(r'\s+', ' ', normalized)
 
         # Remove leading/trailing punctuation but keep hyphens and slashes
@@ -849,7 +859,8 @@ class SimilarityCalculator:
 
         return filtered
 
-    def _get_combined_genres_with_weights(self, track_id: str) -> List[Tuple[str, float]]:
+    @functools.lru_cache(maxsize=8192)
+    def _get_combined_genres_with_weights(self, track_id: str) -> Tuple[Tuple[str, float], ...]:
         """
         Get combined genre tags with weights from track, album, and artist.
 
@@ -861,6 +872,15 @@ class SimilarityCalculator:
         5. Normalizes and deduplicates while preserving priority order
 
         Priority order: track_genres > album_genres > artist_genres
+
+        Cached: every callsite (per-pair scoring, per-track edge scoring,
+        transition similarity) hits this with the same track_id many times.
+        The function performs up to 4 SQL queries per call, so caching
+        collapses repeated lookups within a single generation. Cache key
+        is ``(self, track_id)``; instances each get their own slice of the
+        cache, and the LRU bound prevents unbounded growth across long
+        sessions. Call ``clear_genre_caches()`` to drop entries explicitly
+        (e.g. after a library re-scan).
 
         Args:
             track_id: Track ID
@@ -963,7 +983,10 @@ class SimilarityCalculator:
                     if weight > existing[1]:
                         seen[normalized] = (genre, weight)
 
-        return [(seen[n][0], seen[n][1]) for n in combined_order]
+        # Return an immutable tuple-of-tuples — the lru_cache shares the
+        # exact returned object across callers, so a list would let one
+        # caller's mutation leak into the next.
+        return tuple((seen[n][0], seen[n][1]) for n in combined_order)
 
     def _get_combined_genres(self, track_id: str) -> List[str]:
         """
@@ -974,6 +997,17 @@ class SimilarityCalculator:
         """
         weighted = self._get_combined_genres_with_weights(track_id)
         return [genre for genre, _ in weighted]
+
+    def clear_genre_caches(self) -> None:
+        """
+        Drop all entries from the genre-related lru_caches.
+
+        Useful after a library re-scan changes the underlying track/album/
+        artist genre tables, or in tests that share a process across many
+        SimilarityCalculator instances and want to bound the cache footprint.
+        """
+        self._get_combined_genres_with_weights.cache_clear()
+        SimilarityCalculator._normalize_genre.cache_clear()
 
     def _preload_combined_genres_for_library(self) -> Dict[str, List[str]]:
         """
