@@ -35,17 +35,17 @@ def check_dependencies():
     missing = []
 
     try:
-        import PySide6
+        import PySide6  # noqa: F401  (availability check; module presence is the signal)
     except ImportError:
         missing.append("PySide6")
 
     try:
-        import yaml
+        import yaml  # noqa: F401  (availability check)
     except ImportError:
         missing.append("pyyaml")
 
     try:
-        import platformdirs
+        import platformdirs  # noqa: F401  (availability check; optional dependency)
     except ImportError:
         # Optional, just warn
         logger.warning("Note: platformdirs not installed, using fallback paths")

@@ -8,15 +8,11 @@ Tests cover:
 - Edge cases (empty vectors, NaN values, zero divisions)
 """
 
-import json
 import math
 import sqlite3
 import sys
 from pathlib import Path
-from typing import Any, Dict
-from unittest.mock import MagicMock, Mock, patch
 
-import numpy as np
 import pytest
 
 # Add repo root to path

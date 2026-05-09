@@ -1,6 +1,4 @@
 """Unit tests for genre mode functionality."""
-import random
-import pytest
 
 
 class TestGenreSeedDeterminism:

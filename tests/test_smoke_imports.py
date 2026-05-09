@@ -4,7 +4,6 @@ These tests verify that key modules can be imported without errors.
 This catches missing dependencies, syntax errors, and circular imports.
 """
 
-import pytest
 
 
 class TestCoreImports:

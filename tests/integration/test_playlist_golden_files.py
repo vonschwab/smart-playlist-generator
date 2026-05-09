@@ -17,13 +17,11 @@ import sys
 from pathlib import Path
 from typing import Any, Dict
 
-import numpy as np
 import pytest
 
 # Add repo root to path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from src.config_loader import Config
 from src.playlist_generator import PlaylistGenerator
 
 # Path to golden file directory

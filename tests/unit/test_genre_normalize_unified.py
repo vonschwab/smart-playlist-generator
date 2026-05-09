@@ -12,7 +12,6 @@ Tests cover:
 import sys
 from pathlib import Path
 
-import pytest
 
 # Add repo root to path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))

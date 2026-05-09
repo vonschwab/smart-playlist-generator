@@ -6,7 +6,7 @@ Run with: pytest tests/unit/test_worker_protocol.py -v
 import json
 import pytest
 import uuid
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 
 class TestRequestIdGeneration:

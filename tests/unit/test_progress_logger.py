@@ -2,7 +2,6 @@ import logging
 import sqlite3
 import subprocess
 import sys
-from pathlib import Path
 
 import scripts.fetch_mbids_musicbrainz as fetch_mbids
 import src.logging_utils as logging_utils

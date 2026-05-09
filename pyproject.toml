@@ -48,6 +48,46 @@ package-dir = {"" = "src"}
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = [
+    "scripts/oneoffs",
+    "data",
+    "docs/archive",
+    "docs/run_audits",
+]
+
+[tool.ruff.lint]
+# Default rule set is pycodestyle errors (E) + pyflakes (F). We start
+# narrow on purpose — Tier-1.1 is about gating regressions on a clean
+# baseline, not chasing style across 36k LOC. Future tiers can opt in to
+# pyupgrade (UP), bugbear (B), naming (N), etc.
+select = ["E", "F"]
+
+# These are intentional or pre-existing patterns where the warning isn't
+# worth chasing right now. Each can be revisited piecemeal.
+extend-ignore = [
+    # Line length: enforced by `ruff format` if/when we adopt it. Lots of
+    # legitimately long lines exist (config dicts, log strings, SQL). Not
+    # gating CI on this initially.
+    "E501",
+    # 24 sites: `x = expr` where x is never read. Most are stale debug
+    # rigging (`before = len(...)`). Removing them via --unsafe-fixes
+    # produces bare expressions; cleanup deserves a dedicated pass.
+    "F841",
+    # One site: a deliberate late import to break a circular dep.
+    "E402",
+    # One site: `lambda` assigned to a name as a slot/handler. Stylistic.
+    "E731",
+    # One site: a single-letter loop variable matching numpy convention.
+    "E741",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests can use names like `_` and assertion patterns ruff isn't tuned for.
+"tests/**" = ["F841"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = [

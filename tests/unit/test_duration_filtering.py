@@ -1,5 +1,4 @@
 """Unit tests for duration filtering."""
-import pytest
 from src.playlist.filtering import filter_by_duration, is_valid_duration
 
 

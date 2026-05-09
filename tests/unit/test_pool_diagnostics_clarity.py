@@ -5,7 +5,6 @@ Tests that pool_before_gating and pool_after_gating fields are correctly populat
 and that invariant checks emit warnings when expected.
 """
 
-import logging
 import numpy as np
 import pytest
 from unittest.mock import MagicMock

@@ -7,10 +7,8 @@ dependencies on real music library.
 Target run time: < 30 seconds
 """
 
-import json
 import sys
 from pathlib import Path
-from typing import Dict, Any
 
 import numpy as np
 import pytest
@@ -19,8 +17,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from src.config_loader import Config
-from src.features.artifacts import ArtifactBundle, load_artifact_bundle
-from src.playlist.pipeline import generate_playlist_ds
+from src.features.artifacts import load_artifact_bundle
 
 
 @pytest.fixture(scope="module")

@@ -7,7 +7,6 @@ scoring changes candidate rankings.
 
 import numpy as np
 import pytest
-from unittest.mock import MagicMock
 
 from src.playlist.pier_bridge_builder import (
     PierBridgeConfig,

@@ -7,10 +7,8 @@ Tests that the pipeline correctly parses both:
 """
 from __future__ import annotations
 
-import pytest
 from unittest import mock
 from src.playlist.pier_bridge_builder import PierBridgeConfig
-from dataclasses import replace
 
 
 def test_nested_pooling_strategy_takes_precedence():

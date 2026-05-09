@@ -1,7 +1,5 @@
 import logging
-from pathlib import Path
 
-import types
 
 from src.playlist_gui import gui_logging
 

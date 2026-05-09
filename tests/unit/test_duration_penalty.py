@@ -1,6 +1,4 @@
 """Unit tests for geometric duration penalty in DS pipeline."""
-import pytest
-import numpy as np
 from src.playlist.pier_bridge_builder import _compute_duration_penalty, PierBridgeConfig
 
 

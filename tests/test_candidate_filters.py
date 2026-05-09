@@ -385,7 +385,6 @@ def test_recency_filters_require_candidate_pool_stage():
 
 
 def test_post_order_validation_fails_loudly_on_recency_overlap():
-    import logging
     from src.playlist_generator import PlaylistGenerator
 
     class DummyLibrary:

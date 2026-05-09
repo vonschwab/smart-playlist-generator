@@ -8,14 +8,11 @@ Created: Phase 1 of GUI "Just Works" implementation
 """
 from __future__ import annotations
 
-import pytest
 
 from src.playlist_gui.ui_state import UIStateModel
 from src.playlist_gui.policy import (
     COHESION_MAP,
-    POLICY_OWNED_KEYS,
     SPACING_MAP,
-    PolicyDecisions,
     derive_runtime_config,
     merge_overrides,
     _get_nested,

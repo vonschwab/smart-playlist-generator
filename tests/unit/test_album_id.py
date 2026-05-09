@@ -1,7 +1,6 @@
 import sqlite3
 from pathlib import Path
 
-import pytest
 
 from scripts.scan_library import LibraryScanner
 

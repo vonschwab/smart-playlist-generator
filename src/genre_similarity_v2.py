@@ -13,14 +13,16 @@ from typing import List, Set, Dict, Tuple, Optional, Any
 import logging
 from dataclasses import dataclass
 
-# Import taxonomy modules
+# Import taxonomy modules. Re-exported below as part of the public API; the
+# noqa marks satisfy ruff F401 for names that are imported here for transitive
+# availability rather than direct use in this module.
 try:
-    from .genre.normalize import normalize_and_split_genre
+    from .genre.normalize import normalize_and_split_genre  # noqa: F401
     from .genre.similarity import (
-        pairwise_genre_similarity,
-        genre_set_similarity,
-        load_yaml_overrides,
-        GenreSimilarityResult,
+        pairwise_genre_similarity,  # noqa: F401
+        genre_set_similarity,  # noqa: F401
+        load_yaml_overrides,  # noqa: F401
+        GenreSimilarityResult,  # noqa: F401
     )
     TAXONOMY_AVAILABLE = True
 except ImportError:

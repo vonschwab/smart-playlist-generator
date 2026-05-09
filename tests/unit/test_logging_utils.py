@@ -3,9 +3,7 @@ import logging
 import tempfile
 import os
 from pathlib import Path
-from unittest.mock import patch, MagicMock
 
-import pytest
 
 import sys
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent

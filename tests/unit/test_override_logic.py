@@ -3,8 +3,6 @@ Tests for override diff logic, group reset, and secret filtering.
 
 Run with: pytest tests/unit/test_override_logic.py -v
 """
-import pytest
-from unittest.mock import MagicMock, patch
 
 
 class TestOverrideDiffUtilities:
