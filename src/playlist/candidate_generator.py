@@ -206,6 +206,7 @@ def generate_candidates_dynamic(
     """
     similar_per_seed = config.limit_per_seed
     min_track_duration_ms = config.min_track_duration_seconds * 1000
+    max_track_duration_ms = config.max_track_duration_seconds * 1000
 
     # Calculate how many tracks from each source (from config)
     sonic_per_seed = int(similar_per_seed * config.sonic_ratio)
@@ -250,7 +251,7 @@ def generate_candidates_dynamic(
 
         similar = library_client.get_similar_tracks(key, limit=sonic_per_seed)
         before_long = len(similar)
-        similar = [t for t in similar if (t.get('duration') or 0) <= max_duration_ms]
+        similar = [t for t in similar if (t.get('duration') or 0) <= max_track_duration_ms]
         filtered_long_count += max(0, before_long - len(similar))
         weight = seed.get('play_count', 1)
 

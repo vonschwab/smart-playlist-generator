@@ -1091,6 +1091,7 @@ class PlaylistGenerator:
         """
         similar_per_seed = limit_per_seed if limit_per_seed is not None else self.config.get('playlists', 'similar_per_seed', default=10)
         min_track_duration_ms = self.config.min_track_duration_seconds * 1000
+        max_track_duration_ms = self.config.max_track_duration_seconds * 1000
 
         # Calculate how many tracks from each source (from config)
         sonic_per_seed = int(similar_per_seed * self.config.dynamic_sonic_ratio)
@@ -3227,7 +3228,7 @@ class PlaylistGenerator:
                             float(tw_raw[1]),
                             float(tw_raw[2]),
                         )
-                    ds_defaults = default_ds_config(ds_mode_effective, playlist_len=track_count, overrides=ds_cfg)
+                    ds_defaults = default_ds_config(ds_mode_effective, playlist_len=target_playlist_size, overrides=ds_cfg)
                     pb_tuning = resolve_pier_bridge_tuning(ds_cfg, ds_mode_effective)
 
                     weight_bridge = float(pb_tuning["weight_bridge"])

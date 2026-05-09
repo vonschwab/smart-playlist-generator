@@ -107,7 +107,10 @@ PHRASE_MAP = {
     # Additional from genre_normalization.py
     "pop, alternatif et indé, rock": ["indie rock", "pop"],
     "pop, rock, alternatif et indé": ["pop", "rock", "indie"],
-    "alternative en indie": ["indie"],
+    # "alternative en indie" lives in the Dutch section above and maps to
+    # ["alternative", "indie"]; the single-token ["indie"] mapping that used
+    # to live here was a copy-paste from genre_normalization.py and clobbered
+    # the Dutch entry under last-write-wins.
     # "electro" removed - single-token synonym, not a phrase
     "indie / alternative": ["indie"],
     "alternative / indie": ["indie"],

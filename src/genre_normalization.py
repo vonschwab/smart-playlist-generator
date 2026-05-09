@@ -54,7 +54,9 @@ LANGUAGE_TRANSLATIONS = {
     'indie rock': 'indie rock',  # Sometimes appears in German tags
 
     # Dutch
-    'alternative en indie': 'indie',
+    # 'alternative en indie' is already mapped to 'indie' in the French
+    # section above; same string reappears verbatim in Dutch tags. Listed
+    # once (last-write-wins would have made the duplicate inert anyway).
     'elektronische': 'electronic',
 
     # Common variations and typos
