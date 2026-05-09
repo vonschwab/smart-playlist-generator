@@ -7,7 +7,7 @@ MusicBrainz provides high-quality, community-curated genre tags.
 import requests
 import time
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -215,5 +215,5 @@ if __name__ == "__main__":
     logger.info("=" * 60)
 
     genres = fetcher.fetch_musicbrainz_genres(test_artist)
-    logger.info(f"MUSICBRAINZ:")
+    logger.info("MUSICBRAINZ:")
     logger.info(f"  {', '.join(genres)}")

@@ -9,7 +9,7 @@ import sqlite3
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
-from scipy.spatial.distance import cosine, euclidean
+from scipy.spatial.distance import cosine
 
 from .genre_similarity_v2 import GenreSimilarityV2
 from .blacklist_db import ensure_blacklist_schema

@@ -4,7 +4,7 @@ import functools
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Literal, Optional
+from typing import Dict, Literal, Optional
 
 import numpy as np
 

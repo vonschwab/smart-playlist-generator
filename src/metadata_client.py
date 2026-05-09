@@ -4,11 +4,9 @@ Metadata Client - Local metadata database interface
 Manages a SQLite database of enriched metadata from MusicBrainz and file tags
 """
 import sqlite3
-import json
 import logging
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Any
-from pathlib import Path
 from .artist_key_db import ensure_artist_key_schema
 from .blacklist_db import ensure_blacklist_schema
 from .string_utils import normalize_artist_key

@@ -12,7 +12,6 @@ Migrated from src/playlist_generator.py candidate methods (Phase 8).
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional, Tuple, Set
-from collections import Counter
 import logging
 
 from src.string_utils import normalize_song_title, normalize_genre
@@ -356,7 +355,7 @@ def generate_candidates_dynamic(
         logger.info(f"  Found {len(artist_genre_scores)} artists with matching genres")
 
         # Log top matching artists
-        logger.info(f"  Top genre matches:")
+        logger.info("  Top genre matches:")
         for artist_score in artist_genre_scores[:10]:
             genres_str = ', '.join(artist_score['matching_genres'])
             logger.info(f"    - {sanitize_for_logging(artist_score['artist'])}: {artist_score['match_count']} matches ({genres_str})")

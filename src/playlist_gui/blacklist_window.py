@@ -1,7 +1,7 @@
 """Blacklist window for viewing and managing blacklisted tracks."""
 from __future__ import annotations
 
-from typing import Callable, List, Dict, Any, Optional
+from typing import Callable, Dict, Any
 
 from PySide6.QtCore import Slot
 from PySide6.QtWidgets import (

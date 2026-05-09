@@ -11,8 +11,8 @@ from typing import Any, Dict, List, Optional, Set
 
 import numpy as np
 
-from src.features.artifacts import ArtifactBundle, get_sonic_matrix, load_artifact_bundle
-from src.playlist.candidate_pool import CandidatePoolResult, build_candidate_pool
+from src.features.artifacts import ArtifactBundle, load_artifact_bundle
+from src.playlist.candidate_pool import build_candidate_pool
 from src.playlist.config import DSPipelineConfig, default_ds_config, resolve_pier_bridge_tuning
 from src.playlist.constructor import PlaylistResult  # Type only, no longer calling construct_playlist
 from src.playlist.pier_bridge_builder import (
@@ -29,7 +29,7 @@ from src.playlist.run_audit import (
     parse_run_audit_config,
     write_markdown_report,
 )
-from src.similarity.hybrid import HybridEmbeddingModel, build_hybrid_embedding
+from src.similarity.hybrid import build_hybrid_embedding
 from src.similarity.sonic_variant import compute_sonic_variant_matrix, resolve_sonic_variant
 
 logger = logging.getLogger(__name__)
@@ -492,7 +492,7 @@ def generate_playlist_ds(
     if True:  # Always use pier-bridge
         # ─── PIER BRIDGE PATH: No construct_playlist, no repair ───
         logger.info("ENTERING PIER-BRIDGE PATH with %d anchor seeds", len(anchor_seed_ids))
-        from src.title_dedupe import normalize_title_for_dedupe, calculate_version_preference_score
+        from src.title_dedupe import calculate_version_preference_score
         from src.playlist.identity_keys import identity_keys_for_index
 
         # 1. Resolve seed IDs to indices
@@ -1447,7 +1447,6 @@ def generate_playlist_ds(
 
             # 7. Build PlaylistResult-compatible output (no repair, no construct_playlist)
             # We create a minimal PlaylistResult to match the expected interface
-            from dataclasses import dataclass as dc_dataclass
             pb_track_indices = np.array(pb_result.track_indices, dtype=np.int32)
 
             # Edge scores (T) produced by pier-bridge builder (matches its scoring)
@@ -1717,7 +1716,6 @@ def build_run_artifact(
         ExclusionCounters,
         RunArtifact,
         SettingsSnapshot,
-        SummaryMetrics,
         TrackRecord,
         compute_summary_metrics,
         generate_run_id,

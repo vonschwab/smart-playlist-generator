@@ -2,27 +2,21 @@
 Playlist Generator - Core logic for creating Data Science-powered playlists
 """
 from typing import List, Dict, Any, Tuple, Optional, Set, Sequence
-from collections import Counter, defaultdict
+from collections import Counter
 import random
 import logging
-import time
 import os
 import math
-import numpy as np
-from .artist_utils import extract_primary_artist
 from .similarity_calculator import SimilarityCalculator
 from .string_utils import normalize_artist_key, normalize_genre, normalize_song_title
-from .string_utils import normalize_match_string
 from .title_dedupe import TitleDedupeTracker
 from src.features.artifacts import load_artifact_bundle
-from src.similarity.hybrid import transition_similarity_end_to_start
-from src.similarity.sonic_variant import compute_sonic_variant_norm, get_variant_from_env, resolve_sonic_variant
+from src.similarity.sonic_variant import resolve_sonic_variant
 from src.playlist.ds_pipeline_runner import DsRunResult, generate_playlist_ds as run_ds_pipeline
 from src.playlist.artist_style import (
     ArtistStyleConfig,
     build_balanced_candidate_pool,
     cluster_artist_tracks,
-    get_internal_connectors,
     order_clusters,
     _select_k,
     _artist_indices_in_bundle,
@@ -435,7 +429,6 @@ class PlaylistGenerator:
             # Resolve anchor seed tracks to bundle track_ids by matching title+artist
             # anchor_seed_ids are Plex rating_keys which don't match bundle track_ids (MD5 hashes)
             if anchor_seed_tracks and len(anchor_seed_tracks) > 1 and bundle.track_artists is not None and bundle.track_titles is not None:
-                from src.title_dedupe import calculate_version_preference_score
 
                 anchor_seed_ids_resolved = []
                 for seed_track in anchor_seed_tracks:
@@ -1242,7 +1235,7 @@ class PlaylistGenerator:
             logger.info(f"  Found {len(artist_genre_scores)} artists with matching genres")
 
             # Log top matching artists
-            logger.info(f"  Top genre matches:")
+            logger.info("  Top genre matches:")
             for artist_score in artist_genre_scores[:10]:
                 genres_str = ', '.join(artist_score['matching_genres'])
                 logger.info(f"    - {sanitize_for_logging(artist_score['artist'])}: {artist_score['match_count']} matches ({genres_str})")
@@ -1751,11 +1744,11 @@ class PlaylistGenerator:
         Returns:
             List of playlist dictionaries with tracks and metadata
         """
-        logger.info(f"="*70)
+        logger.info("="*70)
         logger.info(f"Creating {count} playlists (1 seed artist per playlist)")
         if dynamic:
             logger.info("Dynamic mode enabled: 60% sonic similarity + 40% genre-based discovery")
-        logger.info(f"="*70)
+        logger.info("="*70)
 
         # Get listening history - prefer Last.FM if available
         if self.lastfm and self.matcher:
@@ -1771,7 +1764,7 @@ class PlaylistGenerator:
         artists_needed = count
 
         logger.info(f"\nNeed {artists_needed} artists (one per playlist)")
-        logger.info(f"Each artist will provide 4 seed tracks\n")
+        logger.info("Each artist will provide 4 seed tracks\n")
 
         # Get top played artists and their tracks
         top_artists_tracks = self._analyze_top_artists_from_history(history, artists_needed)
@@ -3038,7 +3031,7 @@ class PlaylistGenerator:
             List of playlist dictionaries with tracks and metadata
         """
         logger.info(f"{'='*70}")
-        logger.info(f"Generating playlists from single artists:")
+        logger.info("Generating playlists from single artists:")
         logger.info(f"{'='*70}\n")
 
         playlists = []
@@ -3960,7 +3953,7 @@ class PlaylistGenerator:
         sorted_pairs = sorted(similarity_matrix.items(), key=lambda x: x[1], reverse=True)
 
         logger.info("Starting greedy clustering (similarity threshold = 0.2):")
-        logger.info(f"Top 10 most similar pairs:")
+        logger.info("Top 10 most similar pairs:")
         for (i, j), sim in sorted_pairs[:10]:
             logger.info(f"  {seeds[i]['artist']} <-> {seeds[j]['artist']}: {sim:.2f}")
 

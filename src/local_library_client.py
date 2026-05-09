@@ -3,7 +3,6 @@ Local Library Client - Music library client using local database
 Provides the same interface as LibraryClient but queries metadata.db instead
 """
 import sqlite3
-import json
 import logging
 from typing import List, Dict, Any, Optional
 from .artist_key_db import ensure_artist_key_schema
@@ -513,7 +512,7 @@ if __name__ == "__main__":
         logger.info(f"Sample track: {sample_track['artist']} - {sample_track['title']}")
 
         similar = client.get_similar_tracks(sample_track['rating_key'], limit=10)
-        logger.info(f"Similar tracks:")
+        logger.info("Similar tracks:")
         for i, track in enumerate(similar, 1):
             logger.info(f"  {i}. {track['artist']} - {track['title']}")
             logger.info(f"     Similarity: {track.get('similarity_score', 0):.3f}")

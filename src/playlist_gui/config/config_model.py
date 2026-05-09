@@ -19,7 +19,6 @@ from typing import Any, Dict, List, Optional, Tuple
 import yaml
 
 from .settings_schema import (
-    SETTINGS_SCHEMA,
     SettingSpec,
     SettingType,
     get_normalize_groups,

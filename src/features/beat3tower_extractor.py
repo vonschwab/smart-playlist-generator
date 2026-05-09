@@ -23,7 +23,6 @@ from .beat3tower_types import (
     Beat3TowerFeatures,
     BPMInfo,
     HarmonyTowerFeatures,
-    InsufficientBeatsError,
     RhythmTowerFeatures,
     TimbreTowerFeatures,
 )
@@ -844,18 +843,18 @@ if __name__ == "__main__":
     result = extract_beat3tower_features(file_path)
 
     if result:
-        logger.info(f"\nExtraction successful!")
+        logger.info("\nExtraction successful!")
         logger.info(f"  Beats detected: {result['metadata']['n_beats_full']}")
         logger.info(f"  Duration: {result['metadata']['duration']:.1f}s")
 
         full = Beat3TowerFeatures.from_dict(result['full'])
-        logger.info(f"\nFeature dimensions:")
+        logger.info("\nFeature dimensions:")
         logger.info(f"  Rhythm: {full.rhythm.to_vector().shape}")
         logger.info(f"  Timbre: {full.timbre.to_vector().shape}")
         logger.info(f"  Harmony: {full.harmony.to_vector().shape}")
         logger.info(f"  Total: {full.to_vector().shape}")
 
-        logger.info(f"\nBPM Info:")
+        logger.info("\nBPM Info:")
         logger.info(f"  Primary: {full.bpm_info.primary_bpm:.1f}")
         logger.info(f"  Stability: {full.bpm_info.tempo_stability:.2f}")
         logger.info(f"  Half-tempo likely: {full.bpm_info.half_tempo_likely}")

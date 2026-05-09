@@ -20,7 +20,7 @@ import re
 import warnings
 from typing import List
 
-from .string_utils import normalize_text, normalize_artist_name
+from .string_utils import normalize_artist_name
 
 # Issue deprecation warning on module import
 warnings.warn(

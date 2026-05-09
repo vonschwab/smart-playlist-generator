@@ -12,12 +12,10 @@ Renders controls based on the settings schema, automatically handling:
 from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
-    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,

@@ -7,7 +7,6 @@ Layout:
 - Right dock: Advanced settings panel (includes config file selection)
 - Bottom dock: Log panel
 """
-import os
 import json
 import logging
 from datetime import datetime

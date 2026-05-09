@@ -7,7 +7,6 @@ from typing import Any, Dict, Optional
 import numpy as np
 
 from .config import CandidatePoolConfig
-from src.similarity.hybrid import cosine_sim_matrix_to_vector
 
 logger = logging.getLogger(__name__)
 

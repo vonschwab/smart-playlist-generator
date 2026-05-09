@@ -3,7 +3,7 @@ Configuration Loader - Manages YAML configuration and environment variables
 """
 import yaml
 import os
-from typing import Any, Optional
+from typing import Any
 
 
 class Config:

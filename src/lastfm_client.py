@@ -8,9 +8,7 @@ import logging
 import time
 import sqlite3
 import json
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from .rate_limiter import RateLimiter
-from .retry_helper import retry_with_backoff
 
 logger = logging.getLogger(__name__)
 

@@ -5,12 +5,10 @@ Provides dialogs for:
 - Local M3U8 export with directory selection
 - Plex export with playlist naming
 """
-import os
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,

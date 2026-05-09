@@ -18,8 +18,6 @@ Migration:
 import re
 import unicodedata
 import warnings
-from dataclasses import dataclass
-from enum import Enum
 from typing import List, Optional, Set, Tuple
 
 # Issue deprecation warning on module import

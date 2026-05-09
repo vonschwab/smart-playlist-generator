@@ -32,30 +32,24 @@ import numpy as np
 import yaml
 
 from src.genre.similarity import pairwise_genre_similarity, load_yaml_overrides
-from src.features.artifacts import ArtifactBundle, get_sonic_matrix
-from src.title_dedupe import normalize_title_for_dedupe, normalize_artist_key
+from src.features.artifacts import ArtifactBundle
+from src.title_dedupe import normalize_artist_key
 from src.string_utils import sanitize_for_logging
 from src.playlist.identity_keys import identity_keys_for_index
 from src.playlist.artist_identity_resolver import (
     ArtistIdentityConfig,
     resolve_artist_identity_keys,
-    format_identity_keys_for_logging,
 )
 from src.playlist.config import resolve_pier_bridge_tuning as _resolve_pier_bridge_tuning_cfg
 from src.playlist.run_audit import InfeasibleHandlingConfig, RunAuditConfig, RunAuditEvent, now_utc_iso
 
 # Phase 3 extracted modules
-from src.playlist.scoring import (
-    compute_transition_score as _compute_transition_score_extracted,
-    compute_bridgeability_score as _compute_bridgeability_score_extracted,
-)
 from src.playlist.segment_pool_builder import (
     SegmentCandidatePoolBuilder,
     SegmentPoolConfig,
 )
 from src.playlist.pier_bridge_diagnostics import (
     SegmentDiagnostics as _SegmentDiagnosticsExtracted,
-    PierBridgeDiagnosticsCollector,
 )
 
 logger = logging.getLogger(__name__)

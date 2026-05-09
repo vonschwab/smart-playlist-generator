@@ -15,12 +15,10 @@ Migration:
     from src.genre.normalize_unified import normalize_genre_token
 """
 
-import csv
 import logging
-import re
 import warnings
 from pathlib import Path
-from typing import Iterable, Optional, Set, Tuple, Dict
+from typing import Iterable, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 

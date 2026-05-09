@@ -33,7 +33,6 @@ Security:
 """
 import json
 import logging
-import os
 import sys
 import sqlite3
 import threading
@@ -636,7 +635,6 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
         if str(project_root) not in sys.path:
             sys.path.insert(0, str(project_root))
 
-        from src.config_loader import Config
         from src.local_library_client import LocalLibraryClient
         from src.playlist_generator import PlaylistGenerator
         from src.track_matcher import TrackMatcher

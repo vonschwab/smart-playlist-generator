@@ -7,7 +7,7 @@ and analysis. Provides structured metrics for logging, UI display, and diagnosti
 import time
 import logging
 from typing import Dict, Optional, Any
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 from enum import Enum
 
 

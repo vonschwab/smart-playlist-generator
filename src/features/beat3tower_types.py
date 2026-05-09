@@ -11,7 +11,7 @@ These types provide structured access to features and easy conversion to vectors
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 import numpy as np
 
 
