@@ -135,7 +135,7 @@ def apply_fixes(conn: sqlite3.Connection, dry_run: bool = True) -> None:
         conn.rollback()
     else:
         conn.commit()
-        print(f"\n✅ Changes committed:")
+        print("\n✅ Changes committed:")
         print(f"   - Deleted: {total_deleted} compound genre rows")
         print(f"   - Inserted: {total_inserted} individual genre rows")
         print(f"   - Net change: {total_inserted - total_deleted:+d} rows")
@@ -150,7 +150,7 @@ def verify_results(conn: sqlite3.Connection) -> None:
     cursor.execute("SELECT COUNT(DISTINCT genre) FROM track_effective_genres")
     total_genres = cursor.fetchone()[0]
 
-    print(f"\n📊 Final Statistics:")
+    print("\n📊 Final Statistics:")
     print(f"   - Total unique genres: {total_genres}")
     print(f"   - Compound genres remaining: {remaining}")
 

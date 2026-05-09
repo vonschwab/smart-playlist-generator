@@ -115,7 +115,7 @@ def test_bridge_endpoint_gate_blocks_low_sim():
 
 
 def test_narrow_bridge_floor_default_blocks_low_sim():
-    # Candidate min(simA, simB) below 0.08 should be excluded by bridge gate.   
+    # Candidate min(simA, simB) below 0.08 should be excluded by bridge gate.
     from src.playlist.pier_bridge_builder import _build_segment_candidate_pool_scored
 
     X = np.array([
@@ -380,8 +380,8 @@ def test_soft_genre_penalty_changes_ranking_without_gating():
     X_genre = np.array([
         [1.0, 0.0],                              # A
         [1.0, 0.0],                              # B
-        [0.10, float(np.sqrt(1 - 0.10**2))],      # low genre sim to A    
-        [0.30, float(np.sqrt(1 - 0.30**2))],      # high genre sim to A   
+        [0.10, float(np.sqrt(1 - 0.10**2))],      # low genre sim to A
+        [0.30, float(np.sqrt(1 - 0.30**2))],      # high genre sim to A
     ])
     bundle = DummyBundle(
         X_sonic=X,

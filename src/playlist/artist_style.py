@@ -490,7 +490,7 @@ def get_internal_connectors(
         if i in exclude_set:
             continue
         if global_floor is not None:
-            sim = float(np.max(np.dot(X_norm[i], X_norm[pier_indices].T)))      
+            sim = float(np.max(np.dot(X_norm[i], X_norm[pier_indices].T)))
             if sim < global_floor:
                 continue
         connectors.append(i)

@@ -559,14 +559,14 @@ def generate_candidates(
 ) -> CandidateResult:
     """
     Generate candidate tracks using sonic-first pipeline.
-    
+
     This is a complete implementation extracted from PlaylistGenerator.generate_similar_tracks()
     Adapted to use explicit dependency injection and return CandidateResult.
 
     Pipeline:
     1. Sonic-only discovery per seed (no genre filtering)
     2. Merge/dedup and apply per-artist cap
-    3. Filter by genre threshold via hybrid similarity  
+    3. Filter by genre threshold via hybrid similarity
     4. Rank by hybrid score and keep a buffered pool (target + buffer)
 
     Args:

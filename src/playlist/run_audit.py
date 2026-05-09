@@ -151,7 +151,7 @@ def write_markdown_report(
     lines.append(f"- allowed_ids_count: `{context.allowed_ids_count}`")
     if context.pool_source is not None:
         lines.append(f"- pool_source: `{context.pool_source}`")
-    lines.append(f"- artist_style_enabled: `{context.artist_style_enabled}`")   
+    lines.append(f"- artist_style_enabled: `{context.artist_style_enabled}`")
     lines.append(f"- artist_playlist: `{context.artist_playlist}`")
     if context.extra:
         lines.append("")

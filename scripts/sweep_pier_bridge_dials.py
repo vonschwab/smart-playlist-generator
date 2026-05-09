@@ -16,9 +16,8 @@ import random
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Optional
 
-import os
 import sys
 
 import numpy as np
@@ -930,7 +929,7 @@ def _extract_metrics(audit_path: Path) -> dict[str, Any]:
         "min_transition": _safe_float(summary.get("min_transition")),
         "mean_transition": _safe_float(summary.get("mean_transition")),
         "below_floor_count": summary.get("below_floor_count"),
-        "soft_genre_penalty_hits": summary.get("soft_genre_penalty_hits"),      
+        "soft_genre_penalty_hits": summary.get("soft_genre_penalty_hits"),
         "soft_genre_penalty_edges_scored": summary.get("soft_genre_penalty_edges_scored"),
         "candidate_pool_size": None,
         "candidate_pool_after_dedupe": None,

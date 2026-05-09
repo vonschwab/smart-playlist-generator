@@ -733,7 +733,7 @@ class MainWindow(QMainWindow):
             self._log_panel.append_log("ERROR", f"Failed to load config: {e}")
             return False
 
-    def _get_selected_modes(self) -> tuple[Optional[str], Optional[str]]:       
+    def _get_selected_modes(self) -> tuple[Optional[str], Optional[str]]:
         """Get selected genre and sonic modes from radio buttons."""
         genre_mode = None
         sonic_mode = None

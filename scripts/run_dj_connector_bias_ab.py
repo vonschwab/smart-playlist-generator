@@ -7,7 +7,7 @@ import sys
 import time
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import numpy as np
 

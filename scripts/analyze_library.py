@@ -1089,7 +1089,7 @@ def stage_genre_sim(ctx: Dict) -> Dict:
     except RuntimeError as exc:
         logger.warning("Skipping genre-sim stage: %s", exc)
         return {"path": str(out_path), "skipped": True, "reason": str(exc)}
-    return {"path": str(out_path), "skipped": False, "stats": result.stats}     
+    return {"path": str(out_path), "skipped": False, "stats": result.stats}
 
 
 def _write_artifact_manifest(out_dir: Path, fingerprint: str, config_hash: str, stats: Optional[Dict]) -> Path:
@@ -1128,11 +1128,11 @@ def stage_artifacts(ctx: Dict) -> Dict:
             config_path=ctx["config_path"],
             out_path=out_path,
             genre_sim_path=genre_sim_use,
-            max_tracks=ctx["args"].max_tracks or ctx["args"].limit or 0,        
+            max_tracks=ctx["args"].max_tracks or ctx["args"].limit or 0,
         )
     except RuntimeError as exc:
         logger.warning("Skipping artifacts stage: %s", exc)
-        return {"path": str(out_path), "skipped": True, "reason": str(exc)}     
+        return {"path": str(out_path), "skipped": True, "reason": str(exc)}
     fingerprint = compute_stage_fingerprint(ctx, "artifacts")
     manifest_path = _write_artifact_manifest(out_dir, fingerprint, ctx.get("config_hash", ""), getattr(result, "stats", {}))
     return {

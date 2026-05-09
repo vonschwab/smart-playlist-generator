@@ -10,11 +10,10 @@ from typing import Any, Dict, List, Optional, Tuple
 import sys
 import argparse
 
-from src.logging_utils import configure_logging, add_logging_args, resolve_log_level, stage_timer
+from src.logging_utils import configure_logging, add_logging_args, resolve_log_level
 from src.console_output import (
-    header, section, subsection, divider, blank, info, stat, bullet,
-    track_line, success, error, warning, progress,
-    PlaylistReport, BatchReport, print_startup_banner, print_initialization
+    header, section, blank, bullet,
+    PlaylistReport, BatchReport, print_startup_banner
 )
 from src.config_loader import Config
 from src.local_library_client import LocalLibraryClient
@@ -121,49 +120,49 @@ class PlaylistApp:
                     self.logger.error(f"Failed to initialize Plex exporter: {e}")
             else:
                 self.logger.warning("Plex export enabled but base_url/token not configured")
-    
+
     def cleanup_old_playlists(self) -> int:
         """
         Delete old auto-generated playlists
-        
+
         Returns:
             Number of playlists deleted
         """
         self.logger.info("Cleaning up old playlists")
-        
+
         name_prefix = self.config.get('playlists', 'name_prefix', default='Auto:')
         max_age_days = self.config.get('playlists', 'max_age_days', default=14)
-        
+
         # Get all auto-generated playlists
         playlists = self.library.get_playlists(name_prefix=name_prefix)
-        
+
         if not playlists:
             self.logger.info("No auto-generated playlists found")
             return 0
-        
+
         # Calculate cutoff date
         cutoff = datetime.now() - timedelta(days=max_age_days)
         cutoff_timestamp = int(cutoff.timestamp())
-        
+
         deleted_count = 0
         for playlist in playlists:
             # Check if playlist is too old
             created_at = playlist.get('created_at', 0)
-            
+
             if created_at < cutoff_timestamp:
                 playlist_id = playlist['id']
                 playlist_title = playlist['title']
-                
+
                 try:
                     self.library.delete_playlist(playlist_id)
                     self.logger.info(f"Deleted old playlist: {playlist_title}")
                     deleted_count += 1
                 except Exception as e:
                     self.logger.error(f"Failed to delete playlist {playlist_title}: {e}")
-        
+
         self.logger.info(f"Cleanup complete: {deleted_count} playlists deleted")
         return deleted_count
-    
+
     def generate_playlists(self, dry_run: bool = False, dynamic: bool = False) -> Tuple[List[Dict[str, str]], List[Dict[str, Any]]]:
         """
         Main workflow: Generate new playlists
@@ -753,7 +752,7 @@ def main():
             app.generator._audit_run_dir = str(getattr(args, "audit_run_dir"))
         if getattr(args, "pb_backoff", False):
             app.generator._pb_backoff_enabled = True
-        dynamic_flag = getattr(args, "ds_mode", None) == "dynamic"        
+        dynamic_flag = getattr(args, "ds_mode", None) == "dynamic"
         if args.dry_run:
             section("DRY RUN MODE")
             bullet("No playlists will be created or exported")

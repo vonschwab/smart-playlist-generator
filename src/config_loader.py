@@ -8,13 +8,13 @@ from typing import Any
 
 class Config:
     """Configuration manager for Playlist Generator"""
-    
+
     def __init__(self, config_path: str = "config.yaml"):
         self.config_path = config_path
         self.config = self._load_config()
         self._apply_mode_presets()  # Resolve genre_mode/sonic_mode to settings
         self._validate_config()
-    
+
     def _load_config(self) -> dict:
         """Load configuration from YAML file"""
         if not os.path.exists(self.config_path):
@@ -27,7 +27,7 @@ class Config:
         """
         Apply genre_mode and sonic_mode presets if specified in config.
 
-        Mode settings (genre_mode/sonic_mode) take precedence over manual       
+        Mode settings (genre_mode/sonic_mode) take precedence over manual
         weight/threshold settings. If both are present, mode wins.
         """
         playlists_cfg = self.config.get('playlists', {})
@@ -57,23 +57,23 @@ class Config:
             value = self.config[section][field]
             if not value or str(value).startswith('YOUR_'):
                 raise ValueError(f"Please set {section}.{field} in {self.config_path}")
-    
+
     def get(self, section: str, key: str, default: Any = None) -> Any:
         """
         Get configuration value
-        
+
         Args:
             section: Configuration section
             key: Configuration key
             default: Default value if not found
-            
+
         Returns:
             Configuration value or default
         """
         if section not in self.config:
             return default
         return self.config[section].get(key, default)
-    
+
     @property
     def library_database_path(self) -> str:
         """Get library database path"""
@@ -83,7 +83,7 @@ class Config:
     def library_music_directory(self) -> str:
         """Get music directory path"""
         return self.config['library'].get('music_directory', 'E:\\MUSIC')
-    
+
     @property
     def lastfm_api_key(self) -> str:
         """Get Last.FM API key (with environment variable override)"""

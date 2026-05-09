@@ -8,7 +8,6 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:

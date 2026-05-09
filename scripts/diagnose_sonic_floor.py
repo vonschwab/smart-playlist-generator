@@ -9,7 +9,6 @@ Example:
 import argparse
 import sqlite3
 import logging
-from typing import List, Tuple
 
 import numpy as np
 

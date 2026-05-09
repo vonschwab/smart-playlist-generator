@@ -41,7 +41,7 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, Optional, Tuple
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import multiprocessing
 
@@ -72,7 +72,6 @@ def analyze_track_worker(track_data: Tuple[str, str, str, str, bool, bool]) -> O
     import sys
     import logging
     from pathlib import Path
-    import os
 
     # Suppress worker subprocess logging spam
     logging.getLogger().setLevel(logging.WARNING)
@@ -320,12 +319,12 @@ class SonicFeaturePipeline:
                         if isinstance(features, dict) and 'full' in features:
                             if isinstance(features['full'], dict) and features['full'].get('extraction_method') == 'beat3tower':
                                 beat3tower_count += 1
-                    except:
+                    except Exception:
                         pass
 
             if beat3tower_count > 0:
                 logger.warning(f"⚠️  FORCE MODE will overwrite {beat3tower_count} tracks with existing beat3tower features!")
-                logger.warning(f"⚠️  Consider creating a backup first: python scripts/backup_sonic_features.py --backup")
+                logger.warning("⚠️  Consider creating a backup first: python scripts/backup_sonic_features.py --backup")
 
         return tracks
 
@@ -658,7 +657,7 @@ class SonicFeaturePipeline:
                         legacy_count += 1
                 else:
                     legacy_count += 1
-            except:
+            except Exception:
                 legacy_count += 1
 
         return {

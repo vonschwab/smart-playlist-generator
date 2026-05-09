@@ -22,7 +22,7 @@ import sqlite3
 import time
 from collections import Counter
 from pathlib import Path
-from typing import List, Optional, Dict, Set
+from typing import List, Optional, Dict
 import logging
 
 # Add parent directory to path
@@ -178,7 +178,7 @@ class NormalizedGenreUpdater:
             status = get_enrichment_status(self.conn, "artist", key)
             if status in (STATUS_OK, STATUS_NO_MATCH):
                 continue
-            if any(name in artists_with_genres for name in counter.keys()):     
+            if any(name in artists_with_genres for name in counter.keys()):
                 continue
             if len(counter) > 1:
                 logger.debug("Artist key collision for %s: %s", key, list(counter.keys())[:3])
@@ -401,13 +401,13 @@ class NormalizedGenreUpdater:
                                 self._store_artist_genres(artist, ['__EMPTY__'], 'musicbrainz_artist')
                                 set_enrichment_status(self.conn, "artist", key, STATUS_NO_MATCH, last_error=None)
                                 stats['empty'] += 1
-                                logger.debug(f"  - No genres found (collaboration with no constituent genres)")
+                                logger.debug("  - No genres found (collaboration with no constituent genres)")
                         else:
                             # Solo artist with no genres
                             self._store_artist_genres(artist, ['__EMPTY__'], 'musicbrainz_artist')
                             set_enrichment_status(self.conn, "artist", key, STATUS_NO_MATCH, last_error=None)
                             stats['empty'] += 1
-                            logger.debug(f"  - MusicBrainz: No genres found (marked as checked)")
+                            logger.debug("  - MusicBrainz: No genres found (marked as checked)")
 
                 time.sleep(1.1)  # Rate limiting for MusicBrainz
 
@@ -498,7 +498,7 @@ class NormalizedGenreUpdater:
                         self._store_album_genres(album['album_id'], ['__EMPTY__'], 'musicbrainz_release')
                         set_enrichment_status(self.conn, "album", album_id, STATUS_NO_MATCH, last_error=None)
                         stats['empty'] += 1
-                        logger.debug(f"  - MusicBrainz: No genres found")
+                        logger.debug("  - MusicBrainz: No genres found")
 
                 time.sleep(1.1)  # Rate limiting for MusicBrainz
 

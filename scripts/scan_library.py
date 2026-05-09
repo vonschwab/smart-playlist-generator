@@ -38,15 +38,11 @@ import sqlite3
 import hashlib
 import os
 import unicodedata
-import random
-import time
 import os.path
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-from datetime import datetime
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from functools import partial
 
 # Add parent directory to path
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -91,11 +87,14 @@ class LibraryScanner:
         # Try to import mutagen
         try:
             import mutagen
-            from mutagen.easyid3 import EasyID3
-            from mutagen.flac import FLAC
-            from mutagen.mp4 import MP4
-            from mutagen.oggvorbis import OggVorbis
-            from mutagen.oggopus import OggOpus
+            # Format-specific tag classes are imported eagerly so mutagen.File()
+            # can dispatch to them at runtime; the noqa marks satisfy ruff F401
+            # for names imported for side effect rather than direct use here.
+            from mutagen.easyid3 import EasyID3  # noqa: F401
+            from mutagen.flac import FLAC  # noqa: F401
+            from mutagen.mp4 import MP4  # noqa: F401
+            from mutagen.oggvorbis import OggVorbis  # noqa: F401
+            from mutagen.oggopus import OggOpus  # noqa: F401
             self.mutagen = mutagen
             self.has_mutagen = True
         except ImportError:
@@ -161,7 +160,7 @@ class LibraryScanner:
     def _table_exists(self, table_name: str) -> bool:
         cursor = self.conn.cursor()
         cursor.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",  
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
             (table_name,),
         )
         return cursor.fetchone() is not None
@@ -194,7 +193,7 @@ class LibraryScanner:
         """
         # Use file path + artist + title for uniqueness
         unique_string = f"{file_path}|{artist}|{title}".lower()
-        return hashlib.md5(unique_string.encode('utf-8')).hexdigest()     
+        return hashlib.md5(unique_string.encode('utf-8')).hexdigest()
 
     def _compute_album_id(self, album_artist: Optional[str], album_title: Optional[str]) -> Optional[str]:
         """

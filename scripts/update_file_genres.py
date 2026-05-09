@@ -143,7 +143,7 @@ def update_artist_genres(conn: sqlite3.Connection, artist: str, dry_run: bool = 
         genres = read_genres_from_file(file_path)
 
         if not genres:
-            print(f"    → No genres in file tags")
+            print("    → No genres in file tags")
             continue
 
         print(f"    → Raw genres from file: {genres}")
@@ -196,7 +196,7 @@ def update_all_missing_genres(conn: sqlite3.Connection, dry_run: bool = False, l
         genres = read_genres_from_file(file_path)
 
         if not genres:
-            print(f"    → No genres in file tags")
+            print("    → No genres in file tags")
             continue
 
         print(f"    → Raw genres: {genres}")

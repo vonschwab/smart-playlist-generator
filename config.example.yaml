@@ -240,7 +240,7 @@ playlists:
         enabled: true
         monotonic_epsilon: 0.05
         penalty_weight: 0.15
-      # Optional: progress arc scoring to shape segment pacing (default OFF).   
+      # Optional: progress arc scoring to shape segment pacing (default OFF).
       progress_arc:
         enabled: false
         weight: 0.25
@@ -493,7 +493,7 @@ playlists:
 
     # Repair pass configuration (fixes weak transitions after construction)
     repair:
-      enabled: true           # Enable post-construction repair pass      
+      enabled: true           # Enable post-construction repair pass
       max_iters: 5            # Max repair iterations
       max_edges: 5            # Max edges to fix per iteration
       objective: gap_penalty  # "gap_penalty" or "below_floor_first"

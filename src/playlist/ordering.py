@@ -267,5 +267,3 @@ def order_by_sequential_similarity(
         ordered_tracks=ordered,
         stats=ordering_stats,
     )
-
-

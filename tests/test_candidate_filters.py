@@ -213,7 +213,7 @@ def test_genre_explainer_returns_filtered_pairs():
     assert "rock" in details["seed_broad_removed"]
     assert "rock" not in [g.lower() for g in details["seed_genres_filtered"]]
     assert isinstance(score, float)
-    assert details["top_pairs"]  # should have at least one contributing pair   
+    assert details["top_pairs"]  # should have at least one contributing pair
 
 
 @pytest.mark.xfail(

@@ -119,7 +119,7 @@ def generate_playlist_ds(
     Returns ordered track_ids and stats.
 
     Playlist construction uses pier-bridge strategy exclusively:
-    - Multiple seeds: seeds become fixed "piers", bridge segments connect them  
+    - Multiple seeds: seeds become fixed "piers", bridge segments connect them
     - Single seed: seed acts as both start and end pier (arc structure)
     - Artist playlists can optionally enforce "seed artist = piers only"
 
@@ -671,9 +671,9 @@ def generate_playlist_ds(
                 sonic_variant=resolved_variant,
                 weight_bridge=float(tuning.weight_bridge),
                 weight_transition=float(tuning.weight_transition),
-                genre_tiebreak_weight=float(tuning.genre_tiebreak_weight),      
-                genre_penalty_threshold=float(tuning.genre_penalty_threshold),  
-                genre_penalty_strength=float(tuning.genre_penalty_strength),    
+                genre_tiebreak_weight=float(tuning.genre_tiebreak_weight),
+                genre_penalty_threshold=float(tuning.genre_penalty_threshold),
+                genre_penalty_strength=float(tuning.genre_penalty_strength),
             )
 
             # Segment-local pier-bridge policy defaults (with optional overrides).
@@ -1297,8 +1297,8 @@ def generate_playlist_ds(
                                 "disallow_seed_artist_in_interiors": bool(pb_cfg.disallow_seed_artist_in_interiors),
                                 "disallow_pier_artists_in_interiors": bool(pb_cfg.disallow_pier_artists_in_interiors),
                                 "infeasible_handling": {
-                                    "enabled": bool(infeasible_cfg.enabled),    
-                                    "strategy": str(infeasible_cfg.strategy),   
+                                    "enabled": bool(infeasible_cfg.enabled),
+                                    "strategy": str(infeasible_cfg.strategy),
                                     "min_bridge_floor": float(infeasible_cfg.min_bridge_floor),
                                     "backoff_steps": list(infeasible_cfg.backoff_steps),
                                     "max_attempts_per_segment": int(infeasible_cfg.max_attempts_per_segment),

@@ -984,7 +984,7 @@ class PlaylistGenerator:
             'dupe_title': filtered_dupe_title,
             'fuzzy_dupe': filtered_fuzzy_dupe,
         }
-    
+
     def analyze_listening_history(self, history: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Analyze listening history to identify top artists/tracks
@@ -1032,7 +1032,7 @@ class PlaylistGenerator:
             track_metadata=track_metadata,
             count=count,
         )
-    
+
     def generate_similar_tracks(self, seeds: List[Dict[str, Any]], dynamic: bool = False, limit_per_seed: Optional[int] = None) -> List[Dict[str, Any]]:
         """
         Generate list of similar tracks based on seeds.
@@ -1645,7 +1645,7 @@ class PlaylistGenerator:
             if audit_path:
                 msg += f" (audit: {audit_path})"
             raise ValueError(msg)
-    
+
     def diversify_tracks(self, tracks: List[Dict[str, Any]],
                         max_per_artist: int = None) -> List[Dict[str, Any]]:
         """
@@ -1667,7 +1667,7 @@ class PlaylistGenerator:
             tracks=tracks,
             max_per_artist=max_per_artist,
         )
-    
+
     def _is_collaboration_of(self, collaboration_name: str, base_artist: str) -> bool:
         """
         Check if a collaboration name includes the base artist
@@ -4122,26 +4122,26 @@ class PlaylistGenerator:
         history = self.library.get_play_history(None, days=history_days)
 
         return history
-    
-    def _split_into_playlists(self, tracks: List[Dict[str, Any]], 
+
+    def _split_into_playlists(self, tracks: List[Dict[str, Any]],
                              count: int) -> List[List[Dict[str, Any]]]:
         """
         Split tracks into multiple playlists
-        
+
         Args:
             tracks: Available tracks
             count: Number of playlists to create
-            
+
         Returns:
             List of track lists
         """
         tracks_per_playlist = self.config.get('playlists', 'tracks_per_playlist', default=30)
-        
+
         # Sort by weight (higher weight = more likely based on listening)
         sorted_tracks = sorted(tracks, key=lambda x: x.get('weight', 0), reverse=True)
-        
+
         playlists = []
-        
+
         for i in range(count):
             # Create playlist with different strategies
             if i == 0:
@@ -4155,44 +4155,44 @@ class PlaylistGenerator:
                 population = sorted_tracks[:len(sorted_tracks)//2]
                 sample_size = min(tracks_per_playlist, len(population))
                 playlist = random.sample(population, sample_size) if sample_size > 0 else []
-            
+
             if playlist:
                 playlists.append(playlist)
                 logger.info(f"Playlist {i+1}: {len(playlist)} tracks")
-        
+
         return playlists
-    
-    def _select_diverse(self, tracks: List[Dict[str, Any]], 
+
+    def _select_diverse(self, tracks: List[Dict[str, Any]],
                        count: int) -> List[Dict[str, Any]]:
         """
         Select tracks ensuring artist diversity
-        
+
         Args:
             tracks: Available tracks
             count: Number to select
-            
+
         Returns:
             Diverse selection of tracks
         """
         selected = []
         used_artists = set()
-        
+
         # First pass: one track per artist
         for track in tracks:
             artist = track.get('artist')
             if artist not in used_artists:
                 selected.append(track)
                 used_artists.add(artist)
-                
+
                 if len(selected) >= count:
                     break
-        
+
         # Second pass: fill remaining slots
         if len(selected) < count:
             remaining = [t for t in tracks if t not in selected]
             needed = count - len(selected)
             selected.extend(remaining[:needed])
-        
+
         return selected
 
     def _print_playlist_report(
