@@ -42,9 +42,10 @@ class Config:
 
     def _validate_config(self):
         """Validate required configuration fields"""
+        # Note: openai/api_key was removed when the legacy OpenAI wiring was
+        # dropped (Tier-0.10b). It is no longer a required section.
         required_fields = [
             ('library', 'database_path'),
-            ('openai', 'api_key')
         ]
 
         for section, field in required_fields:
