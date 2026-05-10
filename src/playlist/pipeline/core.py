@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import logging
 import math
-import uuid
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
@@ -20,6 +18,7 @@ from src.playlist.pier_bridge_builder import (
     build_pier_bridge_playlist,
 )
 from src.playlist.artist_identity_resolver import ArtistIdentityConfig
+from src.playlist.pipeline.audit_emitter import AuditEmitter
 from src.playlist.pipeline.bundle_restrict import restrict_bundle
 from src.playlist.pipeline.embedding_setup import setup_embedding
 from src.playlist.pipeline.pier_bridge_overrides import apply_pier_bridge_overrides
@@ -28,12 +27,8 @@ from src.playlist.pipeline.pier_resolver import (
     resolve_pier_seeds,
 )
 from src.playlist.run_audit import (
-    RunAuditContext,
-    RunAuditEvent,
-    now_utc_iso,
     parse_infeasible_handling_config,
     parse_run_audit_config,
-    write_markdown_report,
 )
 
 logger = logging.getLogger(__name__)
@@ -139,9 +134,7 @@ def generate_playlist_ds(
     pb_overrides = (overrides or {}).get("pier_bridge", {}) if isinstance(overrides, dict) else {}
     audit_cfg = parse_run_audit_config(pb_overrides.get("audit_run"))
     infeasible_cfg = parse_infeasible_handling_config(pb_overrides.get("infeasible_handling"))
-    audit_events: Optional[list[RunAuditEvent]] = [] if bool(audit_cfg.enabled) else None
-    audit_context: Optional[RunAuditContext] = None
-    audit_path: Optional[Path] = None
+    audit = AuditEmitter(audit_cfg)
 
     # Parse artist identity config from constraints.artist_identity
     constraints_overrides = (overrides or {}).get("constraints", {}) if isinstance(overrides, dict) else {}
@@ -287,33 +280,20 @@ def generate_playlist_ds(
             pool_indices = list(getattr(pool, "eligible_indices", pool.pool_indices))
             pool_indices = dedupe_pool_by_track_key(bundle, pool_indices)
 
-            if audit_events is not None and audit_context is None:
-                ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-                run_id = f"ds_{cfg.mode}_{ts}_{uuid.uuid4().hex[:8]}"
-                seed_artist_val: Optional[str] = None
-                try:
-                    if bundle.track_artists is not None:
-                        seed_artist_val = str(bundle.track_artists[seed_idx])
-                    elif bundle.artist_keys is not None:
-                        seed_artist_val = str(bundle.artist_keys[seed_idx])
-                except Exception:
-                    seed_artist_val = None
-                audit_context = RunAuditContext(
-                    timestamp_utc=now_utc_iso(),
-                    run_id=run_id,
-                    ds_mode=str(cfg.mode),
-                    seed_track_id=str(seed_track_id),
-                    seed_artist=seed_artist_val,
-                    dry_run=bool(dry_run),
-                    artifact_path=str(artifact_path),
-                    sonic_variant=str(resolved_variant) if resolved_variant else None,
-                    allowed_ids_count=int(len(allowed_track_ids_set or set())),
-                    pool_source=str(pool_source) if pool_source is not None else None,
-                    artist_style_enabled=bool(artist_style_enabled),
-                    artist_playlist=bool(artist_playlist),
-                    extra=dict(audit_context_extra or {}),
-                )
-                audit_path = Path(audit_cfg.out_dir) / f"{audit_context.run_id}.md"
+            audit.ensure_context(
+                bundle=bundle,
+                seed_idx=seed_idx,
+                seed_track_id=seed_track_id,
+                mode=cfg.mode,
+                dry_run=dry_run,
+                artifact_path=artifact_path,
+                sonic_variant=resolved_variant,
+                allowed_ids_count=int(len(allowed_track_ids_set or set())),
+                pool_source=pool_source,
+                artist_style_enabled=artist_style_enabled,
+                artist_playlist=artist_playlist,
+                audit_context_extra=audit_context_extra,
+            )
 
             pb_cfg, tuning, tuning_sources, transition_weights = apply_pier_bridge_overrides(
                 pier_bridge_config=pier_bridge_config,
@@ -335,7 +315,7 @@ def generate_playlist_ds(
                 bool(pb_cfg.disallow_seed_artist_in_interiors),
                 bool(pb_cfg.disallow_pier_artists_in_interiors),
             )
-            if audit_events is not None and not any(e.kind == "preflight" for e in audit_events):
+            if audit.active and not audit.has_kind("preflight"):
                 pool_summary = {
                     "allowed_ids_count": int(len(allowed_track_ids_set or set())),
                     "piers_count": int(len(seed_track_ids_for_pier)),
@@ -355,11 +335,9 @@ def generate_playlist_ds(
                     recency_raw = audit_context_extra.get("recency")
                     if isinstance(recency_raw, dict) and isinstance(recency_raw.get("lookback_days"), (int, float)):
                         recency_lookback_days = int(recency_raw.get("lookback_days"))
-                audit_events.append(
-                    RunAuditEvent(
-                        kind="preflight",
-                        ts_utc=now_utc_iso(),
-                        payload={
+                audit.append(
+                    "preflight",
+                    {
                             "tuning": {
                                 "mode": str(cfg.mode),
                                 "transition_floor": float(tuning.transition_floor),
@@ -441,8 +419,7 @@ def generate_playlist_ds(
                                 "exempt_piers_count": exempt_piers_count,
                             },
                             "style_summary": style_summary,
-                        },
-                    )
+                    },
                 )
             pb_result: PierBridgeResult = build_pier_bridge_playlist(
                 seed_track_ids=seed_track_ids_for_pier,
@@ -456,7 +433,7 @@ def generate_playlist_ds(
                 internal_connector_priority=internal_connector_priority,
                 infeasible_handling=infeasible_cfg,
                 audit_config=audit_cfg,
-                audit_events=audit_events,
+                audit_events=audit.events,
                 artist_identity_cfg=artist_identity_cfg,
             )
             if not pb_result.success:
@@ -514,36 +491,25 @@ def generate_playlist_ds(
                         f"   - Choose seeds that are more sonically/genre similar to each other"
                     )
 
-                if audit_events is not None and audit_context is not None and audit_path is not None:
-                    audit_events.append(
-                        RunAuditEvent(
-                            kind="final_failure",
-                            ts_utc=now_utc_iso(),
-                            payload={
-                                "failure_reason": failure_reason,
-                                "diagnostic_msg": diagnostic_msg,
-                                "segment_bridge_floors_used": (pb_result.stats or {}).get("segment_bridge_floors_used"),
-                                "segment_backoff_attempts_used": (pb_result.stats or {}).get("segment_backoff_attempts_used"),
-                                "pool_diagnostics": {
-                                    "admitted": admitted,
-                                    "rejected_sonic": rejected_sonic,
-                                    "rejected_genre": rejected_genre,
-                                    "total_considered": total_considered,
-                                },
+                if audit.can_flush():
+                    audit.append(
+                        "final_failure",
+                        {
+                            "failure_reason": failure_reason,
+                            "diagnostic_msg": diagnostic_msg,
+                            "segment_bridge_floors_used": (pb_result.stats or {}).get("segment_bridge_floors_used"),
+                            "segment_backoff_attempts_used": (pb_result.stats or {}).get("segment_backoff_attempts_used"),
+                            "pool_diagnostics": {
+                                "admitted": admitted,
+                                "rejected_sonic": rejected_sonic,
+                                "rejected_genre": rejected_genre,
+                                "total_considered": total_considered,
                             },
-                        )
+                        },
                     )
-                    try:
-                        write_markdown_report(
-                            context=audit_context,
-                            events=audit_events,
-                            path=audit_path,
-                            max_bytes=int(audit_cfg.max_bytes),
-                        )
-                    except Exception as exc:
-                        logger.exception("Failed to write run audit report: %s", exc)
+                    audit.flush()
                     raise ValueError(
-                        f"{diagnostic_msg}\n\n(Detailed audit: {audit_path})"
+                        f"{diagnostic_msg}\n\n(Detailed audit: {audit.path})"
                     )
                 raise ValueError(diagnostic_msg)
 
@@ -645,28 +611,17 @@ def generate_playlist_ds(
 
     if validation_errors:
         msg = "post_order_validation_failed: " + " | ".join(validation_errors)
-        if audit_events is not None and audit_context is not None and audit_path is not None:
-            audit_events.append(
-                RunAuditEvent(
-                    kind="final_failure",
-                    ts_utc=now_utc_iso(),
-                    payload={
-                        "failure_reason": msg,
-                        "post_order_filters_applied": [],
-                        "post_order_validation": dict(post_order_validation),
-                    },
-                )
+        if audit.can_flush():
+            audit.append(
+                "final_failure",
+                {
+                    "failure_reason": msg,
+                    "post_order_filters_applied": [],
+                    "post_order_validation": dict(post_order_validation),
+                },
             )
-            try:
-                write_markdown_report(
-                    context=audit_context,
-                    events=audit_events,
-                    path=audit_path,
-                    max_bytes=int(audit_cfg.max_bytes),
-                )
-            except Exception as write_exc:
-                logger.exception("Failed to write run audit report: %s", write_exc)
-            raise ValueError(f"{msg} (audit: {audit_path})")
+            audit.flush()
+            raise ValueError(f"{msg} (audit: {audit.path})")
         raise ValueError(msg)
     try:
         if allowed_track_ids_set is not None:
@@ -677,29 +632,18 @@ def generate_playlist_ds(
             )
             enforce_allowed_invariant(ordered_track_ids, allowed_track_ids_set, context="final_playlist")
     except Exception as exc:
-        if audit_events is not None and audit_context is not None and audit_path is not None:
-            audit_events.append(
-                RunAuditEvent(
-                    kind="final_failure",
-                    ts_utc=now_utc_iso(),
-                    payload={
-                        "failure_reason": f"allowed_set_invariant_failed: {exc}",
-                    },
-                )
+        if audit.can_flush():
+            audit.append(
+                "final_failure",
+                {
+                    "failure_reason": f"allowed_set_invariant_failed: {exc}",
+                },
             )
-            try:
-                write_markdown_report(
-                    context=audit_context,
-                    events=audit_events,
-                    path=audit_path,
-                    max_bytes=int(audit_cfg.max_bytes),
-                )
-            except Exception as write_exc:
-                logger.exception("Failed to write run audit report: %s", write_exc)
-            raise ValueError(f"{exc} (audit: {audit_path})") from exc
+            audit.flush()
+            raise ValueError(f"{exc} (audit: {audit.path})") from exc
         raise
 
-    if audit_events is not None and audit_context is not None and audit_path is not None and bool(audit_cfg.write_on_success):
+    if audit.can_flush() and bool(audit_cfg.write_on_success):
         playlist_tracks: list[dict[str, Any]] = []
         for idx in playlist.track_indices.tolist():
             artist = ""
@@ -729,40 +673,29 @@ def generate_playlist_ds(
         except Exception:
             weakest_edges = []
 
-        audit_events.append(
-            RunAuditEvent(
-                kind="final_success",
-                ts_utc=now_utc_iso(),
-                payload={
+        audit.append(
+            "final_success",
+            {
+                "post_order_filters_applied": [],
+                "post_order_validation": dict(post_order_validation),
+                "playlist_tracks": playlist_tracks,
+                "weakest_edges": weakest_edges,
+                "summary_stats": {
+                    "final_playlist_size": int(len(ordered_track_ids)),
+                    "transition_floor": float(getattr(pb_cfg, "transition_floor", 0.0)),
+                    "below_floor_count": int(below_floor_count),
+                    "min_transition": min_transition,
+                    "mean_transition": mean_transition,
+                    "segment_bridge_floors_used": (pb_result.stats or {}).get("segment_bridge_floors_used"),
+                    "segment_backoff_attempts_used": (pb_result.stats or {}).get("segment_backoff_attempts_used"),
+                    "soft_genre_penalty_hits": (pb_result.stats or {}).get("soft_genre_penalty_hits"),
+                    "soft_genre_penalty_edges_scored": (pb_result.stats or {}).get("soft_genre_penalty_edges_scored"),
                     "post_order_filters_applied": [],
                     "post_order_validation": dict(post_order_validation),
-                    "playlist_tracks": playlist_tracks,
-                    "weakest_edges": weakest_edges,
-                    "summary_stats": {
-                        "final_playlist_size": int(len(ordered_track_ids)),
-                        "transition_floor": float(getattr(pb_cfg, "transition_floor", 0.0)),
-                        "below_floor_count": int(below_floor_count),
-                        "min_transition": min_transition,
-                        "mean_transition": mean_transition,
-                        "segment_bridge_floors_used": (pb_result.stats or {}).get("segment_bridge_floors_used"),
-                        "segment_backoff_attempts_used": (pb_result.stats or {}).get("segment_backoff_attempts_used"),
-                        "soft_genre_penalty_hits": (pb_result.stats or {}).get("soft_genre_penalty_hits"),
-                        "soft_genre_penalty_edges_scored": (pb_result.stats or {}).get("soft_genre_penalty_edges_scored"),
-                        "post_order_filters_applied": [],
-                        "post_order_validation": dict(post_order_validation),
-                    },
                 },
-            )
+            },
         )
-        try:
-            write_markdown_report(
-                context=audit_context,
-                events=audit_events,
-                path=audit_path,
-                max_bytes=int(audit_cfg.max_bytes),
-            )
-        except Exception as write_exc:
-            logger.exception("Failed to write run audit report: %s", write_exc)
+        audit.flush()
     params_requested = _params_from_config(cfg)
     if overrides:
         params_requested["overrides"] = overrides
@@ -776,10 +709,10 @@ def generate_playlist_ds(
         "candidate_pool": pool.stats,
         "playlist": playlist.stats,
     }
-    if audit_path is not None:
+    if audit.path is not None:
         try:
             stats.setdefault("playlist", {})
-            stats["playlist"]["audit_path"] = str(audit_path)
+            stats["playlist"]["audit_path"] = str(audit.path)
         except Exception:
             pass
 
