@@ -216,46 +216,45 @@ def test_genre_explainer_returns_filtered_pairs():
     assert details["top_pairs"]  # should have at least one contributing pair
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "Pre-existing failure: 'Segment 0 infeasible under bridge_floor=0.0'. "
-        "The synthetic fixture doesn't generate enough viable bridge candidates "
-        "after Phase 1-3A (commit 34f2948) tightened pier-bridge feasibility checks. "
-        "Needs a fixture refresh — Tier-1.3 follow-up."
-    ),
-)
-def test_allowed_set_applies_excluded_track_ids_in_pipeline(tmp_path):
-    """
-    Regression test: style-aware runs pass both `allowed_track_ids` and `excluded_track_ids`.
-    We must apply the exclusions even when the bundle is clamped to the allowed set.
-    """
-    from src.playlist.pipeline import generate_playlist_ds
-    from src.playlist.pier_bridge_builder import PierBridgeConfig
+class _CapturedBundle(Exception):
+    """Short-circuit sentinel — carries the restricted bundle that arrived at
+    pier-bridge time, so we can assert on the post-restriction state without
+    requiring pier-bridge feasibility on a synthetic fixture."""
 
-    # Minimal 3-track artifact:
-    # - t0 = seed pier A
-    # - t1 = anchor pier B
-    # - t2 = only possible interior track (but excluded)
+    def __init__(self, bundle):
+        super().__init__("captured")
+        self.bundle = bundle
+
+
+def _capture_pier_bridge_bundle(monkeypatch):
+    """Replace ``build_pier_bridge_playlist`` so it raises with the captured bundle.
+
+    Returns nothing; the test should catch ``_CapturedBundle`` from the
+    ``generate_playlist_ds`` call and inspect ``exc.bundle``.
+    """
+    import src.playlist.pipeline.core as pipeline_core
+
+    def _short_circuit(*args, **kwargs):
+        raise _CapturedBundle(kwargs["bundle"])
+
+    monkeypatch.setattr(pipeline_core, "build_pier_bridge_playlist", _short_circuit)
+
+
+def _write_tiny_artifact(tmp_path, name="tiny_artifact.npz"):
+    """Minimal 3-track artifact (t0/t1/t2) for bundle-restriction tests."""
     track_ids = np.array(["t0", "t1", "t2"])
     artist_keys = np.array(["a0", "a1", "a2"])
     track_artists = np.array(["Artist 0", "Artist 1", "Artist 2"])
     track_titles = np.array(["Song 0", "Song 1", "Song 2"])
-
     X_sonic = np.array(
-        [
-            [1.0, 0.0],
-            [0.0, 1.0],
-            [1.0, 1.0],
-        ],
+        [[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]],
         dtype=float,
     )
-    # Give genre some variance to avoid PCA "total_var=0" warnings.
     X_genre_raw = np.array([[0.0], [1.0], [0.5]], dtype=float)
     X_genre_smoothed = X_genre_raw.copy()
     genre_vocab = np.array(["g0"])
 
-    artifact_path = tmp_path / "tiny_artifact.npz"
+    artifact_path = tmp_path / name
     np.savez(
         artifact_path,
         track_ids=track_ids,
@@ -267,101 +266,88 @@ def test_allowed_set_applies_excluded_track_ids_in_pipeline(tmp_path):
         X_genre_smoothed=X_genre_smoothed,
         genre_vocab=genre_vocab,
     )
-
-    result = generate_playlist_ds(
-        artifact_path=str(artifact_path),
-        seed_track_id="t0",
-        anchor_seed_ids=["t1"],
-        num_tracks=3,
-        mode="narrow",
-        random_seed=0,
-        allowed_track_ids=["t0", "t1", "t2"],
-        excluded_track_ids={"t2"},
-        pier_bridge_config=PierBridgeConfig(
-            transition_floor=0.0,
-            bridge_floor=0.0,
-            progress_enabled=False,
-        ),
-        sonic_weight=1.0,
-        genre_weight=0.0,
-        min_genre_similarity=None,
-        genre_method=None,
-    )
-
-    # Excluded track_id must not appear in the result.
-    assert "t2" not in result.track_ids
+    return artifact_path
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "Pre-existing failure: 'Segment 0 infeasible under bridge_floor=0.0'. "
-        "Same root cause as test_allowed_set_applies_excluded_track_ids_in_pipeline — "
-        "the synthetic fixture is too small for current pier-bridge feasibility. "
-        "Tier-1.3 follow-up."
-    ),
-)
-def test_excluded_set_does_not_remove_piers_in_pipeline(tmp_path):
+def test_allowed_set_applies_excluded_track_ids_in_pipeline(tmp_path, monkeypatch):
     """
-    Piers (seed + anchor seeds) must be exempt from excluded_track_ids so DS can
-    still place them as fixed endpoints.
+    Regression test: style-aware runs pass both ``allowed_track_ids`` and
+    ``excluded_track_ids``. The bundle that reaches pier-bridge must have
+    excluded ids stripped — even when also clamped to the allowed set.
+
+    Strategy: short-circuit ``build_pier_bridge_playlist`` to capture the
+    restricted bundle and assert on it. Decouples the test from
+    pier-bridge feasibility, which is not the contract under test.
     """
     from src.playlist.pipeline import generate_playlist_ds
     from src.playlist.pier_bridge_builder import PierBridgeConfig
 
-    track_ids = np.array(["t0", "t1", "t2"])
-    artist_keys = np.array(["a0", "a1", "a2"])
-    track_artists = np.array(["Artist 0", "Artist 1", "Artist 2"])
-    track_titles = np.array(["Song 0", "Song 1", "Song 2"])
+    artifact_path = _write_tiny_artifact(tmp_path, "tiny_artifact.npz")
+    _capture_pier_bridge_bundle(monkeypatch)
 
-    X_sonic = np.array(
-        [
-            [1.0, 0.0],
-            [0.0, 1.0],
-            [1.0, 1.0],
-        ],
-        dtype=float,
-    )
-    X_genre_raw = np.array([[0.0], [1.0], [0.5]], dtype=float)
-    X_genre_smoothed = X_genre_raw.copy()
-    genre_vocab = np.array(["g0"])
+    with pytest.raises(_CapturedBundle) as exc_info:
+        generate_playlist_ds(
+            artifact_path=str(artifact_path),
+            seed_track_id="t0",
+            anchor_seed_ids=["t1"],
+            num_tracks=3,
+            mode="narrow",
+            random_seed=0,
+            allowed_track_ids=["t0", "t1", "t2"],
+            excluded_track_ids={"t2"},
+            pier_bridge_config=PierBridgeConfig(
+                transition_floor=0.0,
+                bridge_floor=0.0,
+                progress_enabled=False,
+            ),
+            sonic_weight=1.0,
+            genre_weight=0.0,
+            min_genre_similarity=None,
+            genre_method=None,
+        )
 
-    artifact_path = tmp_path / "tiny_artifact_pier_exempt.npz"
-    np.savez(
-        artifact_path,
-        track_ids=track_ids,
-        artist_keys=artist_keys,
-        track_artists=track_artists,
-        track_titles=track_titles,
-        X_sonic=X_sonic,
-        X_genre_raw=X_genre_raw,
-        X_genre_smoothed=X_genre_smoothed,
-        genre_vocab=genre_vocab,
-    )
+    captured_ids = {str(t) for t in exc_info.value.bundle.track_ids}
+    assert "t2" not in captured_ids
+    assert {"t0", "t1"}.issubset(captured_ids)
 
-    result = generate_playlist_ds(
-        artifact_path=str(artifact_path),
-        seed_track_id="t0",
-        anchor_seed_ids=["t1"],
-        num_tracks=3,
-        mode="narrow",
-        random_seed=0,
-        allowed_track_ids=["t0", "t1", "t2"],
-        # Exclude everything including piers; piers must still be present.
-        excluded_track_ids={"t0", "t1", "t2"},
-        pier_bridge_config=PierBridgeConfig(
-            transition_floor=0.0,
-            bridge_floor=0.0,
-            progress_enabled=False,
-        ),
-        sonic_weight=1.0,
-        genre_weight=0.0,
-        min_genre_similarity=None,
-        genre_method=None,
-    )
-    assert "t0" in result.track_ids
-    assert "t1" in result.track_ids
-    assert "t2" not in result.track_ids
+
+def test_excluded_set_does_not_remove_piers_in_pipeline(tmp_path, monkeypatch):
+    """
+    Piers (seed + anchor seeds) must be exempt from ``excluded_track_ids``
+    so DS can still place them as fixed endpoints — even if the caller
+    asks for all three tracks to be excluded.
+    """
+    from src.playlist.pipeline import generate_playlist_ds
+    from src.playlist.pier_bridge_builder import PierBridgeConfig
+
+    artifact_path = _write_tiny_artifact(tmp_path, "tiny_artifact_pier_exempt.npz")
+    _capture_pier_bridge_bundle(monkeypatch)
+
+    with pytest.raises(_CapturedBundle) as exc_info:
+        generate_playlist_ds(
+            artifact_path=str(artifact_path),
+            seed_track_id="t0",
+            anchor_seed_ids=["t1"],
+            num_tracks=3,
+            mode="narrow",
+            random_seed=0,
+            allowed_track_ids=["t0", "t1", "t2"],
+            excluded_track_ids={"t0", "t1", "t2"},
+            pier_bridge_config=PierBridgeConfig(
+                transition_floor=0.0,
+                bridge_floor=0.0,
+                progress_enabled=False,
+            ),
+            sonic_weight=1.0,
+            genre_weight=0.0,
+            min_genre_similarity=None,
+            genre_method=None,
+        )
+
+    captured_ids = {str(t) for t in exc_info.value.bundle.track_ids}
+    assert "t0" in captured_ids
+    assert "t1" in captured_ids
+    assert "t2" not in captured_ids
 
 
 def test_recency_filters_require_candidate_pool_stage():
@@ -412,15 +398,6 @@ def test_post_order_validation_fails_loudly_on_recency_overlap():
         )
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "Pre-existing failure: DummyLibrary fixture's tracks fall outside the "
-        "47-720s duration range that PlaylistGenerator now enforces. The duration "
-        "filter became stricter (or stricter by default) at some point in v3.5. "
-        "Fix: regenerate fixture with realistic durations. Tier-1.3 follow-up."
-    ),
-)
 def test_playlist_generator_does_not_post_filter_ds_results(monkeypatch, caplog):
     import logging
     from src.playlist_generator import PlaylistGenerator
@@ -438,6 +415,9 @@ def test_playlist_generator_does_not_post_filter_ds_results(monkeypatch, caplog)
         recently_played_filter_enabled = True
         recently_played_lookback_days = 14
         recently_played_min_playcount = 0
+        # Sane defaults so duration filter (47-720s) accepts our fixtures.
+        min_track_duration_seconds = 47
+        max_track_duration_seconds = 720
 
         config = {"playlists": {}}
 
@@ -448,8 +428,15 @@ def test_playlist_generator_does_not_post_filter_ds_results(monkeypatch, caplog)
 
     artist = "Test Artist"
     artist_key = "test artist"
+    # 180000ms = 3min: well within the 47-720s duration filter.
     library_tracks = [
-        {"rating_key": f"s{i}", "artist": artist, "artist_key": artist_key, "title": f"Seed {i}"}
+        {
+            "rating_key": f"s{i}",
+            "artist": artist,
+            "artist_key": artist_key,
+            "title": f"Seed {i}",
+            "duration": 180000,
+        }
         for i in range(4)
     ]
 

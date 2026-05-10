@@ -227,33 +227,39 @@ class TestSonicFeatureVector:
         )
         assert abs(vec_end[0] - 1.3) < 1e-6  # End MFCC
 
-    @pytest.mark.xfail(
-        strict=False,
-        reason=(
-            "Pre-existing failure: segment_fallback_counts only contains the "
-            "three known segment names (start, mid, end). Code no longer "
-            "tracks fallbacks for arbitrary unknown segment strings — likely "
-            "intentional to bound the dict. Test should assert that an "
-            "unknown segment falls back silently and returns the average "
-            "vector (vec.size > 0) without expecting a counter entry. "
-            "Tier-1.3 follow-up."
-        ),
-    )
     def test_build_vector_missing_segment_fallback(self, temp_db, sample_multisegment_features):
-        """Test fallback to average when segment missing."""
+        """Unknown segment names fall back to the average vector silently.
+
+        ``segment_fallback_counts`` is bounded to the three known segment
+        names (start, mid, end); arbitrary unknown names are not tracked.
+        """
         calc = SimilarityCalculator(str(temp_db), config={})
 
         # Initialize layout
         calc.build_sonic_feature_vector(sample_multisegment_features)
 
-        # Request non-existent segment
+        # Request non-existent segment — should fall back to average without
+        # adding a counter entry for the unknown name.
         vec = calc.build_sonic_feature_vector_by_segment(
             sample_multisegment_features, "nonexistent"
         )
 
-        # Should fallback to average
         assert vec.size > 0
-        assert calc.segment_fallback_counts.get("nonexistent", 0) > 0
+        assert "nonexistent" not in calc.segment_fallback_counts
+        assert set(calc.segment_fallback_counts.keys()) == {"start", "mid", "end"}
+
+    def test_build_vector_missing_known_segment_tracks_fallback(self, temp_db, sample_sonic_features):
+        """When a known segment ('start') is missing, the counter increments."""
+        calc = SimilarityCalculator(str(temp_db), config={})
+
+        # sample_sonic_features is single-segment (no 'start'/'mid'/'end' keys),
+        # so requesting 'start' must fall back and tick the counter.
+        before = calc.segment_fallback_counts.get("start", 0)
+        vec = calc.build_sonic_feature_vector_by_segment(sample_sonic_features, "start")
+        after = calc.segment_fallback_counts.get("start", 0)
+
+        assert vec.size > 0
+        assert after == before + 1
 
     def test_build_vector_empty_features(self, temp_db):
         """Test building vector from empty features."""

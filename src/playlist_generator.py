@@ -2327,9 +2327,9 @@ class PlaylistGenerator:
                 using_artist_style = False
                 pool_source = "legacy_fallback"
 
+        fallback_used = False
         if using_artist_style and style_seed_track_id and style_allowed_track_ids:
             # Try with genre gating first, fallback to no-genre-gate mode if genre isolation detected
-            fallback_used = False
             try:
                 ds_tracks = self._maybe_generate_ds_playlist(
                     seed_track_id=style_seed_track_id,

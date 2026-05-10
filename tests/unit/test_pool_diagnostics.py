@@ -19,17 +19,13 @@ def test_compute_pool_overlap_metrics():
     assert metrics["pool_overlap_jaccard"] == 0.25
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "Pre-existing failure: chosen_from_local_count is 1 instead of 2. "
-        "DJ Pool Diagnostics Phase 2 (commits 0bc482f, e023d10, 4fec043) "
-        "changed how _compute_chosen_source_counts attributes a track to a "
-        "source — likely now uses priority/membership rather than raw "
-        "set-membership. Test must follow the new semantics. Tier-1.3 follow-up."
-    ),
-)
 def test_compute_chosen_source_counts():
+    """Verify priority-based exclusive counts and membership counts.
+
+    Phase 3 semantics (commits 0bc482f / e023d10 / 4fec043):
+      * Exclusive counts use priority order: genre > toward > local > baseline_only.
+      * Membership counts track all overlaps (local_only, local+toward, etc.).
+    """
     path = [1, 2, 3, 4]
     sources = {
         "local": {1, 2},
@@ -41,8 +37,24 @@ def test_compute_chosen_source_counts():
         path, sources=sources, baseline_pool=baseline_pool
     )
 
-    assert counts["chosen_from_local_count"] == 2
-    assert counts["chosen_from_toward_count"] == 2
+    # Priority assignment:
+    #   1 → local (only in local)            -> local
+    #   2 → local+toward, priority toward    -> toward
+    #   3 → toward+genre, priority genre     -> genre
+    #   4 → genre+baseline, priority genre   -> genre
+    assert counts["chosen_from_local_count"] == 1
+    assert counts["chosen_from_toward_count"] == 1
     assert counts["chosen_from_genre_count"] == 2
-    assert counts["chosen_from_baseline_count"] == 2
-    assert counts["chosen_from_multiple_sources_count"] == 4
+    assert counts["chosen_from_baseline_only_count"] == 0
+
+    # Membership counts (all overlaps tracked):
+    #   1 → local_only
+    #   2 → local+toward
+    #   3 → toward+genre
+    #   4 → genre_only (baseline membership not counted here)
+    assert counts["local_only"] == 1
+    assert counts["local+toward"] == 1
+    assert counts["toward+genre"] == 1
+    assert counts["genre_only"] == 1
+    assert counts["local+toward+genre"] == 0
+    assert counts["baseline_only"] == 0
