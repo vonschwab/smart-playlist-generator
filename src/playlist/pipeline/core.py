@@ -26,6 +26,10 @@ from src.playlist.pipeline.pier_resolver import (
     dedupe_pool_by_track_key,
     resolve_pier_seeds,
 )
+from src.playlist.pipeline.post_validation import (
+    build_failure_diagnostic,
+    run_post_order_validation,
+)
 from src.playlist.run_audit import (
     parse_infeasible_handling_config,
     parse_run_audit_config,
@@ -437,81 +441,35 @@ def generate_playlist_ds(
                 artist_identity_cfg=artist_identity_cfg,
             )
             if not pb_result.success:
-                # Build diagnostic error message
-                pool_stats = pool.stats or {}
-                failure_reason = str(pb_result.failure_reason or "pier-bridge failed")
-
-                # Detect bottleneck type
-                admitted = pool_stats.get("pool_size", len(pool_indices))
-                rejected_sonic = pool_stats.get("below_sonic_similarity", 0)
-                rejected_genre = pool_stats.get("below_genre_similarity", 0)
-                total_considered = pool_stats.get("total_candidates_considered", 0)
-
-                # Determine if genre gating is the bottleneck
-                diagnostic_msg = failure_reason
-                if admitted == 0 and rejected_genre > 0:
-                    # Genre gating eliminated all candidates
-                    passed_sonic = total_considered - rejected_sonic if total_considered > rejected_sonic else 0
-                    diagnostic_msg = (
-                        f"{failure_reason}\n\n"
-                        f"🔍 Root cause: GENRE ISOLATION\n"
-                        f"   - {passed_sonic} tracks passed sonic similarity\n"
-                        f"   - ALL {rejected_genre} were rejected by genre filter (min_similarity={cfg.genre_gate_min_similarity:.2f})\n"
-                        f"   - Zero candidates remained for playlist generation\n\n"
-                        f"💡 This artist's genres are too isolated from your library.\n"
-                        f"   Suggestions:\n"
-                        f"   - Reduce genre mode from {cfg.mode} to 'narrow' or 'dynamic'\n"
-                        f"   - Add more music in similar genres to your library\n"
-                        f"   - Use genre mode 'discover' to disable hard genre filtering"
-                    )
-                elif admitted == 0 and rejected_sonic > 0:
-                    # Sonic similarity eliminated all candidates
-                    diagnostic_msg = (
-                        f"{failure_reason}\n\n"
-                        f"🔍 Root cause: SONIC ISOLATION\n"
-                        f"   - {rejected_sonic} of {total_considered} tracks rejected by sonic floor\n"
-                        f"   - Zero candidates remained for playlist generation\n\n"
-                        f"💡 This artist's sound is too sonically isolated from your library.\n"
-                        f"   Suggestions:\n"
-                        f"   - Reduce sonic mode from {cfg.mode} to 'narrow' or 'dynamic'\n"
-                        f"   - Add more sonically similar music to your library"
-                    )
-                elif admitted > 0 and admitted < 10:
-                    # Small pool passed filters but not enough for bridging
-                    diagnostic_msg = (
-                        f"{failure_reason}\n\n"
-                        f"🔍 Root cause: INSUFFICIENT CANDIDATE POOL\n"
-                        f"   - Only {admitted} candidates passed all filters\n"
-                        f"   - Rejected: {rejected_sonic} sonic, {rejected_genre} genre\n"
-                        f"   - Need more candidates to bridge between {len(seed_track_ids_for_pier)} seeds\n\n"
-                        f"💡 The candidate pool is too small for multi-seed bridging.\n"
-                        f"   Suggestions:\n"
-                        f"   - Use fewer seeds (1-2 instead of {len(seed_track_ids_for_pier)})\n"
-                        f"   - Reduce filtering: set genre/sonic modes to 'discover'\n"
-                        f"   - Choose seeds that are more sonically/genre similar to each other"
-                    )
-
+                diag = build_failure_diagnostic(
+                    pool.stats or {},
+                    pb_result.failure_reason,
+                    pool_indices_count=len(pool_indices),
+                    seed_track_ids_for_pier_count=len(seed_track_ids_for_pier),
+                    cfg_mode=cfg.mode,
+                    cfg_genre_gate_min_similarity=cfg.genre_gate_min_similarity,
+                )
                 if audit.can_flush():
                     audit.append(
                         "final_failure",
                         {
-                            "failure_reason": failure_reason,
-                            "diagnostic_msg": diagnostic_msg,
+                            "failure_reason": diag.failure_reason,
+                            "diagnostic_msg": diag.diagnostic_msg,
                             "segment_bridge_floors_used": (pb_result.stats or {}).get("segment_bridge_floors_used"),
                             "segment_backoff_attempts_used": (pb_result.stats or {}).get("segment_backoff_attempts_used"),
                             "pool_diagnostics": {
-                                "admitted": admitted,
-                                "rejected_sonic": rejected_sonic,
-                                "rejected_genre": rejected_genre,
-                                "total_considered": total_considered,
+                                "admitted": diag.pool_diagnostics.admitted,
+                                "rejected_sonic": diag.pool_diagnostics.rejected_sonic,
+                                "rejected_genre": diag.pool_diagnostics.rejected_genre,
+                                "total_considered": diag.pool_diagnostics.total_considered,
                             },
                         },
                     )
                     audit.flush()
                     raise ValueError(
-                        f"{diagnostic_msg}\n\n(Detailed audit: {audit.path})"
+                        f"{diag.diagnostic_msg}\n\n(Detailed audit: {audit.path})"
                     )
-                raise ValueError(diagnostic_msg)
+                raise ValueError(diag.diagnostic_msg)
 
             # 6. Log diagnostics
             logger.info(
@@ -570,47 +528,18 @@ def generate_playlist_ds(
 
     ordered_track_ids = [str(bundle.track_ids[i]) for i in playlist.track_indices]
 
-    # Post-order validation only: DS ordering must be final (no post-filtering).
-    expected_len = int(playlist_len)
-    excluded_ids_set = {str(t) for t in (excluded_track_ids or set())}
-    pier_ids_set = {str(t) for t in seed_track_ids_for_pier}
-    recency_overlap_ids = [
-        tid for tid in ordered_track_ids if (tid in excluded_ids_set and tid not in pier_ids_set)
-    ]
-    post_order_validation = {
-        "recency_overlap_count": int(len(recency_overlap_ids)),
-        "final_size": int(len(ordered_track_ids)),
-        "expected_size": int(expected_len),
-    }
+    # Post-order validation: DS ordering must be final (no post-filtering).
+    validation = run_post_order_validation(
+        bundle=bundle,
+        ordered_track_ids=ordered_track_ids,
+        expected_length=int(playlist_len),
+        excluded_track_ids=excluded_track_ids,
+        seed_track_ids_for_pier=seed_track_ids_for_pier,
+    )
+    post_order_validation = validation.summary
 
-    validation_errors: list[str] = []
-    if expected_len > 0 and len(ordered_track_ids) != expected_len:
-        validation_errors.append(f"length_mismatch final={len(ordered_track_ids)} expected={expected_len}")
-
-    if recency_overlap_ids:
-        offenders: list[str] = []
-        for tid in recency_overlap_ids[:10]:
-            idx = bundle.track_id_to_index.get(str(tid))
-            if idx is None:
-                offenders.append(str(tid))
-                continue
-            artist = ""
-            title = ""
-            try:
-                if bundle.track_artists is not None:
-                    artist = str(bundle.track_artists[int(idx)])
-                elif bundle.artist_keys is not None:
-                    artist = str(bundle.artist_keys[int(idx)])
-                if bundle.track_titles is not None:
-                    title = str(bundle.track_titles[int(idx)])
-            except Exception:
-                artist = ""
-                title = ""
-            offenders.append(f"{tid} ({artist} - {title})")
-        validation_errors.append(f"recency_overlap={len(recency_overlap_ids)} offenders={offenders}")
-
-    if validation_errors:
-        msg = "post_order_validation_failed: " + " | ".join(validation_errors)
+    if validation.errors:
+        msg = "post_order_validation_failed: " + " | ".join(validation.errors)
         if audit.can_flush():
             audit.append(
                 "final_failure",
