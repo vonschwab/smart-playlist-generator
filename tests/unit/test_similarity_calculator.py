@@ -633,3 +633,79 @@ class TestContextManager:
             pass
 
         # Should have closed connection gracefully
+
+
+# ===========================================================================================
+# Bulk feature lookup (Tier-1.2)
+# ===========================================================================================
+
+class TestGetTrackFeaturesBulk:
+    """``_get_track_features_bulk`` collapses N seed-feature lookups into one query."""
+
+    def _insert(self, conn, track_id, features_json, blacklisted=0):
+        conn.execute(
+            "INSERT INTO tracks (track_id, sonic_features, is_blacklisted) "
+            "VALUES (?, ?, ?)",
+            (track_id, features_json, blacklisted),
+        )
+
+    @pytest.fixture
+    def db_with_blacklist(self, tmp_path):
+        """temp_db schema lacks is_blacklisted; this fixture adds it."""
+        import json as _json
+        db_path = tmp_path / "bulk.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute("""
+            CREATE TABLE tracks (
+                track_id TEXT PRIMARY KEY,
+                sonic_features TEXT,
+                is_blacklisted INTEGER DEFAULT 0
+            )
+        """)
+        # Two single-segment tracks, one multi-segment, one blacklisted, one bad JSON.
+        self._insert(conn, "t1", _json.dumps({"mfcc_mean": [1.0]}))
+        self._insert(conn, "t2", _json.dumps({"mfcc_mean": [2.0]}))
+        self._insert(conn, "t3", _json.dumps({"average": {"mfcc_mean": [3.0]}}))
+        self._insert(conn, "tBL", _json.dumps({"mfcc_mean": [9.9]}), blacklisted=1)
+        self._insert(conn, "tBAD", "{not valid json")
+        conn.commit()
+        conn.close()
+        return db_path
+
+    def test_bulk_returns_features_for_known_ids(self, db_with_blacklist):
+        calc = SimilarityCalculator(str(db_with_blacklist), config={})
+        out = calc._get_track_features_bulk(["t1", "t2"])
+        assert set(out.keys()) == {"t1", "t2"}
+        assert out["t1"]["mfcc_mean"] == [1.0]
+        assert out["t2"]["mfcc_mean"] == [2.0]
+
+    def test_bulk_unwraps_average_segment(self, db_with_blacklist):
+        """Multi-segment features collapse to the 'average' segment."""
+        calc = SimilarityCalculator(str(db_with_blacklist), config={})
+        out = calc._get_track_features_bulk(["t3"])
+        assert out["t3"]["mfcc_mean"] == [3.0]
+        assert "average" not in out["t3"]
+
+    def test_bulk_skips_blacklisted_missing_and_bad(self, db_with_blacklist):
+        calc = SimilarityCalculator(str(db_with_blacklist), config={})
+        out = calc._get_track_features_bulk(["t1", "tBL", "missing", "tBAD"])
+        assert list(out.keys()) == ["t1"]
+
+    def test_bulk_empty_input_returns_empty_dict(self, db_with_blacklist):
+        calc = SimilarityCalculator(str(db_with_blacklist), config={})
+        assert calc._get_track_features_bulk([]) == {}
+
+    def test_bulk_preserves_input_order(self, db_with_blacklist):
+        """Caller-visible iteration order matches the input list of ids."""
+        calc = SimilarityCalculator(str(db_with_blacklist), config={})
+        out = calc._get_track_features_bulk(["t3", "t1", "t2"])
+        assert list(out.keys()) == ["t3", "t1", "t2"]
+
+    def test_bulk_is_single_query(self, db_with_blacklist):
+        """Sanity check the perf claim: one SELECT regardless of N."""
+        calc = SimilarityCalculator(str(db_with_blacklist), config={})
+        traced: list = []
+        calc.conn.set_trace_callback(lambda sql: traced.append(sql))
+        calc._get_track_features_bulk(["t1", "t2", "t3"])
+        select_count = sum(1 for sql in traced if sql.lstrip().upper().startswith("SELECT"))
+        assert select_count == 1

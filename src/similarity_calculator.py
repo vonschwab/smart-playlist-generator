@@ -648,12 +648,9 @@ class SimilarityCalculator:
         if not track_ids:
             return []
 
-        # Get features for all seed tracks
-        seed_features_list = []
-        for track_id in track_ids:
-            features = self._get_track_features(track_id)
-            if features:
-                seed_features_list.append(features)
+        # Bulk-fetch seed features in a single query rather than calling
+        # _get_track_features (which issues one query per seed).
+        seed_features_list = list(self._get_track_features_bulk(track_ids).values())
 
         if not seed_features_list:
             logger.debug("No features found for any seed tracks")
@@ -728,6 +725,46 @@ class SimilarityCalculator:
                 logger.error(f"Invalid JSON in sonic_features for track {track_id}")
                 return None
         return None
+
+    def _get_track_features_bulk(
+        self, track_ids: List[str]
+    ) -> Dict[str, Dict[str, Any]]:
+        """Bulk version of _get_track_features.
+
+        Fetches sonic features for the given track ids in a single
+        ``WHERE track_id IN (...)`` query and returns ``{track_id: features}``
+        for those with valid JSON. Tracks with NULL sonic_features or bad
+        JSON are silently omitted. Returned dict preserves input order
+        for ids that resolved.
+        """
+        if not track_ids:
+            return {}
+        cursor = self.conn.cursor()
+        placeholders = ",".join("?" for _ in track_ids)
+        cursor.execute(
+            f"""
+            SELECT track_id, sonic_features
+            FROM tracks
+            WHERE track_id IN ({placeholders})
+              AND is_blacklisted = 0
+              AND sonic_features IS NOT NULL
+            """,
+            list(track_ids),
+        )
+        lookup: Dict[str, Dict[str, Any]] = {}
+        for row in cursor.fetchall():
+            try:
+                features = json.loads(row["sonic_features"])
+            except json.JSONDecodeError:
+                logger.error(
+                    f"Invalid JSON in sonic_features for track {row['track_id']}"
+                )
+                continue
+            if isinstance(features, dict) and "average" in features:
+                features = features["average"]
+            lookup[str(row["track_id"])] = features
+        # Re-order by input list so callers get a deterministic sequence.
+        return {tid: lookup[tid] for tid in track_ids if tid in lookup}
 
     def _get_track_segment(self, track_id: str, segment: str) -> Optional[Dict[str, Any]]:
         """

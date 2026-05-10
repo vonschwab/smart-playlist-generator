@@ -198,13 +198,19 @@ class LocalLibraryClient:
             logger.debug(f"No similar tracks found for {rating_key}")
             return []
 
-        # Get full track data for similar tracks
-        similar_tracks = []
-        for track_id, similarity_score in similar_ids:
-            track = self.get_track_by_key(track_id)
-            if track:
-                track['similarity_score'] = similarity_score
-                similar_tracks.append(track)
+        # Batch-fetch full track data instead of N round-trips through
+        # get_track_by_key. Preserves the (track_id → similarity_score)
+        # mapping and the ordering returned by find_similar_tracks.
+        ids = [tid for tid, _ in similar_ids]
+        score_by_id = {tid: score for tid, score in similar_ids}
+        tracks_by_id = {t["rating_key"]: t for t in self.get_tracks_by_ids(ids)}
+        similar_tracks: List[Dict[str, Any]] = []
+        for tid in ids:
+            track = tracks_by_id.get(tid)
+            if track is None:
+                continue
+            track["similarity_score"] = score_by_id[tid]
+            similar_tracks.append(track)
 
         logger.debug(f"Found {len(similar_tracks)} similar tracks for {rating_key}")
         return similar_tracks
@@ -232,12 +238,17 @@ class LocalLibraryClient:
             logger.debug(f"No sonic-only similar tracks found for {rating_key}")
             return []
 
-        similar_tracks = []
-        for track_id, similarity_score in similar_ids:
-            track = self.get_track_by_key(track_id)
-            if track:
-                track['similarity_score'] = similarity_score
-                similar_tracks.append(track)
+        # Batch-fetch instead of N round-trips through get_track_by_key.
+        ids = [tid for tid, _ in similar_ids]
+        score_by_id = {tid: score for tid, score in similar_ids}
+        tracks_by_id = {t["rating_key"]: t for t in self.get_tracks_by_ids(ids)}
+        similar_tracks: List[Dict[str, Any]] = []
+        for tid in ids:
+            track = tracks_by_id.get(tid)
+            if track is None:
+                continue
+            track["similarity_score"] = score_by_id[tid]
+            similar_tracks.append(track)
 
         logger.debug(f"Found {len(similar_tracks)} sonic-only similar tracks for {rating_key}")
         return similar_tracks
