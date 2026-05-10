@@ -22,6 +22,10 @@ from src.playlist.pier_bridge_builder import (
 from src.playlist.artist_identity_resolver import ArtistIdentityConfig
 from src.playlist.pipeline.bundle_restrict import restrict_bundle
 from src.playlist.pipeline.embedding_setup import setup_embedding
+from src.playlist.pipeline.pier_resolver import (
+    dedupe_pool_by_track_key,
+    resolve_pier_seeds,
+)
 from src.playlist.run_audit import (
     RunAuditContext,
     RunAuditEvent,
@@ -271,104 +275,16 @@ def generate_playlist_ds(
     if True:  # Always use pier-bridge
         # ─── PIER BRIDGE PATH: No construct_playlist, no repair ───
         logger.info("ENTERING PIER-BRIDGE PATH with %d anchor seeds", len(anchor_seed_ids))
-        from src.title_dedupe import calculate_version_preference_score
-        from src.playlist.identity_keys import identity_keys_for_index
 
-        # 1. Resolve seed IDs to indices
-        pier_seed_indices: list[int] = []
-        not_found = []
-        for sid in anchor_seed_ids:
-            idx = bundle.track_id_to_index.get(str(sid))
-            if idx is not None:
-                pier_seed_indices.append(idx)
-            else:
-                not_found.append(sid)
-        if not_found:
-            logger.warning(
-                "Pier seeds NOT FOUND in bundle (%d/%d): %s",
-                len(not_found),
-                len(anchor_seed_ids),
-                not_found[:3],
-            )
-        else:
-            logger.info("All %d pier seeds found in bundle", len(anchor_seed_ids))
-
-        # 2. Deduplicate seeds by (artist, title) track key (keep first occurrence)
-        pier_seed_indices = list(dict.fromkeys(pier_seed_indices))
-        if bundle.track_titles is not None:
-            seen_track_keys: set[tuple[str, str]] = set()
-            dedupe_indices: list[int] = []
-            for idx in pier_seed_indices:
-                track_key = identity_keys_for_index(bundle, idx).track_key
-                if track_key not in seen_track_keys:
-                    seen_track_keys.add(track_key)
-                    dedupe_indices.append(idx)
-                else:
-                    title = bundle.track_titles[idx] or ""
-                    artist = bundle.track_artists[idx] if bundle.track_artists is not None else ""
-                    logger.debug("Removing duplicate pier seed: %s - %s", artist, title)
-            pier_seed_indices = dedupe_indices
-
-        # Ensure primary seed is included
-        if seed_idx not in pier_seed_indices:
-            should_insert = True
-            if bundle.track_titles is not None:
-                seed_track_key = identity_keys_for_index(bundle, seed_idx).track_key
-                for idx in pier_seed_indices:
-                    if identity_keys_for_index(bundle, idx).track_key == seed_track_key:
-                        should_insert = False
-                        break
-            if should_insert:
-                pier_seed_indices.insert(0, seed_idx)
-
-        seed_labels = []
-        for idx in pier_seed_indices:
-            tid = bundle.track_ids[idx]
-            title = bundle.track_titles[idx] if bundle.track_titles is not None else ""
-            seed_labels.append(f"{tid}:{title}")
-        logger.info("Pier seeds (%d): %s", len(pier_seed_indices), seed_labels)
+        pier_seed_indices, seed_track_ids_for_pier = resolve_pier_seeds(
+            bundle, seed_idx, anchor_seed_ids,
+        )
 
         # Pier-bridge handles any number of seeds (including 1 seed as arc structure)
         if True:
-            # 3. Deduplicate candidate pool by (artist, title), keeping canonical version
+            # Deduplicate candidate pool by (artist, title), keeping canonical version.
             pool_indices = list(getattr(pool, "eligible_indices", pool.pool_indices))
-            if bundle.track_titles is not None:
-                # Group by (artist_key, normalized_title)
-                key_to_indices: Dict[tuple, list[int]] = {}
-                for idx in pool_indices:
-                    key = identity_keys_for_index(bundle, int(idx)).track_key
-                    if key not in key_to_indices:
-                        key_to_indices[key] = []
-                    key_to_indices[key].append(idx)
-
-                # Select canonical version for each group
-                deduped_pool_indices: list[int] = []
-                for key, indices in key_to_indices.items():
-                    if len(indices) == 1:
-                        deduped_pool_indices.append(indices[0])
-                    else:
-                        # Score each candidate for version preference
-                        best_idx = indices[0]
-                        best_score = -1
-                        for idx in indices:
-                            title = str(bundle.track_titles[idx]) if bundle.track_titles is not None else ""
-                            score = calculate_version_preference_score(title)
-                            if score > best_score:
-                                best_score = score
-                                best_idx = idx
-                        deduped_pool_indices.append(best_idx)
-                        logger.debug(
-                            "Pool dedupe: kept idx=%d for key=%s (from %d versions)",
-                            best_idx, key, len(indices)
-                        )
-                logger.info(
-                    "Pier bridge candidate pool deduped: %d → %d tracks",
-                    len(pool_indices), len(deduped_pool_indices)
-                )
-                pool_indices = deduped_pool_indices
-
-            # 4. Convert seed track IDs for pier bridge builder
-            seed_track_ids_for_pier = [str(bundle.track_ids[idx]) for idx in pier_seed_indices]
+            pool_indices = dedupe_pool_by_track_key(bundle, pool_indices)
 
             if audit_events is not None and audit_context is None:
                 ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
