@@ -36,16 +36,12 @@ from src.playlist.artist_identity_resolver import (
     ArtistIdentityConfig,
     resolve_artist_identity_keys,
 )
-from src.playlist.config import resolve_pier_bridge_tuning as _resolve_pier_bridge_tuning_cfg
 from src.playlist.run_audit import InfeasibleHandlingConfig, RunAuditConfig, RunAuditEvent, now_utc_iso
 
 # Phase 3 extracted modules
 from src.playlist.segment_pool_builder import (
     SegmentCandidatePoolBuilder,
     SegmentPoolConfig,
-)
-from src.playlist.pier_bridge_diagnostics import (
-    SegmentDiagnostics as _SegmentDiagnosticsExtracted,
 )
 
 # Tier-3.1 PR-1: 14 pure genre helpers extracted to pier_bridge/genre.py.
@@ -88,243 +84,19 @@ from src.playlist.pier_bridge.metrics import (  # noqa: F401
     _step_fraction,
 )
 
-
-def _compute_genre_idf(X_genre_raw: np.ndarray, cfg: "PierBridgeConfig") -> np.ndarray:
-    """Backward-compat wrapper — unpacks PierBridgeConfig to primitives."""
-    return _compute_genre_idf_impl(
-        X_genre_raw,
-        idf_power=float(cfg.dj_genre_idf_power),
-        idf_norm=str(cfg.dj_genre_idf_norm),
-    )
-
-
-def _compute_transition_score(
-    idx_a: int,
-    idx_b: int,
-    X_full: np.ndarray,
-    X_start: Optional[np.ndarray],
-    X_mid: Optional[np.ndarray],
-    X_end: Optional[np.ndarray],
-    cfg: "PierBridgeConfig",
-) -> float:
-    """Backward-compat wrapper — unpacks PierBridgeConfig to primitives."""
-    return _compute_transition_score_impl(
-        idx_a, idx_b, X_full, X_start, X_mid, X_end,
-        center_transitions=bool(cfg.center_transitions),
-        weight_end_start=float(cfg.weight_end_start),
-        weight_mid_mid=float(cfg.weight_mid_mid),
-        weight_full_full=float(cfg.weight_full_full),
-    )
-
-
-def _compute_transition_score_raw_and_transformed(
-    idx_a: int,
-    idx_b: int,
-    X_full: np.ndarray,
-    X_start: Optional[np.ndarray],
-    X_mid: Optional[np.ndarray],
-    X_end: Optional[np.ndarray],
-    cfg: "PierBridgeConfig",
-) -> tuple[float, float]:
-    """Backward-compat wrapper — unpacks PierBridgeConfig to primitives."""
-    return _compute_transition_score_raw_and_transformed_impl(
-        idx_a, idx_b, X_full, X_start, X_mid, X_end,
-        center_transitions=bool(cfg.center_transitions),
-        weight_end_start=float(cfg.weight_end_start),
-        weight_mid_mid=float(cfg.weight_mid_mid),
-        weight_full_full=float(cfg.weight_full_full),
-    )
+# Tier-3.1 PR-3: config dataclasses + resolver + back-compat wrappers.
+from src.playlist.pier_bridge.config import (  # noqa: F401  (re-exported for callers + tests)
+    PierBridgeConfig,
+    PierBridgeResult,
+    SegmentDiagnostics,
+    resolve_pier_bridge_tuning,
+    _compute_genre_idf,
+    _compute_transition_score,
+    _compute_transition_score_raw_and_transformed,
+)
 
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class PierBridgeConfig:
-    """Configuration for pier + bridge playlist builder."""
-    # NOTE: Defaults represent the recommended "dynamic" mode behavior. Narrow
-    # mode defaults are resolved by the DS pipeline config layer.
-    transition_floor: float = 0.35
-    bridge_floor: float = 0.03  # min(simA, simB) for bridge candidates
-    center_transitions: bool = False  # if True, mean-center transition mats and rescale sims to [0,1]
-    transition_weights: Optional[tuple[float, float, float]] = None  # (rhythm, timbre, harmony)
-    sonic_variant: Optional[str] = None  # sonic sim space for bridge gating/endpoint sims
-    initial_neighbors_m: int = 100
-    initial_bridge_helpers: int = 50
-    max_neighbors_m: int = 400
-    max_bridge_helpers: int = 200
-    initial_beam_width: int = 20
-    max_beam_width: int = 100
-    max_expansion_attempts: int = 4
-    eta_destination_pull: float = 0.10
-    # Transition scoring weights
-    weight_end_start: float = 0.70
-    weight_mid_mid: float = 0.15
-    weight_full_full: float = 0.15
-    # Bridge scoring weights
-    weight_bridge: float = 0.6
-    weight_transition: float = 0.4
-    genre_tiebreak_weight: float = 0.05
-    # Soft genre penalty (does not gate candidates): if edge_genre < threshold,
-    # multiply the edge score by (1 - strength).
-    genre_penalty_threshold: float = 0.20
-    genre_penalty_strength: float = 0.10
-    # Medium-firm duration penalty: asymmetric penalty for candidates longer than pier reference
-    # (does not gate candidates, but significantly reduces score for long tracks)
-    duration_penalty_enabled: bool = True
-    duration_penalty_weight: float = 0.30
-    # Segment candidate pool strategy:
-    # - "segment_scored": score candidates jointly vs (pierA,pierB) and take top-K
-    # - "legacy": neighbors(A) ∪ neighbors(B) ∪ helpers (debug/compat only)
-    segment_pool_strategy: str = "segment_scored"
-    segment_pool_max: int = 400
-    max_segment_pool_max: int = 1200
-    # Progress model (A→B) to avoid "teleporting" / bouncing.
-    progress_enabled: bool = True
-    progress_monotonic_epsilon: float = 0.05
-    progress_penalty_weight: float = 0.15
-    # Interior artist policies (configured/wired by pipeline for legacy --artist runs).
-    disallow_pier_artists_in_interiors: bool = False
-    disallow_seed_artist_in_interiors: bool = False
-    # Experiment-only bridge scoring (dry-run/audit only; production disabled).
-    experiment_bridge_scoring_enabled: bool = False
-    experiment_bridge_min_weight: float = 0.25
-    experiment_bridge_balance_weight: float = 0.15
-    # Progress arc scoring (feature-flagged; default disabled).
-    progress_arc_enabled: bool = False
-    progress_arc_weight: float = 0.25
-    progress_arc_shape: str = "linear"
-    progress_arc_tolerance: float = 0.0
-    progress_arc_loss: str = "abs"
-    progress_arc_huber_delta: float = 0.10
-    progress_arc_max_step: Optional[float] = None
-    progress_arc_max_step_mode: str = "penalty"
-    progress_arc_max_step_penalty: float = 0.25
-    progress_arc_autoscale_enabled: bool = False
-    progress_arc_autoscale_min_distance: float = 0.05
-    progress_arc_autoscale_distance_scale: float = 0.50
-    progress_arc_autoscale_per_step_scale: bool = False
-    # Optional genre tie-break band for penalty application (default off).
-    genre_tie_break_band: Optional[float] = None
-    # DJ-style genre bridging (opt-in; default disabled).
-    dj_bridging_enabled: bool = False
-    dj_seed_ordering: str = "auto"  # auto | fixed
-    dj_anchors_must_include_all: bool = True
-    dj_route_shape: str = "linear"  # linear | arc | ladder (MVP uses linear)
-    dj_waypoint_weight: float = 0.15
-    dj_waypoint_floor: float = 0.20
-    dj_waypoint_penalty: float = 0.10
-    dj_waypoint_tie_break_band: Optional[float] = None
-    dj_waypoint_cap: float = 0.05
-    dj_seed_ordering_weight_sonic: float = 0.60
-    dj_seed_ordering_weight_genre: float = 0.20
-    dj_seed_ordering_weight_bridge: float = 0.20
-    dj_pooling_strategy: str = "baseline"  # baseline | dj_union
-    dj_pooling_k_local: int = 200
-    dj_pooling_k_toward: int = 80
-    dj_pooling_k_genre: int = 80
-    dj_pooling_k_union_max: int = 900
-    dj_pooling_step_stride: int = 1
-    dj_pooling_cache_enabled: bool = True
-    dj_pooling_debug_compare_baseline: bool = False
-    dj_allow_detours_when_far: bool = True
-    dj_far_threshold_sonic: float = 0.45
-    dj_far_threshold_genre: float = 0.60
-    dj_far_threshold_connector_scarcity: float = 0.10
-    dj_connector_bias_enabled: bool = True
-    dj_connector_max_per_segment_linear: int = 1
-    dj_connector_max_per_segment_adventurous: int = 3
-    dj_ladder_top_labels: int = 5
-    dj_ladder_min_label_weight: float = 0.05
-    dj_ladder_min_similarity: float = 0.20
-    dj_ladder_max_steps: int = 6
-    dj_ladder_use_smoothed_waypoint_vectors: bool = False
-    dj_ladder_smooth_top_k: int = 10
-    dj_ladder_smooth_min_sim: float = 0.20
-    dj_waypoint_fallback_k: int = 25
-    # Genre vector mode + IDF + Coverage (Phase 2)
-    # Default flipped from legacy "onehot" to recommended "vector" (Tier-3.4).
-    # The legacy "onehot" code path is preserved for anyone who explicitly sets it.
-    dj_ladder_target_mode: str = "vector"  # "onehot" (legacy) | "vector"
-    dj_genre_vector_source: str = "smoothed"  # "smoothed" | "raw"
-    dj_genre_use_idf: bool = False
-    dj_genre_idf_power: float = 1.0
-    dj_genre_idf_norm: str = "max1"  # "max1" | "sum1" | "none"
-    dj_genre_use_coverage: bool = False
-    dj_genre_coverage_top_k: int = 8
-    dj_genre_coverage_weight: float = 0.15
-    dj_genre_coverage_power: float = 2.0
-    dj_genre_presence_threshold: float = 0.01
-    dj_micro_piers_enabled: bool = False
-    dj_micro_piers_max: int = 1
-    dj_micro_piers_topk: int = 5
-    dj_micro_piers_candidate_source: str = "union_pool"
-    dj_micro_piers_selection_metric: str = "max_min_sim"
-    dj_relaxation_enabled: bool = False
-    dj_relaxation_max_attempts: int = 4
-    dj_relaxation_emit_warnings: bool = True
-    dj_relaxation_allow_floor_relaxation: bool = False
-    # DJ Bridging Diagnostics (opt-in, no behavior change)
-    dj_diagnostics_waypoint_rank_impact_enabled: bool = False
-    dj_diagnostics_waypoint_rank_sample_steps: int = 3
-    dj_diagnostics_pool_verbose: bool = False  # Phase 3 fix: Verbose pool breakdown logging
-    dj_genre_pool_transition_blend: float = 0.0  # Task D: Blend weight for genre pool (0.0-1.0)
-    # Phase 3: Waypoint delta mode + squashing
-    # Defaults flipped from legacy to Phase 3 recommended values (Tier-3.4).
-    # Legacy values ("absolute", "none", "same") are still accepted if explicitly set.
-    dj_waypoint_delta_mode: str = "centered"  # "absolute" (legacy) | "centered" (Phase 3)
-    dj_waypoint_centered_baseline: str = "median"  # "median" | "mean" (for centered mode)
-    dj_waypoint_squash: str = "tanh"  # "none" (hard cap, legacy) | "tanh" (smooth squashing)
-    dj_waypoint_squash_alpha: float = 4.0  # Alpha for tanh squashing
-    # Phase 3: Coverage enhancements
-    dj_coverage_presence_source: str = "raw"  # "same" (legacy) | "raw" (Phase 3 recommended)
-    dj_coverage_mode: str = "binary"  # "binary" (0/1 count) | "weighted" (mean weights)
-
-
-# Backward compatibility: SegmentDiagnostics now imported from extracted module
-# Kept here as alias for existing code
-SegmentDiagnostics = _SegmentDiagnosticsExtracted
-
-
-@dataclass
-class PierBridgeResult:
-    """Result of pier + bridge playlist construction."""
-    track_ids: List[str]
-    track_indices: List[int]
-    seed_positions: List[int]  # positions of seeds in final playlist
-    segment_diagnostics: List[SegmentDiagnostics]
-    stats: Dict[str, Any]
-    success: bool = True
-    failure_reason: Optional[str] = None
-    bridge_debug: list = field(default_factory=list)
-
-
-def resolve_pier_bridge_tuning(
-    overrides: Optional[dict],
-    mode: str,
-) -> dict:
-    """Backward-compatible wrapper around the canonical resolver in `src.playlist.config`."""
-    similarity_floor = 0.0
-    if isinstance(overrides, dict):
-        cand = overrides.get("candidate_pool", {}) or {}
-        if isinstance(cand, dict) and isinstance(cand.get("similarity_floor"), (int, float)):
-            similarity_floor = float(cand.get("similarity_floor"))
-
-    tuning, _ = _resolve_pier_bridge_tuning_cfg(
-        mode=str(mode).strip().lower(),  # type: ignore[arg-type]
-        similarity_floor=float(similarity_floor),
-        overrides=overrides if isinstance(overrides, dict) else None,
-    )
-    return {
-        "transition_floor": float(tuning.transition_floor),
-        "bridge_floor": float(tuning.bridge_floor),
-        "weight_bridge": float(tuning.weight_bridge),
-        "weight_transition": float(tuning.weight_transition),
-        "genre_tiebreak_weight": float(tuning.genre_tiebreak_weight),
-        "genre_penalty_threshold": float(tuning.genre_penalty_threshold),
-        "genre_penalty_strength": float(tuning.genre_penalty_strength),
-    }
-
 
 
 def _summarize_candidates_for_audit(
@@ -4563,95 +4335,3 @@ def build_pier_bridge_playlist(
         stats=stats,
     )
 
-
-def generate_pier_bridge_playlist(
-    *,
-    artifact_path: str,
-    seed_track_ids: List[str],
-    total_tracks: int,
-    mode: str = "dynamic",
-    random_seed: int = 0,
-    min_genre_similarity: Optional[float] = None,
-    genre_method: str = "ensemble",
-    transition_floor: Optional[float] = None,
-) -> PierBridgeResult:
-    """
-    High-level entry point for pier+bridge playlist generation.
-
-    Loads artifacts, builds candidate pool, and runs pier+bridge construction.
-    """
-    from src.features.artifacts import load_artifact_bundle
-    from src.playlist.config import default_ds_config
-    from src.playlist.candidate_pool import build_candidate_pool
-    from src.similarity.hybrid import build_hybrid_embedding
-    from src.similarity.sonic_variant import compute_sonic_variant_matrix, resolve_sonic_variant
-
-    bundle = load_artifact_bundle(artifact_path)
-
-    # Validate seeds
-    valid_seed_ids = []
-    for tid in seed_track_ids:
-        if str(tid) in bundle.track_id_to_index:
-            valid_seed_ids.append(str(tid))
-        else:
-            logger.warning("Seed track not found, skipping: %s", tid)
-
-    if not valid_seed_ids:
-        raise ValueError("No valid seed tracks found in artifact bundle")
-
-    seed_idx = bundle.track_id_to_index[valid_seed_ids[0]]
-
-    # Build config
-    cfg = default_ds_config(mode, playlist_len=total_tracks)
-
-    # Build embedding
-    resolved_variant = resolve_sonic_variant()
-    X_sonic_for_embed, _ = compute_sonic_variant_matrix(bundle.X_sonic, resolved_variant, l2=False)
-
-    embedding_model = build_hybrid_embedding(
-        X_sonic_for_embed,
-        bundle.X_genre_smoothed,
-        n_components_sonic=32,
-        n_components_genre=32,
-        w_sonic=0.6,
-        w_genre=0.4,
-        random_seed=random_seed,
-    )
-
-    # Build candidate pool (for genre gating)
-    pool = build_candidate_pool(
-        seed_idx=seed_idx,
-        seed_indices=[seed_idx],
-        embedding=embedding_model.embedding,
-        artist_keys=bundle.artist_keys,
-        track_ids=bundle.track_ids,
-        track_titles=bundle.track_titles,
-        track_artists=bundle.track_artists,
-        durations_ms=bundle.durations_ms,
-        cfg=cfg.candidate,
-        random_seed=random_seed,
-        X_sonic=X_sonic_for_embed,
-        X_genre_raw=bundle.X_genre_raw if min_genre_similarity else None,
-        X_genre_smoothed=bundle.X_genre_smoothed if min_genre_similarity else None,
-        min_genre_similarity=min_genre_similarity,
-        genre_method=genre_method,
-        mode=mode,
-    )
-
-    # Build pier config
-    pier_cfg = PierBridgeConfig()
-    if transition_floor is not None:
-        pier_cfg = PierBridgeConfig(transition_floor=transition_floor)
-    else:
-        pier_cfg = PierBridgeConfig(transition_floor=cfg.construct.transition_floor)
-
-    return build_pier_bridge_playlist(
-        seed_track_ids=valid_seed_ids,
-        total_tracks=total_tracks,
-        bundle=bundle,
-        candidate_pool_indices=list(pool.pool_indices),
-        cfg=pier_cfg,
-        min_genre_similarity=min_genre_similarity,
-        X_genre_smoothed=bundle.X_genre_smoothed,
-        genre_method=genre_method,
-    )
