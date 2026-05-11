@@ -32,7 +32,7 @@
   "dj_ladder_min_similarity": 0.18,
   "dj_ladder_smooth_min_sim": 0.2,
   "dj_ladder_smooth_top_k": 10,
-  "dj_ladder_target_mode": "onehot",
+  "dj_ladder_target_mode": "vector",
   "dj_ladder_top_labels": 6,
   "dj_ladder_use_smoothed_waypoint_vectors": false,
   "dj_micro_piers_candidate_source": "union_pool",

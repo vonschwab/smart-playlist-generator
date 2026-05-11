@@ -101,6 +101,10 @@ def test_ladder_diagnostics_emitted_and_plumbed():
         dj_ladder_top_labels=1,
         dj_ladder_min_label_weight=0.0,
         dj_ladder_max_steps=3,
+        # Exercises the legacy "onehot" shortest-path ladder. Tier-3.4 flipped
+        # the default to "vector"; this test still covers the legacy path so
+        # we set it explicitly.
+        dj_ladder_target_mode="onehot",
     )
 
     g_targets = _build_genre_targets(

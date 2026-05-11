@@ -159,7 +159,9 @@ class PierBridgeConfig:
     dj_ladder_smooth_min_sim: float = 0.20
     dj_waypoint_fallback_k: int = 25
     # Genre vector mode + IDF + Coverage (Phase 2)
-    dj_ladder_target_mode: str = "onehot"  # "onehot" | "vector"
+    # Default flipped from legacy "onehot" to recommended "vector" (Tier-3.4).
+    # The legacy "onehot" code path is preserved for anyone who explicitly sets it.
+    dj_ladder_target_mode: str = "vector"  # "onehot" (legacy) | "vector"
     dj_genre_vector_source: str = "smoothed"  # "smoothed" | "raw"
     dj_genre_use_idf: bool = False
     dj_genre_idf_power: float = 1.0
@@ -184,12 +186,14 @@ class PierBridgeConfig:
     dj_diagnostics_pool_verbose: bool = False  # Phase 3 fix: Verbose pool breakdown logging
     dj_genre_pool_transition_blend: float = 0.0  # Task D: Blend weight for genre pool (0.0-1.0)
     # Phase 3: Waypoint delta mode + squashing
-    dj_waypoint_delta_mode: str = "absolute"  # "absolute" (legacy) | "centered" (Phase 3)
+    # Defaults flipped from legacy to Phase 3 recommended values (Tier-3.4).
+    # Legacy values ("absolute", "none", "same") are still accepted if explicitly set.
+    dj_waypoint_delta_mode: str = "centered"  # "absolute" (legacy) | "centered" (Phase 3)
     dj_waypoint_centered_baseline: str = "median"  # "median" | "mean" (for centered mode)
-    dj_waypoint_squash: str = "none"  # "none" (hard cap) | "tanh" (smooth squashing)
+    dj_waypoint_squash: str = "tanh"  # "none" (hard cap, legacy) | "tanh" (smooth squashing)
     dj_waypoint_squash_alpha: float = 4.0  # Alpha for tanh squashing
     # Phase 3: Coverage enhancements
-    dj_coverage_presence_source: str = "same"  # "same" (use scoring matrix) | "raw" (use raw genres)
+    dj_coverage_presence_source: str = "raw"  # "same" (legacy) | "raw" (Phase 3 recommended)
     dj_coverage_mode: str = "binary"  # "binary" (0/1 count) | "weighted" (mean weights)
 
 
