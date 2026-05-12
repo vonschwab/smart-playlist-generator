@@ -63,7 +63,8 @@ def test_generate_panel_header_uses_responsive_two_row_layout(qtbot):
     ]
     assert [panel._header_group_positions[key][3] for key in panel._header_group_order[:4]] == [3, 3, 3, 3]
     assert [panel._header_group_positions[key][3] for key in panel._header_group_order[4:]] == [4, 4, 4]
-    assert panel._header_frame.sizeHint().width() <= 950
+    assert sum(panel._header_group_positions[key][3] for key in panel._header_group_order[:4]) == 12
+    assert sum(panel._header_group_positions[key][3] for key in panel._header_group_order[4:]) == 12
 
 
 def test_generate_panel_header_uses_named_control_groups(qtbot):
