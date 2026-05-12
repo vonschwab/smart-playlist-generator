@@ -1,5 +1,3 @@
-import pytest
-
 from src.playlist.pier_bridge_builder import (
     _compute_chosen_source_counts,
     _compute_pool_overlap_metrics,

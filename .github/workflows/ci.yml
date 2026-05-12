@@ -53,6 +53,13 @@ jobs:
           python-version: "3.11"
           cache: pip
 
+      - name: Install Qt runtime libraries
+        # PySide6 imports QtGui during pytest-qt startup; Ubuntu runners do
+        # not always include the EGL runtime library required by Qt wheels.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1
+
       - name: Install package + dev/gui extras
         # GUI tests need PySide6 (the [gui] extra); pytest-qt + pytest-cov
         # come from [dev].
