@@ -214,9 +214,9 @@ def test_flat_key_logs_deprecation_warning(mock_logger):
     assert call_args[1] == "dj_union"
 
 
-def test_active_config_uses_nested_pooling_strategy_only():
-    """The checked-in runtime config should not emit the deprecated flat-key warning."""
-    config_path = Path(__file__).resolve().parents[2] / "config.yaml"
+def test_example_config_uses_nested_pooling_strategy_only():
+    """The checked-in example config should not emit the deprecated flat-key warning."""
+    config_path = Path(__file__).resolve().parents[2] / "config.example.yaml"
     with config_path.open("r", encoding="utf-8") as handle:
         config = yaml.safe_load(handle)
 
@@ -228,4 +228,4 @@ def test_active_config_uses_nested_pooling_strategy_only():
     )
 
     assert "dj_pooling_strategy" not in dj_bridging
-    assert dj_bridging.get("pooling", {}).get("strategy") == "dj_union"
+    assert dj_bridging.get("pooling", {}).get("strategy") == "baseline"
