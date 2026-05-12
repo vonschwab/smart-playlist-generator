@@ -1,5 +1,6 @@
 from PySide6.QtCore import QObject, Signal
 
+from src.playlist.request_models import LibraryPipelineRequest
 from src.playlist_gui.jobs.job_manager import JobManager
 from src.playlist_gui.jobs.job_model import Job, JobStatus, JobTableModel
 from src.playlist_gui.jobs.job_types import JobType
@@ -18,6 +19,7 @@ class FakeWorkerClient(QObject):
     def __init__(self):
         super().__init__()
         self.cancel_request_id = None
+        self.analyze_calls = []
 
     def is_busy(self):
         return False
@@ -38,6 +40,7 @@ class FakeWorkerClient(QObject):
         return "req-art"
 
     def analyze_library(self, *args, **kwargs):
+        self.analyze_calls.append((args, kwargs))
         return "req-analyze"
 
     def cancel(self, request_id=None):
@@ -109,6 +112,32 @@ def test_jobs_panel_disables_run_all_when_queue_active(qtbot):
     assert panel._run_all_btn.isEnabled() is False
     assert "Active: Analyze Library" in panel._status_label.text()
     assert "Pending: 0" in panel._status_label.text()
+
+
+def test_enqueue_pipeline_dispatches_custom_request_options_when_idle():
+    fake = FakeWorkerClient()
+    mgr = JobManager(fake)
+
+    request = LibraryPipelineRequest(
+        "config.yaml",
+        {"library": {"database_path": "metadata.db"}},
+        stages=["sonic", "artifacts"],
+        force=True,
+        dry_run=True,
+    )
+
+    job = mgr.enqueue_pipeline("config.yaml", request.overrides, request=request)[0]
+
+    assert job.request_options == {
+        "stages": ["sonic", "artifacts"],
+        "force": True,
+        "dry_run": True,
+    }
+    assert fake.analyze_calls
+    dispatched_request = fake.analyze_calls[0][1]["request"]
+    assert dispatched_request.stages == ["sonic", "artifacts"]
+    assert dispatched_request.force is True
+    assert dispatched_request.dry_run is True
 
 
 def test_jobs_panel_uses_analyze_library_language(qtbot):

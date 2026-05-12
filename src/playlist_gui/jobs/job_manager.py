@@ -59,7 +59,13 @@ class JobManager(QObject):
     def active_job(self) -> Optional[Job]:
         return self._find_job(self._active_job_id)
 
-    def enqueue_job(self, job_type: JobType, base_config_path: str, overrides: Optional[Dict] = None) -> Job:
+    def enqueue_job(
+        self,
+        job_type: JobType,
+        base_config_path: str,
+        overrides: Optional[Dict] = None,
+        request_options: Optional[Dict] = None,
+    ) -> Job:
         normalized_job_type = job_type if isinstance(job_type, JobType) else JobType(str(job_type))
         request = LibraryOperationRequest(normalized_job_type, base_config_path, dict(overrides or {}))
         job = Job(
@@ -69,6 +75,7 @@ class JobManager(QObject):
             base_config_path=request.config_path,
         )
         job.overrides = dict(request.overrides)
+        job.request_options = dict(request_options or {})
 
         self._jobs.append(job)
         self.job_added.emit(job)
@@ -91,12 +98,12 @@ class JobManager(QObject):
                 operation.operation,
                 operation.config_path,
                 operation.overrides,
+                request_options={
+                    "stages": list(pipeline_request.stages),
+                    "force": bool(pipeline_request.force),
+                    "dry_run": bool(pipeline_request.dry_run),
+                },
             )
-            job.request_options = {
-                "stages": list(pipeline_request.stages),
-                "force": bool(pipeline_request.force),
-                "dry_run": bool(pipeline_request.dry_run),
-            }
             created.append(job)
         return created
 
