@@ -278,6 +278,10 @@ class ArtistModePanel(QWidget):
         """Set artist text programmatically."""
         self._artist_edit.setText(artist)
 
+    def set_primary_artist(self, artist: str) -> None:
+        """Set primary artist text programmatically."""
+        self.set_artist(artist)
+
     def clear(self) -> None:
         """Clear all inputs."""
         self._artist_edit.clear()

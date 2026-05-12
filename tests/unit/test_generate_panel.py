@@ -29,6 +29,17 @@ def test_generate_panel_builds_genre_state(qtbot):
     assert state.genre_query == "ambient"
 
 
+def test_generate_panel_restores_saved_artist_state(qtbot):
+    panel = GeneratePanel()
+    qtbot.addWidget(panel)
+
+    panel.apply_saved_state(mode="artist", artist="Slowdive")
+
+    assert panel.get_current_mode() == "artist"
+    assert panel.get_primary_artist() == "Slowdive"
+    assert panel.build_ui_state().artist_queries == ["Slowdive"]
+
+
 def test_generate_panel_header_can_expand_to_container(qtbot):
     panel = GeneratePanel()
     qtbot.addWidget(panel)
