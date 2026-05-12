@@ -40,7 +40,7 @@ class BlacklistWindow(QDialog):
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
         header = QLabel("Blacklisted tracks (removed from all playlists)")
-        header.setStyleSheet("font-weight: bold;")
+        header.setObjectName("dialogHeaderLabel")
         layout.addWidget(header)
 
         layout.addWidget(self._track_table)

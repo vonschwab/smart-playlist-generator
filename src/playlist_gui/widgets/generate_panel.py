@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QMenu,
@@ -33,11 +34,14 @@ from PySide6.QtWidgets import (
 from ..autocomplete import DatabaseCompleter
 from ..ui_state import UIStateModel
 from .mode_sliders import ModeSliders
-from .mode_panels import ArtistModePanel, SeedsModePanel
+from .mode_panels import ArtistModePanel, GenreModePanel, HistoryModePanel, SeedsModePanel
 from .seed_chips import SeedChip
 
 
-ModeType = Literal["artist", "seeds"]
+ModeType = Literal["artist", "genre", "seeds", "history"]
+
+CONTROL_GROUP_HEIGHT = 56
+HEADER_BREAKPOINT_WIDTH = 1500
 
 
 class GeneratePanel(QWidget):
@@ -76,14 +80,29 @@ class GeneratePanel(QWidget):
         layout.setSpacing(8)
 
         # ─────────────────────────────────────────────────────────────────────
-        # Header toolbar - compact single row with all global controls + actions
+        # Header toolbar - two compact rows so controls fit without spreading apart
         # ─────────────────────────────────────────────────────────────────────
-        header_frame = QFrame()
+        self._header_frame = QFrame()
+        header_frame = self._header_frame
         header_frame.setObjectName("headerFrame")
-        header_frame.setFixedHeight(72)
-        header_layout = QHBoxLayout(header_frame)
+        header_frame.setMinimumHeight(72)
+        header_layout = QGridLayout(header_frame)
+        self._header_layout = header_layout
         header_layout.setContentsMargins(8, 6, 8, 6)
-        header_layout.setSpacing(10)
+        header_layout.setHorizontalSpacing(8)
+        header_layout.setVerticalSpacing(8)
+        self._control_groups: dict[str, QFrame] = {}
+        self._header_group_order = [
+            "mode",
+            "matching",
+            "length",
+            "freshness",
+            "spacing",
+            "diversity",
+            "actions",
+        ]
+        self._header_group_positions: dict[str, tuple[int, int, int, int]] = {}
+        self._header_row_count = 1
 
         # Mode selector (dropdown)
         mode_container = QWidget()
@@ -91,39 +110,28 @@ class GeneratePanel(QWidget):
         mode_layout.setContentsMargins(0, 0, 0, 0)
         mode_layout.setSpacing(6)
 
-        mode_label = QLabel("Mode:")
-        mode_label.setObjectName("controlLabel")
-        mode_layout.addWidget(mode_label)
-
         self._mode_combo = QComboBox()
         self._mode_combo.addItem("Artist", "artist")
+        self._mode_combo.addItem("Genre", "genre")
         self._mode_combo.addItem("Seeds", "seeds")
+        self._mode_combo.addItem("History", "history")
         self._mode_combo.setCurrentIndex(0)
         self._mode_combo.currentIndexChanged.connect(self._on_mode_changed)
-        self._mode_combo.setFixedWidth(110)
+        self._mode_combo.setMinimumWidth(110)
+        self._mode_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         mode_layout.addWidget(self._mode_combo)
 
-        header_layout.addWidget(mode_container)
-
-        # Vertical separator
-        header_layout.addWidget(self._create_vsep())
+        self._create_control_group("mode", "Mode", mode_container)
 
         # Genre/Sonic mode sliders (stacked)
         self._mode_sliders = ModeSliders()
-        header_layout.addWidget(self._mode_sliders)
-
-        # Vertical separator
-        header_layout.addWidget(self._create_vsep())
+        self._create_control_group("matching", "Matching", self._mode_sliders)
 
         # Length dropdown
         length_container = QWidget()
         length_layout = QHBoxLayout(length_container)
         length_layout.setContentsMargins(0, 0, 0, 0)
         length_layout.setSpacing(4)
-
-        length_label = QLabel("Length:")
-        length_label.setObjectName("controlLabel")
-        length_layout.addWidget(length_label)
 
         self._length_combo = self._create_menu_button(
             options=[("20", 20), ("30", 30), ("40", 40), ("50", 50)],
@@ -132,18 +140,15 @@ class GeneratePanel(QWidget):
             tooltip="Number of tracks in the generated playlist",
         )
         length_layout.addWidget(self._length_combo)
-        header_layout.addWidget(length_container)
-
-        # Vertical separator
-        header_layout.addWidget(self._create_vsep())
+        self._create_control_group("length", "Length", length_container)
 
         # Recency filter (compact)
-        recency_container = QWidget()
-        recency_layout = QHBoxLayout(recency_container)
+        self._recency_container = QWidget()
+        recency_layout = QHBoxLayout(self._recency_container)
         recency_layout.setContentsMargins(0, 0, 0, 0)
         recency_layout.setSpacing(4)
 
-        self._recency_check = QCheckBox("Freshness:")
+        self._recency_check = QCheckBox("Enabled")
         self._recency_check.setChecked(True)
         self._recency_check.setToolTip("Exclude recently played tracks")
         self._recency_check.toggled.connect(self._on_recency_toggled)
@@ -165,21 +170,13 @@ class GeneratePanel(QWidget):
         )
         recency_layout.addWidget(self._recency_plays)
 
-        header_layout.addWidget(recency_container)
-
-        # Vertical separator
-        header_layout.addWidget(self._create_vsep())
+        self._create_control_group("freshness", "Freshness", self._recency_container)
 
         # Artist spacing
-        spacing_container = QWidget()
-        spacing_layout = QHBoxLayout(spacing_container)
+        self._spacing_container = QWidget()
+        spacing_layout = QHBoxLayout(self._spacing_container)
         spacing_layout.setContentsMargins(0, 0, 0, 0)
         spacing_layout.setSpacing(4)
-
-        spacing_label = QLabel("Gap:")
-        spacing_label.setObjectName("controlLabel")
-        spacing_label.setToolTip("Artist spacing")
-        spacing_layout.addWidget(spacing_label)
 
         self._spacing_combo = self._create_menu_button(
             options=[("Normal", "normal"), ("Strong", "strong")],
@@ -188,17 +185,13 @@ class GeneratePanel(QWidget):
             tooltip="Tracks between repeated artists\nNormal=6, Strong=9",
         )
         spacing_layout.addWidget(self._spacing_combo)
-        header_layout.addWidget(spacing_container)
+        self._create_control_group("spacing", "Artist Gap", self._spacing_container)
 
         # Diversity bonus
-        diversity_container = QWidget()
-        diversity_layout = QHBoxLayout(diversity_container)
+        self._diversity_container = QWidget()
+        diversity_layout = QHBoxLayout(self._diversity_container)
         diversity_layout.setContentsMargins(0, 0, 0, 0)
         diversity_layout.setSpacing(4)
-
-        diversity_label = QLabel("Diversity:")
-        diversity_label.setObjectName("controlLabel")
-        diversity_layout.addWidget(diversity_label)
 
         self._diversity_levels = ["Very Low", "Low", "Normal", "High", "Very High"]
         self._diversity_values = [0.00, 0.02, 0.04, 0.06, 0.08]
@@ -208,7 +201,9 @@ class GeneratePanel(QWidget):
         self._diversity_slider.setMaximum(len(self._diversity_levels) - 1)
         self._diversity_slider.setValue(2)
         self._diversity_slider.setTickPosition(QSlider.NoTicks)
-        self._diversity_slider.setFixedWidth(90)
+        self._diversity_slider.setMinimumWidth(90)
+        self._diversity_slider.setMaximumWidth(140)
+        self._diversity_slider.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self._diversity_slider.setToolTip(
             "Soft bonus for selecting new artists\n"
             "Higher values encourage more variety"
@@ -218,20 +213,23 @@ class GeneratePanel(QWidget):
 
         self._diversity_value = QLabel(self._diversity_levels[2])
         self._diversity_value.setObjectName("diversityValue")
-        self._diversity_value.setFixedWidth(72)
+        self._diversity_value.setMinimumWidth(72)
+        self._diversity_value.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
         diversity_layout.addWidget(self._diversity_value)
 
-        header_layout.addWidget(diversity_container)
-
-        # Push action buttons to the right edge to avoid trailing empty space
-        header_layout.addStretch()
+        self._create_control_group("diversity", "Diversity", self._diversity_container)
 
         # Action buttons in header
+        actions_container = QWidget()
+        actions_layout = QHBoxLayout(actions_container)
+        actions_layout.setContentsMargins(0, 0, 0, 0)
+        actions_layout.setSpacing(8)
+
         self._generate_btn = QPushButton("Generate")
         self._generate_btn.setObjectName("primaryButton")
         self._generate_btn.setMinimumWidth(110)
         self._generate_btn.clicked.connect(self._on_generate)
-        header_layout.addWidget(self._generate_btn)
+        actions_layout.addWidget(self._generate_btn)
 
         self._new_seeds_btn = QPushButton("New Seeds")
         self._new_seeds_btn.setObjectName("secondaryButton")
@@ -239,7 +237,9 @@ class GeneratePanel(QWidget):
         self._new_seeds_btn.setMinimumWidth(110)
         self._new_seeds_btn.clicked.connect(self._on_new_seeds)
         self._new_seeds_btn.setVisible(False)
-        header_layout.addWidget(self._new_seeds_btn)
+        actions_layout.addWidget(self._new_seeds_btn)
+        self._create_control_group("actions", "Actions", actions_container)
+        self._reflow_header_groups(HEADER_BREAKPOINT_WIDTH)
 
         layout.addWidget(header_frame)
 
@@ -263,11 +263,21 @@ class GeneratePanel(QWidget):
             self._artist_panel.set_completer_data(self._db_completer)
         self._mode_stack.addWidget(self._artist_panel)
 
+        # Genre mode panel
+        self._genre_panel = GenreModePanel()
+        if self._db_completer:
+            self._genre_panel.set_completer_data(self._db_completer)
+        self._mode_stack.addWidget(self._genre_panel)
+
         # Seeds mode panel
         self._seeds_panel = SeedsModePanel(db_path=self._db_path)
         if self._db_completer:
             self._seeds_panel.set_completer_data(self._db_completer)
         self._mode_stack.addWidget(self._seeds_panel)
+
+        # History mode panel
+        self._history_panel = HistoryModePanel()
+        self._mode_stack.addWidget(self._history_panel)
 
         inputs_layout.addWidget(self._mode_stack)
 
@@ -279,21 +289,34 @@ class GeneratePanel(QWidget):
         self._progress_bar.setRange(0, 100)
         self._progress_bar.setValue(0)
         self._progress_bar.setTextVisible(True)
-        self._progress_bar.setFixedHeight(16)
+        self._progress_bar.setMinimumHeight(16)
+        self._progress_bar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self._progress_bar.valueChanged.connect(self._update_progress_visibility)
         self._progress_bar.setVisible(False)
         progress_row.addWidget(self._progress_bar)
 
         self._stage_label = QLabel("")
         self._stage_label.setObjectName("stageLabel")
-        self._stage_label.setFixedWidth(180)
+        self._stage_label.setMinimumWidth(140)
+        self._stage_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self._stage_label.setVisible(False)
         progress_row.addWidget(self._stage_label)
 
         inputs_layout.addLayout(progress_row)
 
+        self._validation_label = QLabel("")
+        self._validation_label.setObjectName("validationBanner")
+        self._validation_label.setWordWrap(True)
+        self._validation_label.setVisible(False)
+        inputs_layout.addWidget(self._validation_label)
+
         layout.addWidget(self._inputs_frame)
         QTimer.singleShot(0, self._apply_mode_sizing)
+
+    def resizeEvent(self, event) -> None:
+        """Reflow header cards when the panel width changes."""
+        super().resizeEvent(event)
+        self._reflow_header_groups(self._header_frame.width() or self.width())
 
     def _create_vsep(self) -> QFrame:
         """Create a vertical separator line."""
@@ -301,6 +324,75 @@ class GeneratePanel(QWidget):
         sep.setFrameShape(QFrame.VLine)
         sep.setObjectName("vsep")
         return sep
+
+    def _create_control_group(self, key: str, title: str, content: QWidget) -> QFrame:
+        """Create a compact visual group for one header control category."""
+        group = QFrame()
+        group.setObjectName("controlGroup")
+        group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        group.setMinimumHeight(CONTROL_GROUP_HEIGHT)
+        group.setMaximumHeight(CONTROL_GROUP_HEIGHT)
+        group_layout = QHBoxLayout(group)
+        group_layout.setContentsMargins(8, 5, 8, 5)
+        group_layout.setSpacing(7)
+
+        title_label = QLabel(title)
+        title_label.setObjectName("controlGroupTitle")
+        group_layout.addWidget(title_label)
+        group_layout.addWidget(content)
+
+        self._control_groups[key] = group
+        setattr(self, f"_{key}_group_title", title_label)
+        return group
+
+    def _clear_header_layout(self) -> None:
+        while self._header_layout.count():
+            item = self._header_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                self._header_layout.removeWidget(widget)
+
+    def _reflow_header_groups(self, available_width: int) -> None:
+        """Place header cards in one row when possible, else in a balanced 4/3 grid."""
+        self._clear_header_layout()
+        self._header_group_positions.clear()
+
+        for col in range(14):
+            self._header_layout.setColumnStretch(col, 0)
+            self._header_layout.setColumnMinimumWidth(col, 0)
+        self._header_layout.setRowStretch(0, 0)
+        self._header_layout.setRowStretch(1, 0)
+
+        if available_width >= HEADER_BREAKPOINT_WIDTH:
+            self._header_row_count = 1
+            placements = [
+                (key, 0, index * 2, 1, 2)
+                for index, key in enumerate(self._header_group_order)
+            ]
+            stretch_columns = 14
+        else:
+            self._header_row_count = 2
+            top = self._header_group_order[:4]
+            bottom = self._header_group_order[4:]
+            placements = [
+                (key, 0, index * 3, 1, 3)
+                for index, key in enumerate(top)
+            ]
+            placements.extend(
+                (key, 1, index * 4, 1, 4)
+                for index, key in enumerate(bottom)
+            )
+            stretch_columns = 12
+
+        for col in range(stretch_columns):
+            self._header_layout.setColumnStretch(col, 1)
+
+        for key, row, col, row_span, col_span in placements:
+            group = self._control_groups[key]
+            self._header_layout.addWidget(group, row, col, row_span, col_span)
+            self._header_group_positions[key] = (row, col, row_span, col_span)
+
+        self._header_frame.updateGeometry()
 
     def _create_menu_button(
         self,
@@ -347,8 +439,9 @@ class GeneratePanel(QWidget):
     def _on_mode_changed(self, _: int | None = None) -> None:
         """Handle mode radio button change."""
         mode = self._get_current_mode()
-        index = {"artist": 0, "seeds": 1}.get(mode, 0)
+        index = {"artist": 0, "genre": 1, "seeds": 2, "history": 3}.get(mode, 0)
         self._mode_stack.setCurrentIndex(index)
+        self.clear_validation_message()
         QTimer.singleShot(0, self._apply_mode_sizing)
         if self._has_run:
             self._has_run = False
@@ -363,13 +456,40 @@ class GeneratePanel(QWidget):
     def _get_current_mode(self) -> ModeType:
         """Get currently selected mode."""
         mode_id = self._mode_combo.currentData()
-        if mode_id in ("artist", "seeds"):
+        if mode_id in ("artist", "genre", "seeds", "history"):
             return mode_id
         return "artist"
 
     def get_current_mode(self) -> ModeType:
         """Public accessor for current mode."""
         return self._get_current_mode()
+
+    def set_current_mode(self, mode: str) -> None:
+        """Set the active generation mode by stable mode id."""
+        index = self._mode_combo.findData(mode)
+        if index < 0:
+            return
+        self._mode_combo.setCurrentIndex(index)
+
+    def apply_saved_state(
+        self,
+        *,
+        mode: str = "artist",
+        artist: str = "",
+        genre: str = "",
+        genre_mode: Optional[str] = None,
+        sonic_mode: Optional[str] = None,
+    ) -> None:
+        """Restore persisted generation controls."""
+        self.set_current_mode(mode)
+        if artist:
+            self._artist_panel.set_primary_artist(artist)
+        if genre:
+            self._genre_panel.set_genre(genre)
+        if genre_mode:
+            self._mode_sliders.set_genre_mode(genre_mode)  # type: ignore[arg-type]
+        if sonic_mode:
+            self._mode_sliders.set_sonic_mode(sonic_mode)  # type: ignore[arg-type]
 
     def _update_progress_visibility(self) -> None:
         """Show progress only while running."""
@@ -390,8 +510,18 @@ class GeneratePanel(QWidget):
         self.adjustSize()
         panel_height = current.sizeHint().height()
         if panel_height > 0:
-            self._mode_stack.setFixedHeight(panel_height)
-        self._inputs_frame.setMaximumHeight(self._inputs_frame.sizeHint().height())
+            self._mode_stack.setMinimumHeight(panel_height)
+            self._mode_stack.setMaximumHeight(panel_height)
+
+            margins = self._inputs_frame.layout().contentsMargins()
+            inputs_height = panel_height + margins.top() + margins.bottom()
+            if self._progress_bar.isVisible() or self._stage_label.isVisible():
+                inputs_height += (
+                    self._inputs_frame.layout().spacing()
+                    + max(self._progress_bar.sizeHint().height(), self._stage_label.sizeHint().height())
+                )
+            self._inputs_frame.setMinimumHeight(inputs_height)
+            self._inputs_frame.setMaximumHeight(inputs_height)
         self.updateGeometry()
 
     def _update_run_controls(self) -> None:
@@ -399,6 +529,18 @@ class GeneratePanel(QWidget):
         has_run = self._has_run
         self._generate_btn.setText("Regenerate" if has_run else "Generate")
         self._new_seeds_btn.setVisible(has_run and mode == "artist")
+
+    def show_validation_message(self, message: str) -> None:
+        """Show inline generation validation feedback."""
+        self._validation_label.setText(message)
+        self._validation_label.setVisible(bool(message))
+        self._apply_mode_sizing()
+
+    def clear_validation_message(self) -> None:
+        """Clear inline generation validation feedback."""
+        self._validation_label.setText("")
+        self._validation_label.setVisible(False)
+        self._apply_mode_sizing()
 
     def _get_diversity_gamma(self) -> float:
         index = self._diversity_slider.value()
@@ -427,6 +569,7 @@ class GeneratePanel(QWidget):
             include_collaborations=(
                 self._artist_panel.get_include_collaborations() if mode == "artist" else False
             ),
+            genre_query=self._genre_panel.get_genre() if mode == "genre" else "",
             seed_track_ids=self._seeds_panel.get_seed_track_ids() if mode == "seeds" else [],
             seed_auto_order=self._seeds_panel.get_auto_order() if mode == "seeds" else True,
         )
@@ -460,6 +603,7 @@ class GeneratePanel(QWidget):
         if self._is_generating:
             return
 
+        self.clear_validation_message()
         ui_state = self.build_ui_state()
         if self._has_run:
             self.regenerate_requested.emit(asdict(ui_state))
@@ -472,6 +616,7 @@ class GeneratePanel(QWidget):
         if self._is_generating:
             return
 
+        self.clear_validation_message()
         ui_state = self.build_ui_state()
         self.regenerate_requested.emit(asdict(ui_state))
 
@@ -481,6 +626,7 @@ class GeneratePanel(QWidget):
         if self._is_generating:
             return
 
+        self.clear_validation_message()
         ui_state = self.build_ui_state()
         self.new_seeds_requested.emit(asdict(ui_state))
 
@@ -488,6 +634,8 @@ class GeneratePanel(QWidget):
     def set_generating(self, is_generating: bool) -> None:
         """Update UI state for generation in progress."""
         self._is_generating = is_generating
+        if is_generating:
+            self.clear_validation_message()
         self._generate_btn.setEnabled(not is_generating)
         self._new_seeds_btn.setEnabled(not is_generating)
 
@@ -514,6 +662,7 @@ class GeneratePanel(QWidget):
         """Set autocomplete data source for all panels."""
         self._db_completer = completer
         self._artist_panel.set_completer_data(completer)
+        self._genre_panel.set_completer_data(completer)
         self._seeds_panel.set_completer_data(completer)
 
     def set_db_path(self, path: str) -> None:

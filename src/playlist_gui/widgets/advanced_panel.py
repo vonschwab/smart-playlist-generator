@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSlider,
     QSpinBox,
     QToolButton,
@@ -38,89 +39,8 @@ from ..config.settings_schema import (
 )
 
 
-# Styles for modified state
-MODIFIED_LABEL_STYLE = "font-weight: bold; color: #1a5fb4;"
-MODIFIED_ROW_STYLE = "background-color: #e8f0fc; border-radius: 3px; padding: 2px;"
-NORMAL_LABEL_STYLE = ""
-NORMAL_ROW_STYLE = ""
-
-# Direct control styles for modified state (ensures readable text)
-MODIFIED_SPINBOX_STYLE = """
-    QSpinBox, QDoubleSpinBox {
-        color: #333;
-        background-color: white;
-        border: 1px solid #1a5fb4;
-    }
-"""
-MODIFIED_COMBO_STYLE = """
-    QComboBox {
-        color: #333;
-        background-color: white;
-        border: 1px solid #1a5fb4;
-    }
-    QComboBox QAbstractItemView {
-        color: #333;
-        background-color: white;
-    }
-"""
-MODIFIED_LINEEDIT_STYLE = """
-    QLineEdit {
-        color: #333;
-        background-color: white;
-        border: 1px solid #1a5fb4;
-    }
-"""
-NORMAL_CONTROL_STYLE = ""
-
-RESET_BTN_STYLE = """
-    QToolButton {
-        background-color: transparent;
-        border: none;
-        color: #888;
-        font-size: 14px;
-        padding: 2px;
-    }
-    QToolButton:hover {
-        background-color: #e0e0e0;
-        color: #333;
-        border-radius: 3px;
-    }
-    QToolButton:disabled {
-        color: #ccc;
-    }
-"""
-
-INFO_BTN_STYLE = """
-    QToolButton {
-        background-color: #e8e8e8;
-        border: 1px solid #aaa;
-        border-radius: 9px;
-        font-weight: bold;
-        font-size: 10px;
-        color: #666;
-    }
-    QToolButton:hover { background-color: #d8d8d8; }
-    QToolButton:checked { background-color: #b0c4de; }
-"""
-
-GROUP_RESET_BTN_STYLE = """
-    QPushButton {
-        background-color: #f0f0f0;
-        border: 1px solid #ccc;
-        border-radius: 3px;
-        padding: 2px 8px;
-        font-size: 11px;
-        color: #555;
-    }
-    QPushButton:hover {
-        background-color: #e0e0e0;
-        border-color: #999;
-    }
-    QPushButton:disabled {
-        color: #aaa;
-        background-color: #f8f8f8;
-    }
-"""
+ADVANCED_LABEL_MIN_WIDTH = 92
+ADVANCED_SETTING_LABEL_MIN_WIDTH = 140
 
 
 class NormalizedSliderGroup(QWidget):
@@ -164,6 +84,7 @@ class NormalizedSliderGroup(QWidget):
         for spec in self.specs:
             # Row container for modified styling
             row_container = QWidget()
+            row_container.setObjectName("advancedSettingRow")
             self._row_containers[spec.key_path] = row_container
             row_layout = QVBoxLayout(row_container)
             row_layout.setContentsMargins(4, 2, 4, 2)
@@ -175,8 +96,8 @@ class NormalizedSliderGroup(QWidget):
 
             # Modified indicator dot
             mod_dot = QLabel("●")
-            mod_dot.setFixedWidth(12)
-            mod_dot.setStyleSheet("color: #1a5fb4; font-size: 10px;")
+            mod_dot.setObjectName("modifiedDot")
+            mod_dot.setMinimumWidth(12)
             mod_dot.setVisible(False)
             mod_dot.setToolTip("Modified from base config")
             row.addWidget(mod_dot)
@@ -184,7 +105,9 @@ class NormalizedSliderGroup(QWidget):
 
             # Label
             label = QLabel(spec.label)
-            label.setFixedWidth(80)
+            label.setObjectName("advancedSettingLabel")
+            label.setMinimumWidth(ADVANCED_LABEL_MIN_WIDTH)
+            label.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
             row.addWidget(label)
             self._name_labels[spec.key_path] = label
 
@@ -201,17 +124,18 @@ class NormalizedSliderGroup(QWidget):
 
             # Value label
             value_label = QLabel("0.00")
-            value_label.setFixedWidth(40)
+            value_label.setObjectName("advancedValueLabel")
+            value_label.setMinimumWidth(42)
             value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             row.addWidget(value_label)
             self._labels[spec.key_path] = value_label
 
             # Reset button
             reset_btn = QToolButton()
+            reset_btn.setObjectName("advancedIconButton")
             reset_btn.setText("↺")
             reset_btn.setToolTip("Reset to base config value")
             reset_btn.setFixedSize(20, 20)
-            reset_btn.setStyleSheet(RESET_BTN_STYLE)
             reset_btn.setEnabled(False)
             reset_btn.clicked.connect(lambda checked, k=spec.key_path: self._on_reset_single(k))
             row.addWidget(reset_btn)
@@ -220,11 +144,11 @@ class NormalizedSliderGroup(QWidget):
             # Info button (if description exists)
             if spec.description:
                 info_btn = QToolButton()
+                info_btn.setObjectName("advancedIconButton")
                 info_btn.setText("?")
                 info_btn.setToolTip("Show details")
                 info_btn.setFixedSize(18, 18)
                 info_btn.setCheckable(True)
-                info_btn.setStyleSheet(INFO_BTN_STYLE)
                 info_btn.clicked.connect(lambda checked, k=spec.key_path: self._toggle_info(k))
                 row.addWidget(info_btn)
 
@@ -233,18 +157,8 @@ class NormalizedSliderGroup(QWidget):
             # Description label (hidden by default)
             if spec.description:
                 desc_label = QLabel(spec.description)
+                desc_label.setObjectName("advancedDescription")
                 desc_label.setWordWrap(True)
-                desc_label.setStyleSheet("""
-                    QLabel {
-                        background-color: #f8f8f8;
-                        border: 1px solid #e0e0e0;
-                        border-radius: 4px;
-                        padding: 6px;
-                        color: #444;
-                        font-size: 11px;
-                        margin-left: 20px;
-                    }
-                """)
                 desc_label.setVisible(False)
                 row_layout.addWidget(desc_label)
                 self._info_labels[spec.key_path] = desc_label
@@ -256,13 +170,13 @@ class NormalizedSliderGroup(QWidget):
         sum_row.setSpacing(8)
 
         self._sum_label = QLabel("Sum: 1.00")
-        self._sum_label.setStyleSheet("font-weight: bold;")
+        self._sum_label.setObjectName("advancedSumLabel")
         sum_row.addWidget(self._sum_label)
 
         sum_row.addStretch()
 
         normalize_btn = QPushButton("Normalize")
-        normalize_btn.setFixedWidth(80)
+        normalize_btn.setObjectName("advancedResetButton")
         normalize_btn.clicked.connect(self._normalize_all)
         normalize_btn.setToolTip("Adjust all weights to sum to 1.0")
         sum_row.addWidget(normalize_btn)
@@ -308,15 +222,11 @@ class NormalizedSliderGroup(QWidget):
 
         # Update label style
         if key_path in self._name_labels:
-            self._name_labels[key_path].setStyleSheet(
-                MODIFIED_LABEL_STYLE if is_modified else NORMAL_LABEL_STYLE
-            )
+            self._name_labels[key_path].setProperty("modified", is_modified)
 
         # Update row background
         if key_path in self._row_containers:
-            self._row_containers[key_path].setStyleSheet(
-                MODIFIED_ROW_STYLE if is_modified else NORMAL_ROW_STYLE
-            )
+            self._row_containers[key_path].setProperty("modified", is_modified)
 
         # Update reset button
         if key_path in self._reset_btns:
@@ -406,11 +316,7 @@ class NormalizedSliderGroup(QWidget):
             total += self.config_model.get(spec.key_path, spec.default or 0.0)
         self._sum_label.setText(f"Sum: {total:.2f}")
 
-        # Color code: green if 1.0, red otherwise
-        if abs(total - 1.0) < 0.01:
-            self._sum_label.setStyleSheet("font-weight: bold; color: green;")
-        else:
-            self._sum_label.setStyleSheet("font-weight: bold; color: red;")
+        self._sum_label.setProperty("balanced", abs(total - 1.0) < 0.01)
 
     def _normalize_all(self) -> None:
         """Force normalize all sliders."""
@@ -467,6 +373,7 @@ class SettingControl(QWidget):
         parent: Optional[QWidget] = None
     ):
         super().__init__(parent)
+        self.setObjectName("advancedSettingRow")
         self.spec = spec
         self.config_model = config_model
         self._control: Optional[QWidget] = None
@@ -490,15 +397,17 @@ class SettingControl(QWidget):
 
         # Modified indicator dot
         self._modified_dot = QLabel("●")
-        self._modified_dot.setFixedWidth(12)
-        self._modified_dot.setStyleSheet("color: #1a5fb4; font-size: 10px;")
+        self._modified_dot.setObjectName("modifiedDot")
+        self._modified_dot.setMinimumWidth(12)
         self._modified_dot.setVisible(False)
         self._modified_dot.setToolTip("Modified from base config")
         row.addWidget(self._modified_dot)
 
         # Label
         self._name_label = QLabel(self.spec.label)
-        self._name_label.setFixedWidth(140)
+        self._name_label.setObjectName("advancedSettingLabel")
+        self._name_label.setMinimumWidth(ADVANCED_SETTING_LABEL_MIN_WIDTH)
+        self._name_label.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
         if self.spec.tooltip:
             self._name_label.setToolTip(self.spec.tooltip)
         row.addWidget(self._name_label)
@@ -548,10 +457,10 @@ class SettingControl(QWidget):
 
         # Reset button
         self._reset_btn = QToolButton()
+        self._reset_btn.setObjectName("advancedIconButton")
         self._reset_btn.setText("↺")
         self._reset_btn.setToolTip("Reset to base config value")
         self._reset_btn.setFixedSize(20, 20)
-        self._reset_btn.setStyleSheet(RESET_BTN_STYLE)
         self._reset_btn.setEnabled(False)
         self._reset_btn.clicked.connect(self._on_reset)
         row.addWidget(self._reset_btn)
@@ -559,11 +468,11 @@ class SettingControl(QWidget):
         # Info button (if description exists)
         if self.spec.description:
             info_btn = QToolButton()
+            info_btn.setObjectName("advancedIconButton")
             info_btn.setText("?")
             info_btn.setToolTip("Show details")
             info_btn.setFixedSize(18, 18)
             info_btn.setCheckable(True)
-            info_btn.setStyleSheet(INFO_BTN_STYLE)
             info_btn.clicked.connect(self._toggle_info)
             row.addWidget(info_btn)
 
@@ -572,18 +481,8 @@ class SettingControl(QWidget):
         # Description label (hidden by default)
         if self.spec.description:
             self._desc_label = QLabel(self.spec.description)
+            self._desc_label.setObjectName("advancedDescription")
             self._desc_label.setWordWrap(True)
-            self._desc_label.setStyleSheet("""
-                QLabel {
-                    background-color: #f8f8f8;
-                    border: 1px solid #e0e0e0;
-                    border-radius: 4px;
-                    padding: 8px;
-                    color: #444;
-                    font-size: 11px;
-                    margin-left: 20px;
-                }
-            """)
             self._desc_label.setVisible(False)
             main_layout.addWidget(self._desc_label)
 
@@ -624,29 +523,15 @@ class SettingControl(QWidget):
             self._modified_dot.setVisible(is_modified)
 
         if self._name_label:
-            self._name_label.setStyleSheet(
-                MODIFIED_LABEL_STYLE if is_modified else NORMAL_LABEL_STYLE
-            )
+            self._name_label.setProperty("modified", is_modified)
 
         if self._reset_btn:
             self._reset_btn.setEnabled(is_modified)
 
-        # Update container background
-        self.setStyleSheet(MODIFIED_ROW_STYLE if is_modified else NORMAL_ROW_STYLE)
+        self.setProperty("modified", is_modified)
 
-        # Update control style directly (ensures readable text color)
         if self._control:
-            if is_modified:
-                if self.spec.setting_type == SettingType.INT:
-                    self._control.setStyleSheet(MODIFIED_SPINBOX_STYLE)
-                elif self.spec.setting_type == SettingType.FLOAT:
-                    self._control.setStyleSheet(MODIFIED_SPINBOX_STYLE)
-                elif self.spec.setting_type == SettingType.CHOICE:
-                    self._control.setStyleSheet(MODIFIED_COMBO_STYLE)
-                elif self.spec.setting_type == SettingType.STRING:
-                    self._control.setStyleSheet(MODIFIED_LINEEDIT_STYLE)
-            else:
-                self._control.setStyleSheet(NORMAL_CONTROL_STYLE)
+            self._control.setProperty("modified", is_modified)
 
     def _on_reset(self) -> None:
         """Reset this setting to base config value."""
@@ -722,6 +607,7 @@ class AdvancedSettingsPanel(QScrollArea):
 
     def _setup_ui(self) -> None:
         # Make scrollable
+        self.setObjectName("advancedSettingsPanel")
         self.setWidgetResizable(True)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
@@ -738,24 +624,7 @@ class AdvancedSettingsPanel(QScrollArea):
         global_reset_row.addStretch()
 
         self._global_reset_btn = QPushButton("Reset All Overrides")
-        self._global_reset_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #fff0f0;
-                border: 1px solid #d9534f;
-                border-radius: 4px;
-                padding: 4px 12px;
-                color: #d9534f;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #ffe0e0;
-            }
-            QPushButton:disabled {
-                background-color: #f8f8f8;
-                border-color: #ccc;
-                color: #aaa;
-            }
-        """)
+        self._global_reset_btn.setObjectName("advancedDangerButton")
         self._global_reset_btn.clicked.connect(self._on_global_reset)
         self._global_reset_btn.setToolTip("Reset all settings to base config values")
         global_reset_row.addWidget(self._global_reset_btn)
@@ -798,6 +667,7 @@ class AdvancedSettingsPanel(QScrollArea):
                 continue
 
             group_box = QGroupBox(group_name)
+            group_box.setObjectName("advancedSettingsGroup")
             self._group_boxes[group_name] = group_box
             group_layout = QVBoxLayout(group_box)
             group_layout.setSpacing(4)
@@ -841,7 +711,7 @@ class AdvancedSettingsPanel(QScrollArea):
             group_reset_row.addStretch()
 
             group_reset_btn = QPushButton("Reset Group")
-            group_reset_btn.setStyleSheet(GROUP_RESET_BTN_STYLE)
+            group_reset_btn.setObjectName("advancedResetButton")
             group_reset_btn.clicked.connect(lambda checked, g=group_name: self._on_group_reset(g))
             group_reset_btn.setToolTip(f"Reset all {group_name} settings to base config")
             group_reset_row.addWidget(group_reset_btn)

@@ -20,7 +20,6 @@ class SeedTracksInput(QWidget):
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.setMinimumWidth(360)
         self._rows: List[QLineEdit] = []
         self._row_widgets: List[QWidget] = []
         self._completer_data: Optional[DatabaseCompleter] = None
@@ -96,11 +95,13 @@ class SeedTracksInput(QWidget):
 
         if show_label:
             label = QLabel("Track Seeds (optional):")
-            label.setFixedWidth(150)
+            label.setMinimumWidth(120)
+            label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
             row_layout.addWidget(label)
         else:
             spacer = QLabel("")
-            spacer.setFixedWidth(150)
+            spacer.setMinimumWidth(120)
+            spacer.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
             row_layout.addWidget(spacer)
 
         edit = QLineEdit()
@@ -112,12 +113,12 @@ class SeedTracksInput(QWidget):
 
         if show_add:
             add_btn = QPushButton("Add")
-            add_btn.setFixedWidth(50)
+            add_btn.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
             add_btn.clicked.connect(self._on_add_row)
             row_layout.addWidget(add_btn)
 
         remove_btn = QPushButton("Remove")
-        remove_btn.setFixedWidth(70)
+        remove_btn.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
         remove_btn.clicked.connect(lambda: self._remove_row(row_widget))
         row_layout.addWidget(remove_btn)
 

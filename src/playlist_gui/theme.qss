@@ -44,10 +44,31 @@ QLabel#stageLabel {
    ═══════════════════════════════════════════════════════════════════════════ */
 
 QFrame#headerFrame {
-    background-color: #3c3c3c;
+    background-color: #303030;
     border: 1px solid #505050;
     border-radius: 6px;
     padding: 0;
+}
+
+QFrame#controlGroup,
+QFrame#modeControlGroup {
+    background-color: #3a3a3a;
+    border: 1px solid #4b4b4b;
+    border-radius: 5px;
+}
+
+QFrame#controlGroup:hover,
+QFrame#modeControlGroup:hover {
+    border-color: #5a5a5a;
+    background-color: #3d3d3d;
+}
+
+QLabel#controlGroupTitle,
+QLabel#modeControlGroupTitle {
+    color: #9a9a9a;
+    font-size: 8pt;
+    font-weight: 600;
+    text-transform: uppercase;
 }
 
 QFrame#vsep {
@@ -490,6 +511,170 @@ QTableView::item:selected, QTreeView::item:selected {
     color: #ffffff;
 }
 
+QFrame#trackFilterBar {
+    background-color: #303030;
+    border: 1px solid #454545;
+    border-radius: 5px;
+    padding: 3px;
+}
+
+QLabel#trackFilterLabel,
+QLabel#trackStatusLabel {
+    color: #a0a0a0;
+}
+
+QTableView#playlistTable {
+    background-color: #292929;
+    alternate-background-color: #303030;
+    border: none;
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+}
+
+QFrame#trackResultsFrame {
+    background-color: #292929;
+    border: 1px solid #505050;
+    border-radius: 4px;
+}
+
+QFrame#trackEmptyState {
+    background-color: #292929;
+    border: none;
+}
+
+QLabel#trackEmptyTitle {
+    color: #e0e0e0;
+    font-size: 12pt;
+    font-weight: 600;
+}
+
+QLabel#trackEmptyDetail {
+    color: #8c8c8c;
+}
+
+QFrame#resultsFooter {
+    background-color: #303030;
+    border: 1px solid #454545;
+    border-radius: 5px;
+}
+
+QLabel#resultsSummaryTitle {
+    color: #e0e0e0;
+    font-weight: 600;
+}
+
+QLabel#resultsSummaryDetail {
+    color: #8c8c8c;
+    font-size: 9pt;
+}
+
+QFrame#jobsToolbar {
+    background-color: #303030;
+    border: 1px solid #454545;
+    border-radius: 5px;
+}
+
+QPushButton#jobsPrimaryButton {
+    background-color: #4a9eff;
+    color: #ffffff;
+    border: none;
+    font-weight: bold;
+}
+
+QLabel#jobsToolbarLabel,
+QLabel#jobsStatusLabel {
+    color: #9a9a9a;
+}
+
+QLabel#jobsLatestSummary {
+    color: #d6d6d6;
+    background-color: #303030;
+    border: 1px solid #454545;
+    border-radius: 5px;
+    padding: 6px 8px;
+}
+
+QTableView#jobsTable {
+    background-color: #292929;
+    alternate-background-color: #303030;
+    border-color: #454545;
+}
+
+QGroupBox#jobSummaryCard {
+    background-color: #303030;
+    border: 1px solid #454545;
+    border-radius: 5px;
+}
+
+QLabel#analyzeResultsHeadline {
+    color: #e0e0e0;
+    font-size: 12pt;
+    font-weight: 600;
+}
+
+QLabel#analyzeAttentionBanner {
+    color: #f2c6c6;
+    background-color: #4a2d2d;
+    border: 1px solid #704040;
+    border-radius: 5px;
+    padding: 6px 8px;
+}
+
+QTableWidget#jobReadoutTable,
+QTableWidget#analyzeStageTable {
+    background-color: #292929;
+    alternate-background-color: #303030;
+    border: 1px solid #454545;
+    border-radius: 4px;
+    gridline-color: #3c3c3c;
+}
+
+QLabel#dialogTitle {
+    color: #e0e0e0;
+    font-size: 13pt;
+    font-weight: 600;
+}
+
+QLabel#dialogSummary {
+    color: #a8a8a8;
+}
+
+QFrame#dialogControlFrame,
+QGroupBox#dialogSection {
+    background-color: #303030;
+    border: 1px solid #454545;
+    border-radius: 5px;
+}
+
+QLabel#dialogPreviewCard {
+    background-color: #242424;
+    color: #d6d6d6;
+    border: 1px solid #454545;
+    border-radius: 5px;
+    padding: 8px;
+    font-family: Consolas, "Courier New", monospace;
+}
+
+QLabel#dialogWarningBanner {
+    background-color: #4a3c00;
+    color: #ffcc00;
+    border: 1px solid #665500;
+    border-radius: 5px;
+    padding: 8px;
+}
+
+QPushButton#dialogPrimaryButton {
+    background-color: #4a9eff;
+    color: #ffffff;
+    border: none;
+    font-weight: bold;
+    min-width: 90px;
+}
+
+QPushButton#dialogSecondaryButton {
+    min-width: 80px;
+}
+
 QHeaderView::section {
     background-color: #3c3c3c;
     color: #e0e0e0;
@@ -697,12 +882,41 @@ QToolTip {
    Text Edit / Log Panel
    ═══════════════════════════════════════════════════════════════════════════ */
 
+QFrame#logToolbar {
+    background-color: #303030;
+    border: 1px solid #454545;
+    border-radius: 5px;
+}
+
+QLabel#logTitle {
+    color: #e0e0e0;
+    font-weight: 600;
+}
+
+QLabel#logStatusLabel,
+QLabel#logToolbarLabel {
+    color: #9a9a9a;
+}
+
+QCheckBox#logLevelToggle {
+    color: #d0d0d0;
+}
+
+QPushButton#logActionButton {
+    min-width: 76px;
+}
+
 QTextEdit, QPlainTextEdit {
     background-color: #2b2b2b;
     color: #e0e0e0;
     border: 1px solid #505050;
     border-radius: 4px;
     selection-background-color: #4a9eff;
+}
+
+QTextEdit#logText {
+    background-color: #242424;
+    border-color: #454545;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -743,12 +957,193 @@ QLabel#warningHint {
     padding: 6px 10px;
 }
 
+QLabel#validationBanner {
+    color: #f2c6c6;
+    background-color: #4a2d2d;
+    border: 1px solid #704040;
+    border-radius: 4px;
+    padding: 6px 8px;
+}
+
+QLabel#modeInlineNote,
+QLabel#seedInfoLabel {
+    color: #9a9a9a;
+    font-size: 9pt;
+    padding: 4px;
+}
+
+QLabel#seedInfoLabel {
+    font-style: italic;
+}
+
+QLabel#seedCountLabel,
+QLabel#advancedInfoLabel {
+    color: #9a9a9a;
+    font-size: 9pt;
+}
+
+QLabel#dialogHeaderLabel {
+    font-weight: 600;
+    color: #e0e0e0;
+}
+
+QLabel#resumeNotice {
+    color: #78c679;
+}
+
+QPushButton#compactActionButton {
+    font-size: 9pt;
+}
+
+QLabel#overrideStatusLabel {
+    color: #9a9a9a;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    font-size: 9pt;
+    padding: 2px 8px;
+}
+
+QLabel#overrideStatusLabel[state="overrides"] {
+    background-color: #263f5f;
+    border-color: #4a9eff;
+    color: #cce5ff;
+}
+
+QLabel#overrideStatusLabel[state="preset"] {
+    background-color: #244428;
+    border-color: #4caf50;
+    color: #c9f2cd;
+}
+
+QLabel#overrideStatusLabel[state="preset_modified"] {
+    background-color: #4a3c00;
+    border-color: #ff9800;
+    color: #ffe0a3;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    Banner Frame (diagnostics)
    ═══════════════════════════════════════════════════════════════════════════ */
 
-QFrame#bannerFrame {
-    background-color: #4a3c00;
-    border: 1px solid #665500;
+QFrame#bannerFrame,
+QFrame#diagnosticsBanner {
+    background-color: #3f3420;
+    border: 1px solid #735b2a;
     border-radius: 4px;
+}
+
+QLabel#diagnosticsBannerTime {
+    color: #b8aa8a;
+    font-size: 9pt;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Advanced Settings
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+QScrollArea#advancedSettingsPanel {
+    background-color: #2b2b2b;
+    border: none;
+}
+
+QGroupBox#advancedSettingsGroup {
+    background-color: #333333;
+    border: 1px solid #454545;
+    border-radius: 6px;
+    margin-top: 12px;
+    padding: 10px 8px 8px 8px;
+}
+
+QLabel#advancedSettingLabel {
+    color: #d8d8d8;
+}
+
+QLabel#advancedSettingLabel[modified="true"] {
+    color: #6ab0ff;
+    font-weight: 600;
+}
+
+QLabel#advancedValueLabel,
+QLabel#advancedSumLabel {
+    color: #cfcfcf;
+    font-weight: 600;
+}
+
+QLabel#advancedSumLabel[balanced="true"] {
+    color: #78c679;
+}
+
+QLabel#advancedSumLabel[balanced="false"] {
+    color: #ff8a80;
+}
+
+QLabel#modifiedDot {
+    color: #4a9eff;
+    font-size: 9pt;
+}
+
+QLabel#advancedDescription {
+    background-color: #2b2b2b;
+    border: 1px solid #454545;
+    border-radius: 4px;
+    color: #b8b8b8;
+    font-size: 9pt;
+    padding: 6px;
+}
+
+QWidget#advancedSettingRow[modified="true"] {
+    background-color: #304156;
+    border-radius: 4px;
+}
+
+QLineEdit[modified="true"],
+QComboBox[modified="true"],
+QSpinBox[modified="true"],
+QDoubleSpinBox[modified="true"] {
+    border-color: #4a9eff;
+}
+
+QToolButton#advancedIconButton {
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    color: #b8b8b8;
+    font-weight: 600;
+}
+
+QToolButton#advancedIconButton:hover {
+    background-color: #454545;
+    border-color: #606060;
+}
+
+QToolButton#advancedIconButton:checked {
+    background-color: #3f5f84;
+    border-color: #4a9eff;
+}
+
+QToolButton#advancedIconButton:disabled {
+    color: #666666;
+}
+
+QPushButton#advancedResetButton {
+    min-width: 82px;
+    padding: 4px 10px;
+}
+
+QPushButton#advancedDangerButton {
+    background-color: #4a3030;
+    border: 1px solid #8a4a4a;
+    color: #ffb3b3;
+    font-weight: 600;
+}
+
+QPushButton#advancedDangerButton:hover {
+    background-color: #5a3838;
+    border-color: #b75a5a;
+}
+
+QPushButton#advancedDangerButton:disabled {
+    background-color: #3a3a3a;
+    border-color: #454545;
+    color: #707070;
 }

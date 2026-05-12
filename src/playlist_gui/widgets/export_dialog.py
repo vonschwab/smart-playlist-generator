@@ -40,6 +40,7 @@ class ExportLocalDialog(QDialog):
         artist_name: str = ""
     ):
         super().__init__(parent)
+        self.setObjectName("exportLocalDialog")
         self.setWindowTitle("Export Playlist to M3U8")
         self.setMinimumWidth(500)
         self.setModal(True)
@@ -64,21 +65,23 @@ class ExportLocalDialog(QDialog):
         # ─────────────────────────────────────────────────────────────────────
         # Playlist Name
         # ─────────────────────────────────────────────────────────────────────
-        name_group = QGroupBox("Playlist Name")
-        name_layout = QVBoxLayout(name_group)
+        self._name_group = QGroupBox("Playlist Name")
+        self._name_group.setObjectName("dialogSection")
+        name_layout = QVBoxLayout(self._name_group)
 
         self._name_edit = QLineEdit(default_name)
         self._name_edit.setPlaceholderText("Enter playlist name...")
         self._name_edit.textChanged.connect(self._update_preview)
         name_layout.addWidget(self._name_edit)
 
-        layout.addWidget(name_group)
+        layout.addWidget(self._name_group)
 
         # ─────────────────────────────────────────────────────────────────────
         # Export Directory
         # ─────────────────────────────────────────────────────────────────────
-        dir_group = QGroupBox("Export Directory")
-        dir_layout = QVBoxLayout(dir_group)
+        self._directory_group = QGroupBox("Export Directory")
+        self._directory_group.setObjectName("dialogSection")
+        dir_layout = QVBoxLayout(self._directory_group)
 
         dir_row = QHBoxLayout()
         self._dir_edit = QLineEdit(self._default_directory)
@@ -86,34 +89,27 @@ class ExportLocalDialog(QDialog):
         self._dir_edit.textChanged.connect(self._update_preview)
         dir_row.addWidget(self._dir_edit, stretch=1)
 
-        browse_btn = QPushButton("Browse...")
-        browse_btn.clicked.connect(self._browse_directory)
-        dir_row.addWidget(browse_btn)
+        self._browse_btn = QPushButton("Browse...")
+        self._browse_btn.setObjectName("dialogSecondaryButton")
+        self._browse_btn.clicked.connect(self._browse_directory)
+        dir_row.addWidget(self._browse_btn)
 
         dir_layout.addLayout(dir_row)
-        layout.addWidget(dir_group)
+        layout.addWidget(self._directory_group)
 
         # ─────────────────────────────────────────────────────────────────────
         # File Preview
         # ─────────────────────────────────────────────────────────────────────
-        preview_group = QGroupBox("File Path Preview")
-        preview_layout = QVBoxLayout(preview_group)
+        self._preview_group = QGroupBox("File Path Preview")
+        self._preview_group.setObjectName("dialogSection")
+        preview_layout = QVBoxLayout(self._preview_group)
 
         self._preview_label = QLabel()
-        self._preview_label.setStyleSheet("""
-            QLabel {
-                background-color: #f5f5f5;
-                border: 1px solid #ddd;
-                border-radius: 3px;
-                padding: 8px;
-                font-family: monospace;
-                color: #333;
-            }
-        """)
+        self._preview_label.setObjectName("dialogPreviewCard")
         self._preview_label.setWordWrap(True)
         preview_layout.addWidget(self._preview_label)
 
-        layout.addWidget(preview_group)
+        layout.addWidget(self._preview_group)
 
         # ─────────────────────────────────────────────────────────────────────
         # Buttons
@@ -122,27 +118,13 @@ class ExportLocalDialog(QDialog):
         btn_layout.addStretch()
 
         cancel_btn = QPushButton("Cancel")
+        cancel_btn.setObjectName("dialogSecondaryButton")
         cancel_btn.clicked.connect(self.reject)
         btn_layout.addWidget(cancel_btn)
 
         self._export_btn = QPushButton("Export")
+        self._export_btn.setObjectName("dialogPrimaryButton")
         self._export_btn.setDefault(True)
-        self._export_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #28a745;
-                color: white;
-                border: none;
-                padding: 6px 20px;
-                border-radius: 4px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #218838;
-            }
-            QPushButton:disabled {
-                background-color: #ccc;
-            }
-        """)
         self._export_btn.clicked.connect(self._on_export)
         btn_layout.addWidget(self._export_btn)
 
@@ -249,6 +231,7 @@ class ExportPlexDialog(QDialog):
         plex_configured: bool = True
     ):
         super().__init__(parent)
+        self.setObjectName("exportPlexDialog")
         self.setWindowTitle("Export Playlist to Plex")
         self.setMinimumWidth(400)
         self.setModal(True)
@@ -271,41 +254,37 @@ class ExportPlexDialog(QDialog):
         layout.setSpacing(12)
 
         # Warning if Plex not configured
+        self._warning_label = QLabel("")
+        self._warning_label.setObjectName("dialogWarningBanner")
+        self._warning_label.setWordWrap(True)
+        self._warning_label.setVisible(False)
         if not self._plex_configured:
-            warning_label = QLabel(
+            self._warning_label.setText(
                 "Plex is not configured. Please set plex.enabled=true and "
                 "configure plex.base_url and PLEX_TOKEN in your config."
             )
-            warning_label.setWordWrap(True)
-            warning_label.setStyleSheet("""
-                QLabel {
-                    background-color: #fff3cd;
-                    border: 1px solid #ffc107;
-                    border-radius: 4px;
-                    padding: 10px;
-                    color: #856404;
-                }
-            """)
-            layout.addWidget(warning_label)
+            self._warning_label.setVisible(True)
+        layout.addWidget(self._warning_label)
 
         # ─────────────────────────────────────────────────────────────────────
         # Playlist Name
         # ─────────────────────────────────────────────────────────────────────
-        name_group = QGroupBox("Playlist Name")
-        name_layout = QVBoxLayout(name_group)
+        self._name_group = QGroupBox("Playlist Name")
+        self._name_group.setObjectName("dialogSection")
+        name_layout = QVBoxLayout(self._name_group)
 
         self._name_edit = QLineEdit(default_name)
         self._name_edit.setPlaceholderText("Enter playlist name...")
         self._name_edit.textChanged.connect(self._update_state)
         name_layout.addWidget(self._name_edit)
 
-        info_label = QLabel(
+        self._info_label = QLabel(
             "If a playlist with this name already exists, it will be replaced."
         )
-        info_label.setStyleSheet("color: #666; font-size: 11px;")
-        name_layout.addWidget(info_label)
+        self._info_label.setObjectName("dialogSummary")
+        name_layout.addWidget(self._info_label)
 
-        layout.addWidget(name_group)
+        layout.addWidget(self._name_group)
 
         # ─────────────────────────────────────────────────────────────────────
         # Buttons
@@ -314,27 +293,13 @@ class ExportPlexDialog(QDialog):
         btn_layout.addStretch()
 
         cancel_btn = QPushButton("Cancel")
+        cancel_btn.setObjectName("dialogSecondaryButton")
         cancel_btn.clicked.connect(self.reject)
         btn_layout.addWidget(cancel_btn)
 
         self._export_btn = QPushButton("Export to Plex")
         self._export_btn.setDefault(True)
-        self._export_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #e5a00d;
-                color: white;
-                border: none;
-                padding: 6px 20px;
-                border-radius: 4px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #cc8a00;
-            }
-            QPushButton:disabled {
-                background-color: #ccc;
-            }
-        """)
+        self._export_btn.setObjectName("exportPlexButton")
         self._export_btn.clicked.connect(self.accept)
         self._export_btn.setEnabled(self._plex_configured)
         btn_layout.addWidget(self._export_btn)

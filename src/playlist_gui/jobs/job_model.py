@@ -11,6 +11,11 @@ from typing import Dict, List, Optional
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
 from PySide6.QtGui import QColor
 
+from src.playlist.analyze_library_results import (
+    ANALYZE_LIBRARY_ACTION_LABELS,
+    format_analyze_library_action_label,
+    format_analyze_library_attention_summary,
+)
 from .job_types import JobType
 
 
@@ -57,6 +62,8 @@ class Job:
     traceback: str = ""
     base_config_path: Optional[str] = None
     overrides: dict = field(default_factory=dict, repr=False, compare=False)
+    request_options: dict = field(default_factory=dict, repr=False, compare=False)
+    result_data: dict = field(default_factory=dict, repr=False, compare=False)
     checkpoint_data: Optional[Dict] = field(default=None, repr=False, compare=False)
     can_resume: bool = False
 
@@ -98,6 +105,8 @@ class Job:
             "error_message": self.error_message,
             "traceback": self.traceback,
             "base_config_path": self.base_config_path,
+            "request_options": self.request_options,
+            "result_data": self.result_data,
             "checkpoint_data": self.checkpoint_data,
             "can_resume": self.can_resume,
         }
@@ -144,6 +153,8 @@ class Job:
             error_message=payload.get("error_message", ""),
             traceback=payload.get("traceback", ""),
             base_config_path=payload.get("base_config_path"),
+            request_options=payload.get("request_options") or {},
+            result_data=payload.get("result_data") or {},
             checkpoint_data=payload.get("checkpoint_data"),
             can_resume=bool(payload.get("can_resume", False)),
         )
@@ -193,7 +204,7 @@ class JobTableModel(QAbstractTableModel):
                 pct = job.progress_percent()
                 return f"{pct}% ({job.progress_current}/{job.progress_total})"
             if col == 3:
-                return job.stage or "-"
+                return self._display_stage(job)
             if col == 4:
                 elapsed = job.elapsed()
                 if elapsed:
@@ -205,7 +216,7 @@ class JobTableModel(QAbstractTableModel):
                 ts = job.finished_at or job.started_at or job.created_at
                 return ts.strftime("%Y-%m-%d %H:%M") if ts else "-"
             if col == 6:
-                return job.summary or job.error_message or "-"
+                return self._display_summary(job)
 
         if role == Qt.UserRole:
             return job
@@ -228,6 +239,25 @@ class JobTableModel(QAbstractTableModel):
             return palette.get(status_key)
 
         return None
+
+    def _display_stage(self, job: Job) -> str:
+        if not job.stage:
+            return "-"
+        if job.job_type == JobType.ANALYZE_LIBRARY and job.stage in ANALYZE_LIBRARY_ACTION_LABELS:
+            return format_analyze_library_action_label(job.stage)
+        return job.stage
+
+    def _display_summary(self, job: Job) -> str:
+        if job.job_type == JobType.ANALYZE_LIBRARY:
+            status = job.status.value if isinstance(job.status, JobStatus) else str(job.status)
+            attention = format_analyze_library_attention_summary(
+                job.result_data or {},
+                status=status,
+                error_message=job.error_message,
+            )
+            if attention:
+                return attention
+        return job.summary or job.error_message or "-"
 
     # Public helpers -----------------------------------------------------
     def set_jobs(self, jobs: List[Job]) -> None:

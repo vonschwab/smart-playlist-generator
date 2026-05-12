@@ -17,7 +17,7 @@ from dataclasses import dataclass
 # noqa marks satisfy ruff F401 for names that are imported here for transitive
 # availability rather than direct use in this module.
 try:
-    from .genre.normalize import normalize_and_split_genre  # noqa: F401
+    from .genre.normalize_unified import normalize_and_split_genre  # noqa: F401
     from .genre.similarity import (
         pairwise_genre_similarity,  # noqa: F401
         genre_set_similarity,  # noqa: F401

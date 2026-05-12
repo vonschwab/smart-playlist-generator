@@ -23,12 +23,14 @@ from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QFileDialog,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
     QMenu,
     QMessageBox,
+    QStackedLayout,
     QTableView,
     QVBoxLayout,
     QWidget,
@@ -103,12 +105,15 @@ class TrackTable(QWidget):
         # ─────────────────────────────────────────────────────────────────────
         # Filter bar
         # ─────────────────────────────────────────────────────────────────────
-        filter_layout = QHBoxLayout()
+        self._filter_frame = QFrame()
+        self._filter_frame.setObjectName("trackFilterBar")
+        filter_layout = QHBoxLayout(self._filter_frame)
         filter_layout.setContentsMargins(0, 0, 0, 0)
-        filter_layout.setSpacing(4)
+        filter_layout.setSpacing(8)
 
         # Filter icon/label
         filter_label = QLabel("Filter:")
+        filter_label.setObjectName("trackFilterLabel")
         filter_layout.addWidget(filter_label)
 
         # Filter input
@@ -126,21 +131,28 @@ class TrackTable(QWidget):
 
         # Status label
         self._status_label = QLabel("")
-        self._status_label.setStyleSheet("color: #666; font-size: 11px;")
+        self._status_label.setObjectName("trackStatusLabel")
         filter_layout.addWidget(self._status_label)
 
-        layout.addLayout(filter_layout)
+        layout.addWidget(self._filter_frame)
 
         # ─────────────────────────────────────────────────────────────────────
         # Table view
         # ─────────────────────────────────────────────────────────────────────
         self._table = QTableView()
+        self._table.setObjectName("playlistTable")
         self._table.setModel(self._proxy)
 
         # Configure selection
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self._table.setAlternatingRowColors(True)
+        self._table.setShowGrid(False)
+        self._table.setWordWrap(False)
+        self._table.setTextElideMode(Qt.ElideRight)
+        self._table.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self._table.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self._table.setCornerButtonEnabled(False)
 
         # Configure editing
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -175,6 +187,7 @@ class TrackTable(QWidget):
 
         # Vertical header (row numbers) hidden
         self._table.verticalHeader().setVisible(False)
+        self._table.verticalHeader().setDefaultSectionSize(28)
 
         # Connect signals
         self._table.selectionModel().selectionChanged.connect(self._on_selection_changed)
@@ -184,7 +197,32 @@ class TrackTable(QWidget):
         self._table.setContextMenuPolicy(Qt.CustomContextMenu)
         self._table.customContextMenuRequested.connect(self._show_context_menu)
 
-        layout.addWidget(self._table)
+        self._empty_frame = QFrame()
+        self._empty_frame.setObjectName("trackEmptyState")
+        empty_layout = QVBoxLayout(self._empty_frame)
+        empty_layout.setContentsMargins(16, 16, 16, 16)
+        empty_layout.setSpacing(4)
+        empty_layout.setAlignment(Qt.AlignCenter)
+
+        self._empty_title = QLabel("No playlist loaded")
+        self._empty_title.setObjectName("trackEmptyTitle")
+        self._empty_title.setAlignment(Qt.AlignCenter)
+        empty_layout.addWidget(self._empty_title)
+
+        self._empty_detail = QLabel("Waiting for playlist results.")
+        self._empty_detail.setObjectName("trackEmptyDetail")
+        self._empty_detail.setAlignment(Qt.AlignCenter)
+        empty_layout.addWidget(self._empty_detail)
+
+        self._results_frame = QFrame()
+        self._results_frame.setObjectName("trackResultsFrame")
+        self._results_stack = QStackedLayout(self._results_frame)
+        self._results_stack.setContentsMargins(0, 0, 0, 0)
+        self._results_stack.addWidget(self._table)
+        self._results_stack.addWidget(self._empty_frame)
+
+        layout.addWidget(self._results_frame)
+        self._update_results_state()
 
     # Persistence helpers
     def get_filter_text(self) -> str:
@@ -367,6 +405,23 @@ class TrackTable(QWidget):
             self._status_label.setText(f"Showing {visible} of {total} tracks")
 
         self.status_changed.emit(visible, total)
+        self._update_results_state()
+
+    def _update_results_state(self) -> None:
+        """Show the table, empty state, or filtered-empty state."""
+        visible = self._proxy.get_visible_count()
+        total = self._proxy.get_total_count()
+
+        if total == 0:
+            self._empty_title.setText("No playlist loaded")
+            self._empty_detail.setText("Waiting for playlist results.")
+            self._results_stack.setCurrentWidget(self._empty_frame)
+        elif visible == 0:
+            self._empty_title.setText("No matching tracks")
+            self._empty_detail.setText("Filter currently hides every loaded track.")
+            self._results_stack.setCurrentWidget(self._empty_frame)
+        else:
+            self._results_stack.setCurrentWidget(self._table)
 
     @Slot()
     def _focus_filter(self) -> None:

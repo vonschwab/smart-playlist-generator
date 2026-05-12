@@ -183,6 +183,7 @@ class SimilarityCalculator:
                 return np.array([], dtype=float)
 
             arr = np.asarray(values, dtype=float).flatten()
+            arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
             if preferred_length is None:
                 return arr
 

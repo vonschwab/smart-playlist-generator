@@ -6,6 +6,7 @@ from src.playlist_gui.jobs.job_types import JobType
 
 class FakeWorkerClient(QObject):
     progress_received = Signal(str, int, int, str, object)
+    result_received = Signal(str, dict, object)
     error_received = Signal(str, str, object)
     done_received = Signal(str, bool, str, bool, object, str)
     busy_changed = Signal(bool)
@@ -33,6 +34,9 @@ class FakeWorkerClient(QObject):
 
     def build_artifacts(self, *args, **kwargs):
         return "req-art"
+
+    def analyze_library(self, *args, **kwargs):
+        return "req-analyze"
 
     def get_pid(self):
         return None
@@ -72,3 +76,17 @@ def test_retry_queue_reenqueues_skipped(qtbot):
     # Should include re-enqueued jobs for each skipped
     assert len(new_pending) >= len(skipped)
     assert new_pending[-1].job_type == skipped[-1].job_type
+
+
+def test_analyze_library_worker_crash_gets_readable_summary(qtbot):
+    fake = FakeWorkerClient()
+    mgr = JobManager(fake)
+
+    job = mgr.enqueue_job(JobType.ANALYZE_LIBRARY, "config.yaml", {})
+    fake.progress_received.emit("sonic", 4, 7, "Running sonic", job.job_id)
+
+    fake.worker_stopped.emit(1, "crashed")
+
+    assert job.status == "FAILED"
+    assert job.summary == "Analyze Library crashed during Running sonic"
+    assert "Worker exited unexpectedly" in job.error_message

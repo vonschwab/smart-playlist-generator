@@ -179,3 +179,89 @@ def test_scan_modified_breakdown_in_report(tmp_path, monkeypatch, caplog):
     assert "modified_reasons" in data
     assert "stat_changed" in data
     assert "scan modified breakdown" in caplog.text
+
+
+def test_run_pipeline_can_suppress_console_logging_for_worker_stdout(tmp_path, monkeypatch, capsys):
+    db_path = tmp_path / "metadata.db"
+    _make_db(db_path)
+    config_path = _write_config(tmp_path, db_path)
+    out_dir = tmp_path / "artifacts"
+    log_path = tmp_path / "analyze_worker.log"
+
+    def _stub_scan(ctx):
+        return {"total": 1, "scan_total": 1, "orphaned": {}}
+
+    monkeypatch.setattr(analyze, "STAGE_FUNCS", {"scan": _stub_scan})
+
+    args = analyze.parse_args(
+        [
+            "--config",
+            str(config_path),
+            "--db-path",
+            str(db_path),
+            "--stages",
+            "scan",
+            "--out-dir",
+            str(out_dir),
+            "--log-file",
+            str(log_path),
+        ]
+    )
+
+    analyze.run_pipeline(args, console_logging=False)
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "Analyze run start" in log_path.read_text(encoding="utf-8")
+
+
+def test_run_pipeline_checks_cancellation_between_stages(tmp_path, monkeypatch):
+    db_path = tmp_path / "metadata.db"
+    _make_db(db_path)
+    config_path = _write_config(tmp_path, db_path)
+    out_dir = tmp_path / "artifacts"
+    stages_run = []
+
+    class CancelledByTest(Exception):
+        pass
+
+    def _stub_scan(ctx):
+        stages_run.append("scan")
+        return {"total": 1, "scan_total": 1, "orphaned": {}}
+
+    def _stub_verify(ctx):
+        stages_run.append("verify")
+        return {"skipped": False, "issues": []}
+
+    checks = {"count": 0}
+
+    def _cancel_after_first_stage():
+        checks["count"] += 1
+        if checks["count"] > 2:
+            raise CancelledByTest()
+
+    monkeypatch.setattr(analyze, "STAGE_FUNCS", {"scan": _stub_scan, "verify": _stub_verify})
+
+    args = analyze.parse_args(
+        [
+            "--config",
+            str(config_path),
+            "--db-path",
+            str(db_path),
+            "--stages",
+            "scan,verify",
+            "--out-dir",
+            str(out_dir),
+            "--log-file",
+            str(tmp_path / "analyze_cancel.log"),
+        ]
+    )
+
+    try:
+        analyze.run_pipeline(args, cancellation_check=_cancel_after_first_stage)
+    except CancelledByTest:
+        pass
+    else:
+        raise AssertionError("Expected cancellation to stop the pipeline")
+
+    assert stages_run == ["scan"]

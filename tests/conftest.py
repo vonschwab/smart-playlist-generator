@@ -12,6 +12,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.features.artifacts import load_artifact_bundle
 
 
+def pytest_addoption(parser):
+    parser.addoption(
+        "--generate-golden",
+        action="store_true",
+        default=False,
+        help="Generate golden reference files before comparing against them",
+    )
+
+
 def _build_artifact(tmp_path, seed: int = 0, include_segments: bool = True):
     """Build a synthetic artifact for testing."""
     rng = np.random.default_rng(seed)

@@ -7,7 +7,11 @@ Tests that the pipeline correctly parses both:
 """
 from __future__ import annotations
 
+from pathlib import Path
 from unittest import mock
+
+import yaml
+
 from src.playlist.pier_bridge_builder import PierBridgeConfig
 
 
@@ -208,3 +212,20 @@ def test_flat_key_logs_deprecation_warning(mock_logger):
     assert "deprecated" in call_args[0]
     assert "dj_pooling_strategy" in call_args[0]
     assert call_args[1] == "dj_union"
+
+
+def test_active_config_uses_nested_pooling_strategy_only():
+    """The checked-in runtime config should not emit the deprecated flat-key warning."""
+    config_path = Path(__file__).resolve().parents[2] / "config.yaml"
+    with config_path.open("r", encoding="utf-8") as handle:
+        config = yaml.safe_load(handle)
+
+    dj_bridging = (
+        config.get("playlists", {})
+        .get("ds_pipeline", {})
+        .get("pier_bridge", {})
+        .get("dj_bridging", {})
+    )
+
+    assert "dj_pooling_strategy" not in dj_bridging
+    assert dj_bridging.get("pooling", {}).get("strategy") == "dj_union"

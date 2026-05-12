@@ -1,6 +1,6 @@
 # Playlist Generator
 
-**Version 3.5** - Quality-of-life release with faster scans, resumable GUI jobs, genre caching, and improved artist/collaboration handling.
+**Version 4.0** - Native GUI overhaul with CLI parity, responsive controls, Analyze Library readouts, and shared request validation.
 
 ## Overview
 
@@ -13,13 +13,13 @@ This system generates intelligent playlists by combining:
 - **Artist Identity Resolution** - Collaboration-aware constraints that block featured artists and ensemble variants
 - **Comprehensive Diagnostics** - Pool visibility, per-track membership, waypoint saturation metrics
 
-## What's New in v3.5
+## What's New in v4.0
 
-⚡ **Faster Library Scans** - Batch-oriented scan updates reduce overhead for large local libraries
-🧭 **Resumable GUI Jobs** - Long-running worker jobs can emit checkpoints and expose richer job details
-💾 **Genre Lookup Cache** - MusicBrainz/Discogs genre lookups are cached to reduce repeated API work
-👥 **Collaboration-Aware Artist Style** - Artist clustering can include collaborations when requested
-📈 **Diagnostics** - Verbose worker logs, performance metrics, and collaboration inspection tools improve debugging
+- **Native GUI/CLI Parity** - Artist, Genre, Seeds, and History flows now share request validation and generation options.
+- **Responsive Generate Controls** - Matching, freshness, diversity, length, artist gap, and actions are grouped into consistent adaptive cards.
+- **Analyze Library Readouts** - Library analysis jobs expose clearer summaries, stage results, job details, and controlled logging.
+- **First-Class Matching Modes** - Genre and sonic axes support `strict`, `narrow`, `dynamic`, `discover`, and `off` in the GUI.
+- **Worker Reliability** - Tool actions respect busy state, malformed worker events are handled defensively, and diagnostics stay actionable.
 
 For complete details, see [docs/CHANGELOG.md](docs/CHANGELOG.md) and [docs/DJ_BRIDGE_ARCHITECTURE.md](docs/DJ_BRIDGE_ARCHITECTURE.md).
 

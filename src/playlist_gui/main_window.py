@@ -11,13 +11,12 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Sequence
 
 from PySide6.QtCore import Qt, Slot, QTimer, QSettings, QThreadPool, QRunnable, QObject, Signal
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import (
     QApplication,
-    QComboBox,
     QDialog,
     QDockWidget,
     QFileDialog,
@@ -45,8 +44,11 @@ from .config.presets import PresetManager, install_builtin_presets
 from .gui_logging import LogEmitter
 from .jobs import JobManager, JobType
 from .policy import derive_runtime_config, merge_overrides
+from src.playlist.analyze_library_results import format_analyze_library_action_list
+from src.playlist.request_models import GeneratePlaylistRequest
 from .ui_state import UIStateModel
 from .widgets.advanced_panel import AdvancedSettingsPanel
+from .widgets.analyze_library_options_dialog import AnalyzeLibraryOptionsDialog
 from .widgets.export_dialog import ExportLocalDialog, ExportPlexDialog
 from .widgets.generate_panel import GeneratePanel
 from .widgets.jobs_panel import JobsPanel
@@ -56,6 +58,30 @@ from .blacklist_window import BlacklistWindow
 from .worker_client import WorkerClient
 from .diagnostics.checks import CheckResult
 from .diagnostics.manager import DiagnosticsManager
+
+
+_GENERATION_MODES = {"artist", "genre", "seeds", "history"}
+
+
+def _set_menu_actions_enabled(menu: Optional[QMenu], enabled: bool) -> None:
+    """Set all direct actions in a menu to the same enabled state."""
+    if not menu:
+        return
+    for action in menu.actions():
+        action.setEnabled(enabled)
+
+
+def _validate_generation_request(
+    ui_state: UIStateModel,
+    seed_tracks: Optional[Sequence[str]] = None,
+    seed_track_ids: Optional[Sequence[str]] = None,
+) -> Optional[str]:
+    """Return a user-facing validation message, or None when generation can start."""
+    return GeneratePlaylistRequest.from_ui_state(
+        ui_state,
+        seed_tracks=list(seed_tracks or []),
+        seed_track_ids=list(seed_track_ids) if seed_track_ids is not None else None,
+    ).validation_error()
 
 
 class DebugReportSignals(QObject):
@@ -221,13 +247,12 @@ class MainWindow(QMainWindow):
 
         # Diagnostics banner (hidden by default)
         self._banner_frame = QFrame()
-        self._banner_frame.setStyleSheet("QFrame { background: #fff4e5; border: 1px solid #f0c36d; border-radius: 4px; }")
         banner_layout = QHBoxLayout(self._banner_frame)
         banner_layout.setContentsMargins(8, 4, 8, 4)
         self._banner_label = QLabel("")
         banner_layout.addWidget(self._banner_label, stretch=1)
         self._banner_time_label = QLabel("")
-        self._banner_time_label.setStyleSheet("color: #555; font-size: 11px;")
+        self._style_diagnostics_banner()
         banner_layout.addWidget(self._banner_time_label)
         btn_jobs = QPushButton("Open Jobs")
         btn_jobs.clicked.connect(lambda: self._jobs_dock.show() if self._jobs_dock else None)
@@ -280,16 +305,6 @@ class MainWindow(QMainWindow):
         self._stage_label = self._generate_panel._stage_label
         self._generate_btn = self._generate_panel._generate_btn
 
-        # Hidden placeholders kept for back-compat with save/restore/debug-report
-        # code paths that still read these widgets (Tier-3.3 will migrate those
-        # to GeneratePanel / UIStateModel / PolicyLayer and let the placeholders
-        # go).
-        self._mode_combo = QComboBox()
-        self._artist_label = QLabel()
-        self._artist_edit = QLineEdit()
-        self._genre_label = QLabel()
-        self._genre_edit = QLineEdit()
-
         # ─────────────────────────────────────────────────────────────────────
         # Main content area with splitter (track table + logs)
         # ─────────────────────────────────────────────────────────────────────
@@ -306,11 +321,24 @@ class MainWindow(QMainWindow):
         self._track_table.blacklist_requested.connect(self._on_blacklist_requested)
         table_layout.addWidget(self._track_table, stretch=1)
 
-        # Export buttons row
-        export_row = QHBoxLayout()
-        export_row.setSpacing(14)
-        export_row.setContentsMargins(8, 8, 8, 8)
-        export_row.addStretch()
+        # Results footer (playlist summary + export actions)
+        self._results_footer = QFrame()
+        self._results_footer.setObjectName("resultsFooter")
+        export_row = QHBoxLayout(self._results_footer)
+        export_row.setSpacing(10)
+        export_row.setContentsMargins(10, 8, 10, 8)
+
+        summary_group = QWidget()
+        summary_layout = QVBoxLayout(summary_group)
+        summary_layout.setContentsMargins(0, 0, 0, 0)
+        summary_layout.setSpacing(2)
+        self._results_summary_label = QLabel("No playlist loaded")
+        self._results_summary_label.setObjectName("resultsSummaryTitle")
+        self._results_summary_detail = QLabel("Generate a playlist to enable export.")
+        self._results_summary_detail.setObjectName("resultsSummaryDetail")
+        summary_layout.addWidget(self._results_summary_label)
+        summary_layout.addWidget(self._results_summary_detail)
+        export_row.addWidget(summary_group, stretch=1)
 
         self._cancel_btn = QPushButton("Cancel")
         self._cancel_btn.setObjectName("dangerButton")
@@ -322,17 +350,16 @@ class MainWindow(QMainWindow):
         self._export_local_btn = QPushButton("Export to Local (M3U8)")
         self._export_local_btn.setEnabled(False)
         self._export_local_btn.clicked.connect(self._on_export_local)
-        self._export_local_btn.setToolTip("Export playlist to M3U8 file")
         export_row.addWidget(self._export_local_btn)
 
         self._export_plex_btn = QPushButton("Export to Plex")
         self._export_plex_btn.setObjectName("exportPlexButton")
         self._export_plex_btn.setEnabled(False)
         self._export_plex_btn.clicked.connect(self._on_export_plex)
-        self._export_plex_btn.setToolTip("Export playlist to Plex")
         export_row.addWidget(self._export_plex_btn)
 
-        table_layout.addLayout(export_row)
+        self._update_results_footer(playlist_name="", tracks=[])
+        table_layout.addWidget(self._results_footer)
         self._main_splitter.addWidget(table_container)
 
         # Log panel (inline, resizable)
@@ -380,16 +407,16 @@ class MainWindow(QMainWindow):
 
         # Override status indicator (permanent widget on right side)
         self._override_status_label = QLabel("Base config")
-        self._override_status_label.setStyleSheet("""
-            QLabel {
-                padding: 2px 8px;
-                border-radius: 3px;
-                font-size: 11px;
-            }
-        """)
+        self._override_status_label.setObjectName("overrideStatusLabel")
+        self._override_status_label.setProperty("state", "base")
         self._status_bar.addPermanentWidget(self._override_status_label)
 
         self._status_bar.showMessage("Ready")
+
+    def _style_diagnostics_banner(self) -> None:
+        """Attach QSS theme hooks for the diagnostics banner."""
+        self._banner_frame.setObjectName("diagnosticsBanner")
+        self._banner_time_label.setObjectName("diagnosticsBannerTime")
 
     def _create_advanced_panel_content(self) -> QWidget:
         """Create the advanced settings panel with config selector at top."""
@@ -426,7 +453,7 @@ class MainWindow(QMainWindow):
 
         # Database info
         self._db_info_label = QLabel("Database: Not loaded")
-        self._db_info_label.setStyleSheet("color: #666; font-size: 11px;")
+        self._db_info_label.setObjectName("advancedInfoLabel")
         config_layout.addWidget(self._db_info_label)
 
         layout.addWidget(config_group)
@@ -452,14 +479,8 @@ class MainWindow(QMainWindow):
         """Update the override status indicator in the status bar."""
         if not self._config_model:
             self._override_status_label.setText("No config")
-            self._override_status_label.setStyleSheet("""
-                QLabel {
-                    padding: 2px 8px;
-                    border-radius: 3px;
-                    font-size: 11px;
-                    color: #666;
-                }
-            """)
+            self._override_status_label.setObjectName("overrideStatusLabel")
+            self._override_status_label.setProperty("state", "no_config")
             return
 
         override_count = self._config_model.override_count()
@@ -468,55 +489,22 @@ class MainWindow(QMainWindow):
             # Preset is loaded
             if self._dirty_overrides:
                 text = f"Preset: {self._active_preset_name} (modified)"
-                style = """
-                    QLabel {
-                        padding: 2px 8px;
-                        border-radius: 3px;
-                        font-size: 11px;
-                        background-color: #fff3cd;
-                        color: #856404;
-                        border: 1px solid #ffc107;
-                    }
-                """
+                state = "preset_modified"
             else:
                 text = f"Preset: {self._active_preset_name}"
-                style = """
-                    QLabel {
-                        padding: 2px 8px;
-                        border-radius: 3px;
-                        font-size: 11px;
-                        background-color: #d4edda;
-                        color: #155724;
-                        border: 1px solid #28a745;
-                    }
-                """
+                state = "preset"
         elif override_count > 0:
             # Overrides active but no preset
             text = f"Overrides active ({override_count})"
-            style = """
-                QLabel {
-                    padding: 2px 8px;
-                    border-radius: 3px;
-                    font-size: 11px;
-                    background-color: #cce5ff;
-                    color: #004085;
-                    border: 1px solid #007bff;
-                }
-            """
+            state = "overrides"
         else:
             # Base config
             text = "Base config"
-            style = """
-                QLabel {
-                    padding: 2px 8px;
-                    border-radius: 3px;
-                    font-size: 11px;
-                    color: #666;
-                }
-            """
+            state = "base"
 
         self._override_status_label.setText(text)
-        self._override_status_label.setStyleSheet(style)
+        self._override_status_label.setObjectName("overrideStatusLabel")
+        self._override_status_label.setProperty("state", state)
 
     def _check_dirty_overrides(self) -> None:
         """Check if current overrides differ from the loaded preset snapshot."""
@@ -567,14 +555,47 @@ class MainWindow(QMainWindow):
         # Tools menu
         self._tools_menu = QMenu("&Tools", self)
         tools_menu = self._tools_menu
+        tools_menu.setToolTipsVisible(True)
+        self._tool_actions = {}
+        self._tool_action_tips = {}
         menubar.addMenu(tools_menu)
 
-        tools_menu.addAction("Run &Diagnostics", self._on_run_diagnostics)
-        tools_menu.addAction("Run &Pipeline (Scan->Genres->Sonic->Artifacts)", self._on_run_pipeline)
-        tools_menu.addAction("Scan &Library", self._on_scan_library)
-        tools_menu.addAction("Update &Genres", self._on_update_genres)
-        tools_menu.addAction("Update &Sonic Features", self._on_update_sonic)
-        tools_menu.addAction("&Build Artifacts", self._on_build_artifacts)
+        self._add_tool_action(
+            "diagnostics",
+            "Run &Diagnostics",
+            self._on_run_diagnostics,
+            "Run GUI and worker diagnostics.",
+        )
+        self._add_tool_action(
+            "analyze_library",
+            "&Analyze Library",
+            self._on_run_pipeline,
+            "Run the default library analysis pipeline.",
+        )
+        self._add_tool_action(
+            "scan_library",
+            "Scan &Library",
+            self._on_scan_library,
+            "Scan the configured music library.",
+        )
+        self._add_tool_action(
+            "update_genres",
+            "Update &Genres",
+            self._on_update_genres,
+            "Refresh normalized genre metadata.",
+        )
+        self._add_tool_action(
+            "update_sonic",
+            "Update &Sonic Features",
+            self._on_update_sonic,
+            "Extract or refresh sonic features.",
+        )
+        self._add_tool_action(
+            "build_artifacts",
+            "&Build Artifacts",
+            self._on_build_artifacts,
+            "Build playlist generation artifacts.",
+        )
 
         # Settings menu
         settings_menu = QMenu("&Settings", self)
@@ -602,6 +623,15 @@ class MainWindow(QMainWindow):
         help_menu.addAction("&About", self._on_about)
         help_menu.addAction("Copy Debug Report", self._on_copy_debug_report)
         help_menu.addAction("Save Debug Report...", self._on_save_debug_report)
+
+    def _add_tool_action(self, key: str, text: str, callback, description: str):
+        """Add a Tools menu action with a stable key and user-facing description."""
+        action = self._tools_menu.addAction(text, callback)
+        action.setStatusTip(description)
+        action.setToolTip(description)
+        self._tool_actions[key] = action
+        self._tool_action_tips[action] = description
+        return action
 
     def _setup_worker(self) -> None:
         """Setup the worker client."""
@@ -734,23 +764,41 @@ class MainWindow(QMainWindow):
             return False
 
     def _get_selected_modes(self) -> tuple[Optional[str], Optional[str]]:
-        """Get selected genre and sonic modes from radio buttons."""
-        genre_mode = None
-        sonic_mode = None
+        """Get selected genre and sonic modes from the GeneratePanel."""
+        state = self._current_generation_ui_state()
+        return state.genre_mode, state.sonic_mode
 
-        # Get genre mode
-        if hasattr(self, '_genre_mode_group'):
-            checked_button = self._genre_mode_group.checkedButton()
-            if checked_button:
-                genre_mode = checked_button.property("mode_id")
+    @staticmethod
+    def _normalize_saved_generation_mode(mode: object) -> str:
+        """Normalize persisted display labels and ids to a GeneratePanel mode id."""
+        mode_text = str(mode or "artist").strip().lower()
+        return mode_text if mode_text in _GENERATION_MODES else "artist"
 
-        # Get sonic mode
-        if hasattr(self, '_sonic_mode_group'):
-            checked_button = self._sonic_mode_group.checkedButton()
-            if checked_button:
-                sonic_mode = checked_button.property("mode_id")
+    def _current_generation_ui_state(self) -> UIStateModel:
+        """Return the current generation state owned by GeneratePanel."""
+        if self._generate_panel:
+            return self._generate_panel.build_ui_state()
+        return UIStateModel()
 
-        return genre_mode, sonic_mode
+    def _restore_generation_state(
+        self,
+        *,
+        mode: object = None,
+        artist: object = None,
+        genre: object = None,
+        genre_mode: object = None,
+        sonic_mode: object = None,
+    ) -> None:
+        """Restore persisted generation controls through GeneratePanel."""
+        if not self._generate_panel:
+            return
+        self._generate_panel.apply_saved_state(
+            mode=self._normalize_saved_generation_mode(mode),
+            artist=str(artist or ""),
+            genre=str(genre or ""),
+            genre_mode=str(genre_mode or "") or None,
+            sonic_mode=str(sonic_mode or "") or None,
+        )
 
     @staticmethod
     def _set_override_value(overrides: dict, key_path: str, value: Any) -> None:
@@ -788,8 +836,10 @@ class MainWindow(QMainWindow):
         box.setIcon(QMessageBox.Warning)
         box.setWindowTitle("Artifacts Not Found")
         box.setText(f"Required artifacts were not found:\n{path}")
-        box.setInformativeText("Run the library pipeline now? This queues Scan -> Genres -> Sonic -> Artifacts.")
-        run_btn = box.addButton("Run Pipeline", QMessageBox.AcceptRole)
+        box.setInformativeText(
+            "Analyze the library now? This queues Scan -> Genres -> Sonic -> Artifacts."
+        )
+        run_btn = box.addButton("Analyze Library", QMessageBox.AcceptRole)
         continue_btn = box.addButton("Continue Anyway", QMessageBox.DestructiveRole)
         cancel_btn = box.addButton(QMessageBox.Cancel)
         box.setDefaultButton(run_btn)
@@ -833,6 +883,45 @@ class MainWindow(QMainWindow):
             self._cancel_btn.setEnabled(False)  # Disable until we get a response
             self._stage_label.setText("Cancelling...")
 
+    def _update_results_footer(self, playlist_name: str, tracks: Sequence[dict]) -> None:
+        """Update playlist summary and export availability in the results footer."""
+        track_count = len(tracks or [])
+        has_tracks = track_count > 0
+        display_name = playlist_name.strip() if playlist_name else ""
+
+        if has_tracks:
+            summary = display_name or "Generated playlist"
+            noun = "track" if track_count == 1 else "tracks"
+            detail = f"{track_count} {noun} ready to export."
+            local_tip = f"Export {track_count} {noun} to an M3U8 file."
+            plex_tip = f"Export {track_count} {noun} to Plex."
+        else:
+            summary = "No playlist loaded"
+            detail = "Generate a playlist to enable export."
+            local_tip = "Generate a playlist before exporting."
+            plex_tip = "Generate a playlist before exporting."
+
+        self._results_summary_label.setText(summary)
+        self._results_summary_detail.setText(detail)
+        self._export_local_btn.setEnabled(has_tracks)
+        self._export_plex_btn.setEnabled(has_tracks)
+        self._export_local_btn.setToolTip(local_tip)
+        self._export_plex_btn.setToolTip(plex_tip)
+
+    def _update_tools_busy_state(self, is_busy: bool) -> None:
+        """Update Tools menu availability and explain busy-state restrictions."""
+        if not hasattr(self, "_tools_menu"):
+            return
+
+        busy_tip = "Unavailable while another operation is running."
+        self._tools_menu.setTitle("&Tools (Busy)" if is_busy else "&Tools")
+
+        for action in getattr(self, "_tool_actions", {}).values():
+            action.setEnabled(not is_busy)
+            tip = busy_tip if is_busy else getattr(self, "_tool_action_tips", {}).get(action, "")
+            action.setStatusTip(tip)
+            action.setToolTip(tip)
+
     @Slot(bool)
     def _on_busy_changed(self, is_busy: bool) -> None:
         """Handle busy state change from worker client."""
@@ -847,11 +936,7 @@ class MainWindow(QMainWindow):
         if self._generate_panel:
             self._generate_panel.set_generating(is_busy)
 
-        # Disable/enable tools menu items when busy
-        # (Tools menu is at index 2 in the menu bar)
-        if hasattr(self, '_tools_menu'):
-            for action in self._tools_menu.actions():
-                action.setEnabled(True)
+        self._update_tools_busy_state(is_busy)
 
         if not is_busy:
             # Reset progress when not busy
@@ -886,6 +971,32 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "No Config", "Please load a configuration file first.")
             return
 
+        # Reconstruct UIStateModel from dict and validate mode-specific inputs before
+        # running diagnostics or artifact checks.
+        ui_state = UIStateModel(**ui_state_dict)
+        seed_track_ids = (
+            self._generate_panel.get_seed_track_ids()
+            if ui_state.mode == "seeds" and self._generate_panel
+            else []
+        )
+        seed_tracks = (
+            self._generate_panel.get_seed_display_strings()
+            if ui_state.mode == "seeds" and self._generate_panel
+            else []
+        )
+        generation_request = GeneratePlaylistRequest.from_ui_state(
+            ui_state,
+            seed_tracks=seed_tracks,
+            seed_track_ids=seed_track_ids,
+        )
+        validation_message = generation_request.validation_error()
+        if validation_message:
+            if self._generate_panel:
+                self._generate_panel.show_validation_message(validation_message)
+            return
+        if self._generate_panel:
+            self._generate_panel.clear_validation_message()
+
         # Refresh diagnostics but avoid worker doctor when busy
         include_worker = not (self._worker_client and self._worker_client.is_busy())
         self._run_diagnostics(show_banner_on_fail=True, include_worker=include_worker)
@@ -898,9 +1009,6 @@ class MainWindow(QMainWindow):
             if not self._worker_client.start():
                 QMessageBox.critical(self, "Worker Error", "Failed to start worker process.")
                 return
-
-        # Reconstruct UIStateModel from dict
-        ui_state = UIStateModel(**ui_state_dict)
 
         # Get seed artist keys for policy evaluation (Seeds mode only)
         seed_artist_keys = None
@@ -922,6 +1030,9 @@ class MainWindow(QMainWindow):
 
         # Clear previous results
         self._track_table.clear()
+        self._current_playlist_name = ""
+        self._current_tracks = []
+        self._update_results_footer(playlist_name="", tracks=[])
         self._progress_bar.setValue(0)
         self._stage_label.setText("Starting...")
         self._is_generating = True
@@ -929,34 +1040,20 @@ class MainWindow(QMainWindow):
         if self._generate_panel:
             self._generate_panel.set_generating(True)
 
-        # Determine mode-specific parameters
-        artist = ui_state.primary_artist() if ui_state.mode == "artist" else None
-        # Pass both track IDs (for exact matching) and display strings (fallback)
-        seed_track_ids = (
-            self._generate_panel.get_seed_track_ids()
-            if ui_state.mode == "seeds" and self._generate_panel
-            else []
-        )
-        seed_tracks = (
-            self._generate_panel.get_seed_display_strings()
-            if ui_state.mode == "seeds" and self._generate_panel
-            else []
-        )
-
         # Send command to worker
         self._worker_client.generate_playlist(
             config_path=self._config_path,
             overrides=final_overrides,
-            mode=ui_state.mode,
-            artist=artist,
-            genre=None,  # Genre mode removed in Phase 2
-            track=None,
-            seed_tracks=seed_tracks,
-            seed_track_ids=seed_track_ids,
-            tracks=ui_state.track_count,
-            genre_mode=ui_state.genre_mode,
-            sonic_mode=ui_state.sonic_mode,
-            include_collaborations=ui_state.include_collaborations,
+            mode=generation_request.mode,
+            artist=generation_request.artist,
+            genre=generation_request.genre,
+            track=generation_request.track,
+            seed_tracks=generation_request.seed_tracks,
+            seed_track_ids=generation_request.seed_track_ids,
+            tracks=generation_request.tracks,
+            genre_mode=generation_request.genre_mode,
+            sonic_mode=generation_request.sonic_mode,
+            include_collaborations=generation_request.include_collaborations,
         )
 
         # Log generation start
@@ -968,12 +1065,14 @@ class MainWindow(QMainWindow):
         if policy.dj_bridging_enabled:
             log_msg += ", dj_bridging=ON"
         log_msg += ")"
-        if artist:
-            log_msg += f", artist={artist}"
-            if ui_state.include_collaborations:
+        if generation_request.artist:
+            log_msg += f", artist={generation_request.artist}"
+            if generation_request.include_collaborations:
                 log_msg += ", collabs=ON"
-        if seed_tracks:
-            log_msg += f", seeds={len(seed_tracks)}"
+        if generation_request.genre:
+            log_msg += f", genre={generation_request.genre}"
+        if generation_request.seed_tracks:
+            log_msg += f", seeds={len(generation_request.seed_tracks)}"
         self._log_panel.append_log("INFO", log_msg)
 
     def _run_diagnostics(self, show_banner_on_fail: bool = False, force: bool = False, include_worker: bool = True) -> None:
@@ -1105,7 +1204,7 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _on_run_pipeline(self) -> None:
-        """Queue the full library pipeline."""
+        """Queue the library analysis workflow."""
         if not self._config_model:
             QMessageBox.warning(self, "No Config", "Load a configuration before queuing jobs.")
             return
@@ -1114,9 +1213,18 @@ class MainWindow(QMainWindow):
             return
 
         overrides = dict(self._config_model.get_overrides())
-        self._job_manager.enqueue_pipeline(self._config_path, overrides)
-        self._log_panel.append_log("INFO", "Queued pipeline: Scan -> Genres -> Sonic -> Artifacts")
-        self._status_bar.showMessage("Pipeline queued")
+        dialog = AnalyzeLibraryOptionsDialog(self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+
+        request = dialog.build_request(self._config_path, overrides)
+        self._job_manager.enqueue_pipeline(self._config_path, overrides, request=request)
+        stage_text = format_analyze_library_action_list(request.stages)
+        self._log_panel.append_log(
+            "INFO",
+            f"Queued Analyze Library: {stage_text}",
+        )
+        self._status_bar.showMessage(f"Analyze Library queued: {stage_text}")
 
     def _on_cancel_jobs(self) -> None:
         """Cancel the active job if running."""
@@ -1177,8 +1285,9 @@ class MainWindow(QMainWindow):
             if self._dirty_overrides:
                 preset_label += " (modified)"
 
-        mode = self._mode_combo.currentText()
-        artist = self._artist_edit.text()
+        ui_state = self._current_generation_ui_state()
+        mode = ui_state.mode
+        artist = ui_state.primary_artist() or ""
         worker_status = "running" if self._worker_client and self._worker_client.is_running() else "not running"
         if self._worker_client and self._worker_client.get_pid():
             worker_status += f" (pid {self._worker_client.get_pid()})"
@@ -1236,7 +1345,7 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self,
             "About Playlist Generator",
-            "Playlist Generator v3.2\n\n"
+            "Playlist Generator v4.0.0\n\n"
             "Data Science-powered playlist generation using beat3tower sonic analysis\n"
             "and normalized genre metadata.\n\n"
             "Architecture: Two-process model with PySide6 GUI and worker process."
@@ -1249,7 +1358,7 @@ class MainWindow(QMainWindow):
     @Slot(str, str, object)
     def _on_worker_log(self, level: str, message: str, job_id: object = None) -> None:
         """Handle log from worker."""
-        self._logger.info("worker: %s", message)
+        self._log_panel.append_log(level, message)
 
     @Slot(str, int, int, str, object)
     def _on_worker_progress(self, stage: str, current: int, total: int, detail: str, job_id: object = None) -> None:
@@ -1260,7 +1369,7 @@ class MainWindow(QMainWindow):
 
         stage_text = detail if detail else stage
         self._stage_label.setText(stage_text)
-        self._logger.info("worker progress: %s %s/%s %s", stage, current, total, detail)
+        self._logger.debug("worker progress: %s %s/%s %s", stage, current, total, detail)
 
     @Slot(str, dict, object)
     def _on_worker_result(self, result_type: str, data: dict, job_id: object = None) -> None:
@@ -1283,10 +1392,7 @@ class MainWindow(QMainWindow):
                 artist_name = tracks[0].get("artist", "")
             self._current_artist_name = artist_name
 
-            # Enable export buttons if we have tracks
-            has_tracks = len(tracks) > 0
-            self._export_local_btn.setEnabled(has_tracks)
-            self._export_plex_btn.setEnabled(has_tracks)
+            self._update_results_footer(playlist_name=playlist_name, tracks=tracks)
 
             self._log_panel.append_log("INFO", f"Received playlist: {playlist.get('name', 'Unknown')}")
 
@@ -1344,7 +1450,13 @@ class MainWindow(QMainWindow):
 
     def _show_generation_failure_dialog(self, reason: str) -> None:
         """Show blocking dialog for generation failure (Phase 2 UI)."""
-        dialog = QMessageBox(self)
+        dialog = self._build_generation_failure_dialog(reason)
+        dialog.exec()
+
+    def _build_generation_failure_dialog(self, reason: str) -> QMessageBox:
+        """Build the generation failure dialog without executing it."""
+        dialog = QMessageBox()
+        dialog.setObjectName("generationFailureDialog")
         dialog.setIcon(QMessageBox.Warning)
         dialog.setWindowTitle("Generation Failed")
         dialog.setText(f"Playlist generation failed:\n{reason}")
@@ -1356,12 +1468,17 @@ class MainWindow(QMainWindow):
             "Set Genre/Sonic modes toward 'Dynamic' or 'Discover' for more candidates",
         ]
         dialog.setDetailedText("Suggestions:\n" + "\n".join(f"- {s}" for s in suggestions))
-
-        dialog.exec()
+        return dialog
 
     def _show_generation_incomplete_dialog(self, actual: int, requested: int) -> None:
         """Show blocking dialog for incomplete generation (Phase 2 UI)."""
-        dialog = QMessageBox(self)
+        dialog = self._build_generation_incomplete_dialog(actual, requested)
+        dialog.exec()
+
+    def _build_generation_incomplete_dialog(self, actual: int, requested: int) -> QMessageBox:
+        """Build the incomplete-generation dialog without executing it."""
+        dialog = QMessageBox()
+        dialog.setObjectName("generationIncompleteDialog")
         dialog.setIcon(QMessageBox.Information)
         dialog.setWindowTitle("Generation Incomplete")
         dialog.setText(
@@ -1376,8 +1493,7 @@ class MainWindow(QMainWindow):
             "Try different seed tracks or artist",
         ]
         dialog.setDetailedText("Suggestions:\n" + "\n".join(f"- {s}" for s in suggestions))
-
-        dialog.exec()
+        return dialog
 
     @Slot()
     def _on_worker_started(self) -> None:
@@ -1649,27 +1765,13 @@ class MainWindow(QMainWindow):
             cfg = self._settings.value("state/config_path")
             if cfg:
                 self._config_path = str(cfg)
-            mode = self._settings.value("state/mode")
-            if mode:
-                self._mode_combo.setCurrentText(mode)
-            artist = self._settings.value("state/artist")
-            if artist:
-                self._artist_edit.setText(str(artist))
-            genre = self._settings.value("state/genre")
-            if genre:
-                self._genre_edit.setText(str(genre))
-            genre_mode = self._settings.value("state/genre_mode")
-            if genre_mode and hasattr(self, '_genre_mode_group'):
-                for button in self._genre_mode_group.buttons():
-                    if button.property("mode_id") == genre_mode:
-                        button.setChecked(True)
-                        break
-            sonic_mode = self._settings.value("state/sonic_mode")
-            if sonic_mode and hasattr(self, '_sonic_mode_group'):
-                for button in self._sonic_mode_group.buttons():
-                    if button.property("mode_id") == sonic_mode:
-                        button.setChecked(True)
-                        break
+            self._restore_generation_state(
+                mode=self._settings.value("state/mode"),
+                artist=self._settings.value("state/artist"),
+                genre=self._settings.value("state/genre"),
+                genre_mode=self._settings.value("state/genre_mode"),
+                sonic_mode=self._settings.value("state/sonic_mode"),
+            )
             preset = self._settings.value("state/preset")
             if preset:
                 self._pending_preset_name = str(preset)
@@ -1713,8 +1815,8 @@ class MainWindow(QMainWindow):
         if mode == "seeds":
             target = max(preferred, 320)
         else:
-            target = min(preferred, 220)
-        target = max(180, min(target, total_height - 200))
+            target = preferred
+        target = max(1, min(target, total_height - 200))
         self._content_splitter.setSizes([target, total_height - target])
 
     def _save_settings(self) -> None:
@@ -1725,9 +1827,10 @@ class MainWindow(QMainWindow):
             self._settings.setValue("ui/content_splitter", self._content_splitter.saveState())
             self._settings.setValue("ui/main_splitter", self._main_splitter.saveState())
             self._settings.setValue("state/config_path", self._config_path)
-            self._settings.setValue("state/mode", self._mode_combo.currentText())
-            self._settings.setValue("state/artist", self._artist_edit.text())
-            self._settings.setValue("state/genre", self._genre_edit.text())
+            ui_state = self._current_generation_ui_state()
+            self._settings.setValue("state/mode", ui_state.mode)
+            self._settings.setValue("state/artist", ui_state.primary_artist() or "")
+            self._settings.setValue("state/genre", ui_state.genre_query)
             self._settings.setValue("state/filter", self._track_table.get_filter_text())
             self._settings.setValue("ui/track_table/header_state", self._track_table.get_header_state())
             self._settings.setValue(
@@ -1735,12 +1838,8 @@ class MainWindow(QMainWindow):
                 json.dumps(self._track_table.get_column_visibility_state()),
             )
 
-            # Save mode selections
-            genre_mode, sonic_mode = self._get_selected_modes()
-            if genre_mode:
-                self._settings.setValue("state/genre_mode", genre_mode)
-            if sonic_mode:
-                self._settings.setValue("state/sonic_mode", sonic_mode)
+            self._settings.setValue("state/genre_mode", ui_state.genre_mode)
+            self._settings.setValue("state/sonic_mode", ui_state.sonic_mode)
 
             if self._active_preset_name:
                 self._settings.setValue("state/preset", self._active_preset_name)

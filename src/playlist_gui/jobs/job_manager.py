@@ -10,6 +10,7 @@ from typing import Dict, List, Optional
 
 from PySide6.QtCore import QObject, Signal, Slot
 
+from src.playlist.request_models import LibraryOperationRequest, LibraryPipelineRequest
 from ..worker_client import WorkerClient
 from .job_model import Job, JobStatus
 from .job_store import JobStore
@@ -44,6 +45,7 @@ class JobManager(QObject):
 
         # Connect worker signals
         self._worker_client.progress_received.connect(self._on_progress_received)
+        self._worker_client.result_received.connect(self._on_result_received)
         self._worker_client.error_received.connect(self._on_error_received)
         self._worker_client.done_received.connect(self._on_done_received)
         self._worker_client.busy_changed.connect(self._on_busy_changed)
@@ -58,13 +60,15 @@ class JobManager(QObject):
         return self._find_job(self._active_job_id)
 
     def enqueue_job(self, job_type: JobType, base_config_path: str, overrides: Optional[Dict] = None) -> Job:
+        normalized_job_type = job_type if isinstance(job_type, JobType) else JobType(str(job_type))
+        request = LibraryOperationRequest(normalized_job_type, base_config_path, dict(overrides or {}))
         job = Job(
             job_id=str(uuid.uuid4()),
-            job_type=job_type,
+            job_type=request.operation,
             status=JobStatus.PENDING,
-            base_config_path=base_config_path,
+            base_config_path=request.config_path,
         )
-        job.overrides = dict(overrides or {})
+        job.overrides = dict(request.overrides)
 
         self._jobs.append(job)
         self.job_added.emit(job)
@@ -73,11 +77,27 @@ class JobManager(QObject):
         self._start_next_job()
         return job
 
-    def enqueue_pipeline(self, base_config_path: str, overrides: Optional[Dict] = None) -> List[Job]:
+    def enqueue_pipeline(
+        self,
+        base_config_path: str,
+        overrides: Optional[Dict] = None,
+        request: Optional[LibraryPipelineRequest] = None,
+    ) -> List[Job]:
         """Enqueue the default pipeline (scan -> genres -> sonic -> artifacts)."""
+        pipeline_request = request or LibraryPipelineRequest(base_config_path, dict(overrides or {}))
         created: List[Job] = []
-        for job_type in JobType.ordered_pipeline():
-            created.append(self.enqueue_job(job_type, base_config_path, overrides))
+        for operation in pipeline_request.operations():
+            job = self.enqueue_job(
+                operation.operation,
+                operation.config_path,
+                operation.overrides,
+            )
+            job.request_options = {
+                "stages": list(pipeline_request.stages),
+                "force": bool(pipeline_request.force),
+                "dry_run": bool(pipeline_request.dry_run),
+            }
+            created.append(job)
         return created
 
     def cancel_active_job(self) -> None:
@@ -193,6 +213,21 @@ class JobManager(QObject):
 
     def _dispatch_job(self, job: Job) -> Optional[str]:
         overrides = getattr(job, "overrides", {}) or {}
+        if job.job_type == JobType.ANALYZE_LIBRARY:
+            options = getattr(job, "request_options", {}) or {}
+            request = LibraryPipelineRequest(
+                job.base_config_path or "",
+                overrides,
+                stages=options.get("stages") or None,
+                force=bool(options.get("force", False)),
+                dry_run=bool(options.get("dry_run", False)),
+            )
+            return self._worker_client.analyze_library(
+                job.base_config_path,
+                overrides,
+                request=request,
+                job_id=job.job_id,
+            )
         if job.job_type == JobType.SCAN_LIBRARY:
             return self._worker_client.scan_library(job.base_config_path, overrides, job_id=job.job_id)
         if job.job_type == JobType.UPDATE_GENRES:
@@ -213,6 +248,17 @@ class JobManager(QObject):
         job.progress_total = total or 100
         job.stage = detail or stage or job.stage
         self.job_updated.emit(job)
+
+    @Slot(str, dict, object)
+    def _on_result_received(self, result_type: str, data: Dict, job_id: Optional[str]) -> None:
+        job = self._find_job(job_id or self._active_job_id)
+        if not job:
+            return
+        if result_type == "analyze_library":
+            job.result_data = dict(data or {})
+            if job.result_data.get("summary"):
+                job.summary = str(job.result_data["summary"])
+            self.job_updated.emit(job)
 
     @Slot(str, str, object)
     def _on_error_received(self, message: str, tb: str, job_id: Optional[str]) -> None:
@@ -277,7 +323,13 @@ class JobManager(QObject):
                 else:
                     job.status = JobStatus.FAILED
                 job.finished_at = datetime.now(timezone.utc)
-                job.summary = job.summary or f"Worker exited unexpectedly (code={exit_code}, status={status})"
+                worker_exit = f"Worker exited unexpectedly (code={exit_code}, status={status})"
+                if job.job_type == JobType.ANALYZE_LIBRARY and job.status == JobStatus.FAILED:
+                    stage = job.stage or "current stage"
+                    job.summary = f"Analyze Library crashed during {stage}"
+                    job.error_message = job.error_message or worker_exit
+                else:
+                    job.summary = job.summary or worker_exit
                 self.job_updated.emit(job)
                 self._store.save_history(self._jobs)
             self._active_job_id = None

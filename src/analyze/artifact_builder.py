@@ -14,7 +14,7 @@ from src.features.beat3tower_types import Beat3TowerFeatures
 
 # Genre normalization for artifact building
 try:
-    from src.genre.normalize import normalize_and_split_genre
+    from src.genre.normalize_unified import normalize_and_split_genre
     GENRE_NORMALIZATION_AVAILABLE = True
 except ImportError:
     GENRE_NORMALIZATION_AVAILABLE = False

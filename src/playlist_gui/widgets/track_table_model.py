@@ -297,7 +297,8 @@ class TrackFilterProxyModel(QSortFilterProxyModel):
         """Toggle whether file path is included in filter matching."""
         if self._include_path_in_search != include:
             self._include_path_in_search = include
-            self.invalidateFilter()
+            self.beginFilterChange()
+            self.endFilterChange()
 
     def filterAcceptsRow(self, source_row: int, source_parent: QModelIndex) -> bool:
         """

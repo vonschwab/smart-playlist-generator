@@ -133,14 +133,14 @@ class SeedChipsList(QWidget):
         header_row.addWidget(self._header_label)
 
         self._count_label = QLabel("0 tracks")
-        self._count_label.setStyleSheet("color: #666;")
+        self._count_label.setObjectName("seedCountLabel")
         header_row.addWidget(self._count_label)
 
         header_row.addStretch()
 
         self._clear_btn = QPushButton("Clear All")
+        self._clear_btn.setObjectName("compactActionButton")
         self._clear_btn.setMinimumWidth(90)
-        self._clear_btn.setStyleSheet("font-size: 11px;")
         self._clear_btn.clicked.connect(self.clear)
         self._clear_btn.setEnabled(False)
         header_row.addWidget(self._clear_btn)
@@ -163,7 +163,7 @@ class SeedChipsList(QWidget):
 
         # Info label
         self._info_label = QLabel("")
-        self._info_label.setStyleSheet("color: #888; font-size: 11px; font-style: italic;")
+        self._info_label.setObjectName("seedInfoLabel")
         self._info_label.hide()
         layout.addWidget(self._info_label)
 

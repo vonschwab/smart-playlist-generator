@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from src.config_loader import Config
 from src.features.artifacts import load_artifact_bundle
+from src.playlist.ds_pipeline_runner import generate_playlist_ds
 
 
 @pytest.fixture(scope="module")
@@ -117,10 +118,12 @@ playlists:
       genre_weight: 0.40
 
     candidate_pool:
-      similarity_floor: 0.10
+      similarity_floor: 0.00
       min_sonic_similarity_dynamic: 0.00
+      min_sonic_similarity_narrow: 0.00
       max_pool_size: 80
       max_artist_fraction: 0.20
+      broad_filters: []
 
     scoring:
       alpha: 0.55
@@ -129,10 +132,13 @@ playlists:
       alpha_schedule: constant
 
     constraints:
-      min_gap: 4
-      hard_floor: true
-      transition_floor_dynamic: 0.20
+      min_gap: 1
+      hard_floor: false
+      transition_floor: 0.00
       center_transitions: true
+
+    pier_bridge:
+      bridge_floor: 0.00
 
     repair:
       enabled: true
@@ -165,13 +171,39 @@ class TestDSPipelineSmoke:
 
     def test_dynamic_mode_10_tracks(self, minimal_config):
         """Test dynamic mode with 10 tracks."""
-        # This is a minimal end-to-end test
-        # Skip if config.yaml doesn't exist (just testing artifacts work)
-        pytest.skip("Requires full pipeline integration - covered by golden files")
+        config = Config(str(minimal_config))
+        ds_config = config.config["playlists"]["ds_pipeline"]
+        result = generate_playlist_ds(
+            artifact_path=ds_config["artifact_path"],
+            seed_track_id="test_track_0000",
+            mode="dynamic",
+            length=10,
+            random_seed=42,
+            overrides=ds_config,
+        )
+
+        assert len(result.track_ids) == 10
+        assert result.track_ids[0] == "test_track_0000"
+        assert len(set(result.track_ids)) == 10
+        assert result.metrics["strategy"] == "pier_bridge"
 
     def test_narrow_mode_10_tracks(self, minimal_config):
         """Test narrow mode with 10 tracks."""
-        pytest.skip("Requires full pipeline integration - covered by golden files")
+        config = Config(str(minimal_config))
+        ds_config = config.config["playlists"]["ds_pipeline"]
+        result = generate_playlist_ds(
+            artifact_path=ds_config["artifact_path"],
+            seed_track_id="test_track_0000",
+            mode="narrow",
+            length=10,
+            random_seed=42,
+            overrides=ds_config,
+        )
+
+        assert len(result.track_ids) == 10
+        assert result.track_ids[0] == "test_track_0000"
+        assert len(set(result.track_ids)) == 10
+        assert result.requested["mode"] == "narrow"
 
     def test_artifact_caching(self, mini_artifact):
         """Test artifact loading is fast (caching works)."""

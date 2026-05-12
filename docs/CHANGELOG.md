@@ -1,5 +1,26 @@
 # Playlist Generator Changelog
 
+## v4.0.0 - Native GUI Overhaul and CLI Parity
+
+**Release Date:** 2026-05-12
+**Version:** 4.0.0
+**Branch:** `release/v4.0`
+**Focus:** Native PySide6 GUI overhaul, CLI parity, shared request validation, Analyze Library UX, and GUI reliability
+
+### Highlights
+
+- Restored GUI/CLI parity for Artist, Genre, Seeds, and History generation flows.
+- Added first-class `strict`, `narrow`, `dynamic`, `discover`, and `off` matching controls for genre and sonic axes.
+- Rebuilt generation controls with responsive grouped cards and compact mode-specific panels.
+- Added shared request models and inline validation so GUI and CLI dispatch the same generation shape.
+- Improved Analyze Library job UX with summary readouts, job details, stage results, and controlled logging.
+- Modernized results table, export footer, logs, jobs panel, dialogs, diagnostics banner, and Advanced Settings dark-theme styling.
+- Disabled conflicting tool actions while worker jobs are busy.
+- Removed the deprecated active-config DJ pooling flat key in favor of nested `dj_bridging.pooling.strategy`.
+- Expanded GUI, worker, request-model, and Analyze Library regression coverage.
+
+---
+
 ## v3.5.0 - Quality-of-Life Improvements
 
 **Release Date:** 2026-04-29

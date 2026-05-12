@@ -35,6 +35,7 @@ import json
 import logging
 import sys
 import sqlite3
+import tempfile
 import threading
 import traceback
 from bisect import bisect_right
@@ -45,6 +46,11 @@ from typing import Any, Dict, Optional
 import numpy as np
 import yaml
 
+from src.playlist.analyze_library_results import (
+    parse_analyze_library_report,
+    parse_analyze_library_stage_progress,
+)
+from src.playlist.request_models import GeneratePlaylistRequest, LibraryPipelineRequest
 from .utils.redaction import redact_text
 
 try:
@@ -347,6 +353,7 @@ def setup_worker_logging():
 
     # Add our NDJSON handler
     handler = WorkerLogHandler()
+    handler.setLevel(logging.INFO)
     handler.setFormatter(logging.Formatter("%(message)s"))
     root.addHandler(handler)
 
@@ -592,28 +599,16 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
     """Handle playlist generation command with cancellation support."""
     base_path = cmd_data.get("base_config_path", "config.yaml")
     overrides = cmd_data.get("overrides", {})
-    args = cmd_data.get("args", {})
+    request = GeneratePlaylistRequest.from_worker_args(cmd_data.get("args", {}))
 
-    mode = args.get("mode", "artist")
-    artist = args.get("artist")
-    genre = args.get("genre")
-    track_title = args.get("track")
-    seed_tracks = args.get("seed_tracks")
-    if isinstance(seed_tracks, list):
-        seed_tracks = [str(t).strip() for t in seed_tracks if str(t).strip()]
-        if not seed_tracks:
-            seed_tracks = None
-    else:
-        seed_tracks = None
-    seed_track_ids = args.get("seed_track_ids")
-    if isinstance(seed_track_ids, list):
-        seed_track_ids = [str(t).strip() for t in seed_track_ids if str(t).strip()]
-        if not seed_track_ids:
-            seed_track_ids = None
-    else:
-        seed_track_ids = None
-    track_count = args.get("tracks", 30)
-    include_collaborations = bool(args.get("include_collaborations", False))
+    mode = request.mode
+    artist = request.artist
+    genre = request.genre
+    track_title = request.track
+    seed_tracks = request.seed_tracks or None
+    seed_track_ids = request.seed_track_ids or None
+    track_count = request.tracks
+    include_collaborations = request.include_collaborations
 
     emit_log("INFO", f"Starting playlist generation (mode={mode})")
     emit_progress("init", 0, 100, "Loading configuration")
@@ -805,10 +800,10 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
         ds_mode = config.get('playlists', {}).get('ds_pipeline', {}).get('mode', 'dynamic')
 
         # Log which modes are active
-        genre_mode = args.get("genre_mode") or config.get('playlists', {}).get(
+        genre_mode = request.genre_mode or config.get('playlists', {}).get(
             'genre_mode'
         )
-        sonic_mode = args.get("sonic_mode") or config.get('playlists', {}).get(
+        sonic_mode = request.sonic_mode or config.get('playlists', {}).get(
             'sonic_mode'
         )
         if genre_mode:
@@ -860,11 +855,19 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                 dynamic=(ds_mode == "dynamic"),
                 ds_mode_override=ds_mode,
             )
+        elif mode == "history":
+            # Config/history-driven mode, matching the CLI batch-generation flow.
+            playlists = generator.create_playlist_batch(
+                1,
+                dynamic=(ds_mode == "dynamic"),
+                ds_mode_override=ds_mode,
+            )
+            playlist_data = playlists[0] if playlists else None
         else:
             # Fallback for unknown modes or missing required parameters
             raise ValueError(
                 "Invalid mode or missing parameters: "
-                f"mode={mode}, artist={artist}, seed_tracks={seed_tracks}"
+                f"mode={mode}, artist={artist}, genre={genre}, seed_tracks={seed_tracks}"
             )
 
         # Cancellation check after generation, before output
@@ -1224,6 +1227,145 @@ def handle_build_artifacts(cmd_data: Dict[str, Any]) -> None:
         emit_done("build_artifacts", False, str(e), summary="Artifact build failed")
 
 
+def _write_merged_temp_config(base_path: str, overrides: Dict[str, Any]) -> Optional[Path]:
+    """Write a merged config file for CLI code that only accepts a config path."""
+    if not overrides:
+        return None
+    merged_config = load_config_with_overrides(base_path, overrides)
+    temp = tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        suffix=".yaml",
+        prefix="playlist_gui_analyze_",
+        delete=False,
+    )
+    with temp:
+        yaml.safe_dump(merged_config, temp, sort_keys=False)
+    return Path(temp.name)
+
+
+class AnalyzeLibraryProgressLogHandler(logging.Handler):
+    """Bridge structured Analyze Library log lines into GUI progress events."""
+
+    def __init__(self, stage_order: list[str]) -> None:
+        super().__init__(level=logging.INFO)
+        self._stage_order = list(stage_order)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            progress = parse_analyze_library_stage_progress(record.getMessage(), self._stage_order)
+            if progress:
+                emit_progress(
+                    progress["stage"],
+                    progress["current"],
+                    progress["total"],
+                    progress["detail"],
+                )
+        except Exception:
+            return
+
+
+def handle_analyze_library(cmd_data: Dict[str, Any]) -> None:
+    """Handle the unified Analyze Library command by invoking the CLI pipeline."""
+    request = LibraryPipelineRequest(
+        config_path=cmd_data.get("base_config_path", "config.yaml"),
+        overrides=cmd_data.get("overrides", {}) or {},
+        stages=cmd_data.get("stages") or None,
+        force=bool(cmd_data.get("force", False)),
+        dry_run=bool(cmd_data.get("dry_run", False)),
+    )
+    emit_log("INFO", "Starting Analyze Library")
+    emit_progress("analyze_library", 0, 100, "Initializing")
+    temp_config_path: Optional[Path] = None
+
+    try:
+        temp_config_path = _write_merged_temp_config(request.config_path, request.overrides)
+        config_path = str(temp_config_path or request.config_path)
+        check_cancelled()
+
+        from scripts.analyze_library import DEFAULT_OUT_DIR, parse_args, run_pipeline
+
+        args = parse_args(["--config", config_path])
+        args.stages = ",".join(request.stages)
+        args.dry_run = request.dry_run
+        if request.force or bool(request.overrides.get("force", False)):
+            args.force = True
+        stage_order = [stage.strip() for stage in args.stages.split(",") if stage.strip()]
+        progress_handler = AnalyzeLibraryProgressLogHandler(stage_order)
+        analyze_logger = logging.getLogger("analyze_library")
+
+        emit_progress("analyze_library", 5, 100, "Running Analyze Library")
+        analyze_logger.addHandler(progress_handler)
+        try:
+            exit_code = run_pipeline(
+                args,
+                cancellation_check=check_cancelled,
+                console_logging=False,
+            )
+        finally:
+            analyze_logger.removeHandler(progress_handler)
+        check_cancelled()
+        out_dir = Path(args.out_dir) if args.out_dir else DEFAULT_OUT_DIR
+        report_path = out_dir / "analyze_run_report.json"
+
+        if exit_code == 0:
+            if request.dry_run:
+                summary = "Analyze Library dry run complete"
+                emit_result(
+                    "analyze_library",
+                    {
+                        "summary": summary,
+                        "stages": [{"name": stage, "decision": "planned"} for stage in stage_order],
+                        "out_dir": str(out_dir),
+                    },
+                )
+                emit_progress("analyze_library", 100, 100, "Dry run complete")
+                emit_done(
+                    "analyze_library",
+                    True,
+                    summary,
+                    summary=summary,
+                )
+                return
+            result_data = parse_analyze_library_report(report_path)
+            emit_result("analyze_library", result_data)
+            emit_progress("analyze_library", 100, 100, "Complete")
+            summary = result_data.get("summary") or "Analyze Library complete"
+            emit_done(
+                "analyze_library",
+                True,
+                "Analyze Library complete",
+                summary=summary,
+            )
+        else:
+            emit_done(
+                "analyze_library",
+                False,
+                f"Analyze Library exited with code {exit_code}",
+                summary="Analyze Library failed",
+            )
+
+    except CancellationError:
+        emit_log("INFO", "Analyze Library cancelled")
+        emit_done(
+            "analyze_library",
+            False,
+            "Cancelled by user",
+            cancelled=True,
+            summary="Analyze Library cancelled",
+        )
+    except Exception as e:
+        tb = traceback.format_exc()
+        emit_error(str(e), tb)
+        emit_done("analyze_library", False, str(e), summary="Analyze Library failed")
+    finally:
+        if temp_config_path:
+            try:
+                temp_config_path.unlink(missing_ok=True)
+            except Exception as exc:
+                emit_log("WARNING", f"Failed to remove temp Analyze Library config: {exc}")
+
+
 def handle_blacklist_fetch(cmd_data: Dict[str, Any]) -> None:
     """Fetch blacklisted tracks from metadata DB."""
     base_path = cmd_data.get("base_config_path", "config.yaml")
@@ -1275,6 +1417,7 @@ def handle_blacklist_set(cmd_data: Dict[str, Any]) -> None:
 TRACKED_COMMAND_HANDLERS = {
     "ping": handle_ping,
     "generate_playlist": handle_generate_playlist,
+    "analyze_library": handle_analyze_library,
     "scan_library": handle_scan_library,
     "update_genres": handle_update_genres,
     "update_sonic": handle_update_sonic,

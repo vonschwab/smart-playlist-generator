@@ -15,16 +15,18 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-ModeLevel = Literal["strict", "narrow", "dynamic", "discover"]
+ModeLevel = Literal["strict", "narrow", "dynamic", "discover", "off"]
 
-MODE_LEVELS: list[ModeLevel] = ["strict", "narrow", "dynamic", "discover"]
+MODE_LEVELS: list[ModeLevel] = ["off", "strict", "narrow", "dynamic", "discover"]
 MODE_LABELS = {
+    "off": "Off",
     "strict": "Strict",
     "narrow": "Narrow",
     "dynamic": "Dynamic",
     "discover": "Discover",
 }
 MODE_TOOLTIPS = {
+    "off": "Disable this matching domain",
     "strict": "Ultra-tight matching; stay very close to the seed",
     "narrow": "Cohesive matching; close to the seed",
     "dynamic": "Balanced exploration; moderate variety",
@@ -48,7 +50,7 @@ class ModeSliders(QWidget):
         super().__init__(parent)
         self._genre_value: ModeLevel = "narrow"
         self._sonic_value: ModeLevel = "narrow"
-        self.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Minimum)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -62,19 +64,20 @@ class ModeSliders(QWidget):
         genre_row.setSpacing(6)
         genre_label = QLabel("Genre:")
         genre_label.setObjectName("controlLabel")
-        genre_label.setFixedWidth(46)
+        genre_label.setMinimumWidth(46)
         genre_row.addWidget(genre_label)
 
         self._genre_slider = QSlider(Qt.Horizontal)
         self._genre_slider.setMinimum(0)
-        self._genre_slider.setMaximum(3)
-        self._genre_slider.setValue(1)
+        self._genre_slider.setMaximum(len(MODE_LEVELS) - 1)
+        self._genre_slider.setValue(MODE_LEVELS.index("narrow"))
         self._genre_slider.setTickPosition(QSlider.TicksBelow)
         self._genre_slider.setTickInterval(1)
         self._genre_slider.setPageStep(1)
         self._genre_slider.setSingleStep(1)
-        self._genre_slider.setFixedWidth(90)
-        self._genre_slider.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self._genre_slider.setMinimumWidth(90)
+        self._genre_slider.setMaximumWidth(130)
+        self._genre_slider.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self._genre_slider.setObjectName("modeSlider")
         self._genre_slider.setToolTip(
             "Genre strictness (tighter = fewer genre jumps)"
@@ -84,7 +87,8 @@ class ModeSliders(QWidget):
 
         self._genre_value_label = QLabel(MODE_LABELS[self._genre_value])
         self._genre_value_label.setObjectName("modeValue")
-        self._genre_value_label.setFixedWidth(58)
+        self._genre_value_label.setMinimumWidth(68)
+        self._genre_value_label.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
         self._genre_value_label.setToolTip(MODE_TOOLTIPS[self._genre_value])
         genre_row.addWidget(self._genre_value_label)
         layout.addLayout(genre_row)
@@ -95,19 +99,20 @@ class ModeSliders(QWidget):
         sonic_row.setSpacing(6)
         sonic_label = QLabel("Sonic:")
         sonic_label.setObjectName("controlLabel")
-        sonic_label.setFixedWidth(46)
+        sonic_label.setMinimumWidth(46)
         sonic_row.addWidget(sonic_label)
 
         self._sonic_slider = QSlider(Qt.Horizontal)
         self._sonic_slider.setMinimum(0)
-        self._sonic_slider.setMaximum(3)
-        self._sonic_slider.setValue(1)
+        self._sonic_slider.setMaximum(len(MODE_LEVELS) - 1)
+        self._sonic_slider.setValue(MODE_LEVELS.index("narrow"))
         self._sonic_slider.setTickPosition(QSlider.TicksBelow)
         self._sonic_slider.setTickInterval(1)
         self._sonic_slider.setPageStep(1)
         self._sonic_slider.setSingleStep(1)
-        self._sonic_slider.setFixedWidth(90)
-        self._sonic_slider.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self._sonic_slider.setMinimumWidth(90)
+        self._sonic_slider.setMaximumWidth(130)
+        self._sonic_slider.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self._sonic_slider.setObjectName("modeSlider")
         self._sonic_slider.setToolTip(
             "Sonic strictness (tighter = closer sound profile)"
@@ -117,7 +122,8 @@ class ModeSliders(QWidget):
 
         self._sonic_value_label = QLabel(MODE_LABELS[self._sonic_value])
         self._sonic_value_label.setObjectName("modeValue")
-        self._sonic_value_label.setFixedWidth(58)
+        self._sonic_value_label.setMinimumWidth(68)
+        self._sonic_value_label.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
         self._sonic_value_label.setToolTip(MODE_TOOLTIPS[self._sonic_value])
         sonic_row.addWidget(self._sonic_value_label)
         layout.addLayout(sonic_row)

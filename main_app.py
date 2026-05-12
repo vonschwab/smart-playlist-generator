@@ -24,6 +24,7 @@ from src.m3u_exporter import M3UExporter
 from src.metadata_client import MetadataClient
 from src.similarity.sonic_variant import resolve_sonic_variant
 from src.plex_exporter import PlexExporter
+from src.playlist.request_models import GeneratePlaylistRequest
 
 logger = logging.getLogger(__name__)
 
@@ -757,30 +758,29 @@ def main():
             section("DRY RUN MODE")
             bullet("No playlists will be created or exported")
             blank()
-        if args.artist:
+        generation_request = GeneratePlaylistRequest.from_cli_args(
+            args,
+            genre_mode=genre_mode,
+            sonic_mode=sonic_mode,
+        )
+
+        if generation_request.mode == "artist" and generation_request.artist:
             # Single artist mode
-            anchor_seed_ids = None
-            if getattr(args, "anchor_seed_ids", None):
-                anchor_seed_ids = [
-                    part.strip()
-                    for part in str(args.anchor_seed_ids).split(",")
-                    if part.strip()
-                ]
             app.run_single_artist(
-                args.artist,
-                args.tracks,
-                track_title=getattr(args, "track", None),
+                generation_request.artist,
+                generation_request.tracks,
+                track_title=generation_request.track,
                 dry_run=getattr(args, 'dry_run', False),
                 dynamic=dynamic_flag,
                 verbose=getattr(args, 'verbose', False),
-                artist_only=getattr(args, 'artist_only', False),
-                anchor_seed_ids=anchor_seed_ids,
+                artist_only=generation_request.artist_only,
+                anchor_seed_ids=generation_request.anchor_seed_ids or None,
             )
-        elif args.genre:
+        elif generation_request.mode == "genre" and generation_request.genre:
             # Single genre mode
             app.run_single_genre(
-                args.genre,
-                args.tracks,
+                generation_request.genre,
+                generation_request.tracks,
                 dry_run=getattr(args, 'dry_run', False),
                 dynamic=dynamic_flag,
                 verbose=getattr(args, 'verbose', False),

@@ -447,7 +447,7 @@ def generate_playlist_ds(
                     pool_indices_count=len(pool_indices),
                     seed_track_ids_for_pier_count=len(seed_track_ids_for_pier),
                     cfg_mode=cfg.mode,
-                    cfg_genre_gate_min_similarity=cfg.genre_gate_min_similarity,
+                    cfg_genre_gate_min_similarity=min_genre_similarity,
                 )
                 if audit.can_flush():
                     audit.append(

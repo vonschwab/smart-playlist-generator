@@ -13,6 +13,9 @@ from dataclasses import dataclass, field
 from typing import List, Literal, Optional
 
 
+ModeValue = Literal["strict", "narrow", "dynamic", "discover", "off"]
+
+
 @dataclass
 class UIStateModel:
     """
@@ -25,7 +28,7 @@ class UIStateModel:
     # ─────────────────────────────────────────────────────────────────────────
     # Top-level mode
     # ─────────────────────────────────────────────────────────────────────────
-    mode: Literal["artist", "seeds", "history"] = "artist"
+    mode: Literal["artist", "genre", "seeds", "history"] = "artist"
 
     # ─────────────────────────────────────────────────────────────────────────
     # Genre/Sonic modes (strictness controls for matching)
@@ -36,8 +39,8 @@ class UIStateModel:
     Newer UI paths may set genre_mode/sonic_mode directly.
     """
 
-    genre_mode: Literal["strict", "narrow", "dynamic", "discover"] = "narrow"
-    sonic_mode: Literal["strict", "narrow", "dynamic", "discover"] = "narrow"
+    genre_mode: ModeValue = "narrow"
+    sonic_mode: ModeValue = "narrow"
 
     # ─────────────────────────────────────────────────────────────────────────
     # Track count
@@ -58,6 +61,8 @@ class UIStateModel:
     recency_plays_threshold: int = 1
 
     history_window_days: int = 30
+
+    genre_query: str = ""
 
     # ─────────────────────────────────────────────────────────────────────────
     # Artist spacing

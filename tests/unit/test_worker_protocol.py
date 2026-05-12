@@ -4,6 +4,7 @@ Tests for worker protocol: request_id correlation and cancellation.
 Run with: pytest tests/unit/test_worker_protocol.py -v
 """
 import json
+import logging
 import pytest
 import uuid
 from unittest.mock import MagicMock
@@ -83,6 +84,84 @@ class TestRequestIdGeneration:
         # Should reject with None
         result = client.send_command({"cmd": "generate_playlist"})
         assert result is None
+
+    def test_generate_playlist_payload_supports_cli_parity_modes(self):
+        """GUI command payload should carry genre, history, off modes, and seed IDs."""
+        from src.playlist_gui.worker_client import WorkerClient
+
+        client = WorkerClient()
+        client._running = True
+        client._process = MagicMock()
+        client._process.write = MagicMock(return_value=100)
+
+        client.generate_playlist(
+            config_path="config.yaml",
+            overrides={"playlists": {"tracks_per_playlist": 30}},
+            mode="genre",
+            genre="shoegaze",
+            tracks=30,
+            genre_mode="off",
+            sonic_mode="strict",
+        )
+
+        call_args = client._process.write.call_args[0][0]
+        sent_data = json.loads(call_args.decode("utf-8").strip())
+
+        assert sent_data["cmd"] == "generate_playlist"
+        assert sent_data["args"]["mode"] == "genre"
+        assert sent_data["args"]["genre"] == "shoegaze"
+        assert sent_data["args"]["genre_mode"] == "off"
+        assert sent_data["args"]["sonic_mode"] == "strict"
+
+        client._busy = False
+        client._active_request_id = None
+        client.generate_playlist(
+            config_path="config.yaml",
+            overrides={},
+            mode="history",
+            seed_tracks=["Artist - Title"],
+            seed_track_ids=["123"],
+        )
+
+        call_args = client._process.write.call_args[0][0]
+        sent_data = json.loads(call_args.decode("utf-8").strip())
+
+        assert sent_data["args"]["mode"] == "history"
+        assert sent_data["args"]["seed_tracks"] == ["Artist - Title"]
+        assert sent_data["args"]["seed_track_ids"] == ["123"]
+
+    @pytest.mark.parametrize(
+        ("method_name", "expected_cmd"),
+        [
+            ("analyze_library", "analyze_library"),
+            ("scan_library", "scan_library"),
+            ("update_genres", "update_genres"),
+            ("update_sonic", "update_sonic"),
+            ("build_artifacts", "build_artifacts"),
+        ],
+    )
+    def test_library_operation_payload_uses_shared_command_shape(self, method_name, expected_cmd):
+        """Library operation methods should serialize through one command shape."""
+        from src.playlist_gui.worker_client import WorkerClient
+
+        client = WorkerClient()
+        client._running = True
+        client._process = MagicMock()
+        client._process.write = MagicMock(return_value=100)
+
+        getattr(client, method_name)(
+            "config.yaml",
+            {"library": {"database_path": "data/metadata.db"}},
+            job_id="job-123",
+        )
+
+        call_args = client._process.write.call_args[0][0]
+        sent_data = json.loads(call_args.decode("utf-8").strip())
+
+        assert sent_data["cmd"] == expected_cmd
+        assert sent_data["base_config_path"] == "config.yaml"
+        assert sent_data["overrides"] == {"library": {"database_path": "data/metadata.db"}}
+        assert sent_data["job_id"] == "job-123"
 
 
 class TestEventFiltering:
@@ -353,6 +432,52 @@ class TestWorkerState:
         assert state.current_request_id is None
         assert state.current_cmd is None
         assert state.cancel_requested is False
+
+
+class TestWorkerLogging:
+    """Tests for worker log event filtering."""
+
+    def test_worker_log_handler_remains_info_after_cli_logging_reconfigure(self, tmp_path, capsys):
+        """CLI file logging must not make DEBUG library chatter flood the GUI stream."""
+        import src.logging_utils as logging_utils
+        from src.playlist_gui.worker import setup_worker_logging
+        from src.logging_utils import configure_logging
+
+        root = logging.getLogger()
+        original_handlers = list(root.handlers)
+        original_filters = list(root.filters)
+        original_level = root.level
+        original_configured = logging_utils._logging_configured
+
+        try:
+            setup_worker_logging()
+            capsys.readouterr()
+
+            configure_logging(
+                level="INFO",
+                log_file=str(tmp_path / "analyze_worker.log"),
+                console=False,
+                force=True,
+            )
+
+            noisy_logger = logging.getLogger("src.similarity_calculator")
+            noisy_logger.debug("Filtered broad tag: rock")
+            noisy_logger.info("Analyze run start")
+
+            lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
+            events = [json.loads(line) for line in lines]
+
+            assert [event["level"] for event in events] == ["INFO"]
+            assert events[0]["msg"] == "Analyze run start"
+        finally:
+            for handler in list(root.handlers):
+                if handler not in original_handlers:
+                    root.removeHandler(handler)
+                    handler.close()
+            root.handlers = original_handlers
+            root.filters = original_filters
+            root.setLevel(original_level)
+            logging_utils._logging_configured = original_configured
 
 
 class TestSecretRedaction:

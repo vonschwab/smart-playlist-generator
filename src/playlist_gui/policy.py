@@ -56,7 +56,7 @@ This ensures the simplified UI controls take precedence.
 # Genre/Sonic mode validation
 # ─────────────────────────────────────────────────────────────────────────────
 
-VALID_MODES: Set[str] = {"strict", "narrow", "dynamic", "discover"}
+VALID_MODES: Set[str] = {"strict", "narrow", "dynamic", "discover", "off"}
 
 COHESION_MAP: Dict[str, tuple[str, str]] = {
     "tight": ("strict", "strict"),

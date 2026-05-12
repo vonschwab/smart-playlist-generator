@@ -11,6 +11,7 @@ Tests cover:
 import math
 import sqlite3
 import sys
+import warnings
 from pathlib import Path
 
 import pytest
@@ -549,11 +550,13 @@ class TestEdgeCases:
         }
 
         # Should not crash
-        try:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
             sim = calc.calculate_similarity(features1, features2)
-            assert 0.0 <= sim <= 1.0 or math.isnan(sim) or math.isinf(sim)
-        except Exception:
-            pytest.skip("Inf handling may vary by numpy version")
+        runtime_warnings = [w for w in caught if issubclass(w.category, RuntimeWarning)]
+
+        assert runtime_warnings == []
+        assert 0.0 <= sim <= 1.0
 
     def test_mismatched_vector_lengths(self, temp_db):
         """Test handling of mismatched feature vector lengths."""

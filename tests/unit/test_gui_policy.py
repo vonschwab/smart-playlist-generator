@@ -140,6 +140,13 @@ class TestCohesionMapping:
         assert _get_nested(decisions.overrides, "playlists.genre_mode") == "discover"
         assert _get_nested(decisions.overrides, "playlists.sonic_mode") == "discover"
 
+    def test_explicit_off_modes_pass_through(self):
+        """Test explicit off modes are preserved for CLI parity."""
+        state = UIStateModel(genre_mode="off", sonic_mode="off")
+        decisions = derive_runtime_config(state)
+        assert _get_nested(decisions.overrides, "playlists.genre_mode") == "off"
+        assert _get_nested(decisions.overrides, "playlists.sonic_mode") == "off"
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Recency Override Tests

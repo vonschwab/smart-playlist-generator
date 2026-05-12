@@ -17,6 +17,8 @@ import logging
 import os
 from pathlib import Path
 from typing import Any, Dict, Optional, List
+
+from src.playlist.request_models import GeneratePlaylistRequest, LibraryOperationRequest, LibraryPipelineRequest
 from .utils.redaction import redact_text
 from .utils.bounded_buffer import BoundedBuffer
 
@@ -359,7 +361,7 @@ class WorkerClient(QObject):
         Args:
             config_path: Path to base config YAML
             overrides: Override values to merge
-            mode: "artist", "seeds", or "genre"
+            mode: "artist", "genre", "seeds", or "history"
             artist: Artist name (required if mode is "artist")
             genre: Genre name (required if mode is "genre")
             track: Optional seed track title
@@ -372,30 +374,25 @@ class WorkerClient(QObject):
         Returns:
             The request_id if sent successfully, None otherwise
         """
-        args = {"mode": mode, "tracks": tracks}
-        if artist:
-            args["artist"] = artist
-        if genre:
-            args["genre"] = genre
-        if track:
-            args["track"] = track
-        if seed_tracks:
-            args["seed_tracks"] = seed_tracks
-        if seed_track_ids:
-            args["seed_track_ids"] = seed_track_ids
-        if genre_mode:
-            args["genre_mode"] = genre_mode
-        if sonic_mode:
-            args["sonic_mode"] = sonic_mode
-        if include_collaborations:
-            args["include_collaborations"] = True
+        request = GeneratePlaylistRequest(
+            mode=mode,
+            tracks=tracks,
+            artist=artist,
+            genre=genre,
+            track=track,
+            seed_tracks=seed_tracks or [],
+            seed_track_ids=seed_track_ids or [],
+            genre_mode=genre_mode,
+            sonic_mode=sonic_mode,
+            include_collaborations=include_collaborations,
+        )
 
         return self.send_command(
             {
                 "cmd": "generate_playlist",
                 "base_config_path": config_path,
                 "overrides": overrides,
-                "args": args,
+                "args": request.to_worker_args(),
             },
             job_id=job_id,
         )
@@ -407,14 +404,19 @@ class WorkerClient(QObject):
         job_id: Optional[str] = None,
     ) -> Optional[str]:
         """Send a scan_library command. Returns request_id if successful."""
-        return self.send_command(
-            {
-                "cmd": "scan_library",
-                "base_config_path": config_path,
-                "overrides": overrides or {},
-            },
-            job_id=job_id,
-        )
+        request = LibraryOperationRequest("scan_library", config_path, overrides or {})
+        return self.send_command(request.to_worker_command(), job_id=job_id)
+
+    def analyze_library(
+        self,
+        config_path: str,
+        overrides: Optional[Dict[str, Any]] = None,
+        request: Optional[LibraryPipelineRequest] = None,
+        job_id: Optional[str] = None,
+    ) -> Optional[str]:
+        """Send an analyze_library command. Returns request_id if successful."""
+        pipeline_request = request or LibraryPipelineRequest(config_path, overrides or {})
+        return self.send_command(pipeline_request.to_worker_command(), job_id=job_id)
 
     def update_genres(
         self,
@@ -423,14 +425,8 @@ class WorkerClient(QObject):
         job_id: Optional[str] = None,
     ) -> Optional[str]:
         """Send an update_genres command. Returns request_id if successful."""
-        return self.send_command(
-            {
-                "cmd": "update_genres",
-                "base_config_path": config_path,
-                "overrides": overrides or {},
-            },
-            job_id=job_id,
-        )
+        request = LibraryOperationRequest("update_genres", config_path, overrides or {})
+        return self.send_command(request.to_worker_command(), job_id=job_id)
 
     def update_sonic(
         self,
@@ -439,14 +435,8 @@ class WorkerClient(QObject):
         job_id: Optional[str] = None,
     ) -> Optional[str]:
         """Send an update_sonic command. Returns request_id if successful."""
-        return self.send_command(
-            {
-                "cmd": "update_sonic",
-                "base_config_path": config_path,
-                "overrides": overrides or {},
-            },
-            job_id=job_id,
-        )
+        request = LibraryOperationRequest("update_sonic", config_path, overrides or {})
+        return self.send_command(request.to_worker_command(), job_id=job_id)
 
     def build_artifacts(
         self,
@@ -455,14 +445,8 @@ class WorkerClient(QObject):
         job_id: Optional[str] = None,
     ) -> Optional[str]:
         """Send a build_artifacts command. Returns request_id if successful."""
-        return self.send_command(
-            {
-                "cmd": "build_artifacts",
-                "base_config_path": config_path,
-                "overrides": overrides or {},
-            },
-            job_id=job_id,
-        )
+        request = LibraryOperationRequest("build_artifacts", config_path, overrides or {})
+        return self.send_command(request.to_worker_command(), job_id=job_id)
 
     def fetch_blacklist(
         self,

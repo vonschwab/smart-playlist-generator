@@ -1,0 +1,25 @@
+{
+  "track_ids": [
+    "golden_track_0010",
+    "golden_track_0083",
+    "golden_track_0033",
+    "golden_track_0099",
+    "golden_track_0011",
+    "golden_track_0076",
+    "golden_track_0072",
+    "golden_track_0006",
+    "golden_track_0080",
+    "golden_track_0082"
+  ],
+  "track_count": 10,
+  "metrics": {
+    "mean_transition": 0.581811734435095,
+    "min_transition": 0.5232591615600336,
+    "artist_diversity": null,
+    "unique_artists": null
+  },
+  "mode": "dynamic",
+  "seed_info": {
+    "seed_track_id": "golden_track_0010"
+  }
+}

@@ -18,7 +18,7 @@ import uuid
 import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Callable, Dict, List, Optional, Any, Tuple
 
 import numpy as np
 
@@ -1234,7 +1234,11 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def run_pipeline(args: argparse.Namespace) -> int:
+def run_pipeline(
+    args: argparse.Namespace,
+    cancellation_check: Optional[Callable[[], None]] = None,
+    console_logging: bool = True,
+) -> int:
     global logger
     stages_requested = [s.strip() for s in args.stages.split(",") if s.strip()]
     for s in stages_requested:
@@ -1256,7 +1260,14 @@ def run_pipeline(args: argparse.Namespace) -> int:
     if getattr(args, "verbose", False) and not getattr(args, "debug", False) and not getattr(args, "quiet", False) and getattr(args, "log_level", "INFO").upper() == "INFO":
         log_level = "DEBUG"
     log_file = getattr(args, 'log_file', None) or 'logs/analyze_library.log'
-    configure_logging(level=log_level, log_file=log_file, run_id=run_id, show_run_id=getattr(args, "show_run_id", False))
+    configure_logging(
+        level=log_level,
+        log_file=log_file,
+        run_id=run_id,
+        show_run_id=getattr(args, "show_run_id", False),
+        console=console_logging,
+        force=not console_logging,
+    )
 
     # Re-get logger after configuration
     logger = logging.getLogger("analyze_library")
@@ -1295,6 +1306,10 @@ def run_pipeline(args: argparse.Namespace) -> int:
         "library_root": cfg.library_music_directory,
     }
 
+    def _check_cancelled() -> None:
+        if cancellation_check is not None:
+            cancellation_check()
+
     ensure_analyze_state_schema(conn)
 
     started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -1324,116 +1339,123 @@ def run_pipeline(args: argparse.Namespace) -> int:
         logger.info("  pending_estimates: %s", "; ".join(pending_snapshot))
 
     start_total = time.time()
-    for stage in stages_requested:
-        func = STAGE_FUNCS[stage]
-        stage_start = time.time()
-        fingerprint_before = compute_stage_fingerprint(ctx, stage)
-        last_fp = get_last_fingerprint(conn, stage)
-        allow_skip = stage not in ("scan",)
-        ctx["force_stage"] = bool(last_fp and fingerprint_before != last_fp)
-        pending_count, pending_label = estimate_stage_units(ctx, stage)
-        pending_msg = ""
-        if pending_label:
-            pending_val = "?" if pending_count is None else f"{pending_count:,}"
-            pending_msg = f" | pending={pending_val} {pending_label}"
-        else:
-            pending_val = "unknown"
-        if (not args.force) and allow_skip and last_fp and fingerprint_before == last_fp:
-            duration = time.time() - stage_start
+    try:
+        for stage in stages_requested:
+            _check_cancelled()
+            func = STAGE_FUNCS[stage]
+            stage_start = time.time()
+            fingerprint_before = compute_stage_fingerprint(ctx, stage)
+            last_fp = get_last_fingerprint(conn, stage)
+            allow_skip = stage not in ("scan",)
+            ctx["force_stage"] = bool(last_fp and fingerprint_before != last_fp)
+            pending_count, pending_label = estimate_stage_units(ctx, stage)
+            pending_msg = ""
+            if pending_label:
+                pending_val = "?" if pending_count is None else f"{pending_count:,}"
+                pending_msg = f" | pending={pending_val} {pending_label}"
+            else:
+                pending_val = "unknown"
+            if (not args.force) and allow_skip and last_fp and fingerprint_before == last_fp:
+                duration = time.time() - stage_start
+                logger.info(
+                    "run_id=%s | stage=%s | decision=skipped | reason=fingerprint_same | pending=%s",
+                    run_id,
+                    stage,
+                    pending_val if pending_msg else "unknown",
+                )
+                report["stages"][stage] = {
+                    "decision": "skipped",
+                    "reason": "fingerprint_unchanged",
+                    "duration_sec": duration,
+                    "fingerprint_before": fingerprint_before,
+                    "last_success_fingerprint": last_fp,
+                    "pending_estimate": pending_count,
+                    "pending_label": pending_label,
+                    "processed_count": 0,
+                    "errors_count": 0,
+                    "throughput": None,
+                }
+                ctx["force_stage"] = False
+                _check_cancelled()
+                continue
+
+            run_reason = "forced" if args.force else ("fingerprint_changed" if last_fp and fingerprint_before != last_fp else "required")
             logger.info(
-                "run_id=%s | stage=%s | decision=skipped | reason=fingerprint_same | pending=%s",
+                "run_id=%s | stage=%s | decision=%s | reason=%s | pending=%s",
                 run_id,
                 stage,
+                "forced" if args.force else "ran",
+                run_reason,
                 pending_val if pending_msg else "unknown",
             )
+            result = func(ctx)
+            _check_cancelled()
+            duration = time.time() - stage_start
+            fingerprint_after = compute_stage_fingerprint(ctx, stage)
+            set_last_fingerprint(conn, stage, fingerprint_after)
+            items = summarize_items(result)
+            processed_count, errors_count, top_err = _extract_processed_and_errors(stage, result)
+            rate = None
+            if processed_count is not None and duration > 0:
+                try:
+                    rate = processed_count / duration
+                except Exception:
+                    rate = None
+            logger.info(
+                "run_id=%s | stage=%s | decision=%s | reason=%s | processed=%s | elapsed_s=%.2f | throughput=%s | errors=%d | top_error_categories=%s",
+                run_id,
+                stage,
+                "forced" if args.force else "ran",
+                run_reason,
+                processed_count if processed_count is not None else (items or "-"),
+                duration,
+                f"{rate:.1f}/s" if rate is not None else "-",
+                errors_count,
+                top_err or "-",
+            )
+            if stage == "scan" and isinstance(result, dict):
+                mod_reasons = result.get("modified_reasons") or {}
+                if mod_reasons:
+                    reason_bits = ", ".join(f"{k}={v}" for k, v in sorted(mod_reasons.items()))
+                    logger.info("  scan modified breakdown: %s", reason_bits)
+                    if args.verbose:
+                        examples = result.get("modified_examples") or {}
+                        for reason, paths in examples.items():
+                            if paths:
+                                logger.debug("    %s examples: %s", reason, "; ".join(paths))
             report["stages"][stage] = {
-                "decision": "skipped",
-                "reason": "fingerprint_unchanged",
+                "decision": "ran",
+                "result": result,
                 "duration_sec": duration,
                 "fingerprint_before": fingerprint_before,
-                "last_success_fingerprint": last_fp,
+                "fingerprint_after": fingerprint_after,
+                "reason": run_reason,
                 "pending_estimate": pending_count,
                 "pending_label": pending_label,
-                "processed_count": 0,
-                "errors_count": 0,
-                "throughput": None,
+                "processed_count": processed_count,
+                "errors_count": errors_count,
+                "throughput": rate,
             }
             ctx["force_stage"] = False
-            continue
-
-        run_reason = "forced" if args.force else ("fingerprint_changed" if last_fp and fingerprint_before != last_fp else "required")
-        logger.info(
-            "run_id=%s | stage=%s | decision=%s | reason=%s | pending=%s",
-            run_id,
-            stage,
-            "forced" if args.force else "ran",
-            run_reason,
-            pending_val if pending_msg else "unknown",
-        )
-        result = func(ctx)
-        duration = time.time() - stage_start
-        fingerprint_after = compute_stage_fingerprint(ctx, stage)
-        set_last_fingerprint(conn, stage, fingerprint_after)
-        items = summarize_items(result)
-        processed_count, errors_count, top_err = _extract_processed_and_errors(stage, result)
-        rate = None
-        if processed_count is not None and duration > 0:
-            try:
-                rate = processed_count / duration
-            except Exception:
-                rate = None
-        logger.info(
-            "run_id=%s | stage=%s | decision=%s | reason=%s | processed=%s | elapsed_s=%.2f | throughput=%s | errors=%d | top_error_categories=%s",
-            run_id,
-            stage,
-            "forced" if args.force else "ran",
-            run_reason,
-            processed_count if processed_count is not None else (items or "-"),
-            duration,
-            f"{rate:.1f}/s" if rate is not None else "-",
-            errors_count,
-            top_err or "-",
-        )
-        if stage == "scan" and isinstance(result, dict):
-            mod_reasons = result.get("modified_reasons") or {}
-            if mod_reasons:
-                reason_bits = ", ".join(f"{k}={v}" for k, v in sorted(mod_reasons.items()))
-                logger.info("  scan modified breakdown: %s", reason_bits)
-                if args.verbose:
-                    examples = result.get("modified_examples") or {}
-                    for reason, paths in examples.items():
-                        if paths:
-                            logger.debug("    %s examples: %s", reason, "; ".join(paths))
-        report["stages"][stage] = {
-            "decision": "ran",
-            "result": result,
-            "duration_sec": duration,
-            "fingerprint_before": fingerprint_before,
-            "fingerprint_after": fingerprint_after,
-            "reason": run_reason,
-            "pending_estimate": pending_count,
-            "pending_label": pending_label,
-            "processed_count": processed_count,
-            "errors_count": errors_count,
-            "throughput": rate,
-        }
-        ctx["force_stage"] = False
-        if stage == "scan":
-            scan_total = result.get("scan_total", 0) if isinstance(result, dict) else 0
-            file_genres_delta = result.get("file_genres_delta", 0) if isinstance(result, dict) else 0
-            orphaned = result.get("orphaned", {}) if isinstance(result, dict) else {}
-            orphaned_removed = any((v or 0) > 0 for v in (orphaned or {}).values())
-            if scan_total > 0 or (file_genres_delta is not None and file_genres_delta != 0) or orphaned_removed:
-                ctx["genres_dirty"] = True
-        elif stage == "genres":
-            if result.get("added_artist_genres", 0) > 0 or result.get("added_album_genres", 0) > 0:
-                ctx["genres_dirty"] = True
-        elif stage == "discogs":
-            if result.get("added_discogs_genres", 0) > 0:
-                ctx["genres_dirty"] = True
-        elif stage == "sonic":
-            if result.get("updated", 0) > 0:
-                ctx["sonic_dirty"] = True
+            if stage == "scan":
+                scan_total = result.get("scan_total", 0) if isinstance(result, dict) else 0
+                file_genres_delta = result.get("file_genres_delta", 0) if isinstance(result, dict) else 0
+                orphaned = result.get("orphaned", {}) if isinstance(result, dict) else {}
+                orphaned_removed = any((v or 0) > 0 for v in (orphaned or {}).values())
+                if scan_total > 0 or (file_genres_delta is not None and file_genres_delta != 0) or orphaned_removed:
+                    ctx["genres_dirty"] = True
+            elif stage == "genres":
+                if result.get("added_artist_genres", 0) > 0 or result.get("added_album_genres", 0) > 0:
+                    ctx["genres_dirty"] = True
+            elif stage == "discogs":
+                if result.get("added_discogs_genres", 0) > 0:
+                    ctx["genres_dirty"] = True
+            elif stage == "sonic":
+                if result.get("updated", 0) > 0:
+                    ctx["sonic_dirty"] = True
+    except Exception:
+        conn.close()
+        raise
 
     report["total_duration_sec"] = time.time() - start_total
     report["finished_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")

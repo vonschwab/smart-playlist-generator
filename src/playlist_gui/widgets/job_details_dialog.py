@@ -9,13 +9,19 @@ Features:
 """
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional
+from PySide6.QtCore import QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
     QDialogButtonBox,
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
+    QPushButton,
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -25,6 +31,11 @@ from PySide6.QtWidgets import (
 )
 
 from ..jobs import Job
+from src.playlist.analyze_library_results import (
+    build_analyze_library_readout,
+    format_analyze_library_action_label,
+    format_analyze_library_attention_summary,
+)
 
 
 class JobDetailsDialog(QDialog):
@@ -35,6 +46,7 @@ class JobDetailsDialog(QDialog):
     def __init__(self, job: Job, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._job = job
+        self.setObjectName("jobDetailsDialog")
         self.setWindowTitle(f"Job Details - {job.job_type.label()}")
         self.resize(800, 600)
         self._setup_ui()
@@ -44,14 +56,21 @@ class JobDetailsDialog(QDialog):
 
         # Summary section
         summary_group = self._create_summary_section()
+        self._summary_group = summary_group
         layout.addWidget(summary_group)
 
         # Tabs for detailed information
         tabs = QTabWidget()
+        self._tabs = tabs
+        self._tabs.setObjectName("jobDetailsTabs")
 
         # Performance metrics tab
         perf_tab = self._create_performance_tab()
         tabs.addTab(perf_tab, "Performance")
+
+        if self._job.job_type.value == "analyze_library":
+            results_tab = self._create_analyze_library_results_tab()
+            tabs.addTab(results_tab, "Results")
 
         # Checkpoint data tab (if available)
         if self._job.checkpoint_data:
@@ -67,12 +86,15 @@ class JobDetailsDialog(QDialog):
 
         # Button box
         button_box = QDialogButtonBox(QDialogButtonBox.Close)
+        self._button_box = button_box
+        self._button_box.setObjectName("jobDetailsButtons")
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
 
     def _create_summary_section(self) -> QGroupBox:
         """Create the summary information section."""
         group = QGroupBox("Job Summary")
+        group.setObjectName("jobSummaryCard")
         layout = QVBoxLayout(group)
 
         # Job type and status
@@ -103,10 +125,151 @@ class JobDetailsDialog(QDialog):
         # Resume capability
         if self._job.can_resume:
             resume_label = QLabel("✓ <b>This job can be resumed from checkpoint</b>")
-            resume_label.setStyleSheet("color: #155724;")
+            resume_label.setObjectName("resumeNotice")
             layout.addWidget(resume_label)
 
         return group
+
+    def _create_analyze_library_results_tab(self) -> QWidget:
+        """Create a structured Analyze Library results tab."""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        result = self._job.result_data or {}
+        readout = build_analyze_library_readout(
+            result,
+            status=str(self._job.status.value if hasattr(self._job.status, "value") else self._job.status),
+            error_message=self._job.error_message,
+        )
+        self._results_headline_label = QLabel(f"<b>{readout['headline']}</b>")
+        self._results_headline_label.setObjectName("analyzeResultsHeadline")
+        layout.addWidget(self._results_headline_label)
+        attention_summary = format_analyze_library_attention_summary(
+            result,
+            status=str(self._job.status.value if hasattr(self._job.status, "value") else self._job.status),
+            error_message=self._job.error_message,
+        )
+        self._attention_summary_label = QLabel(attention_summary)
+        self._attention_summary_label.setObjectName("analyzeAttentionBanner")
+        if attention_summary:
+            self._attention_summary_label.setWordWrap(True)
+            layout.addWidget(self._attention_summary_label)
+
+        readout_table = QTableWidget()
+        self._readout_table = readout_table
+        self._readout_table.setObjectName("jobReadoutTable")
+        metrics = list(readout.get("metrics") or [])
+        readout_table.setColumnCount(2)
+        readout_table.setHorizontalHeaderLabels(["Metric", "Value"])
+        readout_table.horizontalHeader().setStretchLastSection(True)
+        readout_table.setShowGrid(False)
+        readout_table.setRowCount(len(metrics))
+        readout_table.setMaximumHeight(140)
+        for row, (label, value) in enumerate(metrics):
+            readout_table.setItem(row, 0, QTableWidgetItem(str(label)))
+            readout_table.setItem(row, 1, QTableWidgetItem(str(value)))
+        layout.addWidget(readout_table)
+
+        attention = list(readout.get("attention") or [])
+        if attention:
+            layout.addWidget(QLabel("<b>Needs Attention:</b>"))
+            attention_text = QTextEdit()
+            self._attention_text = attention_text
+            attention_text.setReadOnly(True)
+            attention_text.setObjectName("analyzeAttentionText")
+            attention_text.setPlainText("\n".join(f"- {item}" for item in attention))
+            attention_text.setMaximumHeight(100)
+            layout.addWidget(attention_text)
+        else:
+            self._attention_text = QTextEdit()
+            self._attention_text.setReadOnly(True)
+
+        self._add_path_row(layout, "Report", str(result.get("report_path") or ""), "report")
+        self._add_path_row(layout, "Output", str(result.get("out_dir") or ""), "output")
+
+        verify_issues = result.get("verify_issues") or []
+        if verify_issues:
+            layout.addWidget(QLabel(f"<b>Verify issues:</b> {', '.join(map(str, verify_issues))}"))
+
+        stages = list(result.get("stages") or [])
+        table = QTableWidget()
+        self._results_table = table
+        self._results_table.setObjectName("analyzeStageTable")
+        table.setColumnCount(5)
+        table.setHorizontalHeaderLabels(["Stage", "Decision", "Processed", "Errors", "Duration"])
+        table.horizontalHeader().setStretchLastSection(True)
+        table.setShowGrid(False)
+        table.setRowCount(len(stages))
+
+        for row, stage in enumerate(stages):
+            processed = stage.get("processed_count")
+            if processed is None:
+                processed = "-"
+            duration = stage.get("duration_sec")
+            duration_text = "-" if duration is None else f"{float(duration):.1f}s"
+            stage_name = str(stage.get("name") or "-")
+            values = [
+                format_analyze_library_action_label(stage_name),
+                stage.get("decision") or "-",
+                str(processed),
+                str(stage.get("errors_count", 0)),
+                duration_text,
+            ]
+            for col, value in enumerate(values):
+                table.setItem(row, col, QTableWidgetItem(str(value)))
+
+        if stages:
+            layout.addWidget(table)
+        else:
+            layout.addWidget(QLabel("<i>No completed stage report is available.</i>"))
+        layout.addStretch()
+        return widget
+
+    def _add_path_row(
+        self,
+        layout: QVBoxLayout,
+        label: str,
+        path_value: str,
+        attr_prefix: str,
+    ) -> None:
+        """Add a readable path row with copy/open actions."""
+        has_path = bool(path_value)
+        display_value = path_value if has_path else "Not available"
+        row = QHBoxLayout()
+        row.addWidget(QLabel(f"<b>{label}:</b>"))
+
+        path_edit = QLineEdit(display_value)
+        path_edit.setReadOnly(True)
+        path_edit.setToolTip(path_value if has_path else f"{label} path is not available for this job")
+        path_edit.setCursorPosition(0)
+        row.addWidget(path_edit, 1)
+
+        copy_btn = QPushButton("Copy")
+        copy_btn.setToolTip(f"Copy {label.lower()} path")
+        copy_btn.clicked.connect(
+            lambda _checked=False, value=path_value: QApplication.clipboard().setText(value)
+        )
+        copy_btn.setEnabled(has_path)
+        row.addWidget(copy_btn)
+
+        open_btn = QPushButton("Open")
+        open_btn.setToolTip(f"Open {label.lower()} path")
+        open_btn.clicked.connect(
+            lambda _checked=False, value=path_value: self._open_path(value)
+        )
+        open_btn.setEnabled(has_path)
+        row.addWidget(open_btn)
+
+        setattr(self, f"_{attr_prefix}_path_edit", path_edit)
+        setattr(self, f"_{attr_prefix}_path_copy_btn", copy_btn)
+        setattr(self, f"_{attr_prefix}_path_open_btn", open_btn)
+        layout.addLayout(row)
+
+    def _open_path(self, path_value: str) -> None:
+        path = Path(path_value).expanduser()
+        if not path.is_absolute():
+            path = path.resolve()
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
     def _create_performance_tab(self) -> QWidget:
         """Create the performance metrics tab."""

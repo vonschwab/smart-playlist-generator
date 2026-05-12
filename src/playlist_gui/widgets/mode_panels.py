@@ -13,6 +13,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -23,7 +24,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
 )
 
-from ..autocomplete import DatabaseCompleter, setup_artist_completer, setup_track_completer
+from ..autocomplete import DatabaseCompleter, setup_artist_completer, setup_genre_completer, setup_track_completer
 from ..seed_resolver import resolve_track_from_display
 from .seed_chips import SeedChip, SeedChipsList
 
@@ -33,6 +34,39 @@ logger = logging.getLogger(__name__)
 # Type aliases
 PresenceLevel = Literal["very_low", "low", "medium", "high", "very_high"]
 VarietyLevel = Literal["focused", "balanced", "sprawling"]
+MODE_CONTROL_GROUP_HEIGHT = 48
+
+
+def _create_mode_control_group(
+    owner: QWidget,
+    key: str,
+    title: str,
+    content: QWidget,
+    *,
+    stretch: bool = False,
+) -> QFrame:
+    """Create a compact labelled card for mode-specific controls."""
+    group = QFrame()
+    group.setObjectName("modeControlGroup")
+    group.setMinimumHeight(MODE_CONTROL_GROUP_HEIGHT)
+    group.setMaximumHeight(MODE_CONTROL_GROUP_HEIGHT)
+    group.setSizePolicy(
+        QSizePolicy.Expanding if stretch else QSizePolicy.Maximum,
+        QSizePolicy.Fixed,
+    )
+
+    layout = QHBoxLayout(group)
+    layout.setContentsMargins(8, 5, 8, 5)
+    layout.setSpacing(7)
+
+    title_label = QLabel(title)
+    title_label.setObjectName("modeControlGroupTitle")
+    layout.addWidget(title_label)
+    layout.addWidget(content, stretch=1 if stretch else 0)
+
+    owner._control_groups[key] = group  # type: ignore[attr-defined]
+    setattr(owner, f"_{key}_group_title", title_label)
+    return group
 
 
 class ArtistModePanel(QWidget):
@@ -53,6 +87,7 @@ class ArtistModePanel(QWidget):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         self._db_completer: Optional[DatabaseCompleter] = None
         self._artists: List[str] = []
+        self._control_groups: dict[str, QFrame] = {}
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -61,22 +96,27 @@ class ArtistModePanel(QWidget):
         layout.setSpacing(8)
 
         # Artist input row
-        artist_row = QHBoxLayout()
-        artist_row.addWidget(QLabel("Artist:"))
-
         self._artist_edit = QLineEdit()
         self._artist_edit.setPlaceholderText("Start typing artist name...")
         self._artist_edit.setMinimumWidth(250)
         self._artist_edit.textChanged.connect(self._on_artist_text_changed)
-        artist_row.addWidget(self._artist_edit, stretch=1)
+        self._artist_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
-        layout.addLayout(artist_row)
+        layout.addWidget(
+            _create_mode_control_group(
+                self,
+                "artist",
+                "Artist",
+                self._artist_edit,
+                stretch=True,
+            )
+        )
 
         # Multi-artist note (hidden by default)
         self._multi_note = QLabel(
             "<i>Multi-artist journeys coming soon — currently generating from the first artist only.</i>"
         )
-        self._multi_note.setStyleSheet("color: #888; font-size: 11px; padding: 4px;")
+        self._multi_note.setObjectName("modeInlineNote")
         self._multi_note.setWordWrap(True)
         self._multi_note.hide()
         layout.addWidget(self._multi_note)
@@ -87,12 +127,6 @@ class ArtistModePanel(QWidget):
         tuning_row.setSpacing(8)
 
         # Presence dropdown
-        presence_container = QWidget()
-        presence_container.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
-        presence_section = QHBoxLayout(presence_container)
-        presence_section.setSpacing(6)
-        presence_section.setContentsMargins(0, 0, 0, 0)
-        presence_section.addWidget(QLabel("Presence:"))
         self._presence_combo = QComboBox()
         self._presence_combo.addItems(
             [
@@ -108,9 +142,16 @@ class ArtistModePanel(QWidget):
             "How much of the playlist should feature the seed artist?\n"
             "Very Low = few tracks, Very High = strong seed presence"
         )
-        self._presence_combo.setFixedWidth(180)
-        presence_section.addWidget(self._presence_combo)
-        tuning_row.addWidget(presence_container)
+        self._presence_combo.setMinimumWidth(180)
+        self._presence_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        tuning_row.addWidget(
+            _create_mode_control_group(
+                self,
+                "presence",
+                "Presence",
+                self._presence_combo,
+            )
+        )
 
         # Variety slider
         variety_container = QWidget()
@@ -118,16 +159,12 @@ class ArtistModePanel(QWidget):
         variety_section = QHBoxLayout(variety_container)
         variety_section.setContentsMargins(0, 0, 0, 0)
         variety_section.setSpacing(4)
-        variety_label = QLabel("Variety:")
-        variety_label.setFixedWidth(52)
         variety_help = (
             "Controls stylistic spread within the seed artist's neighborhood.\n"
             "Focused stays close to the core sound, Balanced mixes nearby styles,\n"
             "Sprawling reaches farther while keeping artist influence.\n"
             "Genre/Sonic modes set strictness; Variety sets spread."
         )
-        variety_label.setToolTip(variety_help)
-        variety_section.addWidget(variety_label)
 
         self._variety_slider = QSlider(Qt.Horizontal)
         self._variety_slider.setMinimum(0)
@@ -135,19 +172,29 @@ class ArtistModePanel(QWidget):
         self._variety_slider.setValue(1)  # Default: balanced
         self._variety_slider.setTickPosition(QSlider.TicksBelow)
         self._variety_slider.setTickInterval(1)
-        self._variety_slider.setFixedWidth(140)
+        self._variety_slider.setMinimumWidth(140)
+        self._variety_slider.setMaximumWidth(220)
+        self._variety_slider.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self._variety_slider.setToolTip(variety_help)
         self._variety_slider.valueChanged.connect(self._on_variety_changed)
         variety_section.addWidget(self._variety_slider)
 
         self._variety_label = QLabel("Balanced")
-        self._variety_label.setFixedWidth(80)
+        self._variety_label.setMinimumWidth(80)
+        self._variety_label.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
         variety_section.addWidget(self._variety_label)
 
-        tuning_row.addWidget(variety_container)
+        variety_group = _create_mode_control_group(
+            self,
+            "variety",
+            "Variety",
+            variety_container,
+        )
+        self._variety_group_title.setToolTip(variety_help)
+        tuning_row.addWidget(variety_group)
 
         # Include collaborations checkbox
-        self._collabs_check = QCheckBox("Include collaborations")
+        self._collabs_check = QCheckBox("Include")
         self._collabs_check.setToolTip(
             "Mix collaboration tracks into the seed pool.\n"
             "Examples: \"Miles Davis Quintet\", \"Greg Foat & Art Themen\",\n"
@@ -155,7 +202,14 @@ class ArtistModePanel(QWidget):
             "with, +, /, comma, and ensemble suffixes (trio, quartet,\n"
             "quintet, sextet, group, band, ensemble, orchestra)."
         )
-        tuning_row.addWidget(self._collabs_check)
+        tuning_row.addWidget(
+            _create_mode_control_group(
+                self,
+                "collaborations",
+                "Collaborations",
+                self._collabs_check,
+            )
+        )
 
         tuning_row.addStretch()
 
@@ -250,6 +304,7 @@ class SeedsModePanel(QWidget):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         self._db_path = db_path
         self._db_completer: Optional[DatabaseCompleter] = None
+        self._control_groups: dict[str, QFrame] = {}
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -258,8 +313,11 @@ class SeedsModePanel(QWidget):
         layout.setSpacing(8)
 
         # Track search row
-        search_row = QHBoxLayout()
-        search_row.addWidget(QLabel("Add track:"))
+        search_content = QWidget()
+        search_content.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        search_row = QHBoxLayout(search_content)
+        search_row.setContentsMargins(0, 0, 0, 0)
+        search_row.setSpacing(6)
 
         self._track_edit = QLineEdit()
         self._track_edit.setPlaceholderText("Search for a track to add as seed...")
@@ -272,7 +330,15 @@ class SeedsModePanel(QWidget):
         self._add_btn.clicked.connect(self._on_add_seed)
         search_row.addWidget(self._add_btn)
 
-        layout.addLayout(search_row)
+        layout.addWidget(
+            _create_mode_control_group(
+                self,
+                "track",
+                "Track",
+                search_content,
+                stretch=True,
+            )
+        )
 
         # Seed chips list
         self._chips_list = SeedChipsList()
@@ -280,7 +346,11 @@ class SeedsModePanel(QWidget):
         layout.addWidget(self._chips_list)
 
         # Auto-order toggle row
-        order_row = QHBoxLayout()
+        order_content = QWidget()
+        order_content.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        order_row = QHBoxLayout(order_content)
+        order_row.setContentsMargins(0, 0, 0, 0)
+        order_row.setSpacing(8)
 
         self._auto_order_check = QCheckBox("Auto-order seeds for optimal bridging")
         self._auto_order_check.setChecked(True)
@@ -301,7 +371,15 @@ class SeedsModePanel(QWidget):
         self._remove_btn.clicked.connect(self._chips_list.remove_selected)
         order_row.addWidget(self._remove_btn)
 
-        layout.addLayout(order_row)
+        layout.addWidget(
+            _create_mode_control_group(
+                self,
+                "seed_order",
+                "Seed Order",
+                order_content,
+                stretch=True,
+            )
+        )
 
         # DJ bridging hint (hidden by default)
         self._dj_hint = QLabel(
@@ -432,3 +510,78 @@ class SeedsModePanel(QWidget):
     def set_seeds(self, chips: List[SeedChip]) -> None:
         """Set seeds programmatically."""
         self._chips_list.set_seeds(chips)
+
+
+class GenreModePanel(QWidget):
+    """Genre mode controls."""
+
+    genre_changed = Signal(str)
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        self._db_completer: Optional[DatabaseCompleter] = None
+        self._control_groups: dict[str, QFrame] = {}
+        self._setup_ui()
+
+    def _setup_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        self._genre_edit = QLineEdit()
+        self._genre_edit.setPlaceholderText("Start typing genre name...")
+        self._genre_edit.setMinimumWidth(250)
+        self._genre_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._genre_edit.textChanged.connect(lambda text: self.genre_changed.emit(text.strip()))
+
+        layout.addWidget(
+            _create_mode_control_group(
+                self,
+                "genre",
+                "Genre",
+                self._genre_edit,
+                stretch=True,
+            )
+        )
+
+    def set_completer_data(self, completer: DatabaseCompleter) -> None:
+        """Set autocomplete data source."""
+        self._db_completer = completer
+        if completer:
+            setup_genre_completer(self._genre_edit, completer)
+
+    def get_genre(self) -> str:
+        """Get the entered genre."""
+        return self._genre_edit.text().strip()
+
+    def set_genre(self, genre: str) -> None:
+        """Set genre text programmatically."""
+        self._genre_edit.setText(genre)
+
+    def clear(self) -> None:
+        """Clear genre input."""
+        self._genre_edit.clear()
+
+
+class HistoryModePanel(QWidget):
+    """History mode controls."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        self._control_groups: dict[str, QFrame] = {}
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        label = QLabel("Uses your configured listening history source.")
+        label.setObjectName("historyHint")
+        layout.addWidget(
+            _create_mode_control_group(
+                self,
+                "history",
+                "History",
+                label,
+                stretch=True,
+            )
+        )
