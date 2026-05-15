@@ -473,3 +473,84 @@ def test_playlist_generator_does_not_post_filter_ds_results(monkeypatch, caplog)
     result = gen.create_playlist_for_artist(artist, track_count=3)
     assert len(result["tracks"]) == 3
     assert any("stage=post_order_validation" in rec.getMessage() for rec in caplog.records)
+
+
+def test_playlist_generator_refreshes_ds_metrics_after_final_edge_recompute(monkeypatch):
+    from src.playlist_generator import PlaylistGenerator
+
+    class DummyLibrary:
+        similarity_calc = object()
+
+        def __init__(self, tracks):
+            self._tracks = list(tracks)
+
+        def get_all_tracks(self, library_id=None):
+            return list(self._tracks)
+
+    class DummyConfig:
+        recently_played_filter_enabled = False
+        recently_played_lookback_days = 14
+        recently_played_min_playcount = 0
+        min_track_duration_seconds = 47
+        max_track_duration_seconds = 720
+        config = {"playlists": {}}
+
+        def get(self, section, key=None, default=None):
+            if key is None:
+                return self.config.get(section, default)
+            return self.config.get(section, {}).get(key, default)
+
+    artist = "Test Artist"
+    library_tracks = [
+        {
+            "rating_key": f"s{i}",
+            "artist": artist,
+            "artist_key": "test artist",
+            "title": f"Seed {i}",
+            "duration": 180000,
+        }
+        for i in range(4)
+    ]
+    gen = PlaylistGenerator(DummyLibrary(library_tracks), DummyConfig(), lastfm_client=None)
+    monkeypatch.setattr(gen, "_print_playlist_report", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        gen,
+        "_compute_edge_scores_from_artifact",
+        lambda *args, **kwargs: [
+            {"prev_id": "p0", "cur_id": "x1", "T": 0.1},
+            {"prev_id": "x1", "cur_id": "p2", "T": 0.3},
+        ],
+    )
+
+    def _stub_ds(*args, **kwargs):
+        gen._last_ds_report = {
+            "metrics": {
+                "strategy": "pier_bridge",
+                "below_floor": 0,
+                "min_transition": 0.9,
+                "mean_transition": 0.95,
+            },
+            "playlist_stats": {
+                "playlist": {
+                    "transition_floor": 0.2,
+                    "below_floor_count": 0,
+                    "min_transition": 0.9,
+                    "mean_transition": 0.95,
+                }
+            },
+            "transition_floor": 0.2,
+        }
+        return [
+            {"rating_key": "p0", "artist": artist, "title": "Pier 0", "duration": 180000},
+            {"rating_key": "x1", "artist": "Other", "title": "Bridge 1", "duration": 180000},
+            {"rating_key": "p2", "artist": artist, "title": "Pier 2", "duration": 180000},
+        ]
+
+    monkeypatch.setattr(gen, "_maybe_generate_ds_playlist", _stub_ds)
+
+    result = gen.create_playlist_for_artist(artist, track_count=3)
+
+    assert result["ds_report"]["metrics"]["below_floor"] == 1
+    assert result["ds_report"]["metrics"]["min_transition"] == 0.1
+    assert result["ds_report"]["metrics"]["mean_transition"] == 0.2
+    assert result["ds_report"]["metrics"]["distinct_artists"] == 2

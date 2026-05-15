@@ -5,6 +5,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+from src.playlist import reporter
 from src.playlist.pipeline import generate_playlist_ds as core_generate_playlist_ds
 from src.playlist.pier_bridge_builder import PierBridgeConfig
 
@@ -18,6 +19,55 @@ class DsRunResult:
     effective: Dict[str, Any]
     metrics: Dict[str, Any]
     playlist_stats: Dict[str, Any]
+
+
+def _finite_t_values(edge_scores: List[Dict[str, Any]]) -> List[float]:
+    values: List[float] = []
+    for edge in edge_scores:
+        if not isinstance(edge, dict):
+            continue
+        value = edge.get("T")
+        if isinstance(value, (int, float)) and value == value:
+            values.append(float(value))
+    return values
+
+
+def _refresh_playlist_metrics_from_final_edges(
+    *,
+    track_ids: List[str],
+    playlist_stats: Dict[str, Any],
+    artifact_path: str,
+    sonic_variant: Optional[str],
+    random_seed: int,
+) -> None:
+    """Make DS summary metrics match final edge-reporting representation."""
+    if len(track_ids) < 2:
+        return
+    transition_floor = playlist_stats.get("transition_floor")
+    edge_scores = reporter.compute_edge_scores_from_artifact(
+        tracks=[{"rating_key": str(tid)} for tid in track_ids],
+        artifact_path=artifact_path,
+        config_sonic_variant=sonic_variant,
+        transition_floor=transition_floor,
+        transition_gamma=playlist_stats.get("transition_gamma"),
+        embedding_random_seed=random_seed,
+        center_transitions=bool(playlist_stats.get("transition_centered")),
+        sonic_variant=sonic_variant,
+    )
+    if len(edge_scores) != len(track_ids) - 1:
+        return
+
+    t_values = _finite_t_values(edge_scores)
+    if not t_values:
+        return
+
+    playlist_stats["edge_scores"] = edge_scores
+    playlist_stats["min_transition"] = min(t_values)
+    playlist_stats["mean_transition"] = sum(t_values) / len(t_values)
+    if transition_floor is not None:
+        floor = float(transition_floor)
+        playlist_stats["below_floor_count"] = sum(1 for value in t_values if value < floor)
+    playlist_stats["edge_metric_source"] = "final_emitted_playlist"
 
 
 def generate_playlist_ds(
@@ -92,6 +142,13 @@ def generate_playlist_ds(
     )
 
     playlist_stats = result.stats.get("playlist", {})
+    _refresh_playlist_metrics_from_final_edges(
+        track_ids=list(result.track_ids),
+        playlist_stats=playlist_stats,
+        artifact_path=artifact_path,
+        sonic_variant=sonic_variant,
+        random_seed=random_seed,
+    )
     metrics: Dict[str, Any] = {
         "below_floor": playlist_stats.get("below_floor_count"),
         "min_transition": playlist_stats.get("min_transition"),
@@ -106,6 +163,7 @@ def generate_playlist_ds(
         "strategy": playlist_stats.get("strategy"),
         "repair_applied": playlist_stats.get("repair_applied"),
         "num_segments": playlist_stats.get("num_segments"),
+        "edge_metric_source": playlist_stats.get("edge_metric_source"),
     }
 
     if enable_logging:

@@ -2493,8 +2493,40 @@ class PlaylistGenerator:
             playlist_stats = self._last_ds_report.get("playlist_stats") or {}
             playlist_stats_playlist = playlist_stats.get("playlist") or {}
             playlist_stats_playlist["edge_scores"] = recomputed_edges
+            t_values = [
+                float(edge.get("T"))
+                for edge in recomputed_edges
+                if isinstance(edge, dict)
+                and isinstance(edge.get("T"), (int, float))
+                and edge.get("T") == edge.get("T")
+            ]
+            transition_floor = self._last_ds_report.get("transition_floor")
+            if transition_floor is None:
+                transition_floor = playlist_stats_playlist.get("transition_floor")
+            if t_values:
+                playlist_stats_playlist["min_transition"] = min(t_values)
+                playlist_stats_playlist["mean_transition"] = sum(t_values) / len(t_values)
+                if transition_floor is not None:
+                    playlist_stats_playlist["below_floor_count"] = sum(
+                        1 for value in t_values if value < float(transition_floor)
+                    )
+            artist_counts: Dict[str, int] = {}
+            for track in final_tracks:
+                artist = str(track.get("artist") or "Unknown")
+                artist_counts[artist] = artist_counts.get(artist, 0) + 1
+            playlist_stats_playlist["artist_counts"] = artist_counts
+            playlist_stats_playlist["distinct_artists"] = len(artist_counts)
+            playlist_stats_playlist["edge_metric_source"] = "final_emitted_playlist"
             playlist_stats["playlist"] = playlist_stats_playlist
             self._last_ds_report["playlist_stats"] = playlist_stats
+            metrics = self._last_ds_report.get("metrics") or {}
+            metrics["below_floor"] = playlist_stats_playlist.get("below_floor_count")
+            metrics["min_transition"] = playlist_stats_playlist.get("min_transition")
+            metrics["mean_transition"] = playlist_stats_playlist.get("mean_transition")
+            metrics["artist_counts"] = artist_counts
+            metrics["distinct_artists"] = len(artist_counts)
+            metrics["edge_metric_source"] = "final_emitted_playlist"
+            self._last_ds_report["metrics"] = metrics
             if os.environ.get("PLAYLIST_DIAG_RECENCY"):
                 logger.info("Recency diag: post-order filtering disabled; no edge diff computed.")
         title = f"Auto: {artist_name}"

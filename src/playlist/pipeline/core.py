@@ -484,6 +484,10 @@ def generate_playlist_ds(
             # 7. Build PlaylistResult-compatible output (no repair, no construct_playlist)
             # We create a minimal PlaylistResult to match the expected interface
             pb_track_indices = np.array(pb_result.track_indices, dtype=np.int32)
+            artist_counts: Dict[str, int] = {}
+            for idx in pb_track_indices.tolist():
+                artist_key = str(bundle.artist_keys[int(idx)]) if bundle.artist_keys is not None else ""
+                artist_counts[artist_key] = artist_counts.get(artist_key, 0) + 1
 
             # Edge scores (T) produced by pier-bridge builder (matches its scoring)
             edge_scores_list = list((pb_result.stats or {}).get("edge_scores") or [])
@@ -516,6 +520,8 @@ def generate_playlist_ds(
                     "below_floor_count": below_floor_count,
                     "min_transition": min_transition,
                     "mean_transition": mean_transition,
+                    "artist_counts": artist_counts,
+                    "distinct_artists": len(artist_counts),
                     "repair_applied": False,  # No repair in pier bridge mode
                     "warnings": (pb_result.stats or {}).get("warnings") or [],
                 },
