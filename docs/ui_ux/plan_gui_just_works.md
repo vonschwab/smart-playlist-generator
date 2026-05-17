@@ -16,7 +16,7 @@
 | `src/playlist_gui/worker.py` | 44KB | Worker subprocess; command execution |
 | `src/playlist_gui/worker_client.py` | 24KB | QProcess wrapper; NDJSON protocol |
 | `src/playlist_gui/widgets/advanced_panel.py` | 36KB | Schema-driven settings UI |
-| `src/playlist_gui/widgets/seed_tracks_input.py` | 5KB | Multi-row track input |
+| `src/playlist_gui/widgets/mode_panels.py` | 30KB | Mode-specific artist, genre, seeds, and history controls |
 | `src/playlist_gui/widgets/track_table.py` | 26KB | Results table with sorting/filtering |
 | `src/playlist_gui/widgets/log_panel.py` | 8KB | Log display with level filters |
 | `src/playlist_gui/config/config_model.py` | 17KB | Config load/merge/override |
@@ -629,7 +629,7 @@ src/playlist_gui/
 │   ├── relaxation_popup.py  # NEW: Toast-style relaxation notification
 │   ├── failure_dialog.py    # NEW: Modal failure dialog
 │   ├── advanced_panel.py    # Modified: filter hidden items
-│   ├── seed_tracks_input.py # Modified or replaced by seeds_panel.py
+│   ├── mode_panels.py       # Artist, genre, seeds, and history mode controls
 │   └── ...
 ├── config/
 │   ├── settings_schema.py   # Modified: mark items as advanced-only
