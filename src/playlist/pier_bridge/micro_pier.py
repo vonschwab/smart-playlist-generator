@@ -4,10 +4,6 @@ Self-contained cluster extracted from pier_bridge_builder.py. The entry point
 is _attempt_micro_pier_split, called from build_pier_bridge_playlist when a
 segment fails. It picks an intermediate "micro-pier" track and runs two
 half-beam-searches around it.
-
-Internal imports of _beam_search_segment and _build_genre_targets are
-done lazily inside _attempt_micro_pier_split to avoid a circular import
-with pier_bridge_builder (they will move out in later PRs).
 """
 from __future__ import annotations
 
@@ -19,7 +15,9 @@ import numpy as np
 from src.features.artifacts import ArtifactBundle
 from src.playlist.artist_identity_resolver import ArtistIdentityConfig
 from src.playlist.identity_keys import identity_keys_for_index
+from src.playlist.pier_bridge.beam import _beam_search_segment
 from src.playlist.pier_bridge.config import PierBridgeConfig
+from src.playlist.pier_bridge.genre_targets import _build_genre_targets
 
 
 def _build_dj_relaxation_attempts(cfg: PierBridgeConfig) -> list[dict[str, Any]]:
@@ -192,15 +190,6 @@ def _attempt_micro_pier_split(
     X_genre_smoothed: Optional[np.ndarray] = None,
     genre_idf: Optional[np.ndarray] = None,
 ) -> Optional[list[int]]:
-    # Lazy imports break the circular dependency: pier_bridge_builder imports
-    # this module's symbols at top, and this function calls back into
-    # pier_bridge_builder for _beam_search_segment + _build_genre_targets.
-    # Both targets are slated to move to pier_bridge/* in later PRs.
-    from src.playlist.pier_bridge_builder import (
-        _beam_search_segment,
-        _build_genre_targets,
-    )
-
     if interior_length < 2 or not candidates:
         return None
     max_micro = max(1, int(cfg.dj_micro_piers_max))
