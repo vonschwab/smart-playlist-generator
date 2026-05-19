@@ -84,6 +84,7 @@
   "max_bridge_helpers": 200,
   "max_expansion_attempts": 4,
   "max_neighbors_m": 400,
+  "max_non_seed_tracks_per_artist": null,
   "max_segment_pool_max": 1200,
   "progress_arc_autoscale_distance_scale": 0.45,
   "progress_arc_autoscale_enabled": true,

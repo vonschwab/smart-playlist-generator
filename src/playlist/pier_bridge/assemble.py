@@ -1,23 +1,11 @@
 """
-Pier + Bridge Playlist Builder
-==============================
+Tier-3.1 PR-9: assembly layer — edge scoring, min-gap enforcement, and top-level entrypoint.
 
-A new playlist ordering strategy where:
-- Each seed track is a fixed "pier"
-- Bridge segments connect consecutive piers
-- No repair pass after ordering
-
-Key features:
-- Candidate pool deduped BEFORE ordering (no duplicate songs by normalized artist+title)
-- Genre gating stays enabled with hard floors (no relaxation)
-- Global used_track_ids prevents duplicates across segments
-- One track per artist per segment enforced during beam search
-- Cross-segment min_gap enforced during generation via boundary-aware constraints
-- No post-order filtering or dropping (guarantees exact length)
-- Single seed mode: seed acts as both start AND end pier, creating an arc structure
-- Seed artist is allowed in bridges with same constraints as other artists
+Extracted verbatim from pier_bridge_builder.py:
+  _compute_edge_scores       — per-path worst/mean transition scores
+  _enforce_min_gap_global    — cross-segment artist gap enforcement
+  build_pier_bridge_playlist — top-level pier+bridge playlist builder
 """
-
 from __future__ import annotations
 
 import logging
@@ -26,6 +14,7 @@ from dataclasses import replace
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
+
 from src.features.artifacts import ArtifactBundle
 from src.title_dedupe import normalize_artist_key
 from src.string_utils import sanitize_for_logging
@@ -34,103 +23,45 @@ from src.playlist.artist_identity_resolver import (
     ArtistIdentityConfig,
     resolve_artist_identity_keys,
 )
-from src.playlist.run_audit import InfeasibleHandlingConfig, RunAuditConfig, RunAuditEvent, now_utc_iso
-
-# Tier-3.1 PR-1: 14 pure genre helpers extracted to pier_bridge/genre.py.
-# Re-exported here for backward compatibility (callers + tests still import
-# these names from src.playlist.pier_bridge_builder).
-from src.playlist.pier_bridge.genre import (  # noqa: F401  (re-exported for tests/back-compat)
-    _apply_idf_weighting,
-    _compute_coverage,
-    _compute_coverage_bonus,
-    _compute_genre_idf as _compute_genre_idf_impl,
-    _ensure_genre_similarity_overrides_loaded,
-    _extract_top_genres,
-    _genre_similarity_score,
-    _genre_vocab_map,
-    _label_to_genre_vector,
-    _label_to_smoothed_vector,
-    _load_genre_similarity_graph,
-    _normalize_vec,
-    _select_top_genre_labels,
-    _shortest_genre_path,
+from src.playlist.run_audit import (
+    InfeasibleHandlingConfig,
+    RunAuditConfig,
+    RunAuditEvent,
+    now_utc_iso,
 )
-
-
-# Tier-3.1 PR-2: vector math + transition scoring.
-from src.playlist.pier_bridge.vec import (  # noqa: F401
-    _cosine_sim,
-    _l2_normalize_rows,
-    _compute_transition_score as _compute_transition_score_impl,
-    _compute_transition_score_raw_and_transformed as _compute_transition_score_raw_and_transformed_impl,
-)
-
-# Tier-3.1 PR-2: progress + diagnostic metrics.
-from src.playlist.pier_bridge.metrics import (  # noqa: F401
-    _compute_chosen_source_counts,
-    _compute_pool_overlap_metrics,
-    _compute_progress_tracking_metrics,
-    _dist,
-    _progress_arc_loss_value,
-    _progress_target_curve,
-    _step_fraction,
-)
-
-# Tier-3.1 PR-3: config dataclasses + resolver + back-compat wrappers.
-from src.playlist.pier_bridge.config import (  # noqa: F401  (re-exported for callers + tests)
+from src.playlist.pier_bridge.config import (
     PierBridgeConfig,
     PierBridgeResult,
     SegmentDiagnostics,
-    resolve_pier_bridge_tuning,
     _compute_genre_idf,
     _compute_transition_score,
-    _compute_transition_score_raw_and_transformed,
 )
-
-# Tier-3.1 PR-4: audit summary + bridgeability scoring.
-from src.playlist.pier_bridge.audit_summary import (  # noqa: F401
-    _compute_bridgeability_score,
-    _summarize_candidates_for_audit,
+from src.playlist.pier_bridge.vec import _l2_normalize_rows
+from src.playlist.pier_bridge.genre import (
+    _apply_idf_weighting,
+    _ensure_genre_similarity_overrides_loaded,
+    _load_genre_similarity_graph,
 )
-
-# Tier-3.1 PR-5: micro-pier + relaxation subsystem.
-from src.playlist.pier_bridge.micro_pier import (  # noqa: F401
+from src.playlist.pier_bridge.metrics import _compute_chosen_source_counts
+from src.playlist.pier_bridge.audit_summary import _summarize_candidates_for_audit
+from src.playlist.pier_bridge.micro_pier import (
     _attempt_micro_pier_split,
     _build_dj_relaxation_attempts,
     _micro_pier_candidate_pool,
-    _score_micro_pier_candidates,
-    _select_micro_pier_candidates,
     _should_attempt_micro_pier,
 )
-
-# Tier-3.1 PR-6: seed ordering + pool prep helpers.
-from src.playlist.pier_bridge.seeds import (  # noqa: F401
+from src.playlist.pier_bridge.seeds import (
     _dedupe_candidate_pool,
     _order_seeds_by_bridgeability,
     _segment_far_stats,
     _select_connector_candidates,
 )
-
-# Tier-3.1 PR-7: pool builders + bridge-score kernel.
-from src.playlist.pier_bridge.pool import (  # noqa: F401  (re-exported for tests/back-compat)
+from src.playlist.pier_bridge.pool import (
     _build_segment_candidate_pool_legacy,
     _build_segment_candidate_pool_scored,
-    _compute_bridge_score,
 )
-
-# Tier-3.1 PR-8: genre waypoint target builder.
-from src.playlist.pier_bridge.genre_targets import (  # noqa: F401  (re-exported for tests/back-compat)
-    _build_genre_targets,
-    _fallback_genre_vector,
-)
-
-# Tier-3.1 PR-8: beam search engine + duration penalty.
-from src.playlist.pier_bridge.beam import (  # noqa: F401  (re-exported for tests/back-compat)
-    BeamState,
-    _beam_search_segment,
-    _compute_duration_penalty,
-)
-
+from src.playlist.pier_bridge.genre_targets import _build_genre_targets
+from src.playlist.pier_bridge.beam import _beam_search_segment
 
 logger = logging.getLogger(__name__)
 
@@ -1389,7 +1320,7 @@ def build_pier_bridge_playlist(
                         beam_width=int(beam_width_used),
                         artist_key_by_idx=last_candidate_artist_keys,
                         seed_artist_key=seed_artist_key,
-                        recent_global_artists=_recent_artists_for_segment(seg_idx),
+                        recent_global_artists=recent_boundary_artists if seg_idx > 0 else None,
                         durations_ms=bundle.durations_ms,
                         artist_identity_cfg=artist_identity_cfg,
                         bundle=bundle,
@@ -1431,7 +1362,7 @@ def build_pier_bridge_playlist(
                     beam_width=int(beam_width_used),
                     artist_key_by_idx=last_candidate_artist_keys,
                     seed_artist_key=seed_artist_key,
-                    recent_global_artists=_recent_artists_for_segment(seg_idx),
+                    recent_global_artists=recent_boundary_artists if seg_idx > 0 else None,
                     durations_ms=bundle.durations_ms,
                     artist_identity_cfg=artist_identity_cfg,
                     bundle=bundle,
@@ -1877,28 +1808,11 @@ def build_pier_bridge_playlist(
 
     # Compute overall stats
     actual_num_seeds = 1 if is_single_seed_arc else len(seed_indices)
-    seed_index_set = set(int(i) for i in seed_indices)
-    artist_counts: Dict[str, int] = {}
-    non_seed_artist_counts: Dict[str, int] = {}
-    for idx in final_indices:
-        artist_key = ""
-        try:
-            artist_key = identity_keys_for_index(bundle, int(idx)).artist_key
-        except Exception:
-            artist_key = ""
-        if not artist_key:
-            continue
-        artist_counts[artist_key] = artist_counts.get(artist_key, 0) + 1
-        if int(idx) not in seed_index_set:
-            non_seed_artist_counts[artist_key] = non_seed_artist_counts.get(artist_key, 0) + 1
     stats = {
         "num_seeds": actual_num_seeds,
         "single_seed_arc": is_single_seed_arc,
         "target_tracks": total_tracks,
         "actual_tracks": len(final_indices),
-        "artist_counts": artist_counts,
-        "non_seed_artist_counts": non_seed_artist_counts,
-        "max_non_seed_tracks_per_artist": cfg.max_non_seed_tracks_per_artist,
         "universe_size": len(universe),
         "segments_built": len(all_segments),
         "segments_successful": sum(1 for d in diagnostics if d.success),
@@ -1925,7 +1839,6 @@ def build_pier_bridge_playlist(
                 float(cfg.genre_tie_break_band) if cfg.genre_tie_break_band is not None else None
             ),
             "bridge_floor": float(cfg.bridge_floor),
-            "max_non_seed_tracks_per_artist": cfg.max_non_seed_tracks_per_artist,
             "infeasible_handling_enabled": bool(infeasible_handling and infeasible_handling.enabled),
             "experiment_bridge_scoring": {
                 "enabled": bool(cfg.experiment_bridge_scoring_enabled),
@@ -2027,4 +1940,3 @@ def build_pier_bridge_playlist(
         segment_diagnostics=diagnostics,
         stats=stats,
     )
-
