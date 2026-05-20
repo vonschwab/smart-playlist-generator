@@ -47,6 +47,9 @@ from src.playlist import candidate_generator
 # Phase 9: Import reporter from refactored module
 from src.playlist import reporter
 
+# Title artifact detection for audit logging
+from src.playlist.title_quality import detect_title_artifacts
+
 logger = logging.getLogger(__name__)
 
 
@@ -151,13 +154,14 @@ def _build_edge_audit_rows(
             bc = beam_components[i]
             if isinstance(bc, dict):
                 beam_comp = bc
+        to_title = str(to_track.get("title") or "?")
         row = {
             "from_idx": edge.get("prev_idx"),
             "to_idx": edge.get("cur_idx"),
             "from_artist": str(from_track.get("artist") or "?"),
             "from_title": str(from_track.get("title") or "?"),
             "to_artist": str(to_track.get("artist") or "?"),
-            "to_title": str(to_track.get("title") or "?"),
+            "to_title": to_title,
             "T": t_val,
             "T_centered_cos": edge.get("T_centered_cos"),
             "S": edge.get("S"),
@@ -171,6 +175,7 @@ def _build_edge_audit_rows(
             "local_sonic_penalty_applied": beam_comp.get("local_sonic_penalty_applied") if beam_comp else edge.get("local_sonic_penalty_applied"),
             "genre_penalty_applied": beam_comp.get("genre_penalty_applied") if beam_comp else edge.get("genre_penalty_applied"),
             "below_transition_floor": below_floor,
+            "to_title_flags": detect_title_artifacts(to_title),
         }
         rows.append(row)
     return rows
