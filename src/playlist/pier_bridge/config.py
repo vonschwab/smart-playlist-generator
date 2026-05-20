@@ -65,6 +65,13 @@ class PierBridgeConfig:
     # multiply the edge score by (1 - strength).
     genre_penalty_threshold: float = 0.20
     genre_penalty_strength: float = 0.10
+    # Local sonic edge penalty (does not gate by default): demote candidates
+    # whose immediate predecessor/successor sonic cosine falls below threshold.
+    # Use local_sonic_edge_floor only for explicit hard-gate experiments.
+    local_sonic_edge_penalty_enabled: bool = False
+    local_sonic_edge_penalty_threshold: float = 0.10
+    local_sonic_edge_penalty_strength: float = 0.0
+    local_sonic_edge_floor: Optional[float] = None
     # Medium-firm duration penalty: asymmetric penalty for candidates longer than pier reference
     # (does not gate candidates, but significantly reduces score for long tracks)
     duration_penalty_enabled: bool = True
@@ -75,6 +82,13 @@ class PierBridgeConfig:
     segment_pool_strategy: str = "segment_scored"
     segment_pool_max: int = 400
     max_segment_pool_max: int = 1200
+    # If True (legacy default), collapse the segment pool to one track per artist
+    # before beam search. The beam already enforces per-segment artist diversity
+    # via its own used_artists set, so setting this False gives the beam many more
+    # tracks per artist at varied projection positions — useful for long
+    # narrow-style segments where the "best per artist" tracks cluster around the
+    # middle of the projection and starve the high-progress region.
+    collapse_segment_pool_by_artist: bool = True
     # Progress model (A→B) to avoid "teleporting" / bouncing.
     progress_enabled: bool = True
     progress_monotonic_epsilon: float = 0.05
@@ -82,6 +96,7 @@ class PierBridgeConfig:
     # Interior artist policies (configured/wired by pipeline for legacy --artist runs).
     disallow_pier_artists_in_interiors: bool = False
     disallow_seed_artist_in_interiors: bool = False
+    max_non_seed_tracks_per_artist: Optional[int] = None
     # Experiment-only bridge scoring (dry-run/audit only; production disabled).
     experiment_bridge_scoring_enabled: bool = False
     experiment_bridge_min_weight: float = 0.25
@@ -175,6 +190,13 @@ class PierBridgeConfig:
     # Phase 3: Coverage enhancements
     dj_coverage_presence_source: str = "raw"  # "same" (legacy) | "raw" (Phase 3 recommended)
     dj_coverage_mode: str = "binary"  # "binary" (0/1 count) | "weighted" (mean weights)
+    # Diagnostic-only: per-edge audit table for final emitted playlist
+    emit_selected_edge_audit: bool = False
+    """Diagnostic-only: when True, log a per-edge audit table for the final
+    emitted playlist showing T, T_centered_cos, S, G, bridge_score,
+    trans_score_in_beam, progress_t/jump, local_sonic_raw_cos,
+    local_sonic_penalty_applied, genre_penalty_applied, below_transition_floor.
+    No behavior change."""
 
 
 @dataclass

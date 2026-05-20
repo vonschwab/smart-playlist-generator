@@ -46,6 +46,7 @@ class BeamState:
     used: Set[int]
     used_artists: Set[str] = field(default_factory=set)
     last_progress: float = 0.0
+    edge_components: List[dict] = field(default_factory=list)
 
 
 def _compute_duration_penalty(
@@ -144,6 +145,8 @@ def _beam_search_segment(
     genre_cache_stats: Optional[Dict[str, int]] = None,
     g_targets_override: Optional[List[np.ndarray]] = None,
     waypoint_stats: Optional[Dict[str, Any]] = None,
+    local_sonic_stats: Optional[Dict[str, Any]] = None,
+    edge_components_out: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Optional[List[int]], int, int, Optional[str]]:
     """
     Constrained beam search to find path from pier_a to pier_b.
@@ -175,6 +178,94 @@ def _beam_search_segment(
             genre_tie_break_band = None
     else:
         genre_tie_break_band = None
+
+    local_sonic_penalty_enabled = bool(cfg.local_sonic_edge_penalty_enabled)
+    local_sonic_penalty_threshold = float(cfg.local_sonic_edge_penalty_threshold)
+    if not math.isfinite(local_sonic_penalty_threshold):
+        local_sonic_penalty_threshold = 0.0
+    local_sonic_penalty_strength = float(cfg.local_sonic_edge_penalty_strength)
+    if not math.isfinite(local_sonic_penalty_strength):
+        local_sonic_penalty_strength = 0.0
+    local_sonic_penalty_strength = float(max(0.0, local_sonic_penalty_strength))
+    local_sonic_floor = cfg.local_sonic_edge_floor
+    if isinstance(local_sonic_floor, (int, float)) and math.isfinite(float(local_sonic_floor)):
+        local_sonic_floor = float(local_sonic_floor)
+    else:
+        local_sonic_floor = None
+    local_sonic_policy_active = (
+        (local_sonic_penalty_enabled and local_sonic_penalty_strength > 0.0)
+        or local_sonic_floor is not None
+    )
+    local_sonic_penalty_hits = 0
+    local_sonic_edges_scored = 0
+    local_sonic_gate_rejected = 0
+    local_sonic_penalty_total = 0.0
+    local_sonic_min_edge: Optional[float] = None
+
+    def _apply_local_sonic_edge_policy(
+        score: float,
+        a_idx: int,
+        b_idx: int,
+    ) -> Optional[float]:
+        nonlocal local_sonic_penalty_hits
+        nonlocal local_sonic_edges_scored
+        nonlocal local_sonic_gate_rejected
+        nonlocal local_sonic_penalty_total
+        nonlocal local_sonic_min_edge
+
+        if not local_sonic_policy_active:
+            return float(score)
+
+        edge_sonic = float(np.dot(X_full_norm[int(a_idx)], X_full_norm[int(b_idx)]))
+        if not math.isfinite(edge_sonic):
+            edge_sonic = 0.0
+        local_sonic_edges_scored += 1
+        local_sonic_min_edge = (
+            edge_sonic
+            if local_sonic_min_edge is None
+            else min(float(local_sonic_min_edge), edge_sonic)
+        )
+
+        if local_sonic_floor is not None and edge_sonic < float(local_sonic_floor):
+            local_sonic_gate_rejected += 1
+            return None
+
+        if (
+            local_sonic_penalty_enabled
+            and local_sonic_penalty_strength > 0.0
+            and edge_sonic < local_sonic_penalty_threshold
+        ):
+            penalty = local_sonic_penalty_strength * (
+                local_sonic_penalty_threshold - edge_sonic
+            )
+            local_sonic_penalty_hits += 1
+            local_sonic_penalty_total += float(penalty)
+            return float(score) - float(penalty)
+
+        return float(score)
+
+    def _record_local_sonic_stats() -> None:
+        if local_sonic_stats is None:
+            return
+        local_sonic_stats.update(
+            {
+                "local_sonic_penalty_enabled": bool(local_sonic_penalty_enabled),
+                "local_sonic_penalty_threshold": float(local_sonic_penalty_threshold),
+                "local_sonic_penalty_strength": float(local_sonic_penalty_strength),
+                "local_sonic_edge_floor": (
+                    float(local_sonic_floor) if local_sonic_floor is not None else None
+                ),
+                "local_sonic_edges_scored": int(local_sonic_edges_scored),
+                "local_sonic_penalty_hits": int(local_sonic_penalty_hits),
+                "local_sonic_gate_rejected": int(local_sonic_gate_rejected),
+                "local_sonic_penalty_total": float(local_sonic_penalty_total),
+                "local_sonic_min_edge": (
+                    float(local_sonic_min_edge)
+                    if local_sonic_min_edge is not None
+                    else None
+                ),
+            }
+        )
 
     waypoint_enabled = bool(cfg.dj_bridging_enabled) and X_genre_norm is not None
     waypoint_weight = float(cfg.dj_waypoint_weight)
@@ -365,6 +456,14 @@ def _beam_search_segment(
             pier_a, pier_b, X_full, X_start, X_mid, X_end, cfg
         )
         edges_scored = 1
+        direct_score_after_sonic = _apply_local_sonic_edge_policy(
+            direct_score,
+            pier_a,
+            pier_b,
+        )
+        _record_local_sonic_stats()
+        if direct_score_after_sonic is None:
+            return None, 0, edges_scored, "direct local sonic edge below floor"
         if direct_score >= cfg.transition_floor:
             return [], 0, edges_scored, None
         else:
@@ -765,6 +864,15 @@ def _beam_search_segment(
                     # Use IDF-weighted matrix when available to match target space
                     waypoint_sim = float(np.dot(X_genre_for_sim[cand], g_target))
 
+                combined_score_after_sonic = _apply_local_sonic_edge_policy(
+                    combined_score,
+                    int(current),
+                    int(cand),
+                )
+                if combined_score_after_sonic is None:
+                    continue
+                combined_score = float(combined_score_after_sonic)
+
                 edges_scored += 1
 
                 if apply_tie_break:
@@ -840,12 +948,47 @@ def _beam_search_segment(
                     if progress_active:
                         new_last_progress = float(progress_by_idx.get(int(cand), 0.0))
 
+                    # Build per-edge diagnostic component dict
+                    _local_sonic_cos = float(np.dot(X_full_norm[int(current)], X_full_norm[int(cand)]))
+                    _genre_pen_applied = 0.0
+                    if genre_sim is not None and math.isfinite(genre_sim):
+                        if penalty_strength > 0 and genre_sim < penalty_threshold:
+                            _genre_pen_applied = float(penalty_strength)
+                    _local_pen_applied = 0.0
+                    if (
+                        local_sonic_penalty_enabled
+                        and local_sonic_penalty_strength > 0.0
+                        and _local_sonic_cos < local_sonic_penalty_threshold
+                    ):
+                        _local_pen_applied = float(
+                            local_sonic_penalty_strength * (local_sonic_penalty_threshold - _local_sonic_cos)
+                        )
+                    _below_floor = bool(
+                        float(base_score_for_rank) < float(cfg.transition_floor)
+                        if False  # trans_score already gated; below_floor tracks final T
+                        else False
+                    )
+                    edge_component = {
+                        "from_idx": int(current),
+                        "to_idx": int(cand),
+                        "bridge_score": float(bridge_score),
+                        "trans_score_in_beam": float(trans_score),
+                        "progress_t": float(cand_t) if progress_active else None,
+                        "progress_jump": (float(cand_t) - float(state.last_progress)) if progress_active else None,
+                        "local_sonic_raw_cos": _local_sonic_cos,
+                        "local_sonic_penalty_applied": _local_pen_applied,
+                        "genre_penalty_applied": _genre_pen_applied,
+                        "below_transition_floor": False,
+                    }
+                    new_edge_components = list(state.edge_components) + [edge_component]
+
                     next_beam.append(BeamState(
                         path=new_path,
                         score=new_score,
                         used=new_used,
                         used_artists=new_used_artists,
                         last_progress=new_last_progress,
+                        edge_components=new_edge_components,
                     ))
 
             if apply_tie_break and cand_entries:
@@ -925,16 +1068,49 @@ def _beam_search_segment(
                     if progress_active:
                         new_last_progress = float(progress_by_idx.get(int(cand), 0.0))
 
+                    # Build per-edge diagnostic component dict (tie-break path)
+                    _local_sonic_cos_tb = float(np.dot(X_full_norm[int(current)], X_full_norm[int(cand)]))
+                    _genre_pen_applied_tb = 0.0
+                    if genre_sim is not None and math.isfinite(genre_sim):
+                        if penalty_strength > 0 and genre_sim < penalty_threshold:
+                            _genre_pen_applied_tb = float(penalty_strength)
+                    _local_pen_applied_tb = 0.0
+                    if (
+                        local_sonic_penalty_enabled
+                        and local_sonic_penalty_strength > 0.0
+                        and _local_sonic_cos_tb < local_sonic_penalty_threshold
+                    ):
+                        _local_pen_applied_tb = float(
+                            local_sonic_penalty_strength * (local_sonic_penalty_threshold - _local_sonic_cos_tb)
+                        )
+                    # In tie-break path, trans_score came from cand_entries as base_score
+                    # (base_score_for_rank ≈ combined_score before penalty, which includes trans_score)
+                    edge_component_tb = {
+                        "from_idx": int(current),
+                        "to_idx": int(cand),
+                        "bridge_score": None,  # not separately tracked in tie-break path
+                        "trans_score_in_beam": float(base_score_for_rank),
+                        "progress_t": float(cand_t) if progress_active else None,
+                        "progress_jump": (float(cand_t) - float(state.last_progress)) if progress_active else None,
+                        "local_sonic_raw_cos": _local_sonic_cos_tb,
+                        "local_sonic_penalty_applied": _local_pen_applied_tb,
+                        "genre_penalty_applied": _genre_pen_applied_tb,
+                        "below_transition_floor": False,
+                    }
+                    new_edge_components_tb = list(state.edge_components) + [edge_component_tb]
+
                     next_beam.append(BeamState(
                         path=new_path,
                         score=new_score,
                         used=new_used,
                         used_artists=new_used_artists,
                         last_progress=new_last_progress,
+                        edge_components=new_edge_components_tb,
                     ))
 
         if not next_beam:
             _record_genre_cache_stats()
+            _record_local_sonic_stats()
             return None, genre_penalty_hits, edges_scored, f"no valid continuations at step={step}"
 
         # Keep top beam_width states
@@ -1081,6 +1257,15 @@ def _beam_search_segment(
                     final_edge_score *= (1.0 - penalty_strength)
                     genre_penalty_hits += 1
 
+        final_edge_score_after_sonic = _apply_local_sonic_edge_policy(
+            final_edge_score,
+            int(last),
+            int(pier_b),
+        )
+        if final_edge_score_after_sonic is None:
+            continue
+        final_edge_score = float(final_edge_score_after_sonic)
+
         total_score = state.score + final_edge_score
         if total_score > best_final_score:
             best_final_score = total_score
@@ -1088,6 +1273,7 @@ def _beam_search_segment(
 
     if best_final is None:
         _record_genre_cache_stats()
+        _record_local_sonic_stats()
         return None, genre_penalty_hits, edges_scored, "no valid final connection to destination"
 
     # Compute waypoint diagnostics for chosen path
@@ -1139,6 +1325,11 @@ def _beam_search_segment(
     if waypoint_stats is not None:
         waypoint_stats["pool_after_gating_count"] = len(pool_after_gating_candidates)
 
+    # Expose winning beam's per-edge component dicts via out-param (diagnostic only)
+    if edge_components_out is not None:
+        edge_components_out["components"] = list(best_final.edge_components)
+
     # Return interior tracks (exclude pier_a which is path[0])
     _record_genre_cache_stats()
+    _record_local_sonic_stats()
     return best_final.path[1:], genre_penalty_hits, edges_scored, None

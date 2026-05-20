@@ -16,6 +16,7 @@ from src.playlist.ds_pipeline_runner import DsRunResult, generate_playlist_ds as
 from src.playlist.artist_style import (
     ArtistStyleConfig,
     build_balanced_candidate_pool,
+    build_genre_neighbor_candidate_pool,
     cluster_artist_tracks,
     order_clusters,
     _select_k,
@@ -114,6 +115,55 @@ def safe_get_artist_key(track: Dict[str, Any]) -> str:
 def _convert_seconds_to_ms(seconds: Optional[int]) -> int:
     """Helper to convert seconds to milliseconds with None safety."""
     return utils.convert_seconds_to_ms(seconds)
+
+
+def _build_edge_audit_rows(
+    edge_scores_list: List[Dict[str, Any]],
+    tracks: List[Dict[str, Any]],
+    transition_floor: float = 0.20,
+) -> List[Dict[str, Any]]:
+    """Build per-edge audit row dicts for emit_selected_edge_audit.
+
+    Zips the enriched edge_scores_list with the track list to populate
+    from_artist, from_title, to_artist, to_title, and below_transition_floor.
+    Passes through any beam-captured component fields already in each edge dict.
+    """
+    if not edge_scores_list or not tracks:
+        return []
+    rows: List[Dict[str, Any]] = []
+    for i, edge in enumerate(edge_scores_list):
+        if not isinstance(edge, dict):
+            continue
+        # Tracks[i] is "from" and tracks[i+1] is "to" (edges[0] = tracks[0]->tracks[1])
+        from_track = tracks[i] if i < len(tracks) else {}
+        to_track = tracks[i + 1] if (i + 1) < len(tracks) else {}
+        t_val = edge.get("T")
+        below_floor = (
+            isinstance(t_val, (int, float)) and t_val == t_val and t_val < float(transition_floor)
+        )
+        row = {
+            "from_idx": edge.get("prev_idx"),
+            "to_idx": edge.get("cur_idx"),
+            "from_artist": str(from_track.get("artist") or "?"),
+            "from_title": str(from_track.get("title") or "?"),
+            "to_artist": str(to_track.get("artist") or "?"),
+            "to_title": str(to_track.get("title") or "?"),
+            "T": t_val,
+            "T_centered_cos": edge.get("T_centered_cos"),
+            "S": edge.get("S"),
+            "G": edge.get("G"),
+            # Beam-captured fields (may be None if not enriched)
+            "bridge_score": edge.get("bridge_score"),
+            "trans_score_in_beam": edge.get("trans_score_in_beam"),
+            "progress_t": edge.get("progress_t"),
+            "progress_jump": edge.get("progress_jump"),
+            "local_sonic_raw_cos": edge.get("local_sonic_raw_cos"),
+            "local_sonic_penalty_applied": edge.get("local_sonic_penalty_applied"),
+            "genre_penalty_applied": edge.get("genre_penalty_applied"),
+            "below_transition_floor": below_floor,
+        }
+        rows.append(row)
+    return rows
 
 
 
@@ -259,6 +309,66 @@ class PlaylistGenerator:
                 seed_median_ms if seed_median_ms > 0 else "n/a",
             )
         return excluded
+
+    def _title_exclusion_settings(self) -> tuple[bool, tuple[str, ...]]:
+        ds_cfg = self.config.get("playlists", "ds_pipeline", default={}) or {}
+        candidate_cfg = ds_cfg.get("candidate_pool", {}) if isinstance(ds_cfg, dict) else {}
+        enabled = bool(candidate_cfg.get("title_exclusion_enabled", False))
+        raw_words = candidate_cfg.get("title_exclusion_words", ()) or ()
+        if isinstance(raw_words, str):
+            words = (raw_words,)
+        else:
+            words = tuple(str(word) for word in raw_words)
+        return enabled, words
+
+    def _filter_title_excluded_tracks(
+        self,
+        tracks: List[Dict[str, Any]],
+        *,
+        context: str,
+    ) -> List[Dict[str, Any]]:
+        enabled, words = self._title_exclusion_settings()
+        if not enabled or not words:
+            return list(tracks)
+        filtered = filtering.filter_by_title_exclusions(
+            tracks=list(tracks),
+            exclusion_words=words,
+        )
+        removed = len(tracks) - len(filtered)
+        if removed:
+            logger.info(
+                "Title exclusions: context=%s before=%d after=%d excluded=%d",
+                context,
+                len(tracks),
+                len(filtered),
+                removed,
+            )
+        return filtered
+
+    def _filter_title_excluded_bundle_indices(
+        self,
+        bundle: Any,
+        indices: List[int],
+        *,
+        context: str,
+    ) -> List[int]:
+        enabled, words = self._title_exclusion_settings()
+        if not enabled or not words or getattr(bundle, "track_titles", None) is None:
+            return list(indices)
+        filtered = [
+            int(idx) for idx in indices
+            if not filtering.is_title_excluded(bundle.track_titles[int(idx)], words)
+        ]
+        removed = len(indices) - len(filtered)
+        if removed:
+            logger.info(
+                "Title exclusions: context=%s before=%d after=%d excluded=%d",
+                context,
+                len(indices),
+                len(filtered),
+                removed,
+            )
+        return filtered
 
     def _apply_blacklist_to_ids(
         self,
@@ -772,6 +882,11 @@ class PlaylistGenerator:
         )
         # Attach playlist stats for edge logging
         self._last_ds_report["playlist_stats"] = getattr(ds_result, "playlist_stats", {}) if self._last_ds_report else {}
+        # Store the emit_selected_edge_audit flag so the caller can invoke the audit after edge score recompute
+        _emit_audit_flag = bool(pb_overrides.get("emit_selected_edge_audit", False))
+        if pier_bridge_config is not None:
+            _emit_audit_flag = bool(getattr(pier_bridge_config, "emit_selected_edge_audit", _emit_audit_flag))
+        self._last_ds_report["emit_selected_edge_audit"] = _emit_audit_flag
         return tracks
 
     def _ensure_similarity_calculator(self) -> None:
@@ -1444,6 +1559,11 @@ class PlaylistGenerator:
 
         Phase 3: Delegates to filtering.filter_by_recently_played()
         """
+        tracks = self._filter_title_excluded_tracks(
+            tracks,
+            context="candidate_filter",
+        )
+
         # Check if filtering is enabled
         if not self.config.recently_played_filter_enabled:
             logger.info("Recently played filtering is disabled")
@@ -1640,6 +1760,22 @@ class PlaylistGenerator:
                     offenders.append(tid)
             errors.append(f"recency_overlap={len(overlap)} offenders={offenders}")
 
+        title_exclusion_enabled, title_exclusion_words = self._title_exclusion_settings()
+        if title_exclusion_enabled and title_exclusion_words:
+            title_offenders = [
+                track for track in ordered_tracks
+                if filtering.is_title_excluded(track.get("title", ""), title_exclusion_words)
+            ]
+            if title_offenders:
+                labels = [
+                    f"{utils.sanitize_for_logging(str(track.get('artist', '')))} - "
+                    f"{utils.sanitize_for_logging(str(track.get('title', '')))}"
+                    for track in title_offenders[:10]
+                ]
+                errors.append(
+                    f"title_exclusion_overlap={len(title_offenders)} offenders={labels}"
+                )
+
         if errors:
             msg = "post_order_validation_failed: " + " | ".join(errors)
             if audit_path:
@@ -1720,6 +1856,10 @@ class PlaylistGenerator:
         Phase 4: Delegates to history_analyzer.get_seed_tracks_for_artist()
         """
         seed_count = self.config.get('playlists', 'seed_count', default=5)
+        tracks = self._filter_title_excluded_tracks(
+            tracks,
+            context="history_seed_selection",
+        )
 
         return history_analyzer.get_seed_tracks_for_artist(
             artist=artist,
@@ -2001,14 +2141,33 @@ class PlaylistGenerator:
             else:
                 logger.warning("Requested seed track '%s' not found for artist %s; falling back to random seeds.", track_title, artist_name)
 
+        if seed_tracks:
+            before = len(seed_tracks)
+            seed_tracks = self._filter_title_excluded_tracks(
+                seed_tracks,
+                context="artist_seed_selection",
+            )
+            if before and not seed_tracks:
+                logger.warning(
+                    "All selected seed tracks for %s were removed by title exclusions; falling back to automatic seeds.",
+                    artist_name,
+                )
+
         if not seed_tracks:
             # Get 4 seed tracks (2 most played + 2 random from top 10)
             # Since we don't have play counts, just pick 4 random tracks
             # Filter by duration before selecting (exclude short/long tracks)
             from src.playlist.filtering import is_valid_duration
             valid_tracks = [t for t in artist_tracks if is_valid_duration(t, min_seconds=47, max_seconds=720)]
+            valid_tracks = self._filter_title_excluded_tracks(
+                valid_tracks,
+                context="artist_seed_selection",
+            )
             if len(valid_tracks) == 0:
-                raise ValueError(f"Artist '{artist_name}' has no tracks in valid duration range (47s-720s)")
+                raise ValueError(
+                    f"Artist '{artist_name}' has no tracks after duration/title exclusions "
+                    "(duration=47s-720s)"
+                )
             if len(valid_tracks) < 4:
                 logger.warning(f"Artist has only {len(valid_tracks)} valid-duration tracks (requested 4); using all valid tracks")
             import random
@@ -2043,6 +2202,10 @@ class PlaylistGenerator:
             # This ensures no tracks outside valid duration range (47s-720s) are selected
             from src.playlist.filtering import is_valid_duration
             ds_candidates = [t for t in artist_tracks if is_valid_duration(t, min_seconds=47, max_seconds=720)]
+            ds_candidates = self._filter_title_excluded_tracks(
+                ds_candidates,
+                context="artist_only_candidate_scope",
+            )
             excluded_ids = set()
             if scrobbles:
                 excluded_ids = self._compute_excluded_from_scrobbles(
@@ -2106,6 +2269,16 @@ class PlaylistGenerator:
             bridge_weight=style_cfg_raw.get("bridge_score_weights", {}).get("bridge", 0.7),
             transition_weight=style_cfg_raw.get("bridge_score_weights", {}).get("transition", 0.3),
             genre_tiebreak_weight=style_cfg_raw.get("genre_tiebreak_weight", 0.05),
+            genre_neighbor_pool_enabled=bool(style_cfg_raw.get("genre_neighbor_pool_enabled", False)),
+            genre_neighbor_pool_size=int(style_cfg_raw.get("genre_neighbor_pool_size", 500)),
+            genre_neighbor_min_similarity=float(style_cfg_raw.get("genre_neighbor_min_similarity", 0.25)),
+            genre_neighbor_min_confidence=(
+                None
+                if style_cfg_raw.get("genre_neighbor_min_confidence") is None
+                else float(style_cfg_raw.get("genre_neighbor_min_confidence", 0.50))
+            ),
+            genre_neighbor_compatible_threshold=float(style_cfg_raw.get("genre_neighbor_compatible_threshold", 0.35)),
+            genre_neighbor_conflict_threshold=float(style_cfg_raw.get("genre_neighbor_conflict_threshold", 0.15)),
         )
         ds_mode_effective = ds_mode_override or ("dynamic" if dynamic else ds_cfg.get("mode", "dynamic"))
         artifact_path = ds_cfg.get("artifact_path")
@@ -2187,6 +2360,14 @@ class PlaylistGenerator:
                     )
                     ordered_medoids = ordered_medoids[:target_pier_count]
 
+                ordered_medoids = self._filter_title_excluded_bundle_indices(
+                    bundle,
+                    ordered_medoids,
+                    context="artist_style_piers",
+                )
+                if not ordered_medoids:
+                    raise ValueError("Artist style piers empty after title exclusions")
+
                 cluster_piers = medoids_by_cluster
 
                 # Global admission floor (same as DS candidate admission)
@@ -2204,10 +2385,30 @@ class PlaylistGenerator:
                     artist_name=artist_name,
                     include_collaborations=include_collaborations,
                 )
+                genre_neighbor_pool: List[str] = []
+                if style_cfg.genre_neighbor_pool_enabled:
+                    genre_method_cfg = (
+                        self.config.get("playlists", "genre_similarity", default={}) or {}
+                    ).get("method", "ensemble")
+                    genre_neighbor_pool = build_genre_neighbor_candidate_pool(
+                        bundle=bundle,
+                        pier_indices=ordered_medoids,
+                        artist_key=artist_key_norm,
+                        pool_size=style_cfg.genre_neighbor_pool_size,
+                        min_similarity=style_cfg.genre_neighbor_min_similarity,
+                        min_confidence=style_cfg.genre_neighbor_min_confidence,
+                        compatible_threshold=style_cfg.genre_neighbor_compatible_threshold,
+                        conflict_threshold=style_cfg.genre_neighbor_conflict_threshold,
+                        genre_method=genre_method_cfg or "ensemble",
+                        artist_name=artist_name,
+                        include_collaborations=include_collaborations,
+                    )
                 # Internal connectors disabled for Artist mode - seed artist should ONLY appear as piers
                 internal_connector_ids = []
                 pier_ids = [str(bundle.track_ids[m]) for m in ordered_medoids]
-                style_allowed_track_ids = list(dict.fromkeys(pier_ids + external_pool + list(internal_connector_ids or [])))
+                style_allowed_track_ids = list(dict.fromkeys(
+                    pier_ids + external_pool + genre_neighbor_pool + list(internal_connector_ids or [])
+                ))
                 if not style_allowed_track_ids:
                     raise ValueError("Artist style allowed pool empty")
 
@@ -2246,6 +2447,7 @@ class PlaylistGenerator:
                     ],
                     "allowed_ids_count": int(len(style_allowed_track_ids)),
                     "external_pool_count": int(len(external_pool)),
+                    "genre_neighbor_pool_count": int(len(genre_neighbor_pool)),
                     "internal_connectors_count": int(len(internal_connector_ids or [])),
                 }
                 center_transitions = bool(ds_cfg.get("center_transitions", False)) or bool(
@@ -2532,6 +2734,19 @@ class PlaylistGenerator:
         title = f"Auto: {artist_name}"
         self._print_playlist_report(final_tracks, artist_name=artist_name, dynamic=dynamic, verbose_edges=verbose)
 
+        # Diagnostic: per-edge audit table (opt-in via emit_selected_edge_audit: true in config)
+        if bool(getattr(self, "_last_ds_report", {}) and self._last_ds_report.get("emit_selected_edge_audit", False)):
+            from src.playlist.reporter import emit_selected_edge_audit as _emit_edge_audit
+            _audit_rows = _build_edge_audit_rows(
+                edge_scores_list=self._last_ds_report.get("edge_scores") or [],
+                tracks=final_tracks,
+                transition_floor=float(self._last_ds_report.get("transition_floor") or 0.20),
+            )
+            _emit_edge_audit(
+                _audit_rows,
+                transition_floor=float(self._last_ds_report.get("transition_floor") or 0.20),
+            )
+
         # Add fallback info if genre-gating was bypassed
         result = {
             'title': title,
@@ -2622,8 +2837,15 @@ class PlaylistGenerator:
         # Filter by duration before selecting (exclude short/long tracks)
         from src.playlist.filtering import is_valid_duration
         valid_tracks = [t for t in genre_tracks if is_valid_duration(t, min_seconds=47, max_seconds=720)]
+        valid_tracks = self._filter_title_excluded_tracks(
+            valid_tracks,
+            context="genre_seed_selection",
+        )
         if len(valid_tracks) == 0:
-            raise ValueError(f"Genre '{genre_name}' has no tracks in valid duration range (47s-720s)")
+            raise ValueError(
+                f"Genre '{genre_name}' has no tracks after duration/title exclusions "
+                "(duration=47s-720s)"
+            )
         if len(valid_tracks) < 10:
             raise ValueError(
                 f"Genre '{genre_name}' has only {len(valid_tracks)} valid-duration tracks "
@@ -2949,6 +3171,16 @@ class PlaylistGenerator:
                 bridge_weight=style_cfg_raw.get("bridge_score_weights", {}).get("bridge", 0.7),
                 transition_weight=style_cfg_raw.get("bridge_score_weights", {}).get("transition", 0.3),
                 genre_tiebreak_weight=style_cfg_raw.get("genre_tiebreak_weight", 0.05),
+                genre_neighbor_pool_enabled=bool(style_cfg_raw.get("genre_neighbor_pool_enabled", False)),
+                genre_neighbor_pool_size=int(style_cfg_raw.get("genre_neighbor_pool_size", 500)),
+                genre_neighbor_min_similarity=float(style_cfg_raw.get("genre_neighbor_min_similarity", 0.25)),
+                genre_neighbor_min_confidence=(
+                    None
+                    if style_cfg_raw.get("genre_neighbor_min_confidence") is None
+                    else float(style_cfg_raw.get("genre_neighbor_min_confidence", 0.50))
+                ),
+                genre_neighbor_compatible_threshold=float(style_cfg_raw.get("genre_neighbor_compatible_threshold", 0.35)),
+                genre_neighbor_conflict_threshold=float(style_cfg_raw.get("genre_neighbor_conflict_threshold", 0.15)),
             )
             ds_mode_effective = ds_mode_override or ("dynamic" if dynamic else ds_cfg.get("mode", "dynamic"))
             style_seed_track_id = seeds[0].get('rating_key') if seeds else None
@@ -3015,6 +3247,14 @@ class PlaylistGenerator:
                         )
                         ordered_medoids = ordered_medoids[:target_pier_count]
 
+                    ordered_medoids = self._filter_title_excluded_bundle_indices(
+                        bundle,
+                        ordered_medoids,
+                        context="artist_style_piers",
+                    )
+                    if not ordered_medoids:
+                        raise ValueError("Artist style piers empty after title exclusions")
+
                     cluster_piers = medoids_by_cluster
                     min_sonic = get_min_sonic_similarity(ds_cfg.get("candidate_pool", {}), ds_mode_effective)
                     artist_key = normalize_artist_key(artist)
@@ -3027,10 +3267,29 @@ class PlaylistGenerator:
                         global_floor=min_sonic,
                         artist_key=artist_key,
                     )
+                    genre_neighbor_pool: List[str] = []
+                    if style_cfg.genre_neighbor_pool_enabled:
+                        genre_method_cfg = (
+                            self.config.get("playlists", "genre_similarity", default={}) or {}
+                        ).get("method", "ensemble")
+                        genre_neighbor_pool = build_genre_neighbor_candidate_pool(
+                            bundle=bundle,
+                            pier_indices=ordered_medoids,
+                            artist_key=artist_key,
+                            pool_size=style_cfg.genre_neighbor_pool_size,
+                            min_similarity=style_cfg.genre_neighbor_min_similarity,
+                            min_confidence=style_cfg.genre_neighbor_min_confidence,
+                            compatible_threshold=style_cfg.genre_neighbor_compatible_threshold,
+                            conflict_threshold=style_cfg.genre_neighbor_conflict_threshold,
+                            genre_method=genre_method_cfg or "ensemble",
+                            artist_name=artist,
+                        )
                     # Internal connectors disabled for Artist mode - seed artist should ONLY appear as piers
                     internal_connectors = []
                     pier_ids = [str(bundle.track_ids[m]) for m in ordered_medoids]
-                    allowed_track_ids = list(dict.fromkeys(pier_ids + external_pool + internal_connectors))
+                    allowed_track_ids = list(dict.fromkeys(
+                        pier_ids + external_pool + genre_neighbor_pool + internal_connectors
+                    ))
                     if not allowed_track_ids:
                         raise ValueError("Artist style allowed pool empty")
                     style_seed_track_id = pier_ids[0]

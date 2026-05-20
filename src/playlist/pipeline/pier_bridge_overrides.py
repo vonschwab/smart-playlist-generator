@@ -127,6 +127,15 @@ def apply_pier_bridge_overrides(
             disallow_pier_artists_in_interiors=bool(disallow_pier_raw),
         )
 
+    max_non_seed_tracks_per_artist = pb_overrides.get("max_non_seed_tracks_per_artist")
+    if max_non_seed_tracks_per_artist is None:
+        pb_cfg = replace(pb_cfg, max_non_seed_tracks_per_artist=None)
+    elif isinstance(max_non_seed_tracks_per_artist, int) and int(max_non_seed_tracks_per_artist) > 0:
+        pb_cfg = replace(
+            pb_cfg,
+            max_non_seed_tracks_per_artist=int(max_non_seed_tracks_per_artist),
+        )
+
     segment_pool_strategy = pb_overrides.get("segment_pool_strategy")
     if isinstance(segment_pool_strategy, str) and segment_pool_strategy.strip():
         pb_cfg = replace(
@@ -141,6 +150,17 @@ def apply_pier_bridge_overrides(
     max_segment_pool_max = pb_overrides.get("max_segment_pool_max")
     if isinstance(max_segment_pool_max, int) and int(max_segment_pool_max) > 0:
         pb_cfg = replace(pb_cfg, max_segment_pool_max=int(max_segment_pool_max))
+
+    collapse_segment_pool_by_artist = pb_overrides.get("collapse_segment_pool_by_artist")
+    if isinstance(collapse_segment_pool_by_artist, bool):
+        pb_cfg = replace(
+            pb_cfg,
+            collapse_segment_pool_by_artist=bool(collapse_segment_pool_by_artist),
+        )
+
+    emit_audit = pb_overrides.get("emit_selected_edge_audit")
+    if isinstance(emit_audit, bool):
+        pb_cfg = replace(pb_cfg, emit_selected_edge_audit=bool(emit_audit))
 
     progress_raw = pb_overrides.get("progress")
     if isinstance(progress_raw, dict):
@@ -165,6 +185,44 @@ def apply_pier_bridge_overrides(
                 pb_cfg,
                 genre_tie_break_band=float(tie_break_band),
             )
+
+    local_sonic_enabled = pb_cfg.local_sonic_edge_penalty_enabled
+    local_sonic_threshold = pb_cfg.local_sonic_edge_penalty_threshold
+    local_sonic_strength = pb_cfg.local_sonic_edge_penalty_strength
+    local_sonic_floor = pb_cfg.local_sonic_edge_floor
+    if isinstance(pb_overrides.get("local_sonic_edge_penalty_enabled"), bool):
+        local_sonic_enabled = bool(pb_overrides.get("local_sonic_edge_penalty_enabled"))
+    if isinstance(pb_overrides.get("local_sonic_edge_penalty_threshold"), (int, float)):
+        local_sonic_threshold = float(pb_overrides.get("local_sonic_edge_penalty_threshold"))
+    if isinstance(pb_overrides.get("local_sonic_edge_penalty_strength"), (int, float)):
+        local_sonic_strength = float(pb_overrides.get("local_sonic_edge_penalty_strength"))
+    if "local_sonic_edge_floor" in pb_overrides:
+        raw_floor = pb_overrides.get("local_sonic_edge_floor")
+        local_sonic_floor = float(raw_floor) if isinstance(raw_floor, (int, float)) else None
+    local_sonic_raw = pb_overrides.get("local_sonic_edge_penalty")
+    if isinstance(local_sonic_raw, dict):
+        if isinstance(local_sonic_raw.get("enabled"), bool):
+            local_sonic_enabled = bool(local_sonic_raw.get("enabled"))
+        if isinstance(local_sonic_raw.get("threshold"), (int, float)):
+            local_sonic_threshold = float(local_sonic_raw.get("threshold"))
+        if isinstance(local_sonic_raw.get("strength"), (int, float)):
+            local_sonic_strength = float(local_sonic_raw.get("strength"))
+        if "floor" in local_sonic_raw:
+            raw_floor = local_sonic_raw.get("floor")
+            local_sonic_floor = float(raw_floor) if isinstance(raw_floor, (int, float)) else None
+    if (
+        bool(local_sonic_enabled) != bool(pb_cfg.local_sonic_edge_penalty_enabled)
+        or float(local_sonic_threshold) != float(pb_cfg.local_sonic_edge_penalty_threshold)
+        or float(local_sonic_strength) != float(pb_cfg.local_sonic_edge_penalty_strength)
+        or local_sonic_floor != pb_cfg.local_sonic_edge_floor
+    ):
+        pb_cfg = replace(
+            pb_cfg,
+            local_sonic_edge_penalty_enabled=bool(local_sonic_enabled),
+            local_sonic_edge_penalty_threshold=float(local_sonic_threshold),
+            local_sonic_edge_penalty_strength=max(0.0, float(local_sonic_strength)),
+            local_sonic_edge_floor=local_sonic_floor,
+        )
 
     experiment_enabled = False
     experiment_min_weight = float(pb_cfg.experiment_bridge_min_weight)
