@@ -39,6 +39,28 @@ from src.playlist.pier_bridge.metrics import (
 logger = logging.getLogger(__name__)
 
 
+def _local_sonic_penalty_value(
+    *,
+    edge_cos: float,
+    threshold: float,
+    strength: float,
+    scale: float,
+    mode: str,
+) -> float:
+    """Compute the per-edge local-sonic penalty.
+
+    legacy (default): penalty = strength * max(0, threshold - edge_cos)
+    scaled:           penalty = scale    * max(0, threshold - edge_cos)
+    Any other mode value falls back to legacy.
+    """
+    if not (edge_cos < threshold):
+        return 0.0
+    gap = float(threshold) - float(edge_cos)
+    if str(mode).strip().lower() == "scaled":
+        return float(max(0.0, float(scale) * gap))
+    return float(max(0.0, float(strength) * gap))
+
+
 @dataclass
 class BeamState:
     """State for beam search."""
@@ -188,6 +210,11 @@ def _beam_search_segment(
     if not math.isfinite(local_sonic_penalty_strength):
         local_sonic_penalty_strength = 0.0
     local_sonic_penalty_strength = float(max(0.0, local_sonic_penalty_strength))
+    local_sonic_penalty_mode = str(cfg.local_sonic_edge_penalty_mode or "legacy").strip().lower()
+    local_sonic_penalty_scale = float(cfg.local_sonic_edge_penalty_scale)
+    if not math.isfinite(local_sonic_penalty_scale):
+        local_sonic_penalty_scale = 1.0
+    local_sonic_penalty_scale = float(max(0.0, local_sonic_penalty_scale))
     local_sonic_floor = cfg.local_sonic_edge_floor
     if isinstance(local_sonic_floor, (int, float)) and math.isfinite(float(local_sonic_floor)):
         local_sonic_floor = float(local_sonic_floor)
@@ -231,17 +258,18 @@ def _beam_search_segment(
             local_sonic_gate_rejected += 1
             return None
 
-        if (
-            local_sonic_penalty_enabled
-            and local_sonic_penalty_strength > 0.0
-            and edge_sonic < local_sonic_penalty_threshold
-        ):
-            penalty = local_sonic_penalty_strength * (
-                local_sonic_penalty_threshold - edge_sonic
+        if local_sonic_penalty_enabled:
+            penalty = _local_sonic_penalty_value(
+                edge_cos=edge_sonic,
+                threshold=local_sonic_penalty_threshold,
+                strength=local_sonic_penalty_strength,
+                scale=local_sonic_penalty_scale,
+                mode=local_sonic_penalty_mode,
             )
-            local_sonic_penalty_hits += 1
-            local_sonic_penalty_total += float(penalty)
-            return float(score) - float(penalty)
+            if penalty > 0.0:
+                local_sonic_penalty_hits += 1
+                local_sonic_penalty_total += float(penalty)
+                return float(score) - float(penalty)
 
         return float(score)
 
@@ -253,6 +281,8 @@ def _beam_search_segment(
                 "local_sonic_penalty_enabled": bool(local_sonic_penalty_enabled),
                 "local_sonic_penalty_threshold": float(local_sonic_penalty_threshold),
                 "local_sonic_penalty_strength": float(local_sonic_penalty_strength),
+                "local_sonic_penalty_mode": str(local_sonic_penalty_mode),
+                "local_sonic_penalty_scale": float(local_sonic_penalty_scale),
                 "local_sonic_edge_floor": (
                     float(local_sonic_floor) if local_sonic_floor is not None else None
                 ),

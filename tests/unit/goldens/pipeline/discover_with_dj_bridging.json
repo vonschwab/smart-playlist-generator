@@ -84,6 +84,8 @@
   "initial_neighbors_m": 100,
   "local_sonic_edge_floor": null,
   "local_sonic_edge_penalty_enabled": false,
+  "local_sonic_edge_penalty_mode": "legacy",
+  "local_sonic_edge_penalty_scale": 1.0,
   "local_sonic_edge_penalty_strength": 0.0,
   "local_sonic_edge_penalty_threshold": 0.1,
   "max_beam_width": 100,

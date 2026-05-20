@@ -202,6 +202,8 @@ def apply_pier_bridge_overrides(
     local_sonic_enabled = pb_cfg.local_sonic_edge_penalty_enabled
     local_sonic_threshold = pb_cfg.local_sonic_edge_penalty_threshold
     local_sonic_strength = pb_cfg.local_sonic_edge_penalty_strength
+    local_sonic_mode = pb_cfg.local_sonic_edge_penalty_mode
+    local_sonic_scale = pb_cfg.local_sonic_edge_penalty_scale
     local_sonic_floor = pb_cfg.local_sonic_edge_floor
     if isinstance(pb_overrides.get("local_sonic_edge_penalty_enabled"), bool):
         local_sonic_enabled = bool(pb_overrides.get("local_sonic_edge_penalty_enabled"))
@@ -209,6 +211,10 @@ def apply_pier_bridge_overrides(
         local_sonic_threshold = float(pb_overrides.get("local_sonic_edge_penalty_threshold"))
     if isinstance(pb_overrides.get("local_sonic_edge_penalty_strength"), (int, float)):
         local_sonic_strength = float(pb_overrides.get("local_sonic_edge_penalty_strength"))
+    if isinstance(pb_overrides.get("local_sonic_edge_penalty_mode"), str):
+        local_sonic_mode = str(pb_overrides.get("local_sonic_edge_penalty_mode")).strip()
+    if isinstance(pb_overrides.get("local_sonic_edge_penalty_scale"), (int, float)):
+        local_sonic_scale = float(pb_overrides.get("local_sonic_edge_penalty_scale"))
     if "local_sonic_edge_floor" in pb_overrides:
         raw_floor = pb_overrides.get("local_sonic_edge_floor")
         local_sonic_floor = float(raw_floor) if isinstance(raw_floor, (int, float)) else None
@@ -220,6 +226,10 @@ def apply_pier_bridge_overrides(
             local_sonic_threshold = float(local_sonic_raw.get("threshold"))
         if isinstance(local_sonic_raw.get("strength"), (int, float)):
             local_sonic_strength = float(local_sonic_raw.get("strength"))
+        if isinstance(local_sonic_raw.get("mode"), str):
+            local_sonic_mode = str(local_sonic_raw.get("mode")).strip()
+        if isinstance(local_sonic_raw.get("scale"), (int, float)):
+            local_sonic_scale = float(local_sonic_raw.get("scale"))
         if "floor" in local_sonic_raw:
             raw_floor = local_sonic_raw.get("floor")
             local_sonic_floor = float(raw_floor) if isinstance(raw_floor, (int, float)) else None
@@ -227,6 +237,8 @@ def apply_pier_bridge_overrides(
         bool(local_sonic_enabled) != bool(pb_cfg.local_sonic_edge_penalty_enabled)
         or float(local_sonic_threshold) != float(pb_cfg.local_sonic_edge_penalty_threshold)
         or float(local_sonic_strength) != float(pb_cfg.local_sonic_edge_penalty_strength)
+        or str(local_sonic_mode) != str(pb_cfg.local_sonic_edge_penalty_mode)
+        or float(local_sonic_scale) != float(pb_cfg.local_sonic_edge_penalty_scale)
         or local_sonic_floor != pb_cfg.local_sonic_edge_floor
     ):
         pb_cfg = replace(
@@ -234,6 +246,8 @@ def apply_pier_bridge_overrides(
             local_sonic_edge_penalty_enabled=bool(local_sonic_enabled),
             local_sonic_edge_penalty_threshold=float(local_sonic_threshold),
             local_sonic_edge_penalty_strength=max(0.0, float(local_sonic_strength)),
+            local_sonic_edge_penalty_mode=str(local_sonic_mode),
+            local_sonic_edge_penalty_scale=max(0.0, float(local_sonic_scale)),
             local_sonic_edge_floor=local_sonic_floor,
         )
 

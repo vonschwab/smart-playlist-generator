@@ -71,6 +71,12 @@ class PierBridgeConfig:
     local_sonic_edge_penalty_enabled: bool = False
     local_sonic_edge_penalty_threshold: float = 0.10
     local_sonic_edge_penalty_strength: float = 0.0
+    local_sonic_edge_penalty_mode: str = "legacy"
+    """'legacy' (default) preserves the existing strength*(threshold-edge_cos) math.
+    'scaled' uses scale*(threshold-edge_cos), producing penalties of 0.05-0.30
+    that can actually influence beam selection. Tune local_sonic_edge_penalty_scale."""
+    local_sonic_edge_penalty_scale: float = 1.0
+    """Multiplier used in 'scaled' mode. Typical values 1.0-3.0. Ignored in 'legacy' mode."""
     local_sonic_edge_floor: Optional[float] = None
     # Medium-firm duration penalty: asymmetric penalty for candidates longer than pier reference
     # (does not gate candidates, but significantly reduces score for long tracks)
