@@ -61,6 +61,30 @@ def _local_sonic_penalty_value(
     return float(max(0.0, float(strength) * gap))
 
 
+def _select_best_beam_state(states, *, objective: str = "total_score"):
+    """Pick the winning beam state from a (possibly empty) list.
+
+    objective='total_score' (default): return state with highest state.score.
+    objective='min_edge': lexicographic (highest min trans_score_in_beam,
+        ties broken by highest total score). Optimizes for 'no broken moments'
+        rather than 'good on average'.
+    """
+    if not states:
+        return None
+    if str(objective).strip().lower() == "min_edge":
+        def _key(s):
+            edges = getattr(s, "edge_components", None) or []
+            vals = [
+                float(e.get("trans_score_in_beam", -1e18))
+                for e in edges
+                if e is not None
+            ]
+            min_v = min(vals) if vals else -1e18
+            return (min_v, float(getattr(s, "score", 0.0)))
+        return max(states, key=_key)
+    return max(states, key=lambda s: float(getattr(s, "score", 0.0)))
+
+
 @dataclass
 class BeamState:
     """State for beam search."""
@@ -1288,8 +1312,7 @@ def _beam_search_segment(
                                     rank, cand_idx, base, delta, cov, full, genre_sim)
 
     # Final step: connect to pier_b
-    best_final: Optional[BeamState] = None
-    best_final_score = -float('inf')
+    final_candidates: List[BeamState] = []
 
     for state in beam:
         last = state.path[-1]
@@ -1325,14 +1348,59 @@ def _beam_search_segment(
         final_edge_score = float(final_edge_score_after_sonic)
 
         total_score = state.score + final_edge_score
-        if total_score > best_final_score:
-            best_final_score = total_score
-            best_final = state
 
-    if best_final is None:
+        # Build edge component for the final edge
+        _final_local_sonic_cos = float(np.dot(X_full_norm[int(last)], X_full_norm[int(pier_b)]))
+        _final_genre_pen_applied = 0.0
+        if X_genre_norm is not None:
+            genre_sim = _get_genre_sim(int(last), int(pier_b))
+            if genre_sim is not None and math.isfinite(genre_sim):
+                if penalty_strength > 0 and genre_sim < penalty_threshold:
+                    _final_genre_pen_applied = float(penalty_strength)
+        _final_local_pen_applied = 0.0
+        if (
+            local_sonic_penalty_enabled
+            and local_sonic_penalty_strength > 0.0
+            and _final_local_sonic_cos < local_sonic_penalty_threshold
+        ):
+            _final_local_pen_applied = float(
+                local_sonic_penalty_strength * (local_sonic_penalty_threshold - _final_local_sonic_cos)
+            )
+        final_edge_component = {
+            "from_idx": int(last),
+            "to_idx": int(pier_b),
+            "bridge_score": None,
+            "trans_score_in_beam": float(final_trans),
+            "progress_t": None,
+            "progress_jump": None,
+            "local_sonic_raw_cos": _final_local_sonic_cos,
+            "local_sonic_penalty_applied": _final_local_pen_applied,
+            "genre_penalty_applied": _final_genre_pen_applied,
+            "below_transition_floor": False,
+            "title_artifact_penalty_applied": 0.0,
+        }
+
+        # Create a new state with the final edge appended for selection purposes
+        # Note: path remains unchanged (only interior tracks), final edge is tracked separately
+        final_state_with_edge = BeamState(
+            path=state.path,
+            score=total_score,
+            used=state.used,
+            used_artists=state.used_artists,
+            last_progress=state.last_progress,
+            edge_components=list(state.edge_components) + [final_edge_component],
+        )
+        final_candidates.append(final_state_with_edge)
+
+    if not final_candidates:
         _record_genre_cache_stats()
         _record_local_sonic_stats()
         return None, genre_penalty_hits, edges_scored, "no valid final connection to destination"
+
+    best_final = _select_best_beam_state(
+        final_candidates,
+        objective=str(getattr(cfg, "min_edge_objective", "total_score") or "total_score"),
+    )
 
     # Compute waypoint diagnostics for chosen path
     if waypoint_stats is not None and waypoint_enabled and g_targets is not None and X_genre_norm is not None:

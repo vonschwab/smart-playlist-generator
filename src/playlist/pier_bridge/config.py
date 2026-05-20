@@ -214,6 +214,11 @@ class PierBridgeConfig:
     Recommended starting values (tune after diagnostics):
     demo:0.10, live:0.05, medley:0.20, remix:0.10, instrumental:0.08,
     version:0.05, take:0.10, outtake:0.15, alternate:0.10"""
+    min_edge_objective: str = "total_score"
+    """Beam selection objective at the end of each segment:
+    'total_score' (default) — pick highest cumulative score (current behavior)
+    'min_edge'              — lexicographic (highest min-edge, ties by total)
+    Optimizes for 'no broken moments' per Layer 1 principle 5."""
 
 
 @dataclass

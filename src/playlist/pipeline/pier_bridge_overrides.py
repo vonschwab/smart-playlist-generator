@@ -175,6 +175,10 @@ def apply_pier_bridge_overrides(
     if isinstance(emit_audit, bool):
         pb_cfg = replace(pb_cfg, emit_selected_edge_audit=bool(emit_audit))
 
+    min_edge_obj = pb_overrides.get("min_edge_objective")
+    if isinstance(min_edge_obj, str) and min_edge_obj.strip():
+        pb_cfg = replace(pb_cfg, min_edge_objective=min_edge_obj.strip())
+
     progress_raw = pb_overrides.get("progress")
     if isinstance(progress_raw, dict):
         if isinstance(progress_raw.get("enabled"), bool):

@@ -94,6 +94,7 @@
   "max_neighbors_m": 400,
   "max_non_seed_tracks_per_artist": null,
   "max_segment_pool_max": 1200,
+  "min_edge_objective": "total_score",
   "progress_arc_autoscale_distance_scale": 0.45,
   "progress_arc_autoscale_enabled": true,
   "progress_arc_autoscale_min_distance": 0.06,
