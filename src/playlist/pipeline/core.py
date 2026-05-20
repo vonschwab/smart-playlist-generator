@@ -83,6 +83,72 @@ def enforce_allowed_invariant(track_ids: list[str], allowed: set[str], context: 
         raise ValueError(f"Out-of-pool tracks detected {context}: {out[:5]}")
 
 
+@dataclass(frozen=True)
+class _CandidateRelaxationAttempt:
+    attempt: int
+    candidate_cfg: Any
+    min_genre_similarity: Optional[float]
+    summary: Dict[str, Any]
+
+
+def _relaxed_one_each_candidate_attempts(
+    candidate_cfg: Any,
+    min_genre_similarity: Optional[float],
+) -> list[_CandidateRelaxationAttempt]:
+    """Fallback candidate gates for One Each when the first bridge pass is infeasible."""
+    base_similarity = float(candidate_cfg.similarity_floor)
+    base_sonic = candidate_cfg.min_sonic_similarity
+    base_genre = min_genre_similarity
+    steps = [
+        (1, 0.05, 0.08, 0.30),
+        (2, 0.10, 0.05, 0.20),
+        (3, 0.15, 0.00, 0.00),
+    ]
+    attempts: list[_CandidateRelaxationAttempt] = []
+
+    for attempt, similarity_drop, sonic_target, genre_target in steps:
+        relaxed_similarity = max(0.0, base_similarity - similarity_drop)
+        relaxed_sonic = None if base_sonic is None else min(float(base_sonic), float(sonic_target))
+        relaxed_genre = None if base_genre is None else min(float(base_genre), float(genre_target))
+
+        if (
+            relaxed_similarity == base_similarity
+            and relaxed_sonic == base_sonic
+            and relaxed_genre == base_genre
+        ):
+            continue
+
+        relaxed_cfg = replace(
+            candidate_cfg,
+            similarity_floor=relaxed_similarity,
+            min_sonic_similarity=relaxed_sonic,
+        )
+        attempts.append(
+            _CandidateRelaxationAttempt(
+                attempt=attempt,
+                candidate_cfg=relaxed_cfg,
+                min_genre_similarity=relaxed_genre,
+                summary={
+                    "attempt": attempt,
+                    "similarity_floor": {
+                        "from": base_similarity,
+                        "to": relaxed_similarity,
+                    },
+                    "min_sonic_similarity": {
+                        "from": base_sonic,
+                        "to": relaxed_sonic,
+                    },
+                    "min_genre_similarity": {
+                        "from": base_genre,
+                        "to": relaxed_genre,
+                    },
+                },
+            )
+        )
+
+    return attempts
+
+
 def generate_playlist_ds(
     *,
     artifact_path: str | Path,
@@ -233,27 +299,29 @@ def generate_playlist_ds(
     X_genre_raw = embedding.X_genre_raw
     X_genre_smoothed = embedding.X_genre_smoothed
 
-    pool = build_candidate_pool(
-        seed_idx=seed_idx,
-        seed_indices=embedding.seed_indices_for_floor,
-        embedding=embedding.embedding_model.embedding,
-        artist_keys=bundle.artist_keys,
-        track_ids=bundle.track_ids,
-        track_titles=bundle.track_titles,
-        track_artists=bundle.track_artists,
-        durations_ms=bundle.durations_ms,
-        cfg=cfg.candidate,
-        random_seed=random_seed,
-        X_sonic=embedding.X_sonic_for_embed,
-        # NEW: genre-based candidate filtering (skip when min_genre_similarity is None)
-        X_genre_raw=X_genre_raw if min_genre_similarity is not None else None,
-        X_genre_smoothed=X_genre_smoothed if min_genre_similarity is not None else None,
-        min_genre_similarity=min_genre_similarity,
-        genre_method=genre_method or "ensemble",
-        genre_vocab=genre_vocab,
-        broad_filters=broad_filters,
-        mode=mode,
-    )
+    def _build_pool(candidate_cfg: Any, genre_gate: Optional[float]):
+        return build_candidate_pool(
+            seed_idx=seed_idx,
+            seed_indices=embedding.seed_indices_for_floor,
+            embedding=embedding.embedding_model.embedding,
+            artist_keys=bundle.artist_keys,
+            track_ids=bundle.track_ids,
+            track_titles=bundle.track_titles,
+            track_artists=bundle.track_artists,
+            durations_ms=bundle.durations_ms,
+            cfg=candidate_cfg,
+            random_seed=random_seed,
+            X_sonic=embedding.X_sonic_for_embed,
+            X_genre_raw=X_genre_raw if genre_gate is not None else None,
+            X_genre_smoothed=X_genre_smoothed if genre_gate is not None else None,
+            min_genre_similarity=genre_gate,
+            genre_method=genre_method or "ensemble",
+            genre_vocab=genre_vocab,
+            broad_filters=broad_filters,
+            mode=mode,
+        )
+
+    pool = _build_pool(cfg.candidate, min_genre_similarity)
     pool.stats["target_length"] = num_tracks
 
     max_per_artist = max(1, math.ceil(playlist_len * cfg.construct.max_artist_fraction_final))
@@ -425,21 +493,67 @@ def generate_playlist_ds(
                             "style_summary": style_summary,
                     },
                 )
-            pb_result: PierBridgeResult = build_pier_bridge_playlist(
-                seed_track_ids=seed_track_ids_for_pier,
-                total_tracks=playlist_len,
-                bundle=bundle,
-                candidate_pool_indices=pool_indices,
-                cfg=pb_cfg,
-                allowed_track_ids_set=set(allowed_track_ids) if allowed_track_ids else None,
-                internal_connector_indices=internal_connector_indices,
-                internal_connector_max_per_segment=internal_connector_max_per_segment,
-                internal_connector_priority=internal_connector_priority,
-                infeasible_handling=infeasible_cfg,
-                audit_config=audit_cfg,
-                audit_events=audit.events,
-                artist_identity_cfg=artist_identity_cfg,
-            )
+            def _run_pier_bridge(candidate_pool_indices: list[int]) -> PierBridgeResult:
+                return build_pier_bridge_playlist(
+                    seed_track_ids=seed_track_ids_for_pier,
+                    total_tracks=playlist_len,
+                    bundle=bundle,
+                    candidate_pool_indices=candidate_pool_indices,
+                    cfg=pb_cfg,
+                    allowed_track_ids_set=set(allowed_track_ids) if allowed_track_ids else None,
+                    internal_connector_indices=internal_connector_indices,
+                    internal_connector_max_per_segment=internal_connector_max_per_segment,
+                    internal_connector_priority=internal_connector_priority,
+                    infeasible_handling=infeasible_cfg,
+                    audit_config=audit_cfg,
+                    audit_events=audit.events,
+                    artist_identity_cfg=artist_identity_cfg,
+                )
+
+            one_each_candidate_relaxation: Optional[Dict[str, Any]] = None
+            pb_result: PierBridgeResult = _run_pier_bridge(pool_indices)
+            if not pb_result.success and getattr(pb_cfg, "max_non_seed_tracks_per_artist", None) == 1:
+                for relaxation in _relaxed_one_each_candidate_attempts(cfg.candidate, min_genre_similarity):
+                    summary = dict(relaxation.summary)
+                    logger.info(
+                        "One Each candidate fallback attempt %d: similarity_floor %.3f -> %.3f, sonic_floor %s -> %s, genre_gate %s -> %s",
+                        int(relaxation.attempt),
+                        float(summary["similarity_floor"]["from"]),
+                        float(summary["similarity_floor"]["to"]),
+                        summary["min_sonic_similarity"]["from"],
+                        summary["min_sonic_similarity"]["to"],
+                        summary["min_genre_similarity"]["from"],
+                        summary["min_genre_similarity"]["to"],
+                    )
+                    retry_pool = _build_pool(
+                        relaxation.candidate_cfg,
+                        relaxation.min_genre_similarity,
+                    )
+                    retry_pool.stats["target_length"] = num_tracks
+                    retry_pool_indices = list(getattr(retry_pool, "eligible_indices", retry_pool.pool_indices))
+                    retry_pool_indices = dedupe_pool_by_track_key(bundle, retry_pool_indices)
+                    retry_result = _run_pier_bridge(retry_pool_indices)
+                    summary["candidate_pool_indices_after_dedupe"] = int(len(retry_pool_indices))
+                    summary["candidate_pool_stats"] = dict(retry_pool.stats or {})
+                    summary["success"] = bool(retry_result.success)
+                    summary["failure_reason"] = retry_result.failure_reason
+                    if audit.active:
+                        audit.append("one_each_candidate_fallback", summary)
+
+                    logger.info(
+                        "One Each candidate fallback attempt %d result: success=%s pool_after_dedupe=%d",
+                        int(relaxation.attempt),
+                        bool(retry_result.success),
+                        int(len(retry_pool_indices)),
+                    )
+                    pool = retry_pool
+                    pool_indices = retry_pool_indices
+                    pb_result = retry_result
+                    min_genre_similarity = relaxation.min_genre_similarity
+                    if retry_result.success:
+                        one_each_candidate_relaxation = summary
+                        break
+
             if not pb_result.success:
                 diag = build_failure_diagnostic(
                     pool.stats or {},
@@ -524,9 +638,15 @@ def generate_playlist_ds(
                     "distinct_artists": len(artist_counts),
                     "repair_applied": False,  # No repair in pier bridge mode
                     "warnings": (pb_result.stats or {}).get("warnings") or [],
+                    "one_each_candidate_relaxation": one_each_candidate_relaxation,
+                    "beam_edge_components": (pb_result.stats or {}).get("beam_edge_components") or [],
                 },
                 params_requested={"strategy": "pier_bridge"},
-                params_effective={"strategy": "pier_bridge", "pier_config": pb_cfg.__dict__},
+                params_effective={
+                    "strategy": "pier_bridge",
+                    "pier_config": pb_cfg.__dict__,
+                    "one_each_candidate_relaxation": one_each_candidate_relaxation,
+                },
             )
 
     # Legacy paths (anchor_builder, standard construct_playlist) have been removed.

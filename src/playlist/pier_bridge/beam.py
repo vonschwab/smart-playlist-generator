@@ -876,7 +876,7 @@ def _beam_search_segment(
                 edges_scored += 1
 
                 if apply_tie_break:
-                    cand_entries.append((int(cand), float(cand_t), float(combined_score), float(dest_pull), genre_sim, waypoint_sim))
+                    cand_entries.append((int(cand), float(cand_t), float(combined_score), float(dest_pull), genre_sim, waypoint_sim, float(trans_score)))
                     if combined_score > best_score:
                         best_score = float(combined_score)
                 else:
@@ -963,11 +963,6 @@ def _beam_search_segment(
                         _local_pen_applied = float(
                             local_sonic_penalty_strength * (local_sonic_penalty_threshold - _local_sonic_cos)
                         )
-                    _below_floor = bool(
-                        float(base_score_for_rank) < float(cfg.transition_floor)
-                        if False  # trans_score already gated; below_floor tracks final T
-                        else False
-                    )
                     edge_component = {
                         "from_idx": int(current),
                         "to_idx": int(cand),
@@ -992,7 +987,7 @@ def _beam_search_segment(
                     ))
 
             if apply_tie_break and cand_entries:
-                for cand, cand_t, base_score, dest_pull, genre_sim, waypoint_sim in cand_entries:
+                for cand, cand_t, base_score, dest_pull, genre_sim, waypoint_sim, trans_score in cand_entries:
                     base_score_for_rank = float(base_score)
                     combined_score = float(base_score)
                     if genre_sim is not None and math.isfinite(genre_sim):
@@ -1083,13 +1078,11 @@ def _beam_search_segment(
                         _local_pen_applied_tb = float(
                             local_sonic_penalty_strength * (local_sonic_penalty_threshold - _local_sonic_cos_tb)
                         )
-                    # In tie-break path, trans_score came from cand_entries as base_score
-                    # (base_score_for_rank ≈ combined_score before penalty, which includes trans_score)
                     edge_component_tb = {
                         "from_idx": int(current),
                         "to_idx": int(cand),
                         "bridge_score": None,  # not separately tracked in tie-break path
-                        "trans_score_in_beam": float(base_score_for_rank),
+                        "trans_score_in_beam": float(trans_score),
                         "progress_t": float(cand_t) if progress_active else None,
                         "progress_jump": (float(cand_t) - float(state.last_progress)) if progress_active else None,
                         "local_sonic_raw_cos": _local_sonic_cos_tb,

@@ -121,12 +121,16 @@ def _build_edge_audit_rows(
     edge_scores_list: List[Dict[str, Any]],
     tracks: List[Dict[str, Any]],
     transition_floor: float = 0.20,
+    beam_components: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
     """Build per-edge audit row dicts for emit_selected_edge_audit.
 
     Zips the enriched edge_scores_list with the track list to populate
     from_artist, from_title, to_artist, to_title, and below_transition_floor.
-    Passes through any beam-captured component fields already in each edge dict.
+    When beam_components is provided, merges per-edge component dicts by
+    position so beam-internal fields (bridge_score, trans_score_in_beam,
+    progress_t, progress_jump, local_sonic_raw_cos, penalties) are populated
+    instead of rendering as 'n/a' in the audit table.
     """
     if not edge_scores_list or not tracks:
         return []
@@ -141,6 +145,12 @@ def _build_edge_audit_rows(
         below_floor = (
             isinstance(t_val, (int, float)) and t_val == t_val and t_val < float(transition_floor)
         )
+        # Merge beam-captured component dict for this edge position (if available)
+        beam_comp: Dict[str, Any] = {}
+        if beam_components is not None and i < len(beam_components):
+            bc = beam_components[i]
+            if isinstance(bc, dict):
+                beam_comp = bc
         row = {
             "from_idx": edge.get("prev_idx"),
             "to_idx": edge.get("cur_idx"),
@@ -152,14 +162,14 @@ def _build_edge_audit_rows(
             "T_centered_cos": edge.get("T_centered_cos"),
             "S": edge.get("S"),
             "G": edge.get("G"),
-            # Beam-captured fields (may be None if not enriched)
-            "bridge_score": edge.get("bridge_score"),
-            "trans_score_in_beam": edge.get("trans_score_in_beam"),
-            "progress_t": edge.get("progress_t"),
-            "progress_jump": edge.get("progress_jump"),
-            "local_sonic_raw_cos": edge.get("local_sonic_raw_cos"),
-            "local_sonic_penalty_applied": edge.get("local_sonic_penalty_applied"),
-            "genre_penalty_applied": edge.get("genre_penalty_applied"),
+            # Beam-captured fields: prefer beam_comp values, fall back to edge dict
+            "bridge_score": beam_comp.get("bridge_score") if beam_comp else edge.get("bridge_score"),
+            "trans_score_in_beam": beam_comp.get("trans_score_in_beam") if beam_comp else edge.get("trans_score_in_beam"),
+            "progress_t": beam_comp.get("progress_t") if beam_comp else edge.get("progress_t"),
+            "progress_jump": beam_comp.get("progress_jump") if beam_comp else edge.get("progress_jump"),
+            "local_sonic_raw_cos": beam_comp.get("local_sonic_raw_cos") if beam_comp else edge.get("local_sonic_raw_cos"),
+            "local_sonic_penalty_applied": beam_comp.get("local_sonic_penalty_applied") if beam_comp else edge.get("local_sonic_penalty_applied"),
+            "genre_penalty_applied": beam_comp.get("genre_penalty_applied") if beam_comp else edge.get("genre_penalty_applied"),
             "below_transition_floor": below_floor,
         }
         rows.append(row)
@@ -2737,10 +2747,16 @@ class PlaylistGenerator:
         # Diagnostic: per-edge audit table (opt-in via emit_selected_edge_audit: true in config)
         if bool(getattr(self, "_last_ds_report", {}) and self._last_ds_report.get("emit_selected_edge_audit", False)):
             from src.playlist.reporter import emit_selected_edge_audit as _emit_edge_audit
+            _beam_comps = (
+                (self._last_ds_report.get("playlist_stats") or {})
+                .get("playlist", {})
+                .get("beam_edge_components")
+            )
             _audit_rows = _build_edge_audit_rows(
                 edge_scores_list=self._last_ds_report.get("edge_scores") or [],
                 tracks=final_tracks,
                 transition_floor=float(self._last_ds_report.get("transition_floor") or 0.20),
+                beam_components=_beam_comps or None,
             )
             _emit_edge_audit(
                 _audit_rows,

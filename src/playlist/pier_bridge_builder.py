@@ -587,9 +587,14 @@ def build_pier_bridge_playlist(
     used_track_keys: Set[tuple[str, str]] = set(seed_track_keys)
 
     all_segments: List[List[int]] = []
+    all_beam_components: List[dict] = []  # flat per-edge component dicts for audit
     diagnostics: List[SegmentDiagnostics] = []
     soft_genre_penalty_hits_total = 0
     soft_genre_penalty_edges_scored_total = 0
+    local_sonic_penalty_hits_total = 0
+    local_sonic_edges_scored_total = 0
+    local_sonic_gate_rejected_total = 0
+    local_sonic_penalty_total = 0.0
     segment_bridge_floors_used: list[float] = []
     segment_backoff_attempts_used: list[int] = []
 
@@ -676,10 +681,12 @@ def build_pier_bridge_playlist(
         beam_width_used = cfg.initial_beam_width
         soft_genre_penalty_hits_segment = 0
         soft_genre_penalty_edges_scored_segment = 0
+        local_sonic_stats_segment: Dict[str, Any] = {}
         last_segment_candidates: List[int] = []
         last_candidate_artist_keys: Dict[int, str] = {}
         last_segment_pool_cache: Optional[Dict[str, Any]] = None
         last_waypoint_stats: Dict[str, Any] = {}
+        last_edge_components: List[dict] = []
 
         for floor_attempt_idx, bridge_floor in enumerate(backoff_attempts):
             backoff_used_count = floor_attempt_idx + 1
@@ -715,6 +722,7 @@ def build_pier_bridge_playlist(
             pool_size_final = 0
             soft_genre_penalty_hits_segment = 0
             soft_genre_penalty_edges_scored_segment = 0
+            local_sonic_stats_segment = {}
             last_failure_reason = None
             expansion_attempts_used = 0
             last_pool_diag: Dict[str, Any] = {}
@@ -871,6 +879,7 @@ def build_pier_bridge_playlist(
                         pooling_cache=segment_pool_cache,
                         pool_verbose=bool(cfg.dj_diagnostics_pool_verbose),  # Phase 3 fix
                         genre_pool_transition_blend=float(cfg.dj_genre_pool_transition_blend),  # Task D
+                        collapse_by_artist=bool(cfg.collapse_segment_pool_by_artist),
                     )
                     try:
                         cand_artist_keys = dict(cand_artist_keys)
@@ -931,6 +940,7 @@ def build_pier_bridge_playlist(
                             pooling_cache=segment_pool_cache,
                             pool_verbose=bool(cfg.dj_diagnostics_pool_verbose),  # Phase 3 fix
                             genre_pool_transition_blend=float(cfg.dj_genre_pool_transition_blend),  # Task D
+                            collapse_by_artist=bool(cfg.collapse_segment_pool_by_artist),
                         )
                         if len(relaxed_candidates) > len(segment_candidates):
                             segment_candidates = relaxed_candidates
@@ -1002,6 +1012,7 @@ def build_pier_bridge_playlist(
                             pooling_cache=segment_pool_cache,
                             pool_verbose=bool(cfg.dj_diagnostics_pool_verbose),  # Phase 3 fix
                             genre_pool_transition_blend=float(cfg.dj_genre_pool_transition_blend),  # Task D
+                            collapse_by_artist=bool(cfg.collapse_segment_pool_by_artist),
                         )
                         if segment_pool_cache is not None:
                             segment_pool_cache["dj_baseline_pool"] = set(
@@ -1035,6 +1046,7 @@ def build_pier_bridge_playlist(
                     last_failure_reason = f"pool_after_gate {len(segment_candidates)} < interior_len {interior_len}"
                     pool_size_final = 0
                 else:
+                    _edge_components_buf: Dict[str, Any] = {}
                     segment_path, soft_genre_penalty_hits_segment, soft_genre_penalty_edges_scored_segment, beam_failure_reason = _beam_search_segment(
                         pier_a,
                         pier_b,
@@ -1063,9 +1075,12 @@ def build_pier_bridge_playlist(
                         genre_cache_stats=genre_cache_stats_segment,
                         g_targets_override=segment_g_targets,
                         waypoint_stats=waypoint_stats_segment,
+                        local_sonic_stats=local_sonic_stats_segment,
+                        edge_components_out=_edge_components_buf,
                     )
                     last_failure_reason = beam_failure_reason
                     if segment_path is not None:
+                        last_edge_components = list(_edge_components_buf.get("components") or [])
                         # Capture waypoint stats for successful path
                         last_waypoint_stats = dict(waypoint_stats_segment)
 
@@ -1189,6 +1204,7 @@ def build_pier_bridge_playlist(
                                 "threshold": float(cfg_attempt.genre_penalty_threshold),
                                 "strength": float(cfg_attempt.genre_penalty_strength),
                             },
+                            "local_sonic_edge_penalty": dict(local_sonic_stats_segment),
                             "genre_cache": dict(last_genre_cache_stats),
                             "progress_arc": dict(last_arc_stats),
                         },
@@ -1214,12 +1230,14 @@ def build_pier_bridge_playlist(
             "beam_width_used": int(beam_width_used),
             "soft_genre_penalty_hits_segment": int(soft_genre_penalty_hits_segment),
             "soft_genre_penalty_edges_scored_segment": int(soft_genre_penalty_edges_scored_segment),
+            "local_sonic_stats_segment": dict(local_sonic_stats_segment),
             "last_failure_reason": (str(last_failure_reason) if last_failure_reason else None),
             "last_segment_candidates": list(last_segment_candidates),
             "last_candidate_artist_keys": dict(last_candidate_artist_keys),
             "segment_pool_cache": dict(last_segment_pool_cache or {}),
             "last_waypoint_stats": dict(last_waypoint_stats),
             "last_pool_diag": dict(last_pool_diag),
+            "edge_components": list(last_edge_components),
         }
 
     for seg_idx in range(num_segments):
@@ -1306,6 +1324,7 @@ def build_pier_bridge_playlist(
         beam_width_used = cfg.initial_beam_width
         soft_genre_penalty_hits_segment = 0
         soft_genre_penalty_edges_scored_segment = 0
+        local_sonic_stats_segment: Dict[str, Any] = {}
 
         for relax_idx, relax in enumerate(relaxation_attempts):
             cfg = relax["cfg"]
@@ -1334,6 +1353,7 @@ def build_pier_bridge_playlist(
             beam_width_used = int(attempt_result["beam_width_used"])
             soft_genre_penalty_hits_segment = int(attempt_result["soft_genre_penalty_hits_segment"])
             soft_genre_penalty_edges_scored_segment = int(attempt_result["soft_genre_penalty_edges_scored_segment"])
+            local_sonic_stats_segment = dict(attempt_result.get("local_sonic_stats_segment", {}))
             last_failure_reason = attempt_result["last_failure_reason"]
             last_segment_candidates = list(attempt_result["last_segment_candidates"])
             last_candidate_artist_keys = dict(attempt_result["last_candidate_artist_keys"])
@@ -1341,6 +1361,7 @@ def build_pier_bridge_playlist(
             last_segment_pool_cache = dict(pool_cache) if pool_cache is not None else None
             last_waypoint_stats = dict(attempt_result.get("last_waypoint_stats", {}))
             last_pool_diag = dict(attempt_result.get("last_pool_diag", {}))
+            segment_edge_components = list(attempt_result.get("edge_components") or [])
 
             segment_relaxation_attempts.append({
                 "attempt_index": int(relax_idx),
@@ -1476,6 +1497,10 @@ def build_pier_bridge_playlist(
 
         soft_genre_penalty_hits_total += int(soft_genre_penalty_hits_segment)
         soft_genre_penalty_edges_scored_total += int(soft_genre_penalty_edges_scored_segment)
+        local_sonic_penalty_hits_total += int(local_sonic_stats_segment.get("local_sonic_penalty_hits", 0))
+        local_sonic_edges_scored_total += int(local_sonic_stats_segment.get("local_sonic_edges_scored", 0))
+        local_sonic_gate_rejected_total += int(local_sonic_stats_segment.get("local_sonic_gate_rejected", 0))
+        local_sonic_penalty_total += float(local_sonic_stats_segment.get("local_sonic_penalty_total", 0.0))
         if cfg.genre_penalty_strength > 0 and logger.isEnabledFor(logging.DEBUG):
             logger.debug(
                 "Segment %d: soft_genre_penalty_hits=%d edges_scored=%d threshold=%.2f strength=%.2f",
@@ -1484,6 +1509,24 @@ def build_pier_bridge_playlist(
                 int(soft_genre_penalty_edges_scored_segment),
                 float(cfg.genre_penalty_threshold),
                 float(cfg.genre_penalty_strength),
+            )
+        if (
+            (cfg.local_sonic_edge_penalty_enabled and cfg.local_sonic_edge_penalty_strength > 0)
+            or cfg.local_sonic_edge_floor is not None
+        ) and logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Segment %d: local_sonic_penalty_hits=%d edges_scored=%d gate_rejected=%d threshold=%.2f strength=%.2f floor=%s",
+                seg_idx,
+                int(local_sonic_stats_segment.get("local_sonic_penalty_hits", 0)),
+                int(local_sonic_stats_segment.get("local_sonic_edges_scored", 0)),
+                int(local_sonic_stats_segment.get("local_sonic_gate_rejected", 0)),
+                float(cfg.local_sonic_edge_penalty_threshold),
+                float(cfg.local_sonic_edge_penalty_strength),
+                (
+                    f"{float(cfg.local_sonic_edge_floor):.2f}"
+                    if cfg.local_sonic_edge_floor is not None
+                    else "None"
+                ),
             )
 
         # Compute edge scores for diagnostics
@@ -1748,6 +1791,7 @@ def build_pier_bridge_playlist(
                 )
 
         all_segments.append(full_segment)
+        all_beam_components.extend(segment_edge_components)
 
         # Update boundary context for next segment (cross-segment min_gap enforcement)
         # Build the concatenated result so far to extract recent artists
@@ -1909,8 +1953,13 @@ def build_pier_bridge_playlist(
         "transition_centered": bool(cfg.center_transitions),
         "soft_genre_penalty_hits": int(soft_genre_penalty_hits_total),
         "soft_genre_penalty_edges_scored": int(soft_genre_penalty_edges_scored_total),
+        "local_sonic_penalty_hits": int(local_sonic_penalty_hits_total),
+        "local_sonic_edges_scored": int(local_sonic_edges_scored_total),
+        "local_sonic_gate_rejected": int(local_sonic_gate_rejected_total),
+        "local_sonic_penalty_total": float(local_sonic_penalty_total),
         "segment_bridge_floors_used": [float(x) for x in segment_bridge_floors_used],
         "segment_backoff_attempts_used": [int(x) for x in segment_backoff_attempts_used],
+        "beam_edge_components": list(all_beam_components),
         "warnings": warnings,
         "config": {
             "transition_floor": cfg.transition_floor,
@@ -1923,6 +1972,14 @@ def build_pier_bridge_playlist(
             "genre_penalty_strength": float(cfg.genre_penalty_strength),
             "genre_tie_break_band": (
                 float(cfg.genre_tie_break_band) if cfg.genre_tie_break_band is not None else None
+            ),
+            "local_sonic_edge_penalty_enabled": bool(cfg.local_sonic_edge_penalty_enabled),
+            "local_sonic_edge_penalty_threshold": float(cfg.local_sonic_edge_penalty_threshold),
+            "local_sonic_edge_penalty_strength": float(cfg.local_sonic_edge_penalty_strength),
+            "local_sonic_edge_floor": (
+                float(cfg.local_sonic_edge_floor)
+                if cfg.local_sonic_edge_floor is not None
+                else None
             ),
             "bridge_floor": float(cfg.bridge_floor),
             "max_non_seed_tracks_per_artist": cfg.max_non_seed_tracks_per_artist,

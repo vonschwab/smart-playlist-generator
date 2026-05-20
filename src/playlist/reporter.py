@@ -106,19 +106,20 @@ def emit_selected_edge_audit(edge_rows: list[dict], *, transition_floor: float =
     """
     if not edge_rows:
         return
+
+    def _f(row: dict, key: str, fmt: str = "%.3f") -> str:
+        v = row.get(key)
+        if v is None:
+            return "n/a"
+        try:
+            return fmt % float(v)
+        except Exception:
+            return str(v)
+
     logger.info("=" * 80)
     logger.info("Selected-edge audit (%d edges)", len(edge_rows))
     logger.info("=" * 80)
     for i, row in enumerate(edge_rows):
-        def _f(key, fmt="%.3f"):
-            v = row.get(key)
-            if v is None:
-                return "n/a"
-            try:
-                return fmt % float(v)
-            except Exception:
-                return str(v)
-
         from_label = "%s - %s" % (
             row.get("from_artist", "?"),
             row.get("from_title", "?"),
@@ -127,23 +128,25 @@ def emit_selected_edge_audit(edge_rows: list[dict], *, transition_floor: float =
             row.get("to_artist", "?"),
             row.get("to_title", "?"),
         )
+        below_floor = bool(row.get("below_transition_floor", False))
+        floor_flag = "⚠ " if below_floor else ""
         logger.info(
-            "Edge #%02d: %s -> %s", i + 1, from_label, to_label,
+            "Edge #%02d: %s%s -> %s", i + 1, floor_flag, from_label, to_label,
         )
         flags = row.get("to_title_flags") or set()
         flag_str = ",".join(sorted(flags)) if flags else "-"
         logger.info(
             "  T=%s T_centered_cos=%s S=%s G=%s | bridge=%s trans_beam=%s title_flags=%s",
-            _f("T"), _f("T_centered_cos"), _f("S"), _f("G"),
-            _f("bridge_score"), _f("trans_score_in_beam"), flag_str,
+            _f(row, "T"), _f(row, "T_centered_cos"), _f(row, "S"), _f(row, "G"),
+            _f(row, "bridge_score"), _f(row, "trans_score_in_beam"), flag_str,
         )
         logger.info(
             "  progress_t=%s progress_jump=%s local_sonic_cos=%s local_pen=%s genre_pen=%s below_floor=%s",
-            _f("progress_t"), _f("progress_jump"),
-            _f("local_sonic_raw_cos"),
-            _f("local_sonic_penalty_applied"),
-            _f("genre_penalty_applied"),
-            bool(row.get("below_transition_floor", False)),
+            _f(row, "progress_t"), _f(row, "progress_jump"),
+            _f(row, "local_sonic_raw_cos"),
+            _f(row, "local_sonic_penalty_applied"),
+            _f(row, "genre_penalty_applied"),
+            below_floor,
         )
 
 
