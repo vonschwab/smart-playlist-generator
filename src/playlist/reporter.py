@@ -95,6 +95,40 @@ def log_recency_edge_diff(
         logger.info("Recency new edges (sample): %s", new_edges[:10])
 
 
+def diagnose_t_mismatch(
+    edges: list[dict],
+    *,
+    transition_floor: float,
+    tolerance: float = 0.05,
+) -> list[dict]:
+    """Cross-check beam-scored trans_score_in_beam vs final-emitted T per edge.
+
+    Returns a list of edges where the disagreement exceeds `tolerance`
+    AND the final T is below `transition_floor` (i.e., the beam thought
+    the edge was acceptable, but the final reporter scored it as broken).
+    Logs a WARNING for each such edge with both scores side by side.
+    """
+    issues: list[dict] = []
+    for e in edges:
+        final_t = e.get("T")
+        beam_t = e.get("trans_score_in_beam")
+        if final_t is None or beam_t is None:
+            continue
+        try:
+            ft = float(final_t)
+            bt = float(beam_t)
+        except Exception:
+            continue
+        if ft < float(transition_floor) and (bt - ft) > float(tolerance):
+            logger.warning(
+                "T-mismatch edge %s->%s: beam_trans=%.3f final_T=%.3f (floor=%.2f)",
+                e.get("from_idx"), e.get("to_idx"),
+                bt, ft, float(transition_floor),
+            )
+            issues.append(dict(e))
+    return issues
+
+
 def emit_selected_edge_audit(edge_rows: list[dict], *, transition_floor: float = 0.20) -> None:
     """Emit one log row per selected edge with full scoring breakdown.
 
@@ -148,6 +182,13 @@ def emit_selected_edge_audit(edge_rows: list[dict], *, transition_floor: float =
             _f(row, "genre_penalty_applied"),
             below_floor,
         )
+
+    # Cross-check beam vs final T mismatch
+    diagnose_t_mismatch(
+        edge_rows,
+        transition_floor=float(transition_floor),
+        tolerance=0.05,
+    )
 
 
 def compute_edge_scores_from_artifact(
