@@ -47,10 +47,15 @@ _FLAG_PATTERNS: dict[str, list[str]] = {
         r"\(take\s+\d+",
     ],
     "mono": [
-        r"\bmono\b",
+        r"\bmono\s+(?:version|mix|master|recording)\b",
+        r"\(mono\b",
+        r"\[mono\b",
     ],
     "stereo": [
-        r"\bstereo\b",
+        r"\bstereo\s+(?:version|mix|master|recording)\b",
+        r"\(stereo\b",
+        r"\[stereo\b",
+        r"\bstereo\s+\d",
     ],
     "edit": [
         r"\bradio\s+edit\b",
@@ -84,3 +89,31 @@ def detect_title_artifacts(title: str | None) -> Set[str]:
                 flags.add(flag)
                 break
     return flags
+
+
+def compute_title_artifact_penalty(
+    *,
+    title: str | None,
+    weights: dict[str, float],
+) -> float:
+    """Sum of weights for each flag detected in the title.
+
+    `weights` maps flag name (e.g., 'demo') to per-flag penalty magnitude.
+    Flags detected but not present in `weights` contribute nothing.
+    Returns 0.0 for empty/None titles or empty weights.
+    """
+    if not title or not weights:
+        return 0.0
+    flags = detect_title_artifacts(title)
+    if not flags:
+        return 0.0
+    total = 0.0
+    for flag in flags:
+        w = weights.get(flag)
+        if w is None:
+            continue
+        try:
+            total += float(w)
+        except Exception:
+            continue
+    return float(max(0.0, total))

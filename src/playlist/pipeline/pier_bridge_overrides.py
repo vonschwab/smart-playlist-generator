@@ -158,6 +158,19 @@ def apply_pier_bridge_overrides(
             collapse_segment_pool_by_artist=bool(collapse_segment_pool_by_artist),
         )
 
+    title_artifact = pb_overrides.get("title_artifact_penalty")
+    if isinstance(title_artifact, dict):
+        enabled = title_artifact.get("enabled")
+        weights = title_artifact.get("weights")
+        if isinstance(enabled, bool):
+            pb_cfg = replace(pb_cfg, title_artifact_penalty_enabled=enabled)
+        if isinstance(weights, dict):
+            normalized = {
+                str(k): float(v) for k, v in weights.items()
+                if isinstance(v, (int, float))
+            }
+            pb_cfg = replace(pb_cfg, title_artifact_penalty_weights=normalized or None)
+
     emit_audit = pb_overrides.get("emit_selected_edge_audit")
     if isinstance(emit_audit, bool):
         pb_cfg = replace(pb_cfg, emit_selected_edge_audit=bool(emit_audit))

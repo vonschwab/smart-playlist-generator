@@ -111,6 +111,8 @@
   "segment_pool_max": 400,
   "segment_pool_strategy": "segment_scored",
   "sonic_variant": "tower_pca",
+  "title_artifact_penalty_enabled": false,
+  "title_artifact_penalty_weights": null,
   "transition_floor": 0.45,
   "transition_weights": null,
   "weight_bridge": 0.7,

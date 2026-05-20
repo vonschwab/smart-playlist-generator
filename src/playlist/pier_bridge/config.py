@@ -197,6 +197,17 @@ class PierBridgeConfig:
     trans_score_in_beam, progress_t/jump, local_sonic_raw_cos,
     local_sonic_penalty_applied, genre_penalty_applied, below_transition_floor.
     No behavior change."""
+    # Soft title-artifact penalty (opt-in; default OFF).
+    title_artifact_penalty_enabled: bool = False
+    """When True, candidates whose title matches artifact flags
+    (demo/live/medley/remix/instrumental/remaster/version/take/edit/outtake/alternate)
+    are demoted by the sum of their flag weights. Hard exclusion list
+    (title_exclusion_words in candidate_pool) is not affected."""
+    title_artifact_penalty_weights: Optional[Dict[str, float]] = None
+    """Per-flag penalty magnitudes. None or empty = no penalty.
+    Recommended starting values (tune after diagnostics):
+    demo:0.10, live:0.05, medley:0.20, remix:0.10, instrumental:0.08,
+    version:0.05, take:0.10, outtake:0.15, alternate:0.10"""
 
 
 @dataclass

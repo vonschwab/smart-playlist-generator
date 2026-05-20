@@ -24,6 +24,7 @@ from src.playlist.artist_identity_resolver import (
     resolve_artist_identity_keys,
 )
 from src.playlist.pier_bridge.config import PierBridgeConfig, _compute_transition_score
+from src.playlist.title_quality import compute_title_artifact_penalty
 from src.playlist.pier_bridge.genre import (
     _compute_coverage,
     _compute_coverage_bonus,
@@ -873,6 +874,22 @@ def _beam_search_segment(
                     continue
                 combined_score = float(combined_score_after_sonic)
 
+                # Title-artifact penalty (opt-in; zero cost when disabled)
+                _title_artifact_pen = 0.0
+                if bool(cfg.title_artifact_penalty_enabled) and cfg.title_artifact_penalty_weights:
+                    _cand_title = ""
+                    try:
+                        if bundle is not None and bundle.track_titles is not None:
+                            _cand_title = str(bundle.track_titles[int(cand)] or "")
+                    except Exception:
+                        _cand_title = ""
+                    if _cand_title:
+                        _title_artifact_pen = compute_title_artifact_penalty(
+                            title=_cand_title,
+                            weights=cfg.title_artifact_penalty_weights,
+                        )
+                        combined_score -= _title_artifact_pen
+
                 edges_scored += 1
 
                 if apply_tie_break:
@@ -974,6 +991,7 @@ def _beam_search_segment(
                         "local_sonic_penalty_applied": _local_pen_applied,
                         "genre_penalty_applied": _genre_pen_applied,
                         "below_transition_floor": False,
+                        "title_artifact_penalty_applied": float(_title_artifact_pen),
                     }
                     new_edge_components = list(state.edge_components) + [edge_component]
 
@@ -1024,6 +1042,22 @@ def _beam_search_segment(
                             float(cfg.dj_genre_coverage_weight), float(cfg.dj_genre_coverage_power)
                         )
                         combined_score += coverage_bonus_val
+
+                    # Title-artifact penalty (tie-break path; opt-in; zero cost when disabled)
+                    _title_artifact_pen_tb = 0.0
+                    if bool(cfg.title_artifact_penalty_enabled) and cfg.title_artifact_penalty_weights:
+                        _cand_title_tb = ""
+                        try:
+                            if bundle is not None and bundle.track_titles is not None:
+                                _cand_title_tb = str(bundle.track_titles[int(cand)] or "")
+                        except Exception:
+                            _cand_title_tb = ""
+                        if _cand_title_tb:
+                            _title_artifact_pen_tb = compute_title_artifact_penalty(
+                                title=_cand_title_tb,
+                                weights=cfg.title_artifact_penalty_weights,
+                            )
+                            combined_score -= _title_artifact_pen_tb
 
                     # Rank impact: collect (cand_idx, base_score, waypoint_delta, coverage_bonus, full_score)
                     if step_is_sampled:
@@ -1089,6 +1123,7 @@ def _beam_search_segment(
                         "local_sonic_penalty_applied": _local_pen_applied_tb,
                         "genre_penalty_applied": _genre_pen_applied_tb,
                         "below_transition_floor": False,
+                        "title_artifact_penalty_applied": float(_title_artifact_pen_tb),
                     }
                     new_edge_components_tb = list(state.edge_components) + [edge_component_tb]
 
