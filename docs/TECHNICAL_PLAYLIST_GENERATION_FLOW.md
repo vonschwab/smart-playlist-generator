@@ -284,18 +284,17 @@ for cluster_id in range(n_clusters):
         X_hybrid[allowed_indices]
     )[0]
 
-    # Top 400 candidates per cluster
-    top_indices = np.argsort(similarities)[::-1][:400]
+    # Top N candidates per cluster (configurable; default 2000 in v4.1)
+    top_indices = np.argsort(similarities)[::-1][:per_cluster_candidate_pool_size]
     cluster_pools[cluster_id] = top_indices
 ```
 
-**Per-Cluster Pool Sizes:**
-- Cluster 0: 400 candidates
-- Cluster 1: 400 candidates
-- Cluster 2: 400 candidates
-- Cluster 3: 400 candidates
-- Cluster 4: 400 candidates
-- **Total unique candidates:** 1,620 tracks (some overlap between clusters)
+**Per-Cluster Pool Sizes (v4.1):**
+- Each cluster: `per_cluster_candidate_pool_size` (default **2000**, was 400-800 in earlier versions)
+- A genre-neighbor pool of size `genre_neighbor_pool_size` (default **1500**) is unioned in
+- **Total unique candidates:** typically 4,000-7,500 after dedupe (varies by overlap)
+
+**Why the increase (v4.1):** The top-K nearest-to-medoid tracks for a narrow-style band tend to be artist-clones. Genuine *bridging* candidates that lie between distinct sonic clusters of the same artist were getting cut off at the tail. Larger pools surface those mid-projection candidates without changing what the beam ultimately picks (the beam still selects on transition quality).
 
 **Internal Connectors:**
 - Tracks from seed artist allowed ONLY at pier positions
@@ -759,13 +758,27 @@ for step, cand_idx in enumerate(path):
 - "Bill Evans Trio" → "bill evans" (ensemble suffix stripped correctly)
 
 **Constraint Summary:**
-- **Bridge floor:** 0.03 (min similarity to both piers)
+- **Bridge floor:** 0.02 (min similarity to both piers; lowered from 0.03 in v3.4.1)
 - **Transition floor:** 0.20 (min local transition quality)
-- **Min artist gap:** 6 positions
+- **Min artist gap:** 6 positions (cross-segment); strict 1-per-artist *within* a segment via the beam's `used_artists` set
 - **Seed artist policy:** Disallowed in bridge interiors
 - **Progress constraint:** Monotonic movement toward destination
 - **Duration penalty:** Applied in candidate pool (geometric curve vs max seed duration)
 - **Genre soft penalty:** Reduce whiplash below 0.20 similarity
+- **Title hard exclusions:** `interlude`, `skit`, `acapella`, `a cappella`, `a capella` (case-insensitive, `candidate_pool.title_exclusion_words`)
+- **Title soft penalty (opt-in, v4.1):** demote `demo`/`live`/`medley`/`remix`/`instrumental`/`take`/`outtake`/`alternate`/`version` via `pier_bridge.title_artifact_penalty`
+
+#### 7.3a Shared transition metric (v4.2)
+
+Beam scoring, builder edge stats, reporter edge scores, and opt-in edge repair all use `src/playlist/transition_metrics.py`:
+
+- `build_transition_metric_context(...)` constructs the weighted sonic, start, mid, end, genre, and hybrid context.
+- `score_transition_edge(context, prev_idx, cur_idx)` returns the canonical edge dict (`T`, `T_raw`, `T_centered_cos`, `H`, `S`, optional `G`).
+- `is_broken_transition(...)` applies the transition floor and centered-cos catastrophic gate.
+
+This replaces the previous situation where the beam and reporter could score the same final edge from different matrices. `transition_weights` still controls the rhythm/timbre/harmony balance inside transition scoring, but it is now applied through the shared context before either the beam or reporter reads the edge score.
+
+**Design principle:** `trans_score_in_beam` and final reporter `T` should match for the same edge. A `T-mismatch` warning is a regression signal or missing-data fallback, not expected diagnostic drift.
 
 #### 7.4 Full Playlist Assembly
 ```python

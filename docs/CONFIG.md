@@ -184,10 +184,15 @@ playlists:
       harmony: 0.30                  # Key/chord importance
 
     # Transition weights (end-of-A to start-of-B)
+    # IMPORTANT: should match tower_weights so the beam's transition score
+    # is computed in the same feature balance as the rest of the pipeline.
+    # Mismatch causes the beam to approve edges the reporter scores poorly
+    # (see docs/PLAYLIST_ORDERING_TUNING.md). Previously rhythm-dominant
+    # (0.50/0.25/0.15); changed to match tower_weights in v4.1.
     transition_weights:
-      rhythm: 0.40
-      timbre: 0.35
-      harmony: 0.25
+      rhythm: 0.20
+      timbre: 0.50
+      harmony: 0.30
 
     # PCA dimensions per tower
     tower_pca_dims:
@@ -203,6 +208,22 @@ playlists:
       duration_penalty_enabled: true   # Penalize long tracks vs seeds
       duration_penalty_weight: 0.60    # Penalty strength (higher = more severe)
       duration_cutoff_multiplier: 2.5 # Hard cutoff vs median seed duration
+
+      # Raw genre-conflict penalty and (optional) hard gate.
+      # Applies against the raw artifact genre vocabulary (~764 dims).
+      # The hard gate is NULL (off) by default because at min_confidence=0.50
+      # against identity affinity in a 764-dim vocab, it rejects ~50% of all
+      # candidates including legitimate ones. The soft penalty (strength=0.20)
+      # still demotes off-axis tracks without blocking them.
+      genre_conflict_enabled: true
+      genre_conflict_min_confidence: null    # null = no hard gate (recommended)
+      genre_conflict_penalty_strength: 0.20  # Soft demotion strength
+      genre_conflict_compatible_threshold: 0.35
+      genre_conflict_conflict_threshold: 0.15
+
+      # Hard title exclusions (drops candidates entirely; case-insensitive)
+      title_exclusion_enabled: true
+      title_exclusion_words: ["interlude", "skit", "acapella", "a cappella", "a capella"]
 
     # Scoring weights
     scoring:
@@ -369,6 +390,118 @@ To override for any run (optional):
 - Confirm the run logs include: `Pier-bridge tuning resolved: mode=dynamic ...`
 - Confirm the run logs include: `Pier-bridge segment policy: artist_playlist=... strategy=...`
 - For penalty visibility, re-run with `--log-level DEBUG` and look for per-segment `soft_genre_penalty_hits=... edges_scored=...` lines.
+
+### Artist-Style Clustering (artist playlists)
+
+```yaml
+playlists:
+  ds_pipeline:
+    artist_style:
+      enabled: true
+      cluster_k_min: 3
+      cluster_k_max: 6
+      cluster_k_heuristic_enabled: true
+      piers_per_cluster: 1
+
+      # Per-cluster external candidate pool size.
+      # Increased from 800 to 2000 in v4.1 — the top 800 nearest-to-medoid
+      # tracks for a narrow-style band tend to be artist-clones, leaving few
+      # genuinely bridging candidates. 2000 reaches further out per cluster.
+      per_cluster_candidate_pool_size: 2000
+      pool_balance_mode: equal             # equal | proportional_capped
+
+      internal_connector_priority: true
+      internal_connector_max_per_segment: 2
+
+      # Genre-neighbor candidate pool (UNION with the cluster pool).
+      # Size raised from 500 to 1500 in v4.1; min_confidence set to null
+      # (same identity-affinity issue as candidate_pool.genre_conflict_min_confidence).
+      genre_neighbor_pool_enabled: true
+      genre_neighbor_pool_size: 1500
+      genre_neighbor_min_similarity: 0.25
+      genre_neighbor_min_confidence: null
+      genre_neighbor_compatible_threshold: 0.35
+      genre_neighbor_conflict_threshold: 0.15
+```
+
+### Segment-Pool Per-Artist Collapse (recommended OFF)
+
+Default in `config.yaml` for v4.1:
+
+```yaml
+playlists:
+  ds_pipeline:
+    pier_bridge:
+      collapse_segment_pool_by_artist: false
+```
+
+When `true` (the legacy default in `PierBridgeConfig`), the segment-pool builder collapses candidates to one-track-per-artist (best by harmonic mean of pier similarities) before beam search. This is **redundant** because the beam already enforces one-per-segment artist diversity via `used_artists`, and it **biases** the pool toward mid-projection tracks (high harmonic mean), starving the high-progress region.
+
+Set to `false` for long narrow-style segments — the beam sees many more candidates at varied projection positions while still picking distinct artists.
+
+### Edge Diagnostics (opt-in, default off)
+
+```yaml
+playlists:
+  ds_pipeline:
+    pier_bridge:
+      emit_selected_edge_audit: true
+```
+
+When enabled, generates a "Selected-edge audit" log block after each playlist with one row per edge:
+
+```
+Edge #18: METZ - Spit You Out -> Dinosaur Jr. - It's Me
+  T=0.366 T_centered_cos=-0.267 S=0.675 G=0.949 | bridge=0.447 trans_beam=0.845 title_flags=-
+  progress_t=0.459 progress_jump=0.121 local_sonic_cos=0.659 local_pen=0.000 genre_pen=0.000 below_floor=False
+```
+
+Also runs `diagnose_t_mismatch` as a regression check. Beam `trans_beam` and final reporter `T` now share the same transition metric, so `WARNING: T-mismatch edge ...` indicates a bug or missing-data fallback to investigate, not an expected tuning signal.
+
+See `docs/PLAYLIST_ORDERING_TUNING.md` for full interpretation.
+
+### Opt-in Scoring/Filtering Knobs (default off)
+
+All under `playlists.ds_pipeline.pier_bridge` — see `docs/PLAYLIST_ORDERING_TUNING.md` for the tuning recipe.
+
+```yaml
+# Soft title-artifact penalty
+title_artifact_penalty:
+  enabled: false
+  weights:
+    demo: 0.10
+    live: 0.05
+    medley: 0.20
+    remix: 0.10
+    instrumental: 0.08
+    take: 0.10
+    outtake: 0.15
+    alternate: 0.10
+    version: 0.05
+
+# Scaled local-sonic-edge penalty
+local_sonic_edge_penalty_mode: legacy      # legacy | scaled
+local_sonic_edge_penalty_scale: 1.0        # used only in 'scaled' mode
+
+# Worst-edge lexicographic beam objective
+min_edge_objective: total_score            # total_score | min_edge
+
+# Last-mile edge repair fallback
+edge_repair:
+  enabled: false
+  centered_cos_floor: -0.5
+  margin: 0.05
+  variety_guard:
+    enabled: false
+    threshold: 0.85
+```
+
+| Knob | What it does |
+|---|---|
+| `title_artifact_penalty` | Soft-demotes candidates whose titles contain `demo`/`live`/`medley`/`remix`/`instrumental`/`take`/`outtake`/`alternate`/`version` (and `mono`/`stereo`/`remaster`/`edit` if weights provided). Hard exclusions remain in `candidate_pool.title_exclusion_words`. |
+| `local_sonic_edge_penalty_mode: scaled` | Replaces the legacy penalty math (`strength × (threshold − edge_cos)`, max ≈0.03) with `scale × (threshold − edge_cos)` so the penalty is large enough to actually influence beam selection. |
+| `min_edge_objective: min_edge` | Final beam selection prefers paths with the highest minimum `trans_score_in_beam` across edges, ties broken by total score. Implements "no broken moments" over "good on average". |
+| `edge_repair.enabled` | Opt-in fallback that attempts conservative single-track swaps only after upstream beam scoring is already aligned with final `T`. Piers and seeds are protected; swaps must clear the transition floor and improve worst adjacent `T` by `edge_repair.margin`. |
 
 ### Recency Filtering Invariant (DS)
 Recency exclusions (Last.fm scrobbles and/or local history) are applied **pre-order only** during candidate selection. After pier-bridge ordering completes, the playlist is **not** filtered/shrunk; we do **validation only** and fail loudly if constraints are violated.

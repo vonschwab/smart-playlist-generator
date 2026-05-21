@@ -1,7 +1,9 @@
-# Playlist Ordering Tuning Recipe (2026-05-20)
+# Playlist Ordering Tuning Recipe (updated 2026-05-21)
 
 Opt-in ordering & track-quality knobs added in
-`docs/superpowers/plans/2026-05-20-playlist-ordering-and-track-quality.md`.
+`docs/superpowers/plans/2026-05-20-playlist-ordering-and-track-quality.md`,
+plus the foundational `transition_weights` alignment learned via the
+diagnostic audit on 2026-05-21.
 
 ---
 
@@ -33,7 +35,43 @@ Generate a playlist. The log will include a **"Selected-edge audit"** section wi
 - `title_flags` (artifact flags for the destination track)
 - `⚠` prefix on edges below the transition floor
 
-Also watch for `WARNING: T-mismatch edge` lines — these indicate the beam scored an edge as acceptable but the final reporter scored it as below-floor (a known diagnostic for formulation gaps between beam and post-hoc scoring).
+Also watch for `WARNING: T-mismatch edge` lines. These are now regression signals: the beam and final reporter share the same transition metric, so a mismatch usually means stale audit data or a missing-data fallback, not normal tuning drift.
+
+---
+
+## Knob 0: Align `transition_weights` with `tower_weights` (BIGGEST IMPACT)
+
+**Do this first.** Skip the other knobs until this is correct.
+
+`transition_weights` controls how the rhythm/timbre/harmony towers are weighted *inside the beam's transition scoring*. `tower_weights` controls how those towers are weighted in the hybrid embedding used for candidate similarity and the rest of the pipeline.
+
+**These must match.** When they don't, the beam scores transitions in a different feature space than the reporter (and the listener) uses to judge them. The beam will systematically approve edges that score poorly post-hoc.
+
+```yaml
+playlists:
+  ds_pipeline:
+    tower_weights:
+      rhythm: 0.20
+      timbre: 0.50
+      harmony: 0.30
+    transition_weights:        # MUST match tower_weights
+      rhythm: 0.20
+      timbre: 0.50
+      harmony: 0.30
+```
+
+**Empirical impact on a representative seeded playlist (Geese / 5 piers / 30 tracks):**
+
+| Metric | Rhythm-dominant (0.50/0.25/0.15) | Aligned (0.20/0.50/0.30) | Change |
+|---|---|---|---|
+| `min_transition` | 0.366 | 0.459 | +0.09 |
+| `mean_transition` | 0.828 | 0.898 | +0.07 |
+| `p10` | 0.567 | 0.709 | +0.14 |
+| Worst edges | METZ→DinoJr (0.366), DinoJr→Ride (0.537) | Those edges gone | — |
+
+**How to verify alignment:** Generate with `emit_selected_edge_audit: true` and compare `T` vs `trans_beam` per row. They should track together. Persistent large gaps (>0.3) indicate weights still diverge somewhere.
+
+**Why timbre-dominant works for indie/rock libraries:** In a relatively homogeneous neighborhood (e.g., indie pop), most tracks share tempo and time-feel — rhythm is a poor discriminator. What listeners actually notice is production style, density, and tone color, which are timbre. The previous rhythm-dominant default approved loud-to-loud handoffs (METZ → Dinosaur Jr) that felt jarring in texture.
 
 ---
 
@@ -106,6 +144,29 @@ playlists:
 
 ---
 
+## Knob 4: Edge repair fallback (last-mile guardrail)
+
+**Use when:** The beam is already aligned (`T` and `trans_beam` match in the audit), but rare bad edges remain because the local candidate pool had a better adjacent replacement available after final assembly.
+
+```yaml
+playlists:
+  ds_pipeline:
+    pier_bridge:
+      edge_repair:
+        enabled: true
+        centered_cos_floor: -0.5
+        margin: 0.05
+        variety_guard:
+          enabled: false
+          threshold: 0.85
+```
+
+**Effect:** After the beam emits the playlist, repair scans broken edges using the same final transition metric. It may replace one non-seed, non-pier interior track only when both adjacent edges clear the transition floor, neither centered cosine is catastrophic, and the worst adjacent `T` improves by at least `margin`.
+
+**Warning:** Keep this as a fallback, not the primary solution. If `WARNING: T-mismatch edge` appears, fix the metric regression first. Enable `variety_guard` only for dynamic/discover-style playlists where extra similarity between neighbors is acceptable.
+
+---
+
 ## Reading the audit table
 
 Example bad edge entry:
@@ -119,8 +180,8 @@ Interpretation:
 - `⚠` + `below_floor=True` — this edge fell below the transition floor in the final emitted playlist.
 - `T_centered_cos=-0.817` — the underlying centered cosine is strongly anti-correlated. The rescaled T=0.092 obscures how bad this is.
 - `bridge=0.55` — candidate was moderately positioned between both piers.
-- `trans_beam=0.25` — the beam scored this edge as passable (0.25 > floor 0.20), but the final reporter scored it 0.092. This is a T-mismatch.
+- `trans_beam=0.25` with `T=0.092` would now be a metric regression. In a healthy run, `trans_beam` should match `T` for the same edge unless the row is stale after repair or metric inputs were missing.
 - `local_sonic_cos=0.030` — very low raw cosine. **Scaled local-sonic penalty would demote this significantly.**
 - `local_pen=0.021` — current legacy penalty is tiny; confirms the scaled mode would help.
 
-Likely fix for this edge: enable `local_sonic_edge_penalty_mode: scaled` with `scale: 2.0`.
+Likely fix for this edge: first investigate any `T`/`trans_beam` mismatch. If they match and are both low, tune upstream scoring (`local_sonic_edge_penalty_mode: scaled`, `min_edge_objective: min_edge`) before enabling edge repair as a fallback.

@@ -1,5 +1,59 @@
 # Playlist Generator Changelog
 
+## v4.2.0 - Upstream Transition Alignment and Edge Repair Fallback
+
+**Release Date:** 2026-05-21
+**Branch:** `codex-artist-mode-genre-conflict`
+**Focus:** Make the beam, builder stats, reporter, and repair fallback use one final-edge transition metric
+
+### Highlights
+
+- **Shared final-edge transition metric.** Added `src/playlist/transition_metrics.py` so beam `trans_score_in_beam`, builder `edge_scores`, reporter `T`, and edge repair evaluate edges through the same context and formula.
+- **T-mismatch is now a regression.** The selected-edge audit still reports mismatches, but they now indicate stale audit data or missing-data fallback rather than an expected beam-vs-reporter formulation gap.
+- **Beam hard gates use final `T`.** `transition_floor`, `min_edge_objective`, and the centered-cos catastrophic gate now operate on the shared edge dict.
+- **Opt-in edge repair fallback.** Added default-off `pier_bridge.edge_repair` config. Repair protects seeds and piers, rejects duplicate/disallowed/title-artifact candidates, and accepts swaps only when both adjacent edges clear the floor and improve worst adjacent `T` by at least `0.05`.
+
+### Tests
+
+- Added shared metric parity coverage for beam-vs-reporter scoring and catastrophic centered-cos detection.
+- Added focused edge-repair tests for clean no-ops, interior swaps, source-before-pier swaps, and refusal rules.
+
+## v4.1.0 - Candidate Pool Fixes, Edge Diagnostics, and Transition-Score Alignment
+
+**Release Date:** 2026-05-21
+**Branch:** `codex-artist-mode-genre-conflict`
+**Focus:** Restore narrow-style playlist generation, add per-edge diagnostics, and align beam transition scoring with the perceived-quality metric
+
+### Highlights
+
+- **Generation restored for narrow-style artist playlists.** A previously-introduced raw genre-conflict hard gate (`min_confidence=0.50`) was rejecting ~50% of legitimate candidates against the 764-dim raw artifact vocabulary with identity affinity; downstream One Each fallbacks could not relax the gate, so segments starved (Tiger Trap / 50-track playlists at `very_low` artist presence failed at every floor). Hard gate is now off by default; the soft penalty (`strength=0.20`) still demotes off-axis tracks.
+- **Per-edge audit diagnostic.** New `emit_selected_edge_audit: true` flag emits a "Selected-edge audit" log block with one row per final-playlist edge showing `T`, `T_centered_cos`, `S`, `G`, `bridge_score`, the beam's own `trans_score_in_beam`, `progress_t/jump`, `local_sonic_raw_cos`, applied penalties, `title_flags`, and a `⚠` prefix for below-floor edges.
+- **Beam vs. final-T mismatch detector.** Cross-checks every emitted edge against the beam's internal score and warns when the beam optimistically scored an edge that the reporter then judged below the transition floor.
+- **Transition-score weight alignment.** Default `transition_weights` changed from `rhythm 0.50 / timbre 0.25 / harmony 0.15` (rhythm-dominant) to `rhythm 0.20 / timbre 0.50 / harmony 0.30` to match `tower_weights`. Brings beam transition scoring into the same feature balance as the rest of the pipeline, eliminating large beam-vs-reporter score divergences on timbre-dominated mismatches. Measured impact on a representative seeded playlist: `mean_T` 0.828 → 0.898, `p10_T` 0.567 → 0.709, `min_T` 0.366 → 0.459.
+- **Segment pool no longer hard-collapsed to one track per artist.** The segment-pool builder previously kept only the top-harmonic-mean track per artist before the beam ran, biasing every segment toward mid-projection tracks. New `collapse_segment_pool_by_artist: false` (default in `config.yaml`) lets the beam see multiple tracks per artist across the projection range; the beam still enforces one-per-segment artist diversity via `used_artists`. Critical for long narrow-style segments.
+- **Cluster + neighbor pool sizes increased.** `per_cluster_candidate_pool_size` 800 → 2000 and `genre_neighbor_pool_size` 500 → 1500 in `config.yaml`. Provides more sonically-diverse bridging candidates for artist-style playlists.
+
+### New opt-in knobs (default off, backward compatible)
+
+All four can be enabled in `playlists.ds_pipeline.pier_bridge:` and are documented in `docs/PLAYLIST_ORDERING_TUNING.md`.
+
+| Knob | Purpose |
+|---|---|
+| `emit_selected_edge_audit` | Per-edge audit table + T-mismatch detector (now treated as a regression check in v4.2) |
+| `title_artifact_penalty` | Demote demo/live/medley/remix/instrumental/take/outtake/alternate titles |
+| `local_sonic_edge_penalty_mode: scaled` + `local_sonic_edge_penalty_scale` | Replaces the decorative legacy local-sonic penalty math (max ≈0.03) with a scale-based formula that can produce meaningful 0.05-0.30 demotions |
+| `min_edge_objective: min_edge` | Beam selection prefers paths whose worst edge is highest (lexicographic by `min trans_score_in_beam`, ties by total score) |
+
+### Title-quality detection
+
+New pure-function module `src/playlist/title_quality.py` with `detect_title_artifacts(title) -> Set[str]` recognising `live`, `demo`, `medley`, `remix`, `instrumental`, `remaster`, `version`, `take`, `mono`, `stereo`, `edit`, `outtake`, `alternate`. Word-boundary matching to avoid false positives (`demolish` ≠ `demo`); `mono`/`stereo` are gated to parenthetical/bracketed contexts to avoid demoting tracks like "Stereo Hearts".
+
+### Tests
+
+925 unit tests pass. New focused tests cover: `test_selected_edge_audit`, `test_title_quality`, `test_title_artifact_penalty`, `test_local_sonic_scaled_mode`, `test_min_edge_objective`, `test_beam_vs_final_t_diagnostic`.
+
+---
+
 ## v4.0.0 - Native GUI Overhaul and CLI Parity
 
 **Release Date:** 2026-05-12
