@@ -14,8 +14,8 @@ import numpy as np
 
 from src.playlist.utils import sanitize_for_logging
 from src.features.artifacts import load_artifact_bundle
-from src.similarity.sonic_variant import resolve_sonic_variant, compute_sonic_variant_norm
-from src.similarity.hybrid import transition_similarity_end_to_start
+from src.similarity.sonic_variant import resolve_sonic_variant
+from src.playlist.transition_metrics import build_transition_metric_context, score_transition_edge
 
 logger = logging.getLogger(__name__)
 
@@ -101,13 +101,7 @@ def diagnose_t_mismatch(
     transition_floor: float,
     tolerance: float = 0.05,
 ) -> list[dict]:
-    """Cross-check beam-scored trans_score_in_beam vs final-emitted T per edge.
-
-    Returns a list of edges where the disagreement exceeds `tolerance`
-    AND the final T is below `transition_floor` (i.e., the beam thought
-    the edge was acceptable, but the final reporter scored it as broken).
-    Logs a WARNING for each such edge with both scores side by side.
-    """
+    """Warn when beam-scored T and final-emitted T disagree on a broken edge."""
     issues: list[dict] = []
     for e in edges:
         final_t = e.get("T")
@@ -183,12 +177,46 @@ def emit_selected_edge_audit(edge_rows: list[dict], *, transition_floor: float =
             below_floor,
         )
 
-    # Cross-check beam vs final T mismatch
+    # Regression check: beam T and final reporter T should share the same metric.
     diagnose_t_mismatch(
         edge_rows,
         transition_floor=float(transition_floor),
         tolerance=0.05,
     )
+
+
+def emit_edge_repair_log(swap_log: list[dict]) -> None:
+    """Emit repair swap diagnostics when the opt-in repair pass ran."""
+    if not swap_log:
+        return
+    logger.info("=" * 80)
+    logger.info("Edge repair swap log (%d entries)", len(swap_log))
+    logger.info("=" * 80)
+    for entry in swap_log:
+        if not isinstance(entry, dict):
+            continue
+        if "new_idx" in entry:
+            logger.info(
+                "Repair edge=%s pos=%s reason=%s old=%s/%s new=%s/%s old_worst_T=%s new_worst_T=%s",
+                entry.get("edge_position"),
+                entry.get("position"),
+                entry.get("reason"),
+                entry.get("old_idx"),
+                entry.get("old_id"),
+                entry.get("new_idx"),
+                entry.get("new_id"),
+                entry.get("old_worst_T"),
+                entry.get("new_worst_T"),
+            )
+        else:
+            logger.info(
+                "Repair refusal edge=%s pos=%s candidate=%s/%s reason=%s",
+                entry.get("edge_position"),
+                entry.get("position"),
+                entry.get("candidate_idx"),
+                entry.get("candidate_id"),
+                entry.get("reason"),
+            )
 
 
 def compute_edge_scores_from_artifact(
@@ -203,6 +231,7 @@ def compute_edge_scores_from_artifact(
     verbose: bool = False,
     sonic_variant: Optional[str] = None,
     last_ds_report: Optional[Dict[str, Any]] = None,
+    transition_weights: Optional[tuple[float, float, float]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Compute per-edge scores (T/S/G) for the final playlist order using artifact matrices.
@@ -254,55 +283,22 @@ def compute_edge_scores_from_artifact(
 
     X_sonic = getattr(bundle, "X_sonic", None)
     X_genre = getattr(bundle, "X_genre_smoothed", None)
-    X_start = getattr(bundle, "X_sonic_start", None)
-    X_end = getattr(bundle, "X_sonic_end", None)
-    X_start_orig = X_start
-    X_end_orig = X_end
-    rescale_transitions = False
-    if center_transitions and X_start is not None and X_end is not None:
-        mu_end = X_end.mean(axis=0, keepdims=True)
-        mu_start = X_start.mean(axis=0, keepdims=True)
-        X_end = X_end - mu_end
-        X_start = X_start - mu_start
-        rescale_transitions = True
-    emb_norm = None
-    try:
-        # Rebuild the hybrid embedding used by DS so transition scores match constructor logic.
-        from src.similarity.hybrid import build_hybrid_embedding
-
-        emb_model = build_hybrid_embedding(
-            X_sonic,
-            X_genre,
-            n_components_sonic=32,
-            n_components_genre=32,
-            w_sonic=1.0,
-            w_genre=1.0,
-            random_seed=embedding_random_seed or 0,
-        )
-        emb = emb_model.embedding
-        emb_norm = emb / (np.linalg.norm(emb, axis=1, keepdims=True) + 1e-12)
-    except Exception as exc:
-        logger.warning("Edge logging: failed to build hybrid embedding (%s)", exc)
-
-    def _norm(mat):
-        if mat is None:
-            return None
-        denom = np.linalg.norm(mat, axis=1, keepdims=True) + 1e-12
-        return mat / denom
+    if X_sonic is None:
+        return []
 
     sonic_variant = resolve_sonic_variant(explicit_variant=sonic_variant, config_variant=config_sonic_variant)
-    sonic_norm = None
-    if X_sonic is not None:
-        sonic_norm, sonic_stats = compute_sonic_variant_norm(X_sonic, sonic_variant)
-        if sonic_variant != "raw":
-            logger.info(
-                "SONIC_SIM_VARIANT=%s applied for edge logging (dim=%d mean_norm=%.6f)",
-                sonic_variant,
-                sonic_stats.get("dim"),
-                sonic_stats.get("mean_norm"),
-            )
-    genre_norm = _norm(X_genre)
-    gamma = 1.0 if transition_gamma is None else float(transition_gamma)
+    ctx = build_transition_metric_context(
+        X_sonic=X_sonic,
+        X_start=getattr(bundle, "X_sonic_start", None),
+        X_mid=getattr(bundle, "X_sonic_mid", None),
+        X_end=getattr(bundle, "X_sonic_end", None),
+        X_genre=X_genre,
+        center_transitions=bool(center_transitions),
+        transition_weights=transition_weights,
+        sonic_variant=sonic_variant,
+        transition_gamma=transition_gamma,
+        embedding_random_seed=embedding_random_seed,
+    )
 
     edge_scores: List[Dict[str, Any]] = []
     missing_edge_pairs: List[Tuple[str, str]] = []
@@ -340,63 +336,16 @@ def compute_edge_scores_from_artifact(
                 prev_idx, cur_idx, max_idx
             )
             continue
-        t_raw_uncentered = float("nan")
-        if X_end_orig is not None and X_start_orig is not None:
-            try:
-                t_raw_uncentered = float(
-                    transition_similarity_end_to_start(X_end_orig, X_start_orig, prev_idx, np.array([cur_idx]))[0]
-                )
-            except Exception:
-                t_raw_uncentered = float("nan")
-        t_centered_cos = float("nan")
-        h_val = float("nan")
-        if emb_norm is not None:
-            h_val = float(emb_norm[prev_idx] @ emb_norm[cur_idx])
-        t_used = t_raw_uncentered
-        if X_end is not None and X_start is not None:
-            try:
-                t_centered_cos = float(
-                    transition_similarity_end_to_start(X_end, X_start, prev_idx, np.array([cur_idx]))[0]
-                )
-            except Exception:
-                t_centered_cos = float("nan")
-        if rescale_transitions and np.isfinite(t_centered_cos):
-            t_used = float(np.clip((t_centered_cos + 1.0) / 2.0, 0.0, 1.0))
-        if (not rescale_transitions) and np.isfinite(t_raw_uncentered) and np.isfinite(h_val):
-            t_used = gamma * t_raw_uncentered + (1 - gamma) * h_val
-        elif (not rescale_transitions) and np.isfinite(h_val):
-            t_used = h_val
-        elif (not rescale_transitions) and np.isfinite(t_raw_uncentered):
-            t_used = t_raw_uncentered
-        elif rescale_transitions and np.isfinite(h_val) and not np.isfinite(t_used):
-            t_used = h_val
-        if rescale_transitions and not np.isfinite(t_used) and np.isfinite(t_raw_uncentered):
-            t_used = float(np.clip((t_raw_uncentered + 1.0) / 2.0, 0.0, 1.0))
-        if (t_used != t_used) and sonic_norm is not None:
-            # Fallback to sonic cosine if transition segments unavailable
-            t_used = float(sonic_norm[prev_idx] @ sonic_norm[cur_idx])
-        s_val = float("nan")
-        if sonic_norm is not None:
-            s_val = float(sonic_norm[prev_idx] @ sonic_norm[cur_idx])
-        g_val = float("nan")
-        if genre_norm is not None:
-            g_val = float(genre_norm[prev_idx] @ genre_norm[cur_idx])
+        edge = score_transition_edge(ctx, prev_idx, cur_idx)
+        edge["floor"] = transition_floor
+        edge["gamma"] = transition_gamma
         edge_scores.append(
             {
                 "prev_id": tracks[i - 1].get("rating_key"),
                 "cur_id": tracks[i].get("rating_key"),
                 "prev_idx": prev_idx,
                 "cur_idx": cur_idx,
-                "T": t_used,
-                "T_used": t_used,
-                "T_raw": t_raw_uncentered,
-                "T_raw_uncentered": t_raw_uncentered,
-                "T_centered_cos": t_centered_cos,
-                "H": h_val,
-                "S": s_val,
-                "G": g_val,
-                "floor": transition_floor,
-                "gamma": transition_gamma,
+                **edge,
             }
         )
 
@@ -424,46 +373,20 @@ def compute_edge_scores_from_artifact(
             base_t_raw = None
             base_t_center = None
             base_t_used = None
-            if sonic_norm is not None:
-                base_s = np.array([float(sonic_norm[a] @ sonic_norm[b]) for a, b in sample_pairs], dtype=float)
-            if genre_norm is not None:
-                base_g = np.array([float(genre_norm[a] @ genre_norm[b]) for a, b in sample_pairs], dtype=float)
-            if X_end is not None and X_start is not None:
-                vals_raw = []
-                vals_center = []
-                vals_used = []
-                for a, b in sample_pairs:
-                    seg_val = float(transition_similarity_end_to_start(X_end, X_start, a, np.array([b]))[0])
-                    vals_center.append(seg_val)
-                    if rescale_transitions:
-                        vals_used.append(float(np.clip((seg_val + 1.0) / 2.0, 0.0, 1.0)))
-                    vals_raw.append(
-                        float(
-                            transition_similarity_end_to_start(
-                                X_end_orig if X_end_orig is not None else X_end,
-                                X_start_orig if X_start_orig is not None else X_start,
-                                a,
-                                np.array([b]),
-                            )[0]
-                        )
-                    )
-                    if emb_norm is not None and not rescale_transitions:
-                        hyb = float(emb_norm[a] @ emb_norm[b])
-                        vals_used.append(gamma * seg_val + (1 - gamma) * hyb)
-                base_t_raw = np.array(vals_raw, dtype=float)
-                base_t_center = np.array(vals_center, dtype=float)
-                if vals_used:
-                    base_t_used = np.array(vals_used, dtype=float)
-            elif emb_norm is not None:
-                vals_used = [float(emb_norm[a] @ emb_norm[b]) for a, b in sample_pairs]
-                base_t_used = np.array(vals_used, dtype=float)
+            sampled_edges = [score_transition_edge(ctx, int(a), int(b)) for a, b in sample_pairs]
+            base_s = np.array([float(e.get("S", float("nan"))) for e in sampled_edges], dtype=float)
+            if any(e.get("G") is not None for e in sampled_edges):
+                base_g = np.array([float(e.get("G", float("nan"))) for e in sampled_edges], dtype=float)
+            base_t_raw = np.array([float(e.get("T_raw", float("nan"))) for e in sampled_edges], dtype=float)
+            base_t_center = np.array([float(e.get("T_centered_cos", float("nan"))) for e in sampled_edges], dtype=float)
+            base_t_used = np.array([float(e.get("T", float("nan"))) for e in sampled_edges], dtype=float)
             baseline = {
                 "S": _pct(base_s),
                 "G": _pct(base_g),
                 "T": _pct(base_t_used),
                 "T_raw": _pct(base_t_raw),
                 "T_centered_cos": _pct(base_t_center),
-                "T_centered_rescaled": _pct(base_t_used) if rescale_transitions else None,
+                "T_centered_rescaled": _pct(base_t_used) if center_transitions else None,
             }
             if last_ds_report is not None:
                 last_ds_report["baseline"] = baseline
@@ -483,8 +406,8 @@ def compute_edge_scores_from_artifact(
                 repeated,
                 max_repeat,
             )
-            if sonic_norm is not None:
-                per_dim_std = np.std(sonic_norm, axis=0)
+            if ctx.X_sonic_norm is not None:
+                per_dim_std = np.std(ctx.X_sonic_norm, axis=0)
                 mean_std = float(per_dim_std.mean())
                 if mean_std < 1e-3:
                     logger.warning("X_sonic appears nearly constant (mean per-dim std=%.6f)", mean_std)

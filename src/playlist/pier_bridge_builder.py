@@ -130,6 +130,7 @@ from src.playlist.pier_bridge.beam import (  # noqa: F401  (re-exported for test
     _beam_search_segment,
     _compute_duration_penalty,
 )
+from src.playlist.transition_metrics import TransitionMetricContext, score_transition_edge
 
 
 logger = logging.getLogger(__name__)
@@ -142,6 +143,7 @@ def _compute_edge_scores(
     X_mid: Optional[np.ndarray],
     X_end: Optional[np.ndarray],
     cfg: PierBridgeConfig,
+    metric_context: Optional[TransitionMetricContext] = None,
 ) -> Tuple[float, float]:
     """Compute worst and mean edge scores for a path."""
     if len(path) < 2:
@@ -149,9 +151,12 @@ def _compute_edge_scores(
 
     scores = []
     for i in range(len(path) - 1):
-        score = _compute_transition_score(
-            path[i], path[i + 1], X_full, X_start, X_mid, X_end, cfg
-        )
+        if metric_context is not None:
+            score = float(score_transition_edge(metric_context, path[i], path[i + 1]).get("T"))
+        else:
+            score = _compute_transition_score(
+                path[i], path[i + 1], X_full, X_start, X_mid, X_end, cfg
+            )
         scores.append(score)
 
     return (min(scores), sum(scores) / len(scores))
@@ -421,6 +426,19 @@ def build_pier_bridge_playlist(
     if X_genre_use is not None:
         denom_g = np.linalg.norm(X_genre_use, axis=1, keepdims=True) + 1e-12
         X_genre_norm = X_genre_use / denom_g
+
+    transition_metric_context = TransitionMetricContext(
+        X_full=X_full_tr_norm,
+        X_start=X_start_tr_norm,
+        X_mid=X_mid_tr_norm,
+        X_end=X_end_tr_norm,
+        X_sonic_norm=X_full_norm,
+        X_genre_norm=X_genre_norm,
+        center_transitions=bool(cfg.center_transitions),
+        weight_end_start=float(cfg.weight_end_start),
+        weight_mid_mid=float(cfg.weight_mid_mid),
+        weight_full_full=float(cfg.weight_full_full),
+    )
 
     # Compute IDF for genre vector mode (Phase 2)
     genre_idf: Optional[np.ndarray] = None
@@ -1077,6 +1095,7 @@ def build_pier_bridge_playlist(
                         waypoint_stats=waypoint_stats_segment,
                         local_sonic_stats=local_sonic_stats_segment,
                         edge_components_out=_edge_components_buf,
+                        transition_metric_context=transition_metric_context,
                     )
                     last_failure_reason = beam_failure_reason
                     if segment_path is not None:
@@ -1422,6 +1441,7 @@ def build_pier_bridge_playlist(
                         X_genre_raw=X_genre_raw,
                         X_genre_smoothed=X_genre_smoothed,
                         genre_idf=genre_idf,
+                        transition_metric_context=transition_metric_context,
                     )
                     if micro_path is not None and len(micro_path) == interior_len:
                         segment_path = micro_path
@@ -1464,6 +1484,7 @@ def build_pier_bridge_playlist(
                     X_genre_raw=X_genre_raw,
                     X_genre_smoothed=X_genre_smoothed,
                     genre_idf=genre_idf,
+                    transition_metric_context=transition_metric_context,
                 )
                 if micro_path is not None and len(micro_path) == interior_len:
                     segment_path = micro_path
@@ -1532,7 +1553,13 @@ def build_pier_bridge_playlist(
         # Compute edge scores for diagnostics
         full_segment = [pier_a] + segment_path + [pier_b]
         worst_edge, mean_edge = _compute_edge_scores(
-            full_segment, X_full_tr_norm, X_start_tr_norm, X_mid_tr_norm, X_end_tr_norm, cfg
+            full_segment,
+            X_full_tr_norm,
+            X_start_tr_norm,
+            X_mid_tr_norm,
+            X_end_tr_norm,
+            cfg,
+            metric_context=transition_metric_context,
         )
         micro_pier_used = "micro_pier_index" in micro_pier_diag
         micro_pier_track_id = None
@@ -1856,6 +1883,39 @@ def build_pier_bridge_playlist(
                 final_indices.extend(segment[1:])
                 seed_positions.append(len(final_indices) - 1)  # New pier
 
+    edge_repair_swap_log: list[dict[str, Any]] = []
+    if bool(getattr(cfg, "edge_repair_enabled", False)):
+        from src.playlist.repair.edge_repair import repair_playlist_edges
+
+        disallowed_repair_artist_keys: set[str] = set()
+        if bool(cfg.disallow_seed_artist_in_interiors) or bool(cfg.disallow_pier_artists_in_interiors):
+            for sidx in seed_indices:
+                try:
+                    disallowed_repair_artist_keys.add(
+                        identity_keys_for_index(bundle, int(sidx)).artist_key
+                    )
+                except Exception:
+                    continue
+        repair_result = repair_playlist_edges(
+            final_indices=final_indices,
+            candidate_indices=universe,
+            metric_context=transition_metric_context,
+            bundle=bundle,
+            seed_indices=seed_indices,
+            pier_positions=seed_positions,
+            transition_floor=float(cfg.transition_floor),
+            centered_cos_floor=float(getattr(cfg, "edge_repair_centered_cos_floor", -0.5)),
+            margin=float(getattr(cfg, "edge_repair_margin", 0.05)),
+            allowed_indices=allowed_set_indices,
+            disallowed_artist_keys=disallowed_repair_artist_keys,
+            variety_guard_enabled=bool(getattr(cfg, "edge_repair_variety_guard_enabled", False)),
+            variety_guard_threshold=float(getattr(cfg, "edge_repair_variety_guard_threshold", 0.85)),
+        )
+        edge_repair_swap_log = list(repair_result.swap_log)
+        if list(repair_result.indices) != list(final_indices):
+            final_indices = list(repair_result.indices)
+            all_beam_components = []
+
     # Convert to track IDs
     # Cross-segment min_gap is enforced DURING generation (boundary-aware beam search),
     # not as a post-order filter. This ensures exact length guarantees.
@@ -1884,19 +1944,9 @@ def build_pier_bridge_playlist(
     for i in range(1, len(final_indices)):
         prev_idx = final_indices[i - 1]
         cur_idx = final_indices[i]
-        t_val = _compute_transition_score(
-            prev_idx,
-            cur_idx,
-            X_full_tr_norm,
-            X_start_tr_norm,
-            X_mid_tr_norm,
-            X_end_tr_norm,
-            cfg,
-        )
-        s_val = float(np.dot(X_full_norm[prev_idx], X_full_norm[cur_idx]))
-        g_val = None
-        if X_genre_norm is not None:
-            g_val = float(np.dot(X_genre_norm[prev_idx], X_genre_norm[cur_idx]))
+        edge = score_transition_edge(transition_metric_context, prev_idx, cur_idx)
+        edge["floor"] = float(cfg.transition_floor)
+        t_val = float(edge.get("T"))
         transition_vals.append(float(t_val))
         edge_scores.append(
             {
@@ -1904,9 +1954,7 @@ def build_pier_bridge_playlist(
                 "cur_id": str(bundle.track_ids[cur_idx]),
                 "prev_idx": int(prev_idx),
                 "cur_idx": int(cur_idx),
-                "T": float(t_val),
-                "S": float(s_val),
-                "G": (float(g_val) if g_val is not None else None),
+                **edge,
             }
         )
 
@@ -1960,10 +2008,20 @@ def build_pier_bridge_playlist(
         "segment_bridge_floors_used": [float(x) for x in segment_bridge_floors_used],
         "segment_backoff_attempts_used": [int(x) for x in segment_backoff_attempts_used],
         "beam_edge_components": list(all_beam_components),
+        "edge_repair_enabled": bool(getattr(cfg, "edge_repair_enabled", False)),
+        "edge_repair_applied": bool(
+            any(isinstance(entry, dict) and "new_idx" in entry for entry in edge_repair_swap_log)
+        ),
+        "edge_repair_swap_log": edge_repair_swap_log,
         "warnings": warnings,
         "config": {
             "transition_floor": cfg.transition_floor,
             "transition_weights": cfg.transition_weights,
+            "edge_repair_enabled": bool(cfg.edge_repair_enabled),
+            "edge_repair_centered_cos_floor": float(cfg.edge_repair_centered_cos_floor),
+            "edge_repair_margin": float(cfg.edge_repair_margin),
+            "edge_repair_variety_guard_enabled": bool(cfg.edge_repair_variety_guard_enabled),
+            "edge_repair_variety_guard_threshold": float(cfg.edge_repair_variety_guard_threshold),
             "initial_neighbors_m": cfg.initial_neighbors_m,
             "initial_beam_width": cfg.initial_beam_width,
             "eta_destination_pull": cfg.eta_destination_pull,

@@ -18,6 +18,7 @@ from src.playlist.identity_keys import identity_keys_for_index
 from src.playlist.pier_bridge.beam import _beam_search_segment
 from src.playlist.pier_bridge.config import PierBridgeConfig
 from src.playlist.pier_bridge.genre_targets import _build_genre_targets
+from src.playlist.transition_metrics import TransitionMetricContext
 
 
 def _build_dj_relaxation_attempts(cfg: PierBridgeConfig) -> list[dict[str, Any]]:
@@ -189,6 +190,7 @@ def _attempt_micro_pier_split(
     X_genre_raw: Optional[np.ndarray] = None,
     X_genre_smoothed: Optional[np.ndarray] = None,
     genre_idf: Optional[np.ndarray] = None,
+    transition_metric_context: Optional[TransitionMetricContext] = None,
 ) -> Optional[list[int]]:
     if interior_length < 2 or not candidates:
         return None
@@ -290,6 +292,7 @@ def _attempt_micro_pier_split(
             artist_identity_cfg=artist_identity_cfg,
             bundle=bundle,
             g_targets_override=left_g_targets,
+            transition_metric_context=transition_metric_context,
         )
         if left_path is None:
             continue
@@ -324,6 +327,7 @@ def _attempt_micro_pier_split(
             artist_identity_cfg=artist_identity_cfg,
             bundle=bundle,
             g_targets_override=right_g_targets,
+            transition_metric_context=transition_metric_context,
         )
         if right_path is None:
             continue

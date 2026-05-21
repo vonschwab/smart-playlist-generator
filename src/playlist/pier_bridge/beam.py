@@ -35,6 +35,11 @@ from src.playlist.pier_bridge.metrics import (
     _progress_target_curve,
     _step_fraction,
 )
+from src.playlist.transition_metrics import (
+    TransitionMetricContext,
+    is_broken_transition,
+    score_transition_edge,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +80,7 @@ def _select_best_beam_state(states, *, objective: str = "total_score"):
         def _key(s):
             edges = getattr(s, "edge_components", None) or []
             vals = [
-                float(e.get("trans_score_in_beam", -1e18))
+                float(e.get("T", e.get("trans_score_in_beam", -1e18)))
                 for e in edges
                 if e is not None
             ]
@@ -194,6 +199,7 @@ def _beam_search_segment(
     waypoint_stats: Optional[Dict[str, Any]] = None,
     local_sonic_stats: Optional[Dict[str, Any]] = None,
     edge_components_out: Optional[Dict[str, Any]] = None,
+    transition_metric_context: Optional[TransitionMetricContext] = None,
 ) -> Tuple[Optional[List[int]], int, int, Optional[str]]:
     """
     Constrained beam search to find path from pier_a to pier_b.
@@ -505,11 +511,35 @@ def _beam_search_segment(
             _format_topk(topk_A, "Anchor A")
             _format_topk(topk_B, "Anchor B")
 
+    centered_cos_floor = -0.5 if bool(cfg.center_transitions) else None
+
+    def _score_shared_transition(prev_idx: int, cur_idx: int) -> dict:
+        if transition_metric_context is not None:
+            return score_transition_edge(transition_metric_context, int(prev_idx), int(cur_idx))
+        t_val = _compute_transition_score(
+            int(prev_idx), int(cur_idx), X_full, X_start, X_mid, X_end, cfg
+        )
+        return {
+            "T": float(t_val),
+            "T_used": float(t_val),
+            "T_raw": float(t_val),
+            "T_centered_cos": None,
+            "H": None,
+            "S": float(np.dot(X_full_norm[int(prev_idx)], X_full_norm[int(cur_idx)])),
+            "G": None,
+        }
+
+    def _transition_gate_failed(edge: dict) -> bool:
+        return is_broken_transition(
+            edge,
+            transition_floor=float(cfg.transition_floor),
+            centered_cos_floor=centered_cos_floor,
+        )
+
     if interior_length == 0:
         # Check if direct transition meets floor
-        direct_score = _compute_transition_score(
-            pier_a, pier_b, X_full, X_start, X_mid, X_end, cfg
-        )
+        direct_edge = _score_shared_transition(pier_a, pier_b)
+        direct_score = float(direct_edge.get("T", float("nan")))
         edges_scored = 1
         direct_score_after_sonic = _apply_local_sonic_edge_policy(
             direct_score,
@@ -519,7 +549,7 @@ def _beam_search_segment(
         _record_local_sonic_stats()
         if direct_score_after_sonic is None:
             return None, 0, edges_scored, "direct local sonic edge below floor"
-        if direct_score >= cfg.transition_floor:
+        if not _transition_gate_failed(direct_edge):
             return [], 0, edges_scored, None
         else:
             return None, 0, edges_scored, f"direct transition below floor ({direct_score:.3f} < {cfg.transition_floor:.3f})"
@@ -822,7 +852,7 @@ def _beam_search_segment(
                 (genre_tie_break_band is not None and X_genre_norm is not None and penalty_strength > 0)
                 or (waypoint_enabled and waypoint_tie_break_band is not None)
             )
-            cand_entries: list[tuple[int, float, float, float, Optional[float], Optional[float]]] = []
+            cand_entries: list[tuple[int, float, float, float, Optional[float], Optional[float], float, dict]] = []
             best_score = -float("inf")
 
             for cand in candidates:
@@ -870,12 +900,11 @@ def _beam_search_segment(
                                 continue
 
                 # Compute transition score
-                trans_score = _compute_transition_score(
-                    current, cand, X_full, X_start, X_mid, X_end, cfg
-                )
+                edge_metric = _score_shared_transition(current, cand)
+                trans_score = float(edge_metric.get("T", float("nan")))
 
                 # Hard floors: transition + bridge-local
-                if trans_score < cfg.transition_floor:
+                if _transition_gate_failed(edge_metric):
                     continue
 
                 # TASK A: Track candidates that pass all gates (step 0 only for pool_after_gating)
@@ -947,7 +976,7 @@ def _beam_search_segment(
                 edges_scored += 1
 
                 if apply_tie_break:
-                    cand_entries.append((int(cand), float(cand_t), float(combined_score), float(dest_pull), genre_sim, waypoint_sim, float(trans_score)))
+                    cand_entries.append((int(cand), float(cand_t), float(combined_score), float(dest_pull), genre_sim, waypoint_sim, float(trans_score), dict(edge_metric)))
                     if combined_score > best_score:
                         best_score = float(combined_score)
                 else:
@@ -1039,6 +1068,12 @@ def _beam_search_segment(
                         "to_idx": int(cand),
                         "bridge_score": float(bridge_score),
                         "trans_score_in_beam": float(trans_score),
+                        "T": float(edge_metric.get("T")) if edge_metric.get("T") is not None else None,
+                        "T_raw": edge_metric.get("T_raw"),
+                        "T_centered_cos": edge_metric.get("T_centered_cos"),
+                        "H": edge_metric.get("H"),
+                        "S": edge_metric.get("S"),
+                        "G": edge_metric.get("G"),
                         "progress_t": float(cand_t) if progress_active else None,
                         "progress_jump": (float(cand_t) - float(state.last_progress)) if progress_active else None,
                         "local_sonic_raw_cos": _local_sonic_cos,
@@ -1059,7 +1094,7 @@ def _beam_search_segment(
                     ))
 
             if apply_tie_break and cand_entries:
-                for cand, cand_t, base_score, dest_pull, genre_sim, waypoint_sim, trans_score in cand_entries:
+                for cand, cand_t, base_score, dest_pull, genre_sim, waypoint_sim, trans_score, edge_metric_tb in cand_entries:
                     base_score_for_rank = float(base_score)
                     combined_score = float(base_score)
                     if genre_sim is not None and math.isfinite(genre_sim):
@@ -1171,6 +1206,12 @@ def _beam_search_segment(
                         "to_idx": int(cand),
                         "bridge_score": None,  # not separately tracked in tie-break path
                         "trans_score_in_beam": float(trans_score),
+                        "T": float(edge_metric_tb.get("T")) if edge_metric_tb.get("T") is not None else None,
+                        "T_raw": edge_metric_tb.get("T_raw"),
+                        "T_centered_cos": edge_metric_tb.get("T_centered_cos"),
+                        "H": edge_metric_tb.get("H"),
+                        "S": edge_metric_tb.get("S"),
+                        "G": edge_metric_tb.get("G"),
                         "progress_t": float(cand_t) if progress_active else None,
                         "progress_jump": (float(cand_t) - float(state.last_progress)) if progress_active else None,
                         "local_sonic_raw_cos": _local_sonic_cos_tb,
@@ -1316,12 +1357,11 @@ def _beam_search_segment(
 
     for state in beam:
         last = state.path[-1]
-        final_trans = _compute_transition_score(
-            last, pier_b, X_full, X_start, X_mid, X_end, cfg
-        )
+        final_edge_metric = _score_shared_transition(last, pier_b)
+        final_trans = float(final_edge_metric.get("T", float("nan")))
 
         # Hard floor on final transition
-        if final_trans < cfg.transition_floor:
+        if _transition_gate_failed(final_edge_metric):
             continue
 
         final_edge_score = final_trans
@@ -1371,6 +1411,12 @@ def _beam_search_segment(
             "to_idx": int(pier_b),
             "bridge_score": None,
             "trans_score_in_beam": float(final_trans),
+            "T": float(final_edge_metric.get("T")) if final_edge_metric.get("T") is not None else None,
+            "T_raw": final_edge_metric.get("T_raw"),
+            "T_centered_cos": final_edge_metric.get("T_centered_cos"),
+            "H": final_edge_metric.get("H"),
+            "S": final_edge_metric.get("S"),
+            "G": final_edge_metric.get("G"),
             "progress_t": None,
             "progress_jump": None,
             "local_sonic_raw_cos": _final_local_sonic_cos,

@@ -179,6 +179,30 @@ def apply_pier_bridge_overrides(
     if isinstance(min_edge_obj, str) and min_edge_obj.strip():
         pb_cfg = replace(pb_cfg, min_edge_objective=min_edge_obj.strip())
 
+    edge_repair = pb_overrides.get("edge_repair")
+    if isinstance(edge_repair, dict):
+        if isinstance(edge_repair.get("enabled"), bool):
+            pb_cfg = replace(pb_cfg, edge_repair_enabled=bool(edge_repair.get("enabled")))
+        if isinstance(edge_repair.get("centered_cos_floor"), (int, float)):
+            pb_cfg = replace(
+                pb_cfg,
+                edge_repair_centered_cos_floor=float(edge_repair.get("centered_cos_floor")),
+            )
+        if isinstance(edge_repair.get("margin"), (int, float)):
+            pb_cfg = replace(pb_cfg, edge_repair_margin=float(edge_repair.get("margin")))
+        variety_guard = edge_repair.get("variety_guard")
+        if isinstance(variety_guard, dict):
+            if isinstance(variety_guard.get("enabled"), bool):
+                pb_cfg = replace(
+                    pb_cfg,
+                    edge_repair_variety_guard_enabled=bool(variety_guard.get("enabled")),
+                )
+            if isinstance(variety_guard.get("threshold"), (int, float)):
+                pb_cfg = replace(
+                    pb_cfg,
+                    edge_repair_variety_guard_threshold=float(variety_guard.get("threshold")),
+                )
+
     progress_raw = pb_overrides.get("progress")
     if isinstance(progress_raw, dict):
         if isinstance(progress_raw.get("enabled"), bool):

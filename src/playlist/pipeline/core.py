@@ -631,12 +631,19 @@ def generate_playlist_ds(
                     "transition_floor": float(pb_cfg.transition_floor),
                     "transition_gamma": float(cfg.construct.transition_gamma),
                     "transition_centered": bool(pb_cfg.center_transitions),
+                    "transition_weights": (
+                        tuple(float(v) for v in pb_cfg.transition_weights)
+                        if pb_cfg.transition_weights is not None
+                        else None
+                    ),
                     "below_floor_count": below_floor_count,
                     "min_transition": min_transition,
                     "mean_transition": mean_transition,
                     "artist_counts": artist_counts,
                     "distinct_artists": len(artist_counts),
-                    "repair_applied": False,  # No repair in pier bridge mode
+                    "repair_applied": bool((pb_result.stats or {}).get("edge_repair_applied")),
+                    "edge_repair_enabled": bool((pb_result.stats or {}).get("edge_repair_enabled")),
+                    "edge_repair_swap_log": (pb_result.stats or {}).get("edge_repair_swap_log") or [],
                     "warnings": (pb_result.stats or {}).get("warnings") or [],
                     "one_each_candidate_relaxation": one_each_candidate_relaxation,
                     "beam_edge_components": (pb_result.stats or {}).get("beam_edge_components") or [],

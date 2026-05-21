@@ -219,6 +219,12 @@ class PierBridgeConfig:
     'total_score' (default) — pick highest cumulative score (current behavior)
     'min_edge'              — lexicographic (highest min-edge, ties by total)
     Optimizes for 'no broken moments' per Layer 1 principle 5."""
+    # Last-mile edge repair fallback (opt-in; default OFF).
+    edge_repair_enabled: bool = False
+    edge_repair_centered_cos_floor: float = -0.5
+    edge_repair_margin: float = 0.05
+    edge_repair_variety_guard_enabled: bool = False
+    edge_repair_variety_guard_threshold: float = 0.85
 
 
 @dataclass

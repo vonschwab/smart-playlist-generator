@@ -44,6 +44,13 @@ def _refresh_playlist_metrics_from_final_edges(
     if len(track_ids) < 2:
         return
     transition_floor = playlist_stats.get("transition_floor")
+    transition_weights = playlist_stats.get("transition_weights")
+    if isinstance(transition_weights, list) and len(transition_weights) == 3:
+        transition_weights = tuple(float(v) for v in transition_weights)
+    elif isinstance(transition_weights, tuple) and len(transition_weights) == 3:
+        transition_weights = tuple(float(v) for v in transition_weights)
+    else:
+        transition_weights = None
     edge_scores = reporter.compute_edge_scores_from_artifact(
         tracks=[{"rating_key": str(tid)} for tid in track_ids],
         artifact_path=artifact_path,
@@ -53,6 +60,7 @@ def _refresh_playlist_metrics_from_final_edges(
         embedding_random_seed=random_seed,
         center_transitions=bool(playlist_stats.get("transition_centered")),
         sonic_variant=sonic_variant,
+        transition_weights=transition_weights,
     )
     if len(edge_scores) != len(track_ids) - 1:
         return

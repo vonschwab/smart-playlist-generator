@@ -453,6 +453,7 @@ class PlaylistGenerator:
         center_transitions: bool = False,
         verbose: bool = False,
         sonic_variant: Optional[str] = None,
+        transition_weights: Optional[tuple[float, float, float]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Compute per-edge scores (T/S/G) for the final playlist order using artifact matrices.
@@ -469,6 +470,7 @@ class PlaylistGenerator:
             sonic_variant=sonic_variant,
             config_sonic_variant=self.sonic_variant,
             last_ds_report=getattr(self, "_last_ds_report", None),
+            transition_weights=transition_weights,
         )
 
     def _maybe_generate_ds_playlist(
@@ -862,6 +864,7 @@ class PlaylistGenerator:
             "transition_floor": playlist_stats_only.get("transition_floor"),
             "transition_gamma": playlist_stats_only.get("transition_gamma"),
             "transition_centered": bool(playlist_stats_only.get("transition_centered")),
+            "transition_weights": playlist_stats_only.get("transition_weights"),
             "random_seed": random_seed,
             "sonic_variant": sonic_variant_cfg or os.getenv("SONIC_SIM_VARIANT") or "raw",
         }
@@ -2705,6 +2708,9 @@ class PlaylistGenerator:
                 embedding_random_seed=self._last_ds_report.get("random_seed"),
                 verbose=verbose,
                 sonic_variant=self._last_ds_report.get("sonic_variant"),
+                transition_weights=(
+                    ((self._last_ds_report.get("playlist_stats") or {}).get("playlist") or {}).get("transition_weights")
+                ),
             )
             self._last_ds_report["edge_scores"] = recomputed_edges
             playlist_stats = self._last_ds_report.get("playlist_stats") or {}
@@ -2748,6 +2754,17 @@ class PlaylistGenerator:
                 logger.info("Recency diag: post-order filtering disabled; no edge diff computed.")
         title = f"Auto: {artist_name}"
         self._print_playlist_report(final_tracks, artist_name=artist_name, dynamic=dynamic, verbose_edges=verbose)
+
+        _swap_log = (
+            (self._last_ds_report.get("playlist_stats") or {})
+            .get("playlist", {})
+            .get("edge_repair_swap_log")
+            if getattr(self, "_last_ds_report", None)
+            else None
+        )
+        if _swap_log:
+            from src.playlist.reporter import emit_edge_repair_log as _emit_repair_log
+            _emit_repair_log(_swap_log)
 
         # Diagnostic: per-edge audit table (opt-in via emit_selected_edge_audit: true in config)
         if bool(getattr(self, "_last_ds_report", {}) and self._last_ds_report.get("emit_selected_edge_audit", False)):
@@ -3761,6 +3778,36 @@ class PlaylistGenerator:
 
         title = "Auto: Seeded"
         self._print_playlist_report(final_tracks, artist_name="Seeded", dynamic=dynamic)
+
+        _swap_log = (
+            (self._last_ds_report.get("playlist_stats") or {})
+            .get("playlist", {})
+            .get("edge_repair_swap_log")
+            if getattr(self, "_last_ds_report", None)
+            else None
+        )
+        if _swap_log:
+            from src.playlist.reporter import emit_edge_repair_log as _emit_repair_log
+            _emit_repair_log(_swap_log)
+
+        # Diagnostic: per-edge audit table (opt-in via emit_selected_edge_audit: true in config)
+        if bool(getattr(self, "_last_ds_report", {}) and self._last_ds_report.get("emit_selected_edge_audit", False)):
+            from src.playlist.reporter import emit_selected_edge_audit as _emit_edge_audit
+            _beam_comps = (
+                (self._last_ds_report.get("playlist_stats") or {})
+                .get("playlist", {})
+                .get("beam_edge_components")
+            )
+            _audit_rows = _build_edge_audit_rows(
+                edge_scores_list=self._last_ds_report.get("edge_scores") or [],
+                tracks=final_tracks,
+                transition_floor=float(self._last_ds_report.get("transition_floor") or 0.20),
+                beam_components=_beam_comps or None,
+            )
+            _emit_edge_audit(
+                _audit_rows,
+                transition_floor=float(self._last_ds_report.get("transition_floor") or 0.20),
+            )
 
         # Add fallback info to report if fallbacks were used
         fallback_used = len(fallback_attempts) > 0
