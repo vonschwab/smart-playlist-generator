@@ -97,19 +97,19 @@ Options: (a) raise `bridge_floor` to a meaningful value (e.g. 0.15) and let it g
 
 ---
 
-## Scope chosen for the active brainstorm (2026-05-21)
+## Scope completed (2026-05-21)
 
-**Scope B — Bugs + IDF-weighted admission genre filter.**
+**Scope B — Bugs + IDF-weighted admission genre filter — done.**
 
-Includes:
-- A1 (genre admission max-over-seeds)
-- A2 (genre conflict consistency check)
-- B1 (title quality consolidation)
-- B2 (IDF weighting in admission genre similarity)
-- C1 (genre conflict cleanup or rename)
+Items completed:
+- A1 (genre admission max-over-seeds) ✓
+- A2 (genre compatibility consistency check) ✓ — already correct; documented
+- B1 (title quality consolidation) ✓
+- B2 (IDF weighting in admission genre similarity) ✓
+- C1 (genre conflict → genre compatibility rename; dead gate code removed) ✓
 
-Deferred to follow-up brainstorms:
-- A3 (genre-neighbor pool — already mostly correct in single-seed-artist case)
-- C2 (overlap guard redundancy investigation)
-- D1, D2, D3 (positive-pressure subgenre diversity)
-- E1 (bridge_floor cleanup)
+Deferred to follow-up brainstorms (see categories above):
+- A3 (genre-neighbor pool primary-seed-only filter)
+- C2 (overlap guard redundancy investigation with broad_filters)
+- D1, D2, D3 (positive-pressure subgenre diversity, easy-out sonic prevention, subgenre arc planning)
+- E1 (bridge_floor cleanup; currently 0.02, doing essentially no filtering)
