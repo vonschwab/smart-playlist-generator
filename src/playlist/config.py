@@ -23,11 +23,10 @@ class CandidatePoolConfig:
     duration_penalty_weight: float = 0.6
     duration_cutoff_multiplier: float = 2.5
     broad_filters: tuple[str, ...] = ()
-    genre_conflict_enabled: bool = False
-    genre_conflict_min_confidence: Optional[float] = None
-    genre_conflict_penalty_strength: float = 0.0
-    genre_conflict_compatible_threshold: float = 0.35
-    genre_conflict_conflict_threshold: float = 0.15
+    genre_compatibility_enabled: bool = False
+    genre_compatibility_penalty_strength: float = 0.0
+    genre_compatibility_compatible_threshold: float = 0.35
+    genre_compatibility_conflict_threshold: float = 0.15
     title_hard_exclude_flags: frozenset[str] = frozenset({"interlude", "skit", "acapella"})
     genre_idf_enabled: bool = True
 
@@ -426,20 +425,15 @@ def default_ds_config(
             candidate_pool.get("duration_cutoff_multiplier", 2.5)
         ),
         broad_filters=tuple(str(b).lower() for b in broad_filters_cfg),
-        genre_conflict_enabled=bool(candidate_pool.get("genre_conflict_enabled", False)),
-        genre_conflict_min_confidence=(
-            None
-            if candidate_pool.get("genre_conflict_min_confidence") is None
-            else float(candidate_pool.get("genre_conflict_min_confidence"))
+        genre_compatibility_enabled=bool(candidate_pool.get("genre_compatibility_enabled", False)),
+        genre_compatibility_penalty_strength=float(
+            candidate_pool.get("genre_compatibility_penalty_strength", 0.0)
         ),
-        genre_conflict_penalty_strength=float(
-            candidate_pool.get("genre_conflict_penalty_strength", 0.0)
+        genre_compatibility_compatible_threshold=float(
+            candidate_pool.get("genre_compatibility_compatible_threshold", 0.35)
         ),
-        genre_conflict_compatible_threshold=float(
-            candidate_pool.get("genre_conflict_compatible_threshold", 0.35)
-        ),
-        genre_conflict_conflict_threshold=float(
-            candidate_pool.get("genre_conflict_conflict_threshold", 0.15)
+        genre_compatibility_conflict_threshold=float(
+            candidate_pool.get("genre_compatibility_conflict_threshold", 0.15)
         ),
         title_hard_exclude_flags=frozenset(
             str(f).strip().lower()

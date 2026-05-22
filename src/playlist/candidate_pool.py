@@ -148,8 +148,7 @@ def _first_rejection_reason(
     sonic_floor: Optional[float],
     genre_sim_all: Optional[np.ndarray],
     min_genre_similarity: Optional[float],
-    genre_conflict_result: Any,
-    genre_conflict_min_confidence: Optional[float],
+    genre_compatibility_result: Any,
     pool_set: set[int],
     eligible_set: set[int],
 ) -> str:
@@ -165,11 +164,6 @@ def _first_rejection_reason(
         and float(genre_sim_all[idx]) < float(min_genre_similarity)
     ):
         return "below_genre_similarity"
-    if genre_conflict_result is not None and genre_conflict_min_confidence is not None:
-        missing = bool(genre_conflict_result.missing_or_sparse[idx])
-        confidence = float(genre_conflict_result.confidence[idx])
-        if not missing and confidence < float(genre_conflict_min_confidence):
-            return "genre_conflict"
     if idx in eligible_set and idx not in pool_set:
         return "artist_cap"
     return "admitted" if idx in pool_set else "not_selected"
@@ -291,8 +285,7 @@ def build_candidate_pool(
     below_floor_count = 0
     below_genre_count = 0
     genre_overlap_guard_rejected = 0
-    genre_conflict_rejected = 0
-    genre_conflict_penalty_applied = 0
+    genre_compatibility_penalty_applied = 0
     title_exclusion_rejected = 0
     rejected_sonic: list[tuple[int, float]] = []
 
@@ -345,32 +338,32 @@ def build_candidate_pool(
             genre_method, min_genre_similarity, mode, "on" if idf_weights is not None else "off",
         )
 
-    genre_conflict_result = None
+    genre_compatibility_result = None
     if (
-        cfg.genre_conflict_enabled
+        cfg.genre_compatibility_enabled
         and genre_raw_matrix is not None
         and genre_raw_matrix.ndim == 2
         and genre_raw_matrix.shape[0] == len(seed_sim_all)
         and genre_raw_matrix.shape[1] == len(genre_vocab_effective)
     ):
         seed_raw = np.max(genre_raw_matrix[seed_list], axis=0)
-        genre_conflict_result = compute_raw_genre_compatibility(
+        genre_compatibility_result = compute_raw_genre_compatibility(
             seed_raw=seed_raw,
             candidate_raw=genre_raw_matrix,
             genre_vocab=genre_vocab_effective,
-            compatible_threshold=cfg.genre_conflict_compatible_threshold,
-            conflict_threshold=cfg.genre_conflict_conflict_threshold,
-            penalty_strength=cfg.genre_conflict_penalty_strength,
+            compatible_threshold=cfg.genre_compatibility_compatible_threshold,
+            conflict_threshold=cfg.genre_compatibility_conflict_threshold,
+            penalty_strength=cfg.genre_compatibility_penalty_strength,
         )
-        if cfg.genre_conflict_penalty_strength > 0:
-            penalty = np.asarray(genre_conflict_result.penalty, dtype=float)
+        if cfg.genre_compatibility_penalty_strength > 0:
+            penalty = np.asarray(genre_compatibility_result.penalty, dtype=float)
             penalized = (penalty > 0) & (~seed_mask)
-            genre_conflict_penalty_applied = int(np.count_nonzero(penalized))
+            genre_compatibility_penalty_applied = int(np.count_nonzero(penalized))
             seed_sim_all = seed_sim_all - penalty
             logger.info(
-                "Genre conflict penalty applied: penalized=%d strength=%.3f",
-                genre_conflict_penalty_applied,
-                float(cfg.genre_conflict_penalty_strength),
+                "Genre compatibility penalty applied: penalized=%d strength=%.3f",
+                genre_compatibility_penalty_applied,
+                float(cfg.genre_compatibility_penalty_strength),
             )
 
     # Build initial eligible list (by hybrid similarity floor and sonic floor if provided)
@@ -459,21 +452,6 @@ def build_candidate_pool(
             )
         # For "discover" mode, we compute genre_sim but don't exclude (soft penalty later if needed)
 
-    if genre_conflict_result is not None and cfg.genre_conflict_min_confidence is not None:
-        min_confidence = float(cfg.genre_conflict_min_confidence)
-        eligible_before_conflict = len(eligible)
-        eligible = [
-            i for i in eligible
-            if bool(genre_conflict_result.missing_or_sparse[i])
-            or float(genre_conflict_result.confidence[i]) >= min_confidence
-        ]
-        genre_conflict_rejected = eligible_before_conflict - len(eligible)
-        if genre_conflict_rejected:
-            logger.info(
-                "Genre conflict confidence gate applied: rejected=%d min_confidence=%.3f",
-                genre_conflict_rejected,
-                min_confidence,
-            )
     grouped: Dict[str, list[int]] = {}
     for idx in eligible:
         key = _normalize_artist_key(artist_keys[idx])
@@ -538,12 +516,11 @@ def build_candidate_pool(
         params_effective["min_genre_similarity"] = min_genre_similarity
         if broad_filters:
             params_effective["broad_filters"] = list(broad_filters)
-    if cfg.genre_conflict_enabled:
-        params_effective["genre_conflict_enabled"] = True
-        params_effective["genre_conflict_min_confidence"] = cfg.genre_conflict_min_confidence
-        params_effective["genre_conflict_penalty_strength"] = cfg.genre_conflict_penalty_strength
-        params_effective["genre_conflict_compatible_threshold"] = cfg.genre_conflict_compatible_threshold
-        params_effective["genre_conflict_conflict_threshold"] = cfg.genre_conflict_conflict_threshold
+    if cfg.genre_compatibility_enabled:
+        params_effective["genre_compatibility_enabled"] = True
+        params_effective["genre_compatibility_penalty_strength"] = cfg.genre_compatibility_penalty_strength
+        params_effective["genre_compatibility_compatible_threshold"] = cfg.genre_compatibility_compatible_threshold
+        params_effective["genre_compatibility_conflict_threshold"] = cfg.genre_compatibility_conflict_threshold
     if cfg.title_hard_exclude_flags:
         params_effective["title_hard_exclude_flags"] = sorted(cfg.title_hard_exclude_flags)
 
@@ -558,8 +535,7 @@ def build_candidate_pool(
         "below_similarity_floor": below_floor_count,
         "below_genre_similarity": below_genre_count,  # NEW: genre gating exclusions
         "genre_overlap_guard_rejected": genre_overlap_guard_rejected,
-        "genre_conflict_rejected": genre_conflict_rejected,
-        "genre_conflict_penalty_applied": genre_conflict_penalty_applied,
+        "genre_compatibility_penalty_applied": genre_compatibility_penalty_applied,
         "title_exclusion_rejected": title_exclusion_rejected,
         "below_sonic_similarity": below_sonic_floor,
         "artist_cap_excluded": max(0, artist_cap_excluded),
@@ -614,8 +590,7 @@ def build_candidate_pool(
                     sonic_floor=sonic_floor,
                     genre_sim_all=genre_sim_all,
                     min_genre_similarity=min_genre_similarity,
-                    genre_conflict_result=genre_conflict_result,
-                    genre_conflict_min_confidence=cfg.genre_conflict_min_confidence,
+                    genre_compatibility_result=genre_compatibility_result,
                     pool_set=pool_set,
                     eligible_set=eligible_set,
                 )

@@ -293,7 +293,10 @@ def test_dynamic_broad_genre_overlap_guard_blocks_smoothed_inflation():
     assert result.stats["genre_overlap_guard_rejected"] == 1
 
 
-def test_genre_conflict_rejects_one_overlap_with_many_conflicts():
+def test_genre_compatibility_penalty_demotes_high_conflict_candidate():
+    # Candidate has 1 compatible tag and 4 conflict tags — conflict ratio ≈ 0.8.
+    # penalty = strength * conflict_ratio ≈ 1.0 * 0.8 = 0.8
+    # adjusted sim = 1.0 - 0.8 = 0.2, which falls below similarity_floor=0.3.
     embedding = np.array([
         [1.0, 0.0],
         [1.0, 0.0],
@@ -306,7 +309,7 @@ def test_genre_conflict_rejects_one_overlap_with_many_conflicts():
     ], dtype=float)
 
     cfg = CandidatePoolConfig(
-        similarity_floor=-1.0,
+        similarity_floor=0.3,
         min_sonic_similarity=None,
         max_pool_size=10,
         target_artists=2,
@@ -314,9 +317,8 @@ def test_genre_conflict_rejects_one_overlap_with_many_conflicts():
         seed_artist_bonus=0,
         max_artist_fraction_final=1.0,
         broad_filters=(),
-        genre_conflict_enabled=True,
-        genre_conflict_min_confidence=0.5,
-        genre_conflict_penalty_strength=0.0,
+        genre_compatibility_enabled=True,
+        genre_compatibility_penalty_strength=1.0,  # full penalty strength
     )
 
     result = build_candidate_pool(
@@ -327,7 +329,7 @@ def test_genre_conflict_rejects_one_overlap_with_many_conflicts():
         random_seed=0,
         X_genre_raw=X_genre_raw,
         X_genre_smoothed=X_genre_raw,
-        min_genre_similarity=0.1,
+        min_genre_similarity=None,
         genre_method="weighted_jaccard",
         genre_vocab=genre_vocab,
         broad_filters=(),
@@ -335,11 +337,11 @@ def test_genre_conflict_rejects_one_overlap_with_many_conflicts():
     )
 
     assert result.pool_indices.tolist() == []
-    assert result.stats["genre_conflict_rejected"] == 1
-    assert result.params_effective["genre_conflict_enabled"] is True
+    assert result.stats["genre_compatibility_penalty_applied"] == 1
+    assert result.params_effective["genre_compatibility_enabled"] is True
 
 
-def test_genre_conflict_penalty_can_demote_without_rejecting():
+def test_genre_compatibility_penalty_can_demote_without_rejecting():
     embedding = np.array([
         [1.0, 0.0],
         [0.95, np.sqrt(1 - 0.95**2)],
@@ -362,9 +364,8 @@ def test_genre_conflict_penalty_can_demote_without_rejecting():
         seed_artist_bonus=0,
         max_artist_fraction_final=1.0,
         broad_filters=(),
-        genre_conflict_enabled=True,
-        genre_conflict_min_confidence=None,
-        genre_conflict_penalty_strength=0.30,
+        genre_compatibility_enabled=True,
+        genre_compatibility_penalty_strength=0.30,
     )
 
     result = build_candidate_pool(
@@ -384,7 +385,7 @@ def test_genre_conflict_penalty_can_demote_without_rejecting():
 
     artists = [artist_keys[i] for i in result.pool_indices.tolist()]
     assert artists == ["clean"]
-    assert result.stats["genre_conflict_penalty_applied"] == 1
+    assert result.stats["genre_compatibility_penalty_applied"] == 1
 
 
 def test_genre_explainer_returns_filtered_pairs():
@@ -523,9 +524,8 @@ def test_one_each_retries_with_relaxed_candidate_gate_when_pier_bridge_infeasibl
         allowed_track_ids=["t0", "t1", "t2"],
         overrides={
             "candidate_pool": {
-                "genre_conflict_enabled": True,
-                "genre_conflict_min_confidence": 0.5,
-                "genre_conflict_penalty_strength": 0.3,
+                "genre_compatibility_enabled": True,
+                "genre_compatibility_penalty_strength": 0.3,
             },
             "pier_bridge": {"max_non_seed_tracks_per_artist": 1},
         },
@@ -540,9 +540,8 @@ def test_one_each_retries_with_relaxed_candidate_gate_when_pier_bridge_infeasibl
     assert len(bridge_calls) == 2
     assert pool_calls[1][0].similarity_floor < pool_calls[0][0].similarity_floor
     assert pool_calls[1][0].min_sonic_similarity < pool_calls[0][0].min_sonic_similarity
-    assert pool_calls[1][0].genre_conflict_enabled is True
-    assert pool_calls[1][0].genre_conflict_min_confidence == 0.5
-    assert pool_calls[1][0].genre_conflict_penalty_strength == 0.3
+    assert pool_calls[1][0].genre_compatibility_enabled is True
+    assert pool_calls[1][0].genre_compatibility_penalty_strength == 0.3
     assert pool_calls[1][1] < pool_calls[0][1]
     assert result.stats["playlist"]["one_each_candidate_relaxation"]["attempt"] == 1
 
