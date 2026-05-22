@@ -419,11 +419,17 @@ QRadioButton#modeButton::indicator {
    Sliders
    ═══════════════════════════════════════════════════════════════════════════ */
 
+QSlider:horizontal {
+    min-height: 24px;
+    padding: 0 10px;
+}
+
 QSlider::groove:horizontal {
     border: 1px solid #505050;
     background: #3c3c3c;
     height: 6px;
     border-radius: 3px;
+    margin: 0;
 }
 
 QSlider::sub-page:horizontal {
@@ -432,14 +438,16 @@ QSlider::sub-page:horizontal {
     border: none;
     height: 6px;
     border-radius: 3px;
+    margin: 0;
 }
 
 QSlider::handle:horizontal {
     background: #4a9eff;
     border: 2px solid #3a8eef;
-    width: 14px;
-    margin: -5px 0;
-    border-radius: 8px;
+    width: 16px;
+    height: 16px;
+    margin: -7px -9px;
+    border-radius: 10px;
 }
 
 QSlider::handle:horizontal:hover {

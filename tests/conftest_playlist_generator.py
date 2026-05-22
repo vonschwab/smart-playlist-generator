@@ -1,4 +1,4 @@
-"""Shared synthetic fixtures for PlaylistGenerator smoke goldens (Tier-3.2)."""
+"""Shared synthetic factory helpers for PlaylistGenerator smoke goldens (Tier-3.2)."""
 from __future__ import annotations
 
 from typing import Any, Dict, List
@@ -6,21 +6,22 @@ from unittest.mock import MagicMock
 
 from src.playlist_generator import PlaylistGenerator
 
-# 12 tracks across 4 artists (3 tracks per artist), all with 3-minute duration.
+# 15 tracks across 3 artists (5 tracks per artist), all with 3-minute duration.
+# artist_key uses spaces to match what normalize_artist_key("Artist N") returns.
 # is_valid_duration() reads the 'duration' field in milliseconds.
 SYNTHETIC_TRACKS: List[Dict[str, Any]] = [
     {
         "rating_key": f"t{i}",
         "title": f"Track {i}",
-        "artist": f"Artist {i // 3}",
-        "artist_key": f"artist_{i // 3}",
+        "artist": f"Artist {i // 5}",
+        "artist_key": f"artist {i // 5}",
         "genres": [f"genre_{i % 2}"],
         "duration": 180_000,  # milliseconds — consumed by filtering.is_valid_duration
         "duration_ms": 180_000,
         "file": f"/music/track_{i}.mp3",
-        "album": f"Album {i // 3}",
+        "album": f"Album {i // 5}",
     }
-    for i in range(12)
+    for i in range(15)
 ]
 
 
@@ -28,9 +29,10 @@ def make_synthetic_generator() -> PlaylistGenerator:
     """
     Create a PlaylistGenerator bypassing __init__ with minimal mocked state.
 
-    The caller is responsible for monkeypatching _maybe_generate_ds_playlist
-    (and optionally _post_order_validate_ds_output / _print_playlist_report)
-    before invoking any orchestrator method.
+    Returns a factory-built instance ready for monkeypatching. The caller is
+    responsible for monkeypatching _maybe_generate_ds_playlist (and optionally
+    _post_order_validate_ds_output / _print_playlist_report) before invoking
+    any orchestrator method.
     """
     gen = PlaylistGenerator.__new__(PlaylistGenerator)
 

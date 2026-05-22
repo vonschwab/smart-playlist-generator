@@ -1,9 +1,11 @@
 import numpy as np
+import numpy as np
 import pytest
 
 from src.playlist.artist_style import (
     ArtistStyleConfig,
     build_balanced_candidate_pool,
+    build_genre_neighbor_candidate_pool,
     cluster_artist_tracks,
     order_clusters,
 )
@@ -23,6 +25,9 @@ class DummyBundle:
         # ArtifactBundle has Optional[np.ndarray] = None for these; the prod
         # cluster_artist_tracks code path checks them, so the mock must mirror.
         self.durations_ms = None
+        self.X_genre_raw = None
+        self.X_genre_smoothed = None
+        self.genre_vocab = None
 
 
 def test_selects_multiple_clusters_and_medoids():
@@ -76,6 +81,41 @@ def test_balanced_candidate_pool_respects_per_cluster_limits():
     assert len(pool) == 2
     assert any(pid in pool for pid in ["4", "5"])
     assert any(pid in pool for pid in ["2", "3"])
+
+
+def test_genre_neighbor_pool_recovers_low_sonic_genre_match():
+    artist_keys = np.array(["seed", "seed", "genre-match", "conflict"])
+    track_ids = np.array(["s0", "s1", "genre_match", "conflict"])
+    X = np.array([
+        [1.0, 0.0],
+        [0.9, 0.1],
+        [0.0, 1.0],  # low sonic similarity to seed piers
+        [0.0, 1.0],
+    ])
+    bundle = DummyBundle(X_sonic=X, artist_keys=artist_keys, track_ids=track_ids)
+    bundle.genre_vocab = np.array(["indie pop", "punk", "rnb", "house", "soul"])
+    bundle.X_genre_raw = np.array([
+        [1, 1, 0, 0, 0],
+        [1, 1, 0, 0, 0],
+        [1, 1, 0, 0, 0],
+        [1, 0, 1, 1, 1],
+    ], dtype=float)
+    bundle.X_genre_smoothed = bundle.X_genre_raw.copy()
+
+    pool = build_genre_neighbor_candidate_pool(
+        bundle=bundle,
+        pier_indices=[0, 1],
+        artist_key="seed",
+        pool_size=10,
+        min_similarity=0.3,
+        min_confidence=0.5,
+        compatible_threshold=0.35,
+        conflict_threshold=0.15,
+        genre_method="weighted_jaccard",
+    )
+
+    assert "genre_match" in pool
+    assert "conflict" not in pool
 
 
 def test_allowed_invariant_helper():
@@ -256,6 +296,47 @@ def test_seed_track_key_collision_excludes_duplicate_song():
     assert result.track_ids[1] == "x_song"
 
 
+def test_one_per_artist_cap_applies_across_segments_but_exempts_seeds():
+    from src.playlist.pier_bridge_builder import PierBridgeConfig, build_pier_bridge_playlist
+
+    X = np.array([
+        [1.0, 0.0],                   # seed A, artist seed-a
+        [0.0, 1.0],                   # seed B, artist seed-b
+        [-1.0, 0.0],                  # seed C, artist repeat
+        [np.sqrt(0.5), np.sqrt(0.5)], # repeat artist, segment A->B winner
+        [-0.6, 0.8],                  # repeat artist, segment B->C would win without global cap
+        [-0.4, 0.9],                  # other artist, valid fallback for B->C
+    ])
+    bundle = DummyBundle(
+        X_sonic=X,
+        artist_keys=np.array(["seed-a", "seed-b", "repeat", "repeat", "repeat", "other"]),
+        track_ids=np.array(["seed_a", "seed_b", "seed_c", "repeat_1", "repeat_2", "other_1"]),
+        track_artists=np.array(["Seed A", "Seed B", "Repeat", "Repeat", "Repeat", "Other"]),
+        track_titles=np.array(["A", "B", "C", "Repeat 1", "Repeat 2", "Other 1"]),
+    )
+
+    result = build_pier_bridge_playlist(
+        seed_track_ids=["seed_a", "seed_b", "seed_c"],
+        total_tracks=5,
+        bundle=bundle,
+        candidate_pool_indices=[3, 4, 5],
+        cfg=PierBridgeConfig(
+            transition_floor=0.0,
+            bridge_floor=0.0,
+            weight_bridge=1.0,
+            weight_transition=0.0,
+            eta_destination_pull=0.0,
+            max_non_seed_tracks_per_artist=1,
+        ),
+        allowed_track_ids_set={"seed_a", "seed_b", "seed_c", "repeat_1", "repeat_2", "other_1"},
+    )
+
+    assert result.success
+    assert result.track_ids == ["seed_a", "repeat_1", "seed_b", "other_1", "seed_c"]
+    assert result.stats["artist_counts"]["repeat"] == 2
+    assert result.stats["non_seed_artist_counts"]["repeat"] == 1
+
+
 def test_segment_pool_is_endpoint_local_not_global_seed_max():
     # A candidate can be identical to some other seed C, but should still be excluded
     # from a segment A->B if it fails the bridge gate vs (A,B).
@@ -422,6 +503,121 @@ def test_soft_genre_penalty_changes_ranking_without_gating():
     )
     assert penalized.success
     assert penalized.track_ids[1] == "c_high"
+
+
+def test_local_sonic_edge_penalty_changes_ranking_without_gating():
+    from src.playlist.pier_bridge_builder import PierBridgeConfig, _beam_search_segment
+
+    X_transition = np.array([
+        [1.0, 0.0],   # pier A
+        [1.0, 0.0],   # pier B
+        [1.0, 0.0],   # low-sonic candidate: best transition score
+        [0.9, 0.4],   # coherent candidate: slightly weaker transition score
+    ])
+    X_transition = X_transition / (np.linalg.norm(X_transition, axis=1, keepdims=True) + 1e-12)
+    X_sonic = np.array([
+        [1.0, 0.0],   # pier A
+        [1.0, 0.0],   # pier B
+        [-1.0, 0.0],  # low-sonic candidate: locally opposed to both piers
+        [1.0, 0.0],   # coherent candidate
+    ])
+    X_sonic = X_sonic / (np.linalg.norm(X_sonic, axis=1, keepdims=True) + 1e-12)
+    base_cfg = PierBridgeConfig(
+        transition_floor=-1.0,
+        bridge_floor=-1.0,
+        weight_bridge=0.0,
+        weight_transition=1.0,
+        eta_destination_pull=0.0,
+        progress_enabled=False,
+    )
+
+    base_path, _hits, _edges, err = _beam_search_segment(
+        0,
+        1,
+        1,
+        [2, 3],
+        X_transition,
+        X_sonic,
+        None,
+        None,
+        None,
+        None,
+        base_cfg,
+        10,
+    )
+    assert err is None
+    assert base_path == [2]
+
+    local_stats = {}
+    penalized_path, _hits, _edges, err = _beam_search_segment(
+        0,
+        1,
+        1,
+        [2, 3],
+        X_transition,
+        X_sonic,
+        None,
+        None,
+        None,
+        None,
+        PierBridgeConfig(
+            **{
+                **base_cfg.__dict__,
+                "local_sonic_edge_penalty_enabled": True,
+                "local_sonic_edge_penalty_threshold": 0.5,
+                "local_sonic_edge_penalty_strength": 1.0,
+            }
+        ),
+        10,
+        local_sonic_stats=local_stats,
+    )
+    assert err is None
+    assert penalized_path == [3]
+    assert local_stats["local_sonic_penalty_hits"] >= 2
+    assert local_stats["local_sonic_gate_rejected"] == 0
+
+
+def test_local_sonic_edge_floor_applies_to_final_destination_edge():
+    from src.playlist.pier_bridge_builder import PierBridgeConfig, _beam_search_segment
+
+    X_transition = np.array([
+        [1.0, 0.0],
+        [1.0, 0.0],
+        [1.0, 0.0],
+    ])
+    X_sonic = np.array([
+        [1.0, 0.0],   # pier A
+        [-1.0, 0.0],  # pier B
+        [1.0, 0.0],   # candidate: good after A, bad into B
+    ])
+    local_stats = {}
+
+    path, _hits, _edges, err = _beam_search_segment(
+        0,
+        1,
+        1,
+        [2],
+        X_transition,
+        X_sonic,
+        None,
+        None,
+        None,
+        None,
+        PierBridgeConfig(
+            transition_floor=-1.0,
+            bridge_floor=-1.0,
+            weight_bridge=0.0,
+            weight_transition=1.0,
+            eta_destination_pull=0.0,
+            progress_enabled=False,
+            local_sonic_edge_floor=0.0,
+        ),
+        10,
+        local_sonic_stats=local_stats,
+    )
+    assert path is None
+    assert err == "no valid final connection to destination"
+    assert local_stats["local_sonic_gate_rejected"] == 1
 
 
 def test_transition_floor_config_override_per_mode():

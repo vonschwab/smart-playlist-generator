@@ -14,6 +14,7 @@ from typing import List, Dict, Any, Optional, Set, Tuple
 from datetime import datetime, timedelta
 from collections import defaultdict
 import logging
+import re
 
 from ..string_utils import normalize_artist_key, normalize_match_string
 from .utils import safe_get_artist_key
@@ -71,6 +72,54 @@ def is_valid_duration(track: Dict[str, Any], min_seconds: int = 47, max_seconds:
     min_ms = min_seconds * 1000
     max_ms = max_seconds * 1000
     return min_ms <= duration_ms <= max_ms
+
+
+def _normalize_title_for_exclusion(value: Any) -> str:
+    text = "" if value is None else str(value)
+    text = re.sub(r"[^a-z0-9]+", " ", text.casefold())
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def is_title_excluded(title: Any, exclusion_words: List[str] | Tuple[str, ...]) -> bool:
+    """Return True when a title contains a configured non-song marker."""
+    normalized_title = _normalize_title_for_exclusion(title)
+    if not normalized_title:
+        return False
+
+    title_with_boundaries = f" {normalized_title} "
+    compact_title = normalized_title.replace(" ", "")
+
+    for word in exclusion_words or ():
+        normalized_word = _normalize_title_for_exclusion(word)
+        if not normalized_word:
+            continue
+        if " " in normalized_word:
+            if f" {normalized_word} " in title_with_boundaries:
+                return True
+            if normalized_word.replace(" ", "") in compact_title:
+                return True
+        elif f" {normalized_word} " in title_with_boundaries:
+            return True
+    return False
+
+
+def filter_by_title_exclusions(
+    *,
+    tracks: List[Dict[str, Any]],
+    exclusion_words: List[str] | Tuple[str, ...],
+) -> List[Dict[str, Any]]:
+    """Remove tracks whose titles contain configured non-song markers."""
+    if not exclusion_words:
+        return list(tracks)
+
+    filtered = [
+        track for track in tracks
+        if not is_title_excluded(track.get("title", ""), exclusion_words)
+    ]
+    removed = len(tracks) - len(filtered)
+    if removed > 0:
+        logger.debug("Title exclusions: before=%d after=%d excluded=%d", len(tracks), len(filtered), removed)
+    return filtered
 
 
 def filter_by_duration(

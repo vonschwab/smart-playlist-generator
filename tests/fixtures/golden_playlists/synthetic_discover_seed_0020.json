@@ -13,8 +13,8 @@
   ],
   "track_count": 10,
   "metrics": {
-    "mean_transition": 0.6396595810770351,
-    "min_transition": 0.5643455504580087,
+    "mean_transition": 0.6380822076305176,
+    "min_transition": 0.5540535634724765,
     "artist_diversity": 1.0,
     "unique_artists": 10
   },

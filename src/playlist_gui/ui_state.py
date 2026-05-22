@@ -50,6 +50,12 @@ class UIStateModel:
     # Diversity bonus (soft)
     # ─────────────────────────────────────────────────────────────────────────
     diversity_gamma: float = 0.04
+    artist_diversity_mode: Literal["weighted", "one_per_artist"] = "weighted"
+    """
+    Controls whether diversity is only a soft scoring bonus or a hard cap.
+    - weighted: use diversity_gamma only
+    - one_per_artist: allow at most one non-seed track per artist
+    """
 
     # ─────────────────────────────────────────────────────────────────────────
     # Recency filter (hard exclude; never relaxed by policy)

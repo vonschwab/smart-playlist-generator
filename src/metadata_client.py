@@ -14,6 +14,11 @@ from .string_utils import normalize_artist_key
 logger = logging.getLogger(__name__)
 
 
+def _normalize_album_key(album: str) -> str:
+    """Normalize album names for blacklist scope matching."""
+    return (album or "").strip().casefold()
+
+
 class MetadataClient:
     """Interface for local metadata database"""
 
@@ -44,6 +49,7 @@ class MetadataClient:
                 artist TEXT,
                 artist_key TEXT,
                 album TEXT,
+                file_path TEXT,
                 duration_ms INTEGER,
                 is_blacklisted INTEGER NOT NULL DEFAULT 0,
                 last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -95,22 +101,98 @@ class MetadataClient:
             )
         """)
 
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS artist_blacklist (
+                artist_key TEXT PRIMARY KEY,
+                artist_name TEXT,
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS album_blacklist (
+                artist_key TEXT,
+                album_key TEXT,
+                artist_name TEXT,
+                album_name TEXT,
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (artist_key, album_key)
+            )
+        """)
+
         # Create indexes for faster queries
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks(artist)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracks_artist_key ON tracks(artist_key)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracks_mbid ON tracks(musicbrainz_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracks_file_path ON tracks(file_path)")
+        if self._column_exists("tracks", "file_path"):
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracks_file_path ON tracks(file_path)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_track_genres_genre ON track_genres(genre)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_artists_mbid ON artists(musicbrainz_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_album_genres_genre ON album_genres(genre)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_album_genres_album ON album_genres(album_name)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_artist_genres_genre ON artist_genres(genre)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_artist_genres_artist ON artist_genres(artist_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_album_blacklist_artist_album ON album_blacklist(artist_key, album_key)")
 
         self.conn.commit()
         ensure_artist_key_schema(self.conn, logger=logger)
         ensure_blacklist_schema(self.conn, logger=logger)
         logger.info(f"Initialized metadata database: {self.db_path}")
+
+    def _column_exists(self, table_name: str, column_name: str) -> bool:
+        cursor = self.conn.cursor()
+        cursor.execute(f"PRAGMA table_info({table_name})")
+        for row in cursor.fetchall():
+            try:
+                name = row["name"]
+            except Exception:
+                name = row[1]
+            if name == column_name:
+                return True
+        return False
+
+    def _is_scope_blacklisted(self, artist_key: str, album: str) -> bool:
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT 1 FROM artist_blacklist WHERE artist_key = ?",
+            (artist_key,),
+        )
+        if cursor.fetchone() is not None:
+            return True
+        cursor.execute(
+            """
+            SELECT 1
+            FROM album_blacklist
+            WHERE artist_key = ? AND album_key = ?
+            """,
+            (artist_key, _normalize_album_key(album)),
+        )
+        return cursor.fetchone() is not None
+
+    def _apply_scoped_blacklist_for_rows(self, rowids: List[int]) -> int:
+        if not rowids:
+            return 0
+        cursor = self.conn.cursor()
+        updated = 0
+        for rowid in rowids:
+            cursor.execute(
+                "SELECT artist_key, album FROM tracks WHERE rowid = ?",
+                (rowid,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                continue
+            should_blacklist = self._is_scope_blacklisted(
+                str(row["artist_key"] or ""),
+                str(row["album"] or ""),
+            )
+            cursor.execute(
+                "UPDATE tracks SET is_blacklisted = ? WHERE rowid = ?",
+                (1 if should_blacklist else 0, rowid),
+            )
+            updated += cursor.rowcount or 0
+        self.conn.commit()
+        return updated
 
     def add_track(self, track_id: str, title: str, artist: str, album: str,
                   duration_ms: int = 0, musicbrainz_id: Optional[str] = None):
@@ -127,11 +209,12 @@ class MetadataClient:
         """
         cursor = self.conn.cursor()
         artist_key = normalize_artist_key(artist or "")
+        is_blacklisted = 1 if self._is_scope_blacklisted(artist_key, album or "") else 0
         cursor.execute(
             """
             INSERT INTO tracks
             (track_id, musicbrainz_id, title, artist, artist_key, album, duration_ms, is_blacklisted, last_updated)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(track_id) DO UPDATE SET
                 musicbrainz_id=excluded.musicbrainz_id,
                 title=excluded.title,
@@ -139,9 +222,13 @@ class MetadataClient:
                 artist_key=excluded.artist_key,
                 album=excluded.album,
                 duration_ms=excluded.duration_ms,
+                is_blacklisted=CASE
+                    WHEN excluded.is_blacklisted = 1 THEN 1
+                    ELSE tracks.is_blacklisted
+                END,
                 last_updated=CURRENT_TIMESTAMP
             """,
-            (track_id, musicbrainz_id, title, artist, artist_key, album, duration_ms),
+            (track_id, musicbrainz_id, title, artist, artist_key, album, duration_ms, is_blacklisted),
         )
         self.conn.commit()
 
@@ -296,6 +383,84 @@ class MetadataClient:
         )
         self.conn.commit()
         return cursor.rowcount or 0
+
+    def set_artist_blacklisted(self, artist_name: str, value: bool) -> int:
+        """Set blacklist flag for all tracks by artist and remember the scope."""
+        artist_key = normalize_artist_key(artist_name or "")
+        if not artist_key:
+            return 0
+        cursor = self.conn.cursor()
+        if value:
+            cursor.execute(
+                """
+                INSERT INTO artist_blacklist (artist_key, artist_name, last_updated)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(artist_key) DO UPDATE SET
+                    artist_name=excluded.artist_name,
+                    last_updated=CURRENT_TIMESTAMP
+                """,
+                (artist_key, artist_name),
+            )
+            cursor.execute(
+                "UPDATE tracks SET is_blacklisted = 1 WHERE artist_key = ?",
+                (artist_key,),
+            )
+            self.conn.commit()
+            return cursor.rowcount or 0
+
+        cursor.execute("DELETE FROM artist_blacklist WHERE artist_key = ?", (artist_key,))
+        cursor.execute("SELECT rowid FROM tracks WHERE artist_key = ?", (artist_key,))
+        rowids = [int(row["rowid"]) for row in cursor.fetchall()]
+        self.conn.commit()
+        return self._apply_scoped_blacklist_for_rows(rowids)
+
+    def set_album_blacklisted(self, artist_name: str, album_name: str, value: bool) -> int:
+        """Set blacklist flag for an artist/album scope and remember the scope."""
+        artist_key = normalize_artist_key(artist_name or "")
+        album_key = _normalize_album_key(album_name or "")
+        if not artist_key or not album_key:
+            return 0
+        cursor = self.conn.cursor()
+        if value:
+            cursor.execute(
+                """
+                INSERT INTO album_blacklist (artist_key, album_key, artist_name, album_name, last_updated)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(artist_key, album_key) DO UPDATE SET
+                    artist_name=excluded.artist_name,
+                    album_name=excluded.album_name,
+                    last_updated=CURRENT_TIMESTAMP
+                """,
+                (artist_key, album_key, artist_name, album_name),
+            )
+            cursor.execute(
+                """
+                UPDATE tracks
+                SET is_blacklisted = 1
+                WHERE artist_key = ?
+                  AND LOWER(TRIM(COALESCE(album, ''))) = ?
+                """,
+                (artist_key, album_key),
+            )
+            self.conn.commit()
+            return cursor.rowcount or 0
+
+        cursor.execute(
+            "DELETE FROM album_blacklist WHERE artist_key = ? AND album_key = ?",
+            (artist_key, album_key),
+        )
+        cursor.execute(
+            """
+            SELECT rowid
+            FROM tracks
+            WHERE artist_key = ?
+              AND LOWER(TRIM(COALESCE(album, ''))) = ?
+            """,
+            (artist_key, album_key),
+        )
+        rowids = [int(row["rowid"]) for row in cursor.fetchall()]
+        self.conn.commit()
+        return self._apply_scoped_blacklist_for_rows(rowids)
 
     def fetch_blacklisted_tracks(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """Fetch blacklisted tracks with basic metadata + genres."""

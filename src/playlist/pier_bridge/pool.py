@@ -262,6 +262,7 @@ def _build_segment_candidate_pool_scored(
     pooling_cache: Optional[Dict[str, Any]] = None,
     pool_verbose: bool = False,  # Phase 3 fix: verbose pool logging
     genre_pool_transition_blend: float = 0.0,  # Task D: Blend weight for genre pool
+    collapse_by_artist: bool = True,
 ) -> tuple[List[int], Dict[int, str], Dict[int, str]]:
     """
     Segment-local candidate pool builder ("segment_scored").
@@ -314,6 +315,7 @@ def _build_segment_candidate_pool_scored(
         pooling_cache=pooling_cache,
         pool_verbose=bool(pool_verbose),  # Phase 3 fix
         genre_pool_transition_blend=float(genre_pool_transition_blend),  # Task D
+        collapse_pool_by_artist=bool(collapse_by_artist),
     )
     result = SegmentCandidatePoolBuilder().build(pool_cfg)
     return result.candidates, result.artist_key_by_idx, result.title_key_by_idx

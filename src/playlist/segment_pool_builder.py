@@ -143,6 +143,14 @@ class SegmentPoolConfig:
     """Task D: Blend weight for transition scores in genre pool selection (0.0-1.0).
     0.0 = pure genre similarity (default), 1.0 = pure transition quality."""
 
+    collapse_pool_by_artist: bool = True
+    """If True (legacy default), collapse the segment pool to one track per artist
+    (best by harmonic-mean of pier similarities). If False, keep all candidates that
+    pass bridge_floor + structural filters up to segment_pool_max. The beam search
+    enforces one-per-segment artist diversity independently via used_artists, so
+    setting this False gives the beam more material to navigate the projection
+    curve (useful for long narrow-style segments)."""
+
 
 @dataclass
 class SegmentPoolResult:
@@ -929,6 +937,12 @@ class SegmentCandidatePoolBuilder:
         selected_external: List[int] = []
         internal_selected: List[int] = []
         collapsed_by_artist = 0
+        collapse = bool(config.collapse_pool_by_artist)
+
+        def _ak(i: int) -> str:
+            return artist_key_by_idx.get(i) or identity_keys_for_index(
+                config.bundle, i
+            ).artist_key
 
         if config.internal_connector_priority:
             # Select internal connectors first, then fill from external candidates
@@ -941,10 +955,8 @@ class SegmentCandidatePoolBuilder:
                 else len(internal_result.internal_ranked)
             )
             for _score, i in internal_result.internal_ranked:
-                ak = artist_key_by_idx.get(i) or identity_keys_for_index(
-                    config.bundle, i
-                ).artist_key
-                if ak in used_artists:
+                ak = _ak(i)
+                if collapse and ak in used_artists:
                     continue
                 internal_selected.append(i)
                 used_artists.add(ak)
@@ -953,10 +965,8 @@ class SegmentCandidatePoolBuilder:
 
             # Fill with external candidates
             for i in passing_sorted:
-                ak = artist_key_by_idx.get(i) or identity_keys_for_index(
-                    config.bundle, i
-                ).artist_key
-                if ak in used_artists:
+                ak = _ak(i)
+                if collapse and ak in used_artists:
                     collapsed_by_artist += 1
                     continue
                 used_artists.add(ak)
@@ -971,10 +981,8 @@ class SegmentCandidatePoolBuilder:
             used_artists = set()
 
             for i in passing_sorted:
-                ak = artist_key_by_idx.get(i) or identity_keys_for_index(
-                    config.bundle, i
-                ).artist_key
-                if ak in used_artists:
+                ak = _ak(i)
+                if collapse and ak in used_artists:
                     collapsed_by_artist += 1
                     continue
                 used_artists.add(ak)
@@ -988,10 +996,8 @@ class SegmentCandidatePoolBuilder:
                 else len(internal_result.internal_ranked)
             )
             for _score, i in internal_result.internal_ranked:
-                ak = artist_key_by_idx.get(i) or identity_keys_for_index(
-                    config.bundle, i
-                ).artist_key
-                if ak in used_artists:
+                ak = _ak(i)
+                if collapse and ak in used_artists:
                     continue
                 internal_selected.append(i)
                 used_artists.add(ak)

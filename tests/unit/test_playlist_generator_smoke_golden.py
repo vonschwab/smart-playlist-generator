@@ -19,11 +19,8 @@ from typing import Any, Dict, List, Optional
 
 import pytest
 
-# Fixture helpers live in the top-level tests/ package so they can be reused
+# Factory helpers live in the top-level tests/ package so they can be reused
 # by future Tier-3.2 PRs without going through conftest.py injection.
-import sys
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from tests.conftest_playlist_generator import SYNTHETIC_TRACKS, make_synthetic_generator
 
 GOLDEN_DIR = Path(__file__).parent / "goldens" / "playlist_generator"
@@ -86,16 +83,9 @@ def smoke_generator(monkeypatch):
 
 
 def _call_artist_basic(gen) -> Optional[Dict[str, Any]]:
-    """artist_basic: 'Artist 0' has 3 tracks per artist × 4 artists = 12 tracks total;
-    Artist 0 has t0..t2 (3 tracks).  With collaborations disabled and < 4 exact matches
-    the method falls back to collaboration search — but Artist 0 has exactly 3 solo tracks,
-    so it will trigger the collaboration-search path and, finding none, return None.
-
-    To guarantee a non-None return we request include_collaborations=False and use
-    artist_only=False (library-wide DS scope), ensuring the 12-track library has ≥ 4
-    tracks for the artist check (library wide).  We override artist_name to one that
-    has ≥ 4 tracks: Artist 0 only has 3.  Instead, pass the full SYNTHETIC_TRACKS
-    (all 12 tracks are "artist 0..3") — we want any result, even None, as the golden.
+    """artist_basic: 15 tracks across 3 artists (5 each); Artist 0 owns t0..t4.
+    artist_key uses spaces ("artist 0") matching normalize_artist_key("Artist 0"),
+    so the filter finds 5 tracks — above the ≥4 threshold — and proceeds to DS.
     """
     return gen.create_playlist_for_artist(
         artist_name="Artist 0",

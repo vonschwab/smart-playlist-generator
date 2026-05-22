@@ -402,6 +402,31 @@ class TestArtistSpacing:
         ) == 9
 
 
+class TestArtistDiversity:
+    """Tests for diversity slider hard artist-cap policy."""
+
+    def test_one_per_artist_diversity_sets_pier_bridge_cap(self):
+        state = UIStateModel(artist_diversity_mode="one_per_artist")
+
+        decisions = derive_runtime_config(state)
+
+        assert _get_nested(
+            decisions.overrides,
+            "playlists.ds_pipeline.pier_bridge.max_non_seed_tracks_per_artist",
+        ) == 1
+        assert any("one track per non-seed artist" in note.lower() for note in decisions.notes)
+
+    def test_weighted_diversity_clears_pier_bridge_cap(self):
+        state = UIStateModel(artist_diversity_mode="weighted")
+
+        decisions = derive_runtime_config(state)
+
+        assert _get_nested(
+            decisions.overrides,
+            "playlists.ds_pipeline.pier_bridge.max_non_seed_tracks_per_artist",
+        ) is None
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Merge Overrides Tests
 # ─────────────────────────────────────────────────────────────────────────────

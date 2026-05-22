@@ -1,5 +1,7 @@
 """Tests for the GUI generate panel."""
 
+from pathlib import Path
+
 from src.playlist_gui.widgets.generate_panel import GeneratePanel
 
 
@@ -199,6 +201,39 @@ def test_generate_panel_core_controls_are_not_width_pinned(qtbot):
 
     for control in controls:
         assert control.maximumWidth() > control.minimumWidth()
+
+
+def test_diversity_slider_extreme_sets_one_per_artist_mode(qtbot):
+    panel = GeneratePanel()
+    qtbot.addWidget(panel)
+
+    panel._diversity_slider.setValue(panel._diversity_slider.maximum())
+    state = panel.build_ui_state()
+
+    assert state.diversity_gamma == 0.08
+    assert state.artist_diversity_mode == "one_per_artist"
+    assert panel._diversity_value.text() == "One Each"
+
+
+def test_diversity_slider_has_room_for_handle(qtbot):
+    panel = GeneratePanel()
+    qtbot.addWidget(panel)
+
+    panel._diversity_slider.setValue(panel._diversity_slider.maximum())
+
+    assert panel._diversity_slider.minimumWidth() >= 90
+    assert panel._diversity_value.minimumWidth() >= 72
+
+
+def test_slider_styles_inset_groove_for_handle_clearance():
+    theme = Path("src/playlist_gui/theme.qss").read_text(encoding="utf-8")
+
+    assert "QSlider:horizontal" in theme
+    assert "padding: 0 10px;" in theme
+    assert "QSlider::groove:horizontal" in theme
+    assert "width: 16px;" in theme
+    assert "height: 16px;" in theme
+    assert "margin: -7px -9px;" in theme
 
 
 def test_generate_panel_collapses_from_seeds_to_genre(qtbot):

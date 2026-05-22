@@ -1,5 +1,10 @@
 """Unit tests for duration filtering."""
-from src.playlist.filtering import filter_by_duration, is_valid_duration
+from src.playlist.filtering import (
+    filter_by_duration,
+    filter_by_title_exclusions,
+    is_title_excluded,
+    is_valid_duration,
+)
 
 
 class TestDurationFiltering:
@@ -107,3 +112,31 @@ class TestDurationFilteringDefaults:
 
         assert len(filtered) == 1
         assert filtered[0]['rating_key'] == '1'
+
+
+class TestTitleExclusionFiltering:
+    """Test title-word filtering for non-song library entries."""
+
+    def test_is_title_excluded_matches_skit_interlude_and_acapella_spellings(self):
+        words = ["interlude", "skit", "acapella", "a cappella", "a capella"]
+
+        assert is_title_excluded("Intro Skit", words) is True
+        assert is_title_excluded("Quiet Interlude", words) is True
+        assert is_title_excluded("Song Title (Acapella)", words) is True
+        assert is_title_excluded("Song Title - A Cappella Version", words) is True
+        assert is_title_excluded("Song Title [A Capella Mix]", words) is True
+        assert is_title_excluded("Regular Album Track", words) is False
+
+    def test_filter_by_title_exclusions_removes_matching_tracks(self):
+        tracks = [
+            {"rating_key": "1", "title": "Album Track"},
+            {"rating_key": "2", "title": "Album Track (Acapella)"},
+            {"rating_key": "3", "title": "Interstitial Skit"},
+        ]
+
+        filtered = filter_by_title_exclusions(
+            tracks=tracks,
+            exclusion_words=["skit", "acapella"],
+        )
+
+        assert [track["rating_key"] for track in filtered] == ["1"]

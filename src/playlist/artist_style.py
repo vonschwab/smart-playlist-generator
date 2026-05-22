@@ -8,6 +8,8 @@ import numpy as np
 
 from src.string_utils import normalize_artist_key
 from src.playlist.history_analyzer import is_collaboration_of
+from src.playlist.candidate_pool import _compute_genre_similarity
+from src.playlist.genre_compatibility import compute_raw_genre_compatibility
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +68,12 @@ class ArtistStyleConfig:
     bridge_weight: float = 0.7
     transition_weight: float = 0.3
     genre_tiebreak_weight: float = 0.05
+    genre_neighbor_pool_enabled: bool = False
+    genre_neighbor_pool_size: int = 500
+    genre_neighbor_min_similarity: float = 0.25
+    genre_neighbor_min_confidence: Optional[float] = 0.50
+    genre_neighbor_compatible_threshold: float = 0.35
+    genre_neighbor_conflict_threshold: float = 0.15
     # Medoid selection weighting (to avoid interludes/outliers)
     medoid_similarity_weight: float = 0.7  # Weight for sonic similarity to cluster centroid
     medoid_duration_weight: float = 0.3    # Weight for duration typicality (avoid outliers)
@@ -470,6 +478,98 @@ def build_balanced_candidate_pool(
     # balancing: dedupe, preserve insertion; equal already enforced by per_cluster_size
     deduped = list(dict.fromkeys(all_candidates))
     return [str(track_ids[i]) for i in deduped]
+
+
+def build_genre_neighbor_candidate_pool(
+    *,
+    bundle,
+    pier_indices: Sequence[int],
+    artist_key: str,
+    pool_size: int,
+    min_similarity: float,
+    min_confidence: Optional[float],
+    compatible_threshold: float,
+    conflict_threshold: float,
+    genre_method: str = "ensemble",
+    artist_name: Optional[str] = None,
+    include_collaborations: bool = False,
+) -> List[str]:
+    """Build a genre-first artist-style pool to complement sonic cluster neighbors."""
+    if not pier_indices:
+        return []
+
+    X_raw = getattr(bundle, "X_genre_raw", None)
+    X_smooth = getattr(bundle, "X_genre_smoothed", None)
+    raw_vocab = getattr(bundle, "genre_vocab", None)
+    genre_vocab = [] if raw_vocab is None else [str(g) for g in list(raw_vocab)]
+    if X_raw is None and X_smooth is None:
+        return []
+
+    genre_matrix = X_smooth if X_smooth is not None else X_raw
+    if genre_matrix is None or genre_matrix.ndim != 2:
+        return []
+
+    pier_list = [int(i) for i in pier_indices if 0 <= int(i) < genre_matrix.shape[0]]
+    if not pier_list:
+        return []
+
+    seed_genres = np.max(genre_matrix[pier_list], axis=0)
+    genre_sim = _compute_genre_similarity(seed_genres, genre_matrix, method=genre_method)
+
+    confidence = np.ones(genre_matrix.shape[0], dtype=float)
+    missing = np.zeros(genre_matrix.shape[0], dtype=bool)
+    if X_raw is not None and X_raw.ndim == 2 and X_raw.shape[1] == len(genre_vocab):
+        seed_raw = np.max(X_raw[pier_list], axis=0)
+        compat = compute_raw_genre_compatibility(
+            seed_raw=seed_raw,
+            candidate_raw=X_raw,
+            genre_vocab=genre_vocab,
+            compatible_threshold=compatible_threshold,
+            conflict_threshold=conflict_threshold,
+            penalty_strength=0.0,
+        )
+        confidence = np.asarray(compat.confidence, dtype=float)
+        missing = np.asarray(compat.missing_or_sparse, dtype=bool)
+
+    total_tracks = genre_matrix.shape[0]
+    if include_collaborations and artist_name:
+        seed_artist_indices = set(
+            _artist_indices_in_bundle(
+                bundle, artist_name, include_collaborations=True
+            )
+        )
+        mask_artist = np.array(
+            [i in seed_artist_indices for i in range(total_tracks)], dtype=bool
+        )
+    else:
+        mask_artist = np.array([
+            normalize_artist_key(str(bundle.artist_keys[i])) == artist_key
+            if bundle.artist_keys is not None else False
+            for i in range(total_tracks)
+        ], dtype=bool)
+
+    pier_set = set(pier_list)
+    selected: List[int] = []
+    for idx in np.argsort(-genre_sim):
+        idx = int(idx)
+        if idx in pier_set or mask_artist[idx]:
+            continue
+        if float(genre_sim[idx]) < float(min_similarity):
+            break
+        if min_confidence is not None and (not bool(missing[idx])) and float(confidence[idx]) < float(min_confidence):
+            continue
+        selected.append(idx)
+        if len(selected) >= int(pool_size):
+            break
+
+    logger.info(
+        "Artist style genre-neighbor pool: selected=%d/%d min_similarity=%.3f min_confidence=%s",
+        len(selected),
+        int(pool_size),
+        float(min_similarity),
+        min_confidence,
+    )
+    return [str(bundle.track_ids[i]) for i in selected]
 
 
 def get_internal_connectors(

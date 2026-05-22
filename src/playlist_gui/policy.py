@@ -37,6 +37,7 @@ POLICY_OWNED_KEYS: Set[str] = {
     "playlists.tracks_per_playlist",
     # Diversity bonus
     "playlists.ds_pipeline.scoring.gamma",
+    "playlists.ds_pipeline.pier_bridge.max_non_seed_tracks_per_artist",
     # DJ bridging core settings (gated by policy rules)
     "playlists.ds_pipeline.pier_bridge.dj_bridging.enabled",
     "playlists.ds_pipeline.pier_bridge.dj_bridging.seed_ordering",
@@ -282,6 +283,19 @@ def derive_runtime_config(
         float(ui.diversity_gamma),
     )
     notes.append(f"Diversity gamma: {float(ui.diversity_gamma):.3f}")
+    if getattr(ui, "artist_diversity_mode", "weighted") == "one_per_artist":
+        _set_nested(
+            overrides,
+            "playlists.ds_pipeline.pier_bridge.max_non_seed_tracks_per_artist",
+            1,
+        )
+        notes.append("Artist diversity: one track per non-seed artist")
+    else:
+        _set_nested(
+            overrides,
+            "playlists.ds_pipeline.pier_bridge.max_non_seed_tracks_per_artist",
+            None,
+        )
 
     # ─────────────────────────────────────────────────────────────────────
     # 3. Recency filter (never relaxed by policy)

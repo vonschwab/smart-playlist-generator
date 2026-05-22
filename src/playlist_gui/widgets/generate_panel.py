@@ -193,8 +193,8 @@ class GeneratePanel(QWidget):
         diversity_layout.setContentsMargins(0, 0, 0, 0)
         diversity_layout.setSpacing(4)
 
-        self._diversity_levels = ["Very Low", "Low", "Normal", "High", "Very High"]
-        self._diversity_values = [0.00, 0.02, 0.04, 0.06, 0.08]
+        self._diversity_levels = ["Very Low", "Low", "Normal", "High", "Very High", "One Each"]
+        self._diversity_values = [0.00, 0.02, 0.04, 0.06, 0.08, 0.08]
 
         self._diversity_slider = QSlider(Qt.Horizontal)
         self._diversity_slider.setMinimum(0)
@@ -546,6 +546,11 @@ class GeneratePanel(QWidget):
         index = self._diversity_slider.value()
         return float(self._diversity_values[index])
 
+    def _get_artist_diversity_mode(self) -> str:
+        if self._diversity_slider.value() == len(self._diversity_levels) - 1:
+            return "one_per_artist"
+        return "weighted"
+
     def _on_diversity_changed(self, value: int) -> None:
         self._diversity_value.setText(self._diversity_levels[value])
 
@@ -559,6 +564,7 @@ class GeneratePanel(QWidget):
             sonic_mode=self._mode_sliders.get_sonic_mode(),
             track_count=int(self._length_combo.property("value") or 30),
             diversity_gamma=self._get_diversity_gamma(),
+            artist_diversity_mode=self._get_artist_diversity_mode(),
             recency_enabled=self._recency_check.isChecked(),
             recency_days=int(self._recency_days.property("value") or 14),
             recency_plays_threshold=int(self._recency_plays.property("value") or 1),
