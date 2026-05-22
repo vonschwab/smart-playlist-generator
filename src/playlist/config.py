@@ -29,6 +29,7 @@ class CandidatePoolConfig:
     genre_conflict_compatible_threshold: float = 0.35
     genre_conflict_conflict_threshold: float = 0.15
     title_hard_exclude_flags: frozenset[str] = frozenset({"interlude", "skit", "acapella"})
+    genre_idf_enabled: bool = True
 
 
 @dataclass(frozen=True)
@@ -445,6 +446,7 @@ def default_ds_config(
             for f in (candidate_pool.get("title_hard_exclude_flags", ["interlude", "skit", "acapella"]) or [])
             if str(f).strip()
         ),
+        genre_idf_enabled=bool(candidate_pool.get("genre_idf_enabled", True)),
     )
 
     # Construction config with config.yaml overrides

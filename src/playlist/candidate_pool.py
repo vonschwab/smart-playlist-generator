@@ -18,18 +18,28 @@ def _compute_genre_similarity(
     seed_genres: np.ndarray,
     candidate_genres: np.ndarray,
     method: str = "cosine",
+    idf_weights: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     """
     Compute genre similarity between seed and all candidates.
+
+    When idf_weights is provided, multiply seed and candidate vectors by the weights
+    before computing similarity. Rare-tag matches contribute more.
 
     Args:
         seed_genres: (D,) 1D array of seed's genres (binary or float)
         candidate_genres: (N, D) matrix of candidate genres
         method: "weighted_jaccard", "cosine", or "ensemble"
+        idf_weights: (D,) optional per-genre IDF weights
 
     Returns:
         (N,) similarity scores [0, 1]
     """
+    if idf_weights is not None:
+        weights = np.asarray(idf_weights, dtype=float)
+        seed_genres = seed_genres * weights
+        candidate_genres = candidate_genres * weights.reshape(1, -1)
+
     N = candidate_genres.shape[0]
 
     if method == "weighted_jaccard":
@@ -308,12 +318,31 @@ def build_candidate_pool(
         else:
             genre_matrix = genre_raw_matrix if genre_raw_matrix is not None else X_genre_smoothed
 
+        # Compute IDF weights from the raw matrix when enabled.
+        idf_weights = None
+        if (
+            bool(getattr(cfg, "genre_idf_enabled", True))
+            and genre_raw_matrix is not None
+            and genre_raw_matrix.shape[1] == genre_matrix.shape[1]
+        ):
+            from src.playlist.genre_idf import compute_genre_idf
+            idf_weights = compute_genre_idf(
+                X_genre_raw=genre_raw_matrix,
+                power=1.0,
+                norm="max1",
+            )
+
         seed_genres = np.max(genre_matrix[seed_list], axis=0)
-        genre_sim_all = _compute_genre_similarity(seed_genres, genre_matrix, method=genre_method)
+        genre_sim_all = _compute_genre_similarity(
+            seed_genres,
+            genre_matrix,
+            method=genre_method,
+            idf_weights=idf_weights,
+        )
         genre_sim_all[seed_idx] = 1.0  # seed matches itself perfectly
         logger.info(
-            "Candidate pool genre gating: method=%s, min_threshold=%.3f, mode=%s",
-            genre_method, min_genre_similarity, mode
+            "Candidate pool genre gating: method=%s, min_threshold=%.3f, mode=%s, idf=%s",
+            genre_method, min_genre_similarity, mode, "on" if idf_weights is not None else "off",
         )
 
     genre_conflict_result = None
@@ -453,18 +482,23 @@ def build_candidate_pool(
     artist_rank: list[tuple[str, float, list[int]]] = []
     for artist, idxs in grouped.items():
         max_sim = max(seed_sim_all[i] for i in idxs)
-        artist_rank.append((artist, max_sim, idxs))
-    artist_rank.sort(key=lambda t: (-t[1], t[0]))
+        max_genre = max(float(genre_sim_all[i]) for i in idxs) if genre_sim_all is not None else 0.0
+        artist_rank.append((artist, max_sim, idxs, max_genre))
+    artist_rank.sort(key=lambda t: (-t[1], -t[3], t[0]))
 
     pool_indices: list[int] = []
     pool_artists: set[str] = set()
     seed_artist_key = _normalize_artist_key(artist_keys[seed_idx])
 
-    for artist, _, idxs in artist_rank:
+    for artist, _, idxs, _max_genre in artist_rank:
         per_artist_cap = cfg.candidates_per_artist
         if artist == seed_artist_key:
             per_artist_cap += cfg.seed_artist_bonus
-        sorted_idxs = sorted(idxs, key=lambda i: (-seed_sim_all[i], i))
+        _genre_key = genre_sim_all if genre_sim_all is not None else None
+        sorted_idxs = sorted(
+            idxs,
+            key=lambda i: (-seed_sim_all[i], -(float(_genre_key[i]) if _genre_key is not None else 0.0), i),
+        )
         take = sorted_idxs[:per_artist_cap]
         for idx in take:
             if len(pool_indices) >= cfg.max_pool_size and len(pool_artists) >= cfg.target_artists:
