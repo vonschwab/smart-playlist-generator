@@ -152,6 +152,7 @@ class TestModePresetsApplication:
         # Sonic settings
         candidate_pool = playlists_cfg["ds_pipeline"]["candidate_pool"]
         assert candidate_pool["min_sonic_similarity"] == 0.20
+        assert candidate_pool["broad_filters"] == ["rock", "indie", "alternative", "pop"]
 
     def test_apply_narrow_mode_presets(self):
         """Verify apply_mode_presets works for narrow mode (Phase 2A/2B relaxation)."""
@@ -171,6 +172,7 @@ class TestModePresetsApplication:
         # Sonic settings
         candidate_pool = playlists_cfg["ds_pipeline"]["candidate_pool"]
         assert candidate_pool["min_sonic_similarity"] == 0.12  # Relaxed from 0.18
+        assert candidate_pool["broad_filters"] == ["rock", "indie", "alternative", "pop"]
 
     def test_apply_dynamic_mode_presets(self):
         """Verify apply_mode_presets works for dynamic mode (Phase 2A/2B relaxation)."""
@@ -189,6 +191,69 @@ class TestModePresetsApplication:
         # Sonic settings
         candidate_pool = playlists_cfg["ds_pipeline"]["candidate_pool"]
         assert candidate_pool["min_sonic_similarity"] == 0.05  # Relaxed from 0.10
+        assert "broad_filters" not in candidate_pool
+
+    def test_apply_mode_presets_preserves_custom_broad_filters(self):
+        playlists_cfg = {
+            "genre_mode": "narrow",
+            "sonic_mode": "narrow",
+            "ds_pipeline": {
+                "candidate_pool": {
+                    "broad_filters": ["rock"],
+                },
+            },
+        }
+
+        apply_mode_presets(playlists_cfg)
+
+        candidate_pool = playlists_cfg["ds_pipeline"]["candidate_pool"]
+        assert candidate_pool["broad_filters"] == ["rock"]
+
+
+class TestGenreIdfEnabledPresets:
+    """Test that genre_idf_enabled is wired correctly through mode presets."""
+
+    def test_genre_mode_presets_idf_values(self):
+        """discover disables IDF; strict/narrow/dynamic leave it on."""
+        assert GENRE_MODE_PRESETS["strict"]["genre_idf_enabled"] is True
+        assert GENRE_MODE_PRESETS["narrow"]["genre_idf_enabled"] is True
+        assert GENRE_MODE_PRESETS["dynamic"]["genre_idf_enabled"] is True
+        assert GENRE_MODE_PRESETS["discover"]["genre_idf_enabled"] is False
+
+    def test_default_ds_config_idf_enabled_by_mode(self):
+        """default_ds_config propagates genre_idf_enabled from mode defaults."""
+        from src.playlist.config import default_ds_config
+
+        assert default_ds_config("strict", playlist_len=20).candidate.genre_idf_enabled is True
+        assert default_ds_config("narrow", playlist_len=20).candidate.genre_idf_enabled is True
+        assert default_ds_config("dynamic", playlist_len=20).candidate.genre_idf_enabled is True
+        assert default_ds_config("discover", playlist_len=20).candidate.genre_idf_enabled is False
+
+    def test_apply_mode_presets_sets_genre_idf_enabled(self):
+        """apply_mode_presets writes genre_idf_enabled into candidate_pool."""
+        # discover -> False
+        cfg_discover = {"genre_mode": "discover", "sonic_mode": "discover"}
+        apply_mode_presets(cfg_discover)
+        pool_discover = cfg_discover["ds_pipeline"]["candidate_pool"]
+        assert pool_discover["genre_idf_enabled"] is False
+
+        # strict -> True
+        cfg_strict = {"genre_mode": "strict", "sonic_mode": "strict"}
+        apply_mode_presets(cfg_strict)
+        pool_strict = cfg_strict["ds_pipeline"]["candidate_pool"]
+        assert pool_strict["genre_idf_enabled"] is True
+
+        # narrow -> True
+        cfg_narrow = {"genre_mode": "narrow", "sonic_mode": "narrow"}
+        apply_mode_presets(cfg_narrow)
+        pool_narrow = cfg_narrow["ds_pipeline"]["candidate_pool"]
+        assert pool_narrow["genre_idf_enabled"] is True
+
+        # dynamic -> True
+        cfg_dynamic = {"genre_mode": "dynamic", "sonic_mode": "dynamic"}
+        apply_mode_presets(cfg_dynamic)
+        pool_dynamic = cfg_dynamic["ds_pipeline"]["candidate_pool"]
+        assert pool_dynamic["genre_idf_enabled"] is True
 
 
 if __name__ == "__main__":

@@ -440,7 +440,13 @@ def default_ds_config(
             for f in (candidate_pool.get("title_hard_exclude_flags", ["interlude", "skit", "acapella"]) or [])
             if str(f).strip()
         ),
-        genre_idf_enabled=bool(candidate_pool.get("genre_idf_enabled", True)),
+        genre_idf_enabled=bool(
+            candidate_pool.get(
+                "genre_idf_enabled",
+                # discover turns IDF off — exploration mode shouldn't reward narrow tag matches
+                mode != "discover",
+            )
+        ),
     )
 
     # Construction config with config.yaml overrides
