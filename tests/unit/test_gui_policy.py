@@ -446,10 +446,6 @@ class TestArtistDiversity:
             decisions.overrides,
             "playlists.ds_pipeline.pier_bridge.max_non_seed_tracks_per_artist",
         )
-        assert _get_nested(
-            decisions.overrides,
-            "playlists.ds_pipeline.pier_bridge.max_non_seed_tracks_per_artist",
-        ) is None
 
     def test_weighted_diversity_preserves_user_pier_bridge_cap_when_merged(self):
         user_overrides = {

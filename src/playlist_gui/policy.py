@@ -38,6 +38,7 @@ POLICY_OWNED_KEYS: Set[str] = {
     "playlists.tracks_per_playlist",
     # Diversity bonus
     "playlists.ds_pipeline.scoring.gamma",
+    "playlists.ds_pipeline.pier_bridge.max_non_seed_tracks_per_artist",
     # DJ bridging core settings (gated by policy rules)
     "playlists.ds_pipeline.pier_bridge.dj_bridging.enabled",
     "playlists.ds_pipeline.pier_bridge.dj_bridging.seed_ordering",

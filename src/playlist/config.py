@@ -22,6 +22,8 @@ class CandidatePoolConfig:
     duration_penalty_enabled: bool = True
     duration_penalty_weight: float = 0.6
     duration_cutoff_multiplier: float = 2.5
+    title_exclusion_enabled: bool = True
+    title_exclusion_words: tuple[str, ...] = ("interlude", "skit")
     broad_filters: tuple[str, ...] = ()
     genre_compatibility_enabled: bool = False
     genre_compatibility_penalty_strength: float = 0.0
@@ -428,6 +430,12 @@ def default_ds_config(
         ),
         duration_cutoff_multiplier=float(
             candidate_pool.get("duration_cutoff_multiplier", 2.5)
+        ),
+        title_exclusion_enabled=bool(candidate_pool.get("title_exclusion_enabled", True)),
+        title_exclusion_words=tuple(
+            str(word).strip().lower()
+            for word in candidate_pool.get("title_exclusion_words", ["interlude", "skit"])
+            if str(word).strip()
         ),
         broad_filters=tuple(str(b).lower() for b in broad_filters_cfg),
         genre_compatibility_enabled=bool(candidate_pool.get("genre_compatibility_enabled", False)),

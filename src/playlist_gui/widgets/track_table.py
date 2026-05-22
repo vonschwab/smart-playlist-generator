@@ -67,6 +67,7 @@ class TrackTable(QWidget):
     track_double_clicked = Signal(int, dict)
     status_changed = Signal(int, int)  # visible_count, total_count
     blacklist_requested = Signal(list)
+    blacklist_scope_requested = Signal(dict)
 
     def __init__(self, parent: Optional[QWidget] = None):
         # Ensure a QApplication exists (tests may construct this widget outside
@@ -510,6 +511,20 @@ class TrackTable(QWidget):
                 f"Blacklist {len(selected)} Track(s)",
                 lambda: self._confirm_blacklist(selected),
             )
+            if single_selection:
+                track = selected[0]
+                album = str(track.get("album", "") or "").strip()
+                artist = str(track.get("artist", "") or "").strip()
+                if album and artist:
+                    menu.addAction(
+                        f"Blacklist Album: {album}",
+                        lambda t=track: self._confirm_blacklist_scope("album", t),
+                    )
+                if artist:
+                    menu.addAction(
+                        f"Blacklist Artist: {artist}",
+                        lambda t=track: self._confirm_blacklist_scope("artist", t),
+                    )
 
         # Column visibility submenu
         columns_menu = menu.addMenu("Columns")
@@ -539,6 +554,40 @@ class TrackTable(QWidget):
         )
         if reply == QMessageBox.StandardButton.Yes:
             self.blacklist_requested.emit(selected)
+
+    def _confirm_blacklist_scope(self, scope: str, track: Dict[str, Any]) -> None:
+        """Confirm artist/album blacklist action and emit request."""
+        artist = str(track.get("artist", "") or "").strip()
+        album = str(track.get("album", "") or "").strip()
+        if scope == "artist":
+            label = artist
+            title = "Blacklist Artist"
+            message = (
+                f"Blacklist artist '{artist}'? Tracks by this artist will no longer "
+                "appear in generated playlists."
+            )
+        elif scope == "album":
+            label = album
+            title = "Blacklist Album"
+            message = (
+                f"Blacklist album '{album}' by {artist}? Tracks from this album will "
+                "no longer appear in generated playlists."
+            )
+        else:
+            return
+        if not label:
+            return
+        reply = QMessageBox.question(
+            self,
+            title,
+            message,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self.blacklist_scope_requested.emit(
+                {"scope": scope, "value": label, "artist": artist, "enabled": True}
+            )
 
     def _apply_column_visibility(self) -> None:
         """Hide or show optional columns based on current settings."""

@@ -389,6 +389,10 @@ def generate_candidate_pool(
     # Penalize candidates longer than the median seed duration before gating
     # Hard exclude candidates longer than duration_cutoff_multiplier * median seed duration
 
+    # Step 3.6: Title word exclusions
+    # Hard exclude candidates whose titles contain configured standalone words
+    # such as "interlude" or "skit" before ordering.
+
     # Step 4: Genre hard gate
     for idx in allowed_indices:
         genre_sim = max([
