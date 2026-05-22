@@ -82,6 +82,44 @@ def test_dynamic_sonic_floor_rejects_negative():
     assert "zero" in [artist_keys[i] for i in result.pool_indices.tolist()]
 
 
+def test_candidate_pool_excludes_configured_title_words():
+    embedding = np.array([
+        [1.0, 0.0],
+        [1.0, 0.0],
+        [1.0, 0.0],
+    ])
+    artist_keys = np.array(["seed", "skit_artist", "song_artist"])
+    track_titles = np.array(["Seed", "Intro Skit", "Album Track"])
+    cfg = CandidatePoolConfig(
+        similarity_floor=-1.0,
+        min_sonic_similarity=None,
+        max_pool_size=10,
+        target_artists=3,
+        candidates_per_artist=5,
+        seed_artist_bonus=0,
+        max_artist_fraction_final=1.0,
+        broad_filters=(),
+        title_hard_exclude_flags=frozenset({"skit", "interlude", "acapella"}),
+    )
+
+    result = build_candidate_pool(
+        seed_idx=0,
+        embedding=embedding,
+        artist_keys=artist_keys,
+        track_titles=track_titles,
+        cfg=cfg,
+        random_seed=0,
+        min_genre_similarity=None,
+        genre_method="ensemble",
+        genre_vocab=[],
+        broad_filters=(),
+        mode="dynamic",
+    )
+
+    assert [artist_keys[i] for i in result.pool_indices.tolist()] == ["song_artist"]
+    assert result.stats["title_exclusion_rejected"] == 1
+
+
 def test_dynamic_floor_config_override():
     # Floor override to 0.20 should reject 0.19 and admit 0.20
     embedding = np.array([
@@ -202,6 +240,153 @@ def test_broad_genre_mask_prevents_inflation():
     assert result.pool_indices.tolist() == []  # candidate should be rejected by genre gate
 
 
+def test_dynamic_broad_genre_overlap_guard_blocks_smoothed_inflation():
+    # Artist-mode often runs DS mode=dynamic while genre_mode=narrow supplies
+    # broad filters. A candidate that only shares a broad raw tag should not be
+    # rescued by smoothed secondary tags.
+    embedding = np.array([
+        [1.0, 0.0],
+        [1.0, 0.0],
+    ])
+    X_sonic = embedding.copy()
+    artist_keys = np.array(["seed", "cand"])
+
+    genre_vocab = ["rock", "dream pop", "hip hop"]
+    X_genre_raw = np.array([
+        [1, 1, 0],  # seed: rock + dream pop
+        [1, 0, 1],  # candidate: rock + hip hop; only broad raw overlap
+    ], dtype=float)
+    X_genre_smoothed = np.array([
+        [1.0, 1.0, 0.8],
+        [1.0, 0.8, 1.0],
+    ], dtype=float)
+
+    cfg = CandidatePoolConfig(
+        similarity_floor=-1.0,
+        min_sonic_similarity=None,
+        max_pool_size=10,
+        target_artists=2,
+        candidates_per_artist=5,
+        seed_artist_bonus=0,
+        max_artist_fraction_final=1.0,
+        broad_filters=("rock",),
+    )
+
+    result = build_candidate_pool(
+        seed_idx=0,
+        embedding=embedding,
+        artist_keys=artist_keys,
+        cfg=cfg,
+        random_seed=0,
+        X_sonic=X_sonic,
+        X_genre_raw=X_genre_raw,
+        X_genre_smoothed=X_genre_smoothed,
+        min_genre_similarity=0.3,
+        genre_method="ensemble",
+        genre_vocab=genre_vocab,
+        broad_filters=cfg.broad_filters,
+        mode="dynamic",
+    )
+
+    assert result.pool_indices.tolist() == []
+    assert result.stats["below_genre_similarity"] == 1
+    assert result.stats["genre_overlap_guard_rejected"] == 1
+
+
+def test_genre_conflict_rejects_one_overlap_with_many_conflicts():
+    embedding = np.array([
+        [1.0, 0.0],
+        [1.0, 0.0],
+    ])
+    artist_keys = np.array(["seed", "conflict"])
+    genre_vocab = ["indie pop", "punk", "rnb", "house", "soul", "funk"]
+    X_genre_raw = np.array([
+        [1, 1, 0, 0, 0, 0],
+        [1, 0, 1, 1, 1, 1],
+    ], dtype=float)
+
+    cfg = CandidatePoolConfig(
+        similarity_floor=-1.0,
+        min_sonic_similarity=None,
+        max_pool_size=10,
+        target_artists=2,
+        candidates_per_artist=5,
+        seed_artist_bonus=0,
+        max_artist_fraction_final=1.0,
+        broad_filters=(),
+        genre_conflict_enabled=True,
+        genre_conflict_min_confidence=0.5,
+        genre_conflict_penalty_strength=0.0,
+    )
+
+    result = build_candidate_pool(
+        seed_idx=0,
+        embedding=embedding,
+        artist_keys=artist_keys,
+        cfg=cfg,
+        random_seed=0,
+        X_genre_raw=X_genre_raw,
+        X_genre_smoothed=X_genre_raw,
+        min_genre_similarity=0.1,
+        genre_method="weighted_jaccard",
+        genre_vocab=genre_vocab,
+        broad_filters=(),
+        mode="dynamic",
+    )
+
+    assert result.pool_indices.tolist() == []
+    assert result.stats["genre_conflict_rejected"] == 1
+    assert result.params_effective["genre_conflict_enabled"] is True
+
+
+def test_genre_conflict_penalty_can_demote_without_rejecting():
+    embedding = np.array([
+        [1.0, 0.0],
+        [0.95, np.sqrt(1 - 0.95**2)],
+        [0.80, np.sqrt(1 - 0.80**2)],
+    ])
+    artist_keys = np.array(["seed", "conflict", "clean"])
+    genre_vocab = ["indie pop", "punk", "rnb", "house", "soul", "funk"]
+    X_genre_raw = np.array([
+        [1, 1, 0, 0, 0, 0],
+        [1, 0, 1, 1, 1, 1],
+        [1, 1, 0, 0, 0, 0],
+    ], dtype=float)
+
+    cfg = CandidatePoolConfig(
+        similarity_floor=0.75,
+        min_sonic_similarity=None,
+        max_pool_size=10,
+        target_artists=3,
+        candidates_per_artist=5,
+        seed_artist_bonus=0,
+        max_artist_fraction_final=1.0,
+        broad_filters=(),
+        genre_conflict_enabled=True,
+        genre_conflict_min_confidence=None,
+        genre_conflict_penalty_strength=0.30,
+    )
+
+    result = build_candidate_pool(
+        seed_idx=0,
+        embedding=embedding,
+        artist_keys=artist_keys,
+        cfg=cfg,
+        random_seed=0,
+        X_genre_raw=X_genre_raw,
+        X_genre_smoothed=X_genre_raw,
+        min_genre_similarity=None,
+        genre_method="weighted_jaccard",
+        genre_vocab=genre_vocab,
+        broad_filters=(),
+        mode="dynamic",
+    )
+
+    artists = [artist_keys[i] for i in result.pool_indices.tolist()]
+    assert artists == ["clean"]
+    assert result.stats["genre_conflict_penalty_applied"] == 1
+
+
 def test_genre_explainer_returns_filtered_pairs():
     calc = GenreSimilarityV2()
     score, details = calc.calculate_similarity_with_explain(
@@ -267,6 +452,99 @@ def _write_tiny_artifact(tmp_path, name="tiny_artifact.npz"):
         genre_vocab=genre_vocab,
     )
     return artifact_path
+
+
+def test_one_each_retries_with_relaxed_candidate_gate_when_pier_bridge_infeasible(tmp_path, monkeypatch):
+    from src.playlist.candidate_pool import CandidatePoolResult
+    from src.playlist.pipeline import generate_playlist_ds
+    from src.playlist.pier_bridge_builder import PierBridgeResult
+
+    import src.playlist.pipeline.core as pipeline_core
+
+    artifact_path = _write_tiny_artifact(tmp_path, "tiny_one_each_retry.npz")
+    pool_calls = []
+
+    def _fake_build_candidate_pool(**kwargs):
+        pool_calls.append((kwargs["cfg"], kwargs.get("min_genre_similarity")))
+        indices = np.array([2], dtype=int)
+        return CandidatePoolResult(
+            pool_indices=indices,
+            eligible_indices=indices,
+            seed_sim=np.ones(len(indices), dtype=float),
+            sonic_sim=np.ones(len(indices), dtype=float),
+            stats={
+                "pool_size": len(indices),
+                "eligible_count": len(indices),
+                "total_candidates_considered": 1,
+                "below_similarity_floor": 0,
+                "below_sonic_similarity": 0,
+                "below_genre_similarity": 0,
+            },
+            params_effective={
+                "similarity_floor": kwargs["cfg"].similarity_floor,
+                "min_sonic_similarity": kwargs["cfg"].min_sonic_similarity,
+                "min_genre_similarity": kwargs.get("min_genre_similarity"),
+            },
+        )
+
+    bridge_calls = []
+
+    def _fake_build_pier_bridge_playlist(**kwargs):
+        bridge_calls.append(kwargs)
+        if len(bridge_calls) == 1:
+            return PierBridgeResult(
+                track_ids=[],
+                track_indices=[],
+                seed_positions=[],
+                segment_diagnostics=[],
+                stats={},
+                success=False,
+                failure_reason="Segment 0 infeasible under bridge_floor backoff",
+            )
+        return PierBridgeResult(
+            track_ids=["t0", "t2", "t1"],
+            track_indices=[0, 2, 1],
+            seed_positions=[0, 2],
+            segment_diagnostics=[],
+            stats={"edge_scores": []},
+            success=True,
+        )
+
+    monkeypatch.setattr(pipeline_core, "build_candidate_pool", _fake_build_candidate_pool)
+    monkeypatch.setattr(pipeline_core, "build_pier_bridge_playlist", _fake_build_pier_bridge_playlist)
+
+    result = generate_playlist_ds(
+        artifact_path=str(artifact_path),
+        seed_track_id="t0",
+        anchor_seed_ids=["t1"],
+        num_tracks=3,
+        mode="narrow",
+        random_seed=0,
+        allowed_track_ids=["t0", "t1", "t2"],
+        overrides={
+            "candidate_pool": {
+                "genre_conflict_enabled": True,
+                "genre_conflict_min_confidence": 0.5,
+                "genre_conflict_penalty_strength": 0.3,
+            },
+            "pier_bridge": {"max_non_seed_tracks_per_artist": 1},
+        },
+        sonic_weight=0.5,
+        genre_weight=0.5,
+        min_genre_similarity=0.4,
+        genre_method="ensemble",
+    )
+
+    assert result.track_ids == ["t0", "t2", "t1"]
+    assert len(pool_calls) == 2
+    assert len(bridge_calls) == 2
+    assert pool_calls[1][0].similarity_floor < pool_calls[0][0].similarity_floor
+    assert pool_calls[1][0].min_sonic_similarity < pool_calls[0][0].min_sonic_similarity
+    assert pool_calls[1][0].genre_conflict_enabled is True
+    assert pool_calls[1][0].genre_conflict_min_confidence == 0.5
+    assert pool_calls[1][0].genre_conflict_penalty_strength == 0.3
+    assert pool_calls[1][1] < pool_calls[0][1]
+    assert result.stats["playlist"]["one_each_candidate_relaxation"]["attempt"] == 1
 
 
 def test_allowed_set_applies_excluded_track_ids_in_pipeline(tmp_path, monkeypatch):
@@ -473,6 +751,83 @@ def test_playlist_generator_does_not_post_filter_ds_results(monkeypatch, caplog)
     result = gen.create_playlist_for_artist(artist, track_count=3)
     assert len(result["tracks"]) == 3
     assert any("stage=post_order_validation" in rec.getMessage() for rec in caplog.records)
+
+
+def test_playlist_generator_excludes_title_words_from_automatic_artist_seeds(monkeypatch):
+    from src.playlist_generator import PlaylistGenerator
+
+    class DummyLibrary:
+        similarity_calc = object()
+
+        def __init__(self, tracks):
+            self._tracks = list(tracks)
+
+        def get_all_tracks(self, library_id=None):
+            return list(self._tracks)
+
+    class DummyConfig:
+        recently_played_filter_enabled = False
+        recently_played_lookback_days = 14
+        recently_played_min_playcount = 0
+        min_track_duration_seconds = 47
+        max_track_duration_seconds = 720
+        config = {
+            "playlists": {
+                "ds_pipeline": {
+                    "candidate_pool": {
+                        "title_exclusion_enabled": True,
+                        "title_exclusion_words": ["skit", "interlude", "acapella"],
+                    }
+                }
+            }
+        }
+
+        def get(self, section, key=None, default=None):
+            if key is None:
+                return self.config.get(section, default)
+            return self.config.get(section, {}).get(key, default)
+
+    artist = "Test Artist"
+    library_tracks = [
+        {
+            "rating_key": f"s{i}",
+            "artist": artist,
+            "artist_key": "test artist",
+            "title": title,
+            "duration": 180000,
+        }
+        for i, title in enumerate([
+            "Good Seed 0",
+            "Good Seed 1",
+            "Good Seed 2",
+            "Acapella Version",
+            "Good Seed 3",
+        ])
+    ]
+    gen = PlaylistGenerator(DummyLibrary(library_tracks), DummyConfig(), lastfm_client=None)
+    monkeypatch.setattr(gen, "_print_playlist_report", lambda *args, **kwargs: None)
+    monkeypatch.setattr(gen, "_compute_edge_scores_from_artifact", lambda *args, **kwargs: [])
+
+    captured_seed_titles = []
+
+    def _stub_ds(*args, **kwargs):
+        captured_seed_titles.extend(track.get("title") for track in kwargs["anchor_seed_tracks"])
+        gen._last_ds_report = {
+            "metrics": {"strategy": "pier_bridge"},
+            "playlist_stats": {"playlist": {}},
+        }
+        return [
+            {"rating_key": "p0", "artist": artist, "title": "Pier 0", "duration": 180000},
+            {"rating_key": "x1", "artist": "Other", "title": "Bridge 1", "duration": 180000},
+            {"rating_key": "p2", "artist": artist, "title": "Pier 2", "duration": 180000},
+        ]
+
+    monkeypatch.setattr(gen, "_maybe_generate_ds_playlist", _stub_ds)
+
+    result = gen.create_playlist_for_artist(artist, track_count=3)
+
+    assert len(result["tracks"]) == 3
+    assert "Acapella Version" not in captured_seed_titles
 
 
 def test_playlist_generator_refreshes_ds_metrics_after_final_edge_recompute(monkeypatch):

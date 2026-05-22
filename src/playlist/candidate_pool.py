@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 import numpy as np
 
 from .config import CandidatePoolConfig
+from .genre_compatibility import compute_raw_genre_compatibility
+from src.playlist.title_quality import detect_title_artifacts
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +128,43 @@ def _compute_duration_penalty(
     return penalty
 
 
+def _first_rejection_reason(
+    *,
+    idx: int,
+    seed_mask: np.ndarray,
+    seed_sim_all: np.ndarray,
+    similarity_floor: float,
+    sonic_seed_sim: Optional[np.ndarray],
+    sonic_floor: Optional[float],
+    genre_sim_all: Optional[np.ndarray],
+    min_genre_similarity: Optional[float],
+    genre_conflict_result: Any,
+    genre_conflict_min_confidence: Optional[float],
+    pool_set: set[int],
+    eligible_set: set[int],
+) -> str:
+    if bool(seed_mask[idx]):
+        return "seed"
+    if float(seed_sim_all[idx]) < float(similarity_floor):
+        return "below_similarity_floor"
+    if sonic_seed_sim is not None and sonic_floor is not None and float(sonic_seed_sim[idx]) < float(sonic_floor):
+        return "below_sonic_similarity"
+    if (
+        genre_sim_all is not None
+        and min_genre_similarity is not None
+        and float(genre_sim_all[idx]) < float(min_genre_similarity)
+    ):
+        return "below_genre_similarity"
+    if genre_conflict_result is not None and genre_conflict_min_confidence is not None:
+        missing = bool(genre_conflict_result.missing_or_sparse[idx])
+        confidence = float(genre_conflict_result.confidence[idx])
+        if not missing and confidence < float(genre_conflict_min_confidence):
+            return "genre_conflict"
+    if idx in eligible_set and idx not in pool_set:
+        return "artist_cap"
+    return "admitted" if idx in pool_set else "not_selected"
+
+
 def build_candidate_pool(
     *,
     seed_idx: int,
@@ -240,16 +280,24 @@ def build_candidate_pool(
     total_candidates = len(seed_sim_all) - len(seed_list)  # exclude all seeds
     below_floor_count = 0
     below_genre_count = 0
+    genre_overlap_guard_rejected = 0
+    genre_conflict_rejected = 0
+    genre_conflict_penalty_applied = 0
+    title_exclusion_rejected = 0
     rejected_sonic: list[tuple[int, float]] = []
 
     # Compute genre similarity if provided
     genre_sim_all = None
     genre_raw_matrix = X_genre_raw
     genre_mask = None
-    if broad_filters and genre_vocab:
-        genre_mask = np.array([g.lower() not in broad_filters for g in genre_vocab], dtype=bool)
+    genre_vocab_effective = [] if genre_vocab is None else [str(g) for g in list(genre_vocab)]
+    if broad_filters and genre_vocab_effective:
+        genre_mask = np.array([g.lower() not in broad_filters for g in genre_vocab_effective], dtype=bool)
         if genre_raw_matrix is not None and genre_mask.shape[0] == genre_raw_matrix.shape[1]:
             genre_raw_matrix = genre_raw_matrix[:, genre_mask]
+            genre_vocab_effective = [
+                str(g) for g, keep in zip(genre_vocab_effective, genre_mask) if bool(keep)
+            ]
 
     if min_genre_similarity is not None and (X_genre_raw is not None or X_genre_smoothed is not None):
         # Choose matrix based on method
@@ -268,10 +316,45 @@ def build_candidate_pool(
             genre_method, min_genre_similarity, mode
         )
 
+    genre_conflict_result = None
+    if (
+        cfg.genre_conflict_enabled
+        and genre_raw_matrix is not None
+        and genre_raw_matrix.ndim == 2
+        and genre_raw_matrix.shape[0] == len(seed_sim_all)
+        and genre_raw_matrix.shape[1] == len(genre_vocab_effective)
+    ):
+        seed_raw = np.max(genre_raw_matrix[seed_list], axis=0)
+        genre_conflict_result = compute_raw_genre_compatibility(
+            seed_raw=seed_raw,
+            candidate_raw=genre_raw_matrix,
+            genre_vocab=genre_vocab_effective,
+            compatible_threshold=cfg.genre_conflict_compatible_threshold,
+            conflict_threshold=cfg.genre_conflict_conflict_threshold,
+            penalty_strength=cfg.genre_conflict_penalty_strength,
+        )
+        if cfg.genre_conflict_penalty_strength > 0:
+            penalty = np.asarray(genre_conflict_result.penalty, dtype=float)
+            penalized = (penalty > 0) & (~seed_mask)
+            genre_conflict_penalty_applied = int(np.count_nonzero(penalized))
+            seed_sim_all = seed_sim_all - penalty
+            logger.info(
+                "Genre conflict penalty applied: penalized=%d strength=%.3f",
+                genre_conflict_penalty_applied,
+                float(cfg.genre_conflict_penalty_strength),
+            )
+
     # Build initial eligible list (by hybrid similarity floor and sonic floor if provided)
     eligible: list[int] = []
     for i, sim in enumerate(seed_sim_all):
         if seed_mask[i]:
+            continue
+        if (
+            track_titles is not None
+            and cfg.title_hard_exclude_flags
+            and detect_title_artifacts(str(track_titles[i])) & cfg.title_hard_exclude_flags
+        ):
+            title_exclusion_rejected += 1
             continue
         if sim < cfg.similarity_floor:
             below_floor_count += 1
@@ -320,11 +403,20 @@ def build_candidate_pool(
 
     # Apply genre gate (hard gate for dynamic/narrow, soft for discover)
     if genre_sim_all is not None:
-        # Optional overlap guard for narrow: require at least one non-broad shared tag
-        if mode == "narrow" and genre_raw_matrix is not None:
+        # Optional overlap guard: require at least one raw shared tag after broad
+        # filters. This prevents smoothed vectors from admitting tracks that only
+        # match through generic tags such as "rock" or "pop".
+        overlap_guard_enabled = genre_raw_matrix is not None and (
+            mode == "narrow" or (mode == "dynamic" and bool(broad_filters))
+        )
+        if overlap_guard_enabled:
             seed_binary = (genre_raw_matrix[seed_idx] > 0).astype(float)
             overlaps = (genre_raw_matrix > 0) & (seed_binary > 0)
             zero_overlap_mask = overlaps.sum(axis=1) == 0
+            if mode in ("dynamic", "narrow"):
+                genre_overlap_guard_rejected = int(
+                    sum(1 for i in eligible if bool(zero_overlap_mask[i]))
+                )
             genre_sim_all = np.where(zero_overlap_mask, 0.0, genre_sim_all)
 
         if mode in ("dynamic", "narrow"):
@@ -337,6 +429,22 @@ def build_candidate_pool(
                 below_genre_count, mode
             )
         # For "discover" mode, we compute genre_sim but don't exclude (soft penalty later if needed)
+
+    if genre_conflict_result is not None and cfg.genre_conflict_min_confidence is not None:
+        min_confidence = float(cfg.genre_conflict_min_confidence)
+        eligible_before_conflict = len(eligible)
+        eligible = [
+            i for i in eligible
+            if bool(genre_conflict_result.missing_or_sparse[i])
+            or float(genre_conflict_result.confidence[i]) >= min_confidence
+        ]
+        genre_conflict_rejected = eligible_before_conflict - len(eligible)
+        if genre_conflict_rejected:
+            logger.info(
+                "Genre conflict confidence gate applied: rejected=%d min_confidence=%.3f",
+                genre_conflict_rejected,
+                min_confidence,
+            )
     grouped: Dict[str, list[int]] = {}
     for idx in eligible:
         key = _normalize_artist_key(artist_keys[idx])
@@ -396,6 +504,14 @@ def build_candidate_pool(
         params_effective["min_genre_similarity"] = min_genre_similarity
         if broad_filters:
             params_effective["broad_filters"] = list(broad_filters)
+    if cfg.genre_conflict_enabled:
+        params_effective["genre_conflict_enabled"] = True
+        params_effective["genre_conflict_min_confidence"] = cfg.genre_conflict_min_confidence
+        params_effective["genre_conflict_penalty_strength"] = cfg.genre_conflict_penalty_strength
+        params_effective["genre_conflict_compatible_threshold"] = cfg.genre_conflict_compatible_threshold
+        params_effective["genre_conflict_conflict_threshold"] = cfg.genre_conflict_conflict_threshold
+    if cfg.title_hard_exclude_flags:
+        params_effective["title_hard_exclude_flags"] = sorted(cfg.title_hard_exclude_flags)
 
     stats = {
         "pool_size": len(pool_indices),
@@ -407,6 +523,10 @@ def build_candidate_pool(
         "total_candidates_considered": total_candidates,
         "below_similarity_floor": below_floor_count,
         "below_genre_similarity": below_genre_count,  # NEW: genre gating exclusions
+        "genre_overlap_guard_rejected": genre_overlap_guard_rejected,
+        "genre_conflict_rejected": genre_conflict_rejected,
+        "genre_conflict_penalty_applied": genre_conflict_penalty_applied,
+        "title_exclusion_rejected": title_exclusion_rejected,
         "below_sonic_similarity": below_sonic_floor,
         "artist_cap_excluded": max(0, artist_cap_excluded),
         "eligible_count": len(eligible),
@@ -421,6 +541,74 @@ def build_candidate_pool(
                 for idx in pool_indices
             }
         stats["seed_sonic_sim"] = {int(idx): float(sonic_seed_sim[idx]) for idx in pool_indices}
+
+    watched_raw = os.environ.get("PLAYLIST_WATCHED_ARTISTS", "")
+    watched_keys = {
+        _normalize_artist_key(part)
+        for part in watched_raw.split(",")
+        if part.strip()
+    }
+    if watched_keys:
+        pool_set = set(int(i) for i in pool_indices)
+        eligible_set = set(int(i) for i in eligible)
+        logger.info(
+            "Watched artists diagnostics: artist | total_tracks | admitted_count | in_allowed_pool | "
+            "best_seed_sonic_sim | best_hybrid_sim | best_genre_sim | rejected_reason_counts | "
+            "segment_pool_count | selected_count"
+        )
+        for watched in sorted(watched_keys):
+            idxs = [
+                int(i) for i, raw_artist in enumerate(artist_keys)
+                if _normalize_artist_key(raw_artist) == watched
+            ]
+            if not idxs:
+                logger.info(
+                    "Watched artist: %s | total_tracks=0 | admitted_count=0 | in_allowed_pool=0 | "
+                    "best_seed_sonic_sim=n/a | best_hybrid_sim=n/a | best_genre_sim=n/a | "
+                    "rejected_reason_counts={} | segment_pool_count=n/a | selected_count=n/a",
+                    watched,
+                )
+                continue
+            reason_counts: Dict[str, int] = {}
+            for idx in idxs:
+                reason = _first_rejection_reason(
+                    idx=idx,
+                    seed_mask=seed_mask,
+                    seed_sim_all=seed_sim_all,
+                    similarity_floor=cfg.similarity_floor,
+                    sonic_seed_sim=sonic_seed_sim,
+                    sonic_floor=sonic_floor,
+                    genre_sim_all=genre_sim_all,
+                    min_genre_similarity=min_genre_similarity,
+                    genre_conflict_result=genre_conflict_result,
+                    genre_conflict_min_confidence=cfg.genre_conflict_min_confidence,
+                    pool_set=pool_set,
+                    eligible_set=eligible_set,
+                )
+                reason_counts[reason] = reason_counts.get(reason, 0) + 1
+            best_sonic = (
+                max(float(sonic_seed_sim[i]) for i in idxs)
+                if sonic_seed_sim is not None
+                else None
+            )
+            best_genre = (
+                max(float(genre_sim_all[i]) for i in idxs)
+                if genre_sim_all is not None
+                else None
+            )
+            logger.info(
+                "Watched artist: %s | total_tracks=%d | admitted_count=%d | in_allowed_pool=%d | "
+                "best_seed_sonic_sim=%s | best_hybrid_sim=%.3f | best_genre_sim=%s | "
+                "rejected_reason_counts=%s | segment_pool_count=n/a | selected_count=n/a",
+                watched,
+                len(idxs),
+                sum(1 for i in idxs if i in eligible_set),
+                sum(1 for i in idxs if i in pool_set),
+                "n/a" if best_sonic is None else f"{best_sonic:.3f}",
+                max(float(seed_sim_all[i]) for i in idxs),
+                "n/a" if best_genre is None else f"{best_genre:.3f}",
+                reason_counts,
+            )
 
     # Stage-level logging
     try:

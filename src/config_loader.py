@@ -20,7 +20,7 @@ class Config:
         if not os.path.exists(self.config_path):
             raise FileNotFoundError(f"Configuration file not found: {self.config_path}")
 
-        with open(self.config_path, 'r') as f:
+        with open(self.config_path, 'r', encoding='utf-8') as f:
             return yaml.safe_load(f)
 
     def _apply_mode_presets(self):
