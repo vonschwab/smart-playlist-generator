@@ -21,9 +21,7 @@ from src.playlist.config import resolve_pier_bridge_tuning as _resolve_pier_brid
 from src.playlist.pier_bridge_diagnostics import (
     SegmentDiagnostics as _SegmentDiagnosticsExtracted,
 )
-from src.playlist.pier_bridge.genre import (
-    _compute_genre_idf as _compute_genre_idf_impl,
-)
+from src.playlist.genre_idf import compute_genre_idf as _compute_genre_idf_shared
 from src.playlist.pier_bridge.vec import (
     _compute_transition_score as _compute_transition_score_impl,
     _compute_transition_score_raw_and_transformed as _compute_transition_score_raw_and_transformed_impl,
@@ -269,10 +267,10 @@ def resolve_pier_bridge_tuning(
 
 def _compute_genre_idf(X_genre_raw: np.ndarray, cfg: PierBridgeConfig) -> np.ndarray:
     """Backward-compat wrapper — unpacks PierBridgeConfig to primitives."""
-    return _compute_genre_idf_impl(
-        X_genre_raw,
-        idf_power=float(cfg.dj_genre_idf_power),
-        idf_norm=str(cfg.dj_genre_idf_norm),
+    return _compute_genre_idf_shared(
+        X_genre_raw=X_genre_raw,
+        power=float(cfg.dj_genre_idf_power),
+        norm=str(cfg.dj_genre_idf_norm),
     )
 
 

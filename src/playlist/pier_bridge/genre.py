@@ -11,6 +11,9 @@ it now takes those two values as primitives so this module has no back-
 reference to pier_bridge_builder.PierBridgeConfig (avoiding circular import).
 The pier_bridge_builder call sites pass cfg.dj_genre_idf_power and
 cfg.dj_genre_idf_norm explicitly.
+
+As of Task 1 (shared IDF module), _compute_genre_idf delegates to the shared
+src.playlist.genre_idf.compute_genre_idf for a single source of truth.
 """
 from __future__ import annotations
 
@@ -24,6 +27,7 @@ import numpy as np
 import yaml
 
 from src.genre.similarity import load_yaml_overrides, pairwise_genre_similarity
+from src.playlist.genre_idf import compute_genre_idf as _compute_genre_idf_shared
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +52,9 @@ def _compute_genre_idf(
     """
     Compute IDF (inverse document frequency) for each genre.
 
+    Delegates to the shared src.playlist.genre_idf.compute_genre_idf for a
+    single source of truth.
+
     Formula:
         df[g] = count(tracks where genre[g] > 0)
         idf[g] = log((N + 1) / (df[g] + 1))  # +1 smoothing
@@ -58,32 +65,11 @@ def _compute_genre_idf(
         idf: (G,) array where idf[g] ∈ [0, 1] (after normalization)
              High values = rare genres, low values = common genres.
     """
-    N, G = X_genre_raw.shape
-
-    # Count tracks per genre (document frequency)
-    df = (X_genre_raw > 0).sum(axis=0)  # (G,)
-
-    # Compute raw IDF
-    idf = np.log((N + 1) / (df + 1))  # +1 smoothing
-
-    # Apply power scaling
-    power = float(idf_power)
-    if power != 1.0 and power > 0:
-        idf = idf ** power
-
-    # Normalize
-    norm_method = str(idf_norm).strip().lower()
-    if norm_method == "max1":
-        max_val = np.max(idf)
-        if max_val > 0:
-            idf = idf / max_val  # Scale to [0, 1]
-    elif norm_method == "sum1":
-        sum_val = np.sum(idf)
-        if sum_val > 0:
-            idf = idf / sum_val  # Sum to 1.0
-    # else: "none" - keep raw values
-
-    return idf
+    return _compute_genre_idf_shared(
+        X_genre_raw=X_genre_raw,
+        power=float(idf_power),
+        norm=str(idf_norm),
+    )
 
 
 def _apply_idf_weighting(
