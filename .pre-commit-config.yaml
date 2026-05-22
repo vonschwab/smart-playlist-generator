@@ -1,0 +1,29 @@
+# Pre-commit hooks. Install once with `pip install pre-commit && pre-commit install`.
+# CI runs the same ruff check; this just catches issues earlier.
+#
+# Mypy is intentionally excluded — it's slow to run on every commit.
+# CI handles mypy on the allowlisted modules (see [tool.mypy] in pyproject.toml).
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.12
+    hooks:
+      - id: ruff
+        name: ruff (lint)
+        args: [--fix]
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: '\.md$'
+      - id: end-of-file-fixer
+        exclude: '\.md$'
+      - id: check-yaml
+        # config.yaml may be intentionally absent on a fresh checkout.
+        exclude: '^config\.yaml$'
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: detect-private-key

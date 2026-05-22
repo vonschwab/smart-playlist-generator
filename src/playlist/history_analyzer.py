@@ -120,6 +120,7 @@ def select_diverse_seeds(
     Select seed tracks ensuring artist diversity.
 
     Ensures no artist dominates the seed selection.
+    Filters out tracks with invalid duration (< 47s or > 720s).
 
     Args:
         play_counts: Counter of track_id -> play count
@@ -129,12 +130,19 @@ def select_diverse_seeds(
     Returns:
         Diverse seed tracks
     """
+    from src.playlist.filtering import is_valid_duration
+
     seeds = []
     used_artists = set()
 
     # First pass: one track per artist (by play count)
     for key, play_count in play_counts.most_common():
         track = track_metadata[key]
+
+        # Skip tracks with invalid duration
+        if not is_valid_duration(track, min_seconds=47, max_seconds=720):
+            continue
+
         artist = track.get('artist', 'Unknown')
         artist_key = safe_get_artist_key(track)
         title = track.get('title', 'Unknown Track')
@@ -159,6 +167,11 @@ def select_diverse_seeds(
                 break
 
             track = {**track_metadata[key], 'play_count': play_count}
+
+            # Skip tracks with invalid duration
+            if not is_valid_duration(track, min_seconds=47, max_seconds=720):
+                continue
+
             if track not in seeds:
                 artist = track.get('artist', 'Unknown')
                 title = track.get('title', 'Unknown Track')

@@ -436,7 +436,6 @@ class LibrosaAnalyzer:
 
 # Example usage
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
     analyzer = LibrosaAnalyzer()
 
     # Test with a file (you'll need to provide a valid path)

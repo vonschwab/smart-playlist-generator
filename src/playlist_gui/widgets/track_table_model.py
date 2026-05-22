@@ -4,6 +4,7 @@ Track Table Model - QAbstractTableModel for playlist tracks
 Provides a proper model/view implementation for efficient display of playlist tracks.
 Supports sorting by any column and role-based data access.
 """
+import math
 from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import (
@@ -12,6 +13,7 @@ from PySide6.QtCore import (
     QSortFilterProxyModel,
     Qt,
 )
+from PySide6.QtGui import QBrush, QColor
 
 
 class Column:
@@ -21,10 +23,33 @@ class Column:
     TITLE = 2
     ALBUM = 3
     DURATION = 4
-    FILE_PATH = 5
+    SONIC_SIM = 5
+    GENRE_SIM = 6
+    GENRES = 7
+    FILE_PATH = 8
 
-    HEADERS = ["#", "Artist", "Title", "Album", "Duration", "File Path"]
-    KEYS = ["position", "artist", "title", "album", "duration_ms", "file_path"]
+    HEADERS = [
+        "#",
+        "Artist",
+        "Title",
+        "Album",
+        "Duration",
+        "Sonic Sim",
+        "Genre Sim",
+        "Genres",
+        "File Path",
+    ]
+    KEYS = [
+        "position",
+        "artist",
+        "title",
+        "album",
+        "duration_ms",
+        "sonic_similarity",
+        "genre_similarity",
+        "genres",
+        "file_path",
+    ]
 
 
 def format_duration(ms: int) -> str:
@@ -68,6 +93,19 @@ def normalize_duration(value: Any) -> int:
         return num
     except (ValueError, TypeError):
         return 0
+
+
+def format_similarity_components(value: Any) -> str:
+    """Format a similarity component value for display."""
+    try:
+        if value is None:
+            return ""
+        num = float(value)
+        if math.isnan(num):
+            return ""
+        return f"{num:.3f}"
+    except (TypeError, ValueError):
+        return ""
 
 
 class TrackTableModel(QAbstractTableModel):
@@ -126,6 +164,26 @@ class TrackTableModel(QAbstractTableModel):
                 # Format duration as M:SS
                 ms = normalize_duration(value)
                 return format_duration(ms)
+            elif col in (Column.SONIC_SIM, Column.GENRE_SIM):
+                comp_key = (
+                    "sonic_similarity_components"
+                    if col == Column.SONIC_SIM
+                    else "genre_similarity_components"
+                )
+                components = track.get(comp_key)
+                if isinstance(components, dict):
+                    t_val = format_similarity_components(components.get("t"))
+                    s1_val = format_similarity_components(components.get("s1"))
+                    s2_val = format_similarity_components(components.get("s2"))
+                    return f"T({t_val})/S1({s1_val})/S2({s2_val})"
+                try:
+                    return f"{float(value):.3f}"
+                except (TypeError, ValueError):
+                    return ""
+            elif col == Column.GENRES:
+                if isinstance(value, (list, tuple)):
+                    return ", ".join([str(v) for v in value if v])
+                return str(value) if value else ""
             elif col == Column.INDEX:
                 return str(value) if value else ""
             else:
@@ -135,6 +193,11 @@ class TrackTableModel(QAbstractTableModel):
             # Raw value for sorting
             if col == Column.DURATION:
                 return normalize_duration(value)
+            elif col in (Column.SONIC_SIM, Column.GENRE_SIM):
+                try:
+                    return float(value)
+                except (TypeError, ValueError):
+                    return 0.0
             elif col == Column.INDEX:
                 try:
                     return int(value) if value else 0
@@ -145,13 +208,18 @@ class TrackTableModel(QAbstractTableModel):
                 return str(value).lower() if value else ""
 
         elif role == Qt.TextAlignmentRole:
-            if col == Column.INDEX or col == Column.DURATION:
+            if col in (Column.INDEX, Column.DURATION, Column.SONIC_SIM, Column.GENRE_SIM):
                 return Qt.AlignRight | Qt.AlignVCenter
             return Qt.AlignLeft | Qt.AlignVCenter
+        elif role == Qt.ForegroundRole:
+            if track.get("is_blacklisted"):
+                return QBrush(QColor("#a33"))
 
         elif role == Qt.ToolTipRole:
             if col == Column.FILE_PATH:
                 return str(value) if value else ""
+            if track.get("is_blacklisted"):
+                return "Blacklisted"
 
         return None
 
@@ -174,6 +242,24 @@ class TrackTableModel(QAbstractTableModel):
         self.beginResetModel()
         self._tracks = list(tracks)  # Copy the list
         self.endResetModel()
+
+    def mark_blacklisted(self, track_ids: set[str], value: bool) -> int:
+        """Mark tracks as blacklisted by rating_key."""
+        if not track_ids:
+            return 0
+        updated = 0
+        for track in self._tracks:
+            track_id = track.get("rating_key") or track.get("id") or track.get("track_id")
+            if track_id is None:
+                continue
+            if str(track_id) in track_ids:
+                track["is_blacklisted"] = bool(value)
+                updated += 1
+        if updated:
+            top_left = self.index(0, 0)
+            bottom_right = self.index(self.rowCount() - 1, self.columnCount() - 1)
+            self.dataChanged.emit(top_left, bottom_right)
+        return updated
 
     def get_track(self, row: int) -> Optional[Dict[str, Any]]:
         """Get track data at the given row."""
@@ -211,7 +297,8 @@ class TrackFilterProxyModel(QSortFilterProxyModel):
         """Toggle whether file path is included in filter matching."""
         if self._include_path_in_search != include:
             self._include_path_in_search = include
-            self.invalidateFilter()
+            self.beginFilterChange()
+            self.endFilterChange()
 
     def filterAcceptsRow(self, source_row: int, source_parent: QModelIndex) -> bool:
         """
@@ -227,8 +314,8 @@ class TrackFilterProxyModel(QSortFilterProxyModel):
         if not model:
             return True
 
-        # Check columns: Artist, Title, Album
-        columns_to_check = [Column.ARTIST, Column.TITLE, Column.ALBUM]
+        # Check columns: Artist, Title, Album (and Genres for extra context)
+        columns_to_check = [Column.ARTIST, Column.TITLE, Column.ALBUM, Column.GENRES]
         if self._include_path_in_search:
             columns_to_check.append(Column.FILE_PATH)
 

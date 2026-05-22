@@ -4,11 +4,11 @@ Track Matcher - Matches Last.FM tracks to library
 from typing import List, Dict, Any, Optional, Tuple
 import logging
 import sqlite3
-from datetime import datetime, timedelta
 from difflib import SequenceMatcher
 import time
 
 from .artist_utils import get_artist_variations
+from .blacklist_db import ensure_blacklist_schema
 from .string_utils import normalize_match_string
 
 logger = logging.getLogger(__name__)
@@ -45,6 +45,7 @@ class TrackMatcher:
         try:
             self.conn = sqlite3.connect(self.db_path)
             self.conn.row_factory = sqlite3.Row
+            ensure_blacklist_schema(self.conn, logger=logger)
             logger.debug(f"Connected to metadata database: {self.db_path}")
             self._has_norm_columns = self._detect_norm_columns()
             logger.debug(f"Track matcher norm columns available: {self._has_norm_columns}")
@@ -82,6 +83,7 @@ class TrackMatcher:
                     norm_artist,
                     norm_title
                 FROM tracks
+                WHERE is_blacklisted = 0
             """
             )
             for row in cur.fetchall():
@@ -262,6 +264,7 @@ class TrackMatcher:
                    duration_ms as duration, musicbrainz_id as mbid
             FROM tracks
             WHERE musicbrainz_id = ?
+              AND is_blacklisted = 0
         """, (lfm_mbid,))
         row = cursor.fetchone()
         if row:
@@ -275,6 +278,7 @@ class TrackMatcher:
                    duration_ms as duration, musicbrainz_id as mbid
             FROM tracks
             WHERE norm_artist = ? AND norm_title = ?
+              AND is_blacklisted = 0
         """, (norm_artist, norm_title))
         row = cursor.fetchone()
         if row:
@@ -290,6 +294,7 @@ class TrackMatcher:
                        duration_ms as duration, musicbrainz_id as mbid
                 FROM tracks
                 WHERE norm_artist = ? AND norm_title = ?
+                  AND is_blacklisted = 0
             """, (alt_norm, norm_title))
             row = cursor.fetchone()
             if row:
@@ -310,6 +315,7 @@ class TrackMatcher:
                        duration_ms as duration, musicbrainz_id as mbid
                 FROM tracks
                 WHERE lower(artist) = ? AND lower(title) = ?
+                  AND is_blacklisted = 0
                 """,
                 (norm_artist, norm_title),
             )
@@ -329,6 +335,7 @@ class TrackMatcher:
                    duration_ms as duration, musicbrainz_id as mbid, norm_title
             FROM tracks
             WHERE norm_artist = ?
+              AND is_blacklisted = 0
         """, (norm_artist,))
 
         artist_tracks = cursor.fetchall()
@@ -423,5 +430,4 @@ class TrackMatcher:
 
 # Example usage
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
     logger.info("Track Matcher module loaded")

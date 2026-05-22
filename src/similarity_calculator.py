@@ -1,17 +1,20 @@
 """
 Similarity Calculator - Compares sonic features to find similar tracks
 """
+import functools
 import hashlib
 import json
 import logging
 import math
+import re
 import sqlite3
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
-from scipy.spatial.distance import cosine, euclidean
+from scipy.spatial.distance import cosine
 
 from .genre_similarity_v2 import GenreSimilarityV2
+from .blacklist_db import ensure_blacklist_schema
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +127,7 @@ class SimilarityCalculator:
         """Initialize database connection"""
         self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
+        ensure_blacklist_schema(self.conn, logger=logger)
         logger.debug(f"Connected to database: {self.db_path}")
 
     @staticmethod
@@ -179,6 +183,7 @@ class SimilarityCalculator:
                 return np.array([], dtype=float)
 
             arr = np.asarray(values, dtype=float).flatten()
+            arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
             if preferred_length is None:
                 return arr
 
@@ -423,6 +428,7 @@ class SimilarityCalculator:
             SELECT sonic_features, artist, duration_ms
             FROM tracks
             WHERE track_id = ?
+              AND is_blacklisted = 0
         """, (track_id,))
 
         seed_row = cursor.fetchone()
@@ -444,17 +450,27 @@ class SimilarityCalculator:
         if "duration_ms" in seed_row.keys() and seed_row["duration_ms"]:
             seed_duration_s = (seed_row["duration_ms"] or 0) / 1000.0
 
-        # Get all tracks with features
+        # Get all tracks with features. Materialize so we can preload
+        # genre data for them before iterating.
         cursor.execute("""
             SELECT track_id, sonic_features, artist, duration_ms
             FROM tracks
             WHERE sonic_features IS NOT NULL
               AND track_id != ?
+              AND is_blacklisted = 0
         """, (track_id,))
+        candidate_rows = cursor.fetchall()
+
+        # Preload combined genres for the entire library in 4 batched
+        # queries. Replaces an N+1 that was running up to 4 queries per
+        # candidate (~144k SQL round-trips on a 36k-track library).
+        combined_genres_map: Dict[str, List[str]] = {}
+        if self.genre_enabled and self.genre_calc and seed_genres:
+            combined_genres_map = self._preload_combined_genres_for_library()
 
         # Calculate similarity for each track
         similarities = []
-        for row in cursor.fetchall():
+        for row in candidate_rows:
             try:
                 candidate_id = row['track_id']
                 candidate_artist = row['artist']
@@ -478,7 +494,7 @@ class SimilarityCalculator:
 
                 # If genre similarity is enabled, calculate hybrid score
                 if self.genre_enabled and self.genre_calc and seed_genres:
-                    candidate_genres = self._get_combined_genres(candidate_id)
+                    candidate_genres = combined_genres_map.get(candidate_id, [])
 
                     # Calculate genre similarity with confidence
                     genre_result = self.genre_calc.calculate_similarity_with_confidence(
@@ -549,6 +565,7 @@ class SimilarityCalculator:
             SELECT sonic_features, artist, duration_ms
             FROM tracks
             WHERE track_id = ?
+              AND is_blacklisted = 0
         """, (track_id,))
 
         seed_row = cursor.fetchone()
@@ -569,6 +586,7 @@ class SimilarityCalculator:
             FROM tracks
             WHERE sonic_features IS NOT NULL
               AND track_id != ?
+              AND is_blacklisted = 0
         """, (track_id,))
 
         similarities = []
@@ -631,12 +649,9 @@ class SimilarityCalculator:
         if not track_ids:
             return []
 
-        # Get features for all seed tracks
-        seed_features_list = []
-        for track_id in track_ids:
-            features = self._get_track_features(track_id)
-            if features:
-                seed_features_list.append(features)
+        # Bulk-fetch seed features in a single query rather than calling
+        # _get_track_features (which issues one query per seed).
+        seed_features_list = list(self._get_track_features_bulk(track_ids).values())
 
         if not seed_features_list:
             logger.debug("No features found for any seed tracks")
@@ -650,6 +665,7 @@ class SimilarityCalculator:
             FROM tracks
             WHERE sonic_features IS NOT NULL
               AND track_id NOT IN ({placeholders})
+              AND is_blacklisted = 0
         """, track_ids)
 
         # Calculate average similarity to seed tracks
@@ -691,6 +707,7 @@ class SimilarityCalculator:
             SELECT sonic_features
             FROM tracks
             WHERE track_id = ?
+              AND is_blacklisted = 0
         """, (track_id,))
 
         row = cursor.fetchone()
@@ -710,6 +727,46 @@ class SimilarityCalculator:
                 return None
         return None
 
+    def _get_track_features_bulk(
+        self, track_ids: List[str]
+    ) -> Dict[str, Dict[str, Any]]:
+        """Bulk version of _get_track_features.
+
+        Fetches sonic features for the given track ids in a single
+        ``WHERE track_id IN (...)`` query and returns ``{track_id: features}``
+        for those with valid JSON. Tracks with NULL sonic_features or bad
+        JSON are silently omitted. Returned dict preserves input order
+        for ids that resolved.
+        """
+        if not track_ids:
+            return {}
+        cursor = self.conn.cursor()
+        placeholders = ",".join("?" for _ in track_ids)
+        cursor.execute(
+            f"""
+            SELECT track_id, sonic_features
+            FROM tracks
+            WHERE track_id IN ({placeholders})
+              AND is_blacklisted = 0
+              AND sonic_features IS NOT NULL
+            """,
+            list(track_ids),
+        )
+        lookup: Dict[str, Dict[str, Any]] = {}
+        for row in cursor.fetchall():
+            try:
+                features = json.loads(row["sonic_features"])
+            except json.JSONDecodeError:
+                logger.error(
+                    f"Invalid JSON in sonic_features for track {row['track_id']}"
+                )
+                continue
+            if isinstance(features, dict) and "average" in features:
+                features = features["average"]
+            lookup[str(row["track_id"])] = features
+        # Re-order by input list so callers get a deterministic sequence.
+        return {tid: lookup[tid] for tid in track_ids if tid in lookup}
+
     def _get_track_segment(self, track_id: str, segment: str) -> Optional[Dict[str, Any]]:
         """
         Get specific segment features for a track
@@ -726,6 +783,7 @@ class SimilarityCalculator:
             SELECT sonic_features
             FROM tracks
             WHERE track_id = ?
+              AND is_blacklisted = 0
         """, (track_id,))
 
         row = cursor.fetchone()
@@ -763,9 +821,18 @@ class SimilarityCalculator:
 
         return [row['genre'] for row in cursor.fetchall()]
 
-    def _normalize_genre(self, genre: str) -> str:
+    @staticmethod
+    @functools.lru_cache(maxsize=4096)
+    def _normalize_genre(genre: str) -> str:
         """
-        Normalize a genre tag for comparison and deduplication
+        Normalize a genre tag for comparison and deduplication.
+
+        Pure function over the input string — does not touch ``self``. Wrapped
+        in ``lru_cache`` because it's called thousands of times per playlist
+        generation (once per genre per source per track in the bulk preload
+        path) and the regex makes each call non-trivial. Static so the cache
+        is shared across all SimilarityCalculator instances; cache size 4096
+        comfortably covers a real-world genre vocabulary.
 
         Args:
             genre: Raw genre string
@@ -780,7 +847,6 @@ class SimilarityCalculator:
         normalized = genre.lower().strip()
 
         # Replace multiple spaces with single space
-        import re
         normalized = re.sub(r'\s+', ' ', normalized)
 
         # Remove leading/trailing punctuation but keep hyphens and slashes
@@ -831,7 +897,8 @@ class SimilarityCalculator:
 
         return filtered
 
-    def _get_combined_genres_with_weights(self, track_id: str) -> List[Tuple[str, float]]:
+    @functools.lru_cache(maxsize=8192)
+    def _get_combined_genres_with_weights(self, track_id: str) -> Tuple[Tuple[str, float], ...]:
         """
         Get combined genre tags with weights from track, album, and artist.
 
@@ -843,6 +910,15 @@ class SimilarityCalculator:
         5. Normalizes and deduplicates while preserving priority order
 
         Priority order: track_genres > album_genres > artist_genres
+
+        Cached: every callsite (per-pair scoring, per-track edge scoring,
+        transition similarity) hits this with the same track_id many times.
+        The function performs up to 4 SQL queries per call, so caching
+        collapses repeated lookups within a single generation. Cache key
+        is ``(self, track_id)``; instances each get their own slice of the
+        cache, and the LRU bound prevents unbounded growth across long
+        sessions. Call ``clear_genre_caches()`` to drop entries explicitly
+        (e.g. after a library re-scan).
 
         Args:
             track_id: Track ID
@@ -857,6 +933,7 @@ class SimilarityCalculator:
             SELECT artist, album, album_id
             FROM tracks
             WHERE track_id = ?
+              AND is_blacklisted = 0
         """, (track_id,))
 
         row = cursor.fetchone()
@@ -944,7 +1021,10 @@ class SimilarityCalculator:
                     if weight > existing[1]:
                         seen[normalized] = (genre, weight)
 
-        return [(seen[n][0], seen[n][1]) for n in combined_order]
+        # Return an immutable tuple-of-tuples — the lru_cache shares the
+        # exact returned object across callers, so a list would let one
+        # caller's mutation leak into the next.
+        return tuple((seen[n][0], seen[n][1]) for n in combined_order)
 
     def _get_combined_genres(self, track_id: str) -> List[str]:
         """
@@ -955,6 +1035,135 @@ class SimilarityCalculator:
         """
         weighted = self._get_combined_genres_with_weights(track_id)
         return [genre for genre, _ in weighted]
+
+    def clear_genre_caches(self) -> None:
+        """
+        Drop all entries from the genre-related lru_caches.
+
+        Useful after a library re-scan changes the underlying track/album/
+        artist genre tables, or in tests that share a process across many
+        SimilarityCalculator instances and want to bound the cache footprint.
+        """
+        self._get_combined_genres_with_weights.cache_clear()
+        SimilarityCalculator._normalize_genre.cache_clear()
+
+    def _preload_combined_genres_for_library(self) -> Dict[str, List[str]]:
+        """
+        Bulk-load combined genres for every track in the library in 4 SQL
+        queries, mirroring the priority/dedupe/filter logic of
+        ``_get_combined_genres_with_weights``.
+
+        This exists to collapse the catastrophic N+1 in ``find_similar_tracks``
+        (and siblings, eventually): the per-candidate path runs up to four
+        SQL queries inside a 30k+-row loop. The library-wide scan here is
+        O(library) once, and the in-memory lookup is O(1) per candidate.
+
+        Returns a dict of ``track_id -> [genre, genre, ...]`` in the same
+        priority order ``_get_combined_genres`` would return.
+        """
+        cursor = self.conn.cursor()
+
+        # 1. tracks: artist / album / album_id keyed by track_id
+        cursor.execute("""
+            SELECT track_id, artist, album, album_id
+            FROM tracks
+            WHERE is_blacklisted = 0
+        """)
+        track_meta: Dict[str, Tuple[Optional[str], Optional[str], Optional[str]]] = {
+            row['track_id']: (row['artist'], row['album'], row['album_id'])
+            for row in cursor.fetchall()
+        }
+
+        # 2. track_genres
+        cursor.execute("""
+            SELECT track_id, genre
+            FROM track_genres
+            WHERE genre != '__EMPTY__'
+        """)
+        track_genres_map: Dict[str, List[str]] = {}
+        for row in cursor.fetchall():
+            track_genres_map.setdefault(row['track_id'], []).append(row['genre'])
+
+        # 3. album_genres (whole table once; respects use_discogs_album the
+        #    same way the per-track path does)
+        if self.use_discogs_album:
+            cursor.execute("""
+                SELECT album_id, genre
+                FROM album_genres
+                WHERE genre != '__EMPTY__'
+            """)
+        else:
+            cursor.execute("""
+                SELECT album_id, genre
+                FROM album_genres
+                WHERE genre != '__EMPTY__'
+                  AND (source IS NULL OR source NOT LIKE 'discogs_%')
+            """)
+        album_genres_map: Dict[str, List[str]] = {}
+        for row in cursor.fetchall():
+            album_genres_map.setdefault(row['album_id'], []).append(row['genre'])
+
+        # 4. artist_genres
+        cursor.execute("""
+            SELECT artist, genre
+            FROM artist_genres
+        """)
+        artist_genres_map: Dict[str, List[str]] = {}
+        for row in cursor.fetchall():
+            artist_genres_map.setdefault(row['artist'], []).append(row['genre'])
+
+        # Compose with priority ordering, mirroring
+        # _get_combined_genres_with_weights exactly so behavior is identical.
+        track_weight = self.genre_source_weights.get("track", 1.2)
+        album_weight = self.genre_source_weights.get("album", 1.0)
+        artist_weight = self.genre_source_weights.get("artist", 0.4)
+
+        result: Dict[str, List[str]] = {}
+        for tid, (artist_name, album_name, album_id) in track_meta.items():
+            # Resolve album genres against the same album_id candidates the
+            # per-track path tries, in the same order. First match wins.
+            album_genres: List[str] = []
+            if album_id and album_id in album_genres_map:
+                album_genres = album_genres_map[album_id]
+            elif album_name and artist_name:
+                computed_album_id = hashlib.md5(
+                    f"{artist_name}|{album_name}".lower().encode('utf-8')
+                ).hexdigest()[:16]
+                if computed_album_id in album_genres_map:
+                    album_genres = album_genres_map[computed_album_id]
+                else:
+                    legacy_id = f"{artist_name}|{album_name}"
+                    if legacy_id in album_genres_map:
+                        album_genres = album_genres_map[legacy_id]
+
+            t_genres = track_genres_map.get(tid, [])
+            ar_genres = artist_genres_map.get(artist_name, []) if artist_name else []
+
+            sources = [
+                (track_weight, t_genres),
+                (album_weight, album_genres),
+                (artist_weight, ar_genres),
+            ]
+
+            combined_order: List[str] = []
+            seen: Dict[str, Tuple[str, float]] = {}
+            for weight, genres in sources:
+                if not genres:
+                    continue
+                for genre in self._filter_broad_tags(genres):
+                    normalized = self._normalize_genre(genre)
+                    if not normalized:
+                        continue
+                    existing = seen.get(normalized)
+                    if existing is None:
+                        seen[normalized] = (genre, weight)
+                        combined_order.append(normalized)
+                    elif weight > existing[1]:
+                        seen[normalized] = (genre, weight)
+
+            result[tid] = [seen[n][0] for n in combined_order]
+
+        return result
 
     def calculate_transition_similarity(self, from_track_id: str, to_track_id: str) -> Optional[float]:
         """
@@ -1043,6 +1252,7 @@ class SimilarityCalculator:
             SELECT track_id, sonic_features, artist
             FROM tracks
             WHERE track_id IN (?, ?)
+              AND is_blacklisted = 0
         """, (track1_id, track2_id))
 
         rows = {row['track_id']: row for row in cursor.fetchall()}
@@ -1160,8 +1370,6 @@ class SimilarityCalculator:
 
 # Example usage
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-
     calc = SimilarityCalculator()
 
     # Show stats

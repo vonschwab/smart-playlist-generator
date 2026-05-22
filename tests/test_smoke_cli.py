@@ -31,6 +31,7 @@ class TestMainAppCLI:
         result = run_script_help(ROOT_DIR / "main_app.py")
         assert result.returncode == 0, f"Error: {result.stderr}"
         assert "artist" in result.stdout.lower()
+        assert "genre" in result.stdout.lower()
         assert "tracks" in result.stdout.lower()
 
 

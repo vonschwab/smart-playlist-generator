@@ -66,18 +66,6 @@ SETTINGS_SCHEMA: List[SettingSpec] = [
     # Playlist Counts
     # ─────────────────────────────────────────────────────────────────────────
     SettingSpec(
-        key_path="playlists.count",
-        label="Playlists per batch",
-        setting_type=SettingType.INT,
-        group="Playlist Settings",
-        default=8,
-        min_value=1,
-        max_value=20,
-        step=1,
-        tooltip="Number of playlists to generate in batch mode",
-        description="When generating from listening history, this controls how many separate playlists are created in one batch. Each playlist will have different seed tracks from your recent listening."
-    ),
-    SettingSpec(
         key_path="playlists.tracks_per_playlist",
         label="Tracks per playlist",
         setting_type=SettingType.INT,
@@ -88,18 +76,6 @@ SETTINGS_SCHEMA: List[SettingSpec] = [
         step=5,
         tooltip="Target number of tracks per playlist",
         description="The target length for each generated playlist. The actual count may vary slightly based on available candidates and constraint enforcement."
-    ),
-    SettingSpec(
-        key_path="playlists.seed_count",
-        label="Seed count",
-        setting_type=SettingType.INT,
-        group="Playlist Settings",
-        default=5,
-        min_value=1,
-        max_value=20,
-        step=1,
-        tooltip="Number of seed tracks from listening history",
-        description="How many of your recently played tracks are used as 'seeds' to find similar music. More seeds = more variety in the playlist, but potentially less cohesion. For focused playlists, try 2-3 seeds."
     ),
     SettingSpec(
         key_path="playlists.similar_per_seed",
@@ -244,6 +220,30 @@ SETTINGS_SCHEMA: List[SettingSpec] = [
         step=0.05,
         tooltip="Minimum similarity to include in pool",
         description="Tracks must be at least this similar to the seed to be considered. Lower = larger pool with more variety (discovery mode). Higher = smaller pool with tighter similarity (focused mode). Try 0.10-0.15 for discovery, 0.30+ for focused."
+    ),
+    SettingSpec(
+        key_path="playlists.ds_pipeline.candidate_pool.min_sonic_similarity_narrow",
+        label="Sonic floor (narrow mode)",
+        setting_type=SettingType.FLOAT,
+        group="Candidate Pool",
+        default=0.10,
+        min_value=-1.0,
+        max_value=1.0,
+        step=0.05,
+        tooltip="Hard sonic similarity floor for narrow mode",
+        description="Candidates with sonic similarity below this value are rejected before scoring when running narrow mode. Default 0.10 to prevent negative/low sonic matches from entering the pool."
+    ),
+    SettingSpec(
+        key_path="playlists.ds_pipeline.candidate_pool.min_sonic_similarity_dynamic",
+        label="Sonic floor (dynamic mode)",
+        setting_type=SettingType.FLOAT,
+        group="Candidate Pool",
+        default=0.00,
+        min_value=-1.0,
+        max_value=1.0,
+        step=0.05,
+        tooltip="Hard sonic similarity floor for dynamic mode",
+        description="Candidates with sonic similarity below this value are rejected before scoring when running dynamic mode. Default 0.00 blocks negatives while allowing borderline neutral matches."
     ),
     SettingSpec(
         key_path="playlists.ds_pipeline.candidate_pool.max_pool_size",

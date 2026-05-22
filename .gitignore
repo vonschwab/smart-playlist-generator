@@ -38,12 +38,18 @@ env/
 
 # Testing
 .pytest_cache/
+.pytest-tmp/
+.pytest-tmp-*/
 .tox/
 .coverage
+coverage.xml
 htmlcov/
 .hypothesis/
+.mypy_cache/
+.ruff_cache/
 
 # Logs
+logs/
 *.log
 
 # Local config (user-specific)
@@ -55,6 +61,8 @@ data/metadata.db-shm
 data/metadata.db-wal
 data/artifacts/
 data/sonic_backups/
+data/genre_cache.json
+data/test_genre_cache.json
 data/*.npz
 data/*.csv
 
@@ -69,3 +77,25 @@ Thumbs.db
 # Environment
 .env
 .env.local
+
+# Local tooling artifacts
+.claude/
+pytest_output.txt
+
+# Untracked one-off DB-fix / inspection scripts (kept locally, not versioned)
+scripts/oneoffs/
+
+# Internal audit / roadmap notes (not part of the shipped repo)
+audit/
+
+# Local Claude project guide (developer scratch, not part of shipped repo)
+CLAUDE.md
+
+# Development archives
+docs/archive/
+# Audit/test docs
+docs/run_audits/
+docs/DEPRECATION_GUIDE.md
+docs/FEATURE_FLAG_MIGRATION_PLAN.md
+docs/REFACTORING_PROGRESS_SUMMARY.md
+docs/mode_audit_*.md

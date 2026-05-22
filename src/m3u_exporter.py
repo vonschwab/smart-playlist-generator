@@ -1,7 +1,6 @@
 """
 M3U Playlist Exporter - Exports playlists to M3U format for foobar2000
 """
-import os
 import logging
 from typing import List, Dict, Any
 from pathlib import Path
@@ -151,5 +150,4 @@ class M3UExporter:
 
 # Example usage
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
     logger.info("M3U Exporter module loaded")

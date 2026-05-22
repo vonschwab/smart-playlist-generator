@@ -9,4 +9,3 @@ __all__ = [
     "GenreSimilarityResult",
     "build_genre_similarity_matrix",
 ]
-

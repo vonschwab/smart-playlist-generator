@@ -17,19 +17,20 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import Qt, Signal, Slot, QRegularExpression
-from PySide6.QtGui import QAction, QKeySequence, QShortcut, QClipboard
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QCheckBox,
     QFileDialog,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
     QMenu,
     QMessageBox,
-    QPushButton,
+    QStackedLayout,
     QTableView,
     QVBoxLayout,
     QWidget,
@@ -65,6 +66,7 @@ class TrackTable(QWidget):
     track_selected = Signal(int, dict)
     track_double_clicked = Signal(int, dict)
     status_changed = Signal(int, int)  # visible_count, total_count
+    blacklist_requested = Signal(list)
 
     def __init__(self, parent: Optional[QWidget] = None):
         # Ensure a QApplication exists (tests may construct this widget outside
@@ -78,6 +80,13 @@ class TrackTable(QWidget):
         # Settings
         self._double_click_opens_file = True
         self._playlist_name = "Playlist"
+        # Optional column visibility (default hidden to keep layout compact)
+        self._column_visibility = {
+            Column.SONIC_SIM: False,
+            Column.GENRE_SIM: False,
+            Column.GENRES: False,
+            Column.FILE_PATH: True,  # still shown by default but toggleable
+        }
 
         # Setup models
         self._model = TrackTableModel(self)
@@ -96,12 +105,15 @@ class TrackTable(QWidget):
         # ─────────────────────────────────────────────────────────────────────
         # Filter bar
         # ─────────────────────────────────────────────────────────────────────
-        filter_layout = QHBoxLayout()
+        self._filter_frame = QFrame()
+        self._filter_frame.setObjectName("trackFilterBar")
+        filter_layout = QHBoxLayout(self._filter_frame)
         filter_layout.setContentsMargins(0, 0, 0, 0)
-        filter_layout.setSpacing(4)
+        filter_layout.setSpacing(8)
 
         # Filter icon/label
         filter_label = QLabel("Filter:")
+        filter_label.setObjectName("trackFilterLabel")
         filter_layout.addWidget(filter_label)
 
         # Filter input
@@ -119,21 +131,28 @@ class TrackTable(QWidget):
 
         # Status label
         self._status_label = QLabel("")
-        self._status_label.setStyleSheet("color: #666; font-size: 11px;")
+        self._status_label.setObjectName("trackStatusLabel")
         filter_layout.addWidget(self._status_label)
 
-        layout.addLayout(filter_layout)
+        layout.addWidget(self._filter_frame)
 
         # ─────────────────────────────────────────────────────────────────────
         # Table view
         # ─────────────────────────────────────────────────────────────────────
         self._table = QTableView()
+        self._table.setObjectName("playlistTable")
         self._table.setModel(self._proxy)
 
         # Configure selection
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self._table.setAlternatingRowColors(True)
+        self._table.setShowGrid(False)
+        self._table.setWordWrap(False)
+        self._table.setTextElideMode(Qt.ElideRight)
+        self._table.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self._table.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self._table.setCornerButtonEnabled(False)
 
         # Configure editing
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -146,21 +165,29 @@ class TrackTable(QWidget):
         header = self._table.horizontalHeader()
         header.setStretchLastSection(False)
 
-        # Column resize modes
-        header.setSectionResizeMode(Column.INDEX, QHeaderView.ResizeToContents)
+        # Column resize modes (all interactive so users can balance spacing)
+        header.setSectionResizeMode(Column.INDEX, QHeaderView.Interactive)
         header.setSectionResizeMode(Column.ARTIST, QHeaderView.Interactive)
-        header.setSectionResizeMode(Column.TITLE, QHeaderView.Stretch)
+        header.setSectionResizeMode(Column.TITLE, QHeaderView.Interactive)
         header.setSectionResizeMode(Column.ALBUM, QHeaderView.Interactive)
-        header.setSectionResizeMode(Column.DURATION, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(Column.DURATION, QHeaderView.Interactive)
+        header.setSectionResizeMode(Column.SONIC_SIM, QHeaderView.Interactive)
+        header.setSectionResizeMode(Column.GENRE_SIM, QHeaderView.Interactive)
+        header.setSectionResizeMode(Column.GENRES, QHeaderView.Interactive)
         header.setSectionResizeMode(Column.FILE_PATH, QHeaderView.Interactive)
 
         # Set default column widths
         self._table.setColumnWidth(Column.ARTIST, 150)
         self._table.setColumnWidth(Column.ALBUM, 150)
+        self._table.setColumnWidth(Column.SONIC_SIM, 90)
+        self._table.setColumnWidth(Column.GENRE_SIM, 90)
+        self._table.setColumnWidth(Column.GENRES, 220)
         self._table.setColumnWidth(Column.FILE_PATH, 300)
+        self._apply_column_visibility()
 
         # Vertical header (row numbers) hidden
         self._table.verticalHeader().setVisible(False)
+        self._table.verticalHeader().setDefaultSectionSize(28)
 
         # Connect signals
         self._table.selectionModel().selectionChanged.connect(self._on_selection_changed)
@@ -170,7 +197,67 @@ class TrackTable(QWidget):
         self._table.setContextMenuPolicy(Qt.CustomContextMenu)
         self._table.customContextMenuRequested.connect(self._show_context_menu)
 
-        layout.addWidget(self._table)
+        self._empty_frame = QFrame()
+        self._empty_frame.setObjectName("trackEmptyState")
+        empty_layout = QVBoxLayout(self._empty_frame)
+        empty_layout.setContentsMargins(16, 16, 16, 16)
+        empty_layout.setSpacing(4)
+        empty_layout.setAlignment(Qt.AlignCenter)
+
+        self._empty_title = QLabel("No playlist loaded")
+        self._empty_title.setObjectName("trackEmptyTitle")
+        self._empty_title.setAlignment(Qt.AlignCenter)
+        empty_layout.addWidget(self._empty_title)
+
+        self._empty_detail = QLabel("Waiting for playlist results.")
+        self._empty_detail.setObjectName("trackEmptyDetail")
+        self._empty_detail.setAlignment(Qt.AlignCenter)
+        empty_layout.addWidget(self._empty_detail)
+
+        self._results_frame = QFrame()
+        self._results_frame.setObjectName("trackResultsFrame")
+        self._results_stack = QStackedLayout(self._results_frame)
+        self._results_stack.setContentsMargins(0, 0, 0, 0)
+        self._results_stack.addWidget(self._table)
+        self._results_stack.addWidget(self._empty_frame)
+
+        layout.addWidget(self._results_frame)
+        self._update_results_state()
+
+    # Persistence helpers
+    def get_filter_text(self) -> str:
+        """Return current filter text."""
+        return self._filter_edit.text()
+
+    def set_filter_text(self, text: str) -> None:
+        """Restore filter text."""
+        self._filter_edit.setText(text or "")
+
+    def get_header_state(self):
+        """Return the header state for persistence."""
+        return self._table.horizontalHeader().saveState()
+
+    def restore_header_state(self, state) -> None:
+        """Restore header state (column widths/order)."""
+        if state:
+            self._table.horizontalHeader().restoreState(state)
+
+    def get_column_visibility_state(self) -> dict:
+        """Return column visibility state for persistence."""
+        return {str(col): bool(visible) for col, visible in self._column_visibility.items()}
+
+    def apply_column_visibility_state(self, state: dict) -> None:
+        """Apply column visibility state."""
+        if not state:
+            return
+        for col_key, visible in state.items():
+            try:
+                col = int(col_key)
+            except (TypeError, ValueError):
+                continue
+            if col in self._column_visibility:
+                self._column_visibility[col] = bool(visible)
+        self._apply_column_visibility()
 
     def _setup_shortcuts(self) -> None:
         """Setup keyboard shortcuts."""
@@ -232,6 +319,13 @@ class TrackTable(QWidget):
     def get_tracks(self) -> List[Dict[str, Any]]:
         """Get all tracks (unfiltered)."""
         return self._model.get_tracks()
+
+    def mark_blacklisted(self, track_ids: set[str], value: bool) -> int:
+        """Update blacklisted flag in the table model."""
+        updated = self._model.mark_blacklisted(track_ids, value)
+        if updated:
+            self._update_status()
+        return updated
 
     def get_visible_tracks(self) -> List[Dict[str, Any]]:
         """Get currently visible (filtered) tracks."""
@@ -311,6 +405,23 @@ class TrackTable(QWidget):
             self._status_label.setText(f"Showing {visible} of {total} tracks")
 
         self.status_changed.emit(visible, total)
+        self._update_results_state()
+
+    def _update_results_state(self) -> None:
+        """Show the table, empty state, or filtered-empty state."""
+        visible = self._proxy.get_visible_count()
+        total = self._proxy.get_total_count()
+
+        if total == 0:
+            self._empty_title.setText("No playlist loaded")
+            self._empty_detail.setText("Waiting for playlist results.")
+            self._results_stack.setCurrentWidget(self._empty_frame)
+        elif visible == 0:
+            self._empty_title.setText("No matching tracks")
+            self._empty_detail.setText("Filter currently hides every loaded track.")
+            self._results_stack.setCurrentWidget(self._empty_frame)
+        else:
+            self._results_stack.setCurrentWidget(self._table)
 
     @Slot()
     def _focus_filter(self) -> None:
@@ -393,7 +504,51 @@ class TrackTable(QWidget):
             lambda: self._export_m3u8(self.get_tracks())
         )
 
+        if has_selection:
+            menu.addSeparator()
+            menu.addAction(
+                f"Blacklist {len(selected)} Track(s)",
+                lambda: self._confirm_blacklist(selected),
+            )
+
+        # Column visibility submenu
+        columns_menu = menu.addMenu("Columns")
+        for col, label in [
+            (Column.SONIC_SIM, "Sonic Similarity"),
+            (Column.GENRE_SIM, "Genre Similarity"),
+            (Column.GENRES, "Genres"),
+            (Column.FILE_PATH, "File Path"),
+        ]:
+            action = columns_menu.addAction(label)
+            action.setCheckable(True)
+            action.setChecked(self._column_visibility.get(col, True))
+            action.triggered.connect(lambda checked, c=col: self._toggle_column(c, checked))
+
         menu.exec(global_pos)
+
+    def _confirm_blacklist(self, selected: List[Dict[str, Any]]) -> None:
+        """Confirm blacklist action and emit request."""
+        if not selected:
+            return
+        reply = QMessageBox.question(
+            self,
+            "Blacklist Tracks",
+            f"Blacklist {len(selected)} track(s)? They will no longer appear in generated playlists.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self.blacklist_requested.emit(selected)
+
+    def _apply_column_visibility(self) -> None:
+        """Hide or show optional columns based on current settings."""
+        for col, visible in self._column_visibility.items():
+            self._table.setColumnHidden(col, not visible)
+
+    def _toggle_column(self, column: int, visible: bool) -> None:
+        """Toggle a column visibility and persist state."""
+        self._column_visibility[column] = visible
+        self._apply_column_visibility()
 
     # ─────────────────────────────────────────────────────────────────────────
     # Copy actions

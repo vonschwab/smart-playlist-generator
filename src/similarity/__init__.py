@@ -13,4 +13,3 @@ __all__ = [
     "cosine_sim_matrix_to_vector",
     "transition_similarity_end_to_start",
 ]
-

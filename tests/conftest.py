@@ -12,6 +12,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.features.artifacts import load_artifact_bundle
 
 
+def pytest_addoption(parser):
+    parser.addoption(
+        "--generate-golden",
+        action="store_true",
+        default=False,
+        help="Generate golden reference files before comparing against them",
+    )
+
+
 def _build_artifact(tmp_path, seed: int = 0, include_segments: bool = True):
     """Build a synthetic artifact for testing."""
     rng = np.random.default_rng(seed)
@@ -54,3 +63,12 @@ def synthetic_artifact(tmp_path):
     path = _build_artifact(tmp_path, seed=123)
     bundle = load_artifact_bundle(path)
     return path, bundle
+
+
+# Note: the `qtbot` fixture is provided by the `pytest-qt` plugin (declared in
+# the `dev` extras of pyproject.toml). It auto-creates a QApplication and
+# exposes real GUI assertions (waitSignal, mouseClick, etc.). Earlier versions
+# of this conftest defined a no-op _DummyQtBot stub here so tests could run
+# without pytest-qt installed; that meant assertions silently no-opped, which
+# the audit (T#1) flagged as the single biggest test-quality issue. The stub
+# was removed and pytest-qt is now a hard dev dependency.

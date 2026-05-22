@@ -7,7 +7,7 @@ Migrated from src/playlist_generator.py scoring methods (Phase 5).
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Tuple
 from collections import Counter
 import logging
 from src.playlist.utils import safe_get_artist_key

@@ -7,9 +7,6 @@ lastfm:
   api_key: ''
   username: ''
   history_days: 90
-openai:
-  api_key: YOUR_OPENAI_API_KEY
-  model: gpt-4o-mini
 plex:
   enabled: false
   base_url: http://localhost:32400
@@ -21,6 +18,58 @@ plex:
 playlists:
   count: 8
   tracks_per_playlist: 30
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # MODE-BASED CONFIGURATION (Simpler Alternative to Manual Tuning)
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Instead of manually setting weights and thresholds in genre_similarity below,
+  # you can use simple mode presets that configure everything automatically.
+  #
+  # GENRE MODES (how strictly to match genre):
+  #   strict:   Ultra-tight genre matching (weight 0.80, threshold 0.50)
+  #   narrow:   Stay close to seed genre (weight 0.65, threshold 0.40)
+  #   dynamic:  Balanced exploration (weight 0.50, threshold 0.30) ← default
+  #   discover: Genre-adjacent exploration (weight 0.35, threshold 0.20)
+  #   off:      Sonic-only mode (ignore genre tags completely)
+  #
+  # SONIC MODES (how strictly to match audio features):
+  #   strict:   Ultra-tight sonic matching (weight 0.85, tight pool)
+  #   narrow:   Cohesive sound (weight 0.70, tighter pool)
+  #   dynamic:  Balanced sonic flow (weight 0.50, standard pool) ← default
+  #   discover: Varied textures (weight 0.35, wider pool)
+  #   off:      Genre-only mode (ignore sonic features completely)
+  #
+  # PACE MODES (how strictly to match rhythm/tempo):
+  #   strict:   Tight tempo fidelity (rhythm floors 0.55 / 0.65)
+  #   narrow:   Moderate tempo anchoring (0.35 / 0.45)
+  #   dynamic:  No pace constraint; preserves current behavior
+  #
+  # EXAMPLES:
+  #   genre_mode: dynamic      # Balanced genre + sonic (50/50)
+  #   sonic_mode: dynamic
+  #
+  #   genre_mode: strict       # Ultra-cohesive playlists
+  #   sonic_mode: strict
+  #
+  #   genre_mode: narrow       # Same genre, varied sound
+  #   sonic_mode: discover
+  #
+  #   genre_mode: off          # Pure sonic similarity
+  #   sonic_mode: dynamic
+  #
+  #   genre_mode: dynamic      # Pure genre matching (NEW!)
+  #   sonic_mode: off
+  #
+  # If mode settings are present, they OVERRIDE manual genre_similarity settings below.
+  # Uncomment to enable mode-based configuration:
+  #
+  # genre_mode: dynamic
+  # sonic_mode: dynamic
+  # pace_mode: dynamic
+  #
+  # ═══════════════════════════════════════════════════════════════════════════
+
+
   history_days: 14
   seed_count: 5
   similar_per_seed: 20
@@ -32,6 +81,8 @@ playlists:
   name_format: artists
   recently_played_filter:
     enabled: true
+    # Recency exclusions are applied during candidate selection (pre-order) for DS pier-bridge runs.
+    # Post-order filtering/shrinking is forbidden; runs fail loudly on violations.
     lookback_days: 30
     min_playcount_threshold: 0
   min_duration_minutes: 90
@@ -78,9 +129,42 @@ playlists:
 
     # Candidate pool configuration (tracks considered before construction)
     candidate_pool:
-      similarity_floor: 0.20  # Min sonic similarity to seed track (0.0-1.0)
+      similarity_floor: 0.20  # Min hybrid similarity to seed track (0.0-1.0)
+      # Mode-specific sonic floors (hard gate before genre/hybrid):
+      min_sonic_similarity_narrow: 0.10
+      min_sonic_similarity_dynamic: 0.00
+      # fallback if mode-specific not set:
+      # min_sonic_similarity: 0.00
       max_pool_size: 1200     # Max candidates before construction phase
       max_artist_fraction: 0.125  # Max tracks from one artist as fraction of playlist
+      duration_penalty_enabled: true    # Penalize long tracks vs median seed duration
+      duration_penalty_weight: 0.60     # Penalty strength (higher = more severe)
+      duration_cutoff_multiplier: 2.5  # Hard cutoff multiplier vs median seed duration
+      broad_filters: ["rock", "indie", "alternative", "pop"]  # Tags ignored for narrow-mode genre gating/sim
+
+    # Artist style-aware pier-bridge (applies to --artist playlists)
+    artist_style:
+      enabled: false           # Enable style-aware pier-bridge for artist playlists
+      cluster_k_min: 3
+      cluster_k_max: 6
+      cluster_k_heuristic_enabled: true
+      piers_per_cluster: 1
+      per_cluster_candidate_pool_size: 400
+      pool_balance_mode: equal  # equal | proportional_capped
+      internal_connector_priority: true
+      internal_connector_max_per_segment: 2
+      bridge_floor:
+        strict: 0.10   # Ultra-cohesive (Phase 1)
+        narrow: 0.05   # Relaxed from 0.08 (Phase 3A)
+        dynamic: 0.02  # Relaxed from 0.03 (Phase 3A)
+      bridge_score_weights:
+        dynamic:
+          bridge: 0.6
+          transition: 0.4
+        narrow:
+          bridge: 0.7
+          transition: 0.3
+      genre_tiebreak_weight: 0.05
 
     # Construction scoring weights
     # score = alpha*seed_sim + beta*transition_sim + gamma*diversity - penalty
@@ -99,8 +183,319 @@ playlists:
     constraints:
       min_gap: 6              # Min positions between same artist
       hard_floor: true        # Reject (true) vs penalize (false) below floor
-      transition_floor: 0.20  # Min acceptable transition similarity
+      # Per-mode transition floors (higher = fewer "teleports")
+      transition_floor_dynamic: 0.35
+      transition_floor_narrow: 0.45
+      # transition_floor: 0.35  # Optional global override for all modes
       center_transitions: true # Center X_start/X_end matrices for scoring
+      # Artist identity resolution (normalize artist names for better deduplication)
+      artist_identity:
+        enabled: true         # Enable artist name normalization (recommended)
+        strip_trailing_ensemble_terms: true  # Remove "Orchestra", "Trio", etc.
+        split_delimiters:     # Collaboration delimiters to split on
+          - ","               # "Artist A, Artist B"
+          - " & "             # "Artist A & Artist B"
+          - " and "           # "Artist A and Artist B"
+          - " feat. "         # "Artist A feat. Artist B"
+          - " feat "
+          - " featuring "
+          - " ft. "
+          - " ft "
+          - " with "          # "Artist A with Artist B"
+          - " x "             # "Artist A x Artist B"
+          - " + "             # "Artist A + Artist B"
+
+    # Pier-bridge ordering/scoring (applies to all playlists when pipeline=ds)
+    pier_bridge:
+      # Bridge-local gate: require min(sim_to_pier_A, sim_to_pier_B) >= floor
+      bridge_floor_strict: 0.10   # Ultra-cohesive (Phase 1)
+      bridge_floor_narrow: 0.05   # Relaxed from 0.08 (Phase 3A)
+      bridge_floor_dynamic: 0.02  # Relaxed from 0.03 (Phase 3A)
+      # Edge scoring weights (bridge harmonic mean vs local transition)
+      weight_bridge_dynamic: 0.6
+      weight_transition_dynamic: 0.4
+      weight_bridge_narrow: 0.7
+      weight_transition_narrow: 0.3
+      # Small genre tie-breaker (never rescues hard gates)
+      genre_tiebreak_weight: 0.05
+      # Soft genre whiplash penalty (does NOT gate): if edge_genre < threshold,
+      # final_edge_score *= (1 - strength)
+      soft_genre_penalty_threshold: 0.20
+      soft_genre_penalty_strength: 0.10
+      # Optional genre tie-break band for penalty application (default: off).
+      genre:
+        tie_break_band: null  # e.g. 0.02 to apply penalty only on close calls
+      # Segment-local candidate pool strategy (recommended).
+      # "segment_scored" builds a per-segment pool by scoring candidates jointly vs BOTH
+      # endpoints (pier A and pier B), rather than unioning neighbor lists.
+      segment_pool_strategy: segment_scored
+      segment_pool_max: 400
+      max_segment_pool_max: 1200
+
+      # Artist exclusion rules for bridge segment interiors
+      # Controls whether pier/seed artists can appear in bridge segments
+      disallow_pier_artists_in_interiors: true   # Exclude pier artists from their own bridge segments (recommended)
+      disallow_seed_artist_in_interiors: false   # Allow seed artist in all segments (only affects multi-seed mode; Artist mode always disallows)
+      # Example: If piers are [Ramones, Replacements, Pavement]:
+      #   - Ramones→Replacements: Ramones excluded (pier A), Replacements excluded (pier B)
+      #   - Replacements→Pavement: Ramones allowed (not a pier), Replacements excluded (pier A), Pavement excluded (pier B)
+
+      # Progress constraint (A→B) to reduce "teleporting" / bouncing during bridges.
+      # Uses projection onto the AB direction in the sonic similarity space.
+      progress:
+        enabled: true
+        monotonic_epsilon: 0.05
+        penalty_weight: 0.15
+      # Optional: progress arc scoring to shape segment pacing (default OFF).
+      progress_arc:
+        enabled: false
+        weight: 0.25
+        shape: arc               # linear or arc
+        tolerance: 0.05          # dead-zone around target progress
+        loss: abs                # abs, squared, huber
+        huber_delta: 0.10
+        max_step: null           # max forward progress jump; null disables
+        max_step_mode: penalty   # penalty or gate
+        max_step_penalty: 0.25
+        autoscale:
+          enabled: false
+          min_distance: 0.05
+          distance_scale: 0.50
+          per_step_scale: false
+
+      # Optional: DJ-style genre waypoint guidance (default OFF).
+      #
+      # To enable DJ bridging with full genre-waypoint routing:
+      #   1. Set enabled: true
+      #   2. Set pooling.strategy: dj_union (for S1+S2+S3 union pooling)
+      #   3. Set route_shape: ladder (for genre graph routing)
+      #   4. Ensure genre metadata exists in your library
+      #
+      # Example minimal config for DJ bridging:
+      #   dj_bridging:
+      #     enabled: true
+      #     route_shape: ladder
+      #     pooling:
+      #       strategy: dj_union
+      #
+      dj_bridging:
+        enabled: false
+        seed_ordering: auto          # auto | fixed
+        seed_ordering_weight_sonic: 0.60
+        seed_ordering_weight_genre: 0.20
+        seed_ordering_weight_bridge: 0.20
+        anchors:
+          must_include_all: true
+        route_shape: linear          # linear | arc | ladder
+        waypoint_weight: 0.15
+        waypoint_floor: 0.20
+        waypoint_penalty: 0.10
+        waypoint_tie_break_band: null
+        waypoint_cap: 0.05
+        pooling:
+          # Pool construction strategy for segment candidates
+          # - baseline: neighbors(A) ∪ neighbors(B) (default, safe fallback)
+          # - dj_union: local + toward-B + genre-waypoint union (S1+S2+S3, genre-aware)
+          #
+          # IMPORTANT: Use nested 'pooling.strategy' key as shown below.
+          # The flat key 'dj_pooling_strategy' is deprecated and will log a warning.
+          strategy: baseline        # baseline | dj_union
+          k_local: 200
+          k_toward: 80
+          k_genre: 0  # Opt-in: Set >0 to enable genre pool (discovery mode)
+          k_union_max: 900
+          step_stride: 1
+          cache_enabled: true
+          debug_compare_baseline: false
+        allow_detours_when_far: true
+        far_thresholds:
+          sonic: 0.45
+          genre: 0.60
+          connector_scarcity: 0.10
+        connector_bias:
+          enabled: true
+          max_per_segment_linear: 1
+          max_per_segment_adventurous: 3
+        connectors:
+          enabled: false             # Alternate connector bias config (overrides connector_bias when set)
+          max_connectors: 2
+          use_only_when_far: true
+          far_threshold: 0.50
+        ladder:
+          top_labels: 5
+          min_label_weight: 0.05
+          min_similarity: 0.20
+          max_steps: 6
+          use_smoothed_waypoint_vectors: false
+          smooth_top_k: 10
+          smooth_min_sim: 0.20
+        relaxation:
+          enabled: false
+          max_attempts: 4
+          emit_warnings: true
+          allow_floor_relaxation: false
+        waypoint_fallback_k: 25
+        micro_piers:
+          enabled: false
+          max: 1
+          max_micro_piers_per_segment: 1
+          candidate_source: union_pool  # connectors | union_pool | both
+          topk: 5
+          top_k: 5
+          selection_metric: max_min_sim
+        diagnostics:
+          # Waypoint rank impact diagnostic (opt-in, NO behavior change)
+          # Measures whether waypoint scoring can change candidate rankings
+          # Default: false (disabled, zero cost)
+          waypoint_rank_impact_enabled: false
+          waypoint_rank_sample_steps: 3  # Sample up to N evenly-spaced beam steps
+
+        # ==================================================================================
+        # PHASE 2 + PHASE 3: Genre Bridging Enhancements
+        # ==================================================================================
+        # Phase 2 fixes hub genre collapse (waypoints defaulting to generic genres).
+        # Phase 3 fixes saturation issues (waypoint/coverage scores plateauing at cap).
+        #
+        # Phase 2: Vector Mode + IDF + Coverage
+        # - Vector Mode: Direct multi-genre interpolation (bypasses shortest-path labels)
+        # - IDF Weighting: Emphasize rare genres (shoegaze), suppress common (indie rock)
+        # - Coverage Bonus: Reward matching anchor's top-K signature genres
+        #
+        # Phase 3: Saturation & Provenance Fixes
+        # - Centered Waypoint Delta: Subtract step-wise baseline to allow negative deltas
+        # - Tanh Squashing: Smooth squashing to prevent hard plateaus at cap
+        # - Coverage Improvements: Raw presence source + weighted mode for better gradient
+        # - Logging Fixes: Genre_sim uses IDF space when enabled
+        # - Provenance Tracking: Membership-based overlap accounting (not priority-based)
+        #
+        # See docs/dj_bridge_architecture.md for complete documentation.
+        # ==================================================================================
+
+        # IMPORTANT: These settings must be nested under pier_bridge.dj_bridging as shown.
+        # The exact nesting is required for config parsing (see pipeline.py lines 1089-1139).
+
+        # Vector Mode (Phase 2) - CRITICAL for fixing hub genre collapse
+        # - "vector": Direct multi-genre interpolation, preserves full genre signatures (RECOMMENDED)
+        # - "onehot": Shortest-path label selection (legacy, causes hub collapse)
+        dj_ladder_target_mode: vector        # onehot | vector
+
+        # Vector source matrix (when mode=vector)
+        # - "smoothed": Similarity-weighted genre vectors (recommended)
+        # - "raw": Binary genre vectors (0/1 per genre)
+        dj_genre_vector_source: smoothed     # smoothed | raw
+
+        # IDF Weighting (Phase 2) - Emphasize rare genres, suppress common genres
+        # Formula: idf[g] = log((N+1)/(df[g]+1))^power
+        # Effect: Rare genres (shoegaze) → high weight (0.8-1.0)
+        #         Common genres (indie rock) → low weight (0.1-0.3)
+        dj_genre_use_idf: true               # Enable IDF weighting (RECOMMENDED)
+        dj_genre_idf_power: 1.0              # IDF exponent (1.0 = standard log formula)
+        dj_genre_idf_norm: max1              # Normalization: max1 | sum1 | none
+
+        # Coverage Bonus (Phase 2) - Reward matching anchor's top-K genres
+        # Tracks top-K genres from each anchor (pier A, pier B)
+        # Rewards candidates that match these signature genres
+        # Schedule decay: wA=(1-s)^power (strong near A), wB=s^power (strong near B)
+        dj_genre_use_coverage: true          # Enable coverage bonus (RECOMMENDED)
+        dj_genre_coverage_top_k: 8           # Track top-N genres per anchor
+        dj_genre_coverage_weight: 0.15       # Coverage bonus weight (additive to score)
+                                             # NOTE: If weighted coverage is too strong, use 0.10 as safe fallback
+        dj_genre_coverage_power: 2.0         # Schedule decay power (2.0 = quadratic)
+        dj_genre_presence_threshold: 0.02    # Min genre weight to count as "present" (2%)
+                                             # NOTE: Smoothed vectors inflate presence; tune 0.02-0.05 as needed
+
+        # Phase 3: Centered Waypoint Delta (fixes waypoint saturation)
+        # - "absolute": Legacy mode (delta = weight * sim), can pin at cap
+        # - "centered": Subtract step baseline (delta = weight * (sim - sim0)), allows negative deltas
+        dj_waypoint_delta_mode: centered     # absolute | centered (RECOMMENDED: centered)
+        dj_waypoint_centered_baseline: median  # median | mean (for centered mode)
+
+        # Phase 3: Waypoint Squashing (prevents hard plateaus at cap)
+        # - "none": Hard clamp at waypoint_cap (legacy, causes plateaus)
+        # - "tanh": Smooth squashing (delta = cap * tanh(alpha * raw / cap))
+        dj_waypoint_squash: tanh             # none | tanh (RECOMMENDED: tanh)
+        dj_waypoint_squash_alpha: 4.0        # Alpha for tanh squashing (higher = steeper, 4.0 recommended)
+
+        # Phase 3: Coverage Presence Source (fixes smoothed inflation)
+        # - "same": Use same matrix as scoring (can inflate presence with smoothed vectors)
+        # - "raw": Use raw genres for presence check (avoids false positives)
+        dj_coverage_presence_source: raw     # same | raw (RECOMMENDED: raw with smoothed targets)
+
+        # Phase 3: Coverage Mode (fixes coverage ties/saturation)
+        # - "binary": Count genres present (0/1 per genre), discrete values
+        # - "weighted": Mean of genre weights, creates gradient
+        dj_coverage_mode: weighted           # binary | weighted (RECOMMENDED: weighted)
+
+        # Production Config Example (Recommended Defaults):
+        # This configuration is stable and non-saturating for most use cases.
+        #
+        # dj_ladder_target_mode: vector
+        # dj_genre_vector_source: smoothed
+        # dj_genre_use_idf: true
+        # dj_genre_idf_power: 1.0
+        # dj_genre_idf_norm: max1
+        # dj_genre_use_coverage: true
+        # dj_genre_coverage_top_k: 8
+        # dj_genre_coverage_weight: 0.15
+        # dj_genre_coverage_power: 2.0
+        # dj_genre_presence_threshold: 0.02
+        # waypoint_weight: 0.25
+        # waypoint_cap: 0.10
+        # dj_waypoint_delta_mode: centered
+        # dj_waypoint_centered_baseline: median
+        # dj_waypoint_squash: tanh
+        # dj_waypoint_squash_alpha: 4.0
+        # dj_coverage_presence_source: raw
+        # dj_coverage_mode: weighted
+        # pooling.strategy: dj_union
+        # route_shape: ladder
+
+      # Duration penalty (geometric): penalizes bridge candidates based on percentage excess
+      # over pier tracks. Uses a three-phase curve that accelerates from gentle to severe.
+      # Does NOT block long tracks (hard filter does that), but reduces score based on
+      # how much longer they are than the pier tracks.
+      #
+      # Three-phase geometric curve (percentage-based):
+      #   0-20% excess:   Gentle penalties (barely noticeable)
+      #   20-50% excess:  Moderate penalties (increasing)
+      #   50-100% excess: Steep penalties (strong discouragement)
+      #   >100% excess:   Severe penalties (track is 2x+ longer than pier)
+      duration_penalty:
+        enabled: true                # Enable duration penalty (default: true)
+        weight: 0.30                 # Penalty strength (default: 0.30, range: 0.10-0.50)
+        # Example: 200s pier track → 400s candidate (+100%) = severe penalty ≈ 0.75
+
+      # Interior artist policies (optional):
+      # - For `--artist` playlists, the seed artist is DISALLOWED in bridge interiors by default (piers-only).
+      # - To override in any run, you can set:
+      #   disallow_seed_artist_in_interiors: false   # allow seed artist inside segments
+      #   disallow_pier_artists_in_interiors: true   # disallow endpoint artists inside segments
+
+      # Optional: segment infeasibility handling (default OFF).
+      # If a segment is infeasible under the current bridge_floor + allowed pool,
+      # this can retry the SAME segment with a lower bridge_floor.
+      infeasible_handling:
+        enabled: false
+        strategy: "backoff"
+        min_bridge_floor: 0.00
+        backoff_steps: [0.08, 0.06, 0.05, 0.04, 0.03, 0.02, 0.01, 0.00]
+        max_attempts_per_segment: 8
+        widen_search_on_backoff: true
+        # Widening knobs applied only after the first failure:
+        extra_neighbors_m: 200
+        extra_bridge_helpers: 100
+        extra_beam_width: 50
+        extra_expansion_attempts: 2
+
+      # Optional: write a markdown run audit report (default OFF).
+      # Useful when debugging infeasible segments or verifying gating behavior.
+      audit_run:
+        enabled: false
+        out_dir: "docs/run_audits"
+        include_top_k: 25
+        max_bytes: 350000
+        write_on_success: true
+        write_on_failure: true
 
     # Repair pass configuration (fixes weak transitions after construction)
     repair:
@@ -114,8 +509,8 @@ playlists:
     enabled: true
     weight: 0.50
     sonic_weight: 0.50
-    min_genre_similarity: 0.30
-    min_genre_similarity_narrow: 0.55
+    min_genre_similarity: 0.35
+    min_genre_similarity_narrow: 0.60
     method: ensemble
     similarity_file: data/genre_similarity.yaml
     use_artist_tags: true
@@ -224,4 +619,58 @@ playlists:
       short_title_min_len: 6
 logging:
   level: DEBUG
-  file: playlist_generator.log
+  file: logs/playlist_generator.log
+
+# ═══════════════════════════════════════════════════════════════════════════
+# EXPERIMENTAL FEATURES (Refactoring Feature Flags)
+# ═══════════════════════════════════════════════════════════════════════════
+# Feature flags for safe incremental refactoring. All flags default to false
+# (legacy behavior) for maximum safety. Only enable flags when explicitly
+# testing refactored implementations.
+#
+# WARNING: These flags are for development/testing only. Do not enable in
+# production unless you understand the implications and have validated
+# behavior with golden file tests.
+#
+experimental:
+  # Phase 2.1: Genre normalization consolidation
+  use_unified_genre_normalization: false
+
+  # Phase 2.2: Artist normalization consolidation
+  use_unified_artist_normalization: false
+
+  # Phase 2.3: Genre similarity consolidation
+  use_unified_genre_similarity: false
+
+  # Phase 2.4: Typed configuration facades
+  use_typed_config: false
+
+  # Phase 3.1: Pier-bridge scoring extraction
+  use_extracted_pier_bridge_scoring: false
+
+  # Phase 3.2: Segment pool builder extraction
+  use_extracted_segment_pool: false
+
+  # Phase 3.3: Pier-bridge diagnostics extraction
+  use_extracted_pier_bridge_diagnostics: false
+
+  # Phase 4.1: Playlist factory with strategy pattern
+  use_playlist_factory: false
+
+  # Phase 4.2: Enhanced candidate generator
+  use_new_candidate_generator: false
+
+  # Phase 4.3: Composable filter pipeline
+  use_filtering_pipeline: false
+
+  # Phase 4.4: Listening history repository
+  use_history_repository: false
+
+  # Phase 5.1: Explicit config resolution
+  use_config_resolver: false
+
+  # Phase 5.2: DS pipeline builder pattern
+  use_pipeline_builder: false
+
+  # Phase 5.3: Sonic variant caching
+  use_variant_cache: false

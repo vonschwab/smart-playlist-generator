@@ -151,7 +151,6 @@ class ArtistSimilarityCache:
 
 # Example usage
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
     cache = ArtistSimilarityCache()
 
     # Test setting

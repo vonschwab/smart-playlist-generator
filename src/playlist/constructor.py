@@ -10,8 +10,8 @@ import numpy as np
 from src.features.artifacts import ArtifactBundle, get_sonic_matrix
 from src.playlist.candidate_pool import CandidatePoolResult
 from src.playlist.config import DSPipelineConfig
-from src.similarity.hybrid import HybridEmbeddingModel, cosine_sim_matrix_to_vector, transition_similarity_end_to_start
-from src.similarity.sonic_variant import compute_sonic_variant_norm, get_variant_from_env, resolve_sonic_variant, apply_transition_weights
+from src.similarity.hybrid import HybridEmbeddingModel, transition_similarity_end_to_start
+from src.similarity.sonic_variant import compute_sonic_variant_norm, resolve_sonic_variant, apply_transition_weights
 from src.title_dedupe import normalize_title_for_dedupe
 
 logger = logging.getLogger(__name__)

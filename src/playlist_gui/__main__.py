@@ -1,5 +1,5 @@
 """
-Module entry point for running as: python -m src.playlist_gui
+Module entry point for running as: python -m playlist_gui
 """
 from .app import main
 

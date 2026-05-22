@@ -3,30 +3,49 @@ Configuration Loader - Manages YAML configuration and environment variables
 """
 import yaml
 import os
-from typing import Any, Optional
+from typing import Any
 
 
 class Config:
     """Configuration manager for Playlist Generator"""
-    
+
     def __init__(self, config_path: str = "config.yaml"):
         self.config_path = config_path
         self.config = self._load_config()
+        self._apply_mode_presets()  # Resolve genre_mode/sonic_mode to settings
         self._validate_config()
-    
+
     def _load_config(self) -> dict:
         """Load configuration from YAML file"""
         if not os.path.exists(self.config_path):
             raise FileNotFoundError(f"Configuration file not found: {self.config_path}")
-        
-        with open(self.config_path, 'r') as f:
+
+        with open(self.config_path, 'r', encoding='utf-8') as f:
             return yaml.safe_load(f)
-    
+
+    def _apply_mode_presets(self):
+        """
+        Apply genre_mode and sonic_mode presets if specified in config.
+
+        Mode settings (genre_mode/sonic_mode) take precedence over manual
+        weight/threshold settings. If both are present, mode wins.
+        """
+        playlists_cfg = self.config.get('playlists', {})
+        if not playlists_cfg:
+            return
+        try:
+            from src.playlist.mode_presets import apply_mode_presets
+        except ImportError:
+            return
+
+        apply_mode_presets(playlists_cfg)
+
     def _validate_config(self):
         """Validate required configuration fields"""
+        # Note: openai/api_key was removed when the legacy OpenAI wiring was
+        # dropped (Tier-0.10b). It is no longer a required section.
         required_fields = [
             ('library', 'database_path'),
-            ('openai', 'api_key')
         ]
 
         for section, field in required_fields:
@@ -39,23 +58,23 @@ class Config:
             value = self.config[section][field]
             if not value or str(value).startswith('YOUR_'):
                 raise ValueError(f"Please set {section}.{field} in {self.config_path}")
-    
+
     def get(self, section: str, key: str, default: Any = None) -> Any:
         """
         Get configuration value
-        
+
         Args:
             section: Configuration section
             key: Configuration key
             default: Default value if not found
-            
+
         Returns:
             Configuration value or default
         """
         if section not in self.config:
             return default
         return self.config[section].get(key, default)
-    
+
     @property
     def library_database_path(self) -> str:
         """Get library database path"""
@@ -65,16 +84,6 @@ class Config:
     def library_music_directory(self) -> str:
         """Get music directory path"""
         return self.config['library'].get('music_directory', 'E:\\MUSIC')
-    
-    @property
-    def openai_api_key(self) -> str:
-        """Get OpenAI API key (with environment variable override)"""
-        return os.getenv('OPENAI_API_KEY') or self.config['openai']['api_key']
-
-    @property
-    def openai_model(self) -> str:
-        """Get OpenAI model"""
-        return self.config['openai'].get('model', 'gpt-4o-mini')
 
     @property
     def lastfm_api_key(self) -> str:
@@ -95,6 +104,13 @@ class Config:
         """Get Last.FM history days"""
         return self.config.get('lastfm', {}).get('history_days', 90)
 
+    def get_ds_artifact_path(self) -> str:
+        """Get DS pipeline artifact path."""
+        return self.config.get('playlists', {}).get('ds_pipeline', {}).get(
+            'artifact_path',
+            'data/artifacts/beat3tower_32k/data_matrices_step1.npz',
+        )
+
     @property
     def min_duration_minutes(self) -> int:
         """Get minimum playlist duration in minutes"""
@@ -103,7 +119,7 @@ class Config:
     @property
     def min_track_duration_seconds(self) -> int:
         """Get minimum track duration in seconds (filter out short tracks)"""
-        return self.config.get('playlists', {}).get('min_track_duration_seconds', 90)
+        return self.config.get('playlists', {}).get('min_track_duration_seconds', 47)
 
     @property
     def max_track_duration_seconds(self) -> int:
@@ -445,7 +461,6 @@ class Config:
 if __name__ == "__main__":
     import logging
     logger = logging.getLogger(__name__)
-    logging.basicConfig(level=logging.INFO)
     try:
         config = Config()
         logger.info(f"Configuration loaded successfully: {config}")

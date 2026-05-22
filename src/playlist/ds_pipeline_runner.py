@@ -5,7 +5,9 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+from src.playlist import reporter
 from src.playlist.pipeline import generate_playlist_ds as core_generate_playlist_ds
+from src.playlist.pier_bridge_builder import PierBridgeConfig
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +21,63 @@ class DsRunResult:
     playlist_stats: Dict[str, Any]
 
 
+def _finite_t_values(edge_scores: List[Dict[str, Any]]) -> List[float]:
+    values: List[float] = []
+    for edge in edge_scores:
+        if not isinstance(edge, dict):
+            continue
+        value = edge.get("T")
+        if isinstance(value, (int, float)) and value == value:
+            values.append(float(value))
+    return values
+
+
+def _refresh_playlist_metrics_from_final_edges(
+    *,
+    track_ids: List[str],
+    playlist_stats: Dict[str, Any],
+    artifact_path: str,
+    sonic_variant: Optional[str],
+    random_seed: int,
+) -> None:
+    """Make DS summary metrics match final edge-reporting representation."""
+    if len(track_ids) < 2:
+        return
+    transition_floor = playlist_stats.get("transition_floor")
+    transition_weights = playlist_stats.get("transition_weights")
+    if isinstance(transition_weights, list) and len(transition_weights) == 3:
+        transition_weights = tuple(float(v) for v in transition_weights)
+    elif isinstance(transition_weights, tuple) and len(transition_weights) == 3:
+        transition_weights = tuple(float(v) for v in transition_weights)
+    else:
+        transition_weights = None
+    edge_scores = reporter.compute_edge_scores_from_artifact(
+        tracks=[{"rating_key": str(tid)} for tid in track_ids],
+        artifact_path=artifact_path,
+        config_sonic_variant=sonic_variant,
+        transition_floor=transition_floor,
+        transition_gamma=playlist_stats.get("transition_gamma"),
+        embedding_random_seed=random_seed,
+        center_transitions=bool(playlist_stats.get("transition_centered")),
+        sonic_variant=sonic_variant,
+        transition_weights=transition_weights,
+    )
+    if len(edge_scores) != len(track_ids) - 1:
+        return
+
+    t_values = _finite_t_values(edge_scores)
+    if not t_values:
+        return
+
+    playlist_stats["edge_scores"] = edge_scores
+    playlist_stats["min_transition"] = min(t_values)
+    playlist_stats["mean_transition"] = sum(t_values) / len(t_values)
+    if transition_floor is not None:
+        floor = float(transition_floor)
+        playlist_stats["below_floor_count"] = sum(1 for value in t_values if value < floor)
+    playlist_stats["edge_metric_source"] = "final_emitted_playlist"
+
+
 def generate_playlist_ds(
     *,
     artifact_path: str,
@@ -26,6 +85,7 @@ def generate_playlist_ds(
     mode: str,
     length: int,
     random_seed: int,
+    pace_mode: str = "dynamic",
     overrides: Optional[Dict[str, Any]] = None,
     enable_logging: bool = False,
     allowed_track_ids: Optional[List[str]] = None,
@@ -33,11 +93,21 @@ def generate_playlist_ds(
     single_artist: bool = False,
     sonic_variant: Optional[str] = None,
     anchor_seed_ids: Optional[List[str]] = None,
+    # Optional pier-bridge audit/backoff context
+    dry_run: bool = False,
+    pool_source: Optional[str] = None,
+    artist_style_enabled: bool = False,
+    artist_playlist: bool = False,
+    audit_context_extra: Optional[Dict[str, Any]] = None,
     # Genre similarity parameters
     sonic_weight: Optional[float] = None,
     genre_weight: Optional[float] = None,
     min_genre_similarity: Optional[float] = None,
     genre_method: Optional[str] = None,
+    pier_bridge_config: Optional["PierBridgeConfig"] = None,
+    internal_connector_ids: Optional[list[str]] = None,
+    internal_connector_max_per_segment: int = 0,
+    internal_connector_priority: bool = True,
 ) -> DsRunResult:
     """Production-facing wrapper around the DS pipeline.
 
@@ -57,20 +127,38 @@ def generate_playlist_ds(
         anchor_seed_ids=anchor_seed_ids,
         num_tracks=length,
         mode=mode,
+        pace_mode=pace_mode,
         random_seed=random_seed,
         overrides=overrides,
         allowed_track_ids=allowed_track_ids,
         excluded_track_ids=excluded_track_ids,
         single_artist=single_artist,
         sonic_variant=sonic_variant,
+        pier_bridge_config=pier_bridge_config,
+        dry_run=dry_run,
+        pool_source=pool_source,
+        artist_style_enabled=artist_style_enabled,
+        artist_playlist=artist_playlist,
+        audit_context_extra=audit_context_extra,
         # Pass through genre similarity parameters
         sonic_weight=sonic_weight,
         genre_weight=genre_weight,
         min_genre_similarity=min_genre_similarity,
         genre_method=genre_method,
+        allowed_track_ids_set=set(str(t) for t in allowed_track_ids) if allowed_track_ids else None,
+        internal_connector_ids=internal_connector_ids,
+        internal_connector_max_per_segment=internal_connector_max_per_segment,
+        internal_connector_priority=internal_connector_priority,
     )
 
     playlist_stats = result.stats.get("playlist", {})
+    _refresh_playlist_metrics_from_final_edges(
+        track_ids=list(result.track_ids),
+        playlist_stats=playlist_stats,
+        artifact_path=artifact_path,
+        sonic_variant=sonic_variant,
+        random_seed=random_seed,
+    )
     metrics: Dict[str, Any] = {
         "below_floor": playlist_stats.get("below_floor_count"),
         "min_transition": playlist_stats.get("min_transition"),
@@ -85,6 +173,7 @@ def generate_playlist_ds(
         "strategy": playlist_stats.get("strategy"),
         "repair_applied": playlist_stats.get("repair_applied"),
         "num_segments": playlist_stats.get("num_segments"),
+        "edge_metric_source": playlist_stats.get("edge_metric_source"),
     }
 
     if enable_logging:
@@ -100,7 +189,13 @@ def generate_playlist_ds(
         logger.info(json.dumps(payload))
 
     requested = dict(result.params_requested)
-    requested.update({"seed_track_id": seed_track_id, "mode": mode, "length": length, "random_seed": random_seed})
+    requested.update({
+        "seed_track_id": seed_track_id,
+        "mode": mode,
+        "pace_mode": pace_mode,
+        "length": length,
+        "random_seed": random_seed,
+    })
 
     return DsRunResult(
         track_ids=result.track_ids,

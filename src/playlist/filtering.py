@@ -14,17 +14,26 @@ from typing import List, Dict, Any, Optional, Set, Tuple
 from datetime import datetime, timedelta
 from collections import defaultdict
 import logging
+import re
 
 from ..string_utils import normalize_artist_key, normalize_match_string
 from .utils import safe_get_artist_key
 
 logger = logging.getLogger(__name__)
 
+RECENCY_STAGE_CANDIDATE_POOL = "candidate_pool"
+
+
+def _assert_recency_stage(stage: str) -> None:
+    if stage != RECENCY_STAGE_CANDIDATE_POOL:
+        raise ValueError(f"Recency filter must not run after ordering (stage={stage})")
+
 
 @dataclass(frozen=True)
 class FilterConfig:
     """Configuration for track filtering operations."""
-    max_duration_seconds: Optional[int] = 720  # 12 minutes
+    min_duration_seconds: int = 47  # 47 seconds minimum (hard filter)
+    max_duration_seconds: int = 720  # 12 minutes maximum (hard filter)
     recency_lookback_days: int = 14
     preserve_seed_tracks: bool = True
     recently_played_filter_enabled: bool = True
@@ -44,29 +53,104 @@ class FilterResult:
     stats: Dict[str, Any] = field(default_factory=dict)
 
 
+def is_valid_duration(track: Dict[str, Any], min_seconds: int = 47, max_seconds: int = 720) -> bool:
+    """
+    Check if track duration is within acceptable range.
+
+    Args:
+        track: Track dictionary with 'duration' field (milliseconds)
+        min_seconds: Minimum duration in seconds (default 47)
+        max_seconds: Maximum duration in seconds (default 720)
+
+    Returns:
+        True if duration is valid, False otherwise
+    """
+    duration_ms = track.get('duration') or 0
+    if duration_ms == 0:
+        return False  # Tracks with unknown duration are excluded
+
+    min_ms = min_seconds * 1000
+    max_ms = max_seconds * 1000
+    return min_ms <= duration_ms <= max_ms
+
+
+def _normalize_title_for_exclusion(value: Any) -> str:
+    text = "" if value is None else str(value)
+    text = re.sub(r"[^a-z0-9]+", " ", text.casefold())
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def is_title_excluded(title: Any, exclusion_words: List[str] | Tuple[str, ...]) -> bool:
+    """Return True when a title contains a configured non-song marker."""
+    normalized_title = _normalize_title_for_exclusion(title)
+    if not normalized_title:
+        return False
+
+    title_with_boundaries = f" {normalized_title} "
+    compact_title = normalized_title.replace(" ", "")
+
+    for word in exclusion_words or ():
+        normalized_word = _normalize_title_for_exclusion(word)
+        if not normalized_word:
+            continue
+        if " " in normalized_word:
+            if f" {normalized_word} " in title_with_boundaries:
+                return True
+            if normalized_word.replace(" ", "") in compact_title:
+                return True
+        elif f" {normalized_word} " in title_with_boundaries:
+            return True
+    return False
+
+
+def filter_by_title_exclusions(
+    *,
+    tracks: List[Dict[str, Any]],
+    exclusion_words: List[str] | Tuple[str, ...],
+) -> List[Dict[str, Any]]:
+    """Remove tracks whose titles contain configured non-song markers."""
+    if not exclusion_words:
+        return list(tracks)
+
+    filtered = [
+        track for track in tracks
+        if not is_title_excluded(track.get("title", ""), exclusion_words)
+    ]
+    removed = len(tracks) - len(filtered)
+    if removed > 0:
+        logger.debug("Title exclusions: before=%d after=%d excluded=%d", len(tracks), len(filtered), removed)
+    return filtered
+
+
 def filter_by_duration(
     *,
     tracks: List[Dict[str, Any]],
-    max_duration_seconds: Optional[int],
+    min_duration_seconds: int = 47,
+    max_duration_seconds: int = 720,
 ) -> List[Dict[str, Any]]:
     """
-    Remove tracks above maximum duration.
+    Remove tracks outside acceptable duration range (hard filter).
+
+    Hard Rules:
+    - Minimum: 47 seconds (no intros, skits, or short tracks)
+    - Maximum: 720 seconds (12 minutes, no extended live versions)
 
     Args:
         tracks: List of track dictionaries
-        max_duration_seconds: Maximum duration in seconds (None to skip filtering)
+        min_duration_seconds: Minimum duration in seconds (default 47)
+        max_duration_seconds: Maximum duration in seconds (default 720)
 
     Returns:
         Filtered list of tracks
     """
-    if not max_duration_seconds:
-        return tracks
+    filtered = [t for t in tracks if is_valid_duration(t, min_duration_seconds, max_duration_seconds)]
 
-    max_duration_ms = max_duration_seconds * 1000
-
-    filtered = [t for t in tracks if (t.get('duration') or 0) <= max_duration_ms]
-
-    logger.debug(f"Duration filter: {len(tracks)} -> {len(filtered)} tracks (max={max_duration_seconds}s)")
+    removed = len(tracks) - len(filtered)
+    if removed > 0:
+        logger.debug(
+            f"Duration filter: {len(tracks)} -> {len(filtered)} tracks "
+            f"(removed {removed}: min={min_duration_seconds}s, max={max_duration_seconds}s)"
+        )
 
     return filtered
 
@@ -78,6 +162,7 @@ def filter_by_recently_played(
     lookback_days: int,
     min_playcount: int = 0,
     exempt_tracks: Optional[List[Dict[str, Any]]] = None,
+    stage: str,
 ) -> FilterResult:
     """
     Filter out recently played tracks based on local history.
@@ -92,6 +177,8 @@ def filter_by_recently_played(
     Returns:
         FilterResult with filtered tracks and statistics
     """
+    _assert_recency_stage(stage)
+
     # Build set of tracks to filter based on configuration
     played_keys = set()
     play_counts = defaultdict(int)
@@ -128,25 +215,24 @@ def filter_by_recently_played(
                 played_keys.add(key)
 
     # Build set of exempt track keys
-    exempt_keys = set()
+    exempt_keys: Set[str] = set()
     if exempt_tracks:
-        exempt_keys = {t.get('rating_key') for t in exempt_tracks if t.get('rating_key')}
-        logger.info(f"  Exempting {len(exempt_keys)} seed tracks from filtering")
+        exempt_keys = {t.get("rating_key") for t in exempt_tracks if t.get("rating_key")}
 
     # Filter out played tracks (except exempt tracks)
     filtered = [t for t in tracks if t.get('rating_key') not in played_keys or t.get('rating_key') in exempt_keys]
 
-    filter_msg = f"Filtered {len(tracks)} -> {len(filtered)} tracks"
-    if lookback_days > 0:
-        filter_msg += f" (removed tracks played in last {lookback_days} days"
-    else:
-        filter_msg += f" (removed recently played tracks"
-    if min_playcount > 0:
-        filter_msg += f", playcount >= {min_playcount})"
-    else:
-        filter_msg += ")"
-
-    logger.info(filter_msg)
+    logger.info(
+        "stage=%s | Local recency exclusions: before=%d after=%d excluded=%d lookback_days=%d min_playcount=%d history_size=%d exempt=%d",
+        stage,
+        len(tracks),
+        len(filtered),
+        len(tracks) - len(filtered),
+        lookback_days,
+        min_playcount,
+        len(play_history),
+        len(exempt_keys),
+    )
     logger.debug(
         "Filtering details: history_size=%d played_keys=%d candidates_before=%d candidates_after=%d still_present=%d",
         len(play_history),
@@ -177,6 +263,7 @@ def filter_by_scrobbles(
     lookback_days: int,
     exempt_tracks: Optional[List[Dict[str, Any]]] = None,
     sample_limit: int = 5,
+    stage: str,
 ) -> FilterResult:
     """
     Filter candidates using Last.FM scrobbles.
@@ -194,8 +281,10 @@ def filter_by_scrobbles(
     Returns:
         FilterResult with filtered tracks and statistics
     """
+    _assert_recency_stage(stage)
+
     if not scrobbles or lookback_days <= 0:
-        return FilterResult(filtered_tracks=tracks, stats={'skipped': True})
+        return FilterResult(filtered_tracks=tracks, stats={"skipped": True})
 
     cutoff_timestamp = int((datetime.now() - timedelta(days=lookback_days)).timestamp())
 
@@ -218,8 +307,6 @@ def filter_by_scrobbles(
             k = _key_for_track(t)
             if k:
                 exempt_keys.add(k)
-        if exempt_keys:
-            logger.info("  Exempting %d seed tracks from scrobble recency filter", len(exempt_keys))
 
     for s in scrobbles:
         ts = s.get("timestamp", 0)
@@ -230,12 +317,18 @@ def filter_by_scrobbles(
             scrobble_keys.add(k)
 
     if not scrobble_keys:
-        logger.debug(
-            "Scrobble recency filter skipped: %d scrobbles but no usable keys (lookback_days=%d)",
-            len(scrobbles),
+        logger.info(
+            "stage=%s | Last.fm recency exclusions: before=%d after=%d excluded=%d lookback_days=%d scrobbles=%d keys=%d exempt=%d (skipped=no_usable_keys)",
+            stage,
+            len(tracks),
+            len(tracks),
+            0,
             lookback_days,
+            len(scrobbles),
+            0,
+            len(exempt_keys),
         )
-        return FilterResult(filtered_tracks=tracks, stats={'skipped': True, 'reason': 'no_usable_keys'})
+        return FilterResult(filtered_tracks=tracks, stats={"skipped": True, "reason": "no_usable_keys"})
 
     filtered = []
     filtered_out = []
@@ -247,21 +340,15 @@ def filter_by_scrobbles(
         filtered.append(t)
 
     logger.info(
-        "Last.fm recency filter: %d -> %d (filtered=%d, lookback_days=%d, scrobbles=%d, keys=%d)",
+        "stage=%s | Last.fm recency exclusions: before=%d after=%d excluded=%d lookback_days=%d scrobbles=%d keys=%d exempt=%d",
+        stage,
         len(tracks),
         len(filtered),
         len(filtered_out),
         lookback_days,
         len(scrobbles),
         len(scrobble_keys),
-    )
-    logger.debug(
-        "Scrobble recency filter: scrobbles=%d keys=%d candidates_before=%d candidates_after=%d filtered=%d",
-        len(scrobbles),
-        len(scrobble_keys),
-        len(tracks),
-        len(filtered),
-        len(filtered_out),
+        len(exempt_keys),
     )
 
     if filtered_out and logger.isEnabledFor(logging.DEBUG):
@@ -403,9 +490,10 @@ def apply_filters(
     current_tracks = list(tracks)
     initial_count = len(current_tracks)
 
-    # 1. Duration filtering
+    # 1. Duration filtering (hard min/max)
     current_tracks = filter_by_duration(
         tracks=current_tracks,
+        min_duration_seconds=config.min_duration_seconds,
         max_duration_seconds=config.max_duration_seconds,
     )
     cumulative_stats['duration_filter'] = {
@@ -423,6 +511,7 @@ def apply_filters(
             lookback_days=config.recency_lookback_days,
             min_playcount=config.recently_played_min_playcount,
             exempt_tracks=seed_tracks if config.preserve_seed_tracks else None,
+            stage=RECENCY_STAGE_CANDIDATE_POOL,
         )
         current_tracks = result.filtered_tracks
         cumulative_stats['local_history_filter'] = result.stats
@@ -435,6 +524,7 @@ def apply_filters(
             scrobbles=scrobbles,
             lookback_days=config.recency_lookback_days,
             exempt_tracks=seed_tracks if config.preserve_seed_tracks else None,
+            stage=RECENCY_STAGE_CANDIDATE_POOL,
         )
         current_tracks = result.filtered_tracks
         cumulative_stats['scrobbles_filter'] = result.stats

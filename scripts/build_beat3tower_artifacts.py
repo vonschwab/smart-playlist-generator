@@ -31,7 +31,6 @@ Output NPZ contents:
 import argparse
 import json
 import logging
-import re
 import sqlite3
 import sys
 from pathlib import Path
@@ -166,7 +165,7 @@ def load_tracks_with_beat3tower(
 
     cursor.execute(
         f"""
-        SELECT track_id, artist, title, album, {norm_artist_expr} as norm_artist, sonic_features
+        SELECT track_id, artist, title, album, {norm_artist_expr} as norm_artist, sonic_features, duration_ms
         FROM tracks
         WHERE sonic_features IS NOT NULL
         {limit_clause}
@@ -201,6 +200,7 @@ def load_tracks_with_beat3tower(
             "title": row["title"] or "",
             "album": row["album"] or "",
             "norm_artist": row["norm_artist"] or row["artist"] or "",
+            "duration_ms": row["duration_ms"] if row["duration_ms"] is not None else 0,
         })
         features_list.append(features)
 
@@ -642,6 +642,7 @@ def build_artifacts(args: argparse.Namespace) -> None:
     ]
     track_artists = [t["artist"] for t in tracks]
     track_titles = [t["title"] for t in tracks]
+    durations_ms = np.array([t["duration_ms"] for t in tracks], dtype=np.int32)
 
     # Create feature names
     rhythm_names = [f"rhythm_{i:02d}" for i in range(X_r_full.shape[1])]
@@ -699,6 +700,7 @@ def build_artifacts(args: argparse.Namespace) -> None:
         track_artists=np.array(track_artists, dtype=object),
         track_titles=np.array(track_titles, dtype=object),
         artist_keys=np.array(artist_keys, dtype=object),
+        durations_ms=durations_ms,
         # Build metadata
         build_config={
             'clip_sigma': args.clip_sigma,
@@ -710,6 +712,12 @@ def build_artifacts(args: argparse.Namespace) -> None:
             'genre_stats': genre_stats,
         },
     )
+
+    # Log duration stats
+    valid_durations = durations_ms[durations_ms > 0]
+    if len(valid_durations) > 0:
+        mean_dur_sec = float(np.mean(valid_durations)) / 1000.0
+        logger.info(f"Duration statistics: {len(valid_durations)}/{len(durations_ms)} tracks with duration (mean={mean_dur_sec:.1f}s)")
 
     logger.info(
         f"Artifact saved successfully: "
@@ -725,10 +733,8 @@ def main() -> None:
     args = parse_args()
 
     log_level = logging.DEBUG if args.verbose else logging.INFO
-    logging.basicConfig(
-        level=log_level,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    )
+    from src.logging_utils import configure_logging
+    configure_logging(level=logging.getLevelName(log_level), force=True)
 
     try:
         build_artifacts(args)

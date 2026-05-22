@@ -1,13 +1,13 @@
 # Playlist Generator GUI
 
-A native Windows desktop application for AI-powered playlist generation, built with PySide6/Qt Widgets.
+A native Windows desktop application for Data Science-powered playlist generation, built with PySide6/Qt Widgets.
 
 ## Features
 
 ### Simple, Clean Interface
-- **Artist Mode** (default): Generate playlists seeded from a specific artist and optional track
-- **History Mode**: Generate playlists from your Last.FM listening history
-- **Predictive Autocomplete**: Artist and track inputs query your music database for suggestions
+- **Artist Mode** (default): Generate playlists from a specific artist and optional seed list
+- **Seeds Mode**: Add multiple explicit seed tracks with per-row autocomplete
+- **Predictive Autocomplete**: Artist, seed track, and genre inputs query your music database with accent-insensitive matching
 - **Real-time Progress**: Visual progress bar with stage information during generation
 
 ### Advanced Settings Panel
@@ -207,7 +207,7 @@ Commands and events use newline-delimited JSON (one JSON object per line).
 ```
 src/playlist_gui/
 ├── __init__.py           # Package init
-├── __main__.py           # Entry point for `python -m src.playlist_gui`
+├── __main__.py           # Entry point for `python -m playlist_gui.app`
 ├── app.py                # QApplication setup and launch
 ├── main_window.py        # Main window with controls and layout
 ├── autocomplete.py       # Database-driven artist/track autocomplete
@@ -245,7 +245,7 @@ pip install -r requirements-gui.txt
 
 ```bash
 # From project root
-python -m src.playlist_gui
+python -m playlist_gui.app
 
 # Or using the app entry point
 python src/playlist_gui/app.py
@@ -295,9 +295,7 @@ When you adjust one slider, others in the same group adjust proportionally.
 ### Playlist Settings
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Playlists per batch | 8 | Number of playlists in History mode |
 | Tracks per playlist | 30 | Target playlist length |
-| Seed count | 5 | Tracks from history to seed from |
 | Similar per seed | 20 | Candidates per seed track |
 
 ### Hybrid Weights (sum to 1.0)
@@ -342,6 +340,15 @@ When you adjust one slider, others in the same group adjust proportionally.
 | dynamic | Balanced mix (default) |
 | discover | Explore further from seed |
 | sonic_only | Pure audio, ignore genres |
+
+### Genre/Sonic Modes
+| Mode | Description |
+|------|-------------|
+| strict | Ultra-tight matching |
+| narrow | Cohesive matching |
+| dynamic | Balanced matching (default) |
+| discover | Exploratory matching |
+| off | Disable the domain (pure sonic or pure genre) |
 
 ## Built-in Presets
 
@@ -403,7 +410,7 @@ SettingSpec(
 ### GUI Won't Start
 - Check Python version (3.9+ required)
 - Verify PySide6 is installed: `pip install PySide6`
-- Run with debug: `python -m src.playlist_gui 2>&1`
+- Run with debug: `python -m playlist_gui.app 2>&1`
 
 ### Worker Crashes
 - Check config.yaml exists and is valid YAML

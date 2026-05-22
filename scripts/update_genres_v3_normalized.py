@@ -22,21 +22,87 @@ import sqlite3
 import time
 from collections import Counter
 from pathlib import Path
-from typing import List, Optional, Dict, Set
+from typing import List, Optional, Dict
 import logging
 
 # Add parent directory to path
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
+from src.logging_utils import ProgressLogger
 from src.config_loader import Config
 from src.multi_source_genre_fetcher import MusicBrainzGenreFetcher
-from src.genre_normalization import normalize_genre_list
+from src.genre.normalize_unified import normalize_genre_list
 from src.artist_key_db import ensure_artist_key_schema
 from src.string_utils import normalize_artist_key
+from src.genre_cache import GenreCache
 
 # Logging will be configured in main() - just get the logger here
 logger = logging.getLogger('update_genres')
+
+STATUS_UNKNOWN = "unknown"
+STATUS_OK = "ok"
+STATUS_NO_MATCH = "no_match"
+STATUS_FAILED = "failed"
+
+
+def ensure_enrichment_status_schema(conn: sqlite3.Connection, logger: logging.Logger) -> None:
+    """Create lightweight enrichment status table for attempt markers."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS enrichment_status (
+            entity_type TEXT,
+            entity_id TEXT,
+            status TEXT,
+            attempt_count INTEGER DEFAULT 0,
+            attempted_at TEXT,
+            last_error TEXT,
+            PRIMARY KEY (entity_type, entity_id)
+        )
+        """
+    )
+    conn.commit()
+    logger.debug("Ensured enrichment_status table exists")
+
+
+def get_enrichment_status(conn: sqlite3.Connection, entity_type: str, entity_id: str) -> str:
+    cur = conn.execute(
+        "SELECT status FROM enrichment_status WHERE entity_type=? AND entity_id=?",
+        (entity_type, entity_id),
+    )
+    row = cur.fetchone()
+    if not row:
+        return STATUS_UNKNOWN
+    try:
+        status = row["status"]
+    except Exception:
+        status = row[0]
+    return status or STATUS_UNKNOWN
+
+
+def set_enrichment_status(
+    conn: sqlite3.Connection,
+    entity_type: str,
+    entity_id: str,
+    status: str,
+    last_error: Optional[str] = None,
+) -> None:
+    now = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
+    cur = conn.execute(
+        "SELECT attempt_count FROM enrichment_status WHERE entity_type=? AND entity_id=?",
+        (entity_type, entity_id),
+    )
+    row = cur.fetchone()
+    attempt_count = (row[0] if row else 0) or 0
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO enrichment_status
+        (entity_type, entity_id, status, attempt_count, attempted_at, last_error)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (entity_type, entity_id, status, attempt_count + 1, now, last_error),
+    )
+    conn.commit()
 
 
 class NormalizedGenreUpdater:
@@ -54,6 +120,12 @@ class NormalizedGenreUpdater:
         # Initialize API clients
         self.musicbrainz = MusicBrainzGenreFetcher()
 
+        # Initialize genre cache (90 day TTL)
+        cache_file = ROOT_DIR / 'data' / 'genre_cache.json'
+        self.genre_cache = GenreCache(cache_file, ttl_days=90)
+        cache_stats = self.genre_cache.get_stats()
+        logger.info(f"Genre cache loaded: {cache_stats['fresh']} fresh, {cache_stats['stale']} stale entries")
+
         self._init_db()
         logger.info("Initialized Normalized Genre Updater V3")
 
@@ -61,6 +133,7 @@ class NormalizedGenreUpdater:
         """Initialize database connection"""
         self.conn = sqlite3.connect(self.db_path, timeout=30.0)
         self.conn.row_factory = sqlite3.Row
+        ensure_enrichment_status_schema(self.conn, logger=logger)
 
     def get_artists_needing_genres(self, limit: Optional[int] = None) -> List[Dict]:
         """
@@ -102,6 +175,9 @@ class NormalizedGenreUpdater:
 
         results = []
         for key, counter in display_counts.items():
+            status = get_enrichment_status(self.conn, "artist", key)
+            if status in (STATUS_OK, STATUS_NO_MATCH):
+                continue
             if any(name in artists_with_genres for name in counter.keys()):
                 continue
             if len(counter) > 1:
@@ -147,13 +223,103 @@ class NormalizedGenreUpdater:
             query += f" LIMIT {limit}"
 
         cursor.execute(query)
-        return [dict(row) for row in cursor.fetchall()]
+        albums = []
+        for row in cursor.fetchall():
+            album_id = row["album_id"]
+            status = get_enrichment_status(self.conn, "album", album_id)
+            if status in (STATUS_OK, STATUS_NO_MATCH):
+                continue
+            albums.append(dict(row))
+        return albums
 
     def get_tracks_needing_genres(self, limit: Optional[int] = None) -> List[Dict]:
         """Track-level genre fetching from Last.FM is disabled; return empty list."""
         return []
 
-    def update_artist_genres(self, limit: Optional[int] = None):
+    def _fetch_artist_genres_with_cache(self, artist: str) -> Optional[List[str]]:
+        """
+        Fetch artist genres with cache support.
+
+        Args:
+            artist: Artist name
+
+        Returns:
+            List of genres if found, None if not found, empty list if marked empty
+        """
+        try:
+            # Step 1: Search for artist to get MBID
+            search_url = "https://musicbrainz.org/ws/2/artist/"
+            params = {
+                'query': f'artist:"{artist}"',
+                'fmt': 'json',
+                'limit': 1
+            }
+
+            response = self.musicbrainz.session.get(search_url, params=params)
+            response.raise_for_status()
+            time.sleep(1.1)  # Rate limit
+
+            data = response.json()
+
+            if not data.get('artists'):
+                logger.debug(f"MusicBrainz: No results for {artist}")
+                return None
+
+            artist_mbid = data['artists'][0]['id']
+
+            # Step 2: Check cache
+            cached_genres = self.genre_cache.get(artist_mbid)
+            if cached_genres is not None:
+                logger.debug(f"Cache hit for {artist} ({artist_mbid})")
+                # Return None for empty cache marker
+                return None if cached_genres == ['__EMPTY__'] else cached_genres
+
+            # Step 3: Fetch from API
+            artist_url = f"https://musicbrainz.org/ws/2/artist/{artist_mbid}"
+            params = {'fmt': 'json', 'inc': 'tags+genres'}
+
+            response = self.musicbrainz.session.get(artist_url, params=params)
+            response.raise_for_status()
+            time.sleep(1.1)
+
+            artist_data = response.json()
+
+            # Extract genres
+            genres = []
+            for genre in artist_data.get('genres', []):
+                if genre.get('name'):
+                    genres.append(genre['name'].lower())
+
+            for tag in artist_data.get('tags', []):
+                if tag.get('name') and tag.get('count', 0) >= 3:
+                    tag_name = tag['name'].lower()
+                    if tag_name not in genres:
+                        genres.append(tag_name)
+
+            genres = genres[:10]  # Limit to top 10
+
+            # Step 4: Store in cache
+            cache_value = genres if genres else ['__EMPTY__']
+            self.genre_cache.set(artist_mbid, cache_value, source="musicbrainz")
+
+            if not genres:
+                return None
+
+            logger.debug(f"API fetch for {artist} ({artist_mbid}): {len(genres)} genres")
+            return genres
+
+        except Exception as e:
+            logger.debug(f"Error fetching genres for {artist}: {e}")
+            return None
+
+    def update_artist_genres(
+        self,
+        limit: Optional[int] = None,
+        progress: bool = True,
+        progress_interval: float = 15.0,
+        progress_every: int = 500,
+        verbose_each: bool = False,
+    ):
         """Update artist-level genres with collaboration inheritance fallback"""
         logger.info("=" * 70)
         logger.info("Updating Artist Genres (with collaboration inheritance)")
@@ -168,6 +334,16 @@ class NormalizedGenreUpdater:
 
         logger.info(f"Found {total} artists needing genres from one or more sources")
 
+        prog = ProgressLogger(
+            logger,
+            total=total,
+            label="artist_genres",
+            unit="artists",
+            interval_s=progress_interval,
+            every_n=progress_every,
+            verbose_each=verbose_each,
+        ) if progress else None
+
         stats = {
             'total': total,
             'musicbrainz': 0,
@@ -179,16 +355,21 @@ class NormalizedGenreUpdater:
 
         for i, artist_data in enumerate(artists, 1):
             artist = artist_data['artist']
+            key = artist_data.get("artist_key") or normalize_artist_key(artist or "")
             needs_musicbrainz = bool(artist_data['needs_musicbrainz'])
 
+            if prog:
+                prog.update(detail=artist)
             logger.debug(f"[{i}/{total}] {artist}")
 
             try:
                 # MusicBrainz artist genres (if needed)
                 if needs_musicbrainz:
-                    mb_genres = self.musicbrainz.fetch_musicbrainz_artist_genres(artist)
+                    # Use cache-aware method
+                    mb_genres = self._fetch_artist_genres_with_cache(artist)
                     if mb_genres:
                         self._store_artist_genres(artist, mb_genres, 'musicbrainz_artist')
+                        set_enrichment_status(self.conn, "artist", key, STATUS_OK, last_error=None)
                         stats['musicbrainz'] += 1
                         logger.debug(f"  + MusicBrainz: {', '.join(mb_genres[:3])}" +
                                   (f" (+{len(mb_genres)-3} more)" if len(mb_genres) > 3 else ""))
@@ -210,6 +391,7 @@ class NormalizedGenreUpdater:
                                 # Deduplicate and cap at 10 total
                                 unique_genres = list(dict.fromkeys(inherited_genres))[:10]
                                 self._store_artist_genres(artist, unique_genres, 'musicbrainz_artist_inherited')
+                                set_enrichment_status(self.conn, "artist", key, STATUS_OK, last_error=None)
                                 stats['inherited'] += 1
                                 logger.debug(f"  + Inherited from {len(constituents)} artists: " +
                                           f"{', '.join(unique_genres[:3])}" +
@@ -217,18 +399,21 @@ class NormalizedGenreUpdater:
                             else:
                                 # No genres found for constituents either
                                 self._store_artist_genres(artist, ['__EMPTY__'], 'musicbrainz_artist')
+                                set_enrichment_status(self.conn, "artist", key, STATUS_NO_MATCH, last_error=None)
                                 stats['empty'] += 1
-                                logger.debug(f"  - No genres found (collaboration with no constituent genres)")
+                                logger.debug("  - No genres found (collaboration with no constituent genres)")
                         else:
                             # Solo artist with no genres
                             self._store_artist_genres(artist, ['__EMPTY__'], 'musicbrainz_artist')
+                            set_enrichment_status(self.conn, "artist", key, STATUS_NO_MATCH, last_error=None)
                             stats['empty'] += 1
-                            logger.debug(f"  - MusicBrainz: No genres found (marked as checked)")
+                            logger.debug("  - MusicBrainz: No genres found (marked as checked)")
 
                 time.sleep(1.1)  # Rate limiting for MusicBrainz
 
             except Exception as e:
                 logger.error(f"  Error processing {artist}: {e}")
+                set_enrichment_status(self.conn, "artist", key, STATUS_FAILED, last_error=e.__class__.__name__)
                 stats['failed'] += 1
 
             # Progress report every 50 artists
@@ -237,16 +422,32 @@ class NormalizedGenreUpdater:
                           f"found={stats['musicbrainz']}, inherited={stats['inherited']}, "
                           f"empty={stats['empty']}, failed={stats['failed']}")
 
+        if prog:
+            prog.finish()
+
         elapsed = time.time() - start_time
+
+        # Save cache
+        self.genre_cache.save()
+        cache_stats = self.genre_cache.get_stats()
+
         logger.info("\n" + "=" * 70)
         logger.info(f"Artist Genres Complete: {total - stats['failed']}/{total} in {elapsed:.1f}s")
         logger.info(f"  Direct MusicBrainz: {stats['musicbrainz']}")
         logger.info(f"  Inherited (collab): {stats['inherited']}")
         logger.info(f"  No genres found: {stats['empty']}")
         logger.info(f"  Failed: {stats['failed']}")
+        logger.info(f"  Cache: {cache_stats['total']} entries ({cache_stats['fresh']} fresh)")
         logger.info("=" * 70)
 
-    def update_album_genres(self, limit: Optional[int] = None):
+    def update_album_genres(
+        self,
+        limit: Optional[int] = None,
+        progress: bool = True,
+        progress_interval: float = 15.0,
+        progress_every: int = 500,
+        verbose_each: bool = False,
+    ):
         """Update album-level genres"""
         logger.info("=" * 70)
         logger.info("Updating Album Genres")
@@ -259,6 +460,16 @@ class NormalizedGenreUpdater:
             logger.info("No albums need genre updates!")
             return
 
+        prog = ProgressLogger(
+            logger,
+            total=total,
+            label="album_genres",
+            unit="albums",
+            interval_s=progress_interval,
+            every_n=progress_every,
+            verbose_each=verbose_each,
+        ) if progress else None
+
         logger.info(f"Found {total} albums needing genres from one or more sources")
 
         stats = {'total': total, 'musicbrainz': 0, 'empty': 0, 'failed': 0}
@@ -266,7 +477,10 @@ class NormalizedGenreUpdater:
 
         for i, album in enumerate(albums, 1):
             needs_musicbrainz = bool(album['needs_musicbrainz'])
+            album_id = album["album_id"]
 
+            if prog:
+                prog.update(detail=f"{album['artist']} - {album['title']}")
             logger.debug(f"[{i}/{total}] {album['artist']} - {album['title']}")
 
             try:
@@ -275,25 +489,31 @@ class NormalizedGenreUpdater:
                     mb_genres = self.musicbrainz.fetch_musicbrainz_release_genres(album['artist'], album['title'])
                     if mb_genres:
                         self._store_album_genres(album['album_id'], mb_genres, 'musicbrainz_release')
+                        set_enrichment_status(self.conn, "album", album_id, STATUS_OK, last_error=None)
                         stats['musicbrainz'] += 1
                         logger.debug(f"  + MusicBrainz: {', '.join(mb_genres[:3])}" +
                                   (f" (+{len(mb_genres)-3} more)" if len(mb_genres) > 3 else ""))
                     else:
                         # Store empty marker to indicate we checked
                         self._store_album_genres(album['album_id'], ['__EMPTY__'], 'musicbrainz_release')
+                        set_enrichment_status(self.conn, "album", album_id, STATUS_NO_MATCH, last_error=None)
                         stats['empty'] += 1
-                        logger.debug(f"  - MusicBrainz: No genres found")
+                        logger.debug("  - MusicBrainz: No genres found")
 
                 time.sleep(1.1)  # Rate limiting for MusicBrainz
 
             except Exception as e:
                 logger.error(f"  Error processing {album['artist']} - {album['title']}: {e}")
+                set_enrichment_status(self.conn, "album", album_id, STATUS_FAILED, last_error=e.__class__.__name__)
                 stats['failed'] += 1
 
             # Progress report every 50 albums
             if i % 50 == 0 or i == total:
                 logger.info(f"Progress: {i}/{total} albums ({i/total*100:.0f}%) - "
                           f"found={stats['musicbrainz']}, empty={stats['empty']}, failed={stats['failed']}")
+
+        if prog:
+            prog.finish()
 
         elapsed = time.time() - start_time
         logger.info("\n" + "=" * 70)
@@ -354,29 +574,29 @@ class NormalizedGenreUpdater:
         """Show genre statistics"""
         cursor = self.conn.cursor()
 
-        print("\nGenre Statistics (Normalized Schema):")
-        print("=" * 70)
+        logger.info("Genre Statistics (Normalized Schema):")
+        logger.info("=" * 70)
 
         # Artists
         cursor.execute("SELECT COUNT(DISTINCT artist) FROM tracks WHERE artist IS NOT NULL")
         total_artists = cursor.fetchone()[0]
         cursor.execute("SELECT COUNT(DISTINCT artist) FROM artist_genres")
         artists_with_genres = cursor.fetchone()[0]
-        print(f"Artists: {artists_with_genres:,}/{total_artists:,} have genres ({artists_with_genres/total_artists*100:.1f}%)")
+        logger.info("Artists: %s/%s have genres (%.1f%%)", f"{artists_with_genres:,}", f"{total_artists:,}", artists_with_genres/total_artists*100)
 
         # Albums
         cursor.execute("SELECT COUNT(*) FROM albums")
         total_albums = cursor.fetchone()[0]
         cursor.execute("SELECT COUNT(DISTINCT album_id) FROM album_genres")
         albums_with_genres = cursor.fetchone()[0]
-        print(f"Albums: {albums_with_genres:,}/{total_albums:,} have genres ({albums_with_genres/total_albums*100:.1f}%)")
+        logger.info("Albums: %s/%s have genres (%.1f%%)", f"{albums_with_genres:,}", f"{total_albums:,}", albums_with_genres/total_albums*100)
 
         # Tracks: Last.FM track tags disabled; file tag counts only (if present)
         cursor.execute("SELECT COUNT(*) FROM tracks WHERE file_path IS NOT NULL")
         total_tracks = cursor.fetchone()[0]
         cursor.execute("SELECT COUNT(DISTINCT track_id) FROM track_genres WHERE source = 'file'")
         tracks_with_genres = cursor.fetchone()[0]
-        print(f"Tracks: {tracks_with_genres:,}/{total_tracks:,} have file tag genres (Last.FM track tags disabled)")
+        logger.info("Tracks: %s/%s have file tag genres (Last.FM track tags disabled)", f"{tracks_with_genres:,}", f"{total_tracks:,}")
 
     def close(self):
         """Close database connection"""
@@ -394,12 +614,24 @@ if __name__ == "__main__":
     parser.add_argument('--tracks', action='store_true', help='(Disabled) Track genre updates are no-ops; retains file tags only')
     parser.add_argument('--limit', type=int, help='Maximum number of items to process')
     parser.add_argument('--stats', action='store_true', help='Show statistics only')
+    parser.add_argument('--progress', dest='progress', action='store_true', default=True,
+                        help='Enable progress logging (default)')
+    parser.add_argument('--no-progress', dest='progress', action='store_false',
+                        help='Disable progress logging')
+    parser.add_argument('--progress-interval', type=float, default=15.0,
+                        help='Seconds between progress updates (default: 15)')
+    parser.add_argument('--progress-every', type=int, default=500,
+                        help='Items between progress updates (default: 500)')
+    parser.add_argument('--verbose', action='store_true',
+                        help='Verbose per-item progress (DEBUG)')
     add_logging_args(parser)
     args = parser.parse_args()
 
     # Configure logging
     log_level = resolve_log_level(args)
-    log_file = getattr(args, 'log_file', None) or 'genre_update_v3.log'
+    if args.verbose and not args.debug and not args.quiet and args.log_level.upper() == "INFO":
+        log_level = "DEBUG"
+    log_file = getattr(args, 'log_file', None) or 'logs/genre_update_v3.log'
     configure_logging(level=log_level, log_file=log_file)
 
     updater = NormalizedGenreUpdater()
@@ -409,13 +641,37 @@ if __name__ == "__main__":
     else:
         # If no specific type specified, update artists and albums (track updates disabled)
         if not (args.artists or args.albums or args.tracks):
-            updater.update_artist_genres(limit=args.limit)
-            updater.update_album_genres(limit=args.limit)
+            updater.update_artist_genres(
+                limit=args.limit,
+                progress=args.progress,
+                progress_interval=args.progress_interval,
+                progress_every=args.progress_every,
+                verbose_each=args.verbose,
+            )
+            updater.update_album_genres(
+                limit=args.limit,
+                progress=args.progress,
+                progress_interval=args.progress_interval,
+                progress_every=args.progress_every,
+                verbose_each=args.verbose,
+            )
         else:
             if args.artists:
-                updater.update_artist_genres(limit=args.limit)
+                updater.update_artist_genres(
+                    limit=args.limit,
+                    progress=args.progress,
+                    progress_interval=args.progress_interval,
+                    progress_every=args.progress_every,
+                    verbose_each=args.verbose,
+                )
             if args.albums:
-                updater.update_album_genres(limit=args.limit)
+                updater.update_album_genres(
+                    limit=args.limit,
+                    progress=args.progress,
+                    progress_interval=args.progress_interval,
+                    progress_every=args.progress_every,
+                    verbose_each=args.verbose,
+                )
             if args.tracks:
                 updater.update_track_genres(limit=args.limit)
 

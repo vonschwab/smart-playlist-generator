@@ -7,7 +7,7 @@ Comprehensive genre processing including:
 - SQLite-backed canonical mapping tables
 """
 
-from .normalize import (
+from .normalize_unified import (
     normalize_and_split_genre,
     normalize_genre_token,
     GenreAction,

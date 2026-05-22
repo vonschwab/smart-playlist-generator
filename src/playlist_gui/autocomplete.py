@@ -5,13 +5,18 @@ Queries the metadata database to provide autocomplete suggestions.
 Uses Qt's QCompleter for integration with line edits.
 """
 import sqlite3
+import logging
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from PySide6.QtCore import Qt, QStringListModel, Signal, QObject
+from PySide6.QtCore import Qt, QStringListModel, Signal, QObject, QTimer
 from PySide6.QtWidgets import QCompleter, QLineEdit
 from src.artist_key_db import ensure_artist_key_schema
 from src.string_utils import normalize_artist_key
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_TRACK_COMPLETION_LIMIT = 150
 
 
 class DatabaseCompleter(QObject):
@@ -29,8 +34,13 @@ class DatabaseCompleter(QObject):
         self._artists: List[str] = []
         self._artist_entries: List[Tuple[str, str]] = []  # (display, artist_key)
         self._tracks: List[Tuple[str, str, str]] = []  # (title, artist, album)
+        self._track_ids: List[str] = []  # Database track IDs for stable resolution
         self._track_display: List[str] = []  # "Title - Artist" format for display
         self._track_artist_keys: List[str] = []
+        self._track_search_entries: List[Tuple[str, str, str, str, str]] = []
+        self._track_display_to_index: dict[str, int] = {}  # Fast lookup by display
+        self._genres: List[str] = []
+        self._genre_entries: List[Tuple[str, str]] = []  # (display, normalized)
         self._loaded = False
 
     def set_database(self, db_path: str) -> None:
@@ -64,23 +74,26 @@ class DatabaseCompleter(QObject):
                     self._artist_entries.append((artist, artist_key))
             self._artists = [artist for artist, _ in self._artist_entries]
 
-            # Load tracks with artist and album
+            # Load tracks with artist, album, and ID for stable resolution
             cursor.execute("""
-                SELECT title, artist, album, artist_key
+                SELECT track_id, title, artist, album, artist_key
                 FROM tracks
                 WHERE title IS NOT NULL AND title != ''
                 ORDER BY title COLLATE NOCASE
                 LIMIT 50000
             """)
             rows = cursor.fetchall()
-            self._tracks = [(row[0], row[1], row[2]) for row in rows]
+            self._track_ids = [str(row[0]) for row in rows]
+            self._tracks = [(row[1], row[2], row[3]) for row in rows]
             self._track_artist_keys = [
-                row[3] or normalize_artist_key(row[1]) for row in rows
+                row[4] or normalize_artist_key(row[2]) for row in rows
             ]
 
-            # Create display format for tracks
+            # Create display format for tracks and build lookup index
             self._track_display = []
-            for title, artist, album in self._tracks:
+            self._track_search_entries = []
+            self._track_display_to_index = {}
+            for i, (title, artist, album) in enumerate(self._tracks):
                 if artist:
                     display = f"{title} - {artist}"
                     if album:
@@ -88,6 +101,30 @@ class DatabaseCompleter(QObject):
                 else:
                     display = title
                 self._track_display.append(display)
+                self._track_display_to_index[display] = i
+                title_key = normalize_artist_key(title or "")
+                artist_key = self._track_artist_keys[i] or normalize_artist_key(
+                    artist or ""
+                )
+                album_key = normalize_artist_key(album or "")
+                display_key = normalize_artist_key(display)
+                combined_key = " ".join(
+                    part for part in (title_key, artist_key, album_key) if part
+                )
+                self._track_search_entries.append(
+                    (display_key, title_key, artist_key, album_key, combined_key)
+                )
+
+            # Load distinct genres from track_effective_genres
+            # Genres are now properly atomized in the database (one genre per row)
+            cursor.execute("""
+                SELECT DISTINCT genre
+                FROM track_effective_genres
+                WHERE genre IS NOT NULL AND genre != ''
+                ORDER BY genre COLLATE NOCASE
+            """)
+            self._genre_entries = [(row[0], row[0].lower().strip()) for row in cursor.fetchall() if row[0]]
+            self._genres = [genre for genre, _ in self._genre_entries]
 
             conn.close()
             self._loaded = True
@@ -95,7 +132,7 @@ class DatabaseCompleter(QObject):
             return True
 
         except Exception as e:
-            print(f"Failed to load autocomplete data: {e}")
+            logger.warning("Failed to load autocomplete data: %s", e)
             return False
 
     def get_artists(self) -> List[str]:
@@ -119,6 +156,72 @@ class DatabaseCompleter(QObject):
             self.load_data()
         return self._track_display
 
+    def filter_tracks(
+        self,
+        query: str,
+        artist_filter: Optional[str] = None,
+        limit: Optional[int] = DEFAULT_TRACK_COMPLETION_LIMIT,
+    ) -> List[str]:
+        """
+        Filter tracks with token-order-insensitive matching.
+
+        Track displays are formatted as "Title - Artist", but users often type
+        artist-first seed queries. Matching each normalized token against the
+        combined title, artist, and album text keeps autocomplete permissive
+        without returning rows that only match some of the query.
+        """
+        if not self._loaded:
+            self.load_data()
+
+        artist_filter_key = normalize_artist_key(artist_filter or "")
+        query_key = normalize_artist_key(query or "")
+        if not query_key:
+            if artist_filter_key:
+                tracks = self.get_artist_tracks(artist_filter)
+            else:
+                tracks = self._track_display
+            return tracks[:limit] if limit is not None else tracks
+
+        tokens = query_key.split()
+        matches: List[Tuple[int, str, int]] = []
+        prune_at = max((limit or 0) * 4, 0)
+        for i, (display_key, title_key, artist_key, album_key, combined_key) in enumerate(
+            self._track_search_entries
+        ):
+            if artist_filter_key and artist_key != artist_filter_key:
+                continue
+            if not all(token in combined_key for token in tokens):
+                continue
+
+            title_artist_key = " ".join(part for part in (title_key, artist_key) if part)
+            artist_title_key = " ".join(part for part in (artist_key, title_key) if part)
+            score = 100
+            if query_key == display_key or query_key == title_artist_key:
+                score = 0
+            elif query_key == artist_title_key:
+                score = 1
+            elif title_key.startswith(query_key):
+                score = 10
+            elif artist_title_key.startswith(query_key):
+                score = 20
+            elif title_artist_key.startswith(query_key):
+                score = 30
+            elif album_key and album_key.startswith(query_key):
+                score = 40
+            else:
+                first_pos = combined_key.find(tokens[0]) if tokens else 0
+                score = 50 + max(first_pos, 0)
+
+            matches.append((score, self._track_display[i].casefold(), i))
+            if prune_at and len(matches) > prune_at:
+                matches.sort()
+                del matches[limit:]
+
+        matches.sort()
+        if limit is not None:
+            matches = matches[:limit]
+        return [self._track_display[i] for _, _, i in matches]
+
     def get_track_info(self, display: str) -> Optional[Tuple[str, str, str]]:
         """Get (title, artist, album) from a display string."""
         if not self._loaded:
@@ -129,6 +232,50 @@ class DatabaseCompleter(QObject):
             return self._tracks[idx]
         except (ValueError, IndexError):
             return None
+
+    def get_track_data_by_display(
+        self, display: str
+    ) -> Optional[Tuple[str, str, str, str, str]]:
+        """
+        Get complete track data from a display string.
+
+        This is the preferred method for seed resolution - uses cached data
+        instead of re-querying the database.
+
+        Args:
+            display: Track display string "Title - Artist (Album)"
+
+        Returns:
+            (track_id, title, artist, album, artist_key) or None if not found
+        """
+        if not self._loaded:
+            return None
+
+        idx = self._track_display_to_index.get(display)
+        if idx is None:
+            return None
+
+        try:
+            title, artist, album = self._tracks[idx]
+            return (
+                self._track_ids[idx],
+                title,
+                artist or "",
+                album or "",
+                self._track_artist_keys[idx],
+            )
+        except IndexError:
+            return None
+
+    def get_track_id_by_display(self, display: str) -> Optional[str]:
+        """Get track ID from display string. Returns None if not found."""
+        if not self._loaded:
+            return None
+
+        idx = self._track_display_to_index.get(display)
+        if idx is not None and idx < len(self._track_ids):
+            return self._track_ids[idx]
+        return None
 
     def get_artist_tracks(self, artist: str) -> List[str]:
         """Get track display strings for a specific artist."""
@@ -158,6 +305,26 @@ class DatabaseCompleter(QObject):
         """Get number of tracks."""
         return len(self._tracks)
 
+    def get_genres(self) -> List[str]:
+        """Get list of all genres."""
+        if not self._loaded:
+            self.load_data()
+        return self._genres
+
+    def filter_genres(self, query: str) -> List[str]:
+        """Filter genres containing normalized query."""
+        if not self._loaded:
+            self.load_data()
+        normalized = query.lower().strip()
+        if not normalized:
+            return self._genres
+        return [genre for genre, norm in self._genre_entries if normalized in norm]
+
+    @property
+    def genre_count(self) -> int:
+        """Get number of genres."""
+        return len(self._genres)
+
 
 class CaseInsensitiveCompleter(QCompleter):
     """
@@ -175,6 +342,53 @@ class CaseInsensitiveCompleter(QCompleter):
     def update_items(self, items: List[str]) -> None:
         """Update the completer items."""
         self._model.setStringList(items)
+
+
+class GenreSimilarityCompleter(QCompleter):
+    """Genre completer showing both matches and similar genres."""
+
+    def __init__(self, items: List[str], parent=None):
+        self._all_genres = items
+        self._model = QStringListModel(items)
+        super().__init__(self._model, parent)
+        self.setCaseSensitivity(Qt.CaseInsensitive)
+        self.setCompletionMode(QCompleter.UnfilteredPopupCompletion)
+        self.setMaxVisibleItems(15)
+        self._similarity_calculator = None
+
+    def _get_similarity_calculator(self):
+        """Lazy-load GenreSimilarityV2."""
+        if self._similarity_calculator is None:
+            try:
+                from src.genre_similarity_v2 import GenreSimilarityV2
+                self._similarity_calculator = GenreSimilarityV2()
+            except Exception as e:
+                logger.warning(f"Failed to load GenreSimilarityV2: {e}")
+        return self._similarity_calculator
+
+    def update_items_with_similarity(self, query: str, direct_matches: List[str]) -> None:
+        """Update with both direct matches and similar genres (15 total)."""
+        suggestions = []
+        seen = set()
+
+        # Add direct matches first (up to 10)
+        for genre in direct_matches[:10]:
+            suggestions.append(genre)
+            seen.add(genre.lower())
+
+        # Add similar genres if space remains
+        if direct_matches and len(suggestions) < 15:
+            calc = self._get_similarity_calculator()
+            if calc:
+                seed_genre = direct_matches[0]
+                similar = calc.get_similar_genres(seed_genre, min_similarity=0.7)
+
+                for genre, score in similar:
+                    if genre.lower() not in seen and len(suggestions) < 15:
+                        suggestions.append(f"{genre} (similar)")
+                        seen.add(genre.lower())
+
+        self._model.setStringList(suggestions)
 
 
 def setup_artist_completer(line_edit: QLineEdit, completer_data: DatabaseCompleter) -> QCompleter:
@@ -228,13 +442,38 @@ def setup_track_completer(
     Returns:
         The configured QCompleter
     """
-    if artist_filter:
-        tracks = completer_data.get_artist_tracks(artist_filter)
-    else:
-        tracks = completer_data.get_tracks()
-
-    completer = CaseInsensitiveCompleter(tracks, line_edit)
+    completer = CaseInsensitiveCompleter([], line_edit)
+    completer.setCompletionMode(QCompleter.UnfilteredPopupCompletion)
     line_edit.setCompleter(completer)
+    refresh_timer = QTimer(line_edit)
+    refresh_timer.setSingleShot(True)
+    refresh_timer.setInterval(75)
+    latest_query = {"text": ""}
+
+    def apply_refresh() -> None:
+        comp = line_edit.completer()
+        if not comp:
+            return
+        try:
+            if isinstance(comp, CaseInsensitiveCompleter):
+                comp.update_items(
+                    completer_data.filter_tracks(
+                        latest_query["text"],
+                        artist_filter=artist_filter,
+                    )
+                )
+            if latest_query["text"].strip():
+                comp.complete()
+        except RuntimeError:
+            return
+
+    refresh_timer.timeout.connect(apply_refresh)
+
+    def refresh(query: str) -> None:
+        latest_query["text"] = query
+        refresh_timer.start()
+
+    line_edit.textChanged.connect(refresh)
     return completer
 
 
@@ -252,11 +491,35 @@ def update_track_completer(
         artist: The artist to filter by
     """
     if artist:
-        tracks = completer_data.get_artist_tracks(artist)
+        tracks = completer_data.filter_tracks("", artist_filter=artist)
     else:
-        tracks = completer_data.get_tracks()
+        tracks = []
 
     completer = line_edit.completer()
     if completer:
-        model = QStringListModel(tracks)
-        completer.setModel(model)
+        if isinstance(completer, CaseInsensitiveCompleter):
+            completer.update_items(tracks)
+        else:
+            model = QStringListModel(tracks)
+            completer.setModel(model)
+
+
+def setup_genre_completer(line_edit: QLineEdit, completer_data: DatabaseCompleter) -> QCompleter:
+    """Setup genre autocomplete with similarity suggestions."""
+    completer = GenreSimilarityCompleter(completer_data.get_genres(), line_edit)
+    line_edit.setCompleter(completer)
+
+    def refresh(query: str) -> None:
+        comp = line_edit.completer()
+        if not comp:
+            return
+        try:
+            if isinstance(comp, GenreSimilarityCompleter):
+                direct_matches = completer_data.filter_genres(query)
+                comp.update_items_with_similarity(query, direct_matches)
+            comp.complete()
+        except RuntimeError:
+            return
+
+    line_edit.textChanged.connect(refresh)
+    return completer

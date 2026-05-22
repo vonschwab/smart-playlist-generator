@@ -18,11 +18,9 @@ Exit codes:
 
 import argparse
 import importlib
-import os
 import sqlite3
 import sys
 from pathlib import Path
-from typing import List, Tuple
 
 # Ensure project root is on path
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -133,7 +131,7 @@ class DoctorChecks:
             if example_path.exists():
                 check_fail(
                     "config.yaml not found",
-                    f"cp config.example.yaml config.yaml && edit config.yaml"
+                    "cp config.example.yaml config.yaml && edit config.yaml"
                 )
             else:
                 check_fail("config.yaml not found", "Create config.yaml from template")
@@ -187,7 +185,7 @@ class DoctorChecks:
             conn.close()
 
             if count == 0:
-                check_warn(f"Database has no tracks")
+                check_warn("Database has no tracks")
                 check_warn("Run: python scripts/scan_library.py")
                 self.warned += 1
             else:
@@ -248,10 +246,12 @@ class DoctorChecks:
     def check_playlist_module_imports(self) -> bool:
         """Check core playlist module imports work."""
         try:
-            from src.config_loader import Config
-            from src.local_library_client import LocalLibraryClient
-            from src.playlist.pipeline import DSPipelineResult
-            from src.playlist.constructor import construct_playlist
+            # All four imports are availability checks; the noqa marks satisfy
+            # ruff F401 since the names aren't referenced after the import.
+            from src.config_loader import Config  # noqa: F401
+            from src.local_library_client import LocalLibraryClient  # noqa: F401
+            from src.playlist.pipeline import DSPipelineResult  # noqa: F401
+            from src.playlist.constructor import construct_playlist  # noqa: F401
             check_pass("Core modules importable")
             self.passed += 1
             return True

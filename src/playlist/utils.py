@@ -77,8 +77,8 @@ def sanitize_for_logging(text: str) -> str:
         text.encode('cp1252')
         return text
     except (UnicodeEncodeError, UnicodeDecodeError):
-        # Replace unencodable characters with '?'
-        return text.encode('cp1252', errors='replace').decode('cp1252')
+        # Replace unencodable characters with backslash escapes (\uXXXX) so logs remain traceable.
+        return text.encode('cp1252', errors='backslashreplace').decode('cp1252')
 
 
 def select_canonical_track(

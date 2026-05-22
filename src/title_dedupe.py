@@ -12,10 +12,10 @@ Features:
 """
 import re
 import logging
-from typing import Dict, Set, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from difflib import SequenceMatcher
 
-from .string_utils import normalize_artist_key, normalize_match_string
+from .string_utils import normalize_artist_key
 
 logger = logging.getLogger(__name__)
 

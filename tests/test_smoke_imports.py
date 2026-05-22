@@ -4,7 +4,6 @@ These tests verify that key modules can be imported without errors.
 This catches missing dependencies, syntax errors, and circular imports.
 """
 
-import pytest
 
 
 class TestCoreImports:
@@ -87,11 +86,11 @@ class TestGenreModuleImports:
     """Test that genre submodule is importable."""
 
     def test_genre_normalization(self):
-        from src.genre_normalization import normalize_genre_list
+        from src.genre.normalize_unified import normalize_genre_list
         assert normalize_genre_list is not None
 
-    def test_genre_normalize(self):
-        from src.genre.normalize import normalize_and_split_genre
+    def test_genre_normalize_unified(self):
+        from src.genre.normalize_unified import normalize_and_split_genre
         assert normalize_and_split_genre is not None
 
 
@@ -106,6 +105,6 @@ class TestUtilityImports:
         from src.string_utils import normalize_string
         assert normalize_string is not None
 
-    def test_artist_utils(self):
-        from src.artist_utils import split_collaborators
-        assert split_collaborators is not None
+    def test_string_utils_artist_normalization(self):
+        from src.string_utils import normalize_artist_name
+        assert normalize_artist_name is not None

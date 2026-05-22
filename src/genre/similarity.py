@@ -24,10 +24,6 @@ from typing import Dict, FrozenSet, Optional, Tuple
 import yaml
 
 from .vocabulary import (
-    BASE_GENRES,
-    MODIFIERS,
-    SCENE_TAGS,
-    WEAK_ADJECTIVES,
     GenreStructure,
     parse_genre_structure,
     get_genre_family,

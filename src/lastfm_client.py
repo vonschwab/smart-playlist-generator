@@ -8,9 +8,7 @@ import logging
 import time
 import sqlite3
 import json
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from .rate_limiter import RateLimiter
-from .retry_helper import retry_with_backoff
 
 logger = logging.getLogger(__name__)
 
@@ -686,5 +684,4 @@ class LastFMClient:
 
 # Example usage
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
     logger.info("Last.FM Client module loaded")

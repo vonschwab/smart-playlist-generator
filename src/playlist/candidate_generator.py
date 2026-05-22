@@ -12,7 +12,6 @@ Migrated from src/playlist_generator.py candidate methods (Phase 8).
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional, Tuple, Set
-from collections import Counter
 import logging
 
 from src.string_utils import normalize_song_title, normalize_genre
@@ -33,8 +32,8 @@ class CandidateConfig:
     use_genre_discovery: bool = False  # Enable dynamic mode (sonic + genre)
     sonic_ratio: float = 0.6  # Sonic tracks ratio in dynamic mode
     genre_ratio: float = 0.4  # Genre tracks ratio in dynamic mode
-    min_track_duration_seconds: int = 46  # Filter short tracks
-    max_track_duration_seconds: int = 720  # Filter long tracks
+    min_track_duration_seconds: int = 47  # Filter short tracks (hard minimum)
+    max_track_duration_seconds: int = 720  # Filter long tracks (hard maximum)
     # Title deduplication settings
     title_dedupe_enabled: bool = True
     title_dedupe_threshold: float = 0.85
@@ -206,6 +205,7 @@ def generate_candidates_dynamic(
     """
     similar_per_seed = config.limit_per_seed
     min_track_duration_ms = config.min_track_duration_seconds * 1000
+    max_track_duration_ms = config.max_track_duration_seconds * 1000
 
     # Calculate how many tracks from each source (from config)
     sonic_per_seed = int(similar_per_seed * config.sonic_ratio)
@@ -250,7 +250,7 @@ def generate_candidates_dynamic(
 
         similar = library_client.get_similar_tracks(key, limit=sonic_per_seed)
         before_long = len(similar)
-        similar = [t for t in similar if (t.get('duration') or 0) <= max_duration_ms]
+        similar = [t for t in similar if (t.get('duration') or 0) <= max_track_duration_ms]
         filtered_long_count += max(0, before_long - len(similar))
         weight = seed.get('play_count', 1)
 
@@ -355,7 +355,7 @@ def generate_candidates_dynamic(
         logger.info(f"  Found {len(artist_genre_scores)} artists with matching genres")
 
         # Log top matching artists
-        logger.info(f"  Top genre matches:")
+        logger.info("  Top genre matches:")
         for artist_score in artist_genre_scores[:10]:
             genres_str = ', '.join(artist_score['matching_genres'])
             logger.info(f"    - {sanitize_for_logging(artist_score['artist'])}: {artist_score['match_count']} matches ({genres_str})")
@@ -417,8 +417,8 @@ def generate_candidates_dynamic(
                     if track_duration_ms < min_duration_ms:
                         logger.debug(f"Skipping {full_track_data.get('title')} - too short ({track_duration_ms}ms < {min_duration_ms}ms)")
                         continue
-                    if track_duration_ms > max_duration_ms:
-                        logger.debug(f"Skipping {full_track_data.get('title')} - too long ({track_duration_ms}ms > {max_duration_ms}ms)")
+                    if track_duration_ms >= max_duration_ms:
+                        logger.debug(f"Skipping {full_track_data.get('title')} - too long ({track_duration_ms}ms >= {max_duration_ms}ms)")
                         continue
 
                 # Found a good track - add it with full library data
@@ -559,14 +559,14 @@ def generate_candidates(
 ) -> CandidateResult:
     """
     Generate candidate tracks using sonic-first pipeline.
-    
+
     This is a complete implementation extracted from PlaylistGenerator.generate_similar_tracks()
     Adapted to use explicit dependency injection and return CandidateResult.
 
     Pipeline:
     1. Sonic-only discovery per seed (no genre filtering)
     2. Merge/dedup and apply per-artist cap
-    3. Filter by genre threshold via hybrid similarity  
+    3. Filter by genre threshold via hybrid similarity
     4. Rank by hybrid score and keep a buffered pool (target + buffer)
 
     Args:

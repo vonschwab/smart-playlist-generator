@@ -99,21 +99,21 @@ class TestTrackTableModel:
 
     def test_model_empty(self):
         """Test empty model."""
-        from src.playlist_gui.widgets.track_table_model import TrackTableModel
+        from src.playlist_gui.widgets.track_table_model import TrackTableModel, Column
 
         model = TrackTableModel()
         assert model.rowCount() == 0
-        assert model.columnCount() == 6
+        assert model.columnCount() == len(Column.HEADERS)
 
     def test_model_set_tracks(self, sample_tracks):
         """Test setting tracks."""
-        from src.playlist_gui.widgets.track_table_model import TrackTableModel
+        from src.playlist_gui.widgets.track_table_model import TrackTableModel, Column
 
         model = TrackTableModel()
         model.set_tracks(sample_tracks)
 
         assert model.rowCount() == 3
-        assert model.columnCount() == 6
+        assert model.columnCount() == len(Column.HEADERS)
 
     def test_model_get_track(self, sample_tracks):
         """Test getting track by row."""
@@ -179,6 +179,19 @@ class TestTrackTableModel:
         assert model.headerData(Column.ARTIST, Qt.Horizontal, Qt.DisplayRole) == "Artist"
         assert model.headerData(Column.TITLE, Qt.Horizontal, Qt.DisplayRole) == "Title"
         assert model.headerData(Column.DURATION, Qt.Horizontal, Qt.DisplayRole) == "Duration"
+
+    def test_columns_single_source_of_truth(self):
+        """Column headers/keys stay aligned and drive the model."""
+        from src.playlist_gui.widgets.track_table_model import TrackTableModel, Column
+
+        # HEADERS and KEYS should stay aligned (no hardcoded counts in tests)
+        assert len(Column.HEADERS) == len(Column.KEYS)
+
+        model = TrackTableModel()
+        assert model.columnCount() == len(Column.HEADERS)
+        # Column indexes map deterministically to keys
+        for idx, key in enumerate(Column.KEYS):
+            assert Column.KEYS[idx] == key
 
     def test_model_clear(self, sample_tracks):
         """Test clearing tracks."""
@@ -310,7 +323,6 @@ class TestTrackFilterProxyModel:
 
         # Enable path search
         proxy.set_include_path_in_search(True)
-        proxy.invalidateFilter()
 
         # Should still match (was already matching on artist)
         assert proxy.rowCount() == 1
@@ -511,3 +523,61 @@ class TestSorting:
         # Last should be The Beatles (with "The" prefix)
         last_track = proxy.get_track(2)
         assert last_track["artist"] == "The Beatles"
+
+
+class TestTrackTablePresentation:
+    """Tests for playlist table presentation behavior."""
+
+    @pytest.fixture
+    def sample_tracks(self):
+        return [
+            {
+                "position": 1,
+                "artist": "Radiohead",
+                "title": "Karma Police",
+                "album": "OK Computer",
+                "duration_ms": 264000,
+                "file_path": "C:\\Music\\Radiohead\\Karma Police.mp3",
+            },
+            {
+                "position": 2,
+                "artist": "The Beatles",
+                "title": "Yesterday",
+                "album": "Help!",
+                "duration_ms": 125000,
+                "file_path": "C:\\Music\\The Beatles\\Yesterday.mp3",
+            },
+        ]
+
+    def test_track_table_uses_polished_results_surface(self, qtbot):
+        from PySide6.QtWidgets import QAbstractItemView
+        from src.playlist_gui.widgets.track_table import TrackTable
+
+        table = TrackTable()
+        qtbot.addWidget(table)
+
+        assert table._filter_frame.objectName() == "trackFilterBar"
+        assert table._table.objectName() == "playlistTable"
+        assert table._empty_frame.objectName() == "trackEmptyState"
+        assert table._table.showGrid() is False
+        assert table._table.verticalHeader().defaultSectionSize() == 28
+        assert table._table.selectionBehavior() == QAbstractItemView.SelectRows
+
+    def test_track_table_switches_between_empty_table_and_filtered_empty_states(self, qtbot, sample_tracks):
+        from src.playlist_gui.widgets.track_table import TrackTable
+
+        table = TrackTable()
+        qtbot.addWidget(table)
+
+        assert table._results_stack.currentWidget() == table._empty_frame
+        assert table._empty_title.text() == "No playlist loaded"
+
+        table.set_tracks(sample_tracks)
+        assert table._results_stack.currentWidget() == table._table
+
+        table.set_filter_text("not in this playlist")
+        assert table._results_stack.currentWidget() == table._empty_frame
+        assert table._empty_title.text() == "No matching tracks"
+
+        table.set_filter_text("")
+        assert table._results_stack.currentWidget() == table._table

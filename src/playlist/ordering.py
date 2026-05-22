@@ -10,10 +10,8 @@ Migrated from src/playlist_generator.py ordering methods (Phase 7).
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any
 import logging
-import time
-import numpy as np
 
 from src.string_utils import normalize_song_title
 
@@ -269,5 +267,3 @@ def order_by_sequential_similarity(
         ordered_tracks=ordered,
         stats=ordering_stats,
     )
-
-

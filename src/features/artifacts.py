@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import functools
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Literal, Optional
+from typing import Dict, Literal, Optional
 
 import numpy as np
 
@@ -29,6 +30,7 @@ class ArtifactBundle:
     track_id_to_index: Dict[str, int]  # built mapping
     sonic_feature_names: Optional[np.ndarray] = None
     sonic_feature_units: Optional[np.ndarray] = None
+    durations_ms: Optional[np.ndarray] = None  # (N,) track durations in milliseconds, optional
     # Optional: precomputed variant + raw matrix metadata
     X_sonic_raw: Optional[np.ndarray] = None
     sonic_variant: Optional[str] = None
@@ -49,8 +51,25 @@ def _ensure_first_dim(name: str, arr: Optional[np.ndarray], expected: int) -> No
 
 
 def load_artifact_bundle(path: str | Path) -> ArtifactBundle:
-    """Load NPZ, validate required keys, build track_id_to_index, and return bundle."""
-    artifact_path = Path(path)
+    """Load NPZ, validate required keys, build track_id_to_index, and return bundle.
+
+    Cached: a single playlist generation calls this 3-7 times with the same
+    artifact path, decoding ~20 MB of matrices each time. The path-keyed
+    cache (maxsize=2 to handle primary + dev/test artifacts) collapses
+    those into one decode per distinct path. Bundles are treated as
+    read-only by all call sites.
+
+    To force a re-read (e.g. after rebuilding artifacts on disk), call
+    `load_artifact_bundle.cache_clear()`.
+    """
+    return _load_artifact_bundle_cached(Path(path))
+
+
+load_artifact_bundle.cache_clear = lambda: _load_artifact_bundle_cached.cache_clear()  # type: ignore[attr-defined]
+
+
+@functools.lru_cache(maxsize=2)
+def _load_artifact_bundle_cached(artifact_path: Path) -> ArtifactBundle:
     data = np.load(artifact_path, allow_pickle=True)
 
     required_keys = {
@@ -76,6 +95,7 @@ def load_artifact_bundle(path: str | Path) -> ArtifactBundle:
     genre_vocab = data["genre_vocab"]
     sonic_feature_names = data["sonic_feature_names"] if "sonic_feature_names" in data else None
     sonic_feature_units = data["sonic_feature_units"] if "sonic_feature_units" in data else None
+    durations_ms = data["durations_ms"] if "durations_ms" in data else None
 
     # Prefer precomputed variant matrix when present
     sonic_variant = None
@@ -107,6 +127,7 @@ def load_artifact_bundle(path: str | Path) -> ArtifactBundle:
         "artist_keys": artist_keys,
         "track_artists": track_artists,
         "track_titles": track_titles,
+        "durations_ms": durations_ms,
         "X_sonic": X_sonic,
         "X_sonic_start": X_sonic_start,
         "X_sonic_mid": X_sonic_mid,
@@ -150,6 +171,7 @@ def load_artifact_bundle(path: str | Path) -> ArtifactBundle:
         genre_vocab=genre_vocab,
         sonic_feature_names=sonic_feature_names,
         sonic_feature_units=sonic_feature_units,
+        durations_ms=durations_ms,
         track_id_to_index=track_id_to_index,
         X_sonic_raw=X_sonic_raw,
         sonic_variant=sonic_variant,
