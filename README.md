@@ -1,40 +1,52 @@
 # Playlist Generator
 
-**Version 4.0** - Native GUI overhaul with CLI parity, responsive controls, Analyze Library readouts, and shared request validation.
+**Version 5.0** — Pace mode, transition quality improvements, IDF-weighted candidate admission, and scoped blacklisting.
 
 ## Overview
 
-This system generates intelligent playlists by combining:
-- **DJ Bridge Mode** - Multi-seed playlists (2-10 seeds) with genre-aware routing and smooth transitions
-- **Union Pooling Strategy** - Three specialized candidate pools (local, toward, genre) with intelligent deduplication
-- **Beat3Tower Sonic Analysis** - 137-dimensional audio feature vectors (rhythm, timbre, harmony)
-- **Genre Waypoint Planning** - Vector mode interpolation preserving multi-genre signatures with IDF weighting
-- **Beam Search** - Explores multiple paths with waypoint guidance, coverage bonus, and cross-segment artist diversity
-- **Artist Identity Resolution** - Collaboration-aware constraints that block featured artists and ensemble variants
-- **Comprehensive Diagnostics** - Pool visibility, per-track membership, waypoint saturation metrics
+Generates intelligent playlists from a local music library by combining deep sonic analysis with genre-aware routing:
 
-## What's New in v4.0
+- **Beat3Tower Sonic Analysis** — 137-dimensional audio feature vectors split into rhythm, timbre, and harmony towers
+- **Pier-Bridge Beam Search** — Seeds become fixed "piers"; beam search builds smooth bridges between each adjacent pair
+- **DJ Genre Routing** — Vector-mode interpolation with IDF weighting preserves multi-genre signatures (shoegaze stays shoegaze, not "indie rock")
+- **Pace Mode** — Separate rhythm axis for admission and beam search; keeps slow playlists slow and energetic playlists driving
+- **Three Independent Axes** — Genre mode, sonic mode, and pace mode each tunable from `strict` through `dynamic`
+- **Artist Identity Resolution** — Collaboration-aware constraints normalise "X feat. Y", "The X", and ensemble suffixes before diversity enforcement
+- **Scoped Blacklisting** — Block individual tracks, entire artists, or full albums; manual track blocks survive scope removal
 
-- **Native GUI/CLI Parity** - Artist, Genre, Seeds, and History flows now share request validation and generation options.
-- **Responsive Generate Controls** - Matching, freshness, diversity, length, artist gap, and actions are grouped into consistent adaptive cards.
-- **Analyze Library Readouts** - Library analysis jobs expose clearer summaries, stage results, job details, and controlled logging.
-- **First-Class Matching Modes** - Genre and sonic axes support `strict`, `narrow`, `dynamic`, `discover`, and `off` in the GUI.
-- **Worker Reliability** - Tool actions respect busy state, malformed worker events are handled defensively, and diagnostics stay actionable.
+## What's New in v5.0
 
-For complete details, see [docs/CHANGELOG.md](docs/CHANGELOG.md) and [docs/DJ_BRIDGE_ARCHITECTURE.md](docs/DJ_BRIDGE_ARCHITECTURE.md).
+### Pace Mode — rhythm as a separate axis
+Genre and sonic modes control *what* music gets admitted. Pace mode controls *how fast* it moves. A `strict` slowcore playlist now stays slow even when fast noisy-guitar bands share the same timbre.
+
+- **Tier 1:** Rhythm-axis admission floor (max-over-seeds cosine on the rhythm PCA sub-vector)
+- **Tier 2:** Per-step moving target in beam search — interpolates between pier A and pier B's rhythm vectors, so a slow→fast arc works naturally when the piers themselves differ
+- **CLI:** `--pace-mode strict|narrow|dynamic`
+- **GUI:** Third mode slider alongside Genre and Sonic
+
+### Transition quality
+- `transition_weights` aligned with `tower_weights` (0.20 / 0.50 / 0.30) — fixed a long-standing mismatch where the beam approved edges that the reporter scored poorly
+- Per-edge audit table (`emit_selected_edge_audit: true`) showing T, S, G, bridge, and trans_beam per transition
+- Opt-in edge repair pass — single-pass post-beam swap for sub-floor edges with do-no-harm guarantees
+
+### Candidate pool improvements
+- **IDF-weighted genre admission** — rare tags (slowcore, shoegaze) outweigh common tags (indie rock) during candidate scoring
+- **Uncapped seeded pool** — for seeded playlists the global pool is no longer hard-capped at 2400; per-artist cap (6 tracks) still applies, giving ~3500–4000 eligible candidates instead
+- Genre conflict gate removed (was rejecting ~50% of legitimate candidates against the 764-dim vocabulary); soft genre compatibility penalty remains
+
+### Scoped blacklisting (GUI)
+Right-click any track in the playlist table → **Blacklist this artist** or **Blacklist this album**. Manual per-track blocks are preserved if a scope is later removed.
 
 ## Quick Start
 
 ```bash
-# 1. Install dependencies (Python 3.11+ required)
-#    GUI users: pip install -e .[gui]
-#    Headless / CLI-only: pip install -e .
-#    Contributors:        pip install -e .[gui,dev]
-pip install -e .[gui]
+# 1. Install (Python 3.11+ required)
+pip install -e .[gui]        # GUI + generation
+pip install -e .[gui,dev]    # + pytest, ruff, mypy, pre-commit
 
 # 2. Configure
 cp config.example.yaml config.yaml
-# Edit config.yaml with your paths
+# Edit config.yaml: music_directory, database_path, API keys
 
 # 3. Verify environment
 python tools/doctor.py
@@ -42,8 +54,8 @@ python tools/doctor.py
 # 4. Scan your music library
 python scripts/scan_library.py
 
-# 5. (Optional but recommended) Fetch MusicBrainz MBIDs without touching audio files
-python scripts/fetch_mbids_musicbrainz.py --limit 500  # add --force-no-match/--force-error to retry markers
+# 5. (Optional) Fetch MusicBrainz MBIDs
+python scripts/fetch_mbids_musicbrainz.py --limit 500
 
 # 6. Extract sonic features
 python scripts/update_sonic.py --beat3tower --workers 4
@@ -51,263 +63,175 @@ python scripts/update_sonic.py --beat3tower --workers 4
 # 7. Fetch genre metadata
 python scripts/update_genres_v3_normalized.py --artists
 
-# 8. Build artifacts
+# 8. Build DS pipeline artifacts
 python scripts/build_beat3tower_artifacts.py \
     --db-path data/metadata.db \
     --config config.yaml \
     --output data/artifacts/beat3tower_32k/data_matrices_step1.npz
 
-# 9. Generate a playlist (CLI)
-python main_app.py --artist "Radiohead" --tracks 30
+# 9. Generate playlists
+python main_app.py --artist "Slowdive" --tracks 30
+python main_app.py --seeds "Alison,Lost and Found,Endless Summer" --tracks 30
+python main_app.py --genre "shoegaze" --tracks 30
 
-# Or generate by genre (CLI only — the v2 GUI does not currently expose
-# Genre mode; restoration is tracked as roadmap item Tier-2.4)
-python main_app.py --genre "new age" --tracks 30
-
-# 10. Launch the GUI (Windows)
+# 10. Launch GUI
 python -m playlist_gui.app
 ```
 
-See [docs/GOLDEN_COMMANDS.md](docs/GOLDEN_COMMANDS.md) for complete command reference.
+See [docs/GOLDEN_COMMANDS.md](docs/GOLDEN_COMMANDS.md) for the full command reference.
 
 ## Requirements
 
-- Python 3.8+
-- ~8GB RAM for sonic analysis
-- SSD recommended for faster processing
+- Python 3.11+
+- ~8 GB RAM for sonic analysis
+- SSD recommended for feature extraction
+
+## Playlist Modes
+
+Three independent axes control cohesion vs. discovery. Each can be set in the GUI or via CLI flags.
+
+### Genre Mode (`--genre-mode`)
+Controls how closely candidates must match the seed's genre profile.
+
+| Mode | Behaviour |
+|---|---|
+| `strict` | Ultra-tight — single-genre deep dives |
+| `narrow` | Stay close — cohesive exploration (default GUI) |
+| `dynamic` | Balanced — moderate genre variation |
+| `discover` | Adjacent exploration — cross-genre discovery |
+| `off` | Ignore genre tags entirely |
+
+### Sonic Mode (`--sonic-mode`)
+Controls overall sonic similarity threshold (timbre + harmony + rhythm combined).
+
+| Mode | Behaviour |
+|---|---|
+| `strict` | Laser-focused sound |
+| `narrow` | Consistent texture (default GUI) |
+| `dynamic` | Balanced sonic flow |
+| `discover` | Wide sonic palette |
+| `off` | Ignore sonic features entirely |
+
+### Pace Mode (`--pace-mode`)
+Controls rhythm/tempo fidelity independently from timbre. Use when seeds define an energy level you want to maintain.
+
+| Mode | Admission floor | Bridge floor | Use case |
+|---|---|---|---|
+| `strict` | 0.55 | 0.65 | Lock to seed tempo — slow stays slow |
+| `narrow` | 0.35 | 0.45 | Moderate tempo anchoring |
+| `dynamic` | 0.00 | 0.00 | No pace constraint (default) |
+
+Pace mode is orthogonal to sonic mode. `sonic_mode=narrow + pace_mode=strict` means "very similar timbre, must also stay slow."
+
+### Examples
+
+```bash
+# Tight shoegaze/slowcore — stays slow, stays noisy
+python main_app.py --seeds "Alison,Felo de Se,Endless Summer" \
+    --genre-mode narrow --sonic-mode narrow --pace-mode strict --tracks 30
+
+# Same genre, explore varied sonic textures
+python main_app.py --artist "Bill Evans" \
+    --genre-mode narrow --sonic-mode discover --tracks 30
+
+# Pure sonic similarity, no genre constraint
+python main_app.py --genre "ambient" \
+    --genre-mode off --sonic-mode dynamic --tracks 30
+```
+
+## DJ Bridge Mode (Multi-Seed Playlists)
+
+Multi-seed playlists use seeds as fixed "piers" and beam-search bridges between each adjacent pair. The DJ genre routing system plans a genre arc across each segment using IDF-weighted vector interpolation.
+
+```bash
+python main_app.py --seeds "Slowdive,Beach House,Deerhunter,Helvetia" --tracks 30
+```
+
+Produces four segments: Slowdive → Beach House → Deerhunter → Helvetia, with smooth transitions and genre evolution at each bridge.
+
+**Key settings** (defaults already tuned; tweak in `config.yaml`):
+
+```yaml
+playlists:
+  ds_pipeline:
+    pier_bridge:
+      dj_bridging:
+        enabled: true
+        dj_ladder_target_mode: vector       # multi-genre interpolation
+        dj_genre_use_idf: true              # rare tags weighted higher
+        dj_genre_use_coverage: true         # reward seed-signature matching
+        dj_waypoint_delta_mode: centered    # prevents waypoint saturation
+        dj_waypoint_squash: tanh            # smooth scoring curve
+```
+
+See [docs/DJ_BRIDGE_ARCHITECTURE.md](docs/DJ_BRIDGE_ARCHITECTURE.md) for the full architecture.
 
 ## Project Structure
 
 ```
 .
-├── main_app.py              # Main playlist generator CLI
-├── config.example.yaml      # Configuration template
-├── requirements.txt         # Python dependencies
-├── scripts/                 # Production CLI tools
-│   ├── scan_library.py      # Library scanner
-│   ├── update_sonic.py      # Sonic feature extraction
-│   ├── update_genres_v3_normalized.py  # Genre metadata
-│   ├── build_beat3tower_artifacts.py   # Artifact builder
-│   └── analyze_library.py   # Full pipeline
-├── src/                     # Core Python package
-│   ├── playlist/            # Playlist generation pipeline
-│   ├── features/            # Audio feature extraction
-│   ├── similarity/          # Similarity computation
-│   └── genre/               # Genre processing
+├── main_app.py                  # CLI entry point
+├── config.example.yaml          # Configuration template
+├── src/
+│   ├── playlist/                # Generation pipeline
+│   │   ├── pipeline/            # DS pipeline orchestration
+│   │   ├── pier_bridge/         # Beam search, beam scoring, pace gate
+│   │   ├── repair/              # Post-beam edge repair
+│   │   ├── candidate_pool.py    # Admission filtering (sonic, genre, pace, IDF)
+│   │   ├── sonic_axes.py        # Per-tower sub-vector slicing
+│   │   ├── genre_idf.py         # IDF computation for genre weighting
+│   │   ├── transition_metrics.py# Shared T/S/G edge scoring
+│   │   └── mode_presets.py      # Genre/sonic/pace mode presets
+│   ├── features/                # Audio feature extraction
+│   ├── similarity/              # Sonic variant computation (tower_pca)
+│   ├── metadata_client.py       # Track DB + scoped blacklisting
+│   └── playlist_gui/            # PySide6 GUI
+│       └── widgets/
+│           ├── mode_sliders.py  # Genre / Sonic / Pace sliders
+│           └── track_table.py   # Playlist table + context-menu blacklisting
+├── scripts/                     # Library scan, feature extraction, artifact build
 ├── tools/
-│   └── doctor.py            # Environment validator
-├── tests/                   # Test suite
-├── data/                    # Data files (not in git)
-│   ├── metadata.db          # Track database
-│   ├── genre_similarity.yaml # Genre relationship matrix
-│   └── artifacts/           # DS pipeline matrices
-└── docs/                    # Documentation
-    ├── README.md            # Documentation index (start here)
-    ├── GOLDEN_COMMANDS.md   # Command reference
-    ├── ARCHITECTURE.md      # System architecture
-    ├── CONFIG.md            # Configuration reference
-    └── TROUBLESHOOTING.md   # Common issues
+│   └── doctor.py                # Environment validator
+├── tests/                       # 996-test suite (pytest)
+└── docs/
+    ├── README.md                # Documentation index
+    ├── GOLDEN_COMMANDS.md       # Command reference
+    ├── CONFIG.md                # Config key reference
+    ├── DJ_BRIDGE_ARCHITECTURE.md# DJ bridge internals
+    ├── PLAYLIST_ORDERING_TUNING.md # Knob-by-knob tuning guide
+    ├── CANDIDATE_FILTERING_BACKLOG.md # Deferred filtering work
+    └── TECHNICAL_PLAYLIST_GENERATION_FLOW.md # Full pipeline walkthrough
 ```
 
-For complete documentation, see [docs/README.md](docs/README.md).
+## Diagnostics
 
-## Playlist Modes
-
-**Updated in v3.3:** Independent genre and sonic mode controls for fine-grained playlist tuning.
-
-### Genre Modes
-Control how strictly playlists match genre tags:
-- `strict` - Ultra-tight genre matching (single-genre deep dives)
-- `narrow` - Stay close to seed genre (cohesive exploration)
-- `dynamic` - Balanced exploration (default)
-- `discover` - Genre-adjacent exploration (cross-genre discovery)
-- `off` - Ignore genre tags completely (pure sonic matching)
-
-### Sonic Modes
-Control how strictly playlists match audio features:
-- `strict` - Laser-focused sound (ultra-tight sonic matching)
-- `narrow` - Consistent texture (cohesive sound)
-- `dynamic` - Balanced sonic flow (default)
-- `discover` - Sonic variety (varied textures)
-- `off` - Ignore sonic features (pure genre matching)
-
-### Examples
-
-```bash
-# Ultra-cohesive (strict genre + strict sonic)
-python main_app.py --artist "Radiohead" --genre-mode strict --sonic-mode strict
-
-# Same genre, varied sound
-python main_app.py --artist "Bill Evans" --genre-mode narrow --sonic-mode discover
-
-# Pure sonic similarity (ignore genres)
-python main_app.py --genre "ambient" --genre-mode off --sonic-mode dynamic
-
-# Discovery mode (explore connections)
-python main_app.py --genre "jazz" --genre-mode discover --sonic-mode discover
-```
-
-See [docs/CONFIG.md](docs/CONFIG.md#mode-based-configuration-simplified-tuning) for full mode documentation.
-
-## DJ Bridge Mode (Multi-Seed Playlists)
-
-**New in v3.3:** Advanced multi-seed playlist generation with genre-aware routing.
-
-### What is DJ Bridge Mode?
-
-DJ Bridge mode creates smooth transitions between **multiple seed tracks** (called "piers") by building genre-aware bridges. Unlike single-seed playlists, DJ mode explicitly controls genre evolution across the playlist.
-
-**Example:**
-```bash
-python main_app.py --seeds "Slowdive,Beach House,Deerhunter,Helvetia" --tracks 30
-```
-
-**Result:** 30-track playlist with 3 segments bridging the seeds:
-- Segment 1: Slowdive → Beach House (shoegaze → ethereal dream pop)
-- Segment 2: Beach House → Deerhunter (ethereal → indie/noise pop)
-- Segment 3: Deerhunter → Helvetia (indie → lo-fi/slowcore)
-
-### Phase 2: Genre Bridging Enhancements (2026-01-09)
-
-**Problem Solved:** Hub genre collapse where waypoints would default to generic genres (e.g., "indie rock") instead of respecting nuanced signatures (e.g., "shoegaze", "dreampop").
-
-**Three-pronged solution:**
-
-1. **Vector Mode** - Direct multi-genre interpolation
-   - Preserves full genre signatures throughout bridge
-   - No more single-label collapse
-
-2. **IDF Weighting** - Emphasize rare genres
-   - Rare genres (shoegaze, slowcore): high weight (0.8-1.0)
-   - Common genres (indie rock): low weight (0.1-0.3)
-
-3. **Coverage Bonus** - Reward anchor signature matching
-   - Tracks top-8 genres from each seed
-   - Rewards candidates matching these signatures
-   - Schedule decay for smooth transitions
-
-**Results:**
-- ✅ **+400% genre diversity** in targets (4-5 genres/step vs 1 label)
-- ✅ **Rare genres preserved** (shoegaze, dreampop, slowcore)
-- ✅ **Smoother bridges** with better genre alignment
-- ✅ **Comprehensive diagnostics** showing decision-making
-
-### Phase 3: Saturation & Provenance Fixes (2026-01-09)
-
-**Problem Solved:** Waypoint and coverage scoring would plateau at caps, reducing ranking influence. Genre pool contribution was zero due to a critical bug.
-
-**Four-pronged solution:**
-
-1. **Centered Waypoint Delta** - Subtract step-wise baseline to allow negative deltas
-   - Prevents constant positive offset
-   - Reduces ties at cap
-   - Adapts per-step to candidate distribution
-
-2. **Tanh Squashing** - Smooth squashing to prevent hard plateaus
-   - Preserves score differences for all candidates
-   - No hard plateaus at cap
-   - Alpha tunable for desired steepness
-
-3. **Coverage Improvements** - Raw presence source + weighted mode
-   - Reduces false positives from smoothing spillover
-   - Creates continuous gradient instead of discrete steps
-   - Fewer ties at coverage extremes
-
-4. **Genre Pool Fix (CRITICAL)** - Fixed genre_vocab gate blocking vector mode
-   - Genre pool was always empty even with k_genre=80
-   - Vector mode doesn't need genre_vocab
-   - Now genre candidates contribute properly
-
-**Results:**
-- ✅ **-84% waypoint saturation** (mean_delta: 0.095 → 0.015)
-- ✅ **+100% ranking influence** (winner_changed: 1/3 → 2/3)
-- ✅ **-60% coverage saturation** (mean_bonus: 0.104 → 0.042)
-- ✅ **Genre pool populated** (was 0, now 240+ candidates/segment)
-
-**Configuration (Recommended Production Settings):**
 ```yaml
-pier_bridge:
-  dj_bridging:
-    enabled: true
-    route_shape: ladder
-    # Phase 2: Vector mode + IDF + Coverage
-    dj_ladder_target_mode: vector
-    dj_genre_vector_source: smoothed
-    dj_genre_use_idf: true
-    dj_genre_idf_power: 1.0
-    dj_genre_idf_norm: max1
-    dj_genre_use_coverage: true
-    dj_genre_coverage_top_k: 8
-    dj_genre_coverage_weight: 0.15
-    dj_genre_presence_threshold: 0.02    # Phase 3: Increased from 0.01
-    # Phase 3: Centered waypoint + tanh squashing
-    waypoint_weight: 0.25
-    waypoint_cap: 0.10
-    dj_waypoint_delta_mode: centered
-    dj_waypoint_centered_baseline: median
-    dj_waypoint_squash: tanh
-    dj_waypoint_squash_alpha: 4.0
-    # Phase 3: Coverage improvements
-    dj_coverage_presence_source: raw
-    dj_coverage_mode: weighted
-    # Pooling
-    pooling:
-      strategy: dj_union
-      k_local: 200
-      k_toward: 80
-      k_genre: 80                        # Phase 3: Now works in vector mode!
+# config.yaml — enable per-edge audit
+playlists:
+  ds_pipeline:
+    pier_bridge:
+      emit_selected_edge_audit: true   # per-edge T/S/G/bridge breakdown in logs
+      edge_repair:
+        enabled: true                  # opt-in post-beam swap for bad edges
 ```
 
-**Documentation:**
-- Complete guide: [docs/dj_bridge_architecture.md](docs/dj_bridge_architecture.md)
-- Implementation notes: [docs/CHANGELOG_Phase2.md](docs/CHANGELOG_Phase2.md)
-- Status: [docs/TODO.md](docs/TODO.md)
+- **Edge audit** (`emit_selected_edge_audit: true`): logs T, T_centered_cos, S, G, bridge score, and title flags for every transition
+- **Weakest-edge report**: always on — shows the 3 lowest-T transitions with artist names
+- **Pace admission log**: `Pace admission floor applied: floor=0.55 rejected=N` when pace_mode is active
+- **GUI debug report**: Help → Copy/Save Debug Report — redacted bundle of env, config, last job, and log tail
 
-### When to Use DJ Bridge Mode
+## Version History
 
-✅ **Use when:**
-- You have 2+ seed tracks from different artists/genres
-- You want controlled genre evolution
-- You want to bridge stylistically distant artists smoothly
+| Version | Highlights |
+|---|---|
+| **5.0** | Pace mode; transition weight alignment; IDF admission; uncapped seeded pool; scoped blacklisting GUI |
+| **4.0** | Native GUI overhaul; CLI parity; responsive generation controls; Analyze Library readouts |
+| **3.5** | Job cancellation/checkpoints; job-details dialog; persistent genre cache; collaboration-aware artist clustering |
+| **3.4** | DJ Bridge mode; union pooling; per-run audit reports |
+| **3.3** | Seed List mode; sonic/genre modes; blacklist support |
+| **3.2** | Windows GUI; MBID enrichment; artist normalisation |
 
-❌ **Don't use when:**
-- Single seed track (use regular modes)
-- All seeds from same artist (use artist style clustering)
-
-## DS Run Audits (3.3)
-- Per-run markdown audits: add `--audit-run` (optional `--audit-run-dir docs/run_audits`) to record pool sizes, segment gating, scoring, and post-order validation.
-- Infeasible segment handling (optional): add `--pb-backoff` to retry segments with a deterministic `bridge_floor` backoff (attempts are recorded in the audit).
-- Recency invariant: Last.fm/local recency exclusions are applied **pre-order only**; verify logs include exactly one `stage=candidate_pool | Last.fm recency exclusions: ...` line and one `stage=post_order_validation | ...` line.
-
-## GUI Highlights (3.3)
-- **Genre Mode** - Generate playlists by genre with smart autocomplete showing both exact matches and similar genres (similarity ≥ 0.7)
-- **Seed List Mode** - Add multiple explicit seed tracks (per-row autocomplete)
-- **Accent-insensitive Autocomplete** - Type "Joao" and see "João Gilberto" for both artist and genre fields
-- **Atomized Genre Data** - All 746 genres properly normalized and split (no compound strings like "indie rock, alternative")
-- **Track Table Export** - Export buttons fixed; context menu still available
-- **Progress/Log Panels** - Wired to worker with request correlation
-- **Run All Button** - One-click pipeline execution (Scan → Genres → Sonic → Artifacts)
-
-## MBID Enrichment (3.2)
-- `scripts/fetch_mbids_musicbrainz.py` queries MusicBrainz by artist/title (with collab/feature handling) and writes MBIDs to `tracks.musicbrainz_id` (no file writes). Uses skip markers (`__NO_MATCH__`, `__ERROR__`); reprocess with `--force-no-match`/`--force-error` or all with `--force-all`.
-- `scripts/analyze_library.py` supports a `mbid` stage: `--stages scan,mbid,genres,...` to enrich during full runs.
-- Last.FM matching now prefers MBIDs for instant, exact mapping.
-
-## Documentation
-
-- [Golden Commands](docs/GOLDEN_COMMANDS.md) - Production workflow reference    
-- [Architecture](docs/ARCHITECTURE.md) - System design overview
-- [Configuration](docs/CONFIG.md) - Config file reference
-- [Troubleshooting](docs/TROUBLESHOOTING.md) - Common issues and fixes
-- [Logging](docs/LOGGING.md) - Logging configuration and audit notes
-
-### Diagnostics & Support
-- GUI logs: `%APPDATA%\PlaylistGenerator\logs\playlist_gui.log` (rotates 5 x 2MB). Secret-aware redaction is applied to all UI/worker lines.
-- Copy/Save Debug Report: Help -> Copy Debug Report or Save Debug Report. Copies/saves a redacted bundle (environment, config path, preset/mode, last job, readiness checks, tail of GUI/worker logs).
-- Readiness banner: non-modal warning at the top of the window when prerequisites are missing (config/DB/artifacts/worker). Shows `Last checked: HH:MM` with CTAs to re-run checks, open Jobs, queue Scan/Artifacts, copy debug report, retry queue, or dismiss.
-- Layout persistence: window/dock layout, last config path, mode, artist query, preset, and track filter are restored via QSettings. Reset via View -> Reset UI Layout.
-- Doctor command: `{"cmd":"doctor","request_id":"<uuid>","base_config_path":"...","overrides":{}}` returns quick check results.
-- Jobs pane: Queue/History filter; Clear Pending empties the queue immediately (pending count drops to zero).
+Full release notes: [docs/CHANGELOG.md](docs/CHANGELOG.md)
 
 ## License
 
