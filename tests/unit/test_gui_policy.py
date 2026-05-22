@@ -20,6 +20,15 @@ from src.playlist_gui.policy import (
 )
 
 
+def _has_nested(data: dict, path: str) -> bool:
+    current = data
+    for part in path.split("."):
+        if not isinstance(current, dict) or part not in current:
+            return False
+        current = current[part]
+    return True
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # UIStateModel Tests
 # ─────────────────────────────────────────────────────────────────────────────
@@ -146,6 +155,18 @@ class TestCohesionMapping:
         decisions = derive_runtime_config(state)
         assert _get_nested(decisions.overrides, "playlists.genre_mode") == "off"
         assert _get_nested(decisions.overrides, "playlists.sonic_mode") == "off"
+
+    def test_pace_mode_defaults_to_dynamic(self):
+        state = UIStateModel()
+        decisions = derive_runtime_config(state)
+
+        assert _get_nested(decisions.overrides, "playlists.pace_mode") == "dynamic"
+
+    def test_pace_mode_passes_through(self):
+        state = UIStateModel(pace_mode="narrow")
+        decisions = derive_runtime_config(state)
+
+        assert _get_nested(decisions.overrides, "playlists.pace_mode") == "narrow"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -416,15 +437,39 @@ class TestArtistDiversity:
         ) == 1
         assert any("one track per non-seed artist" in note.lower() for note in decisions.notes)
 
-    def test_weighted_diversity_clears_pier_bridge_cap(self):
+    def test_weighted_diversity_does_not_emit_pier_bridge_cap_override(self):
         state = UIStateModel(artist_diversity_mode="weighted")
 
         decisions = derive_runtime_config(state)
 
+        assert not _has_nested(
+            decisions.overrides,
+            "playlists.ds_pipeline.pier_bridge.max_non_seed_tracks_per_artist",
+        )
         assert _get_nested(
             decisions.overrides,
             "playlists.ds_pipeline.pier_bridge.max_non_seed_tracks_per_artist",
         ) is None
+
+    def test_weighted_diversity_preserves_user_pier_bridge_cap_when_merged(self):
+        user_overrides = {
+            "playlists": {
+                "ds_pipeline": {
+                    "pier_bridge": {
+                        "max_non_seed_tracks_per_artist": 1,
+                    }
+                }
+            }
+        }
+        state = UIStateModel(artist_diversity_mode="weighted")
+
+        decisions = derive_runtime_config(state)
+        merged = merge_overrides(user_overrides, decisions.overrides)
+
+        assert _get_nested(
+            merged,
+            "playlists.ds_pipeline.pier_bridge.max_non_seed_tracks_per_artist",
+        ) == 1
 
 
 # ─────────────────────────────────────────────────────────────────────────────

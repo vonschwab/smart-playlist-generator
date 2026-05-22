@@ -85,6 +85,7 @@ def generate_playlist_ds(
     mode: str,
     length: int,
     random_seed: int,
+    pace_mode: str = "dynamic",
     overrides: Optional[Dict[str, Any]] = None,
     enable_logging: bool = False,
     allowed_track_ids: Optional[List[str]] = None,
@@ -126,6 +127,7 @@ def generate_playlist_ds(
         anchor_seed_ids=anchor_seed_ids,
         num_tracks=length,
         mode=mode,
+        pace_mode=pace_mode,
         random_seed=random_seed,
         overrides=overrides,
         allowed_track_ids=allowed_track_ids,
@@ -187,7 +189,13 @@ def generate_playlist_ds(
         logger.info(json.dumps(payload))
 
     requested = dict(result.params_requested)
-    requested.update({"seed_track_id": seed_track_id, "mode": mode, "length": length, "random_seed": random_seed})
+    requested.update({
+        "seed_track_id": seed_track_id,
+        "mode": mode,
+        "pace_mode": pace_mode,
+        "length": length,
+        "random_seed": random_seed,
+    })
 
     return DsRunResult(
         track_ids=result.track_ids,

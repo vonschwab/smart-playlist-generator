@@ -200,6 +200,7 @@ def _beam_search_segment(
     local_sonic_stats: Optional[Dict[str, Any]] = None,
     edge_components_out: Optional[Dict[str, Any]] = None,
     transition_metric_context: Optional[TransitionMetricContext] = None,
+    rhythm_matrix: Optional[np.ndarray] = None,
 ) -> Tuple[Optional[List[int]], int, int, Optional[str]]:
     """
     Constrained beam search to find path from pier_a to pier_b.
@@ -858,6 +859,19 @@ def _beam_search_segment(
             for cand in candidates:
                 if cand in state.used:
                     continue
+                if float(getattr(cfg, "pace_bridge_floor", 0.0)) > 0.0 and rhythm_matrix is not None:
+                    from src.playlist.pier_bridge.pace_gate import compute_step_rhythm_target
+                    from src.playlist.sonic_axes import axis_cosine_similarity
+
+                    target = compute_step_rhythm_target(
+                        rhythm_matrix[int(pier_a)],
+                        rhythm_matrix[int(pier_b)],
+                        step=step,
+                        segment_length=interior_length,
+                    )
+                    pace_sim = float(axis_cosine_similarity(rhythm_matrix[int(cand)], target).reshape(-1)[0])
+                    if pace_sim < float(cfg.pace_bridge_floor):
+                        continue
 
                 # Artist diversity: check if candidate artist already used
                 if artist_key_by_idx is not None:

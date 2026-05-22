@@ -493,6 +493,7 @@ class PlaylistGenerator:
         pool_source: Optional[str] = None,
         dry_run: bool = False,
         audit_context_extra: Optional[Dict[str, Any]] = None,
+        pace_mode: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         Run DS pipeline and return ordered track dicts; raise on failure.
@@ -735,6 +736,7 @@ class PlaylistGenerator:
 
         # Read genre similarity configuration
         playlists_cfg = self.config.config.get('playlists', {})
+        pace_mode_effective = pace_mode or playlists_cfg.get("pace_mode") or "dynamic"
         genre_cfg = playlists_cfg.get('genre_similarity', {})
         genre_enabled = genre_cfg.get('enabled', True)
         min_genre_sim = genre_cfg.get('min_genre_similarity', 0.30) if genre_enabled else None
@@ -801,6 +803,7 @@ class PlaylistGenerator:
             seed_track_id=seed_to_use,
             anchor_seed_ids=anchor_seed_ids_resolved,  # Use resolved bundle track_ids, not Plex rating_keys
             mode=mode,
+            pace_mode=str(pace_mode_effective),
             length=target_length,
             random_seed=random_seed,
             overrides=overrides,

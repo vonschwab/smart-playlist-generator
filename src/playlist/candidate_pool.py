@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 
@@ -191,6 +191,8 @@ def build_candidate_pool(
     genre_vocab: Optional[list[str]] = None,
     broad_filters: tuple[str, ...] = (),
     mode: str = "dynamic",  # "dynamic", "narrow", "discover"
+    tower_pca_dims: Optional[Tuple[int, int, int]] = None,
+    uncap_pool: bool = False,  # seeded mode: skip max_pool_size; per-artist cap still applies
 ) -> CandidatePoolResult:
     """
     Implement current experiments behavior with optional genre gating:
@@ -279,6 +281,19 @@ def build_candidate_pool(
         sonic_seed_sim_matrix = np.dot(sonic_norm, seed_vecs_sonic.T)
         sonic_seed_sim = np.max(sonic_seed_sim_matrix, axis=1)
         sonic_seed_sim[seed_mask] = -1.0
+
+    rhythm_seed_sim = None
+    below_pace_floor = 0
+    if (
+        float(getattr(cfg, "pace_admission_floor", 0.0)) > 0.0
+        and X_sonic is not None
+        and tower_pca_dims is not None
+    ):
+        from src.playlist.sonic_axes import axis_cosine_similarity, extract_axis_vectors
+
+        rhythm = extract_axis_vectors(X_sonic, tower_pca_dims=tower_pca_dims)["rhythm"]
+        rhythm_seed_sim = np.max(axis_cosine_similarity(rhythm, rhythm[seed_list]), axis=1)
+        rhythm_seed_sim[seed_mask] = -1.0
 
     # Track exclusion reasons for instrumentation
     total_candidates = len(seed_sim_all) - len(seed_list)  # exclude all seeds
@@ -386,7 +401,17 @@ def build_candidate_pool(
             if logger.isEnabledFor(logging.DEBUG):
                 rejected_sonic.append((i, float(sonic_seed_sim[i])))
             continue
+        if rhythm_seed_sim is not None and rhythm_seed_sim[i] < float(cfg.pace_admission_floor):
+            below_pace_floor += 1
+            continue
         eligible.append(i)
+
+    if rhythm_seed_sim is not None:
+        logger.info(
+            "Pace admission floor applied: floor=%.2f rejected=%d",
+            float(cfg.pace_admission_floor),
+            int(below_pace_floor),
+        )
 
     if sonic_seed_sim is not None and sonic_floor is not None:
         try:
@@ -479,11 +504,11 @@ def build_candidate_pool(
         )
         take = sorted_idxs[:per_artist_cap]
         for idx in take:
-            if len(pool_indices) >= cfg.max_pool_size and len(pool_artists) >= cfg.target_artists:
+            if not uncap_pool and len(pool_indices) >= cfg.max_pool_size and len(pool_artists) >= cfg.target_artists:
                 break
             pool_indices.append(idx)
         pool_artists.add(artist)
-        if len(pool_indices) >= cfg.max_pool_size and len(pool_artists) >= cfg.target_artists:
+        if not uncap_pool and len(pool_indices) >= cfg.max_pool_size and len(pool_artists) >= cfg.target_artists:
             break
 
     pool_indices = list(dict.fromkeys(pool_indices))  # dedupe, preserve order
@@ -538,6 +563,7 @@ def build_candidate_pool(
         "genre_compatibility_penalty_applied": genre_compatibility_penalty_applied,
         "title_exclusion_rejected": title_exclusion_rejected,
         "below_sonic_similarity": below_sonic_floor,
+        "below_pace_floor": below_pace_floor,
         "artist_cap_excluded": max(0, artist_cap_excluded),
         "eligible_count": len(eligible),
     }

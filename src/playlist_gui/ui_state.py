@@ -14,6 +14,7 @@ from typing import List, Literal, Optional
 
 
 ModeValue = Literal["strict", "narrow", "dynamic", "discover", "off"]
+PaceModeValue = Literal["strict", "narrow", "dynamic"]
 
 
 @dataclass
@@ -41,6 +42,7 @@ class UIStateModel:
 
     genre_mode: ModeValue = "narrow"
     sonic_mode: ModeValue = "narrow"
+    pace_mode: PaceModeValue = "dynamic"
 
     # ─────────────────────────────────────────────────────────────────────────
     # Track count

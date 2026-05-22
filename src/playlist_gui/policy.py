@@ -27,6 +27,7 @@ POLICY_OWNED_KEYS: Set[str] = {
     # Mode-derived settings
     "playlists.genre_mode",
     "playlists.sonic_mode",
+    "playlists.pace_mode",
     # Recency settings (controlled by simplified UI)
     "playlists.recently_played_filter.enabled",
     "playlists.recently_played_filter.lookback_days",
@@ -37,7 +38,6 @@ POLICY_OWNED_KEYS: Set[str] = {
     "playlists.tracks_per_playlist",
     # Diversity bonus
     "playlists.ds_pipeline.scoring.gamma",
-    "playlists.ds_pipeline.pier_bridge.max_non_seed_tracks_per_artist",
     # DJ bridging core settings (gated by policy rules)
     "playlists.ds_pipeline.pier_bridge.dj_bridging.enabled",
     "playlists.ds_pipeline.pier_bridge.dj_bridging.seed_ordering",
@@ -58,6 +58,7 @@ This ensures the simplified UI controls take precedence.
 # ─────────────────────────────────────────────────────────────────────────────
 
 VALID_MODES: Set[str] = {"strict", "narrow", "dynamic", "discover", "off"}
+VALID_PACE_MODES: Set[str] = {"strict", "narrow", "dynamic"}
 
 COHESION_MAP: Dict[str, tuple[str, str]] = {
     "tight": ("strict", "strict"),
@@ -266,8 +267,11 @@ def derive_runtime_config(
         sonic_mode = ui.sonic_mode if ui.sonic_mode in VALID_MODES else "dynamic"
     _set_nested(overrides, "playlists.genre_mode", genre_mode)
     _set_nested(overrides, "playlists.sonic_mode", sonic_mode)
+    pace_mode = ui.pace_mode if getattr(ui, "pace_mode", "dynamic") in VALID_PACE_MODES else "dynamic"
+    _set_nested(overrides, "playlists.pace_mode", pace_mode)
     notes.append(f"Genre mode: {genre_mode}")
     notes.append(f"Sonic mode: {sonic_mode}")
+    notes.append(f"Pace mode: {pace_mode}")
 
     # ─────────────────────────────────────────────────────────────────────
     # 2. Track count
@@ -290,12 +294,6 @@ def derive_runtime_config(
             1,
         )
         notes.append("Artist diversity: one track per non-seed artist")
-    else:
-        _set_nested(
-            overrides,
-            "playlists.ds_pipeline.pier_bridge.max_non_seed_tracks_per_artist",
-            None,
-        )
 
     # ─────────────────────────────────────────────────────────────────────
     # 3. Recency filter (never relaxed by policy)

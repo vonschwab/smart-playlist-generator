@@ -1,5 +1,6 @@
 {
   "bridge_floor": 0.05,
+  "pace_bridge_floor": 0.0,
   "center_transitions": false,
   "collapse_segment_pool_by_artist": true,
   "disallow_pier_artists_in_interiors": false,

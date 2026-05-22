@@ -788,6 +788,7 @@ class MainWindow(QMainWindow):
         genre: object = None,
         genre_mode: object = None,
         sonic_mode: object = None,
+        pace_mode: object = None,
     ) -> None:
         """Restore persisted generation controls through GeneratePanel."""
         if not self._generate_panel:
@@ -798,6 +799,7 @@ class MainWindow(QMainWindow):
             genre=str(genre or ""),
             genre_mode=str(genre_mode or "") or None,
             sonic_mode=str(sonic_mode or "") or None,
+            pace_mode=str(pace_mode or "") or None,
         )
 
     @staticmethod
@@ -1053,6 +1055,7 @@ class MainWindow(QMainWindow):
             tracks=generation_request.tracks,
             genre_mode=generation_request.genre_mode,
             sonic_mode=generation_request.sonic_mode,
+            pace_mode=generation_request.pace_mode,
             include_collaborations=generation_request.include_collaborations,
         )
 
@@ -1062,6 +1065,7 @@ class MainWindow(QMainWindow):
         )
         log_msg += f", genre_mode={ui_state.genre_mode}"
         log_msg += f", sonic_mode={ui_state.sonic_mode}"
+        log_msg += f", pace_mode={ui_state.pace_mode}"
         if policy.dj_bridging_enabled:
             log_msg += ", dj_bridging=ON"
         log_msg += ")"
@@ -1771,6 +1775,7 @@ class MainWindow(QMainWindow):
                 genre=self._settings.value("state/genre"),
                 genre_mode=self._settings.value("state/genre_mode"),
                 sonic_mode=self._settings.value("state/sonic_mode"),
+                pace_mode=self._settings.value("state/pace_mode"),
             )
             preset = self._settings.value("state/preset")
             if preset:
@@ -1840,6 +1845,7 @@ class MainWindow(QMainWindow):
 
             self._settings.setValue("state/genre_mode", ui_state.genre_mode)
             self._settings.setValue("state/sonic_mode", ui_state.sonic_mode)
+            self._settings.setValue("state/pace_mode", ui_state.pace_mode)
 
             if self._active_preset_name:
                 self._settings.setValue("state/preset", self._active_preset_name)

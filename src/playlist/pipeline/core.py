@@ -11,6 +11,7 @@ import numpy as np
 from src.features.artifacts import load_artifact_bundle
 from src.playlist.candidate_pool import build_candidate_pool
 from src.playlist.config import DSPipelineConfig, default_ds_config
+from src.playlist.mode_presets import resolve_pace_mode
 from src.playlist.constructor import PlaylistResult  # Type only, no longer calling construct_playlist
 from src.playlist.pier_bridge_builder import (
     PierBridgeConfig,
@@ -156,6 +157,7 @@ def generate_playlist_ds(
     num_tracks: int,
     mode: str,
     random_seed: int,
+    pace_mode: str = "dynamic",
     overrides: Optional[dict] = None,
     allowed_track_ids: Optional[list[str]] = None,
     excluded_track_ids: Optional[set[str]] = None,
@@ -258,6 +260,21 @@ def generate_playlist_ds(
     playlist_len = min(num_tracks, bundle.track_ids.shape[0])
     # Pass config.yaml overrides to default_ds_config for initial config creation
     cfg = default_ds_config(mode, playlist_len=playlist_len, overrides=overrides)
+    pace_settings = resolve_pace_mode(pace_mode)
+    cfg = replace(
+        cfg,
+        candidate=replace(
+            cfg.candidate,
+            pace_admission_floor=float(pace_settings["admission_floor"]),
+            pace_bridge_floor=float(pace_settings["bridge_floor"]),
+        ),
+    )
+    logger.info(
+        "Pace mode: %s (admission_floor=%.2f, bridge_floor=%.2f)",
+        pace_mode,
+        float(pace_settings["admission_floor"]),
+        float(pace_settings["bridge_floor"]),
+    )
     if single_artist:
         # Disable artist cap for single-artist runs
         cfg = replace(cfg, construct=replace(cfg.construct, max_artist_fraction_final=1.0))
@@ -319,6 +336,8 @@ def generate_playlist_ds(
             genre_vocab=genre_vocab,
             broad_filters=broad_filters,
             mode=mode,
+            tower_pca_dims=variant_stats.get("tower_pca_dims"),
+            uncap_pool=not artist_playlist,
         )
 
     pool = _build_pool(cfg.candidate, min_genre_similarity)
@@ -377,6 +396,7 @@ def generate_playlist_ds(
                 audit_cfg=audit_cfg,
                 resolved_variant=resolved_variant,
             )
+            pb_cfg = replace(pb_cfg, pace_bridge_floor=float(cfg.candidate.pace_bridge_floor))
 
             logger.info(
                 "Pier-bridge segment policy: artist_playlist=%s strategy=%s pool_max=%d progress=%s disallow_seed_artist_in_interiors=%s disallow_pier_artists_in_interiors=%s",

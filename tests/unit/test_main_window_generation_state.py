@@ -56,5 +56,6 @@ def test_restore_generation_state_delegates_to_generate_panel():
             "genre": "shoegaze",
             "genre_mode": "dynamic",
             "sonic_mode": "off",
+            "pace_mode": None,
         }
     ]

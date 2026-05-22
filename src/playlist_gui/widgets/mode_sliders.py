@@ -16,14 +16,21 @@ from PySide6.QtWidgets import (
 )
 
 ModeLevel = Literal["strict", "narrow", "dynamic", "discover", "off"]
+PaceModeLevel = Literal["strict", "narrow", "dynamic"]
 
 MODE_LEVELS: list[ModeLevel] = ["off", "strict", "narrow", "dynamic", "discover"]
+PACE_MODE_LEVELS: list[PaceModeLevel] = ["strict", "narrow", "dynamic"]
 MODE_LABELS = {
     "off": "Off",
     "strict": "Strict",
     "narrow": "Narrow",
     "dynamic": "Dynamic",
     "discover": "Discover",
+}
+PACE_MODE_LABELS = {
+    "strict": "Strict",
+    "narrow": "Narrow",
+    "dynamic": "Dynamic",
 }
 MODE_TOOLTIPS = {
     "off": "Disable this matching domain",
@@ -32,24 +39,32 @@ MODE_TOOLTIPS = {
     "dynamic": "Balanced exploration; moderate variety",
     "discover": "Exploratory matching; widest variety",
 }
+PACE_MODE_TOOLTIPS = {
+    "strict": "Tight rhythm/tempo fidelity",
+    "narrow": "Moderate rhythm/tempo anchoring",
+    "dynamic": "No separate rhythm/tempo constraint",
+}
 
 
 class ModeSliders(QWidget):
     """
-    Compact dual sliders for selecting genre and sonic modes.
+    Compact sliders for selecting genre, sonic, and pace modes.
 
     Emits:
         genre_mode_changed: New genre mode value
         sonic_mode_changed: New sonic mode value
+        pace_mode_changed: New pace mode value
     """
 
     genre_mode_changed = Signal(str)
     sonic_mode_changed = Signal(str)
+    pace_mode_changed = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._genre_value: ModeLevel = "narrow"
         self._sonic_value: ModeLevel = "narrow"
+        self._pace_value: PaceModeLevel = "dynamic"
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
         self._setup_ui()
 
@@ -128,8 +143,43 @@ class ModeSliders(QWidget):
         sonic_row.addWidget(self._sonic_value_label)
         layout.addLayout(sonic_row)
 
+        # Pace slider row
+        pace_row = QHBoxLayout()
+        pace_row.setContentsMargins(0, 0, 0, 0)
+        pace_row.setSpacing(6)
+        pace_label = QLabel("Pace:")
+        pace_label.setObjectName("controlLabel")
+        pace_label.setMinimumWidth(46)
+        pace_row.addWidget(pace_label)
+
+        self._pace_slider = QSlider(Qt.Horizontal)
+        self._pace_slider.setMinimum(0)
+        self._pace_slider.setMaximum(len(PACE_MODE_LEVELS) - 1)
+        self._pace_slider.setValue(PACE_MODE_LEVELS.index("dynamic"))
+        self._pace_slider.setTickPosition(QSlider.TicksBelow)
+        self._pace_slider.setTickInterval(1)
+        self._pace_slider.setPageStep(1)
+        self._pace_slider.setSingleStep(1)
+        self._pace_slider.setMinimumWidth(90)
+        self._pace_slider.setMaximumWidth(130)
+        self._pace_slider.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        self._pace_slider.setObjectName("modeSlider")
+        self._pace_slider.setToolTip(
+            "Pace strictness (tighter = closer rhythm/tempo)"
+        )
+        self._pace_slider.valueChanged.connect(self._on_pace_changed)
+        pace_row.addWidget(self._pace_slider)
+
+        self._pace_value_label = QLabel(PACE_MODE_LABELS[self._pace_value])
+        self._pace_value_label.setObjectName("modeValue")
+        self._pace_value_label.setMinimumWidth(68)
+        self._pace_value_label.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+        self._pace_value_label.setToolTip(PACE_MODE_TOOLTIPS[self._pace_value])
+        pace_row.addWidget(self._pace_value_label)
+        layout.addLayout(pace_row)
+
         self.setToolTip(
-            "Set genre and sonic strictness separately.\n"
+            "Set genre, sonic, and pace strictness separately.\n"
             "Stricter modes narrow matching; Discover explores more."
         )
 
@@ -151,11 +201,23 @@ class ModeSliders(QWidget):
                 self._sonic_value_label.setToolTip(MODE_TOOLTIPS[new_value])
                 self.sonic_mode_changed.emit(new_value)
 
+    def _on_pace_changed(self, value: int) -> None:
+        if 0 <= value < len(PACE_MODE_LEVELS):
+            new_value = PACE_MODE_LEVELS[value]
+            if new_value != self._pace_value:
+                self._pace_value = new_value
+                self._pace_value_label.setText(PACE_MODE_LABELS[new_value])
+                self._pace_value_label.setToolTip(PACE_MODE_TOOLTIPS[new_value])
+                self.pace_mode_changed.emit(new_value)
+
     def get_genre_mode(self) -> ModeLevel:
         return self._genre_value
 
     def get_sonic_mode(self) -> ModeLevel:
         return self._sonic_value
+
+    def get_pace_mode(self) -> PaceModeLevel:
+        return self._pace_value
 
     def set_genre_mode(self, mode: ModeLevel) -> None:
         if mode in MODE_LEVELS:
@@ -165,6 +227,11 @@ class ModeSliders(QWidget):
         if mode in MODE_LEVELS:
             self._sonic_slider.setValue(MODE_LEVELS.index(mode))
 
+    def set_pace_mode(self, mode: PaceModeLevel) -> None:
+        if mode in PACE_MODE_LEVELS:
+            self._pace_slider.setValue(PACE_MODE_LEVELS.index(mode))
+
     def reset(self) -> None:
         self.set_genre_mode("narrow")
         self.set_sonic_mode("narrow")
+        self.set_pace_mode("dynamic")

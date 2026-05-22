@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Iterable, Optional, Sequence
 
 from src.features.artifacts import ArtifactBundle
+from src.playlist.artist_identity_resolver import ArtistIdentityConfig, resolve_artist_identity_keys
 from src.playlist.identity_keys import identity_keys_for_index
 from src.playlist.title_quality import detect_title_artifacts
 from src.playlist.transition_metrics import (
@@ -73,6 +74,53 @@ def _all_edges_clear(
     )
 
 
+def _non_seed_artist_counts_after_replacement(
+    candidate: int,
+    current_indices: Sequence[int],
+    replace_position: int,
+    bundle: ArtifactBundle,
+    seed_indices: set[int],
+    artist_identity_cfg: Optional[ArtistIdentityConfig],
+) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for pos, idx in enumerate(current_indices):
+        track_idx = int(candidate) if int(pos) == int(replace_position) else int(idx)
+        if track_idx in seed_indices:
+            continue
+        for artist_key in _cap_artist_keys_for_idx(bundle, track_idx, artist_identity_cfg):
+            counts[str(artist_key)] = counts.get(str(artist_key), 0) + 1
+    return counts
+
+
+def _cap_artist_keys_for_idx(
+    bundle: ArtifactBundle,
+    idx: int,
+    artist_identity_cfg: Optional[ArtistIdentityConfig],
+) -> set[str]:
+    use_identity = artist_identity_cfg is not None and artist_identity_cfg.enabled
+    if use_identity:
+        raw_artist = ""
+        try:
+            if bundle.track_artists is not None:
+                raw_artist = str(bundle.track_artists[int(idx)] or "")
+        except Exception:
+            raw_artist = ""
+        if raw_artist:
+            try:
+                return {
+                    str(key)
+                    for key in resolve_artist_identity_keys(raw_artist, artist_identity_cfg)
+                    if str(key)
+                }
+            except Exception:
+                return set()
+    try:
+        artist_key = identity_keys_for_index(bundle, int(idx)).artist_key
+    except Exception:
+        artist_key = ""
+    return {str(artist_key)} if artist_key else set()
+
+
 def _candidate_refusal_reasons(
     *,
     candidate: int,
@@ -86,6 +134,8 @@ def _candidate_refusal_reasons(
     metric_context: TransitionMetricContext,
     variety_guard_enabled: bool,
     variety_guard_threshold: float,
+    max_non_seed_tracks_per_artist: Optional[int],
+    artist_identity_cfg: Optional[ArtistIdentityConfig],
 ) -> list[str]:
     reasons: list[str] = []
     candidate = int(candidate)
@@ -116,6 +166,23 @@ def _candidate_refusal_reasons(
         if cand_keys.artist_key and str(cand_keys.artist_key) in disallowed_artist_keys:
             reasons.append("disallowed_artist")
 
+    if (
+        max_non_seed_tracks_per_artist is not None
+        and int(max_non_seed_tracks_per_artist) > 0
+        and any(
+            count > int(max_non_seed_tracks_per_artist)
+            for count in _non_seed_artist_counts_after_replacement(
+                candidate,
+                current_indices,
+                replace_position,
+                bundle,
+                seed_indices,
+                artist_identity_cfg,
+            ).values()
+        )
+    ):
+        reasons.append("max_non_seed_artist_cap")
+
     if detect_title_artifacts(_title_for_idx(bundle, candidate)):
         reasons.append("title_artifact")
     if variety_guard_enabled and replace_position > 0:
@@ -142,6 +209,8 @@ def repair_playlist_edges(
     repair_edge_position: Optional[int] = None,
     variety_guard_enabled: bool = False,
     variety_guard_threshold: float = 0.85,
+    max_non_seed_tracks_per_artist: Optional[int] = None,
+    artist_identity_cfg: Optional[ArtistIdentityConfig] = None,
 ) -> EdgeRepairResult:
     """Conservatively swap interior tracks to fix broken adjacent transitions."""
 
@@ -208,6 +277,8 @@ def repair_playlist_edges(
                 metric_context=metric_context,
                 variety_guard_enabled=bool(variety_guard_enabled),
                 variety_guard_threshold=float(variety_guard_threshold),
+                max_non_seed_tracks_per_artist=max_non_seed_tracks_per_artist,
+                artist_identity_cfg=artist_identity_cfg,
             )
             if reasons:
                 for reason in reasons:

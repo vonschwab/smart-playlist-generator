@@ -20,6 +20,7 @@ def test_generate_playlist_request_serializes_only_present_fields():
         genre=" shoegaze ",
         genre_mode="off",
         sonic_mode="strict",
+        pace_mode="narrow",
         seed_tracks=["", " Artist - Title "],
         seed_track_ids=[" 123 ", ""],
     )
@@ -32,6 +33,7 @@ def test_generate_playlist_request_serializes_only_present_fields():
         "seed_track_ids": ["123"],
         "genre_mode": "off",
         "sonic_mode": "strict",
+        "pace_mode": "narrow",
     }
 
 
@@ -43,6 +45,7 @@ def test_generate_playlist_request_parses_worker_args_with_defaults():
             "seed_tracks": [" A - T ", ""],
             "seed_track_ids": [" 123 "],
             "include_collaborations": True,
+            "pace_mode": "strict",
         }
     )
 
@@ -51,6 +54,7 @@ def test_generate_playlist_request_parses_worker_args_with_defaults():
     assert request.seed_tracks == ["A - T"]
     assert request.seed_track_ids == ["123"]
     assert request.include_collaborations is True
+    assert request.pace_mode == "strict"
 
 
 def test_generate_playlist_request_validates_mode_inputs():
@@ -79,6 +83,7 @@ def test_generate_playlist_request_builds_from_cli_artist_args():
         Args,
         genre_mode="off",
         sonic_mode="strict",
+        pace_mode="narrow",
     )
 
     assert request.mode == "artist"
@@ -89,6 +94,7 @@ def test_generate_playlist_request_builds_from_cli_artist_args():
     assert request.artist_only is True
     assert request.genre_mode == "off"
     assert request.sonic_mode == "strict"
+    assert request.pace_mode == "narrow"
 
 
 def test_generate_playlist_request_builds_from_cli_genre_and_history_args():

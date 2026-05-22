@@ -40,7 +40,7 @@ from .seed_chips import SeedChip
 
 ModeType = Literal["artist", "genre", "seeds", "history"]
 
-CONTROL_GROUP_HEIGHT = 56
+CONTROL_GROUP_HEIGHT = 84
 HEADER_BREAKPOINT_WIDTH = 1500
 
 
@@ -85,7 +85,7 @@ class GeneratePanel(QWidget):
         self._header_frame = QFrame()
         header_frame = self._header_frame
         header_frame.setObjectName("headerFrame")
-        header_frame.setMinimumHeight(72)
+        header_frame.setMinimumHeight(CONTROL_GROUP_HEIGHT + 12)
         header_layout = QGridLayout(header_frame)
         self._header_layout = header_layout
         header_layout.setContentsMargins(8, 6, 8, 6)
@@ -123,7 +123,7 @@ class GeneratePanel(QWidget):
 
         self._create_control_group("mode", "Mode", mode_container)
 
-        # Genre/Sonic mode sliders (stacked)
+        # Genre/Sonic/Pace mode sliders (stacked)
         self._mode_sliders = ModeSliders()
         self._create_control_group("matching", "Matching", self._mode_sliders)
 
@@ -479,6 +479,7 @@ class GeneratePanel(QWidget):
         genre: str = "",
         genre_mode: Optional[str] = None,
         sonic_mode: Optional[str] = None,
+        pace_mode: Optional[str] = None,
     ) -> None:
         """Restore persisted generation controls."""
         self.set_current_mode(mode)
@@ -490,6 +491,8 @@ class GeneratePanel(QWidget):
             self._mode_sliders.set_genre_mode(genre_mode)  # type: ignore[arg-type]
         if sonic_mode:
             self._mode_sliders.set_sonic_mode(sonic_mode)  # type: ignore[arg-type]
+        if pace_mode:
+            self._mode_sliders.set_pace_mode(pace_mode)  # type: ignore[arg-type]
 
     def _update_progress_visibility(self) -> None:
         """Show progress only while running."""
@@ -562,6 +565,7 @@ class GeneratePanel(QWidget):
             mode=mode,
             genre_mode=self._mode_sliders.get_genre_mode(),
             sonic_mode=self._mode_sliders.get_sonic_mode(),
+            pace_mode=self._mode_sliders.get_pace_mode(),
             track_count=int(self._length_combo.property("value") or 30),
             diversity_gamma=self._get_diversity_gamma(),
             artist_diversity_mode=self._get_artist_diversity_mode(),

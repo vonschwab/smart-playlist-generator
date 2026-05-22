@@ -352,6 +352,7 @@ class WorkerClient(QObject):
         tracks: int = 30,
         genre_mode: Optional[str] = None,
         sonic_mode: Optional[str] = None,
+        pace_mode: Optional[str] = None,
         include_collaborations: bool = False,
         job_id: Optional[str] = None,
     ) -> Optional[str]:
@@ -370,6 +371,7 @@ class WorkerClient(QObject):
             tracks: Number of tracks to generate
             genre_mode: Optional genre mode override
             sonic_mode: Optional sonic mode override
+            pace_mode: Optional pace mode override
 
         Returns:
             The request_id if sent successfully, None otherwise
@@ -384,6 +386,7 @@ class WorkerClient(QObject):
             seed_track_ids=seed_track_ids or [],
             genre_mode=genre_mode,
             sonic_mode=sonic_mode,
+            pace_mode=pace_mode,
             include_collaborations=include_collaborations,
         )
 

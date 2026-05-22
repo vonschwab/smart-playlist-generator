@@ -124,6 +124,32 @@ SONIC_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
 
 
 # ============================================================================
+# PACE (RHYTHM/TEMPO) MODE PRESETS
+# ============================================================================
+
+PACE_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
+    "strict": {
+        "admission_floor": 0.55,
+        "bridge_floor": 0.65,
+        "description": "Tight tempo fidelity - stay anchored to seed pace",
+        "use_case": "Slow/meditative seeds; mood-locked playlists",
+    },
+    "narrow": {
+        "admission_floor": 0.35,
+        "bridge_floor": 0.45,
+        "description": "Moderate tempo anchoring",
+        "use_case": "Consistent energy with some flex",
+    },
+    "dynamic": {
+        "admission_floor": 0.0,
+        "bridge_floor": 0.0,
+        "description": "No pace constraint (default)",
+        "use_case": "Multi-tempo playlists; current behavior",
+    },
+}
+
+
+# ============================================================================
 # QUICK PRESET COMBINATIONS
 # ============================================================================
 
@@ -247,6 +273,26 @@ def resolve_sonic_mode(mode: str, overrides: Optional[Dict[str, Any]] = None) ->
     else:
         logger.info(f"Sonic mode '{mode}': {settings['description']}")
 
+    return settings
+
+
+def resolve_pace_mode(mode: str, overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Resolve pace mode string to rhythm-axis gate settings."""
+    mode = (mode or "dynamic").lower()
+    if mode not in PACE_MODE_PRESETS:
+        valid_modes = ", ".join(PACE_MODE_PRESETS.keys())
+        raise ValueError(f"Unknown pace mode: '{mode}'. Valid modes: {valid_modes}")
+
+    settings = {
+        key: value
+        for key, value in PACE_MODE_PRESETS[mode].items()
+        if key not in {"description", "use_case"}
+    }
+    if overrides:
+        settings.update(overrides)
+        logger.info(f"Pace mode '{mode}' with overrides: {overrides}")
+    else:
+        logger.info(f"Pace mode '{mode}': {PACE_MODE_PRESETS[mode]['description']}")
     return settings
 
 
@@ -508,10 +554,12 @@ def _infer_playlist_character(genre_mode: str, sonic_mode: str) -> str:
 __all__ = [
     "GENRE_MODE_PRESETS",
     "SONIC_MODE_PRESETS",
+    "PACE_MODE_PRESETS",
     "QUICK_PRESETS",
     "apply_mode_presets",
     "resolve_genre_mode",
     "resolve_sonic_mode",
+    "resolve_pace_mode",
     "resolve_quick_preset",
     "get_mode_description",
     "validate_mode_combination",

@@ -39,6 +39,11 @@ playlists:
   #   discover: Varied textures (weight 0.35, wider pool)
   #   off:      Genre-only mode (ignore sonic features completely)
   #
+  # PACE MODES (how strictly to match rhythm/tempo):
+  #   strict:   Tight tempo fidelity (rhythm floors 0.55 / 0.65)
+  #   narrow:   Moderate tempo anchoring (0.35 / 0.45)
+  #   dynamic:  No pace constraint; preserves current behavior
+  #
   # EXAMPLES:
   #   genre_mode: dynamic      # Balanced genre + sonic (50/50)
   #   sonic_mode: dynamic
@@ -60,6 +65,7 @@ playlists:
   #
   # genre_mode: dynamic
   # sonic_mode: dynamic
+  # pace_mode: dynamic
   #
   # ═══════════════════════════════════════════════════════════════════════════
 

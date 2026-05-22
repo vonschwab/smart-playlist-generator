@@ -806,10 +806,14 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
         sonic_mode = request.sonic_mode or config.get('playlists', {}).get(
             'sonic_mode'
         )
+        pace_mode = request.pace_mode or config.get('playlists', {}).get(
+            'pace_mode', 'dynamic'
+        )
         if genre_mode:
             emit_log("INFO", f"Genre mode: {genre_mode}")
         if sonic_mode:
             emit_log("INFO", f"Sonic mode: {sonic_mode}")
+        emit_log("INFO", f"Pace mode: {pace_mode}")
         emit_log("INFO", f"DS pipeline mode: {ds_mode}")
 
         # Cancellation check before generation

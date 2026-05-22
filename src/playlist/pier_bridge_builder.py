@@ -1910,6 +1910,8 @@ def build_pier_bridge_playlist(
             disallowed_artist_keys=disallowed_repair_artist_keys,
             variety_guard_enabled=bool(getattr(cfg, "edge_repair_variety_guard_enabled", False)),
             variety_guard_threshold=float(getattr(cfg, "edge_repair_variety_guard_threshold", 0.85)),
+            max_non_seed_tracks_per_artist=getattr(cfg, "max_non_seed_tracks_per_artist", None),
+            artist_identity_cfg=artist_identity_cfg,
         )
         edge_repair_swap_log = list(repair_result.swap_log)
         if list(repair_result.indices) != list(final_indices):

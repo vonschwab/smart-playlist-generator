@@ -3,6 +3,7 @@ from pathlib import Path
 import numpy as np
 
 from src.features.artifacts import ArtifactBundle
+from src.playlist.artist_identity_resolver import ArtistIdentityConfig
 from src.playlist.config import default_ds_config
 from src.playlist.pier_bridge.config import PierBridgeConfig
 from src.playlist.pipeline.pier_bridge_overrides import apply_pier_bridge_overrides
@@ -14,9 +15,12 @@ def _repair_bundle(
     *,
     titles: list[str] | None = None,
     artists: list[str] | None = None,
+    X: list[list[float]] | None = None,
 ) -> ArtifactBundle:
-    X = np.array(
-        [
+    X_arr = np.array(
+        X
+        if X is not None
+        else [
             [1.0, 0.0],
             [-1.0, 0.0],
             [1.0, 0.0],
@@ -25,7 +29,7 @@ def _repair_bundle(
         ],
         dtype=float,
     )
-    n = int(X.shape[0])
+    n = int(X_arr.shape[0])
     track_ids = np.array([f"t{i}" for i in range(n)], dtype=object)
     return ArtifactBundle(
         artifact_path=Path("fake.npz"),
@@ -33,10 +37,10 @@ def _repair_bundle(
         artist_keys=np.array(artists or [f"artist-{i}" for i in range(n)], dtype=object),
         track_artists=np.array(artists or [f"Artist {i}" for i in range(n)], dtype=object),
         track_titles=np.array(titles or [f"Track {i}" for i in range(n)], dtype=object),
-        X_sonic=X,
-        X_sonic_start=X,
-        X_sonic_mid=X,
-        X_sonic_end=X,
+        X_sonic=X_arr,
+        X_sonic_start=X_arr,
+        X_sonic_mid=X_arr,
+        X_sonic_end=X_arr,
         X_genre_raw=np.eye(n, dtype=float),
         X_genre_smoothed=np.eye(n, dtype=float),
         genre_vocab=np.array([f"g{i}" for i in range(n)], dtype=object),
@@ -160,6 +164,67 @@ def test_edge_repair_refuses_seed_duplicate_artist_allowed_title_and_pier_violat
         "disallowed_artist",
         "title_artifact",
     } <= refusal_reasons
+
+
+def test_edge_repair_refuses_candidate_that_exceeds_non_seed_artist_cap():
+    bundle = _repair_bundle(
+        X=[
+            [1.0, 0.0],
+            [-1.0, 0.0],
+            [1.0, 0.0],
+            [1.0, 0.0],
+            [1.0, 0.0],
+        ],
+        artists=["Pier A", "Broken Artist", "Pier B", "Duplicate Artist", "Duplicate Artist"],
+    )
+    ctx = _context(bundle)
+
+    result = repair_playlist_edges(
+        final_indices=[0, 1, 3, 2],
+        candidate_indices=[4],
+        metric_context=ctx,
+        bundle=bundle,
+        seed_indices={0, 2},
+        pier_positions={0, 3},
+        transition_floor=0.2,
+        centered_cos_floor=-0.5,
+        margin=0.05,
+        max_non_seed_tracks_per_artist=1,
+    )
+
+    assert result.indices == [0, 1, 3, 2]
+    assert "max_non_seed_artist_cap" in {entry["reason"] for entry in result.swap_log}
+
+
+def test_edge_repair_refuses_collaboration_secondary_artist_that_exceeds_non_seed_artist_cap():
+    bundle = _repair_bundle(
+        X=[
+            [1.0, 0.0],
+            [-1.0, 0.0],
+            [1.0, 0.0],
+            [1.0, 0.0],
+            [1.0, 0.0],
+        ],
+        artists=["Pier A", "Broken Artist", "Pier B", "Guest Artist", "Main Artist & Guest Artist"],
+    )
+    ctx = _context(bundle)
+
+    result = repair_playlist_edges(
+        final_indices=[0, 1, 3, 2],
+        candidate_indices=[4],
+        metric_context=ctx,
+        bundle=bundle,
+        seed_indices={0, 2},
+        pier_positions={0, 3},
+        transition_floor=0.2,
+        centered_cos_floor=-0.5,
+        margin=0.05,
+        max_non_seed_tracks_per_artist=1,
+        artist_identity_cfg=ArtistIdentityConfig(enabled=True),
+    )
+
+    assert result.indices == [0, 1, 3, 2]
+    assert "max_non_seed_artist_cap" in {entry["reason"] for entry in result.swap_log}
 
 
 def test_edge_repair_nested_config_overrides_are_parsed():

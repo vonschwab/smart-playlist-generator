@@ -29,6 +29,8 @@ class CandidatePoolConfig:
     genre_compatibility_conflict_threshold: float = 0.15
     title_hard_exclude_flags: frozenset[str] = frozenset({"interlude", "skit", "acapella"})
     genre_idf_enabled: bool = True
+    pace_admission_floor: float = 0.0
+    pace_bridge_floor: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -346,6 +348,9 @@ def default_ds_config(
     constraints = overrides.get("constraints", {})
     candidate_pool = overrides.get("candidate_pool", {})
     repair = overrides.get("repair", {})
+    pace_mode_name = candidate_pool.get("pace_mode") or overrides.get("pace_mode") or "dynamic"
+    from src.playlist.mode_presets import resolve_pace_mode
+    pace_settings = resolve_pace_mode(str(pace_mode_name))
 
     # Mode defaults - can be overridden by config.yaml values
     max_artist_fraction_final = candidate_pool.get(
@@ -446,6 +451,12 @@ def default_ds_config(
                 # discover turns IDF off — exploration mode shouldn't reward narrow tag matches
                 mode != "discover",
             )
+        ),
+        pace_admission_floor=float(
+            candidate_pool.get("pace_admission_floor", pace_settings["admission_floor"])
+        ),
+        pace_bridge_floor=float(
+            candidate_pool.get("pace_bridge_floor", pace_settings["bridge_floor"])
         ),
     )
 

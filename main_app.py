@@ -585,6 +585,11 @@ def main():
         help="Sonic similarity mode: strict (0.85 weight), narrow (0.70), dynamic (0.50), discover (0.35), off (genre-only)",
     )
     parser.add_argument(
+        "--pace-mode",
+        choices=["strict", "narrow", "dynamic"],
+        help="Pace/rhythm mode: strict, narrow, or dynamic (default/current behavior)",
+    )
+    parser.add_argument(
         "--mode",
         choices=["balanced", "tight", "exploratory", "sonic_only", "genre_only", "varied_sound", "sonic_thread"],
         help="Quick preset: balanced (default), tight (strict+strict), exploratory (discover+discover), sonic_only, genre_only, etc.",
@@ -709,12 +714,15 @@ def main():
             genre_mode = args.genre_mode
         if getattr(args, "sonic_mode", None):
             sonic_mode = args.sonic_mode
+        pace_mode = getattr(args, "pace_mode", None)
 
         playlists_cfg = app.generator.config.config.setdefault('playlists', {})
         if genre_mode:
             playlists_cfg['genre_mode'] = genre_mode
         if sonic_mode:
             playlists_cfg['sonic_mode'] = sonic_mode
+        if pace_mode:
+            playlists_cfg['pace_mode'] = pace_mode
         if genre_mode or sonic_mode:
             apply_mode_presets(playlists_cfg)
 
@@ -762,6 +770,7 @@ def main():
             args,
             genre_mode=genre_mode,
             sonic_mode=sonic_mode,
+            pace_mode=pace_mode,
         )
 
         if generation_request.mode == "artist" and generation_request.artist:

@@ -8,6 +8,7 @@ from typing import Any, Literal, Optional
 
 GenerateMode = Literal["artist", "genre", "seeds", "history"]
 ModeValue = Literal["strict", "narrow", "dynamic", "discover", "off"]
+PaceModeValue = Literal["strict", "narrow", "dynamic"]
 LibraryOperation = Literal[
     "analyze_library",
     "scan_library",
@@ -73,6 +74,7 @@ class GeneratePlaylistRequest:
     anchor_seed_ids: list[str] = field(default_factory=list)
     genre_mode: Optional[ModeValue] = None
     sonic_mode: Optional[ModeValue] = None
+    pace_mode: Optional[PaceModeValue] = None
     include_collaborations: bool = False
     artist_only: bool = False
 
@@ -93,6 +95,7 @@ class GeneratePlaylistRequest:
             seed_track_ids=_clean_list(seed_track_ids if seed_track_ids is not None else ui_state.seed_track_ids),
             genre_mode=ui_state.genre_mode,
             sonic_mode=ui_state.sonic_mode,
+            pace_mode=getattr(ui_state, "pace_mode", "dynamic"),
             include_collaborations=ui_state.include_collaborations,
         )
 
@@ -116,6 +119,7 @@ class GeneratePlaylistRequest:
             anchor_seed_ids=_clean_list(args.get("anchor_seed_ids")),
             genre_mode=_clean_text(args.get("genre_mode")),
             sonic_mode=_clean_text(args.get("sonic_mode")),
+            pace_mode=_clean_text(args.get("pace_mode")),
             include_collaborations=bool(args.get("include_collaborations", False)),
             artist_only=bool(args.get("artist_only", False)),
         )
@@ -127,6 +131,7 @@ class GeneratePlaylistRequest:
         *,
         genre_mode: Optional[ModeValue] = None,
         sonic_mode: Optional[ModeValue] = None,
+        pace_mode: Optional[PaceModeValue] = None,
     ) -> "GeneratePlaylistRequest":
         artist = _clean_text(getattr(args, "artist", None))
         genre = _clean_text(getattr(args, "genre", None))
@@ -157,6 +162,7 @@ class GeneratePlaylistRequest:
             anchor_seed_ids=anchor_seed_ids,
             genre_mode=genre_mode,
             sonic_mode=sonic_mode,
+            pace_mode=pace_mode,
             artist_only=bool(getattr(args, "artist_only", False)),
         )
 
@@ -168,6 +174,7 @@ class GeneratePlaylistRequest:
             "track": _clean_text(self.track),
             "genre_mode": _clean_text(self.genre_mode),
             "sonic_mode": _clean_text(self.sonic_mode),
+            "pace_mode": _clean_text(self.pace_mode),
         }
         for key, value in optional_values.items():
             if value:

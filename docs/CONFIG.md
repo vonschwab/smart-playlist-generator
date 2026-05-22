@@ -209,17 +209,16 @@ playlists:
       duration_penalty_weight: 0.60    # Penalty strength (higher = more severe)
       duration_cutoff_multiplier: 2.5 # Hard cutoff vs median seed duration
 
-      # Raw genre-conflict penalty and (optional) hard gate.
-      # Applies against the raw artifact genre vocabulary (~764 dims).
-      # The hard gate is NULL (off) by default because at min_confidence=0.50
-      # against identity affinity in a 764-dim vocab, it rejects ~50% of all
-      # candidates including legitimate ones. The soft penalty (strength=0.20)
-      # still demotes off-axis tracks without blocking them.
-      genre_conflict_enabled: true
-      genre_conflict_min_confidence: null    # null = no hard gate (recommended)
-      genre_conflict_penalty_strength: 0.20  # Soft demotion strength
-      genre_conflict_compatible_threshold: 0.35
-      genre_conflict_conflict_threshold: 0.15
+      # Raw genre-compatibility penalty.
+      # Applies against the raw artifact genre vocabulary. The old
+      # candidate-pool genre-conflict hard gate was deleted because it rejected
+      # legitimate candidates with the current high-dimensional identity
+      # affinity vocabulary. The soft penalty demotes off-axis tracks without
+      # a direct hard gate.
+      genre_compatibility_enabled: true
+      genre_compatibility_penalty_strength: 0.20
+      genre_compatibility_compatible_threshold: 0.35
+      genre_compatibility_conflict_threshold: 0.15
 
       # Hard title exclusions (drops candidates entirely; case-insensitive)
       title_exclusion_enabled: true
@@ -415,7 +414,8 @@ playlists:
 
       # Genre-neighbor candidate pool (UNION with the cluster pool).
       # Size raised from 500 to 1500 in v4.1; min_confidence set to null
-      # (same identity-affinity issue as candidate_pool.genre_conflict_min_confidence).
+      # for the same reason the old candidate-pool genre-conflict hard gate
+      # was deleted.
       genre_neighbor_pool_enabled: true
       genre_neighbor_pool_size: 1500
       genre_neighbor_min_similarity: 0.25

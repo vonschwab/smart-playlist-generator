@@ -41,6 +41,7 @@ class DSPipelineRequest:
     num_tracks: int
     mode: str
     random_seed: int
+    pace_mode: str = "dynamic"
 
     # Optional configuration
     overrides: Optional[Dict[str, Any]] = None
@@ -100,6 +101,7 @@ class DSPipelineBuilder:
         self._seed_track_id: Optional[str] = None
         self._num_tracks: int = 30
         self._mode: str = "dynamic"
+        self._pace_mode: str = "dynamic"
         self._random_seed: int = 42
 
         # Optional parameters
@@ -176,6 +178,11 @@ class DSPipelineBuilder:
             Self for chaining
         """
         self._mode = mode
+        return self
+
+    def with_pace_mode(self, mode: str) -> DSPipelineBuilder:
+        """Set pace mode."""
+        self._pace_mode = mode
         return self
 
     def with_random_seed(self, seed: int) -> DSPipelineBuilder:
@@ -412,6 +419,7 @@ class DSPipelineBuilder:
             seed_track_id=self._seed_track_id,
             num_tracks=self._num_tracks,
             mode=self._mode,
+            pace_mode=self._pace_mode,
             random_seed=self._random_seed,
             overrides=self._overrides,
             allowed_track_ids=self._allowed_track_ids,

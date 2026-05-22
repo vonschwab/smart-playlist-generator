@@ -31,6 +31,25 @@ def test_generate_panel_builds_genre_state(qtbot):
     assert state.genre_query == "ambient"
 
 
+def test_pace_mode_selector_defaults_to_dynamic(qtbot):
+    panel = GeneratePanel()
+    qtbot.addWidget(panel)
+
+    assert panel._mode_sliders.get_pace_mode() == "dynamic"
+    assert panel._mode_sliders._pace_value_label.text() == "Dynamic"
+    assert panel.build_ui_state().pace_mode == "dynamic"
+
+
+def test_pace_mode_selector_is_a_slider_with_three_modes(qtbot):
+    panel = GeneratePanel()
+    qtbot.addWidget(panel)
+
+    assert panel._mode_sliders._pace_slider.minimum() == 0
+    assert panel._mode_sliders._pace_slider.maximum() == 2
+    panel._mode_sliders.set_pace_mode("strict")
+    assert panel.build_ui_state().pace_mode == "strict"
+
+
 def test_generate_panel_restores_saved_artist_state(qtbot):
     panel = GeneratePanel()
     qtbot.addWidget(panel)
@@ -194,6 +213,8 @@ def test_generate_panel_core_controls_are_not_width_pinned(qtbot):
         panel._mode_sliders._genre_value_label,
         panel._mode_sliders._sonic_slider,
         panel._mode_sliders._sonic_value_label,
+        panel._mode_sliders._pace_slider,
+        panel._mode_sliders._pace_value_label,
         panel._artist_panel._presence_combo,
         panel._artist_panel._variety_slider,
         panel._artist_panel._variety_label,

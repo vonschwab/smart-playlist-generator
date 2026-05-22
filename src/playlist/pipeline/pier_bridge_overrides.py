@@ -95,6 +95,7 @@ def apply_pier_bridge_overrides(
     pb_cfg = pier_bridge_config or PierBridgeConfig(
         transition_floor=float(tuning.transition_floor),
         bridge_floor=float(tuning.bridge_floor),
+        pace_bridge_floor=float(getattr(cfg.candidate, "pace_bridge_floor", 0.0)),
         center_transitions=cfg.construct.center_transitions,
         transition_weights=transition_weights,
         sonic_variant=resolved_variant,
@@ -104,6 +105,8 @@ def apply_pier_bridge_overrides(
         genre_penalty_threshold=float(tuning.genre_penalty_threshold),
         genre_penalty_strength=float(tuning.genre_penalty_strength),
     )
+    if isinstance(pb_overrides.get("pace_bridge_floor"), (int, float)):
+        pb_cfg = replace(pb_cfg, pace_bridge_floor=float(pb_overrides.get("pace_bridge_floor")))
 
     # Segment-local pier-bridge policy defaults (with optional overrides).
     # CRITICAL: For artist playlists, seed artist must ONLY appear as piers (design principle)

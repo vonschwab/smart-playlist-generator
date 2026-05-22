@@ -167,6 +167,31 @@ playlists:
 
 ---
 
+## Knob 5: `pace_mode` (rhythm/tempo control)
+
+**Use when:** A playlist has the right color/texture but drifts too far in pace or energy, especially with slow/meditative seeds or deliberately high-energy seeds.
+
+```yaml
+playlists:
+  pace_mode: narrow   # strict | narrow | dynamic
+```
+
+**Effect:** `pace_mode` separates rhythm from the broader sonic axis. It applies a rhythm-axis admission floor when building the candidate pool, then applies a per-step moving rhythm target inside pier-bridge beam search. `dynamic` sets both floors to `0.0`, preserving current behavior.
+
+**Starting values:**
+
+| Mode | Admission floor | Bridge floor | Use case |
+|---|---:|---:|---|
+| `strict` | 0.55 | 0.65 | Tight tempo fidelity |
+| `narrow` | 0.35 | 0.45 | Consistent energy with some flex |
+| `dynamic` | 0.00 | 0.00 | No pace constraint |
+
+**Interaction with `sonic_mode`:** Orthogonal. `sonic_mode` still controls overall sonic similarity; `pace_mode` says how much the rhythm sub-vector must match. In multi-seed/DJ bridging runs, the beam target interpolates between adjacent piers' rhythm vectors, so a slow-to-fast route can still arc naturally when the piers themselves differ.
+
+**Diagnostics:** Watch for `Pace admission floor applied: floor=X rejected=N` in logs. If strict mode rejects too much of the candidate pool or makes segments infeasible, drop to `narrow` or use `dynamic`. In the edge audit, compare rhythm-sensitive transitions alongside `T`, `S`, and the weakest-edge report.
+
+---
+
 ## Reading the audit table
 
 Example bad edge entry:

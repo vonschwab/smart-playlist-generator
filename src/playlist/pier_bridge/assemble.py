@@ -274,6 +274,22 @@ def build_pier_bridge_playlist(
     X_full_norm = _l2_normalize_rows(X_full_variant)
     logger.debug("Pier+Bridge sonic sim space: variant=%s dim=%d", sonic_variant, int(X_full_norm.shape[1]))
 
+    rhythm_matrix: Optional[np.ndarray] = None
+    if float(getattr(cfg, "pace_bridge_floor", 0.0)) > 0.0:
+        try:
+            from src.playlist.sonic_axes import extract_axis_vectors
+
+            X_tower_pca, tower_stats = compute_sonic_variant_matrix(X_full_raw, "tower_pca", l2=False)
+            tower_dims = tower_stats.get("tower_pca_dims")
+            if tower_dims is not None:
+                rhythm_matrix = extract_axis_vectors(
+                    X_tower_pca,
+                    tower_pca_dims=tuple(int(v) for v in tower_dims),
+                )["rhythm"]
+        except Exception:
+            logger.warning("Pace bridge gate disabled: rhythm-axis extraction failed", exc_info=True)
+            rhythm_matrix = None
+
     # Transition space (optional tower weights + optional mean-centering)
     from src.similarity.sonic_variant import apply_transition_weights
 
@@ -621,7 +637,14 @@ def build_pier_bridge_playlist(
                 and floor_attempt_idx > 0
             )
             widened_search_used = widened_search_used or widened
-            cfg_attempt = replace(cfg, bridge_floor=float(bridge_floor))
+            pace_floor = float(getattr(cfg, "pace_bridge_floor", 0.0))
+            if pace_floor > 0.0 and float(cfg.bridge_floor) > 0.0:
+                pace_floor = max(0.0, pace_floor * (float(bridge_floor) / float(cfg.bridge_floor)))
+            cfg_attempt = replace(
+                cfg,
+                bridge_floor=float(bridge_floor),
+                pace_bridge_floor=float(pace_floor),
+            )
 
             segment_pool_max = int(cfg.segment_pool_max)
             beam_width = cfg.initial_beam_width
@@ -994,6 +1017,7 @@ def build_pier_bridge_playlist(
                         genre_cache_stats=genre_cache_stats_segment,
                         g_targets_override=segment_g_targets,
                         waypoint_stats=waypoint_stats_segment,
+                        rhythm_matrix=rhythm_matrix,
                     )
                     last_failure_reason = beam_failure_reason
                     if segment_path is not None:
