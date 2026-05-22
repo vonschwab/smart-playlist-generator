@@ -308,7 +308,7 @@ def build_candidate_pool(
         else:
             genre_matrix = genre_raw_matrix if genre_raw_matrix is not None else X_genre_smoothed
 
-        seed_genres = genre_matrix[seed_idx]
+        seed_genres = np.max(genre_matrix[seed_list], axis=0)
         genre_sim_all = _compute_genre_similarity(seed_genres, genre_matrix, method=genre_method)
         genre_sim_all[seed_idx] = 1.0  # seed matches itself perfectly
         logger.info(
@@ -410,7 +410,7 @@ def build_candidate_pool(
             mode == "narrow" or (mode == "dynamic" and bool(broad_filters))
         )
         if overlap_guard_enabled:
-            seed_binary = (genre_raw_matrix[seed_idx] > 0).astype(float)
+            seed_binary = (np.max(genre_raw_matrix[seed_list], axis=0) > 0).astype(float)
             overlaps = (genre_raw_matrix > 0) & (seed_binary > 0)
             zero_overlap_mask = overlaps.sum(axis=1) == 0
             if mode in ("dynamic", "narrow"):
