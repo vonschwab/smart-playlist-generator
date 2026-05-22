@@ -70,6 +70,17 @@ _FLAG_PATTERNS: dict[str, list[str]] = {
         r"\balternate\s+take\b",
         r"\balt\.\s+take\b",
     ],
+    "interlude": [
+        r"\binterlude\b",
+    ],
+    "skit": [
+        r"\bskit\b",
+    ],
+    "acapella": [
+        r"\bacapella\b",
+        r"\ba\s+cappella\b",
+        r"\ba\s+capella\b",
+    ],
 }
 
 
