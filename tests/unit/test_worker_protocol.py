@@ -163,6 +163,33 @@ class TestRequestIdGeneration:
         assert sent_data["overrides"] == {"library": {"database_path": "data/metadata.db"}}
         assert sent_data["job_id"] == "job-123"
 
+    def test_set_blacklisted_scope_payload(self):
+        """Album/artist blacklist requests should serialize as explicit scope commands."""
+        from src.playlist_gui.worker_client import WorkerClient
+
+        client = WorkerClient()
+        client._running = True
+        client._process = MagicMock()
+        client._process.write = MagicMock(return_value=100)
+
+        client.set_blacklisted_scope(
+            "config.yaml",
+            scope="album",
+            value="Chairs Missing",
+            enabled=True,
+            artist="Wire",
+            overrides={"library": {"database_path": "data/metadata.db"}},
+        )
+
+        call_args = client._process.write.call_args[0][0]
+        sent_data = json.loads(call_args.decode("utf-8").strip())
+
+        assert sent_data["cmd"] == "blacklist_scope_set"
+        assert sent_data["scope"] == "album"
+        assert sent_data["value"] == "Chairs Missing"
+        assert sent_data["artist"] == "Wire"
+        assert sent_data["enabled"] is True
+
 
 class TestEventFiltering:
     """Tests for event filtering by request_id."""

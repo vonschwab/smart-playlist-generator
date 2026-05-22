@@ -487,6 +487,31 @@ class WorkerClient(QObject):
             job_id=job_id,
         )
 
+    def set_blacklisted_scope(
+        self,
+        config_path: str,
+        *,
+        scope: str,
+        value: str,
+        enabled: bool,
+        artist: Optional[str] = None,
+        overrides: Optional[Dict[str, Any]] = None,
+        job_id: Optional[str] = None,
+    ) -> Optional[str]:
+        """Set blacklist state for an artist or artist+album scope."""
+        return self.send_command(
+            {
+                "cmd": "blacklist_scope_set",
+                "base_config_path": config_path,
+                "overrides": overrides or {},
+                "scope": scope,
+                "value": value,
+                "artist": artist,
+                "enabled": bool(enabled),
+            },
+            job_id=job_id,
+        )
+
     def doctor(self, config_path: str, overrides: Optional[Dict[str, Any]] = None) -> Optional[str]:
         """Send diagnostics command."""
         return self.send_command(

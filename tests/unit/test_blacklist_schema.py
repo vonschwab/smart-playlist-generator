@@ -23,6 +23,9 @@ def test_blacklist_schema_adds_column_and_index(tmp_path):
 
     index_names = [row[1] for row in cur.execute("PRAGMA index_list(tracks)").fetchall()]
     assert "idx_tracks_is_blacklisted" in index_names
+    tables = {row[0] for row in cur.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "blacklisted_artists" in tables
+    assert "blacklisted_albums" in tables
 
     ensure_blacklist_schema(conn, logger=logging.getLogger("test"))
     conn.close()

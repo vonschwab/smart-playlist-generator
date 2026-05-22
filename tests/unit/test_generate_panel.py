@@ -257,6 +257,7 @@ def test_slider_styles_inset_groove_for_handle_clearance():
     assert "margin: -7px -9px;" in theme
 
 
+
 def test_generate_panel_collapses_from_seeds_to_genre(qtbot):
     panel = GeneratePanel()
     qtbot.addWidget(panel)

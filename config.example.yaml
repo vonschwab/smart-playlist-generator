@@ -140,6 +140,8 @@ playlists:
       duration_penalty_enabled: true    # Penalize long tracks vs median seed duration
       duration_penalty_weight: 0.60     # Penalty strength (higher = more severe)
       duration_cutoff_multiplier: 2.5  # Hard cutoff multiplier vs median seed duration
+      title_exclusion_enabled: true     # Drop candidates with standalone title words below
+      title_exclusion_words: ["interlude", "skit"]
       broad_filters: ["rock", "indie", "alternative", "pop"]  # Tags ignored for narrow-mode genre gating/sim
 
     # Artist style-aware pier-bridge (applies to --artist playlists)

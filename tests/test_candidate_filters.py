@@ -194,6 +194,55 @@ def test_multi_seed_max_similarity_used_for_floor():
     assert "cand_drop" not in artists
 
 
+def test_title_interlude_and_skit_words_are_excluded_from_candidate_pool():
+    embedding = np.array([
+        [1.0, 0.0],
+        [1.0, 0.0],
+        [1.0, 0.0],
+        [1.0, 0.0],
+        [1.0, 0.0],
+    ])
+    artist_keys = np.array(["seed", "interlude", "skit", "skitter", "interluded"])
+    track_titles = np.array([
+        "Seed Song",
+        "Quiet Interlude",
+        "Studio Skit (Live)",
+        "Skitter Theme",
+        "Interluded Again",
+    ])
+    cfg = CandidatePoolConfig(
+        similarity_floor=-1.0,
+        min_sonic_similarity=None,
+        max_pool_size=10,
+        target_artists=5,
+        candidates_per_artist=5,
+        seed_artist_bonus=0,
+        max_artist_fraction_final=1.0,
+        broad_filters=(),
+    )
+
+    result = build_candidate_pool(
+        seed_idx=0,
+        embedding=embedding,
+        artist_keys=artist_keys,
+        track_titles=track_titles,
+        cfg=cfg,
+        random_seed=0,
+        X_sonic=embedding,
+        min_genre_similarity=None,
+        genre_method="ensemble",
+        genre_vocab=[],
+        broad_filters=(),
+        mode="dynamic",
+    )
+
+    admitted_artists = [artist_keys[i] for i in result.pool_indices.tolist()]
+    assert "interlude" not in admitted_artists
+    assert "skit" not in admitted_artists
+    assert admitted_artists == ["interluded", "skitter"]
+    assert result.stats["title_exclusion_rejected"] == 2
+
+
 def test_broad_genre_mask_prevents_inflation():
     # Seed genres: rock, folk; candidate: indie rock
     # Broad filter removes "rock", leaving no overlap => genre sim zero => rejected by gate

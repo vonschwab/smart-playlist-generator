@@ -319,6 +319,7 @@ class MainWindow(QMainWindow):
 
         self._track_table = TrackTable()
         self._track_table.blacklist_requested.connect(self._on_blacklist_requested)
+        self._track_table.blacklist_scope_requested.connect(self._on_blacklist_scope_requested)
         table_layout.addWidget(self._track_table, stretch=1)
 
         # Results footer (playlist summary + export actions)
@@ -1418,6 +1419,13 @@ class MainWindow(QMainWindow):
                 self._track_table.mark_blacklisted(track_ids, value)
             if self._blacklist_window:
                 self._blacklist_window.handle_blacklist_set_result(data)
+        elif result_type == "blacklist_scope_set":
+            track_ids = {str(t) for t in data.get("track_ids", [])}
+            enabled = bool(data.get("enabled", True))
+            if track_ids:
+                self._track_table.mark_blacklisted(track_ids, enabled)
+            if self._blacklist_window:
+                self._blacklist_window.refresh()
 
     @Slot(str, str, object)
     def _on_worker_error(self, message: str, tb: str, job_id: object = None) -> None:
@@ -1538,6 +1546,23 @@ class MainWindow(QMainWindow):
             track_ids,
             True,
             self._get_worker_overrides(),
+        )
+
+    @Slot(dict)
+    def _on_blacklist_scope_requested(self, request: dict) -> None:
+        if not self._worker_client:
+            return
+        scope = str(request.get("scope", "") or "")
+        value = str(request.get("value", "") or "")
+        if scope not in {"album", "artist"} or not value:
+            return
+        self._worker_client.set_blacklisted_scope(
+            self._config_path,
+            scope=scope,
+            value=value,
+            enabled=bool(request.get("enabled", True)),
+            artist=request.get("artist"),
+            overrides=self._get_worker_overrides(),
         )
 
     @Slot()

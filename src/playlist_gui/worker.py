@@ -1413,6 +1413,45 @@ def handle_blacklist_set(cmd_data: Dict[str, Any]) -> None:
         emit_done("blacklist_set", False, str(e))
 
 
+def handle_blacklist_scope_set(cmd_data: Dict[str, Any]) -> None:
+    """Set blacklisted flag for an artist or album scope."""
+    base_path = cmd_data.get("base_config_path", "config.yaml")
+    overrides = cmd_data.get("overrides", {})
+    scope = str(cmd_data.get("scope", "") or "").lower()
+    value = str(cmd_data.get("value", "") or "")
+    artist = str(cmd_data.get("artist", "") or "")
+    enabled = bool(cmd_data.get("enabled", True))
+    try:
+        config = load_config_with_overrides(base_path, overrides)
+        db_path = config.get('library', {}).get('database_path', 'data/metadata.db')
+        from src.metadata_client import MetadataClient
+
+        metadata = MetadataClient(db_path)
+        if scope == "artist":
+            updated = metadata.set_artist_blacklisted(value, enabled)
+        elif scope == "album":
+            updated = metadata.set_album_blacklisted(artist, value, enabled)
+        else:
+            raise ValueError(f"Unsupported blacklist scope: {scope}")
+        track_ids = sorted(metadata.fetch_blacklisted_track_ids())
+        emit_result(
+            "blacklist_scope_set",
+            {
+                "scope": scope,
+                "value": value,
+                "artist": artist,
+                "enabled": enabled,
+                "updated": updated,
+                "track_ids": track_ids,
+            },
+        )
+        emit_done("blacklist_scope_set", True, f"Updated {updated} track(s)")
+    except Exception as e:
+        tb = traceback.format_exc()
+        emit_error(str(e), tb)
+        emit_done("blacklist_scope_set", False, str(e))
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Command Router
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1429,6 +1468,7 @@ TRACKED_COMMAND_HANDLERS = {
     "doctor": handle_doctor,
     "blacklist_fetch": handle_blacklist_fetch,
     "blacklist_set": handle_blacklist_set,
+    "blacklist_scope_set": handle_blacklist_scope_set,
 }
 
 # Commands that don't have their own request context
