@@ -77,3 +77,28 @@ def test_load_bpm_arrays_double_tempo_halves(tmp_path):
     track_ids = np.array(["t1"], dtype=object)
     result = load_bpm_arrays(track_ids, db_path=str(db_path))
     np.testing.assert_allclose(result["perceptual_bpm"], [80.0])
+
+
+def test_load_bpm_arrays_batches_large_track_id_sets(tmp_path, monkeypatch):
+    from src.playlist import bpm_loader
+
+    db_path = _make_db(
+        tmp_path,
+        {
+            f"t{i}": {
+                "primary_bpm": 100.0 + i,
+                "half_tempo_likely": False,
+                "double_tempo_likely": False,
+                "tempo_stability": 0.9,
+            }
+            for i in range(5)
+        },
+    )
+    monkeypatch.setattr(bpm_loader, "SQL_VARIABLE_BATCH_SIZE", 2)
+
+    result = bpm_loader.load_bpm_arrays(
+        np.array([f"t{i}" for i in range(5)], dtype=object),
+        db_path=str(db_path),
+    )
+
+    np.testing.assert_allclose(result["perceptual_bpm"], [100.0, 101.0, 102.0, 103.0, 104.0])

@@ -18,6 +18,13 @@ from src.playlist.bpm_axis import resolve_perceptual_bpm
 
 logger = logging.getLogger(__name__)
 
+SQL_VARIABLE_BATCH_SIZE = 900
+
+
+def _track_id_batches(track_ids: list[str], batch_size: int = SQL_VARIABLE_BATCH_SIZE):
+    for start in range(0, len(track_ids), max(1, int(batch_size))):
+        yield track_ids[start : start + max(1, int(batch_size))]
+
 
 def load_bpm_arrays(
     track_ids: np.ndarray,
@@ -50,37 +57,38 @@ def load_bpm_arrays(
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
-        placeholders = ",".join("?" for _ in id_to_pos)
         cur = conn.cursor()
-        cur.execute(
-            f"""
-            SELECT track_id,
-                   json_extract(sonic_features, '$.full.bpm_info.primary_bpm') AS primary_bpm,
-                   json_extract(sonic_features, '$.full.bpm_info.half_tempo_likely') AS half_t,
-                   json_extract(sonic_features, '$.full.bpm_info.double_tempo_likely') AS double_t,
-                   json_extract(sonic_features, '$.full.bpm_info.tempo_stability') AS stability
-            FROM tracks
-            WHERE track_id IN ({placeholders})
-            """,
-            tuple(id_to_pos.keys()),
-        )
-        for row in cur.fetchall():
-            pos = id_to_pos.get(str(row["track_id"]))
-            if pos is None:
-                continue
-            bpm = row["primary_bpm"]
-            if bpm is None:
-                continue
-            half = bool(row["half_t"]) if row["half_t"] is not None else False
-            dbl = bool(row["double_t"]) if row["double_t"] is not None else False
-            stab = float(row["stability"]) if row["stability"] is not None else 0.0
-            primary[pos] = float(bpm)
-            half_flags[pos] = half
-            double_flags[pos] = dbl
-            stability[pos] = stab
-            perceptual[pos] = resolve_perceptual_bpm(
-                float(bpm), half_tempo_likely=half, double_tempo_likely=dbl
+        for batch in _track_id_batches(list(id_to_pos.keys())):
+            placeholders = ",".join("?" for _ in batch)
+            cur.execute(
+                f"""
+                SELECT track_id,
+                       json_extract(sonic_features, '$.full.bpm_info.primary_bpm') AS primary_bpm,
+                       json_extract(sonic_features, '$.full.bpm_info.half_tempo_likely') AS half_t,
+                       json_extract(sonic_features, '$.full.bpm_info.double_tempo_likely') AS double_t,
+                       json_extract(sonic_features, '$.full.bpm_info.tempo_stability') AS stability
+                FROM tracks
+                WHERE track_id IN ({placeholders})
+                """,
+                tuple(batch),
             )
+            for row in cur.fetchall():
+                pos = id_to_pos.get(str(row["track_id"]))
+                if pos is None:
+                    continue
+                bpm = row["primary_bpm"]
+                if bpm is None:
+                    continue
+                half = bool(row["half_t"]) if row["half_t"] is not None else False
+                dbl = bool(row["double_t"]) if row["double_t"] is not None else False
+                stab = float(row["stability"]) if row["stability"] is not None else 0.0
+                primary[pos] = float(bpm)
+                half_flags[pos] = half
+                double_flags[pos] = dbl
+                stability[pos] = stab
+                perceptual[pos] = resolve_perceptual_bpm(
+                    float(bpm), half_tempo_likely=half, double_tempo_likely=dbl
+                )
     finally:
         conn.close()
 
