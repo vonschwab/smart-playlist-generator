@@ -505,6 +505,54 @@ def test_soft_genre_penalty_changes_ranking_without_gating():
     assert penalized.track_ids[1] == "c_high"
 
 
+def test_soft_genre_penalty_per_mode_resolution():
+    """Per-mode soft_genre_penalty keys override the legacy flat defaults."""
+    from src.playlist.config import resolve_pier_bridge_tuning
+
+    overrides = {
+        "pier_bridge": {
+            "soft_genre_penalty_threshold_strict": 0.82,
+            "soft_genre_penalty_threshold_narrow": 0.78,
+            "soft_genre_penalty_threshold_dynamic": 0.55,
+            "soft_genre_penalty_strength_strict": 0.40,
+            "soft_genre_penalty_strength_narrow": 0.30,
+            "soft_genre_penalty_strength_dynamic": 0.15,
+        }
+    }
+
+    for mode, expected_threshold, expected_strength in [
+        ("strict", 0.82, 0.40),
+        ("narrow", 0.78, 0.30),
+        ("dynamic", 0.55, 0.15),
+    ]:
+        tuning, sources = resolve_pier_bridge_tuning(
+            mode=mode, similarity_floor=0.20, overrides=overrides
+        )
+        assert tuning.genre_penalty_threshold == expected_threshold, (
+            f"mode={mode}: expected threshold {expected_threshold}, "
+            f"got {tuning.genre_penalty_threshold}"
+        )
+        assert tuning.genre_penalty_strength == expected_strength, (
+            f"mode={mode}: expected strength {expected_strength}, "
+            f"got {tuning.genre_penalty_strength}"
+        )
+        assert sources["genre_penalty_threshold"] == (
+            f"pier_bridge.soft_genre_penalty_threshold_{mode}"
+        )
+        assert sources["genre_penalty_strength"] == (
+            f"pier_bridge.soft_genre_penalty_strength_{mode}"
+        )
+
+    # Modes without per-mode keys fall back to the flat default (0.20 / 0.10)
+    tuning_off, sources_off = resolve_pier_bridge_tuning(
+        mode="off", similarity_floor=0.20, overrides=overrides
+    )
+    assert tuning_off.genre_penalty_threshold == 0.20
+    assert tuning_off.genre_penalty_strength == 0.10
+    assert sources_off["genre_penalty_threshold"] == "default"
+    assert sources_off["genre_penalty_strength"] == "default"
+
+
 def test_local_sonic_edge_penalty_changes_ranking_without_gating():
     from src.playlist.pier_bridge_builder import PierBridgeConfig, _beam_search_segment
 
