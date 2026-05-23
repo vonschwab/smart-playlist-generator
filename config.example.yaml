@@ -224,10 +224,16 @@ playlists:
       # Soft genre whiplash penalty (does NOT gate): if edge_genre < threshold,
       # final_edge_score *= (1 - strength). Per-mode so stricter modes can
       # enforce local genre continuity while discover/off keep safety-net
-      # behavior only. See docs/PLAYLIST_ORDERING_TUNING.md for tuning.
+      # behavior only. See docs/PLAYLIST_ORDERING_TUNING.md Knob 6 for tuning.
+      #
+      # CAUTION: A flat threshold of 0.80 was tried and reverted 2026-05-21 —
+      # it introduced worse worst-case edges (min_T 0.268→0.112, below_floor=1)
+      # by shifting the beam onto paths with low T but high G, which the penalty
+      # cannot see. dynamic=0.73 was calibrated on 2026-05-23 (G floor 0.723→0.788,
+      # min_T 0.557→0.541). Raise only after confirming min_T and below_floor hold.
       soft_genre_penalty_threshold_strict: 0.82
       soft_genre_penalty_threshold_narrow: 0.78
-      soft_genre_penalty_threshold_dynamic: 0.55
+      soft_genre_penalty_threshold_dynamic: 0.73
       soft_genre_penalty_threshold_discover: 0.20
       soft_genre_penalty_threshold_off: 0.20
       soft_genre_penalty_strength_strict: 0.40
