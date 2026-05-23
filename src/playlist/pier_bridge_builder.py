@@ -278,6 +278,8 @@ def build_pier_bridge_playlist(
     audit_config: Optional[RunAuditConfig] = None,
     audit_events: Optional[list[RunAuditEvent]] = None,
     artist_identity_cfg: Optional[ArtistIdentityConfig] = None,
+    perceptual_bpm: Optional[np.ndarray] = None,
+    tempo_stability_arr: Optional[np.ndarray] = None,
 ) -> PierBridgeResult:
     """
     Build playlist using pier + bridge strategy.
@@ -1096,6 +1098,8 @@ def build_pier_bridge_playlist(
                         local_sonic_stats=local_sonic_stats_segment,
                         edge_components_out=_edge_components_buf,
                         transition_metric_context=transition_metric_context,
+                        perceptual_bpm=perceptual_bpm,
+                        tempo_stability=tempo_stability_arr,
                     )
                     last_failure_reason = beam_failure_reason
                     if segment_path is not None:
