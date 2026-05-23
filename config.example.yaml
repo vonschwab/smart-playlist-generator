@@ -222,9 +222,19 @@ playlists:
       # Small genre tie-breaker (never rescues hard gates)
       genre_tiebreak_weight: 0.05
       # Soft genre whiplash penalty (does NOT gate): if edge_genre < threshold,
-      # final_edge_score *= (1 - strength)
-      soft_genre_penalty_threshold: 0.20
-      soft_genre_penalty_strength: 0.10
+      # final_edge_score *= (1 - strength). Per-mode so stricter modes can
+      # enforce local genre continuity while discover/off keep safety-net
+      # behavior only. See docs/PLAYLIST_ORDERING_TUNING.md for tuning.
+      soft_genre_penalty_threshold_strict: 0.82
+      soft_genre_penalty_threshold_narrow: 0.78
+      soft_genre_penalty_threshold_dynamic: 0.55
+      soft_genre_penalty_threshold_discover: 0.20
+      soft_genre_penalty_threshold_off: 0.20
+      soft_genre_penalty_strength_strict: 0.40
+      soft_genre_penalty_strength_narrow: 0.30
+      soft_genre_penalty_strength_dynamic: 0.15
+      soft_genre_penalty_strength_discover: 0.10
+      soft_genre_penalty_strength_off: 0.10
       # Optional genre tie-break band for penalty application (default: off).
       genre:
         tie_break_band: null  # e.g. 0.02 to apply penalty only on close calls
