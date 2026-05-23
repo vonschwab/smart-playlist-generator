@@ -221,6 +221,17 @@ playlists:
 - **Pace admission log**: `Pace admission floor applied: floor=0.55 rejected=N` when pace_mode is active
 - **GUI debug report**: Help → Copy/Save Debug Report — redacted bundle of env, config, last job, and log tail
 
+### Track replacement
+Right-click any non-pier track in the playlist table -> **Replace this track...**. The dialog offers five ways to choose a replacement:
+
+- **Search** — find a specific track by name
+- **Best Match** — top alternatives that fit the surrounding tracks under current weights
+- **Different Pace** — alternatives that deliberately vary in tempo/energy
+- **Different Genre** — alternatives that bridge to a slightly different genre territory
+- **Different Sound** — alternatives with different timbre/harmony but similar fit
+
+All four auto modes require the replacement to clear the transition floor against both neighbors. The "Different X" modes filter to the top 50 by transition quality, then re-rank by axis-specific divergence from the track being replaced.
+
 ## Version History
 
 | Version | Highlights |

@@ -165,6 +165,26 @@ class TestBundleRestrict:
                 allowed_track_ids_set=None,
             )
 
+    def test_config_sized_artist_style_allowed_pool_is_accepted(self):
+        """Artist-style defaults can legitimately build 13.5k allowed ids."""
+        n = 13_500
+        track_ids = [f"t{i}" for i in range(n)]
+        bundle = _make_bundle(track_ids)
+        out_bundle, out_seed, out_allowed = restrict_bundle(
+            bundle,
+            "t0",
+            seed_idx=0,
+            anchor_seed_ids=[],
+            allowed_track_ids=track_ids,
+            excluded_track_ids=None,
+            allowed_track_ids_set=None,
+        )
+
+        assert out_bundle.track_ids.shape[0] == n
+        assert out_bundle.track_ids[out_seed] == "t0"
+        assert out_allowed is not None
+        assert len(out_allowed) == n
+
 
 # --------------------------------------------------------------------------- #
 # TestPierResolver                                                            #

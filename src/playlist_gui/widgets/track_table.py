@@ -68,6 +68,7 @@ class TrackTable(QWidget):
     status_changed = Signal(int, int)  # visible_count, total_count
     blacklist_requested = Signal(list)
     blacklist_scope_requested = Signal(dict)
+    replace_track_requested = Signal(int)
 
     def __init__(self, parent: Optional[QWidget] = None):
         # Ensure a QApplication exists (tests may construct this widget outside
@@ -351,6 +352,11 @@ class TrackTable(QWidget):
         """Get the total number of tracks."""
         return self._model.rowCount()
 
+    def _is_replaceable_position(self, position: int) -> bool:
+        """Return True when zero-based playlist position is not a protected pier."""
+        total = self.get_track_count()
+        return total >= 3 and 0 < int(position) < total - 1
+
     def scroll_to_top(self) -> None:
         """Scroll to the top of the table."""
         self._table.scrollToTop()
@@ -507,6 +513,23 @@ class TrackTable(QWidget):
 
         if has_selection:
             menu.addSeparator()
+            replace_action = menu.addAction("Replace this track...")
+            selected_position = None
+            if single_selection:
+                try:
+                    selected_position = int(selected[0].get("position", 0)) - 1
+                except Exception:
+                    selected_position = None
+            replace_action.setEnabled(
+                single_selection
+                and selected_position is not None
+                and self._is_replaceable_position(selected_position)
+            )
+            replace_action.triggered.connect(
+                lambda checked=False, pos=selected_position: self.replace_track_requested.emit(int(pos))
+                if pos is not None
+                else None
+            )
             menu.addAction(
                 f"Blacklist {len(selected)} Track(s)",
                 lambda: self._confirm_blacklist(selected),

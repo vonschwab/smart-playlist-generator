@@ -29,6 +29,23 @@ from PySide6.QtCore import QObject, QProcess, QTimer, Signal, Slot, QProcessEnvi
 PROTOCOL_VERSION = 1
 
 
+def build_find_replacement_request(
+    *,
+    request_id: str,
+    position: int,
+    mode: str,
+    top_k: int = 10,
+) -> dict:
+    return {
+        "cmd": "find_replacement_suggestions",
+        "request_id": str(request_id),
+        "protocol_version": PROTOCOL_VERSION,
+        "position": int(position),
+        "mode": str(mode),
+        "top_k": int(top_k),
+    }
+
+
 class WorkerClient(QObject):
     """
     Client for communicating with the worker process.
@@ -450,6 +467,25 @@ class WorkerClient(QObject):
         """Send a build_artifacts command. Returns request_id if successful."""
         request = LibraryOperationRequest("build_artifacts", config_path, overrides or {})
         return self.send_command(request.to_worker_command(), job_id=job_id)
+
+    def request_replacement_suggestions(
+        self,
+        *,
+        position: int,
+        mode: str,
+        top_k: int = 10,
+        job_id: Optional[str] = None,
+    ) -> Optional[str]:
+        """Request replacement candidates for one playlist position."""
+        return self.send_command(
+            {
+                "cmd": "find_replacement_suggestions",
+                "position": int(position),
+                "mode": str(mode),
+                "top_k": int(top_k),
+            },
+            job_id=job_id,
+        )
 
     def fetch_blacklist(
         self,

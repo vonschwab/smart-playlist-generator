@@ -17,6 +17,23 @@ from src.features.artifacts import ArtifactBundle
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_ALLOWED_TRACK_ID_LIMIT = 25_000
+
+
+def _allowed_track_id_limit() -> int:
+    raw = os.environ.get("PLAYLIST_DS_ALLOWED_TRACK_ID_LIMIT")
+    if raw is None:
+        return DEFAULT_ALLOWED_TRACK_ID_LIMIT
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        logger.warning(
+            "Invalid PLAYLIST_DS_ALLOWED_TRACK_ID_LIMIT=%r; using default %d",
+            raw,
+            DEFAULT_ALLOWED_TRACK_ID_LIMIT,
+        )
+        return DEFAULT_ALLOWED_TRACK_ID_LIMIT
+
 
 def restrict_bundle(
     bundle: ArtifactBundle,
@@ -44,7 +61,7 @@ def restrict_bundle(
     invariant checks pass.
 
     Raises ``ValueError`` if the restriction empties the bundle or if the
-    allowed set exceeds the safety limit (10000).
+    allowed set exceeds the configured safety limit.
     """
     if allowed_track_ids:
         allowed_indices: List[int] = []
@@ -85,8 +102,11 @@ def restrict_bundle(
         N_allowed = len(allowed_indices)
         if N_allowed == 0:
             raise ValueError("No allowed track_ids were found in artifact bundle.")
-        if N_allowed > 10000:
-            raise ValueError(f"Allowed track_id set too large ({N_allowed}); refusing DS run.")
+        limit = _allowed_track_id_limit()
+        if N_allowed > limit:
+            raise ValueError(
+                f"Allowed track_id set too large ({N_allowed} > {limit}); refusing DS run."
+            )
 
         bundle = _slice_bundle(bundle, allowed_indices)
         new_seed_idx = bundle.track_id_to_index[str(seed_track_id)]

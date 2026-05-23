@@ -591,4 +591,5 @@ Some settings can be overridden via environment variables:
 | `SONIC_SIM_VARIANT` | Sonic preprocessing variant |
 | `SONIC_TOWER_PCA` | PCA dimensions (comma-separated) |
 | `SONIC_TOWER_WEIGHTS` | Tower weights (comma-separated) |
+| `PLAYLIST_DS_ALLOWED_TRACK_ID_LIMIT` | Maximum explicit DS allow-list size before refusing a run; default `25000`, sized above the default artist-style pool. |
 | `PLEX_TOKEN` | Plex authentication token |

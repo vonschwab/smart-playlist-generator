@@ -53,6 +53,7 @@ from .widgets.export_dialog import ExportLocalDialog, ExportPlexDialog
 from .widgets.generate_panel import GeneratePanel
 from .widgets.jobs_panel import JobsPanel
 from .widgets.log_panel import LogPanel
+from .widgets.replace_dialog import ReplaceTrackDialog
 from .widgets.track_table import TrackTable
 from .blacklist_window import BlacklistWindow
 from .worker_client import WorkerClient
@@ -169,6 +170,7 @@ class MainWindow(QMainWindow):
         self._current_tracks: list = []
         self._blacklist_window: Optional[BlacklistWindow] = None
         self._generate_panel: Optional[GeneratePanel] = None
+        self._replace_dialog: Optional[ReplaceTrackDialog] = None
 
         # Install built-in presets
         install_builtin_presets(self._preset_manager)
@@ -320,6 +322,7 @@ class MainWindow(QMainWindow):
         self._track_table = TrackTable()
         self._track_table.blacklist_requested.connect(self._on_blacklist_requested)
         self._track_table.blacklist_scope_requested.connect(self._on_blacklist_scope_requested)
+        self._track_table.replace_track_requested.connect(self._open_replace_dialog)
         table_layout.addWidget(self._track_table, stretch=1)
 
         # Results footer (playlist summary + export actions)
@@ -1426,6 +1429,12 @@ class MainWindow(QMainWindow):
                 self._track_table.mark_blacklisted(track_ids, enabled)
             if self._blacklist_window:
                 self._blacklist_window.refresh()
+        elif result_type == "replacement_suggestions":
+            if self._replace_dialog:
+                self._replace_dialog.populate_suggestions(
+                    str(data.get("mode", "best")),
+                    list(data.get("candidates", []) or []),
+                )
 
     @Slot(str, str, object)
     def _on_worker_error(self, message: str, tb: str, job_id: object = None) -> None:
@@ -1546,6 +1555,86 @@ class MainWindow(QMainWindow):
             track_ids,
             True,
             self._get_worker_overrides(),
+        )
+
+    @Slot(int)
+    def _open_replace_dialog(self, position: int) -> None:
+        if position < 0 or position >= len(self._current_tracks):
+            return
+        current_track = self._current_tracks[position]
+        dialog = ReplaceTrackDialog(
+            position=position,
+            current_track=current_track,
+            library_tracks=self._current_tracks,
+            completer_data=self._db_completer,
+            parent=self,
+        )
+        self._replace_dialog = dialog
+        dialog.suggestions_requested.connect(self._request_replacement_suggestions)
+        dialog.replacement_chosen.connect(self._apply_replacement)
+        dialog.finished.connect(lambda _result: self._clear_replace_dialog(dialog))
+        dialog.exec()
+
+    def _clear_replace_dialog(self, dialog: ReplaceTrackDialog) -> None:
+        if self._replace_dialog is dialog:
+            self._replace_dialog = None
+
+    @Slot(int, str)
+    def _request_replacement_suggestions(self, position: int, mode: str) -> None:
+        if not self._worker_client:
+            return
+        self._worker_client.request_replacement_suggestions(
+            position=int(position),
+            mode=str(mode),
+            top_k=10,
+        )
+
+    @Slot(int, str)
+    def _apply_replacement(self, position: int, new_track_id: str) -> None:
+        if position < 0 or position >= len(self._current_tracks):
+            return
+        if not self._replace_dialog:
+            return
+
+        candidates: list[dict[str, Any]] = []
+        for model in self._replace_dialog._models.values():
+            for row in range(model.rowCount()):
+                item = model.item(row, 0)
+                if item and str(item.data(Qt.ItemDataRole.UserRole)) == str(new_track_id):
+                    candidates.append(
+                        {
+                            "track_id": str(new_track_id),
+                            "title": model.item(row, 0).text() if model.item(row, 0) else str(new_track_id),
+                            "artist": model.item(row, 1).text() if model.item(row, 1) else "",
+                            "t_prev": model.item(row, 2).text() if model.item(row, 2) else "",
+                            "t_next": model.item(row, 3).text() if model.item(row, 3) else "",
+                            "perceptual_bpm": model.item(row, 4).text() if model.item(row, 4) else "",
+                            "genres": [
+                                g.strip()
+                                for g in (model.item(row, 5).text() if model.item(row, 5) else "").split(",")
+                                if g.strip()
+                            ],
+                        }
+                    )
+        replacement = candidates[0] if candidates else {"track_id": str(new_track_id), "title": str(new_track_id)}
+        old_track = dict(self._current_tracks[position])
+        new_track = {
+            **old_track,
+            **replacement,
+            "rating_key": str(new_track_id),
+            "track_id": str(new_track_id),
+            "position": old_track.get("position", position + 1),
+        }
+        self._current_tracks[position] = new_track
+        self._track_table.set_tracks(self._current_tracks, playlist_name=self._current_playlist_name)
+        self._update_results_footer(playlist_name=self._current_playlist_name, tracks=self._current_tracks)
+        self._log_panel.append_log(
+            "INFO",
+            (
+                f"Replaced position {position + 1}: "
+                f"{old_track.get('artist', '')} - {old_track.get('title', '')} -> "
+                f"{new_track.get('artist', '')} - {new_track.get('title', '')}"
+            ),
         )
 
     @Slot(dict)

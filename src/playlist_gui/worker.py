@@ -18,6 +18,7 @@ Commands (GUI -> Worker, one JSON per line):
   {"cmd":"update_genres","request_id":"<uuid>","protocol_version":1,"base_config_path":"config.yaml","overrides":{}}
   {"cmd":"update_sonic","request_id":"<uuid>","protocol_version":1,"base_config_path":"config.yaml","overrides":{}}
   {"cmd":"build_artifacts","request_id":"<uuid>","protocol_version":1,"base_config_path":"config.yaml","overrides":{}}
+  {"cmd":"find_replacement_suggestions","request_id":"<uuid>","protocol_version":1,"position":3,"mode":"best","top_k":10}
 
 Events (Worker -> GUI, one JSON per line):
   {"type":"log","request_id":"<uuid>","level":"INFO","msg":"..."}
@@ -41,7 +42,7 @@ import traceback
 from bisect import bisect_right
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import yaml
@@ -155,6 +156,34 @@ _worker_state = WorkerState()
 # Global cancellation token for current operation
 _current_cancellation_token: Optional[CancellationToken] = None
 _token_lock = threading.Lock()
+
+
+@dataclass
+class _LastGenerationCache:
+    """In-memory snapshot of the most recent generated playlist."""
+
+    playlist_id: Optional[str] = None
+    db_path: Optional[str] = None
+    track_ids: Optional[np.ndarray] = None
+    artist_keys: Optional[np.ndarray] = None
+    X_sonic: Optional[np.ndarray] = None
+    X_full: Optional[np.ndarray] = None
+    X_start: Optional[np.ndarray] = None
+    X_mid: Optional[np.ndarray] = None
+    X_end: Optional[np.ndarray] = None
+    X_genre_smoothed: Optional[np.ndarray] = None
+    genre_vocab: Optional[np.ndarray] = None
+    perceptual_bpm: Optional[np.ndarray] = None
+    tempo_stability: Optional[np.ndarray] = None
+    candidate_pool_indices: Optional[np.ndarray] = None
+    tower_pca_dims: Optional[tuple[int, int, int]] = None
+    idf_weights: Optional[np.ndarray] = None
+    transition_metric_context: Any = None
+    transition_floor: float = 0.20
+    playlist_track_ids: Optional[List[str]] = None
+
+
+_LAST_GENERATION_CACHE = _LastGenerationCache()
 
 
 def set_cancellation_token(token: Optional[CancellationToken]) -> None:
@@ -511,6 +540,314 @@ def _build_seed_similarity_components(
         }
 
     return components
+
+
+def _infer_tower_pca_dims(dim: int) -> tuple[int, int, int]:
+    if dim == 137:
+        return (21, 83, 33)
+    if dim == 32:
+        return (8, 16, 8)
+    rhythm = max(1, int(round(dim * 0.25)))
+    timbre = max(1, int(round(dim * 0.50)))
+    harmony = max(1, dim - rhythm - timbre)
+    return (rhythm, timbre, harmony)
+
+
+def _reset_last_generation_cache() -> None:
+    global _LAST_GENERATION_CACHE
+    _LAST_GENERATION_CACHE = _LastGenerationCache()
+
+
+def _replacement_pool_indices_from_report(
+    *,
+    bundle: Any,
+    ds_report: dict[str, Any],
+    playlist_indices: set[int],
+) -> np.ndarray:
+    """Recover the DS-admitted candidate pool from the last generation report."""
+    playlist_stats = ds_report.get("playlist_stats") or {}
+    pool_stats = playlist_stats.get("candidate_pool") or ds_report.get("candidate_pool") or {}
+    admitted_track_ids = pool_stats.get("seed_sonic_sim_track_ids") or {}
+    if isinstance(admitted_track_ids, dict) and admitted_track_ids:
+        indices = [
+            int(bundle.track_id_to_index[str(track_id)])
+            for track_id in admitted_track_ids.keys()
+            if str(track_id) in bundle.track_id_to_index
+        ]
+        return np.array(list(dict.fromkeys(indices)), dtype=int)
+
+    return np.array(
+        [idx for idx in range(int(bundle.track_ids.shape[0])) if idx not in playlist_indices],
+        dtype=int,
+    )
+
+
+def _populate_last_generation_cache(
+    *,
+    generator: Any,
+    playlist_result: dict[str, Any],
+    config: dict[str, Any],
+    db_path: str,
+) -> None:
+    """Capture read-only generation artifacts needed for replacement scoring."""
+    _reset_last_generation_cache()
+
+    ds_report = getattr(generator, "_last_ds_report", None) or {}
+    artifact_path = ds_report.get("artifact_path")
+    if not artifact_path:
+        emit_log("DEBUG", "Replacement cache skipped: no DS artifact path in last report")
+        return
+
+    from src.features.artifacts import load_artifact_bundle
+    from src.playlist.bpm_loader import load_bpm_arrays
+    from src.playlist.transition_metrics import build_transition_metric_context
+
+    bundle = load_artifact_bundle(artifact_path)
+    playlist_track_ids = [
+        str(track.get("rating_key") or track.get("track_id") or track.get("id"))
+        for track in playlist_result.get("tracks", [])
+        if track.get("rating_key") or track.get("track_id") or track.get("id")
+    ]
+    if len(playlist_track_ids) < 3:
+        emit_log("DEBUG", "Replacement cache skipped: playlist too short")
+        return
+
+    try:
+        bpm_arrays = load_bpm_arrays(bundle.track_ids, db_path=db_path)
+        perceptual_bpm = bpm_arrays.get("perceptual_bpm")
+        tempo_stability = bpm_arrays.get("tempo_stability")
+    except Exception as exc:
+        emit_log("WARNING", f"Replacement cache BPM load failed: {exc}")
+        perceptual_bpm = None
+        tempo_stability = None
+
+    playlist_indices = {
+        int(bundle.track_id_to_index[tid])
+        for tid in playlist_track_ids
+        if tid in bundle.track_id_to_index
+    }
+    candidate_pool_indices = _replacement_pool_indices_from_report(
+        bundle=bundle,
+        ds_report=ds_report,
+        playlist_indices=playlist_indices,
+    )
+
+    playlist_stats = (ds_report.get("playlist_stats") or {}).get("playlist") or {}
+    transition_floor = playlist_stats.get("transition_floor") or ds_report.get("transition_floor") or 0.20
+    transition_weights = playlist_stats.get("transition_weights") or ds_report.get("transition_weights")
+    if isinstance(transition_weights, list):
+        transition_weights = tuple(float(v) for v in transition_weights)
+
+    transition_metric_context = build_transition_metric_context(
+        X_sonic=bundle.X_sonic,
+        X_start=bundle.X_sonic_start,
+        X_mid=bundle.X_sonic_mid,
+        X_end=bundle.X_sonic_end,
+        X_genre=bundle.X_genre_smoothed,
+        center_transitions=bool(
+            playlist_stats.get("transition_centered")
+            or ds_report.get("transition_centered")
+        ),
+        transition_weights=transition_weights,
+        sonic_variant=ds_report.get("sonic_variant"),
+        transition_gamma=playlist_stats.get("transition_gamma") or ds_report.get("transition_gamma"),
+    )
+
+    ds_cfg = (config.get("playlists", {}) or {}).get("ds_pipeline", {}) or {}
+    tower_dims_raw = ds_cfg.get("tower_pca_dims")
+    if isinstance(tower_dims_raw, (list, tuple)) and len(tower_dims_raw) == 3:
+        tower_pca_dims = tuple(int(v) for v in tower_dims_raw)
+    else:
+        tower_pca_dims = _infer_tower_pca_dims(int(bundle.X_sonic.shape[1]))
+
+    cache = _LAST_GENERATION_CACHE
+    cache.playlist_id = str(playlist_result.get("name") or "")
+    cache.db_path = str(db_path)
+    cache.track_ids = bundle.track_ids
+    cache.artist_keys = bundle.artist_keys
+    cache.X_sonic = bundle.X_sonic
+    cache.X_full = bundle.X_sonic
+    cache.X_start = bundle.X_sonic_start
+    cache.X_mid = bundle.X_sonic_mid
+    cache.X_end = bundle.X_sonic_end
+    cache.X_genre_smoothed = bundle.X_genre_smoothed
+    cache.genre_vocab = bundle.genre_vocab
+    cache.perceptual_bpm = perceptual_bpm
+    cache.tempo_stability = tempo_stability
+    cache.candidate_pool_indices = candidate_pool_indices
+    cache.tower_pca_dims = tower_pca_dims
+    cache.transition_metric_context = transition_metric_context
+    cache.transition_floor = float(transition_floor)
+    cache.playlist_track_ids = playlist_track_ids
+
+
+def _top_genres_for_index(cache: _LastGenerationCache, idx: int, limit: int = 3) -> list[str]:
+    if cache.X_genre_smoothed is None or cache.genre_vocab is None:
+        return []
+    vec = np.asarray(cache.X_genre_smoothed[int(idx)], dtype=float)
+    if vec.size == 0:
+        return []
+    order = np.argsort(vec)[::-1]
+    genres: list[str] = []
+    for genre_idx in order:
+        if len(genres) >= limit:
+            break
+        if float(vec[int(genre_idx)]) <= 0:
+            continue
+        genres.append(str(cache.genre_vocab[int(genre_idx)]))
+    return genres
+
+
+def _fetch_replacement_display_rows(track_ids: list[str], db_path: Optional[str]) -> dict[str, dict[str, Any]]:
+    if not track_ids or not db_path:
+        return {}
+    db_uri = Path(db_path).resolve().as_uri() + "?mode=ro"
+    rows: dict[str, dict[str, Any]] = {}
+    try:
+        conn = sqlite3.connect(db_uri, uri=True)
+        conn.row_factory = sqlite3.Row
+        try:
+            placeholders = ",".join("?" for _ in track_ids)
+            cursor = conn.cursor()
+            cursor.execute(
+                f"""
+                SELECT track_id, title, artist, album, duration_ms, file_path
+                FROM tracks
+                WHERE track_id IN ({placeholders})
+                """,
+                tuple(track_ids),
+            )
+            for row in cursor.fetchall():
+                tid = str(row["track_id"])
+                rows[tid] = {
+                    "title": row["title"] or "",
+                    "artist": row["artist"] or "",
+                    "album": row["album"] or "",
+                    "duration_ms": int(row["duration_ms"] or 0),
+                    "file_path": row["file_path"] or "",
+                }
+        finally:
+            conn.close()
+    except Exception as exc:
+        emit_log("WARNING", f"Replacement metadata lookup failed: {exc}")
+    return rows
+
+
+def _enrich_replacement_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    cache = _LAST_GENERATION_CACHE
+    track_ids = [str(candidate.get("track_id")) for candidate in candidates]
+    display_rows = _fetch_replacement_display_rows(track_ids, cache.db_path)
+    enriched: list[dict[str, Any]] = []
+    for candidate in candidates:
+        entry = dict(candidate)
+        tid = str(entry.get("track_id"))
+        display = display_rows.get(tid, {})
+        entry.update(
+            {
+                "rating_key": tid,
+                "title": display.get("title") or tid,
+                "artist": display.get("artist") or entry.get("artist_key", ""),
+                "album": display.get("album", ""),
+                "duration_ms": display.get("duration_ms", 0),
+                "file_path": display.get("file_path", ""),
+                "genres": _top_genres_for_index(cache, int(entry["index"]), limit=3),
+            }
+        )
+        enriched.append(entry)
+    return enriched
+
+
+def handle_find_replacement_suggestions(cmd_data: Dict[str, Any]) -> None:
+    """Find replacement candidates for a single non-pier playlist position."""
+    try:
+        position = int(cmd_data["position"])
+        mode = str(cmd_data.get("mode", "best"))
+        top_k = int(cmd_data.get("top_k", 10))
+
+        cache = _LAST_GENERATION_CACHE
+        required = [
+            cache.playlist_track_ids,
+            cache.track_ids,
+            cache.artist_keys,
+            cache.X_sonic,
+            cache.X_full,
+            cache.X_genre_smoothed,
+            cache.candidate_pool_indices,
+            cache.tower_pca_dims,
+        ]
+        if any(value is None for value in required):
+            emit_error("No playlist in cache. Generate one first.")
+            emit_done("find_replacement_suggestions", False, "No playlist in cache")
+            return
+
+        playlist_track_ids = list(cache.playlist_track_ids or [])
+        if position < 0 or position >= len(playlist_track_ids):
+            emit_error(f"position {position} out of range 0..{len(playlist_track_ids) - 1}")
+            emit_done("find_replacement_suggestions", False, "Position out of range")
+            return
+        if position == 0 or position == len(playlist_track_ids) - 1:
+            emit_error("Cannot replace pier (first or last) track.")
+            emit_done("find_replacement_suggestions", False, "Cannot replace pier track")
+            return
+
+        id_to_index = {str(tid): idx for idx, tid in enumerate(cache.track_ids.tolist())}
+        try:
+            playlist_indices = [id_to_index[str(tid)] for tid in playlist_track_ids]
+        except KeyError as exc:
+            emit_error(f"Playlist track missing from cache: {exc}")
+            emit_done("find_replacement_suggestions", False, "Playlist/cache mismatch")
+            return
+
+        from src.playlist.replacement import ReplacementContext, find_replacement_candidates
+
+        current_idx = playlist_indices[position]
+        prev_idx = playlist_indices[position - 1]
+        next_idx = playlist_indices[position + 1]
+        ctx = ReplacementContext(
+            X_sonic=cache.X_sonic,
+            X_full=cache.X_full,
+            X_start=cache.X_start,
+            X_end=cache.X_end,
+            X_mid=cache.X_mid,
+            X_genre_smoothed=cache.X_genre_smoothed,
+            perceptual_bpm=cache.perceptual_bpm,
+            tempo_stability=cache.tempo_stability,
+            track_ids=cache.track_ids,
+            artist_keys=cache.artist_keys,
+            candidate_pool_indices=cache.candidate_pool_indices,
+            tower_pca_dims=cache.tower_pca_dims,
+            idf_weights=cache.idf_weights,
+            transition_metric_context=cache.transition_metric_context,
+            transition_floor=cache.transition_floor,
+        )
+        candidates = find_replacement_candidates(
+            prev_idx=prev_idx,
+            next_idx=next_idx,
+            current_idx=current_idx,
+            playlist_indices=playlist_indices,
+            ctx=ctx,
+            mode=mode,
+            top_k=top_k,
+        )
+
+        emit_result(
+            "replacement_suggestions",
+            {
+                "position": position,
+                "mode": mode,
+                "candidates": _enrich_replacement_candidates(candidates),
+                "current_track_id": str(cache.track_ids[current_idx]),
+                "prev_track_id": str(cache.track_ids[prev_idx]),
+                "next_track_id": str(cache.track_ids[next_idx]),
+            },
+        )
+        emit_done("find_replacement_suggestions", True, f"Found {len(candidates)} replacement candidate(s)")
+    except Exception as exc:
+        tb = traceback.format_exc()
+        emit_error(f"{type(exc).__name__}: {exc}", tb)
+        emit_done("find_replacement_suggestions", False, str(exc))
+
+
 def handle_doctor(cmd_data: Dict[str, Any]) -> None:
     """Quick diagnostics."""
     checks = []
@@ -597,6 +934,7 @@ def handle_cancel(cmd_data: Dict[str, Any]) -> None:
 
 def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
     """Handle playlist generation command with cancellation support."""
+    _reset_last_generation_cache()
     base_path = cmd_data.get("base_config_path", "config.yaml")
     overrides = cmd_data.get("overrides", {})
     request = GeneratePlaylistRequest.from_worker_args(cmd_data.get("args", {}))
@@ -963,6 +1301,16 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                     "min_transition": metrics.get('min_transition'),
                     "distinct_artists": metrics.get('distinct_artists'),
                 }
+
+            try:
+                _populate_last_generation_cache(
+                    generator=generator,
+                    playlist_result=playlist_result,
+                    config=config,
+                    db_path=merged_config.library_database_path,
+                )
+            except Exception as exc:
+                emit_log("WARNING", f"Replacement cache unavailable for this playlist: {exc}")
 
             emit_result("playlist", {"playlist": playlist_result})
             emit_progress("complete", 100, 100, "Done")
@@ -1466,6 +1814,7 @@ TRACKED_COMMAND_HANDLERS = {
     "update_sonic": handle_update_sonic,
     "build_artifacts": handle_build_artifacts,
     "doctor": handle_doctor,
+    "find_replacement_suggestions": handle_find_replacement_suggestions,
     "blacklist_fetch": handle_blacklist_fetch,
     "blacklist_set": handle_blacklist_set,
     "blacklist_scope_set": handle_blacklist_scope_set,

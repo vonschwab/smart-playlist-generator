@@ -211,3 +211,9 @@ Interpretation:
 - `local_pen=0.021` — current legacy penalty is tiny; confirms the scaled mode would help.
 
 Likely fix for this edge: first investigate any `T`/`trans_beam` mismatch. If they match and are both low, tune upstream scoring (`local_sonic_edge_penalty_mode: scaled`, `min_edge_objective: min_edge`) before enabling edge repair as a fallback.
+
+---
+
+## Track replacement as post-generation refinement
+
+Single-track replacement is a GUI refinement tool, not a pre-generation tuning knob. It uses the most recent generation's in-memory artifact bundle and transition metric to search for one local substitute between the previous and next playlist tracks. **Best Match** ranks by transition quality; **Different Pace**, **Different Genre**, and **Different Sound** first keep high-transition candidates, then re-rank the top 50 by BPM/rhythm, genre-vector, or timbre+harmony divergence from the current track. If replacement suggestions are consistently weak, tune candidate admission, transition weights, and pace/genre/sonic modes upstream before relying on manual replacement.

@@ -581,3 +581,21 @@ class TestTrackTablePresentation:
 
         table.set_filter_text("")
         assert table._results_stack.currentWidget() == table._table
+
+    def test_replace_signal_and_pier_protection_predicate(self, qtbot, sample_tracks):
+        from src.playlist_gui.widgets.track_table import TrackTable
+
+        table = TrackTable()
+        qtbot.addWidget(table)
+        table.set_tracks(sample_tracks)
+
+        emitted = []
+        table.replace_track_requested.connect(lambda pos: emitted.append(pos))
+        table.replace_track_requested.emit(1)
+
+        assert emitted == [1]
+        assert table._is_replaceable_position(0) is False
+        assert table._is_replaceable_position(1) is False
+        table.set_tracks(sample_tracks + [{"position": 3, "artist": "Wire", "title": "Outdoor Miner"}])
+        assert table._is_replaceable_position(1) is True
+        assert table._is_replaceable_position(2) is False

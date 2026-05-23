@@ -190,6 +190,42 @@ class TestRequestIdGeneration:
         assert sent_data["artist"] == "Wire"
         assert sent_data["enabled"] is True
 
+    def test_find_replacement_suggestions_request_format(self):
+        """Client emits well-formed NDJSON for the replacement command."""
+        from src.playlist_gui.worker_client import build_find_replacement_request
+
+        req = build_find_replacement_request(
+            request_id="abc-123",
+            position=5,
+            mode="best",
+            top_k=10,
+        )
+        assert req["cmd"] == "find_replacement_suggestions"
+        assert req["request_id"] == "abc-123"
+        assert req["position"] == 5
+        assert req["mode"] == "best"
+        assert req["top_k"] == 10
+        assert req["protocol_version"] == 1
+
+    def test_request_replacement_suggestions_sends_command(self):
+        """WorkerClient should send the replacement command through the tracked path."""
+        from src.playlist_gui.worker_client import WorkerClient
+
+        client = WorkerClient()
+        client._running = True
+        client._process = MagicMock()
+        client._process.write = MagicMock(return_value=100)
+
+        request_id = client.request_replacement_suggestions(position=4, mode="different_sound", top_k=7)
+
+        assert request_id is not None
+        call_args = client._process.write.call_args[0][0]
+        sent_data = json.loads(call_args.decode("utf-8").strip())
+        assert sent_data["cmd"] == "find_replacement_suggestions"
+        assert sent_data["position"] == 4
+        assert sent_data["mode"] == "different_sound"
+        assert sent_data["top_k"] == 7
+
 
 class TestEventFiltering:
     """Tests for event filtering by request_id."""
