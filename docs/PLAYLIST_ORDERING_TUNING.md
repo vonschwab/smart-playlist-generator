@@ -193,6 +193,55 @@ playlists:
 
 ---
 
+## Knob 6: Local genre continuity (`soft_genre_penalty_*`)
+
+**What it does.** Penalizes any beam edge whose candidate-to-previous-track
+genre similarity drops below a per-mode threshold. The penalty multiplies the
+edge's combined beam score by `(1 - strength)`, demoting (but not gating)
+genre-jarring transitions. This is what suppresses single-track genre detours
+like a one-off folk-punk track in the middle of a dream-pop run.
+
+**Where it lives.** `src/playlist/pier_bridge/beam.py:1030` (penalty
+application); `src/playlist/config.py:268-276` (per-mode resolution); flat
+default `0.20 / 0.10` if no per-mode key is set.
+
+**Per-mode defaults (post-recalibration).** Adjust in `config.yaml`:
+
+| Mode      | threshold | strength | Role                                    |
+|-----------|-----------|----------|-----------------------------------------|
+| strict    | 0.82      | 0.40     | Hard enforcement of local continuity    |
+| narrow    | 0.78      | 0.30     | Suppress single-track detours           |
+| dynamic   | 0.55      | 0.15     | Light continuity nudge                  |
+| discover  | 0.20      | 0.10     | Safety net only — allow variety         |
+| off       | 0.20      | 0.10     | Safety net only — allow variety         |
+
+**How to diagnose.** Run with `--log-level DEBUG` and look for per-segment
+`Segment N: soft_genre_penalty_hits=H edges_scored=E threshold=T strength=S`
+lines. The post-generation summary also reports total `soft_genre_penalty_hits`.
+
+- If `hits == 0` across all segments in a non-discover mode, the threshold
+  is too low to be doing anything — raise it toward the observed `G genre`
+  median (look at the `G genre: mean=... p50=...` line in the summary).
+- If `hits > 50%` of `edges_scored` in narrow or strict mode, the threshold
+  is too high — you're penalizing the median edge, not just outliers. Lower
+  toward the `G genre` p25-p33 range.
+- If you see bridge relaxation warnings (`Segment N attempt 2: widened=True`)
+  appearing in narrow mode after recalibration, the penalty plus the gate
+  is starving segments — lower `strength` first, then `threshold`.
+
+**Caveat.** This knob was originally designed as a safety net against
+genuine genre conflicts (raw overlap near zero). The recalibration extends
+it to continuity enforcement. If you ever need both behaviors at different
+thresholds, that's the signal to split into a separate
+`local_genre_edge_penalty` mechanism (see brainstorm 2026-05-23 Strategy B).
+
+**Relationship to `genre_tiebreak_weight`.** The tiebreaker (default 0.05)
+nudges near-tied edges; the penalty actively demotes below-threshold edges.
+They are independent — leave tiebreaker at 0.05 unless you have a specific
+reason.
+
+---
+
 ## Reading the audit table
 
 Example bad edge entry:
