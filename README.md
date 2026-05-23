@@ -10,7 +10,7 @@ Generates intelligent playlists from a local music library by combining deep son
 - **Pier-Bridge Beam Search** — Seeds become fixed "piers"; beam search builds smooth bridges between each adjacent pair
 - **DJ Genre Routing** — Vector-mode interpolation with IDF weighting preserves multi-genre signatures (shoegaze stays shoegaze, not "indie rock")
 - **Pace Mode** — Separate rhythm axis for admission and beam search; keeps slow playlists slow and energetic playlists driving
-- **Three Independent Axes** — Genre mode, sonic mode, and pace mode each tunable from `strict` through `dynamic`
+- **Three Independent Axes** — Genre mode, sonic mode, and pace mode each tunable from `strict` through `off`
 - **Artist Identity Resolution** — Collaboration-aware constraints normalise "X feat. Y", "The X", and ensemble suffixes before diversity enforcement
 - **Scoped Blacklisting** — Block individual tracks, entire artists, or full albums; manual track blocks survive scope removal
 
@@ -21,8 +21,8 @@ Genre and sonic modes control *what* music gets admitted. Pace mode controls *ho
 
 - **Tier 1:** Rhythm-axis admission floor (max-over-seeds cosine on the rhythm PCA sub-vector)
 - **Tier 2:** Per-step moving target in beam search — interpolates between pier A and pier B's rhythm vectors, so a slow→fast arc works naturally when the piers themselves differ
-- **CLI:** `--pace-mode strict|narrow|dynamic`
-- **GUI:** Third mode slider alongside Genre and Sonic
+- **CLI:** `--pace-mode strict|narrow|dynamic|off`
+- **GUI:** Third mode slider alongside Genre and Sonic (four levels: strict / narrow / dynamic / off)
 
 ### Transition quality
 - `transition_weights` aligned with `tower_weights` (0.20 / 0.50 / 0.30) — fixed a long-standing mismatch where the beam approved edges that the reporter scored poorly
@@ -117,11 +117,12 @@ Controls rhythm/tempo fidelity independently from timbre. Use when seeds define 
 
 | Mode | Admission floor | Bridge floor | Use case |
 |---|---|---|---|
-| `strict` | 0.55 | 0.65 | Lock to seed tempo — slow stays slow |
-| `narrow` | 0.35 | 0.45 | Moderate tempo anchoring |
-| `dynamic` | 0.00 | 0.00 | No pace constraint (default) |
+| `strict` | 0.55 / BPM 0.30 | 0.65 / BPM 0.40 | Lock to seed tempo |
+| `narrow` | 0.35 / BPM 0.50 | 0.45 / BPM 0.60 | Moderate anchoring |
+| `dynamic` | 0.20 / BPM 0.75 | 0.25 / BPM 0.85 | Gentle — catches double-time (default) |
+| `off` | 0 / ∞ | 0 / ∞ | No pace constraint |
 
-Pace mode is orthogonal to sonic mode. `sonic_mode=narrow + pace_mode=strict` means "very similar timbre, must also stay slow."
+Pace mode is orthogonal to sonic mode. `sonic_mode=narrow + pace_mode=strict` means "very similar timbre, must also stay slow." In `off` mode, no explicit pace gating is applied, but rhythm still contributes to track selection via the sonic embedding at 20% weight.
 
 ### Examples
 
@@ -224,7 +225,7 @@ playlists:
 
 | Version | Highlights |
 |---|---|
-| **5.0** | Pace mode; transition weight alignment; IDF admission; uncapped seeded pool; scoped blacklisting GUI |
+| **5.0** | Four-level pace mode (strict/narrow/dynamic/off); transition weight alignment; IDF admission; uncapped seeded pool; scoped blacklisting GUI |
 | **4.0** | Native GUI overhaul; CLI parity; responsive generation controls; Analyze Library readouts |
 | **3.5** | Job cancellation/checkpoints; job-details dialog; persistent genre cache; collaboration-aware artist clustering |
 | **3.4** | DJ Bridge mode; union pooling; per-run audit reports |

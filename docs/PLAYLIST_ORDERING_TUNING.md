@@ -173,18 +173,19 @@ playlists:
 
 ```yaml
 playlists:
-  pace_mode: narrow   # strict | narrow | dynamic
+  pace_mode: narrow   # strict | narrow | dynamic | off
 ```
 
-**Effect:** `pace_mode` separates rhythm from the broader sonic axis. It applies a rhythm-axis admission floor when building the candidate pool, then applies a per-step moving rhythm target inside pier-bridge beam search. `dynamic` sets both floors to `0.0`, preserving current behavior.
+**Effect:** `pace_mode` separates rhythm from the broader sonic axis. It applies a rhythm-axis admission floor when building the candidate pool, then applies a per-step moving rhythm target inside pier-bridge beam search. `dynamic` is the default and catches the most egregious tempo mismatches (2:1 BPM ratio) while allowing natural drift; `off` disables explicit pace gating for multi-tempo playlists that need no constraint.
 
 **Starting values:**
 
-| Mode | Admission floor | Bridge floor | Use case |
-|---|---:|---:|---|
-| `strict` | 0.55 | 0.65 | Tight tempo fidelity |
-| `narrow` | 0.35 | 0.45 | Consistent energy with some flex |
-| `dynamic` | 0.00 | 0.00 | No pace constraint |
+| Mode | Rhythm adm/bridge | BPM adm/bridge | Use case |
+|---|---|---|---|
+| `strict` | 0.55 / 0.65 | 0.30 / 0.40 | Tight tempo fidelity |
+| `narrow` | 0.35 / 0.45 | 0.50 / 0.60 | Moderate anchoring |
+| `dynamic` | 0.20 / 0.25 | 0.75 / 0.85 | Gentle — catches double-time (default) |
+| `off` | 0 / 0 | ∞ / ∞ | No pace constraint |
 
 **Interaction with `sonic_mode`:** Orthogonal. `sonic_mode` still controls overall sonic similarity; `pace_mode` says how much the rhythm sub-vector must match. In multi-seed/DJ bridging runs, the beam target interpolates between adjacent piers' rhythm vectors, so a slow-to-fast route can still arc naturally when the piers themselves differ.
 

@@ -1,26 +1,44 @@
 import pytest
-
-from src.playlist.mode_presets import PACE_MODE_PRESETS, resolve_pace_mode
-
-
-def test_pace_mode_presets_has_three_modes():
-    assert set(PACE_MODE_PRESETS) == {"strict", "narrow", "dynamic"}
+from src.playlist.mode_presets import (
+    PACE_MODE_PRESETS,
+    resolve_pace_mode,
+)
 
 
-def test_dynamic_is_no_op():
-    settings = resolve_pace_mode("dynamic")
+def test_pace_mode_presets_has_four_modes():
+    assert set(PACE_MODE_PRESETS.keys()) == {"strict", "narrow", "dynamic", "off"}
 
+
+def test_off_disables_all_gates():
+    settings = resolve_pace_mode("off")
     assert settings["admission_floor"] == 0.0
     assert settings["bridge_floor"] == 0.0
+    assert settings["bpm_admission_max_log_distance"] == float("inf")
+    assert settings["bpm_bridge_max_log_distance"] == float("inf")
 
 
-def test_strict_is_tightest():
-    strict = resolve_pace_mode("strict")
-    narrow = resolve_pace_mode("narrow")
-    dynamic = resolve_pace_mode("dynamic")
+def test_dynamic_is_middle_ground_not_disabled():
+    settings = resolve_pace_mode("dynamic")
+    assert settings["admission_floor"] > 0.0
+    assert settings["bridge_floor"] > 0.0
+    assert settings["bpm_admission_max_log_distance"] < float("inf")
+    assert settings["bpm_bridge_max_log_distance"] < float("inf")
 
-    assert strict["admission_floor"] > narrow["admission_floor"] > dynamic["admission_floor"]
-    assert strict["bridge_floor"] > narrow["bridge_floor"] > dynamic["bridge_floor"]
+
+def test_dynamic_catches_double_time():
+    settings = resolve_pace_mode("dynamic")
+    assert settings["bpm_admission_max_log_distance"] < 1.0
+    assert settings["bpm_bridge_max_log_distance"] < 1.0
+
+
+def test_pace_mode_monotonic_strict_to_off():
+    modes = ["strict", "narrow", "dynamic", "off"]
+    settings = [resolve_pace_mode(m) for m in modes]
+    for i in range(len(modes) - 1):
+        assert settings[i]["admission_floor"] >= settings[i + 1]["admission_floor"]
+        assert settings[i]["bridge_floor"] >= settings[i + 1]["bridge_floor"]
+        assert settings[i]["bpm_admission_max_log_distance"] <= settings[i + 1]["bpm_admission_max_log_distance"]
+        assert settings[i]["bpm_bridge_max_log_distance"] <= settings[i + 1]["bpm_bridge_max_log_distance"]
 
 
 def test_unknown_mode_raises():
@@ -30,28 +48,5 @@ def test_unknown_mode_raises():
 
 def test_overrides_apply():
     settings = resolve_pace_mode("narrow", {"admission_floor": 0.10})
-
     assert settings["admission_floor"] == 0.10
     assert settings["bridge_floor"] == PACE_MODE_PRESETS["narrow"]["bridge_floor"]
-
-
-def test_pace_mode_presets_include_bpm_thresholds():
-    settings = resolve_pace_mode("strict")
-    assert "bpm_admission_max_log_distance" in settings
-    assert "bpm_bridge_max_log_distance" in settings
-    assert settings["bpm_admission_max_log_distance"] == 0.30
-    assert settings["bpm_bridge_max_log_distance"] == 0.40
-
-
-def test_pace_mode_dynamic_disables_bpm_gates():
-    settings = resolve_pace_mode("dynamic")
-    assert settings["bpm_admission_max_log_distance"] == float("inf")
-    assert settings["bpm_bridge_max_log_distance"] == float("inf")
-
-
-def test_pace_mode_bpm_thresholds_monotonic_strict_tightest():
-    strict = resolve_pace_mode("strict")
-    narrow = resolve_pace_mode("narrow")
-    dynamic = resolve_pace_mode("dynamic")
-    assert strict["bpm_admission_max_log_distance"] < narrow["bpm_admission_max_log_distance"] < dynamic["bpm_admission_max_log_distance"]
-    assert strict["bpm_bridge_max_log_distance"] < narrow["bpm_bridge_max_log_distance"] < dynamic["bpm_bridge_max_log_distance"]

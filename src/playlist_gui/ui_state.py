@@ -14,7 +14,7 @@ from typing import List, Literal, Optional
 
 
 ModeValue = Literal["strict", "narrow", "dynamic", "discover", "off"]
-PaceModeValue = Literal["strict", "narrow", "dynamic"]
+PaceModeValue = Literal["strict", "narrow", "dynamic", "off"]
 
 
 @dataclass

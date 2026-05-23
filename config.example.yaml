@@ -39,10 +39,11 @@ playlists:
   #   discover: Varied textures (weight 0.35, wider pool)
   #   off:      Genre-only mode (ignore sonic features completely)
   #
-  # PACE MODES (how strictly to match rhythm/tempo):
-  #   strict:   Tight tempo fidelity (rhythm floors 0.55 / 0.65)
-  #   narrow:   Moderate tempo anchoring (0.35 / 0.45)
-  #   dynamic:  No pace constraint; preserves current behavior
+  # PACE MODES (rhythm/tempo coherence — orthogonal to sonic_mode and genre_mode):
+  #   strict:   Tight tempo fidelity (rhythm floors 0.55/0.65, BPM max-log 0.30/0.40)
+  #   narrow:   Moderate tempo anchoring (rhythm 0.35/0.45, BPM 0.50/0.60)
+  #   dynamic:  Gentle anchoring — catches double-time, allows natural drift (rhythm 0.20/0.25, BPM 0.75/0.85)
+  #   off:      No pace gate — rhythm still influences via the sonic embedding at 20% weight
   #
   # EXAMPLES:
   #   genre_mode: dynamic      # Balanced genre + sonic (50/50)
