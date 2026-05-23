@@ -1,5 +1,6 @@
 {
   "bridge_floor": 0.0,
+  "pace_bridge_floor": 0.0,
   "center_transitions": false,
   "disallow_pier_artists_in_interiors": false,
   "disallow_seed_artist_in_interiors": false,
