@@ -38,3 +38,51 @@ def filter_candidates_by_rhythm_target(
 
     sims = axis_cosine_similarity(rhythm_matrix[indices], np.asarray(target, dtype=float)).reshape(-1)
     return [idx for idx, sim in zip(indices, sims) if float(sim) >= float(floor)]
+
+
+from src.playlist.bpm_axis import interpolate_log_bpm, bpm_log_distance as _bpm_log_distance
+
+
+def compute_step_log_bpm_target(
+    bpm_a: float,
+    bpm_b: float,
+    *,
+    step: int,
+    segment_length: int,
+) -> float:
+    """Return log-space interpolated target BPM at beam step `step`.
+
+    Uses geometric mean interpolation: midpoint of 60 and 240 is 120, not 150.
+    """
+    if int(segment_length) <= 0:
+        return float(bpm_a)
+    t = max(0.0, min(1.0, float(step) / float(segment_length)))
+    return interpolate_log_bpm(float(bpm_a), float(bpm_b), t=t)
+
+
+def filter_candidates_by_bpm_target(
+    *,
+    candidate_indices,
+    perceptual_bpm: np.ndarray,
+    tempo_stability,
+    target_bpm: float,
+    max_log_distance: float,
+    stability_min: float = 0.5,
+) -> list:
+    """Drop candidates whose perceptual BPM is too far from target_bpm.
+
+    Bypasses candidates with NaN BPM or low tempo_stability.
+    """
+    if not np.isfinite(float(max_log_distance)):
+        return list(candidate_indices)
+    indices = list(candidate_indices)
+    if not indices:
+        return []
+    cand_bpm = perceptual_bpm[indices]
+    bypass = np.isnan(cand_bpm)
+    if tempo_stability is not None:
+        cand_stab = np.asarray(tempo_stability)[indices]
+        bypass = bypass | (cand_stab < float(stability_min))
+    distances = _bpm_log_distance(cand_bpm, float(target_bpm))
+    pass_mask = bypass | (distances <= float(max_log_distance))
+    return [idx for idx, ok in zip(indices, pass_mask) if bool(ok)]
