@@ -10,7 +10,7 @@ Generates intelligent playlists from a local music library by combining deep son
 - **Pier-Bridge Beam Search** — Seeds become fixed "piers"; beam search builds smooth bridges between each adjacent pair
 - **DJ Genre Routing** — Vector-mode interpolation with IDF weighting preserves multi-genre signatures (shoegaze stays shoegaze, not "indie rock")
 - **Pace Mode** — Separate rhythm axis for admission and beam search; keeps slow playlists slow and energetic playlists driving
-- **Three Independent Axes** — Genre mode, sonic mode, and pace mode each tunable from `strict` through `dynamic`
+- **Three Independent Axes** — Genre mode, sonic mode, and pace mode each tunable from `strict` through `off`
 - **Artist Identity Resolution** — Collaboration-aware constraints normalise "X feat. Y", "The X", and ensemble suffixes before diversity enforcement
 - **Scoped Blacklisting** — Block individual tracks, entire artists, or full albums; manual track blocks survive scope removal
 
@@ -21,8 +21,8 @@ Genre and sonic modes control *what* music gets admitted. Pace mode controls *ho
 
 - **Tier 1:** Rhythm-axis admission floor (max-over-seeds cosine on the rhythm PCA sub-vector)
 - **Tier 2:** Per-step moving target in beam search — interpolates between pier A and pier B's rhythm vectors, so a slow→fast arc works naturally when the piers themselves differ
-- **CLI:** `--pace-mode strict|narrow|dynamic`
-- **GUI:** Third mode slider alongside Genre and Sonic
+- **CLI:** `--pace-mode strict|narrow|dynamic|off`
+- **GUI:** Third mode slider alongside Genre and Sonic (four levels: strict / narrow / dynamic / off)
 
 ### Transition quality
 - `transition_weights` aligned with `tower_weights` (0.20 / 0.50 / 0.30) — fixed a long-standing mismatch where the beam approved edges that the reporter scored poorly
