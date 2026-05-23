@@ -33,3 +33,25 @@ def test_overrides_apply():
 
     assert settings["admission_floor"] == 0.10
     assert settings["bridge_floor"] == PACE_MODE_PRESETS["narrow"]["bridge_floor"]
+
+
+def test_pace_mode_presets_include_bpm_thresholds():
+    settings = resolve_pace_mode("strict")
+    assert "bpm_admission_max_log_distance" in settings
+    assert "bpm_bridge_max_log_distance" in settings
+    assert settings["bpm_admission_max_log_distance"] == 0.30
+    assert settings["bpm_bridge_max_log_distance"] == 0.40
+
+
+def test_pace_mode_dynamic_disables_bpm_gates():
+    settings = resolve_pace_mode("dynamic")
+    assert settings["bpm_admission_max_log_distance"] == float("inf")
+    assert settings["bpm_bridge_max_log_distance"] == float("inf")
+
+
+def test_pace_mode_bpm_thresholds_monotonic_strict_tightest():
+    strict = resolve_pace_mode("strict")
+    narrow = resolve_pace_mode("narrow")
+    dynamic = resolve_pace_mode("dynamic")
+    assert strict["bpm_admission_max_log_distance"] < narrow["bpm_admission_max_log_distance"] < dynamic["bpm_admission_max_log_distance"]
+    assert strict["bpm_bridge_max_log_distance"] < narrow["bpm_bridge_max_log_distance"] < dynamic["bpm_bridge_max_log_distance"]
