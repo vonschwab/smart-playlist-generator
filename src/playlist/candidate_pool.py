@@ -193,6 +193,8 @@ def build_candidate_pool(
     mode: str = "dynamic",  # "dynamic", "narrow", "discover"
     tower_pca_dims: Optional[Tuple[int, int, int]] = None,
     uncap_pool: bool = False,  # seeded mode: skip max_pool_size; per-artist cap still applies
+    perceptual_bpm: Optional[np.ndarray] = None,
+    tempo_stability: Optional[np.ndarray] = None,
 ) -> CandidatePoolResult:
     """
     Implement current experiments behavior with optional genre gating:
@@ -294,6 +296,39 @@ def build_candidate_pool(
         rhythm = extract_axis_vectors(X_sonic, tower_pca_dims=tower_pca_dims)["rhythm"]
         rhythm_seed_sim = np.max(axis_cosine_similarity(rhythm, rhythm[seed_list]), axis=1)
         rhythm_seed_sim[seed_mask] = -1.0
+
+    # ── BPM admission gate (Tier 1) ──────────────────────────────────────────
+    bpm_seed_min_dist: Optional[np.ndarray] = None
+    below_bpm_floor = 0
+    if (
+        not np.isinf(float(getattr(cfg, "bpm_admission_max_log_distance", float("inf"))))
+        and perceptual_bpm is not None
+    ):
+        from src.playlist.bpm_axis import bpm_log_distance
+
+        max_log = float(cfg.bpm_admission_max_log_distance)
+        stability_min = float(getattr(cfg, "bpm_stability_min", 0.5))
+        seed_bpm_vals = perceptual_bpm[seed_list]
+        dist_cols = np.stack(
+            [bpm_log_distance(perceptual_bpm, float(sb)) for sb in seed_bpm_vals], axis=1
+        )
+        bpm_seed_min_dist = np.min(dist_cols, axis=1)
+
+        bypass = np.isnan(perceptual_bpm)
+        if tempo_stability is not None:
+            bypass = bypass | (np.asarray(tempo_stability) < stability_min)
+
+        bpm_fail = ~bypass & (bpm_seed_min_dist > max_log)
+        bpm_fail[seed_list] = False  # seeds never self-rejected
+
+        count_bpm_rejected = int(np.sum(bpm_fail))
+        below_bpm_floor = count_bpm_rejected
+        seed_sim_all[bpm_fail] = -2.0  # below any valid cosine similarity [-1, 1]
+
+        logger.info(
+            "BPM admission gate: max_log_distance=%.2f rejected=%d",
+            max_log, count_bpm_rejected,
+        )
 
     # Track exclusion reasons for instrumentation
     total_candidates = len(seed_sim_all) - len(seed_list)  # exclude all seeds
@@ -564,6 +599,7 @@ def build_candidate_pool(
         "title_exclusion_rejected": title_exclusion_rejected,
         "below_sonic_similarity": below_sonic_floor,
         "below_pace_floor": below_pace_floor,
+        "below_bpm_floor": below_bpm_floor,
         "artist_cap_excluded": max(0, artist_cap_excluded),
         "eligible_count": len(eligible),
     }
