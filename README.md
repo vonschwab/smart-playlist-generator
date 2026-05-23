@@ -117,11 +117,12 @@ Controls rhythm/tempo fidelity independently from timbre. Use when seeds define 
 
 | Mode | Admission floor | Bridge floor | Use case |
 |---|---|---|---|
-| `strict` | 0.55 | 0.65 | Lock to seed tempo — slow stays slow |
-| `narrow` | 0.35 | 0.45 | Moderate tempo anchoring |
-| `dynamic` | 0.00 | 0.00 | No pace constraint (default) |
+| `strict` | 0.55 / BPM 0.30 | 0.65 / BPM 0.40 | Lock to seed tempo |
+| `narrow` | 0.35 / BPM 0.50 | 0.45 / BPM 0.60 | Moderate anchoring |
+| `dynamic` | 0.20 / BPM 0.75 | 0.25 / BPM 0.85 | Gentle — catches double-time (default) |
+| `off` | 0 / ∞ | 0 / ∞ | No pace constraint |
 
-Pace mode is orthogonal to sonic mode. `sonic_mode=narrow + pace_mode=strict` means "very similar timbre, must also stay slow."
+Pace mode is orthogonal to sonic mode. `sonic_mode=narrow + pace_mode=strict` means "very similar timbre, must also stay slow." In `off` mode, no explicit pace gating is applied, but rhythm still contributes to track selection via the sonic embedding at 20% weight.
 
 ### Examples
 
@@ -224,7 +225,7 @@ playlists:
 
 | Version | Highlights |
 |---|---|
-| **5.0** | Pace mode; transition weight alignment; IDF admission; uncapped seeded pool; scoped blacklisting GUI |
+| **5.0** | Four-level pace mode (strict/narrow/dynamic/off); transition weight alignment; IDF admission; uncapped seeded pool; scoped blacklisting GUI |
 | **4.0** | Native GUI overhaul; CLI parity; responsive generation controls; Analyze Library readouts |
 | **3.5** | Job cancellation/checkpoints; job-details dialog; persistent genre cache; collaboration-aware artist clustering |
 | **3.4** | DJ Bridge mode; union pooling; per-run audit reports |
