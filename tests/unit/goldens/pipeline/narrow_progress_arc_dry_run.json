@@ -1,4 +1,6 @@
 {
+  "bpm_bridge_max_log_distance": Infinity,
+  "bpm_stability_min": 0.5,
   "bridge_floor": 0.05,
   "pace_bridge_floor": 0.0,
   "center_transitions": false,

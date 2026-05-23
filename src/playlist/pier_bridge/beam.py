@@ -201,6 +201,8 @@ def _beam_search_segment(
     edge_components_out: Optional[Dict[str, Any]] = None,
     transition_metric_context: Optional[TransitionMetricContext] = None,
     rhythm_matrix: Optional[np.ndarray] = None,
+    perceptual_bpm: Optional[np.ndarray] = None,
+    tempo_stability: Optional[np.ndarray] = None,
 ) -> Tuple[Optional[List[int]], int, int, Optional[str]]:
     """
     Constrained beam search to find path from pier_a to pier_b.
@@ -872,6 +874,35 @@ def _beam_search_segment(
                     pace_sim = float(axis_cosine_similarity(rhythm_matrix[int(cand)], target).reshape(-1)[0])
                     if pace_sim < float(cfg.pace_bridge_floor):
                         continue
+
+                # BPM bridge gate
+                if (
+                    float(getattr(cfg, "bpm_bridge_max_log_distance", float("inf"))) < float("inf")
+                    and perceptual_bpm is not None
+                ):
+                    from src.playlist.pier_bridge.pace_gate import (
+                        compute_step_log_bpm_target,
+                    )
+                    from src.playlist.bpm_axis import bpm_log_distance as _bld
+                    _bpm_target = compute_step_log_bpm_target(
+                        float(perceptual_bpm[int(pier_a)]),
+                        float(perceptual_bpm[int(pier_b)]),
+                        step=step,
+                        segment_length=interior_length,
+                    )
+                    _cand_bpm = float(perceptual_bpm[int(cand)])
+                    _cand_stab = (
+                        float(tempo_stability[int(cand)])
+                        if tempo_stability is not None
+                        else 1.0
+                    )
+                    _stab_min = float(getattr(cfg, "bpm_stability_min", 0.5))
+                    if (
+                        not np.isnan(_cand_bpm)
+                        and _cand_stab >= _stab_min
+                    ):
+                        if float(_bld(_cand_bpm, _bpm_target)) > float(cfg.bpm_bridge_max_log_distance):
+                            continue
 
                 # Artist diversity: check if candidate artist already used
                 if artist_key_by_idx is not None:

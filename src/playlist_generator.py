@@ -881,10 +881,11 @@ class PlaylistGenerator:
                 pool_stats.get("eligible_artists", 0),
             )
             logger.info(
-                "Candidate pool EXCLUSIONS: total_candidates=%d below_floor=%d below_genre=%d artist_cap_excluded=%d eligible=%d",
+                "Candidate pool EXCLUSIONS: total_candidates=%d below_floor=%d below_genre=%d below_bpm_floor=%d artist_cap_excluded=%d eligible=%d",
                 pool_stats.get("total_candidates_considered", 0),
                 pool_stats.get("below_similarity_floor", 0),
                 pool_stats.get("below_genre_similarity", 0),
+                pool_stats.get("below_bpm_floor", 0),
                 pool_stats.get("artist_cap_excluded", 0),
                 pool_stats.get("eligible_count", 0),
             )

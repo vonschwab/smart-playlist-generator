@@ -275,6 +275,30 @@ def generate_playlist_ds(
         float(pace_settings["admission_floor"]),
         float(pace_settings["bridge_floor"]),
     )
+
+    # Load BPM arrays from DB when BPM gates are active (pace_mode != dynamic)
+    perceptual_bpm: Optional[np.ndarray] = None
+    tempo_stability_bpm: Optional[np.ndarray] = None
+    _bpm_adm = float(pace_settings.get("bpm_admission_max_log_distance", float("inf")))
+    _bpm_brd = float(pace_settings.get("bpm_bridge_max_log_distance", float("inf")))
+    if not (np.isinf(_bpm_adm) and np.isinf(_bpm_brd)):
+        try:
+            from src.playlist.bpm_loader import load_bpm_arrays
+            _db_path = str(
+                (overrides or {}).get("library", {}).get("database_path")
+                or "data/metadata.db"
+            )
+            _bpm_arrays = load_bpm_arrays(bundle.track_ids, db_path=_db_path)
+            perceptual_bpm = _bpm_arrays["perceptual_bpm"]
+            tempo_stability_bpm = _bpm_arrays["tempo_stability"]
+            logger.info(
+                "BPM loaded: %d/%d tracks have data",
+                int(np.sum(~np.isnan(perceptual_bpm))),
+                int(perceptual_bpm.shape[0]),
+            )
+        except Exception:
+            logger.warning("BPM load failed; BPM gates disabled for this run", exc_info=True)
+
     if single_artist:
         # Disable artist cap for single-artist runs
         cfg = replace(cfg, construct=replace(cfg.construct, max_artist_fraction_final=1.0))
@@ -338,6 +362,8 @@ def generate_playlist_ds(
             mode=mode,
             tower_pca_dims=variant_stats.get("tower_pca_dims"),
             uncap_pool=not artist_playlist,
+            perceptual_bpm=perceptual_bpm,
+            tempo_stability=tempo_stability_bpm,
         )
 
     pool = _build_pool(cfg.candidate, min_genre_similarity)
@@ -396,7 +422,12 @@ def generate_playlist_ds(
                 audit_cfg=audit_cfg,
                 resolved_variant=resolved_variant,
             )
-            pb_cfg = replace(pb_cfg, pace_bridge_floor=float(cfg.candidate.pace_bridge_floor))
+            pb_cfg = replace(
+                pb_cfg,
+                pace_bridge_floor=float(cfg.candidate.pace_bridge_floor),
+                bpm_bridge_max_log_distance=float(pace_settings.get("bpm_bridge_max_log_distance", float("inf"))),
+                bpm_stability_min=float(cfg.candidate.bpm_stability_min),
+            )
 
             logger.info(
                 "Pier-bridge segment policy: artist_playlist=%s strategy=%s pool_max=%d progress=%s disallow_seed_artist_in_interiors=%s disallow_pier_artists_in_interiors=%s",
@@ -528,6 +559,8 @@ def generate_playlist_ds(
                     audit_config=audit_cfg,
                     audit_events=audit.events,
                     artist_identity_cfg=artist_identity_cfg,
+                    perceptual_bpm=perceptual_bpm,
+                    tempo_stability_arr=tempo_stability_bpm,
                 )
 
             one_each_candidate_relaxation: Optional[Dict[str, Any]] = None
@@ -667,6 +700,7 @@ def generate_playlist_ds(
                     "warnings": (pb_result.stats or {}).get("warnings") or [],
                     "one_each_candidate_relaxation": one_each_candidate_relaxation,
                     "beam_edge_components": (pb_result.stats or {}).get("beam_edge_components") or [],
+                    "bpm_summary": (pb_result.stats or {}).get("bpm_summary"),
                 },
                 params_requested={"strategy": "pier_bridge"},
                 params_effective={

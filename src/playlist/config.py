@@ -33,6 +33,8 @@ class CandidatePoolConfig:
     genre_idf_enabled: bool = True
     pace_admission_floor: float = 0.0
     pace_bridge_floor: float = 0.0
+    bpm_admission_max_log_distance: float = float("inf")  # inf = disabled
+    bpm_stability_min: float = 0.5  # tracks below this skip BPM gate
 
 
 @dataclass(frozen=True)
@@ -466,6 +468,13 @@ def default_ds_config(
         pace_bridge_floor=float(
             candidate_pool.get("pace_bridge_floor", pace_settings["bridge_floor"])
         ),
+        bpm_admission_max_log_distance=float(
+            candidate_pool.get(
+                "bpm_admission_max_log_distance",
+                pace_settings["bpm_admission_max_log_distance"],
+            )
+        ),
+        bpm_stability_min=float(candidate_pool.get("bpm_stability_min", 0.5)),
     )
 
     # Construction config with config.yaml overrides
