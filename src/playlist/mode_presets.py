@@ -145,12 +145,20 @@ PACE_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "use_case": "Consistent energy with some flex",
     },
     "dynamic": {
-        "admission_floor": 0.0,
-        "bridge_floor": 0.0,
+        "admission_floor": 0.20,
+        "bridge_floor": 0.25,
+        "bpm_admission_max_log_distance": 0.75,
+        "bpm_bridge_max_log_distance": 0.85,
+        "description": "Gentle pace anchoring - catches double-time, allows natural drift",
+        "use_case": "General-purpose default; varied playlists with sensible tempo coherence",
+    },
+    "off": {
+        "admission_floor": 0.00,
+        "bridge_floor": 0.00,
         "bpm_admission_max_log_distance": float("inf"),
         "bpm_bridge_max_log_distance": float("inf"),
-        "description": "No pace constraint (default)",
-        "use_case": "Multi-tempo playlists; current behavior",
+        "description": "No pace constraint - rhythm contributes via sonic embedding only",
+        "use_case": "Multi-tempo playlists; no explicit tempo gating",
     },
 }
 
