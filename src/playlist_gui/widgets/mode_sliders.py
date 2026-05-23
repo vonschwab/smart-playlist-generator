@@ -16,10 +16,10 @@ from PySide6.QtWidgets import (
 )
 
 ModeLevel = Literal["strict", "narrow", "dynamic", "discover", "off"]
-PaceModeLevel = Literal["strict", "narrow", "dynamic"]
+PaceModeLevel = Literal["strict", "narrow", "dynamic", "off"]
 
 MODE_LEVELS: list[ModeLevel] = ["off", "strict", "narrow", "dynamic", "discover"]
-PACE_MODE_LEVELS: list[PaceModeLevel] = ["strict", "narrow", "dynamic"]
+PACE_MODE_LEVELS: list[PaceModeLevel] = ["strict", "narrow", "dynamic", "off"]
 MODE_LABELS = {
     "off": "Off",
     "strict": "Strict",
@@ -31,6 +31,7 @@ PACE_MODE_LABELS = {
     "strict": "Strict",
     "narrow": "Narrow",
     "dynamic": "Dynamic",
+    "off": "Off",
 }
 MODE_TOOLTIPS = {
     "off": "Disable this matching domain",
@@ -42,7 +43,8 @@ MODE_TOOLTIPS = {
 PACE_MODE_TOOLTIPS = {
     "strict": "Tight rhythm/tempo fidelity",
     "narrow": "Moderate rhythm/tempo anchoring",
-    "dynamic": "No separate rhythm/tempo constraint",
+    "dynamic": "Gentle anchoring — catches double-time, allows drift",
+    "off": "No pace gate — rhythm still influences via sonic embedding",
 }
 
 

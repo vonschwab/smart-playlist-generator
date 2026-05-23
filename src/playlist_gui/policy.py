@@ -59,7 +59,7 @@ This ensures the simplified UI controls take precedence.
 # ─────────────────────────────────────────────────────────────────────────────
 
 VALID_MODES: Set[str] = {"strict", "narrow", "dynamic", "discover", "off"}
-VALID_PACE_MODES: Set[str] = {"strict", "narrow", "dynamic"}
+VALID_PACE_MODES: Set[str] = {"strict", "narrow", "dynamic", "off"}
 
 COHESION_MAP: Dict[str, tuple[str, str]] = {
     "tight": ("strict", "strict"),

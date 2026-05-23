@@ -40,12 +40,12 @@ def test_pace_mode_selector_defaults_to_dynamic(qtbot):
     assert panel.build_ui_state().pace_mode == "dynamic"
 
 
-def test_pace_mode_selector_is_a_slider_with_three_modes(qtbot):
+def test_pace_mode_selector_is_a_slider_with_four_modes(qtbot):
     panel = GeneratePanel()
     qtbot.addWidget(panel)
 
     assert panel._mode_sliders._pace_slider.minimum() == 0
-    assert panel._mode_sliders._pace_slider.maximum() == 2
+    assert panel._mode_sliders._pace_slider.maximum() == 3
     panel._mode_sliders.set_pace_mode("strict")
     assert panel.build_ui_state().pace_mode == "strict"
 

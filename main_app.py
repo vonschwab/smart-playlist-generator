@@ -586,8 +586,8 @@ def main():
     )
     parser.add_argument(
         "--pace-mode",
-        choices=["strict", "narrow", "dynamic"],
-        help="Pace/rhythm mode: strict, narrow, or dynamic (default/current behavior)",
+        choices=["strict", "narrow", "dynamic", "off"],
+        help="Pace/rhythm mode: strict / narrow / dynamic (default) / off (no gate)",
     )
     parser.add_argument(
         "--mode",
