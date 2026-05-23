@@ -700,6 +700,7 @@ def generate_playlist_ds(
                     "warnings": (pb_result.stats or {}).get("warnings") or [],
                     "one_each_candidate_relaxation": one_each_candidate_relaxation,
                     "beam_edge_components": (pb_result.stats or {}).get("beam_edge_components") or [],
+                    "bpm_summary": (pb_result.stats or {}).get("bpm_summary"),
                 },
                 params_requested={"strategy": "pier_bridge"},
                 params_effective={

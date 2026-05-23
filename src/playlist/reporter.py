@@ -176,6 +176,15 @@ def emit_selected_edge_audit(edge_rows: list[dict], *, transition_floor: float =
             _f(row, "genre_penalty_applied"),
             below_floor,
         )
+        bpm_a = row.get("bpm_a")
+        bpm_b = row.get("bpm_b")
+        bpm_dist = row.get("bpm_log_dist")
+        bpm_str = (
+            f"bpm={bpm_a:.0f}->{bpm_b:.0f} dist={bpm_dist:.3f}"
+            if bpm_a is not None and bpm_b is not None
+            else "bpm=n/a"
+        )
+        logger.info("  %s", bpm_str)
 
     # Regression check: beam T and final reporter T should share the same metric.
     diagnose_t_mismatch(
@@ -810,6 +819,21 @@ def print_playlist_report(
                 _fmt(g_stats.get("p90")),
                 _fmt(g_stats.get("p99")),
                 _fmt(g_stats.get("min")),
+            )
+        # BPM per-playlist summary (from pier-bridge bpm_summary stat)
+        _bpm_sum = (
+            playlist_stats_playlist.get("bpm_summary")
+            or playlist_stats.get("bpm_summary")
+        )
+        if _bpm_sum is not None:
+            logger.info(
+                "BPM (perceptual): min=%.0f mean=%.0f max=%.0f std=%.0f (%d/%d tracks have data)",
+                float(_bpm_sum.get("min", 0)),
+                float(_bpm_sum.get("mean", 0)),
+                float(_bpm_sum.get("max", 0)),
+                float(_bpm_sum.get("std", 0)),
+                int(_bpm_sum.get("n", 0)),
+                int(_bpm_sum.get("total", 0)),
             )
         if verbose_edges and baseline:
             logger.info("Baseline vs playlist percentiles:")

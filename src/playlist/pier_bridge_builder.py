@@ -1954,6 +1954,20 @@ def build_pier_bridge_playlist(
         edge["floor"] = float(cfg.transition_floor)
         t_val = float(edge.get("T"))
         transition_vals.append(float(t_val))
+        # BPM columns (diagnostic only)
+        bpm_a: Optional[float] = None
+        bpm_b: Optional[float] = None
+        bpm_log_dist: Optional[float] = None
+        if perceptual_bpm is not None:
+            _ba = perceptual_bpm[prev_idx]
+            _bb = perceptual_bpm[cur_idx]
+            if not np.isnan(_ba):
+                bpm_a = float(_ba)
+            if not np.isnan(_bb):
+                bpm_b = float(_bb)
+            if bpm_a is not None and bpm_b is not None:
+                from src.playlist.bpm_axis import bpm_log_distance
+                bpm_log_dist = float(bpm_log_distance(bpm_a, bpm_b))
         edge_scores.append(
             {
                 "prev_id": str(bundle.track_ids[prev_idx]),
@@ -1961,6 +1975,9 @@ def build_pier_bridge_playlist(
                 "prev_idx": int(prev_idx),
                 "cur_idx": int(cur_idx),
                 **edge,
+                "bpm_a": bpm_a,
+                "bpm_b": bpm_b,
+                "bpm_log_dist": bpm_log_dist,
             }
         )
 
@@ -1989,6 +2006,30 @@ def build_pier_bridge_playlist(
         artist_counts[artist_key] = artist_counts.get(artist_key, 0) + 1
         if int(idx) not in seed_index_set:
             non_seed_artist_counts[artist_key] = non_seed_artist_counts.get(artist_key, 0) + 1
+
+    # BPM per-playlist summary (diagnostic)
+    _bpm_summary: Optional[dict] = None
+    if perceptual_bpm is not None:
+        _bpms = [float(perceptual_bpm[i]) for i in final_indices if not np.isnan(perceptual_bpm[i])]
+        if _bpms:
+            _bpm_summary = {
+                "min": float(min(_bpms)),
+                "mean": float(sum(_bpms) / len(_bpms)),
+                "max": float(max(_bpms)),
+                "std": float(np.std(_bpms)),
+                "n": len(_bpms),
+                "total": len(final_indices),
+            }
+            logger.info(
+                "BPM (perceptual): min=%.0f mean=%.0f max=%.0f std=%.0f (%d/%d tracks have data)",
+                _bpm_summary["min"],
+                _bpm_summary["mean"],
+                _bpm_summary["max"],
+                _bpm_summary["std"],
+                _bpm_summary["n"],
+                _bpm_summary["total"],
+            )
+
     stats = {
         "num_seeds": actual_num_seeds,
         "single_seed_arc": is_single_seed_arc,
@@ -2002,6 +2043,7 @@ def build_pier_bridge_playlist(
         "segments_successful": sum(1 for d in diagnostics if d.success),
         "total_expansions": sum(d.expansions for d in diagnostics),
         "edge_scores": edge_scores,
+        "bpm_summary": _bpm_summary,
         "min_transition": float(np.min(transition_vals)) if transition_vals else None,
         "mean_transition": float(np.mean(transition_vals)) if transition_vals else None,
         "transition_centered": bool(cfg.center_transitions),
