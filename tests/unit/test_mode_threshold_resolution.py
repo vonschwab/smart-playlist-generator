@@ -21,11 +21,14 @@ class TestSonicFloorResolution:
         assert SONIC_MODE_PRESETS["discover"]["min_sonic_similarity"] == 0.00  # Disabled from 0.02
 
     def test_get_min_sonic_similarity_defaults(self):
-        """Verify get_min_sonic_similarity returns correct defaults."""
-        assert get_min_sonic_similarity({}, "strict") == 0.20
-        assert get_min_sonic_similarity({}, "narrow") == 0.12
-        assert get_min_sonic_similarity({}, "dynamic") == 0.05
-        assert get_min_sonic_similarity({}, "discover") == 0.00
+        """get_min_sonic_similarity returns None when nothing is configured.
+        apply_mode_presets() is the sole writer for this setting; the values
+        it writes are already verified by test_sonic_mode_presets_values.
+        """
+        assert get_min_sonic_similarity({}, "strict") is None
+        assert get_min_sonic_similarity({}, "narrow") is None
+        assert get_min_sonic_similarity({}, "dynamic") is None
+        assert get_min_sonic_similarity({}, "discover") is None
 
 
 class TestGenreFloorResolution:
@@ -91,41 +94,63 @@ class TestDSPipelineConfigResolution:
     """Test end-to-end DS pipeline config resolution."""
 
     def test_strict_mode_config(self):
-        """Verify strict mode resolves correctly."""
+        """Verify strict mode resolves correctly.
+
+        min_sonic_similarity is None here — apply_mode_presets() is the sole
+        writer; it sets 0.20 when sonic_mode='strict' in the normal load path.
+        max_artist_fraction_final is the universal fallback 0.125; policy.py
+        is the sole writer for per-artist caps.
+        """
         cfg = default_ds_config("strict", playlist_len=30)
 
         assert cfg.mode == "strict"
-        assert cfg.candidate.min_sonic_similarity == 0.20
+        assert cfg.candidate.min_sonic_similarity is None
+        assert cfg.candidate.max_artist_fraction_final == 0.125
         assert cfg.candidate.max_pool_size == 600  # Smaller pool for strict
         assert cfg.construct.min_gap == 3
         assert cfg.candidate.similarity_floor == 0.40  # Higher floor for strict
 
     def test_narrow_mode_config(self):
-        """Verify narrow mode resolves correctly (Phase 2A/3A relaxation)."""
+        """Verify narrow mode resolves correctly (Phase 2A/3A relaxation).
+
+        min_sonic_similarity is None — apply_mode_presets() sets 0.12 for narrow.
+        max_artist_fraction_final is the universal fallback 0.125.
+        """
         cfg = default_ds_config("narrow", playlist_len=30)
 
         assert cfg.mode == "narrow"
-        assert cfg.candidate.min_sonic_similarity == 0.12  # Relaxed from 0.18
+        assert cfg.candidate.min_sonic_similarity is None
+        assert cfg.candidate.max_artist_fraction_final == 0.125
         assert cfg.candidate.max_pool_size == 800
         assert cfg.construct.min_gap == 3
         assert cfg.candidate.similarity_floor == 0.35
 
     def test_dynamic_mode_config(self):
-        """Verify dynamic mode resolves correctly (Phase 2A/3A relaxation)."""
+        """Verify dynamic mode resolves correctly (Phase 2A/3A relaxation).
+
+        min_sonic_similarity is None — apply_mode_presets() sets 0.05 for dynamic.
+        max_artist_fraction_final is the universal fallback 0.125.
+        """
         cfg = default_ds_config("dynamic", playlist_len=30)
 
         assert cfg.mode == "dynamic"
-        assert cfg.candidate.min_sonic_similarity == 0.05  # Relaxed from 0.10
+        assert cfg.candidate.min_sonic_similarity is None
+        assert cfg.candidate.max_artist_fraction_final == 0.125
         assert cfg.candidate.max_pool_size == 1200
         assert cfg.construct.min_gap == 6
         assert cfg.candidate.similarity_floor == 0.28
 
     def test_discover_mode_config(self):
-        """Verify discover mode resolves correctly (Phase 2A)."""
+        """Verify discover mode resolves correctly (Phase 2A).
+
+        min_sonic_similarity is None — apply_mode_presets() sets 0.00 for discover.
+        max_artist_fraction_final is the universal fallback 0.125.
+        """
         cfg = default_ds_config("discover", playlist_len=30)
 
         assert cfg.mode == "discover"
-        assert cfg.candidate.min_sonic_similarity == 0.00  # Disabled
+        assert cfg.candidate.min_sonic_similarity is None
+        assert cfg.candidate.max_artist_fraction_final == 0.125
         assert cfg.candidate.max_pool_size == 2000
         assert cfg.construct.min_gap == 9
         assert cfg.candidate.similarity_floor == 0.22

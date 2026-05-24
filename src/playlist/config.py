@@ -320,12 +320,16 @@ def resolve_pier_bridge_tuning(
 
 def get_min_sonic_similarity(candidate_pool_cfg: dict, mode: Mode) -> Optional[float]:
     """
-    Resolve the sonic similarity floor for the given mode with sensible defaults.
+    Resolve the sonic similarity floor for the given mode from config.
+
+    Single writer for this setting is apply_mode_presets() (driven by sonic_mode).
+    Returns None when nothing is set — apply_mode_presets writes a value in
+    the normal config-loading path.
 
     Priority:
-    1) min_sonic_similarity_<mode>
-    2) min_sonic_similarity (applies to all modes)
-    3) Built-in defaults: narrow=0.12, dynamic=0.05, discover=0.00, strict=0.20
+    1) min_sonic_similarity_<mode> (per-mode override)
+    2) min_sonic_similarity (base override applied to all modes)
+    3) None (no per-mode default; apply_mode_presets is responsible)
     """
     mode = mode.lower()  # type: ignore[assignment]
     mode_key = f"min_sonic_similarity_{mode}"
@@ -335,16 +339,7 @@ def get_min_sonic_similarity(candidate_pool_cfg: dict, mode: Mode) -> Optional[f
         return None
     mode_specific = candidate_pool_cfg.get(mode_key)
     base = candidate_pool_cfg.get("min_sonic_similarity")
-
-    default = {
-        "strict": 0.20,   # Phase 1: Ultra-cohesive (matches mode_presets.py)
-        "narrow": 0.12,   # Phase 2A: Relaxed from 0.18 (matches mode_presets.py)
-        "dynamic": 0.05,  # Phase 2A: Relaxed from 0.10 (matches mode_presets.py)
-        "discover": 0.00, # Phase 2A: Disabled (matches mode_presets.py)
-    }.get(mode, None)
-
     resolved = mode_specific if mode_specific is not None else base
-    resolved = default if resolved is None else resolved
     return float(resolved) if resolved is not None else None
 
 
@@ -383,10 +378,7 @@ def default_ds_config(
     pace_settings = resolve_pace_mode(str(pace_mode_name))
 
     # Mode defaults - can be overridden by config.yaml values
-    max_artist_fraction_final = candidate_pool.get(
-        "max_artist_fraction",
-        {"strict": 0.25, "narrow": 0.20, "dynamic": 0.125, "discover": 0.05}[mode],
-    )
+    max_artist_fraction_final = candidate_pool.get("max_artist_fraction", 0.125)
     min_gap = constraints.get(
         "min_gap",
         {"strict": 3, "narrow": 3, "dynamic": 6, "discover": 9}[mode],
@@ -399,7 +391,7 @@ def default_ds_config(
     min_sonic_similarity = get_min_sonic_similarity(candidate_pool, mode)
     broad_filters_cfg_raw = candidate_pool.get("broad_filters", None)
     if broad_filters_cfg_raw is None:
-        broad_filters_cfg: list[str] = ["rock", "indie", "alternative", "pop"] if mode in ("strict", "narrow") else []
+        broad_filters_cfg: list[str] = []
     elif isinstance(broad_filters_cfg_raw, str):
         broad_filters_cfg = [broad_filters_cfg_raw]
     elif isinstance(broad_filters_cfg_raw, (list, tuple)):
