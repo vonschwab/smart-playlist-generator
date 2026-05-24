@@ -23,7 +23,7 @@ from src.playlist.artist_style import (
     _artist_indices_in_bundle,
 )
 from src.playlist.pier_bridge_builder import PierBridgeConfig, resolve_pier_bridge_tuning
-from src.playlist.config import default_ds_config, get_min_sonic_similarity
+from src.playlist.config import default_ds_config, get_min_sonic_similarity, resolve_cohesion_mode
 # Phase 2: Import utilities from refactored module
 from src.playlist import utils
 # Phase 3: Import filtering from refactored module
@@ -1894,7 +1894,7 @@ class PlaylistGenerator:
         count: int,
         dynamic: bool = False,
         pipeline_override: Optional[str] = None,
-        ds_mode_override: Optional[str] = None,
+        cohesion_mode_override: Optional[str] = None,
     ) -> List[List[Dict[str, Any]]]:
         """
         Create multiple playlists with single seed artist per playlist
@@ -1958,7 +1958,7 @@ class PlaylistGenerator:
             history,
             dynamic=dynamic,
             pipeline_override=pipeline_override,
-            ds_mode_override=ds_mode_override,
+            cohesion_mode_override=cohesion_mode_override,
         )
 
         return playlists
@@ -1972,7 +1972,7 @@ class PlaylistGenerator:
         dynamic: bool = False,
         dry_run: bool = False,
         verbose: bool = False,
-        ds_mode_override: Optional[str] = None,
+        cohesion_mode_override: Optional[str] = None,
         artist_only: bool = False,
         anchor_seed_ids: Optional[List[str]] = None,
         seed_epoch: int = 0,
@@ -1999,7 +1999,7 @@ class PlaylistGenerator:
         if num_tracks is not None:
             track_count = num_tracks
         if mode is not None:
-            ds_mode_override = mode
+            cohesion_mode_override = mode
             dynamic = mode == "dynamic"
         if random_seed is not None:
             self.config.config.setdefault("playlists", {}).setdefault("ds_pipeline", {})["random_seed"] = random_seed
@@ -2302,7 +2302,8 @@ class PlaylistGenerator:
             genre_neighbor_compatible_threshold=float(style_cfg_raw.get("genre_neighbor_compatible_threshold", 0.35)),
             genre_neighbor_conflict_threshold=float(style_cfg_raw.get("genre_neighbor_conflict_threshold", 0.15)),
         )
-        ds_mode_effective = ds_mode_override or ("dynamic" if dynamic else ds_cfg.get("mode", "dynamic"))
+        playlists_cfg = self.config.get("playlists", default={}) or {}
+        cohesion_mode_effective = cohesion_mode_override or ("dynamic" if dynamic else resolve_cohesion_mode(playlists_cfg))
         artifact_path = ds_cfg.get("artifact_path")
         pool_source = "legacy"
 
@@ -2310,7 +2311,7 @@ class PlaylistGenerator:
             "Artist style mode %s: artist=%s ds_mode=%s",
             "ENABLED" if style_cfg.enabled else "DISABLED",
             artist_name,
-            ds_mode_effective,
+            cohesion_mode_effective,
         )
 
         using_artist_style = False
@@ -2393,7 +2394,7 @@ class PlaylistGenerator:
                 cluster_piers = medoids_by_cluster
 
                 # Global admission floor (same as DS candidate admission)
-                min_sonic = get_min_sonic_similarity(ds_cfg.get("candidate_pool", {}), ds_mode_effective)
+                min_sonic = get_min_sonic_similarity(ds_cfg.get("candidate_pool", {}), cohesion_mode_effective)
                 artist_key_norm = normalize_artist_key(artist_name)
 
                 external_pool = build_balanced_candidate_pool(
@@ -2446,7 +2447,7 @@ class PlaylistGenerator:
                 ]
                 style_summary = {
                     "artist": str(artist_name),
-                    "ds_mode": str(ds_mode_effective),
+                    "ds_mode": str(cohesion_mode_effective),
                     "sonic_variant": str(sonic_variant_cfg),
                     "seed_epoch": int(seed_epoch or 0),
                     "medoid_top_k": int(medoid_top_k),
@@ -2489,8 +2490,8 @@ class PlaylistGenerator:
                         float(tw_raw[1]),
                         float(tw_raw[2]),
                     )
-                ds_defaults = default_ds_config(ds_mode_effective, playlist_len=track_count, overrides=ds_cfg)
-                pb_tuning = resolve_pier_bridge_tuning(ds_cfg, ds_mode_effective)
+                ds_defaults = default_ds_config(cohesion_mode_effective, playlist_len=track_count, overrides=ds_cfg)
+                pb_tuning = resolve_pier_bridge_tuning(ds_cfg, cohesion_mode_effective)
 
                 # Artist-style can override per-mode pier-bridge weights, but defaults
                 # should follow the global pier-bridge tuning for the mode.
@@ -2498,7 +2499,7 @@ class PlaylistGenerator:
                 weight_transition = float(pb_tuning["weight_transition"])
                 weights_raw = style_cfg_raw.get("bridge_score_weights")
                 if isinstance(weights_raw, dict):
-                    by_mode = weights_raw.get(ds_mode_effective)
+                    by_mode = weights_raw.get(cohesion_mode_effective)
                     if isinstance(by_mode, dict):
                         weight_bridge = float(by_mode.get("bridge", weight_bridge))
                         weight_transition = float(by_mode.get("transition", weight_transition))
@@ -2512,7 +2513,7 @@ class PlaylistGenerator:
                 bridge_floor = float(pb_tuning["bridge_floor"])
                 bridge_floor_raw = style_cfg_raw.get("bridge_floor")
                 if isinstance(bridge_floor_raw, dict):
-                    mode_val = bridge_floor_raw.get(ds_mode_effective)
+                    mode_val = bridge_floor_raw.get(cohesion_mode_effective)
                     if isinstance(mode_val, (int, float)):
                         bridge_floor = float(mode_val)
                 elif isinstance(bridge_floor_raw, (int, float)):
@@ -2536,7 +2537,7 @@ class PlaylistGenerator:
                 logger.info(
                     "Artist style mode ENABLED: artist=%s ds_mode=%s clusters=%d piers=%d allowed_ids=%d internal_connectors=%d",
                     artist_name,
-                    ds_mode_effective,
+                    cohesion_mode_effective,
                     len(clusters),
                     len(ordered_medoids),
                     len(style_allowed_track_ids),
@@ -2558,7 +2559,7 @@ class PlaylistGenerator:
                 ds_tracks = self._maybe_generate_ds_playlist(
                     seed_track_id=style_seed_track_id,
                     target_length=track_count,
-                    mode_override=ds_mode_effective,
+                    mode_override=cohesion_mode_effective,
                     seed_artist=artist_name,
                     allowed_track_ids=style_allowed_track_ids,
                     excluded_track_ids=excluded_ids or None,
@@ -2585,7 +2586,7 @@ class PlaylistGenerator:
                     logger.info(
                         "🔄 Fallback: Retrying without genre gating (artist=%s, mode=%s)",
                         artist_name,
-                        ds_mode_effective
+                        cohesion_mode_effective
                     )
 
                     # Retry without genre gating by temporarily overriding config
@@ -2597,7 +2598,7 @@ class PlaylistGenerator:
                         ds_tracks = self._maybe_generate_ds_playlist(
                             seed_track_id=style_seed_track_id,
                             target_length=track_count,
-                            mode_override=ds_mode_effective,
+                            mode_override=cohesion_mode_effective,
                             seed_artist=artist_name,
                             allowed_track_ids=style_allowed_track_ids,
                             excluded_track_ids=excluded_ids or None,
@@ -2634,7 +2635,7 @@ class PlaylistGenerator:
                     ds_tracks = self._maybe_generate_ds_playlist(
                         seed_track_id=seed_id,
                         target_length=track_count,
-                        mode_override=ds_mode_override or ("dynamic" if dynamic else None),
+                        mode_override=cohesion_mode_override or ("dynamic" if dynamic else None),
                         seed_artist=artist_name,
                         allowed_track_ids=allowed_track_ids or None,
                         excluded_track_ids=excluded_ids or None,
@@ -2811,7 +2812,7 @@ class PlaylistGenerator:
         dynamic: bool = False,
         dry_run: bool = False,
         verbose: bool = False,
-        ds_mode_override: Optional[str] = None,
+        cohesion_mode_override: Optional[str] = None,
         genre: Optional[str] = None,
         num_tracks: Optional[int] = None,
         mode: Optional[str] = None,
@@ -2826,7 +2827,7 @@ class PlaylistGenerator:
             dynamic: Use dynamic mode (lower genre similarity threshold)
             dry_run: Preview mode (for testing)
             verbose: Enable verbose edge scoring output
-            ds_mode_override: Override DS mode (narrow/dynamic/discover/sonic_only)
+            cohesion_mode_override: Override cohesion mode (narrow/dynamic/discover/sonic_only)
 
         Returns:
             Playlist dictionary with tracks and metadata, or None if unable to create
@@ -2840,7 +2841,7 @@ class PlaylistGenerator:
         if num_tracks is not None:
             track_count = num_tracks
         if mode is not None:
-            ds_mode_override = mode
+            cohesion_mode_override = mode
             dynamic = mode == "dynamic"
         if random_seed is not None:
             self.config.config.setdefault("playlists", {}).setdefault("ds_pipeline", {})["random_seed"] = random_seed
@@ -2933,13 +2934,11 @@ class PlaylistGenerator:
 
         logger.info(f"DS scope: genre (allowed_ids={len(allowed_track_ids)})")
 
-        # Determine DS mode
-        ds_mode = ds_mode_override or (self.ds_mode_override if hasattr(self, 'ds_mode_override') and self.ds_mode_override else None)
-        if not ds_mode:
-            ds_cfg = self.config.get('playlists', 'ds_pipeline', default={}) or {}
-            ds_mode = "dynamic" if dynamic else ds_cfg.get('mode', 'dynamic')
+        # Determine cohesion mode
+        playlists_cfg = self.config.get("playlists", default={}) or {}
+        cohesion_mode_effective = cohesion_mode_override or ("dynamic" if dynamic else resolve_cohesion_mode(playlists_cfg))
 
-        logger.info(f"Running pipeline with mode={ds_mode}")
+        logger.info(f"Running pipeline with mode={cohesion_mode_effective}")
 
         # Genre mode doesn't use artist_style clustering (no single artist to cluster)
         # But we still use pier-bridge with the genre seeds as piers
@@ -2956,7 +2955,7 @@ class PlaylistGenerator:
             ds_tracks = self._maybe_generate_ds_playlist(
                 seed_track_id=style_seed_track_id,
                 target_length=track_count,
-                mode_override=ds_mode,
+                mode_override=cohesion_mode_effective,
                 allowed_track_ids=allowed_track_ids,
                 excluded_track_ids=excluded_ids,
                 anchor_seed_tracks=seed_tracks,  # Pass full seed track info
@@ -3000,7 +2999,7 @@ class PlaylistGenerator:
                         ds_tracks = self._maybe_generate_ds_playlist(
                             seed_track_id=style_seed_track_id,
                             target_length=actual_length,  # Use actual achievable length
-                            mode_override=ds_mode,
+                            mode_override=cohesion_mode_effective,
                             allowed_track_ids=allowed_track_ids,
                             excluded_track_ids=excluded_ids,
                             anchor_seed_tracks=seed_tracks,
@@ -3117,7 +3116,7 @@ class PlaylistGenerator:
         history: List[Dict[str, Any]],
         dynamic: bool = False,
         pipeline_override: Optional[str] = None,
-        ds_mode_override: Optional[str] = None,
+        cohesion_mode_override: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         Create playlists from single artists with advanced requirements:
@@ -3224,7 +3223,8 @@ class PlaylistGenerator:
                 genre_neighbor_compatible_threshold=float(style_cfg_raw.get("genre_neighbor_compatible_threshold", 0.35)),
                 genre_neighbor_conflict_threshold=float(style_cfg_raw.get("genre_neighbor_conflict_threshold", 0.15)),
             )
-            ds_mode_effective = ds_mode_override or ("dynamic" if dynamic else ds_cfg.get("mode", "dynamic"))
+            playlists_cfg = self.config.get("playlists", default={}) or {}
+            cohesion_mode_effective = cohesion_mode_override or ("dynamic" if dynamic else resolve_cohesion_mode(playlists_cfg))
             style_seed_track_id = seeds[0].get('rating_key') if seeds else None
             style_anchor_tracks = seeds
             style_anchor_ids = None
@@ -3238,7 +3238,7 @@ class PlaylistGenerator:
                 "Artist style mode %s: artist=%s ds_mode=%s",
                 "ENABLED" if style_cfg.enabled else "DISABLED",
                 artist,
-                ds_mode_effective,
+                cohesion_mode_effective,
             )
             if style_cfg.enabled and artifact_path:
                 try:
@@ -3298,7 +3298,7 @@ class PlaylistGenerator:
                         raise ValueError("Artist style piers empty after title exclusions")
 
                     cluster_piers = medoids_by_cluster
-                    min_sonic = get_min_sonic_similarity(ds_cfg.get("candidate_pool", {}), ds_mode_effective)
+                    min_sonic = get_min_sonic_similarity(ds_cfg.get("candidate_pool", {}), cohesion_mode_effective)
                     artist_key = normalize_artist_key(artist)
                     external_pool = build_balanced_candidate_pool(
                         bundle=bundle,
@@ -3361,14 +3361,14 @@ class PlaylistGenerator:
                             float(tw_raw[1]),
                             float(tw_raw[2]),
                         )
-                    ds_defaults = default_ds_config(ds_mode_effective, playlist_len=target_playlist_size, overrides=ds_cfg)
-                    pb_tuning = resolve_pier_bridge_tuning(ds_cfg, ds_mode_effective)
+                    ds_defaults = default_ds_config(cohesion_mode_effective, playlist_len=target_playlist_size, overrides=ds_cfg)
+                    pb_tuning = resolve_pier_bridge_tuning(ds_cfg, cohesion_mode_effective)
 
                     weight_bridge = float(pb_tuning["weight_bridge"])
                     weight_transition = float(pb_tuning["weight_transition"])
                     weights_raw = style_cfg_raw.get("bridge_score_weights")
                     if isinstance(weights_raw, dict):
-                        by_mode = weights_raw.get(ds_mode_effective)
+                        by_mode = weights_raw.get(cohesion_mode_effective)
                         if isinstance(by_mode, dict):
                             weight_bridge = float(by_mode.get("bridge", weight_bridge))
                             weight_transition = float(by_mode.get("transition", weight_transition))
@@ -3382,7 +3382,7 @@ class PlaylistGenerator:
                     bridge_floor = float(pb_tuning["bridge_floor"])
                     bridge_floor_raw = style_cfg_raw.get("bridge_floor")
                     if isinstance(bridge_floor_raw, dict):
-                        mode_val = bridge_floor_raw.get(ds_mode_effective)
+                        mode_val = bridge_floor_raw.get(cohesion_mode_effective)
                         if isinstance(mode_val, (int, float)):
                             bridge_floor = float(mode_val)
                     elif isinstance(bridge_floor_raw, (int, float)):
@@ -3405,7 +3405,7 @@ class PlaylistGenerator:
                     logger.info(
                         "Artist style mode ENABLED: artist=%s ds_mode=%s clusters=%d piers=%d allowed_ids=%d internal_connectors=%d",
                         artist,
-                        ds_mode_effective,
+                        cohesion_mode_effective,
                         len(clusters),
                         len(ordered_medoids),
                         len(allowed_track_ids),
@@ -3423,7 +3423,7 @@ class PlaylistGenerator:
                 seed_track_id=style_seed_track_id,
                 target_length=target_playlist_size,
                 pipeline_override=pipeline_override,
-                mode_override=ds_mode_effective,
+                mode_override=cohesion_mode_effective,
                 seed_artist=artist,
                 anchor_seed_tracks=style_anchor_tracks,  # Pass full seed track info for title+artist resolution
                 allowed_track_ids=allowed_track_ids,
@@ -3490,7 +3490,7 @@ class PlaylistGenerator:
         *,
         track_count: int = 30,
         dynamic: bool = False,
-        ds_mode_override: Optional[str] = None,
+        cohesion_mode_override: Optional[str] = None,
         seed_track_ids: Optional[List[str]] = None,
     ) -> Optional[Dict[str, Any]]:
         """
@@ -3620,7 +3620,7 @@ class PlaylistGenerator:
             ds_tracks = self._maybe_generate_ds_playlist(
                 seed_track_id=resolved_seeds[0].get("rating_key"),
                 target_length=track_count,
-                mode_override=ds_mode_override,
+                mode_override=cohesion_mode_override,
                 anchor_seed_tracks=resolved_seeds,
                 anchor_seed_ids=[s.get("rating_key") for s in resolved_seeds if s.get("rating_key")],
                 excluded_track_ids=excluded_ids or None,
@@ -3647,7 +3647,7 @@ class PlaylistGenerator:
                     ds_tracks = self._maybe_generate_ds_playlist(
                         seed_track_id=resolved_seeds[0].get("rating_key"),
                         target_length=track_count,
-                        mode_override=ds_mode_override,
+                        mode_override=cohesion_mode_override,
                         anchor_seed_tracks=resolved_seeds,
                         anchor_seed_ids=[s.get("rating_key") for s in resolved_seeds if s.get("rating_key")],
                         excluded_track_ids=excluded_ids or None,
@@ -3673,7 +3673,7 @@ class PlaylistGenerator:
                             ds_tracks = self._maybe_generate_ds_playlist(
                                 seed_track_id=resolved_seeds[0].get("rating_key"),
                                 target_length=track_count,
-                                mode_override=ds_mode_override,
+                                mode_override=cohesion_mode_override,
                                 anchor_seed_tracks=resolved_seeds,
                                 anchor_seed_ids=[s.get("rating_key") for s in resolved_seeds if s.get("rating_key")],
                                 excluded_track_ids=excluded_ids or None,
@@ -3692,7 +3692,7 @@ class PlaylistGenerator:
                             ds_tracks = self._maybe_generate_ds_playlist(
                                 seed_track_id=resolved_seeds[0].get("rating_key"),
                                 target_length=20,
-                                mode_override=ds_mode_override,
+                                mode_override=cohesion_mode_override,
                                 anchor_seed_tracks=resolved_seeds,
                                 anchor_seed_ids=[s.get("rating_key") for s in resolved_seeds if s.get("rating_key")],
                                 excluded_track_ids=excluded_ids or None,
@@ -3711,7 +3711,7 @@ class PlaylistGenerator:
                             ds_tracks = self._maybe_generate_ds_playlist(
                                 seed_track_id=resolved_seeds[0].get("rating_key"),
                                 target_length=min(20, track_count),
-                                mode_override=ds_mode_override,
+                                mode_override=cohesion_mode_override,
                                 anchor_seed_tracks=resolved_seeds,
                                 anchor_seed_ids=[s.get("rating_key") for s in resolved_seeds if s.get("rating_key")],
                                 excluded_track_ids=None,  # Disable recency exclusions
