@@ -351,7 +351,9 @@ def default_ds_config(
 ) -> DSPipelineConfig:
     """
     Return mode defaults matching experiments:
-    - artist caps and min_gap: strict(25%,3), narrow(20%,3), dynamic(12.5%,6), discover(5%,9)
+    - max_artist_fraction defaults to 0.125 for all modes; per-mode overrides are
+      applied by policy.py (the caller), not here
+    - min_gap: strict(3), narrow(3), dynamic(6), discover(9)
     - floors roughly: strict ~0.40, narrow ~0.35, dynamic ~0.28, discover ~0.22
     - hard_floor True only for dynamic
     - pick sensible defaults for top_m and alpha/beta/gamma aligned with current experiments
