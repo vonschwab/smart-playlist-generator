@@ -3,8 +3,8 @@
 Diagnose sonic similarity floor behavior for DS pipeline.
 
 Example:
-  python scripts/diagnose_sonic_floor.py --seed "Artist - Title" --ds-mode dynamic --floor 0.0 --top 15 --show-rejected
-  python scripts/diagnose_sonic_floor.py --seed-track-id <track_id> --ds-mode narrow --show-borderline
+  python scripts/diagnose_sonic_floor.py --seed "Artist - Title" --cohesion-mode dynamic --floor 0.0 --top 15 --show-rejected
+  python scripts/diagnose_sonic_floor.py --seed-track-id <track_id> --cohesion-mode narrow --show-borderline
 """
 import argparse
 import sqlite3
@@ -55,7 +55,7 @@ def main():
     parser.add_argument("--config", default="config.yaml", help="Path to config.yaml")
     parser.add_argument("--seed", help='Seed as "Artist - Title"')
     parser.add_argument("--seed-track-id", help="Seed track_id (overrides --seed)")
-    parser.add_argument("--ds-mode", default="narrow", choices=["narrow", "dynamic", "discover", "sonic_only"])
+    parser.add_argument("--cohesion-mode", default="narrow", choices=["narrow", "dynamic", "discover", "sonic_only"])
     parser.add_argument("--floor", type=float, help="Override sonic floor (default from config)")
     parser.add_argument("--top", type=int, default=20, help="Top N to display by sonic similarity")
     parser.add_argument("--show-rejected", action="store_true", help="List candidates rejected by floor")
@@ -70,10 +70,10 @@ def main():
     artifact_path = ds_cfg.get("artifact_path") or cfg.config.get("artifacts", {}).get("path", "data/artifacts/beat3tower_32k/data_matrices_step1.npz")
 
     # Resolve floor from config or override
-    floor_key = f"min_sonic_similarity_{args.ds_mode}"
+    floor_key = f"min_sonic_similarity_{args.cohesion_mode}"
     floor = args.floor
     if floor is None:
-        floor = get_min_sonic_similarity(candidate_cfg, args.ds_mode)
+        floor = get_min_sonic_similarity(candidate_cfg, args.cohesion_mode)
 
     seed_track_id = args.seed_track_id or _resolve_seed_track_id(cfg.library_database_path, args.seed or "")
 
@@ -90,7 +90,7 @@ def main():
     sims = np.dot(sonic_norm, seed_vec)
     sims[seed_idx] = -1.0
 
-    logger.info(f"Mode={args.ds_mode} floor={floor if floor is not None else float('nan'):.2f} candidates={len(sims)-1}")
+    logger.info(f"Mode={args.cohesion_mode} floor={floor if floor is not None else float('nan'):.2f} candidates={len(sims)-1}")
     logger.info("Distribution: %s", summarize_sims(sims[1:]))
 
     order = np.argsort(sims)[::-1]

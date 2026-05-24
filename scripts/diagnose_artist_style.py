@@ -3,7 +3,7 @@
 Diagnostics for style-aware artist playlists.
 
 Usage:
-  python scripts/diagnose_artist_style.py --artist "Artist Name" --config config.yaml --ds-mode narrow
+  python scripts/diagnose_artist_style.py --artist "Artist Name" --config config.yaml --cohesion-mode narrow
 """
 import argparse
 import logging
@@ -37,7 +37,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--artist", required=True)
     parser.add_argument("--config", default="config.yaml")
-    parser.add_argument("--ds-mode", default="narrow", choices=["narrow", "dynamic"])
+    parser.add_argument("--cohesion-mode", default="narrow", choices=["narrow", "dynamic"])
     parser.add_argument("--floors", default="0.00,0.05,0.10,0.20", help="Comma-separated bridge floors to sweep (e.g. 0.00,0.05,0.10,0.20)")
     args = parser.parse_args()
 
@@ -97,8 +97,8 @@ def main():
     logger.info("Pier order (medoids): %s", [_label(i) for i in ordered_medoids])
     cluster_piers = medoids_by_cluster
     per_cluster_size = style_cfg.per_cluster_candidate_pool_size
-    global_floor = get_min_sonic_similarity(ds_cfg.get("candidate_pool", {}), args.ds_mode)
-    bridge_floor = style_cfg.bridge_floor_narrow if args.ds_mode == "narrow" else style_cfg.bridge_floor_dynamic
+    global_floor = get_min_sonic_similarity(ds_cfg.get("candidate_pool", {}), args.cohesion_mode)
+    bridge_floor = style_cfg.bridge_floor_narrow if args.cohesion_mode == "narrow" else style_cfg.bridge_floor_dynamic
     pool = build_balanced_candidate_pool(
         bundle=bundle,
         cluster_piers=cluster_piers,

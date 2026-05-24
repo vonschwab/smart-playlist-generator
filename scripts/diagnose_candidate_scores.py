@@ -3,8 +3,8 @@
 Diagnose DS candidate sonic/genre similarity.
 
 Examples:
-  python scripts/diagnose_candidate_scores.py --seed "Songs: Ohia - Farewell Transmission" --ds-mode narrow --top 15 --show-offenders --explain
-  python scripts/diagnose_candidate_scores.py --seed-track-id <track_id> --ds-mode narrow
+  python scripts/diagnose_candidate_scores.py --seed "Songs: Ohia - Farewell Transmission" --cohesion-mode narrow --top 15 --show-offenders --explain
+  python scripts/diagnose_candidate_scores.py --seed-track-id <track_id> --cohesion-mode narrow
 """
 import argparse
 import sqlite3
@@ -105,7 +105,7 @@ def main():
     parser.add_argument("--config", default="config.yaml", help="Path to config.yaml")
     parser.add_argument("--seed", help='Seed as "Artist - Title"')
     parser.add_argument("--seed-track-id", help="Seed track_id (overrides --seed)")
-    parser.add_argument("--ds-mode", default="narrow", choices=["narrow", "dynamic", "discover", "sonic_only"])
+    parser.add_argument("--cohesion-mode", default="narrow", choices=["narrow", "dynamic", "discover", "sonic_only"])
     parser.add_argument("--top", type=int, default=25, help="Top N candidates to display by hybrid sim")
     parser.add_argument("--show-offenders", action="store_true", help="Show low-sonic / high-genre offenders")
     parser.add_argument("--explain", action="store_true", help="Show genre similarity explanation for offenders")
@@ -147,7 +147,7 @@ def main():
         return f"{artist} - {title}"
 
     order = np.argsort(hybrid_sim)[::-1]
-    logger.info(f"Top {args.top} by hybrid similarity (mode={args.ds_mode}):")
+    logger.info(f"Top {args.top} by hybrid similarity (mode={args.cohesion_mode}):")
     logger.info("rank\ttrack_id\thybrid\tsonic\tgenre\ttitle")
     shown = 0
     for idx in order:
