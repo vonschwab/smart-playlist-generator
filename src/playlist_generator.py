@@ -2451,7 +2451,7 @@ class PlaylistGenerator:
                     "sonic_variant": str(sonic_variant_cfg),
                     "seed_epoch": int(seed_epoch or 0),
                     "medoid_top_k": int(medoid_top_k),
-                    "global_sonic_floor": float(min_sonic),
+                    "global_sonic_floor": float(min_sonic) if min_sonic is not None else None,
                     "clusters": [
                         {
                             "cluster_index": int(i),
@@ -2635,7 +2635,7 @@ class PlaylistGenerator:
                     ds_tracks = self._maybe_generate_ds_playlist(
                         seed_track_id=seed_id,
                         target_length=track_count,
-                        mode_override=cohesion_mode_override or ("dynamic" if dynamic else None),
+                        mode_override=cohesion_mode_effective,
                         seed_artist=artist_name,
                         allowed_track_ids=allowed_track_ids or None,
                         excluded_track_ids=excluded_ids or None,
