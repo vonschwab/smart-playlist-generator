@@ -25,6 +25,7 @@ from src.metadata_client import MetadataClient
 from src.similarity.sonic_variant import resolve_sonic_variant
 from src.plex_exporter import PlexExporter
 from src.playlist.request_models import GeneratePlaylistRequest
+from src.playlist.config import resolve_cohesion_mode
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +33,10 @@ logger = logging.getLogger(__name__)
 class PlaylistApp:
     """Main application orchestrator"""
 
-    def __init__(self, config_path: str = "config.yaml", ds_mode_override: Optional[str] = None):
+    def __init__(self, config_path: str = "config.yaml", cohesion_mode_override: Optional[str] = None):
         # Load configuration
         self.config = Config(config_path)
-        self.ds_mode_override = ds_mode_override
+        self.cohesion_mode_override = cohesion_mode_override
 
         # Get logger (logging should already be configured by main())
         self.logger = logging.getLogger(__name__)
@@ -188,7 +189,7 @@ class PlaylistApp:
         playlists = self.generator.create_playlist_batch(
             playlist_count,
             dynamic=dynamic,
-            ds_mode_override=self.ds_mode_override,
+            ds_mode_override=self.cohesion_mode_override,
         )
 
         if not playlists:
@@ -308,7 +309,7 @@ class PlaylistApp:
             playlist_title = f"Auto: {artist_name}"
             report = PlaylistReport(playlist_title, artist_name)
             report.dry_run = dry_run
-            report.mode = self.ds_mode_override or "dynamic"
+            report.mode = self.cohesion_mode_override or "dynamic"
 
             # Log to file but keep console clean
             self.logger.info(f"Generating playlist for: {artist_name} (dry_run={dry_run})")
@@ -393,7 +394,7 @@ class PlaylistApp:
             playlist_title = f"Auto: {genre_name.title()}"
             report = PlaylistReport(playlist_title, artist_name=None)
             report.dry_run = dry_run
-            report.mode = self.ds_mode_override or "dynamic"
+            report.mode = self.cohesion_mode_override or "dynamic"
 
             # Log to file but keep console clean
             self.logger.info(f"Generating playlist for genre: {genre_name} (dry_run={dry_run})")
@@ -493,7 +494,7 @@ class PlaylistApp:
             dynamic=dynamic,
             dry_run=dry_run,
             verbose=verbose,
-            ds_mode_override=self.ds_mode_override,
+            ds_mode_override=self.cohesion_mode_override,
             artist_only=artist_only,
             anchor_seed_ids=anchor_seed_ids,
         )
@@ -513,7 +514,7 @@ class PlaylistApp:
             dynamic=dynamic,
             dry_run=dry_run,
             verbose=verbose,
-            ds_mode_override=self.ds_mode_override,
+            ds_mode_override=self.cohesion_mode_override,
         )
 
 
@@ -568,9 +569,9 @@ def main():
         help="Enable verbose logging: show detailed DS transition metrics and constraint enforcement"
     )
     parser.add_argument(
-        "--ds-mode",
-        choices=["narrow", "dynamic", "discover", "sonic_only"],
-        help="Select DS pipeline mode (default from config playlists.ds_pipeline.mode)",
+        "--cohesion-mode",
+        choices=["strict", "narrow", "dynamic", "discover"],
+        help="Select cohesion mode (default from config playlists.cohesion_mode)",
     )
 
     # Genre and sonic similarity mode presets (simpler alternative to manual tuning)
@@ -690,7 +691,7 @@ def main():
 
             os.environ["SONIC_SIM_VARIANT"] = args.sonic_variant
         app = PlaylistApp(
-            ds_mode_override=getattr(args, 'ds_mode', None),
+            cohesion_mode_override=getattr(args, 'cohesion_mode', None),
         )
         # propagate explicit variant into generator (CLI > env > config)
         app.generator.sonic_variant = resolve_sonic_variant(
@@ -761,7 +762,7 @@ def main():
             app.generator._audit_run_dir = str(getattr(args, "audit_run_dir"))
         if getattr(args, "pb_backoff", False):
             app.generator._pb_backoff_enabled = True
-        dynamic_flag = getattr(args, "ds_mode", None) == "dynamic"
+        dynamic_flag = getattr(args, "cohesion_mode", None) == "dynamic"
         if args.dry_run:
             section("DRY RUN MODE")
             bullet("No playlists will be created or exported")
