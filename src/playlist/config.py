@@ -103,7 +103,7 @@ class DSPipelineConfig:
 
 @dataclass(frozen=True)
 class PierBridgeTuning:
-    """Resolved pier-bridge tuning knobs (per ds_mode)."""
+    """Resolved pier-bridge tuning knobs (per cohesion_mode)."""
 
     transition_floor: float
     bridge_floor: float
@@ -200,7 +200,7 @@ def resolve_pier_bridge_tuning(
     overrides: Optional[dict] = None,
 ) -> tuple[PierBridgeTuning, dict[str, str]]:
     """
-    Resolve pier-bridge tuning for the given ds_mode.
+    Resolve pier-bridge tuning for the given cohesion_mode.
 
     Sources:
       - overrides['constraints'] for transition_floor overrides
