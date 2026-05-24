@@ -1,13 +1,40 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Literal, Optional
 
 import math
 
-Mode = Literal["narrow", "dynamic", "discover", "sonic_only"]
+Mode = Literal["strict", "narrow", "dynamic", "discover"]
 AlphaSchedule = Literal["constant", "arc"]
 RepairObjective = Literal["gap_penalty", "below_floor_first"]
+
+_logger = logging.getLogger(__name__)
+
+
+def resolve_cohesion_mode(playlists_cfg: Optional[dict]) -> "Mode":
+    """
+    Read playlists.cohesion_mode with validation.
+
+    Sole reader of the cohesion_mode key. Warns (and ignores) if the legacy
+    ds_pipeline.mode key is present so stale configs surface immediately.
+    """
+    if not isinstance(playlists_cfg, dict):
+        return "dynamic"
+
+    ds_pipeline = playlists_cfg.get("ds_pipeline")
+    if isinstance(ds_pipeline, dict) and "mode" in ds_pipeline:
+        _logger.warning(
+            "playlists.ds_pipeline.mode is no longer used; remove from config. "
+            "Use playlists.cohesion_mode instead."
+        )
+
+    raw = str(playlists_cfg.get("cohesion_mode", "dynamic")).strip().lower()
+    if raw not in {"strict", "narrow", "dynamic", "discover"}:
+        _logger.warning("Invalid cohesion_mode %r; falling back to 'dynamic'", raw)
+        return "dynamic"
+    return raw  # type: ignore[return-value]
 
 
 @dataclass(frozen=True)
@@ -298,7 +325,7 @@ def get_min_sonic_similarity(candidate_pool_cfg: dict, mode: Mode) -> Optional[f
     Priority:
     1) min_sonic_similarity_<mode>
     2) min_sonic_similarity (applies to all modes)
-    3) Built-in defaults: narrow=0.10, dynamic=0.00, discover/sonic_only=None
+    3) Built-in defaults: narrow=0.12, dynamic=0.05, discover=0.00, strict=0.20
     """
     mode = mode.lower()  # type: ignore[assignment]
     mode_key = f"min_sonic_similarity_{mode}"
@@ -314,7 +341,6 @@ def get_min_sonic_similarity(candidate_pool_cfg: dict, mode: Mode) -> Optional[f
         "narrow": 0.12,   # Phase 2A: Relaxed from 0.18 (matches mode_presets.py)
         "dynamic": 0.05,  # Phase 2A: Relaxed from 0.10 (matches mode_presets.py)
         "discover": 0.00, # Phase 2A: Disabled (matches mode_presets.py)
-        "sonic_only": None,
     }.get(mode, None)
 
     resolved = mode_specific if mode_specific is not None else base
@@ -330,19 +356,19 @@ def default_ds_config(
 ) -> DSPipelineConfig:
     """
     Return mode defaults matching experiments:
-    - artist caps and min_gap: narrow(20%,3), dynamic(12.5%,6), discover(5%,9)
-    - floors roughly: narrow ~0.35, dynamic ~0.30, discover ~0.25 (as in plan)
+    - artist caps and min_gap: strict(25%,3), narrow(20%,3), dynamic(12.5%,6), discover(5%,9)
+    - floors roughly: strict ~0.40, narrow ~0.35, dynamic ~0.28, discover ~0.22
     - hard_floor True only for dynamic
     - pick sensible defaults for top_m and alpha/beta/gamma aligned with current experiments
     Compute max_per_artist_final = ceil(L * max_artist_fraction_final) later in code.
 
     Args:
-        mode: One of "narrow", "dynamic", "discover", "sonic_only"
+        mode: One of "strict", "narrow", "dynamic", "discover"
         playlist_len: Target playlist length
         overrides: Optional dict from config.yaml with keys like 'scoring', 'constraints', etc.
     """
     mode = mode.lower()  # type: ignore[assignment]
-    if mode not in {"strict", "narrow", "dynamic", "discover", "sonic_only"}:
+    if mode not in {"strict", "narrow", "dynamic", "discover"}:
         raise ValueError(f"Unsupported mode {mode}")
 
     # Parse overrides from config.yaml
@@ -359,16 +385,16 @@ def default_ds_config(
     # Mode defaults - can be overridden by config.yaml values
     max_artist_fraction_final = candidate_pool.get(
         "max_artist_fraction",
-        {"strict": 0.25, "narrow": 0.20, "dynamic": 0.125, "discover": 0.05, "sonic_only": 0.125}[mode],
+        {"strict": 0.25, "narrow": 0.20, "dynamic": 0.125, "discover": 0.05}[mode],
     )
     min_gap = constraints.get(
         "min_gap",
-        {"strict": 3, "narrow": 3, "dynamic": 6, "discover": 9, "sonic_only": 6}[mode],
+        {"strict": 3, "narrow": 3, "dynamic": 6, "discover": 9}[mode],
     )
     similarity_floor = candidate_pool.get(
         "similarity_floor",
         # Shift each mode narrower: higher floors for tighter cohesion.
-        {"strict": 0.40, "narrow": 0.35, "dynamic": 0.28, "discover": 0.22, "sonic_only": 0.0}[mode],
+        {"strict": 0.40, "narrow": 0.35, "dynamic": 0.28, "discover": 0.22}[mode],
     )
     min_sonic_similarity = get_min_sonic_similarity(candidate_pool, mode)
     broad_filters_cfg_raw = candidate_pool.get("broad_filters", None)
@@ -395,7 +421,6 @@ def default_ds_config(
         "narrow": max(int((playlist_len + 1) // 2), 12),
         "dynamic": max(int(round(0.75 * playlist_len)), 16),
         "discover": min(playlist_len, 24),
-        "sonic_only": max(int(round(0.75 * playlist_len)), 16),
     }[mode]
 
     seed_artist_bonus = 2
@@ -406,8 +431,6 @@ def default_ds_config(
         if mode == "narrow":
             return max(3, min(2 * max_per_artist_final, 8))
         if mode == "dynamic":
-            return max(3, min(2 * max_per_artist_final, 6))
-        if mode == "sonic_only":
             return max(3, min(2 * max_per_artist_final, 6))
         return max(2, min(2 * max_per_artist_final, 4))
 
@@ -420,7 +443,7 @@ def default_ds_config(
         min_sonic_similarity=min_sonic_similarity,
         max_pool_size=candidate_pool.get(
             "max_pool_size",
-            {"strict": 600, "narrow": 800, "dynamic": 1200, "discover": 2000, "sonic_only": 1200}[mode],
+            {"strict": 600, "narrow": 800, "dynamic": 1200, "discover": 2000}[mode],
         ),
         target_artists=target_artists,
         candidates_per_artist=_candidate_per_artist(max_per_artist_final_est),
@@ -485,33 +508,33 @@ def default_ds_config(
         alpha=scoring.get(
             "alpha",
             # Lean more on seed similarity for all modes (narrowest gets highest).
-            {"strict": 0.75, "narrow": 0.70, "dynamic": 0.62, "discover": 0.50, "sonic_only": 0.55}[mode],
+            {"strict": 0.75, "narrow": 0.70, "dynamic": 0.62, "discover": 0.50}[mode],
         ),
         alpha_start=scoring.get(
             "alpha_start",
-            {"strict": 0.75, "narrow": 0.70, "dynamic": 0.65, "discover": 0.55, "sonic_only": 0.65}[mode],
+            {"strict": 0.75, "narrow": 0.70, "dynamic": 0.65, "discover": 0.55}[mode],
         ),
         alpha_mid=scoring.get(
             "alpha_mid",
-            {"strict": 0.75, "narrow": 0.70, "dynamic": 0.50, "discover": 0.35, "sonic_only": 0.45}[mode],
+            {"strict": 0.75, "narrow": 0.70, "dynamic": 0.50, "discover": 0.35}[mode],
         ),
         alpha_end=scoring.get(
             "alpha_end",
-            {"strict": 0.75, "narrow": 0.70, "dynamic": 0.62, "discover": 0.50, "sonic_only": 0.60}[mode],
+            {"strict": 0.75, "narrow": 0.70, "dynamic": 0.62, "discover": 0.50}[mode],
         ),
         arc_midpoint=scoring.get("arc_midpoint", 0.55),
         beta=scoring.get(
             "beta",
-            {"strict": 0.50, "narrow": 0.55, "dynamic": 0.58, "discover": 0.62, "sonic_only": 0.45}[mode],
+            {"strict": 0.50, "narrow": 0.55, "dynamic": 0.58, "discover": 0.62}[mode],
         ),
         gamma=scoring.get(
             "gamma",
             # Dial back diversity bonus to favor tighter cohesion.
-            {"strict": 0.005, "narrow": 0.01, "dynamic": 0.025, "discover": 0.06, "sonic_only": 0.04}[mode],
+            {"strict": 0.005, "narrow": 0.01, "dynamic": 0.025, "discover": 0.06}[mode],
         ),
         hard_floor=constraints.get(
             "hard_floor",
-            True if mode in {"dynamic", "sonic_only"} else False,
+            True if mode == "dynamic" else False,
         ),
         transition_gamma=1.0,
         transition_floor=float(pier_tuning.transition_floor),
@@ -531,9 +554,7 @@ def default_ds_config(
     )
 
     # Log resolved threshold values for diagnostic purposes (Phase 2A/2B/3A implementation)
-    import logging
-    logger = logging.getLogger(__name__)
-    logger.info(
+    _logger.info(
         "DS Pipeline Resolved Thresholds: mode=%s | "
         "sonic_floor=%s | genre_floor=N/A (see genre_similarity) | "
         "bridge_floor=%.3f | transition_floor=%.3f | "
