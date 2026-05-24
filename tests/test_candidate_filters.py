@@ -575,6 +575,12 @@ def test_one_each_retries_with_relaxed_candidate_gate_when_pier_bridge_infeasibl
             "candidate_pool": {
                 "genre_compatibility_enabled": True,
                 "genre_compatibility_penalty_strength": 0.3,
+                # After the Task 2 dedup refactor, get_min_sonic_similarity() returns None
+                # when no override is set (apply_mode_presets() is now the sole writer in
+                # the normal path). Provide an explicit value so the retry-relaxation
+                # comparison on line 591 is between real floats. 0.20 matches the "narrow"
+                # sonic-mode preset value from mode_presets.py.
+                "min_sonic_similarity": 0.20,
             },
             "pier_bridge": {"max_non_seed_tracks_per_artist": 1},
         },
