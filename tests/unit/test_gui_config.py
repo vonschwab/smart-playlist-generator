@@ -339,8 +339,8 @@ class TestMergeConfigWithOverrides:
         config_data = {
             "playlists": {
                 "count": 8,
+                "cohesion_mode": "dynamic",
                 "ds_pipeline": {
-                    "mode": "dynamic",
                     "tower_weights": {
                         "rhythm": 0.20
                     }
@@ -368,7 +368,7 @@ class TestMergeConfigWithOverrides:
         merged = merge_config_with_overrides(temp_config, overrides)
 
         assert merged["playlists"]["count"] == 10
-        assert merged["playlists"]["ds_pipeline"]["mode"] == "dynamic"
+        assert merged["playlists"]["cohesion_mode"] == "dynamic"
 
     def test_merge_nested_override(self, temp_config):
         """Test merging with nested overrides."""
@@ -387,4 +387,4 @@ class TestMergeConfigWithOverrides:
         merged = merge_config_with_overrides(temp_config, overrides)
 
         assert merged["playlists"]["ds_pipeline"]["tower_weights"]["rhythm"] == 0.30
-        assert merged["playlists"]["ds_pipeline"]["mode"] == "dynamic"
+        assert merged["playlists"]["cohesion_mode"] == "dynamic"
