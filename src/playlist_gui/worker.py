@@ -51,6 +51,7 @@ from src.playlist.analyze_library_results import (
     parse_analyze_library_report,
     parse_analyze_library_stage_progress,
 )
+from src.playlist.config import resolve_cohesion_mode
 from src.playlist.request_models import GeneratePlaylistRequest, LibraryPipelineRequest
 from .utils.redaction import redact_text
 
@@ -1132,10 +1133,10 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
             metadata_client=metadata
         )
 
-        # Get DS pipeline mode from config
-        # Note: genre_mode and sonic_mode are SEPARATE settings that control weighting,
-        # not the pipeline algorithm. They are already applied to the config via overrides.
-        ds_mode = config.get('playlists', {}).get('ds_pipeline', {}).get('mode', 'dynamic')
+        # Resolve cohesion_mode — drives pier-bridge beam tuning.
+        # genre_mode/sonic_mode/pace_mode are independent axes that affect
+        # candidate pool composition, not beam scoring.
+        cohesion_mode = resolve_cohesion_mode(config.get('playlists', {}))
 
         # Log which modes are active
         genre_mode = request.genre_mode or config.get('playlists', {}).get(
@@ -1152,13 +1153,13 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
         if sonic_mode:
             emit_log("INFO", f"Sonic mode: {sonic_mode}")
         emit_log("INFO", f"Pace mode: {pace_mode}")
-        emit_log("INFO", f"DS pipeline mode: {ds_mode}")
+        emit_log("INFO", f"Cohesion mode: {cohesion_mode}")
 
         # Cancellation check before generation
         check_cancelled()
 
         emit_progress("generate", 60, 100, "Generating playlist")
-        emit_log("INFO", f"Running playlist generation with mode={ds_mode}")
+        emit_log("INFO", f"Running playlist generation with cohesion_mode={cohesion_mode}")
 
         if mode == "artist" and artist:
             # Single artist mode
@@ -1167,8 +1168,8 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                 track_count,
                 track_title=track_title,
                 track_titles=seed_tracks,
-                dynamic=(ds_mode == "dynamic"),
-                ds_mode_override=ds_mode,
+                dynamic=(cohesion_mode == "dynamic"),
+                cohesion_mode_override=cohesion_mode,
                 include_collaborations=include_collaborations,
             )
         elif mode == "seeds" and seed_tracks:
@@ -1176,8 +1177,8 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
             playlist_data = generator.create_playlist_from_seed_tracks(
                 seed_tracks,
                 track_count=track_count,
-                dynamic=(ds_mode == "dynamic"),
-                ds_mode_override=ds_mode,
+                dynamic=(cohesion_mode == "dynamic"),
+                cohesion_mode_override=cohesion_mode,
                 seed_track_ids=seed_track_ids,
             )
         elif mode == "artist" and seed_tracks:
@@ -1185,8 +1186,8 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
             playlist_data = generator.create_playlist_from_seed_tracks(
                 seed_tracks,
                 track_count=track_count,
-                dynamic=(ds_mode == "dynamic"),
-                ds_mode_override=ds_mode,
+                dynamic=(cohesion_mode == "dynamic"),
+                cohesion_mode_override=cohesion_mode,
                 seed_track_ids=seed_track_ids,
             )
         elif mode == "genre" and genre:
@@ -1194,15 +1195,15 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
             playlist_data = generator.create_playlist_for_genre(
                 genre,
                 track_count,
-                dynamic=(ds_mode == "dynamic"),
-                ds_mode_override=ds_mode,
+                dynamic=(cohesion_mode == "dynamic"),
+                cohesion_mode_override=cohesion_mode,
             )
         elif mode == "history":
             # Config/history-driven mode, matching the CLI batch-generation flow.
             playlists = generator.create_playlist_batch(
                 1,
-                dynamic=(ds_mode == "dynamic"),
-                ds_mode_override=ds_mode,
+                dynamic=(cohesion_mode == "dynamic"),
+                cohesion_mode_override=cohesion_mode,
             )
             playlist_data = playlists[0] if playlists else None
         else:
