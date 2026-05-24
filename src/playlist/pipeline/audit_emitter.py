@@ -104,7 +104,7 @@ class AuditEmitter:
         self._context = RunAuditContext(
             timestamp_utc=now_utc_iso(),
             run_id=run_id,
-            ds_mode=str(mode),
+            cohesion_mode=str(mode),
             seed_track_id=str(seed_track_id),
             seed_artist=seed_artist_val,
             dry_run=bool(dry_run),

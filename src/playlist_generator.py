@@ -2447,7 +2447,7 @@ class PlaylistGenerator:
                 ]
                 style_summary = {
                     "artist": str(artist_name),
-                    "ds_mode": str(cohesion_mode_effective),
+                    "cohesion_mode": str(cohesion_mode_effective),
                     "sonic_variant": str(sonic_variant_cfg),
                     "seed_epoch": int(seed_epoch or 0),
                     "medoid_top_k": int(medoid_top_k),
@@ -4365,7 +4365,7 @@ class PlaylistGenerator:
             verbose_edges=verbose_edges,
             last_ds_report=getattr(self, "_last_ds_report", None),
             last_scope=getattr(self, "_last_scope", None),
-            last_ds_mode=getattr(self, "_last_ds_mode", None),
+            last_cohesion_mode=getattr(self, "_last_ds_mode", None),
         )
 
 

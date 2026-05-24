@@ -35,7 +35,7 @@ class InfeasibleHandlingConfig:
 class RunAuditContext:
     timestamp_utc: str
     run_id: str
-    ds_mode: str
+    cohesion_mode: str
     seed_track_id: str
     seed_artist: Optional[str]
     dry_run: bool
@@ -142,7 +142,7 @@ def write_markdown_report(
     lines.append("## 1) Run Metadata")
     lines.append(f"- timestamp_utc: `{context.timestamp_utc}`")
     lines.append(f"- run_id: `{context.run_id}`")
-    lines.append(f"- ds_mode: `{context.ds_mode}`")
+    lines.append(f"- cohesion_mode: `{context.cohesion_mode}`")
     lines.append(f"- seed_track_id: `{context.seed_track_id}`")
     lines.append(f"- seed_artist: `{context.seed_artist or ''}`")
     lines.append(f"- dry_run: `{context.dry_run}`")

@@ -447,7 +447,7 @@ def print_playlist_report(
     verbose_edges: bool = False,
     last_ds_report: Optional[Dict[str, Any]] = None,
     last_scope: Optional[str] = None,
-    last_ds_mode: Optional[str] = None,
+    last_cohesion_mode: Optional[str] = None,
 ):
     """
     Print detailed track report showing how each track was selected.
@@ -459,7 +459,7 @@ def print_playlist_report(
         verbose_edges: Whether to print per-edge scores when available (DS)
         last_ds_report: Last DS report dictionary
         last_scope: Last scope value
-        last_ds_mode: Last DS mode value
+        last_cohesion_mode: Last cohesion mode value
     """
     logger.info("=" * 80)
     # Pipeline context summary if available
@@ -467,8 +467,8 @@ def print_playlist_report(
     pipeline_ctx.append("pipeline=ds")
     if last_scope is not None:
         pipeline_ctx.append(f"scope={last_scope}")
-    if last_ds_mode is not None:
-        pipeline_ctx.append(f"mode={last_ds_mode}")
+    if last_cohesion_mode is not None:
+        pipeline_ctx.append(f"mode={last_cohesion_mode}")
     if artist_name:
         pipeline_ctx.append(f'seed="{sanitize_for_logging(artist_name)}"')
     ctx_str = " | ".join(pipeline_ctx)

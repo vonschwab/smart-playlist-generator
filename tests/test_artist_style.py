@@ -903,7 +903,7 @@ def test_run_audit_writer_creates_markdown_report(tmp_path):
     ctx = RunAuditContext(
         timestamp_utc=now_utc_iso(),
         run_id="test_run",
-        ds_mode="narrow",
+        cohesion_mode="narrow",
         seed_track_id="a0",
         seed_artist="A",
         dry_run=True,
