@@ -395,17 +395,17 @@ SETTINGS_SCHEMA: List[SettingSpec] = [
     ),
 
     # ─────────────────────────────────────────────────────────────────────────
-    # DS Pipeline Mode
+    # Cohesion Mode
     # ─────────────────────────────────────────────────────────────────────────
     SettingSpec(
-        key_path="playlists.ds_pipeline.mode",
-        label="Pipeline mode",
+        key_path="playlists.cohesion_mode",
+        label="Cohesion mode",
         setting_type=SettingType.CHOICE,
         group="Pipeline",
         default="dynamic",
-        choices=["narrow", "dynamic", "discover", "sonic_only"],
-        tooltip="Overall pipeline behavior",
-        description="Presets that adjust multiple settings: 'narrow' = focused, stay close to seed; 'dynamic' = balanced mix; 'discover' = explore further from seed; 'sonic_only' = ignore genres entirely, pure audio matching."
+        choices=["strict", "narrow", "dynamic", "discover"],
+        tooltip="Overall beam tightness (pier-bridge tuning)",
+        description="Drives how tightly the beam search bridges between pier tracks: 'strict' = ultra-cohesive transitions; 'narrow' = tight; 'dynamic' = balanced (default); 'discover' = looser transitions for exploration. Independent of Genre, Sonic, and Pace which control candidate pool composition."
     ),
 
     # ─────────────────────────────────────────────────────────────────────────

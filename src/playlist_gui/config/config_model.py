@@ -97,7 +97,7 @@ class ConfigModel:
         Get a value by dot-path, checking overrides first, then base config.
 
         Args:
-            key_path: Dot-separated path (e.g., "playlists.ds_pipeline.mode")
+            key_path: Dot-separated path (e.g., "playlists.cohesion_mode")
             default: Value to return if key not found
 
         Returns:
