@@ -205,6 +205,8 @@ like a one-off folk-punk track in the middle of a dream-pop run.
 application); `src/playlist/config.py:268-276` (per-mode resolution); flat
 default `0.20 / 0.10` if no per-mode key is set.
 
+**Note:** Per-mode knobs (`bridge_floor_strict`, `soft_genre_penalty_threshold_narrow`, etc.) are resolved by `playlists.cohesion_mode`. With the default `cohesion_mode: dynamic`, only `*_dynamic` keys apply. Set `cohesion_mode` to `strict`/`narrow`/`discover` to activate those per-mode values. Use `--cohesion-mode` on the CLI to override for a single run.
+
 **Per-mode defaults (post-recalibration).** Adjust in `config.yaml`:
 
 | Mode      | threshold | strength | Role                                    |

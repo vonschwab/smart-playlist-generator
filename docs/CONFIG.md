@@ -173,7 +173,7 @@ If mode settings are present, they OVERRIDE manual `genre_similarity` settings.
 playlists:
   ds_pipeline:
     artifact_path: data/artifacts/beat3tower_32k/data_matrices_step1.npz
-    mode: dynamic                    # narrow, dynamic, discover, sonic_only
+    cohesion_mode: dynamic           # strict, narrow, dynamic (default), discover
     random_seed: 0                   # For reproducibility (0 = random)
     enable_logging: true
 
@@ -385,7 +385,7 @@ To override for any run (optional):
 - `playlists.ds_pipeline.pier_bridge.disallow_pier_artists_in_interiors: true`
 
 ### How to verify
-- Run `python main_app.py --artist "Sabrina Carpenter" --ds-mode dynamic --log-level INFO --dry-run`
+- Run `python main_app.py --artist "Sabrina Carpenter" --cohesion-mode dynamic --log-level INFO --dry-run`
 - Confirm the run logs include: `Pier-bridge tuning resolved: mode=dynamic ...`
 - Confirm the run logs include: `Pier-bridge segment policy: artist_playlist=... strategy=...`
 - For penalty visibility, re-run with `--log-level DEBUG` and look for per-segment `soft_genre_penalty_hits=... edges_scored=...` lines.

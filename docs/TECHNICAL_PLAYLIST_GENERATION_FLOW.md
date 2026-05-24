@@ -43,8 +43,10 @@ config._validate_config()      # Validate required fields
 ```
 
 **Configuration Keys Applied:**
-- `playlists.ds_pipeline.mode`: "dynamic" (balanced genre+sonic)
-- `playlists.genre_mode` / `playlists.sonic_mode`: strict | narrow | dynamic | discover | off
+- `playlists.cohesion_mode`: strict | narrow | dynamic (default) | discover — controls pier-bridge beam tightness (bridge floors, transition weights, genre penalty thresholds)
+- `playlists.genre_mode`: strict | narrow | dynamic | discover | off — controls genre pool gating
+- `playlists.sonic_mode`: strict | narrow | dynamic | off — controls sonic pool gating
+- `playlists.pace_mode`: strict | narrow | dynamic | off — controls rhythm gating (independent of sonic_mode)
 - `playlists.genre_similarity.weight`: 0.50 (from mode preset)
 - `playlists.sonic_weight`: 0.50
 - `playlists.ds_pipeline.artifact_path`: Path to sonic embeddings

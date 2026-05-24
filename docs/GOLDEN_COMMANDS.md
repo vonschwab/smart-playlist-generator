@@ -152,22 +152,23 @@ python main_app.py --artist "David Bowie" --track "Life On Mars" --tracks 30
 
 # Generate for specific genre
 python main_app.py --genre "new age" --tracks 30
-python main_app.py --genre "ambient" --ds-mode narrow --tracks 30
+python main_app.py --genre "ambient" --cohesion-mode narrow --tracks 30
 
 # Dry run (preview without creating files)
 python main_app.py --artist "Radiohead" --dry-run
 python main_app.py --genre "experimental" --dry-run
 
-# DS pipeline modes
-python main_app.py --artist "Radiohead" --ds-mode narrow    # Focused
-python main_app.py --artist "Radiohead" --ds-mode dynamic   # Balanced (default)
-python main_app.py --artist "Radiohead" --ds-mode discover  # Exploratory
+# Cohesion mode (beam tightness)
+python main_app.py --artist "Radiohead" --cohesion-mode strict    # Tightest beam
+python main_app.py --artist "Radiohead" --cohesion-mode narrow    # Focused
+python main_app.py --artist "Radiohead" --cohesion-mode dynamic   # Balanced (default)
+python main_app.py --artist "Radiohead" --cohesion-mode discover  # Exploratory
+
+# Sonic-only (no genre gating): combine genre_mode=off with relaxed beam
+# python main_app.py --artist "Radiohead" --genre-mode off --cohesion-mode discover
 
 # Generate from listening history
 python main_app.py
-
-# Sonic-only mode (no genre filtering)
-python main_app.py --artist "Radiohead" --ds-mode sonic_only
 ```
 
 **Inputs:** `config.yaml`, `data/metadata.db`, artifacts
