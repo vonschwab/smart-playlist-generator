@@ -2302,7 +2302,7 @@ class PlaylistGenerator:
             genre_neighbor_compatible_threshold=float(style_cfg_raw.get("genre_neighbor_compatible_threshold", 0.35)),
             genre_neighbor_conflict_threshold=float(style_cfg_raw.get("genre_neighbor_conflict_threshold", 0.15)),
         )
-        playlists_cfg = self.config.get("playlists", default={}) or {}
+        playlists_cfg = self.config.config.get("playlists", {}) or {}
         cohesion_mode_effective = cohesion_mode_override or ("dynamic" if dynamic else resolve_cohesion_mode(playlists_cfg))
         artifact_path = ds_cfg.get("artifact_path")
         pool_source = "legacy"
@@ -2935,7 +2935,7 @@ class PlaylistGenerator:
         logger.info(f"DS scope: genre (allowed_ids={len(allowed_track_ids)})")
 
         # Determine cohesion mode
-        playlists_cfg = self.config.get("playlists", default={}) or {}
+        playlists_cfg = self.config.config.get("playlists", {}) or {}
         cohesion_mode_effective = cohesion_mode_override or ("dynamic" if dynamic else resolve_cohesion_mode(playlists_cfg))
 
         logger.info(f"Running pipeline with mode={cohesion_mode_effective}")
@@ -3223,7 +3223,7 @@ class PlaylistGenerator:
                 genre_neighbor_compatible_threshold=float(style_cfg_raw.get("genre_neighbor_compatible_threshold", 0.35)),
                 genre_neighbor_conflict_threshold=float(style_cfg_raw.get("genre_neighbor_conflict_threshold", 0.15)),
             )
-            playlists_cfg = self.config.get("playlists", default={}) or {}
+            playlists_cfg = self.config.config.get("playlists", {}) or {}
             cohesion_mode_effective = cohesion_mode_override or ("dynamic" if dynamic else resolve_cohesion_mode(playlists_cfg))
             style_seed_track_id = seeds[0].get('rating_key') if seeds else None
             style_anchor_tracks = seeds

@@ -67,6 +67,7 @@ playlists:
   # genre_mode: dynamic
   # sonic_mode: dynamic
   # pace_mode: dynamic
+  # cohesion_mode: dynamic
   #
   # ═══════════════════════════════════════════════════════════════════════════
 
@@ -94,9 +95,9 @@ playlists:
   max_artist_per_window: 1
   min_seed_artist_ratio: 0.125
   pipeline: ds
+  cohesion_mode: dynamic
   ds_pipeline:
     artifact_path: data/artifacts/beat3tower_32k/data_matrices_step1.npz
-    mode: dynamic
     random_seed: 0
     enable_logging: true
 
