@@ -2308,7 +2308,7 @@ class PlaylistGenerator:
         pool_source = "legacy"
 
         logger.info(
-            "Artist style mode %s: artist=%s ds_mode=%s",
+            "Artist style mode %s: artist=%s cohesion_mode=%s",
             "ENABLED" if style_cfg.enabled else "DISABLED",
             artist_name,
             cohesion_mode_effective,
@@ -2535,7 +2535,7 @@ class PlaylistGenerator:
                 using_artist_style = True
                 pool_source = "artist_style"
                 logger.info(
-                    "Artist style mode ENABLED: artist=%s ds_mode=%s clusters=%d piers=%d allowed_ids=%d internal_connectors=%d",
+                    "Artist style mode ENABLED: artist=%s cohesion_mode=%s clusters=%d piers=%d allowed_ids=%d internal_connectors=%d",
                     artist_name,
                     cohesion_mode_effective,
                     len(clusters),
@@ -3235,7 +3235,7 @@ class PlaylistGenerator:
             pool_source = "legacy"
             using_artist_style = False
             logger.info(
-                "Artist style mode %s: artist=%s ds_mode=%s",
+                "Artist style mode %s: artist=%s cohesion_mode=%s",
                 "ENABLED" if style_cfg.enabled else "DISABLED",
                 artist,
                 cohesion_mode_effective,
@@ -3403,7 +3403,7 @@ class PlaylistGenerator:
                     using_artist_style = True
                     pool_source = "artist_style"
                     logger.info(
-                        "Artist style mode ENABLED: artist=%s ds_mode=%s clusters=%d piers=%d allowed_ids=%d internal_connectors=%d",
+                        "Artist style mode ENABLED: artist=%s cohesion_mode=%s clusters=%d piers=%d allowed_ids=%d internal_connectors=%d",
                         artist,
                         cohesion_mode_effective,
                         len(clusters),
@@ -4365,7 +4365,7 @@ class PlaylistGenerator:
             verbose_edges=verbose_edges,
             last_ds_report=getattr(self, "_last_ds_report", None),
             last_scope=getattr(self, "_last_scope", None),
-            last_cohesion_mode=getattr(self, "_last_ds_mode", None),
+            last_cohesion_mode=getattr(self, "_last_cohesion_mode", None),
         )
 
 
