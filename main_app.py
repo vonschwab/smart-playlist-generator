@@ -189,7 +189,7 @@ class PlaylistApp:
         playlists = self.generator.create_playlist_batch(
             playlist_count,
             dynamic=dynamic,
-            ds_mode_override=self.cohesion_mode_override,
+            cohesion_mode_override=self.cohesion_mode_override,
         )
 
         if not playlists:
@@ -494,7 +494,7 @@ class PlaylistApp:
             dynamic=dynamic,
             dry_run=dry_run,
             verbose=verbose,
-            ds_mode_override=self.cohesion_mode_override,
+            cohesion_mode_override=self.cohesion_mode_override,
             artist_only=artist_only,
             anchor_seed_ids=anchor_seed_ids,
         )
@@ -514,7 +514,7 @@ class PlaylistApp:
             dynamic=dynamic,
             dry_run=dry_run,
             verbose=verbose,
-            ds_mode_override=self.cohesion_mode_override,
+            cohesion_mode_override=self.cohesion_mode_override,
         )
 
 
