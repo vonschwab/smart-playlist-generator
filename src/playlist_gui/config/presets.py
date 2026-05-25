@@ -1,23 +1,29 @@
 """
-Presets Manager - Handles saving/loading preset configurations.
+Presets Manager - Handles saving/loading UIState preset configurations.
 
 Presets are stored under %APPDATA%\\PlaylistGenerator\\presets\\ on Windows.
-Each preset is a YAML file containing only the overrides (not the full config).
+Each preset is a YAML file containing the full UIStateModel.
 """
+import json
+import logging
 import os
-from dataclasses import asdict, fields
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from dataclasses import asdict, fields
 
 import yaml
 
-from src.playlist_gui.ui_state import UIStateModel
+from ..ui_state import UIStateModel
 
 try:
     import platformdirs
 except ImportError:
     platformdirs = None
+
+logger = logging.getLogger(__name__)
+
+PRESET_VERSION = 1
 
 
 def get_app_data_dir() -> Path:
@@ -25,7 +31,6 @@ def get_app_data_dir() -> Path:
     if platformdirs:
         base = platformdirs.user_data_dir("PlaylistGenerator", "PlaylistGenerator")
     else:
-        # Fallback for Windows without platformdirs
         base = os.environ.get("APPDATA", os.path.expanduser("~"))
         base = os.path.join(base, "PlaylistGenerator")
     return Path(base)
@@ -55,13 +60,13 @@ def deserialize_ui_state(data: dict) -> UIStateModel:
 
 class PresetManager:
     """
-    Manages preset storage and retrieval.
+    Manages UIState preset storage and retrieval.
 
     Usage:
         manager = PresetManager()
         presets = manager.list_presets()
-        manager.save_preset("My Preset", overrides_dict)
-        overrides = manager.load_preset("My Preset")
+        manager.save_preset("My Preset", ui_state)
+        state = manager.load_preset("My Preset")
         manager.delete_preset("My Preset")
     """
 
@@ -75,7 +80,6 @@ class PresetManager:
 
     def _get_preset_path(self, name: str) -> Path:
         """Get the file path for a preset by name."""
-        # Sanitize name for filesystem
         safe_name = "".join(c for c in name if c.isalnum() or c in " -_").strip()
         if not safe_name:
             safe_name = "preset"
@@ -83,7 +87,7 @@ class PresetManager:
 
     def list_presets(self) -> List[Dict[str, Any]]:
         """
-        List all available presets.
+        List all available presets (excludes session file).
 
         Returns:
             List of dicts with 'name', 'path', and 'modified' keys
@@ -93,6 +97,8 @@ class PresetManager:
             return presets
 
         for path in sorted(self.presets_dir.glob("*.yaml")):
+            if path.stem.startswith("_"):
+                continue
             presets.append({
                 "name": path.stem,
                 "path": str(path),
@@ -104,16 +110,16 @@ class PresetManager:
     def save_preset(
         self,
         name: str,
-        overrides: Dict[str, Any],
-        description: Optional[str] = None
+        state: UIStateModel,
+        description: str = "",
     ) -> Path:
         """
-        Save overrides as a preset.
+        Save UIState as a named preset.
 
         Args:
             name: Preset name (used as filename)
-            overrides: Dictionary of override values
-            description: Optional description for the preset
+            state: UIStateModel to persist
+            description: Optional description
 
         Returns:
             Path to the saved preset file
@@ -123,9 +129,9 @@ class PresetManager:
 
         data = {
             "name": name,
-            "description": description or "",
-            "created": datetime.now().isoformat(),
-            "overrides": overrides
+            "description": description,
+            "version": PRESET_VERSION,
+            "state": serialize_ui_state(state),
         }
 
         with open(path, "w", encoding="utf-8") as f:
@@ -133,55 +139,52 @@ class PresetManager:
 
         return path
 
-    def load_preset(self, name: str) -> Optional[Dict[str, Any]]:
+    def load_preset(self, name: str) -> Optional[UIStateModel]:
         """
-        Load a preset's overrides.
+        Load a preset as UIStateModel.
 
         Args:
             name: Preset name
 
         Returns:
-            Dictionary of overrides, or None if not found
+            UIStateModel, or None if not found or corrupt
         """
         path = self._get_preset_path(name)
         if not path.exists():
             return None
 
-        with open(path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+        except Exception:
+            logger.warning("Failed to parse preset file: %s", path)
+            return None
 
-        if data and "overrides" in data:
-            return data["overrides"]
+        if not data or "state" not in data:
+            return None
 
-        return None
+        return deserialize_ui_state(data["state"])
 
     def load_preset_full(self, name: str) -> Optional[Dict[str, Any]]:
         """
         Load full preset data including metadata.
 
-        Args:
-            name: Preset name
-
         Returns:
-            Full preset dict with name, description, created, and overrides
+            Full preset dict with name, description, version, and state
         """
         path = self._get_preset_path(name)
         if not path.exists():
             return None
 
-        with open(path, "r", encoding="utf-8") as f:
-            return yaml.safe_load(f)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return yaml.safe_load(f)
+        except Exception:
+            logger.warning("Failed to parse preset file: %s", path)
+            return None
 
     def delete_preset(self, name: str) -> bool:
-        """
-        Delete a preset.
-
-        Args:
-            name: Preset name
-
-        Returns:
-            True if deleted, False if not found
-        """
+        """Delete a preset. Returns True if deleted."""
         path = self._get_preset_path(name)
         if path.exists():
             path.unlink()
@@ -192,33 +195,50 @@ class PresetManager:
         """Check if a preset with the given name exists."""
         return self._get_preset_path(name).exists()
 
+    def save_session(self, state: UIStateModel) -> Path:
+        """Save current UIState as session file for restore on next launch."""
+        self._ensure_dir_exists()
+        path = self.presets_dir / "_session.json"
+        data = {
+            "version": PRESET_VERSION,
+            "state": serialize_ui_state(state),
+        }
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        return path
+
+    def load_session(self) -> Optional[UIStateModel]:
+        """Load session UIState. Returns None if missing or corrupt."""
+        path = self.presets_dir / "_session.json"
+        if not path.exists():
+            return None
+
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            logger.warning("Failed to load session file: %s", path)
+            return None
+
+        if not data or "state" not in data:
+            return None
+
+        return deserialize_ui_state(data["state"])
+
     def export_preset(self, name: str, export_path: str) -> bool:
-        """
-        Export a preset to a specific path.
-
-        Args:
-            name: Preset name
-            export_path: Destination path
-
-        Returns:
-            True if exported successfully
-        """
-        data = self.load_preset_full(name)
-        if data is None:
+        """Export a preset to a specific path."""
+        full = self.load_preset_full(name)
+        if full is None:
             return False
 
         with open(export_path, "w", encoding="utf-8") as f:
-            yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False)
+            yaml.safe_dump(full, f, default_flow_style=False, sort_keys=False)
 
         return True
 
     def import_preset(self, import_path: str, name: Optional[str] = None) -> Optional[str]:
         """
         Import a preset from a file.
-
-        Args:
-            import_path: Source file path
-            name: Override the preset name (uses file's name if None)
 
         Returns:
             The imported preset name, or None if failed
@@ -227,129 +247,16 @@ class PresetManager:
         if not path.exists():
             return None
 
-        with open(path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+        except Exception:
+            return None
 
-        if not data or "overrides" not in data:
+        if not data or "state" not in data:
             return None
 
         preset_name = name or data.get("name") or path.stem
-        self.save_preset(
-            preset_name,
-            data["overrides"],
-            data.get("description")
-        )
-
+        state = deserialize_ui_state(data["state"])
+        self.save_preset(preset_name, state, data.get("description", ""))
         return preset_name
-
-
-# Built-in presets that ship with the application
-BUILTIN_PRESETS = {
-    "Focused": {
-        "description": "Narrow, cohesive playlists similar to seed",
-        "overrides": {
-            "playlists": {
-                "ds_pipeline": {
-                    "mode": "narrow",
-                    "scoring": {
-                        "alpha": 0.70,
-                        "gamma": 0.01
-                    },
-                    "candidate_pool": {
-                        "similarity_floor": 0.35,
-                        "max_pool_size": 500
-                    }
-                }
-            }
-        }
-    },
-    "Discovery": {
-        "description": "Explore new music with varied selections",
-        "overrides": {
-            "playlists": {
-                "ds_pipeline": {
-                    "mode": "discover",
-                    "scoring": {
-                        "alpha": 0.40,
-                        "gamma": 0.10
-                    },
-                    "candidate_pool": {
-                        "similarity_floor": 0.10,
-                        "max_pool_size": 2000
-                    }
-                }
-            }
-        }
-    },
-    "Smooth Transitions": {
-        "description": "Prioritize smooth track-to-track flow",
-        "overrides": {
-            "playlists": {
-                "ds_pipeline": {
-                    "scoring": {
-                        "beta": 0.70
-                    },
-                    "constraints": {
-                        "transition_floor": 0.30
-                    },
-                    "repair": {
-                        "enabled": True
-                    }
-                }
-            }
-        }
-    },
-    "Artist Variety": {
-        "description": "Maximize artist diversity",
-        "overrides": {
-            "playlists": {
-                "ds_pipeline": {
-                    "scoring": {
-                        "gamma": 0.08
-                    },
-                    "constraints": {
-                        "min_gap": 8
-                    },
-                    "candidate_pool": {
-                        "max_artist_fraction": 0.08
-                    }
-                }
-            }
-        }
-    },
-    "Pure Sonic": {
-        "description": "Audio similarity only, ignore genres",
-        "overrides": {
-            "playlists": {
-                "ds_pipeline": {
-                    "mode": "sonic_only",
-                    "embedding": {
-                        "sonic_weight": 1.0,
-                        "genre_weight": 0.0
-                    }
-                },
-                "genre_similarity": {
-                    "enabled": False
-                }
-            }
-        }
-    }
-}
-
-
-def install_builtin_presets(manager: PresetManager) -> int:
-    """
-    Install built-in presets if they don't exist.
-
-    Args:
-        manager: PresetManager instance
-
-    Returns:
-        Number of presets installed
-    """
-    installed = 0
-    for name, data in BUILTIN_PRESETS.items():
-        if not manager.preset_exists(name):
-            manager.save_preset(name, data["overrides"], data["description"])
-            installed += 1
-    return installed
