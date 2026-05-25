@@ -28,6 +28,7 @@ POLICY_OWNED_KEYS: Set[str] = {
     "playlists.genre_mode",
     "playlists.sonic_mode",
     "playlists.pace_mode",
+    "playlists.cohesion_mode",
     # Recency settings (controlled by simplified UI)
     "playlists.recently_played_filter.enabled",
     "playlists.recently_played_filter.lookback_days",
@@ -60,6 +61,7 @@ This ensures the simplified UI controls take precedence.
 
 VALID_MODES: Set[str] = {"strict", "narrow", "dynamic", "discover", "off"}
 VALID_PACE_MODES: Set[str] = {"strict", "narrow", "dynamic", "off"}
+VALID_COHESION_MODES: Set[str] = {"strict", "narrow", "dynamic", "discover"}
 
 COHESION_MAP: Dict[str, tuple[str, str]] = {
     "tight": ("strict", "strict"),
@@ -270,9 +272,14 @@ def derive_runtime_config(
     _set_nested(overrides, "playlists.sonic_mode", sonic_mode)
     pace_mode = ui.pace_mode if getattr(ui, "pace_mode", "dynamic") in VALID_PACE_MODES else "dynamic"
     _set_nested(overrides, "playlists.pace_mode", pace_mode)
+    cohesion_mode = getattr(ui, "cohesion_mode", "dynamic")
+    if cohesion_mode not in VALID_COHESION_MODES:
+        cohesion_mode = "dynamic"
+    _set_nested(overrides, "playlists.cohesion_mode", cohesion_mode)
     notes.append(f"Genre mode: {genre_mode}")
     notes.append(f"Sonic mode: {sonic_mode}")
     notes.append(f"Pace mode: {pace_mode}")
+    notes.append(f"Cohesion mode: {cohesion_mode}")
 
     # ─────────────────────────────────────────────────────────────────────
     # 2. Track count

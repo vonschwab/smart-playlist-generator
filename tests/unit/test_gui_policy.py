@@ -8,6 +8,7 @@ Created: Phase 1 of GUI "Just Works" implementation
 """
 from __future__ import annotations
 
+import pytest
 
 from src.playlist_gui.ui_state import UIStateModel
 from src.playlist_gui.policy import (
@@ -646,3 +647,48 @@ class TestIntegration:
         assert _get_nested(o, "playlists.sonic_mode") == "strict"
         assert _get_nested(o, "playlists.tracks_per_playlist") == 20
         assert _get_nested(o, "playlists.recently_played_filter.enabled") is False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Cohesion Mode Derivation Tests (sub-project B)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestCohesionModeDerivation:
+    """Tests that policy.derive_runtime_config writes playlists.cohesion_mode."""
+
+    def test_cohesion_mode_in_policy_owned_keys(self):
+        from src.playlist_gui.policy import POLICY_OWNED_KEYS
+
+        assert "playlists.cohesion_mode" in POLICY_OWNED_KEYS
+
+    @pytest.mark.parametrize(
+        "mode", ["strict", "narrow", "dynamic", "discover"]
+    )
+    def test_each_valid_mode_writes_through(self, mode):
+        from src.playlist_gui.policy import derive_runtime_config
+        from src.playlist_gui.ui_state import UIStateModel
+
+        state = UIStateModel(cohesion_mode=mode)
+        decisions = derive_runtime_config(state)
+        assert (
+            decisions.overrides["playlists"]["cohesion_mode"] == mode
+        ), f"Expected {mode}, got {decisions.overrides['playlists'].get('cohesion_mode')}"
+
+    def test_invalid_cohesion_mode_falls_back_to_dynamic(self):
+        from src.playlist_gui.policy import derive_runtime_config
+        from src.playlist_gui.ui_state import UIStateModel
+
+        state = UIStateModel()
+        # Bypass dataclass type-checking by setting attr directly
+        object.__setattr__(state, "cohesion_mode", "garbage")
+        decisions = derive_runtime_config(state)
+        assert decisions.overrides["playlists"]["cohesion_mode"] == "dynamic"
+
+    def test_cohesion_mode_default_is_dynamic(self):
+        from src.playlist_gui.policy import derive_runtime_config
+        from src.playlist_gui.ui_state import UIStateModel
+
+        state = UIStateModel()  # default cohesion_mode = "dynamic"
+        decisions = derive_runtime_config(state)
+        assert decisions.overrides["playlists"]["cohesion_mode"] == "dynamic"
