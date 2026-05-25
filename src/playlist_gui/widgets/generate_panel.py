@@ -153,7 +153,7 @@ class GeneratePanel(QWidget):
         recency_layout.setContentsMargins(0, 0, 0, 0)
         recency_layout.setSpacing(4)
 
-        self._recency_check = QCheckBox("Enabled")
+        self._recency_check = QCheckBox("")
         self._recency_check.setChecked(True)
         self._recency_check.setToolTip("Exclude recently played tracks")
         self._recency_check.toggled.connect(self._on_recency_toggled)
