@@ -282,6 +282,18 @@ class ArtistModePanel(QWidget):
         """Set primary artist text programmatically."""
         self.set_artist(artist)
 
+    def set_presence(self, level: str) -> None:
+        """Set presence level programmatically."""
+        levels = ["very_low", "low", "medium", "high", "very_high"]
+        if level in levels:
+            self._presence_combo.setCurrentIndex(levels.index(level))
+
+    def set_variety(self, level: str) -> None:
+        """Set variety level programmatically."""
+        levels = ["focused", "balanced", "sprawling"]
+        if level in levels:
+            self._variety_slider.setValue(levels.index(level))
+
     def clear(self) -> None:
         """Clear all inputs."""
         self._artist_edit.clear()
@@ -425,11 +437,13 @@ class SeedsModePanel(QWidget):
                     artist=artist,
                 )
 
-        # Fallback: use database query (string parsing required)
+        # Fallback: use database query (string parsing required).
+        # Reaches here only when the completer is unloaded or when the typed
+        # text is ambiguous (multiple tracks share the same title).
         if chip is None:
-            logger.warning(
-                "Seed resolution fallback triggered for display '%s' - "
-                "completer data unavailable or track not found in cache",
+            logger.debug(
+                "Seed resolution using DB fallback for '%s' "
+                "(completer unloaded or ambiguous title match)",
                 display,
             )
             chip = resolve_track_from_display(display, self._db_path)
@@ -497,6 +511,10 @@ class SeedsModePanel(QWidget):
     def get_auto_order(self) -> bool:
         """Check if auto-ordering is enabled."""
         return self._auto_order_check.isChecked()
+
+    def set_auto_order(self, enabled: bool) -> None:
+        """Set auto-order checkbox programmatically."""
+        self._auto_order_check.setChecked(enabled)
 
     def seed_count(self) -> int:
         """Get number of seeds."""
