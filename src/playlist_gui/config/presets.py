@@ -161,9 +161,14 @@ class PresetManager:
             return None
 
         if not data or "state" not in data:
+            logger.warning("Preset file missing 'state' key: %s", path)
             return None
 
-        return deserialize_ui_state(data["state"])
+        try:
+            return deserialize_ui_state(data["state"])
+        except Exception:
+            logger.warning("Failed to deserialize state in: %s", path)
+            return None
 
     def load_preset_full(self, name: str) -> Optional[Dict[str, Any]]:
         """
@@ -223,7 +228,11 @@ class PresetManager:
         if not data or "state" not in data:
             return None
 
-        return deserialize_ui_state(data["state"])
+        try:
+            return deserialize_ui_state(data["state"])
+        except Exception:
+            logger.warning("Failed to deserialize session state in: %s", path)
+            return None
 
     def export_preset(self, name: str, export_path: str) -> bool:
         """Export a preset to a specific path."""
