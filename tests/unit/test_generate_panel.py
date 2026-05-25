@@ -116,7 +116,7 @@ def test_generate_panel_header_uses_named_control_groups(qtbot):
         assert group.objectName() == "controlGroup"
 
     assert panel._mode_group_title.text() == "Mode"
-    assert panel._cohesion_group_title.text() == "OVERALL COHESION"
+    assert panel._cohesion_group_title.text() == "OVERALL\nCOHESION"
     assert panel._matching_group_title.text() == "Matching"
     assert panel._actions_group_title.text() == "Actions"
 

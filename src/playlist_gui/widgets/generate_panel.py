@@ -126,7 +126,7 @@ class GeneratePanel(QWidget):
 
         # Overall cohesion (pier-bridge beam tuning)
         self._cohesion_slider = CohesionSlider()
-        self._create_control_group("cohesion", "OVERALL COHESION", self._cohesion_slider)
+        self._create_control_group("cohesion", "OVERALL\nCOHESION", self._cohesion_slider)
 
         # Genre/Sonic/Pace mode sliders (stacked)
         self._mode_sliders = ModeSliders()
@@ -190,13 +190,27 @@ class GeneratePanel(QWidget):
         gap_label.setObjectName("controlLabel")
         gap_label.setMinimumWidth(68)
         gap_row.addWidget(gap_label)
-        self._spacing_combo = self._create_menu_button(
-            options=[("Normal", "normal"), ("Strong", "strong")],
-            default_value="normal",
-            width=96,
-            tooltip="Tracks between repeated artists\nNormal=6, Strong=9",
-        )
-        gap_row.addWidget(self._spacing_combo)
+
+        self._spacing_levels = ["loose", "normal", "strong", "very_strong"]
+        self._spacing_labels = {"loose": "Loose", "normal": "Normal", "strong": "Strong", "very_strong": "Very Strong"}
+
+        self._spacing_slider = QSlider(Qt.Horizontal)
+        self._spacing_slider.setMinimum(0)
+        self._spacing_slider.setMaximum(len(self._spacing_levels) - 1)
+        self._spacing_slider.setValue(self._spacing_levels.index("normal"))
+        self._spacing_slider.setTickPosition(QSlider.NoTicks)
+        self._spacing_slider.setMinimumWidth(90)
+        self._spacing_slider.setMaximumWidth(130)
+        self._spacing_slider.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        self._spacing_slider.setToolTip("Minimum tracks between repeated artists\nLoose=3, Normal=6, Strong=9, Very Strong=12")
+        self._spacing_slider.valueChanged.connect(self._on_spacing_changed)
+        gap_row.addWidget(self._spacing_slider)
+
+        self._spacing_value = QLabel(self._spacing_labels["normal"])
+        self._spacing_value.setObjectName("modeValue")
+        self._spacing_value.setMinimumWidth(72)
+        self._spacing_value.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+        gap_row.addWidget(self._spacing_value)
         spacing_combined_layout.addLayout(gap_row)
 
         div_row = QHBoxLayout()
@@ -569,6 +583,9 @@ class GeneratePanel(QWidget):
             return "one_per_artist"
         return "weighted"
 
+    def _on_spacing_changed(self, value: int) -> None:
+        self._spacing_value.setText(self._spacing_labels[self._spacing_levels[value]])
+
     def _on_diversity_changed(self, value: int) -> None:
         self._diversity_value.setText(self._diversity_levels[value])
 
@@ -588,7 +605,7 @@ class GeneratePanel(QWidget):
             recency_enabled=self._recency_check.isChecked(),
             recency_days=int(self._recency_days.property("value") or 14),
             recency_plays_threshold=int(self._recency_plays.property("value") or 1),
-            artist_spacing=str(self._spacing_combo.property("value") or "normal"),
+            artist_spacing=self._spacing_levels[self._spacing_slider.value()],
             artist_queries=self._artist_panel.get_artists() if mode == "artist" else [],
             artist_presence=self._artist_panel.get_presence() if mode == "artist" else "medium",
             artist_variety=self._artist_panel.get_variety() if mode == "artist" else "balanced",

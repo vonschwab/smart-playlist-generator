@@ -68,8 +68,10 @@ VALID_COHESION_MODES: Set[str] = {"strict", "narrow", "dynamic", "discover"}
 # ─────────────────────────────────────────────────────────────────────────────
 
 SPACING_MAP: Dict[str, int] = {
+    "loose": 3,
     "normal": 6,
     "strong": 9,
+    "very_strong": 12,
 }
 
 # Artist presence mapping (seed artist target share via per-artist cap)

@@ -324,7 +324,7 @@ class TestArtistSpacing:
 
     def test_spacing_map_completeness(self):
         """Ensure all spacing levels are mapped."""
-        expected_levels = {"normal", "strong"}
+        expected_levels = {"loose", "normal", "strong", "very_strong"}
         assert set(SPACING_MAP.keys()) == expected_levels
 
     def test_normal_spacing(self):
@@ -337,6 +337,16 @@ class TestArtistSpacing:
             "playlists.ds_pipeline.constraints.min_gap"
         ) == 6
 
+    def test_loose_spacing(self):
+        """Loose spacing should map to min_gap=3."""
+        state = UIStateModel(artist_spacing="loose")
+        decisions = derive_runtime_config(state)
+        assert decisions.min_gap == 3
+        assert _get_nested(
+            decisions.overrides,
+            "playlists.ds_pipeline.constraints.min_gap"
+        ) == 3
+
     def test_strong_spacing(self):
         """Strong spacing should map to min_gap=9."""
         state = UIStateModel(artist_spacing="strong")
@@ -346,6 +356,16 @@ class TestArtistSpacing:
             decisions.overrides,
             "playlists.ds_pipeline.constraints.min_gap"
         ) == 9
+
+    def test_very_strong_spacing(self):
+        """Very strong spacing should map to min_gap=12."""
+        state = UIStateModel(artist_spacing="very_strong")
+        decisions = derive_runtime_config(state)
+        assert decisions.min_gap == 12
+        assert _get_nested(
+            decisions.overrides,
+            "playlists.ds_pipeline.constraints.min_gap"
+        ) == 12
 
 
 class TestArtistDiversity:

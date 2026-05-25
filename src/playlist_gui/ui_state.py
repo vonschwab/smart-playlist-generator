@@ -76,7 +76,7 @@ class UIStateModel:
     # ─────────────────────────────────────────────────────────────────────────
     # Artist spacing
     # ─────────────────────────────────────────────────────────────────────────
-    artist_spacing: Literal["normal", "strong"] = "normal"
+    artist_spacing: Literal["loose", "normal", "strong", "very_strong"] = "normal"
 
     # ─────────────────────────────────────────────────────────────────────────
     # Artist(s) mode specific
