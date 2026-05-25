@@ -305,3 +305,17 @@ def test_generate_panel_clears_validation_on_mode_change(qtbot):
     panel._mode_combo.setCurrentIndex(genre_index)
 
     assert panel._validation_label.isVisibleTo(panel) is False
+
+
+def test_build_ui_state_includes_cohesion_mode(qtbot):
+    """build_ui_state() captures cohesion_mode from the slider."""
+    panel = GeneratePanel()
+    qtbot.addWidget(panel)
+
+    panel._cohesion_slider.set_cohesion_mode("strict")
+    state = panel.build_ui_state()
+    assert state.cohesion_mode == "strict"
+
+    panel._cohesion_slider.set_cohesion_mode("discover")
+    state = panel.build_ui_state()
+    assert state.cohesion_mode == "discover"
