@@ -82,7 +82,7 @@ class CohesionSlider(QWidget):
         self._value_label = QLabel(COHESION_MODE_LABELS[self._value])
         self._value_label.setObjectName("modeValue")
         self._value_label.setMinimumWidth(68)
-        self._value_label.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
+        self._value_label.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
         self._value_label.setToolTip(COHESION_MODE_TOOLTIPS[self._value])
         row.addWidget(self._value_label)
 
