@@ -40,6 +40,13 @@ class UIStateModel:
     Newer UI paths may set genre_mode/sonic_mode directly.
     """
 
+    cohesion_mode: Literal["strict", "narrow", "dynamic", "discover"] = "dynamic"
+    """
+    Overall cohesion (pier-bridge beam tightness). Independent of
+    genre_mode/sonic_mode/pace_mode (which control pool composition).
+    Single writer: policy.derive_runtime_config() → playlists.cohesion_mode.
+    """
+
     genre_mode: ModeValue = "narrow"
     sonic_mode: ModeValue = "narrow"
     pace_mode: PaceModeValue = "dynamic"

@@ -51,3 +51,17 @@ class TestCohesionSlider:
         # Slider position 0 = strict (leftmost, tightest)
         # Slider position 3 = discover (rightmost, loosest)
         assert COHESION_MODE_LEVELS == ["strict", "narrow", "dynamic", "discover"]
+
+
+class TestUIStateModelCohesionMode:
+    def test_ui_state_has_cohesion_mode_field_default_dynamic(self):
+        from src.playlist_gui.ui_state import UIStateModel
+
+        state = UIStateModel()
+        assert state.cohesion_mode == "dynamic"
+
+    def test_ui_state_cohesion_mode_settable(self):
+        from src.playlist_gui.ui_state import UIStateModel
+
+        state = UIStateModel(cohesion_mode="strict")
+        assert state.cohesion_mode == "strict"
