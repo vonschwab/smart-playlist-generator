@@ -12,7 +12,6 @@ import pytest
 
 from src.playlist_gui.ui_state import UIStateModel
 from src.playlist_gui.policy import (
-    COHESION_MAP,
     SPACING_MAP,
     derive_runtime_config,
     merge_overrides,
@@ -42,7 +41,6 @@ class TestUIStateModel:
         """Test default values are correct."""
         state = UIStateModel()
         assert state.mode == "artist"
-        assert state.cohesion == "balanced"
         assert state.track_count == 30
         assert state.recency_enabled is True
         assert state.recency_days == 14
@@ -80,75 +78,12 @@ class TestUIStateModel:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Cohesion Mapping Tests
+# Mode Pass-Through Tests
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-class TestCohesionMapping:
-    """Tests for cohesion → genre_mode/sonic_mode mapping."""
-
-    def test_cohesion_map_completeness(self):
-        """Ensure all cohesion levels are mapped."""
-        expected_levels = {"tight", "balanced", "wide", "discover"}
-        assert set(COHESION_MAP.keys()) == expected_levels
-
-    def test_cohesion_monotonic_progression(self):
-        """
-        Test that cohesion mapping is monotonic.
-
-        The progression tight → balanced → wide → discover should
-        correspond to increasing exploration (looser matching).
-        """
-        # Define expected strictness order
-        mode_strictness = {
-            "strict": 0,
-            "narrow": 1,
-            "dynamic": 2,
-            "discover": 3,
-        }
-
-        levels = ["tight", "balanced", "wide", "discover"]
-        previous_strictness = -1
-
-        for level in levels:
-            genre_mode, sonic_mode = COHESION_MAP[level]
-            # Both modes should be same for simplicity
-            assert genre_mode == sonic_mode, f"Cohesion '{level}' has asymmetric modes"
-
-            strictness = mode_strictness[genre_mode]
-            assert strictness > previous_strictness, (
-                f"Cohesion progression broken at '{level}': "
-                f"expected strictness > {previous_strictness}, got {strictness}"
-            )
-            previous_strictness = strictness
-
-    def test_cohesion_tight(self):
-        """Test tight cohesion maps to strict modes."""
-        state = UIStateModel(cohesion="tight")
-        decisions = derive_runtime_config(state)
-        assert _get_nested(decisions.overrides, "playlists.genre_mode") == "strict"
-        assert _get_nested(decisions.overrides, "playlists.sonic_mode") == "strict"
-
-    def test_cohesion_balanced(self):
-        """Test balanced cohesion maps to narrow modes."""
-        state = UIStateModel(cohesion="balanced")
-        decisions = derive_runtime_config(state)
-        assert _get_nested(decisions.overrides, "playlists.genre_mode") == "narrow"
-        assert _get_nested(decisions.overrides, "playlists.sonic_mode") == "narrow"
-
-    def test_cohesion_wide(self):
-        """Test wide cohesion maps to dynamic modes."""
-        state = UIStateModel(cohesion="wide")
-        decisions = derive_runtime_config(state)
-        assert _get_nested(decisions.overrides, "playlists.genre_mode") == "dynamic"
-        assert _get_nested(decisions.overrides, "playlists.sonic_mode") == "dynamic"
-
-    def test_cohesion_discover(self):
-        """Test discover cohesion maps to discover modes."""
-        state = UIStateModel(cohesion="discover")
-        decisions = derive_runtime_config(state)
-        assert _get_nested(decisions.overrides, "playlists.genre_mode") == "discover"
-        assert _get_nested(decisions.overrides, "playlists.sonic_mode") == "discover"
+class TestModePassThrough:
+    """Tests for explicit genre_mode/sonic_mode/pace_mode pass-through."""
 
     def test_explicit_off_modes_pass_through(self):
         """Test explicit off modes are preserved for CLI parity."""
@@ -299,19 +234,6 @@ class TestDJBridgingGating:
 class TestGenrePoolGating:
     """Tests for genre pool enable/disable rules."""
 
-    def test_genre_pool_enabled_only_at_discover(self):
-        """Genre pool should only be enabled when cohesion is 'discover'."""
-        for cohesion in ["tight", "balanced", "wide"]:
-            state = UIStateModel(cohesion=cohesion)
-            decisions = derive_runtime_config(state)
-            assert decisions.genre_pool_enabled is False, (
-                f"Genre pool should be disabled for cohesion '{cohesion}'"
-            )
-
-        state = UIStateModel(cohesion="discover")
-        decisions = derive_runtime_config(state)
-        assert decisions.genre_pool_enabled is True
-
     def test_genre_pool_requires_dj_bridging_for_effect(self):
         """
         Genre pool is desired at discover, but requires DJ bridging to work.
@@ -319,7 +241,7 @@ class TestGenrePoolGating:
         When DJ bridging is disabled, genre pool has no effect on pooling strategy.
         """
         # Discover + artist mode (no DJ bridging)
-        state = UIStateModel(mode="artist", cohesion="discover")
+        state = UIStateModel(mode="artist", cohesion_mode="discover", genre_mode="discover", sonic_mode="discover")
         decisions = derive_runtime_config(state)
 
         assert decisions.genre_pool_enabled is True
@@ -336,7 +258,9 @@ class TestGenrePoolGating:
         """When both genre pool and DJ bridging are enabled, use dj_union strategy."""
         state = UIStateModel(
             mode="seeds",
-            cohesion="discover",
+            cohesion_mode="discover",
+            genre_mode="discover",
+            sonic_mode="discover",
             seed_track_ids=["id1", "id2"],
         )
         decisions = derive_runtime_config(
@@ -577,10 +501,12 @@ class TestIntegration:
     """Integration tests combining multiple policy rules."""
 
     def test_full_seeds_mode_discover_flow(self):
-        """Test complete flow for seeds mode with discover cohesion."""
+        """Test complete flow for seeds mode with discover cohesion_mode."""
         state = UIStateModel(
             mode="seeds",
-            cohesion="discover",
+            cohesion_mode="discover",
+            genre_mode="discover",
+            sonic_mode="discover",
             track_count=40,
             recency_enabled=True,
             recency_days=7,
@@ -623,11 +549,13 @@ class TestIntegration:
             o, "playlists.ds_pipeline.pier_bridge.dj_bridging.pooling.k_genre"
         ) == 80
 
-    def test_artist_mode_tight_flow(self):
-        """Test complete flow for artist mode with tight cohesion."""
+    def test_artist_mode_strict_flow(self):
+        """Test complete flow for artist mode with strict cohesion_mode."""
         state = UIStateModel(
             mode="artist",
-            cohesion="tight",
+            cohesion_mode="strict",
+            genre_mode="strict",
+            sonic_mode="strict",
             track_count=20,
             recency_enabled=False,
             artist_spacing="normal",
@@ -638,7 +566,7 @@ class TestIntegration:
 
         # DJ bridging should be disabled for artist mode
         assert decisions.dj_bridging_enabled is False
-        # Genre pool disabled for tight cohesion
+        # Genre pool disabled when genre_mode is not discover
         assert decisions.genre_pool_enabled is False
         assert decisions.min_gap == 6
 
