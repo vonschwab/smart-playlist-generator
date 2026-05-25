@@ -5,11 +5,14 @@ Presets are stored under %APPDATA%\\PlaylistGenerator\\presets\\ on Windows.
 Each preset is a YAML file containing only the overrides (not the full config).
 """
 import os
+from dataclasses import asdict, fields
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import yaml
+
+from src.playlist_gui.ui_state import UIStateModel
 
 try:
     import platformdirs
@@ -36,6 +39,18 @@ def get_presets_dir() -> Path:
 def get_logs_dir() -> Path:
     """Get the logs directory."""
     return get_app_data_dir() / "logs"
+
+
+def serialize_ui_state(state: UIStateModel) -> dict:
+    """Convert UIStateModel to a plain dict for YAML/JSON storage."""
+    return asdict(state)
+
+
+def deserialize_ui_state(data: dict) -> UIStateModel:
+    """Construct UIStateModel from a dict, ignoring unknown keys and filling missing with defaults."""
+    valid_fields = {f.name for f in fields(UIStateModel)}
+    filtered = {k: v for k, v in data.items() if k in valid_fields}
+    return UIStateModel(**filtered)
 
 
 class PresetManager:
