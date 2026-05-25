@@ -34,12 +34,6 @@ class UIStateModel:
     # ─────────────────────────────────────────────────────────────────────────
     # Genre/Sonic modes (strictness controls for matching)
     # ─────────────────────────────────────────────────────────────────────────
-    cohesion: Literal["tight", "balanced", "wide", "discover"] = "balanced"
-    """
-    Backward-compatible aggregate control for genre_mode and sonic_mode.
-    Newer UI paths may set genre_mode/sonic_mode directly.
-    """
-
     cohesion_mode: Literal["strict", "narrow", "dynamic", "discover"] = "dynamic"
     """
     Overall cohesion (pier-bridge beam tightness). Independent of

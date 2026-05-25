@@ -177,3 +177,7 @@ Error:          #f44336 (red)
 - [ ] Primary button (Generate) clearly distinguished
 - [ ] No startup log spam
 - [ ] Dark theme with good contrast
+
+---
+
+> **Note (2026-05-24):** The `CohesionDial` widget described in this document was never integrated into the GUI and was superseded by the standalone `CohesionSlider` in sub-project B (`docs/superpowers/specs/2026-05-24-cohesion-slider-design.md`).

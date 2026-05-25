@@ -190,3 +190,7 @@ When fewer tracks than requested are returned:
 3. **Auto-ordering visualization**: The auto-order toggle affects drag-drop behavior but actual reordering for bridging would need backend integration to compute optimal order
 
 4. **Track ID format**: Currently using database `id` column as track_id. May need alignment with `rating_key` used by Plex library
+
+---
+
+> **Note (2026-05-24):** The `CohesionDial` widget described in this document was never integrated into the GUI and was superseded by the standalone `CohesionSlider` in sub-project B (`docs/superpowers/specs/2026-05-24-cohesion-slider-design.md`).

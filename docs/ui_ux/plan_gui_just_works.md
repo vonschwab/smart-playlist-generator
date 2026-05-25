@@ -712,3 +712,7 @@ Direct config binding (each UI control directly sets one override) was considere
 **Document Ready for Review**
 
 Path: `docs/ui_ux/plan_gui_just_works.md`
+
+---
+
+> **Note (2026-05-24):** The `CohesionDial` widget described in this document was never integrated into the GUI and was superseded by the standalone `CohesionSlider` in sub-project B (`docs/superpowers/specs/2026-05-24-cohesion-slider-design.md`).
