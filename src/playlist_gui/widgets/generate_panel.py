@@ -100,7 +100,6 @@ class GeneratePanel(QWidget):
             "length",
             "freshness",
             "spacing",
-            "diversity",
             "actions",
         ]
         self._header_group_positions: dict[str, tuple[int, int, int, int]] = {}
@@ -178,26 +177,35 @@ class GeneratePanel(QWidget):
 
         self._create_control_group("freshness", "Freshness", self._recency_container)
 
-        # Artist spacing
-        self._spacing_container = QWidget()
-        spacing_layout = QHBoxLayout(self._spacing_container)
-        spacing_layout.setContentsMargins(0, 0, 0, 0)
-        spacing_layout.setSpacing(4)
+        # Artist Gap + Diversity — combined stacked card
+        spacing_combined = QWidget()
+        spacing_combined_layout = QVBoxLayout(spacing_combined)
+        spacing_combined_layout.setContentsMargins(0, 0, 0, 0)
+        spacing_combined_layout.setSpacing(2)
 
+        gap_row = QHBoxLayout()
+        gap_row.setContentsMargins(0, 0, 0, 0)
+        gap_row.setSpacing(6)
+        gap_label = QLabel("Artist Gap:")
+        gap_label.setObjectName("controlLabel")
+        gap_label.setMinimumWidth(68)
+        gap_row.addWidget(gap_label)
         self._spacing_combo = self._create_menu_button(
             options=[("Normal", "normal"), ("Strong", "strong")],
             default_value="normal",
             width=96,
             tooltip="Tracks between repeated artists\nNormal=6, Strong=9",
         )
-        spacing_layout.addWidget(self._spacing_combo)
-        self._create_control_group("spacing", "Artist Gap", self._spacing_container)
+        gap_row.addWidget(self._spacing_combo)
+        spacing_combined_layout.addLayout(gap_row)
 
-        # Diversity bonus
-        self._diversity_container = QWidget()
-        diversity_layout = QHBoxLayout(self._diversity_container)
-        diversity_layout.setContentsMargins(0, 0, 0, 0)
-        diversity_layout.setSpacing(4)
+        div_row = QHBoxLayout()
+        div_row.setContentsMargins(0, 0, 0, 0)
+        div_row.setSpacing(6)
+        div_label = QLabel("Diversity:")
+        div_label.setObjectName("controlLabel")
+        div_label.setMinimumWidth(68)
+        div_row.addWidget(div_label)
 
         self._diversity_levels = ["Very Low", "Low", "Normal", "High", "Very High", "One Each"]
         self._diversity_values = [0.00, 0.02, 0.04, 0.06, 0.08, 0.08]
@@ -215,15 +223,16 @@ class GeneratePanel(QWidget):
             "Higher values encourage more variety"
         )
         self._diversity_slider.valueChanged.connect(self._on_diversity_changed)
-        diversity_layout.addWidget(self._diversity_slider)
+        div_row.addWidget(self._diversity_slider)
 
         self._diversity_value = QLabel(self._diversity_levels[2])
         self._diversity_value.setObjectName("diversityValue")
         self._diversity_value.setMinimumWidth(72)
         self._diversity_value.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
-        diversity_layout.addWidget(self._diversity_value)
+        div_row.addWidget(self._diversity_value)
+        spacing_combined_layout.addLayout(div_row)
 
-        self._create_control_group("diversity", "Diversity", self._diversity_container)
+        self._create_control_group("spacing", "Spacing", spacing_combined)
 
         # Action buttons in header
         actions_container = QWidget()

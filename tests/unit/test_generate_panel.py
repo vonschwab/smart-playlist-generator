@@ -78,7 +78,7 @@ def test_generate_panel_header_uses_responsive_two_row_layout(qtbot):
 
     panel._reflow_header_groups(2000)
     assert panel._header_row_count == 1
-    assert [panel._header_group_positions[key][0] for key in panel._header_group_order] == [0] * 8
+    assert [panel._header_group_positions[key][0] for key in panel._header_group_order] == [0] * 7
 
     panel._reflow_header_groups(900)
     assert panel._header_row_count == 2
@@ -91,13 +91,12 @@ def test_generate_panel_header_uses_responsive_two_row_layout(qtbot):
     assert [key for key, pos in panel._header_group_positions.items() if pos[0] == 1] == [
         "freshness",
         "spacing",
-        "diversity",
         "actions",
     ]
     assert [panel._header_group_positions[key][3] for key in panel._header_group_order[:4]] == [3, 3, 3, 3]
-    assert [panel._header_group_positions[key][3] for key in panel._header_group_order[4:]] == [4, 4, 4, 4]
+    assert [panel._header_group_positions[key][3] for key in panel._header_group_order[4:]] == [4, 4, 4]
     assert sum(panel._header_group_positions[key][3] for key in panel._header_group_order[:4]) == 12
-    assert sum(panel._header_group_positions[key][3] for key in panel._header_group_order[4:]) == 16
+    assert sum(panel._header_group_positions[key][3] for key in panel._header_group_order[4:]) == 12
 
 
 def test_generate_panel_header_uses_named_control_groups(qtbot):
@@ -111,7 +110,6 @@ def test_generate_panel_header_uses_named_control_groups(qtbot):
         "length",
         "freshness",
         "spacing",
-        "diversity",
         "actions",
     }
     for group in panel._control_groups.values():
