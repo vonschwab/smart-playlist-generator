@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
 from ..autocomplete import DatabaseCompleter
 from ..ui_state import UIStateModel
 from .mode_sliders import ModeSliders
+from .cohesion_slider import CohesionSlider
 from .mode_panels import ArtistModePanel, GenreModePanel, HistoryModePanel, SeedsModePanel
 from .seed_chips import SeedChip
 
@@ -94,6 +95,7 @@ class GeneratePanel(QWidget):
         self._control_groups: dict[str, QFrame] = {}
         self._header_group_order = [
             "mode",
+            "cohesion",
             "matching",
             "length",
             "freshness",
@@ -122,6 +124,10 @@ class GeneratePanel(QWidget):
         mode_layout.addWidget(self._mode_combo)
 
         self._create_control_group("mode", "Mode", mode_container)
+
+        # Overall cohesion (pier-bridge beam tuning)
+        self._cohesion_slider = CohesionSlider()
+        self._create_control_group("cohesion", "OVERALL COHESION", self._cohesion_slider)
 
         # Genre/Sonic/Pace mode sliders (stacked)
         self._mode_sliders = ModeSliders()
@@ -563,6 +569,7 @@ class GeneratePanel(QWidget):
 
         return UIStateModel(
             mode=mode,
+            cohesion_mode=self._cohesion_slider.get_cohesion_mode(),
             genre_mode=self._mode_sliders.get_genre_mode(),
             sonic_mode=self._mode_sliders.get_sonic_mode(),
             pace_mode=self._mode_sliders.get_pace_mode(),
