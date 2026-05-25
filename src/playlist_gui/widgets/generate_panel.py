@@ -465,6 +465,14 @@ class GeneratePanel(QWidget):
         button.setMenu(menu)
         return button
 
+    @staticmethod
+    def _set_menu_button_value(button: QToolButton, value: object) -> None:
+        """Set a menu button's selection to the action matching value."""
+        for action in button.menu().actions():
+            if action.data() == value:
+                action.trigger()
+                return
+
     def _on_mode_changed(self, _: int | None = None) -> None:
         """Handle mode radio button change."""
         mode = self._get_current_mode()
@@ -500,28 +508,47 @@ class GeneratePanel(QWidget):
             return
         self._mode_combo.setCurrentIndex(index)
 
-    def apply_saved_state(
-        self,
-        *,
-        mode: str = "artist",
-        artist: str = "",
-        genre: str = "",
-        genre_mode: Optional[str] = None,
-        sonic_mode: Optional[str] = None,
-        pace_mode: Optional[str] = None,
-    ) -> None:
-        """Restore persisted generation controls."""
-        self.set_current_mode(mode)
-        if artist:
-            self._artist_panel.set_primary_artist(artist)
-        if genre:
-            self._genre_panel.set_genre(genre)
-        if genre_mode:
-            self._mode_sliders.set_genre_mode(genre_mode)  # type: ignore[arg-type]
-        if sonic_mode:
-            self._mode_sliders.set_sonic_mode(sonic_mode)  # type: ignore[arg-type]
-        if pace_mode:
-            self._mode_sliders.set_pace_mode(pace_mode)  # type: ignore[arg-type]
+    def apply_ui_state(self, state: UIStateModel) -> None:
+        """Restore all controls from a UIStateModel (inverse of build_ui_state)."""
+        self.set_current_mode(state.mode)
+
+        self._cohesion_slider.set_cohesion_mode(state.cohesion_mode)
+        self._mode_sliders.set_genre_mode(state.genre_mode)
+        self._mode_sliders.set_sonic_mode(state.sonic_mode)
+        self._mode_sliders.set_pace_mode(state.pace_mode)
+
+        self._set_menu_button_value(self._length_combo, state.track_count)
+
+        # Diversity: find the slider position matching gamma + mode
+        if state.artist_diversity_mode == "one_per_artist":
+            self._diversity_slider.setValue(len(self._diversity_levels) - 1)
+        else:
+            closest = min(
+                range(len(self._diversity_values) - 1),
+                key=lambda i: abs(self._diversity_values[i] - state.diversity_gamma),
+            )
+            self._diversity_slider.setValue(closest)
+
+        # Spacing
+        if state.artist_spacing in self._spacing_levels:
+            self._spacing_slider.setValue(self._spacing_levels.index(state.artist_spacing))
+
+        # Recency
+        self._recency_check.setChecked(state.recency_enabled)
+        self._set_menu_button_value(self._recency_days, state.recency_days)
+        self._set_menu_button_value(self._recency_plays, state.recency_plays_threshold)
+
+        # Mode-specific controls
+        if state.mode == "artist":
+            if state.artist_queries:
+                self._artist_panel.set_primary_artist(state.artist_queries[0])
+            self._artist_panel.set_presence(state.artist_presence)
+            self._artist_panel.set_variety(state.artist_variety)
+            self._artist_panel.set_include_collaborations(state.include_collaborations)
+        elif state.mode == "genre":
+            self._genre_panel.set_genre(state.genre_query)
+        elif state.mode == "seeds":
+            self._seeds_panel.set_auto_order(state.seed_auto_order)
 
     def _update_progress_visibility(self) -> None:
         """Show progress only while running."""

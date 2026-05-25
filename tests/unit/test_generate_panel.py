@@ -54,7 +54,10 @@ def test_generate_panel_restores_saved_artist_state(qtbot):
     panel = GeneratePanel()
     qtbot.addWidget(panel)
 
-    panel.apply_saved_state(mode="artist", artist="Slowdive")
+    from src.playlist_gui.ui_state import UIStateModel
+
+    state = UIStateModel(mode="artist", artist_queries=["Slowdive"])
+    panel.apply_ui_state(state)
 
     assert panel.get_current_mode() == "artist"
     assert panel.get_primary_artist() == "Slowdive"
