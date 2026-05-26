@@ -300,6 +300,26 @@ class SidecarStore:
                     updated_at TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS ai_genre_review_decisions (
+                    decision_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source_tag_id INTEGER,
+                    release_key TEXT NOT NULL,
+                    raw_tag TEXT NOT NULL,
+                    normalized_tag TEXT NOT NULL,
+                    original_classification TEXT NOT NULL,
+                    reviewed_classification TEXT NOT NULL,
+                    reviewer TEXT NOT NULL DEFAULT 'human',
+                    decided_at TEXT NOT NULL,
+                    notes TEXT,
+                    FOREIGN KEY (source_tag_id) REFERENCES ai_genre_source_tags(source_tag_id),
+                    UNIQUE (source_tag_id, reviewer)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_review_decisions_tag
+                    ON ai_genre_review_decisions (source_tag_id);
+                CREATE INDEX IF NOT EXISTS idx_review_decisions_release
+                    ON ai_genre_review_decisions (release_key);
+
                 CREATE INDEX IF NOT EXISTS idx_ai_genre_checks_release
                     ON ai_genre_release_checks (release_key, status);
                 CREATE INDEX IF NOT EXISTS idx_ai_genre_suggestions_type
@@ -1085,6 +1105,138 @@ class SidecarStore:
                         now,
                     ),
                 )
+
+    def get_review_queue(
+        self,
+        *,
+        release_key: str | None = None,
+        classification: str | None = None,
+        source_type: str | None = None,
+        max_confidence: float = 0.80,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return tags needing human review, ordered by confidence ascending."""
+        with self.connect() as conn:
+            clauses = [
+                "d.decision_id IS NULL",
+                "(c.classification = 'review_only' OR c.confidence < ?)",
+            ]
+            params: list[Any] = [max_confidence]
+            if release_key:
+                clauses.append("p.release_key = ?")
+                params.append(release_key)
+            if classification:
+                clauses.append("c.classification = ?")
+                params.append(classification)
+            if source_type:
+                clauses.append("p.source_type = ?")
+                params.append(source_type)
+            where = " AND ".join(clauses)
+            limit_clause = f" LIMIT {int(limit)}" if limit else ""
+            rows = list(conn.execute(
+                f"""
+                SELECT t.source_tag_id, p.release_key, p.normalized_artist, p.normalized_album,
+                       t.raw_tag, t.normalized_tag, c.classification, c.confidence,
+                       p.source_url, p.source_type
+                FROM ai_genre_source_tags t
+                JOIN ai_genre_source_pages p ON p.source_page_id = t.source_page_id
+                JOIN ai_genre_tag_classifications c ON c.source_tag_id = t.source_tag_id
+                LEFT JOIN ai_genre_review_decisions d ON d.source_tag_id = t.source_tag_id
+                WHERE {where}
+                ORDER BY c.confidence ASC, p.release_key, t.tag_position
+                {limit_clause}
+                """,
+                params,
+            ))
+            return [dict(row) for row in rows]
+
+    def record_review_decision(
+        self,
+        *,
+        source_tag_id: int,
+        release_key: str,
+        raw_tag: str,
+        normalized_tag: str,
+        original_classification: str,
+        reviewed_classification: str,
+        reviewer: str = "human",
+        notes: str | None = None,
+    ) -> int:
+        """Record a human review decision for one source tag."""
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO ai_genre_review_decisions (
+                    source_tag_id, release_key, raw_tag, normalized_tag,
+                    original_classification, reviewed_classification,
+                    reviewer, decided_at, notes
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(source_tag_id, reviewer)
+                DO UPDATE SET
+                    reviewed_classification = excluded.reviewed_classification,
+                    decided_at = excluded.decided_at,
+                    notes = excluded.notes
+                """,
+                (
+                    source_tag_id,
+                    release_key,
+                    raw_tag,
+                    normalized_tag,
+                    original_classification,
+                    reviewed_classification,
+                    reviewer,
+                    _now_iso(),
+                    notes,
+                ),
+            )
+            row = conn.execute(
+                "SELECT decision_id FROM ai_genre_review_decisions WHERE source_tag_id = ? AND reviewer = ?",
+                (source_tag_id, reviewer),
+            ).fetchone()
+            return int(row["decision_id"])
+
+    def undo_review_decision(self, source_tag_id: int, reviewer: str = "human") -> bool:
+        """Remove a review decision, returning the tag to the review queue."""
+        with self.connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM ai_genre_review_decisions WHERE source_tag_id = ? AND reviewer = ?",
+                (source_tag_id, reviewer),
+            )
+            return cursor.rowcount > 0
+
+    def get_review_context(self, release_key: str) -> list[dict[str, Any]]:
+        """Return all classified tags for a release (for showing context during review)."""
+        with self.connect() as conn:
+            rows = list(conn.execute(
+                """
+                SELECT t.normalized_tag, c.classification, c.confidence
+                FROM ai_genre_source_tags t
+                JOIN ai_genre_source_pages p ON p.source_page_id = t.source_page_id
+                JOIN ai_genre_tag_classifications c ON c.source_tag_id = t.source_tag_id
+                WHERE p.release_key = ?
+                ORDER BY c.classification, t.normalized_tag
+                """,
+                (release_key,),
+            ))
+            return [dict(row) for row in rows]
+
+    def get_graduated_terms(self) -> dict[str, set[str]]:
+        """Return all human-reviewed terms grouped by their reviewed classification."""
+        with self.connect() as conn:
+            rows = list(conn.execute(
+                """
+                SELECT DISTINCT normalized_tag, reviewed_classification
+                FROM ai_genre_review_decisions
+                WHERE reviewed_classification != 'rejected'
+                  AND reviewer = 'human'
+                """
+            ))
+            result: dict[str, set[str]] = {}
+            for row in rows:
+                classification = row["reviewed_classification"]
+                result.setdefault(classification, set()).add(row["normalized_tag"])
+            return result
 
     def _upsert_check(
         self,

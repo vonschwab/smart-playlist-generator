@@ -3236,3 +3236,66 @@ def test_extract_lastfm_command(tmp_path: Path) -> None:
         tag_set = {row["normalized_tag"] for row in tags}
         assert "shoegaze" in tag_set
         assert "dream pop" in tag_set
+
+
+def test_review_queue_returns_unreviewed_tags(tmp_path: Path) -> None:
+    sidecar_db = tmp_path / "ai_genre_enriched_test.db"
+    store = SidecarStore(sidecar_db)
+    store.initialize()
+
+    page_id = store.upsert_source_page(
+        release_key="slowdive::souvlaki",
+        normalized_artist="slowdive",
+        normalized_album="souvlaki",
+        album_id="a1",
+        source_url="https://slowdive.bandcamp.com/album/souvlaki",
+        source_type="bandcamp_release",
+        identity_status="confirmed",
+        identity_confidence=1.0,
+        evidence_summary="Test source.",
+    )
+    store.replace_source_tags(page_id, ["shoegaze", "noise pop", "xyzzy"])
+    store.classify_source_tags(page_id)
+
+    queue = store.get_review_queue()
+    # "xyzzy" should be review_only
+    review_tags = {item["normalized_tag"] for item in queue}
+    assert "xyzzy" in review_tags
+    # Tags already classified as genre_style at high confidence should NOT be in the queue
+    assert "shoegaze" not in review_tags
+
+
+def test_record_review_decision_removes_from_queue(tmp_path: Path) -> None:
+    sidecar_db = tmp_path / "ai_genre_enriched_test.db"
+    store = SidecarStore(sidecar_db)
+    store.initialize()
+
+    page_id = store.upsert_source_page(
+        release_key="slowdive::souvlaki",
+        normalized_artist="slowdive",
+        normalized_album="souvlaki",
+        album_id="a1",
+        source_url="https://slowdive.bandcamp.com/album/souvlaki",
+        source_type="bandcamp_release",
+        identity_status="confirmed",
+        identity_confidence=1.0,
+        evidence_summary="Test source.",
+    )
+    store.replace_source_tags(page_id, ["xyzzy"])
+    store.classify_source_tags(page_id)
+
+    queue = store.get_review_queue()
+    assert len(queue) == 1
+    item = queue[0]
+
+    store.record_review_decision(
+        source_tag_id=item["source_tag_id"],
+        release_key="slowdive::souvlaki",
+        raw_tag="xyzzy",
+        normalized_tag="xyzzy",
+        original_classification="review_only",
+        reviewed_classification="rejected",
+    )
+
+    queue_after = store.get_review_queue()
+    assert len(queue_after) == 0
