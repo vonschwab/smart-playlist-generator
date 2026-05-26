@@ -266,6 +266,9 @@ class PresetManager:
             return None
 
         preset_name = name or data.get("name") or path.stem
-        state = deserialize_ui_state(data["state"])
+        try:
+            state = deserialize_ui_state(data["state"])
+        except Exception:
+            return None
         self.save_preset(preset_name, state, data.get("description", ""))
         return preset_name

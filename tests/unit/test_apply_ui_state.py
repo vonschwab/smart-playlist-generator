@@ -2,6 +2,8 @@
 
 import pytest
 
+from src.playlist_gui.config.presets import PresetManager
+from src.playlist_gui.ui_state import UIStateModel
 from src.playlist_gui.widgets.generate_panel import GeneratePanel
 
 
