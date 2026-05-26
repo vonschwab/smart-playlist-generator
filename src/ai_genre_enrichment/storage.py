@@ -1210,11 +1210,12 @@ class SidecarStore:
         with self.connect() as conn:
             rows = list(conn.execute(
                 """
-                SELECT t.normalized_tag, c.classification, c.confidence
+                SELECT t.normalized_tag, c.classification, MAX(c.confidence) AS confidence
                 FROM ai_genre_source_tags t
                 JOIN ai_genre_source_pages p ON p.source_page_id = t.source_page_id
                 JOIN ai_genre_tag_classifications c ON c.source_tag_id = t.source_tag_id
                 WHERE p.release_key = ?
+                GROUP BY t.normalized_tag, c.classification
                 ORDER BY c.classification, t.normalized_tag
                 """,
                 (release_key,),
