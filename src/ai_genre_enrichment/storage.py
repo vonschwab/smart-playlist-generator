@@ -1007,7 +1007,8 @@ class SidecarStore:
                           'press_release',
                           'liner_notes',
                           'official_distributor',
-                          'local_metadata'
+                          'local_metadata',
+                          'lastfm_tags'
                       )
                       AND p.identity_status IN ('confirmed', 'probable')
                     ORDER BY t.normalized_tag, t.source_tag_id
@@ -1036,7 +1037,11 @@ class SidecarStore:
                     row["normalized_album"],
                     row["album_id"],
                     row["normalized_tag"],
-                    "authoritative_source",
+                    (
+                        "lastfm_tags" if row["source_type"] == "lastfm_tags"
+                        else "local_metadata" if row["source_type"] == "local_metadata"
+                        else "authoritative_source"
+                    ),
                     row["confidence"],
                     row["source_tag_id"],
                     row["source_page_id"],

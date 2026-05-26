@@ -3198,3 +3198,41 @@ def test_extract_lastfm_tags_from_metadata(tmp_path: Path) -> None:
     assert "rock" not in tags
     # Meta-tags should be pre-filtered
     assert "seen live" not in tags
+
+
+def test_extract_lastfm_command(tmp_path: Path) -> None:
+    metadata_db = tmp_path / "metadata.db"
+    conn = sqlite3.connect(metadata_db)
+    conn.execute("CREATE TABLE tracks (track_id TEXT, artist TEXT, title TEXT, album TEXT, album_id TEXT, year INTEGER)")
+    conn.execute("CREATE TABLE artist_genres (artist TEXT, genre TEXT, source TEXT)")
+    conn.execute("CREATE TABLE album_genres (album_id TEXT, genre TEXT, source TEXT)")
+    conn.execute("CREATE TABLE track_genres (track_id TEXT, genre TEXT, source TEXT)")
+    conn.execute("INSERT INTO tracks VALUES ('t1', 'Slowdive', 'Alison', 'Souvlaki', 'a1', 1993)")
+    conn.execute("INSERT INTO artist_genres VALUES ('Slowdive', 'shoegaze', 'lastfm_artist')")
+    conn.execute("INSERT INTO artist_genres VALUES ('Slowdive', 'dream pop', 'lastfm_artist')")
+    conn.commit()
+    conn.close()
+
+    sidecar_db = tmp_path / "ai_genre_enriched_test.db"
+    result = ai_genre_main([
+        "--metadata-db", str(metadata_db),
+        "--sidecar-db", str(sidecar_db),
+        "extract-lastfm",
+        "--artist", "Slowdive",
+        "--album", "Souvlaki",
+    ])
+    assert result == 0
+
+    store = SidecarStore(sidecar_db)
+    with store.connect() as conn:
+        pages = list(conn.execute(
+            "SELECT * FROM ai_genre_source_pages WHERE source_type = 'lastfm_tags'"
+        ))
+        assert len(pages) == 1
+        tags = list(conn.execute(
+            "SELECT normalized_tag FROM ai_genre_source_tags WHERE source_page_id = ?",
+            (pages[0]["source_page_id"],),
+        ))
+        tag_set = {row["normalized_tag"] for row in tags}
+        assert "shoegaze" in tag_set
+        assert "dream pop" in tag_set

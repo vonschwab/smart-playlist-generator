@@ -51,6 +51,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_report(args)
     if args.command == "ingest-local":
         return cmd_ingest_local(args)
+    if args.command == "extract-lastfm":
+        return cmd_extract_lastfm(args)
     parser.print_help()
     return 2
 
@@ -147,6 +149,10 @@ def build_parser() -> argparse.ArgumentParser:
     ingest_local = sub.add_parser("ingest-local", help="Ingest genres from local metadata.db genre tables as a confirmed source")
     add_release_filters(ingest_local)
     ingest_local.add_argument("--dry-run", action="store_true")
+
+    extract_lastfm = sub.add_parser("extract-lastfm", help="Extract Last.fm tags from metadata.db")
+    add_release_filters(extract_lastfm)
+    extract_lastfm.add_argument("--dry-run", action="store_true")
 
     return parser
 
@@ -452,6 +458,55 @@ def cmd_ingest_local(args: argparse.Namespace) -> int:
         print(f"ingested {release.release_key} tags={len(deduped)}")
 
     print(f"Ingested {ingested} release(s).")
+    return 0
+
+
+def cmd_extract_lastfm(args: argparse.Namespace) -> int:
+    from src.ai_genre_enrichment.source_extraction import extract_lastfm_tags_from_metadata
+
+    store = SidecarStore(args.sidecar_db)
+    store.initialize()
+    releases = _discover(args)
+    if not releases:
+        print("No matching release found.")
+        return 1
+
+    extracted = 0
+    for release in releases:
+        tags = extract_lastfm_tags_from_metadata(
+            artist=release.artist,
+            album_id=release.album_id,
+            metadata_db_path=args.metadata_db,
+        )
+        if not tags:
+            continue
+
+        if args.dry_run:
+            print(json.dumps({
+                "release_key": release.release_key,
+                "lastfm_tags": tags,
+                "dry_run": True,
+            }, ensure_ascii=False, sort_keys=True))
+            continue
+
+        page_id = store.upsert_source_page(
+            release_key=release.release_key,
+            normalized_artist=release.normalized_artist,
+            normalized_album=release.normalized_album,
+            album_id=release.album_id,
+            source_url=f"lastfm://artist/{release.normalized_artist}/album/{release.normalized_album}",
+            source_type="lastfm_tags",
+            identity_status="confirmed",
+            identity_confidence=0.9,
+            evidence_summary="Last.fm tags from local metadata.db genre tables.",
+        )
+        store.replace_source_tags(page_id, tags)
+        store.classify_source_tags(page_id)
+        store.rebuild_enriched_genres_for_release(release.release_key)
+        extracted += 1
+        print(f"extracted-lastfm {release.release_key} tags={len(tags)}")
+
+    print(f"Extracted Last.fm tags for {extracted} release(s).")
     return 0
 
 
