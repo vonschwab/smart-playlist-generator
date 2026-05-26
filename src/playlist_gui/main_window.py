@@ -40,7 +40,7 @@ from PySide6.QtWidgets import (
 
 from .autocomplete import DatabaseCompleter
 from .config.config_model import ConfigModel
-from .config.presets import PresetManager, install_builtin_presets
+from .config.presets import PresetManager
 from .gui_logging import LogEmitter
 from .jobs import JobManager, JobType
 from .policy import derive_runtime_config, merge_overrides
@@ -160,9 +160,7 @@ class MainWindow(QMainWindow):
 
         # Preset/override tracking state
         self._active_preset_name: Optional[str] = None
-        self._preset_overrides_snapshot: dict = {}  # Snapshot of overrides when preset loaded
-        self._dirty_overrides = False  # True when overrides differ from loaded preset
-        self._pending_preset_name: Optional[str] = None
+        self._preset_ui_state_snapshot: Optional[UIStateModel] = None
 
         # Current playlist state (for export naming)
         self._current_playlist_name: str = ""
@@ -171,9 +169,6 @@ class MainWindow(QMainWindow):
         self._blacklist_window: Optional[BlacklistWindow] = None
         self._generate_panel: Optional[GeneratePanel] = None
         self._replace_dialog: Optional[ReplaceTrackDialog] = None
-
-        # Install built-in presets
-        install_builtin_presets(self._preset_manager)
 
         # Apply theme
         self._apply_theme()
@@ -480,57 +475,31 @@ class MainWindow(QMainWindow):
         return container
 
     def _update_override_status(self) -> None:
-        """Update the override status indicator in the status bar."""
-        if not self._config_model:
-            self._override_status_label.setText("No config")
-            self._override_status_label.setObjectName("overrideStatusLabel")
-            self._override_status_label.setProperty("state", "no_config")
-            return
-
-        override_count = self._config_model.override_count()
-
+        """Update the override status indicator."""
         if self._active_preset_name:
-            # Preset is loaded
-            if self._dirty_overrides:
-                text = f"Preset: {self._active_preset_name} (modified)"
-                state = "preset_modified"
+            if self._preset_ui_state_snapshot and self._generate_panel:
+                current = self._generate_panel.build_ui_state()
+                if current == self._preset_ui_state_snapshot:
+                    text = f"Preset: {self._active_preset_name}"
+                    state = "preset"
+                else:
+                    text = f"Preset: {self._active_preset_name} (modified)"
+                    state = "preset_modified"
             else:
                 text = f"Preset: {self._active_preset_name}"
                 state = "preset"
-        elif override_count > 0:
-            # Overrides active but no preset
-            text = f"Overrides active ({override_count})"
-            state = "overrides"
         else:
-            # Base config
-            text = "Base config"
-            state = "base"
+            text = ""
+            state = "none"
 
         self._override_status_label.setText(text)
-        self._override_status_label.setObjectName("overrideStatusLabel")
         self._override_status_label.setProperty("state", state)
-
-    def _check_dirty_overrides(self) -> None:
-        """Check if current overrides differ from the loaded preset snapshot."""
-        if not self._active_preset_name:
-            self._dirty_overrides = False
-            return
-
-        if not self._config_model:
-            self._dirty_overrides = False
-            return
-
-        current_overrides = self._config_model.list_overrides()
-        snapshot_flat = {}
-        self._config_model._flatten_dict(self._preset_overrides_snapshot, "", snapshot_flat)
-
-        # Compare current overrides with snapshot
-        self._dirty_overrides = current_overrides != snapshot_flat
+        self._override_status_label.style().unpolish(self._override_status_label)
+        self._override_status_label.style().polish(self._override_status_label)
 
     @Slot()
     def _on_override_changed(self) -> None:
         """Handle override state changes from the advanced panel."""
-        self._check_dirty_overrides()
         self._update_override_status()
 
     def _setup_menu(self) -> None:
@@ -726,8 +695,7 @@ class MainWindow(QMainWindow):
 
             # Clear preset state when loading new config
             self._active_preset_name = None
-            self._preset_overrides_snapshot = {}
-            self._dirty_overrides = False
+            self._preset_ui_state_snapshot = None
 
             # Update config path display if it exists
             if hasattr(self, '_config_path_edit'):
@@ -745,21 +713,6 @@ class MainWindow(QMainWindow):
 
             # Reload autocomplete with new config
             self._setup_autocomplete()
-
-            # Restore preset if pending
-            if self._pending_preset_name:
-                presets = [p["name"] for p in self._preset_manager.list_presets()]
-                if self._pending_preset_name in presets:
-                    overrides = self._preset_manager.load_preset(self._pending_preset_name)
-                    if overrides:
-                        self._config_model.set_overrides(overrides)
-                        if self._advanced_panel:
-                            self._advanced_panel.refresh()
-                        self._active_preset_name = self._pending_preset_name
-                        self._preset_overrides_snapshot = overrides.copy()
-                        self._dirty_overrides = False
-                        self._update_override_status()
-                self._pending_preset_name = None
 
             return True
 
@@ -1104,18 +1057,12 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _on_save_preset(self) -> None:
-        """Save current settings as a preset."""
-        if not self._config_model:
+        """Save current UIState as a preset."""
+        if not self._generate_panel:
             return
 
         from PySide6.QtWidgets import QInputDialog
 
-        overrides = self._config_model.get_overrides()
-        if not overrides:
-            QMessageBox.information(self, "No Changes", "No settings have been modified.")
-            return
-
-        # If a preset is already loaded, offer to update it
         default_name = self._active_preset_name or ""
         name, ok = QInputDialog.getText(
             self, "Save Preset", "Preset name:",
@@ -1123,19 +1070,18 @@ class MainWindow(QMainWindow):
         )
 
         if ok and name:
-            self._preset_manager.save_preset(name, overrides)
+            state = self._generate_panel.build_ui_state()
+            self._preset_manager.save_preset(name, state)
             self._log_panel.append_log("INFO", f"Saved preset: {name}")
 
-            # Update preset state - now this preset is active and not dirty
             self._active_preset_name = name
-            self._preset_overrides_snapshot = overrides.copy()
-            self._dirty_overrides = False
+            self._preset_ui_state_snapshot = state
             self._update_override_status()
 
     @Slot()
     def _on_load_preset(self) -> None:
-        """Load a preset."""
-        if not self._config_model:
+        """Load a preset and apply its UIState."""
+        if not self._generate_panel:
             return
 
         presets = self._preset_manager.list_presets()
@@ -1148,32 +1094,24 @@ class MainWindow(QMainWindow):
         name, ok = QInputDialog.getItem(self, "Load Preset", "Select preset:", names, 0, False)
 
         if ok and name:
-            overrides = self._preset_manager.load_preset(name)
-            if overrides:
-                self._config_model.set_overrides(overrides)
-                if self._advanced_panel:
-                    self._advanced_panel.refresh()
+            state = self._preset_manager.load_preset(name)
+            if state:
+                self._generate_panel.apply_ui_state(state)
                 self._log_panel.append_log("INFO", f"Loaded preset: {name}")
 
-                # Track preset state
                 self._active_preset_name = name
-                self._preset_overrides_snapshot = overrides.copy()
-                self._dirty_overrides = False
+                self._preset_ui_state_snapshot = state
                 self._update_override_status()
 
     @Slot()
     def _on_reset_overrides(self) -> None:
-        """Reset all overrides to base config."""
-        if self._config_model:
-            self._config_model.reset()
-            if self._advanced_panel:
-                self._advanced_panel.refresh()
-            self._log_panel.append_log("INFO", "Reset to base configuration")
+        """Reset all controls to default UIState."""
+        if self._generate_panel:
+            self._generate_panel.apply_ui_state(UIStateModel())
+            self._log_panel.append_log("INFO", "Reset to default settings")
 
-            # Clear preset state
             self._active_preset_name = None
-            self._preset_overrides_snapshot = {}
-            self._dirty_overrides = False
+            self._preset_ui_state_snapshot = None
             self._update_override_status()
 
     @Slot()
@@ -1290,8 +1228,10 @@ class MainWindow(QMainWindow):
         preset_label = "Base config"
         if self._active_preset_name:
             preset_label = self._active_preset_name
-            if self._dirty_overrides:
-                preset_label += " (modified)"
+            if self._preset_ui_state_snapshot and self._generate_panel:
+                current = self._generate_panel.build_ui_state()
+                if current != self._preset_ui_state_snapshot:
+                    preset_label += " (modified)"
 
         ui_state = self._current_generation_ui_state()
         mode = ui_state.mode
@@ -1596,27 +1536,12 @@ class MainWindow(QMainWindow):
         if not self._replace_dialog:
             return
 
-        candidates: list[dict[str, Any]] = []
-        for model in self._replace_dialog._models.values():
-            for row in range(model.rowCount()):
-                item = model.item(row, 0)
-                if item and str(item.data(Qt.ItemDataRole.UserRole)) == str(new_track_id):
-                    candidates.append(
-                        {
-                            "track_id": str(new_track_id),
-                            "title": model.item(row, 0).text() if model.item(row, 0) else str(new_track_id),
-                            "artist": model.item(row, 1).text() if model.item(row, 1) else "",
-                            "t_prev": model.item(row, 2).text() if model.item(row, 2) else "",
-                            "t_next": model.item(row, 3).text() if model.item(row, 3) else "",
-                            "perceptual_bpm": model.item(row, 4).text() if model.item(row, 4) else "",
-                            "genres": [
-                                g.strip()
-                                for g in (model.item(row, 5).text() if model.item(row, 5) else "").split(",")
-                                if g.strip()
-                            ],
-                        }
-                    )
-        replacement = candidates[0] if candidates else {"track_id": str(new_track_id), "title": str(new_track_id)}
+        replacement = self._replace_dialog._candidate_data.get(str(new_track_id))
+        if not replacement:
+            replacement = self._fetch_track_data_by_id(str(new_track_id))
+        if not replacement:
+            self._log_panel.append_log("WARNING", f"Could not resolve track data for id={new_track_id}")
+            return
         old_track = dict(self._current_tracks[position])
         new_track = {
             **old_track,
@@ -1636,6 +1561,37 @@ class MainWindow(QMainWindow):
                 f"{new_track.get('artist', '')} - {new_track.get('title', '')}"
             ),
         )
+
+    def _fetch_track_data_by_id(self, track_id: str) -> Optional[dict]:
+        """Fetch title/artist/album/duration_ms/file_path for a track by its unique DB id."""
+        if not self._db_completer:
+            return None
+        db_path = self._db_completer._db_path
+        try:
+            import sqlite3
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            try:
+                row = conn.execute(
+                    "SELECT track_id, title, artist, album, duration_ms, file_path"
+                    " FROM tracks WHERE track_id = ?",
+                    (track_id,),
+                ).fetchone()
+            finally:
+                conn.close()
+            if row is None:
+                return None
+            return {
+                "track_id": str(row["track_id"]),
+                "title": row["title"] or "",
+                "artist": row["artist"] or "",
+                "album": row["album"] or "",
+                "duration_ms": int(row["duration_ms"] or 0),
+                "file_path": row["file_path"] or "",
+            }
+        except Exception as exc:
+            self._logger.warning("Track data lookup failed for id=%s: %s", track_id, exc)
+            return None
 
     @Slot(dict)
     def _on_blacklist_scope_requested(self, request: dict) -> None:
@@ -1891,9 +1847,6 @@ class MainWindow(QMainWindow):
                 sonic_mode=self._settings.value("state/sonic_mode"),
                 pace_mode=self._settings.value("state/pace_mode"),
             )
-            preset = self._settings.value("state/preset")
-            if preset:
-                self._pending_preset_name = str(preset)
             filt = self._settings.value("state/filter")
             if filt:
                 self._track_table.set_filter_text(str(filt))
