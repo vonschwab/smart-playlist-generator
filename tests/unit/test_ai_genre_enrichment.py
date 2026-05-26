@@ -3113,3 +3113,56 @@ def test_classify_source_tag_uses_vocabulary_tiers(tmp_path: Path) -> None:
     # After vocabulary integration, this should NOT be review_only
     # (it may be genre_style at 0.85 from Tier 2, or 0.95 if already in Tier 1)
     assert result.classification == "genre_style"
+
+
+def test_ingest_local_creates_source_pages_and_enriched_genres(tmp_path: Path) -> None:
+    # Create a minimal metadata DB with genres for Slowdive
+    metadata_db = tmp_path / "metadata.db"
+    conn = sqlite3.connect(metadata_db)
+    conn.execute(
+        """
+        CREATE TABLE tracks (
+            track_id TEXT PRIMARY KEY,
+            artist TEXT,
+            title TEXT,
+            album TEXT,
+            album_id TEXT,
+            year INTEGER
+        )
+        """
+    )
+    conn.execute("CREATE TABLE artist_genres (artist TEXT, genre TEXT, source TEXT)")
+    conn.execute("CREATE TABLE album_genres (album_id TEXT, genre TEXT, source TEXT)")
+    conn.execute("CREATE TABLE track_genres (track_id TEXT, genre TEXT, source TEXT)")
+    conn.execute("INSERT INTO tracks VALUES (?, ?, ?, ?, ?, ?)", ("t1", "Slowdive", "Alison", "Souvlaki", "a2", 1993))
+    conn.execute("INSERT INTO artist_genres VALUES ('Slowdive', 'shoegaze', 'musicbrainz_artist')")
+    conn.execute("INSERT INTO artist_genres VALUES ('Slowdive', 'dream pop', 'musicbrainz_artist')")
+    conn.commit()
+    conn.close()
+
+    sidecar_db = tmp_path / "ai_genre_enriched_test.db"
+
+    result = ai_genre_main([
+        "--metadata-db", str(metadata_db),
+        "--sidecar-db", str(sidecar_db),
+        "ingest-local",
+        "--artist", "Slowdive",
+        "--album", "Souvlaki",
+    ])
+    assert result == 0
+
+    store = SidecarStore(sidecar_db)
+    with store.connect() as conn:
+        pages = list(conn.execute(
+            "SELECT * FROM ai_genre_source_pages WHERE release_key LIKE '%slowdive%'"
+        ))
+        assert len(pages) >= 1
+        assert pages[0]["source_type"] == "local_metadata"
+        assert pages[0]["source_url"] == "local://metadata.db"
+
+        enriched = list(conn.execute(
+            "SELECT * FROM enriched_genres WHERE release_key LIKE '%slowdive%'"
+        ))
+        assert len(enriched) >= 1
+        genres = {row["genre"] for row in enriched}
+        assert "shoegaze" in genres
