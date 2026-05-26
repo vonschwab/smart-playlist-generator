@@ -1122,7 +1122,8 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "No Data", "No enrichment sidecar DB found at data/ai_genre_enrichment.db.")
             return
         from src.playlist_gui.widgets.review_panel import ReviewPanel
-        panel = ReviewPanel(str(sidecar_db), parent=self)
+        self._review_panel = ReviewPanel(str(sidecar_db), parent=self)
+        panel = self._review_panel
         panel.setWindowTitle("Genre Tag Review")
         panel.setWindowFlags(Qt.WindowType.Window)
         panel.resize(700, 500)

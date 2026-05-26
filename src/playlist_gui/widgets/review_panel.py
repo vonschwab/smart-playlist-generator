@@ -30,7 +30,7 @@ class ReviewPanel(QWidget):
         self._queue: list[dict[str, Any]] = []
         self._history: list[dict[str, Any]] = []
         self._index = 0
-        self._stats = {"accepted": 0, "descriptor": 0, "instrument": 0, "place": 0, "rejected": 0, "skipped": 0}
+        self._stats = {"genre_style": 0, "descriptor": 0, "instrument": 0, "place": 0, "rejected": 0, "skipped": 0}
 
         self._setup_ui()
         self._setup_shortcuts()
@@ -111,7 +111,7 @@ class ReviewPanel(QWidget):
     def load_queue(self) -> None:
         filter_text = self._filter_combo.currentText()
         classification = "review_only" if filter_text == "review_only" else None
-        max_confidence = 0.80 if filter_text == "Low confidence" else 0.80
+        max_confidence = 0.50 if filter_text == "Low confidence" else 0.80
         self._queue = self._store.get_review_queue(
             classification=classification,
             max_confidence=max_confidence,
