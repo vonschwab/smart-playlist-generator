@@ -407,7 +407,7 @@ class MainWindow(QMainWindow):
         # Override status indicator (permanent widget on right side)
         self._override_status_label = QLabel("Base config")
         self._override_status_label.setObjectName("overrideStatusLabel")
-        self._override_status_label.setProperty("state", "base")
+        self._override_status_label.setProperty("state", "none")
         self._status_bar.addPermanentWidget(self._override_status_label)
 
         self._status_bar.showMessage("Ready")
@@ -1069,6 +1069,7 @@ class MainWindow(QMainWindow):
             text=default_name
         )
 
+        name = name.strip() if name else ""
         if ok and name:
             state = self._generate_panel.build_ui_state()
             self._preset_manager.save_preset(name, state)
@@ -1913,11 +1914,6 @@ class MainWindow(QMainWindow):
             self._settings.setValue("state/genre_mode", ui_state.genre_mode)
             self._settings.setValue("state/sonic_mode", ui_state.sonic_mode)
             self._settings.setValue("state/pace_mode", ui_state.pace_mode)
-
-            if self._active_preset_name:
-                self._settings.setValue("state/preset", self._active_preset_name)
-            else:
-                self._settings.remove("state/preset")
         except Exception as e:
             self._logger.warning("Failed to save settings: %s", e)
 
