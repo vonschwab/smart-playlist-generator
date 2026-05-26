@@ -1,0 +1,182 @@
+version: 1
+genre_style:
+  - alt-country
+  - alternative
+  - alternative rock
+  - ambient
+  - ambient jazz
+  - art pop
+  - avant-garde
+  - avant-folk
+  - balearic
+  - bedroom pop
+  - bossa nova
+  - chamber pop
+  - creative music
+  - devotional
+  - disco
+  - downtempo
+  - dream pop
+  - drone
+  - dub
+  - dub techno
+  - electroacoustic
+  - electronic
+  - electronic jazz
+  - electronica
+  - emo
+  - experimental
+  - experimental jazz
+  - experimental pop
+  - field recordings
+  - folk
+  - folk-pop
+  - fourth world
+  - free improvisation
+  - garage rock
+  - hip hop
+  - house
+  - idm
+  - indie
+  - indie folk
+  - indie pop
+  - indie rock
+  - italo
+  - jangle pop
+  - jazz
+  - jazz and improvised music
+  - krautrock
+  - library music
+  - lo-fi
+  - lo-fi bedroom pop
+  - math rock
+  - metal
+  - minimal
+  - neoclassical
+  - new age
+  - new wave
+  - noise rock
+  - noise-pop
+  - pop
+  - post-hardcore
+  - post-punk
+  - post-rock
+  - power pop
+  - psychedelic
+  - punk
+  - r&b
+  - rock
+  - shoegaze
+  - singer-songwriter
+  - slacker rock
+  - slowcore
+  - soul
+  - space ambient
+  - space music
+  - spiritual jazz
+  - synthpop
+  - uk dubstep
+  - world
+descriptor:
+  - acoustic
+  - bass
+  - beats
+  - billboard top 40
+  - brazilian
+  - cosmic
+  - eurorack
+  - fuzz
+  - instrumental
+  - living room music
+  - modular synthesizer
+  - natural
+  - songs
+  - soundscapes
+  - space
+  - syntheziser
+instrument:
+  - 7 string guitar
+  - drums
+  - guitar
+  - jazz vibraphone
+  - marimba
+  - percussion
+  - piano
+  - saxophone
+  - synthesizer
+  - vibes
+place:
+  - athens
+  - atlanta
+  - baltimore
+  - belgium
+  - brooklyn
+  - california
+  - chicago
+  - indianapolis
+  - japan
+  - leeds
+  - lisbon
+  - london
+  - los angeles
+  - melbourne
+  - mexico
+  - montreal
+  - new york
+  - oakland
+  - perry
+  - pittsburgh
+  - portland
+  - richmond
+  - san francisco
+  - tokyo
+  - united kingdom
+  - united states
+  - utrecht
+  - washington
+  - washington d.c.
+format:
+  - compilation
+  - demo
+  - ep
+  - live
+  - remastered
+  - single
+  - soundtrack
+mood_function:
+  - chillout
+  - meditation
+  - relaxation
+  - sleep
+  - study
+label_or_org:
+  - american football
+  - cap'n jazz
+  - dfa
+  - dfa records
+  - hardly art
+  - james murphy
+  - kim gordon
+  - lcd soundsystem
+  - lee ranaldo
+  - mike kinsella
+  - of montreal
+  - owen
+  - owls
+  - polyvinyl
+  - soundway records
+  - steve shelley
+  - sufjan stevens
+  - thurston moore
+  - tim kinsella
+aliases:
+  avant garde: avant-garde
+  creative-music: creative music
+  electronic-music: electronic
+  experiemental: experimental
+  hip-hop/rap: hip hop
+  jazz-and-improvised-music: jazz and improvised music
+  jazz-vibraphone: jazz vibraphone
+  post punk: post-punk
+  rnb: r&b
+  soundscape: soundscapes
