@@ -425,8 +425,8 @@ def cmd_ingest_local(args: argparse.Namespace) -> int:
                         if row["genre"]:
                             raw_genres.append(row["genre"])
                 except sqlite3.OperationalError as exc:
-                    print(f"Warning: could not read metadata genres for {release.release_key}: {exc}", file=sys.stderr)
-                    raw_genres = []
+                    print(f"Warning: could not read album genres for {release.release_key}: {exc}", file=sys.stderr)
+                    # Don't reset raw_genres — keep artist genres already collected
         except sqlite3.OperationalError:
             raw_genres = []
         finally:
@@ -486,6 +486,12 @@ def cmd_extract_lastfm(args: argparse.Namespace) -> int:
     if not releases:
         print("No matching release found.")
         return 1
+
+    # Set tier-3 vocabulary so library genres are recognized
+    from src.ai_genre_enrichment.genre_vocabulary import GenreVocabulary
+    from src.ai_genre_enrichment.tag_classification import set_vocabulary
+    vocab = GenreVocabulary(library_db_path=args.metadata_db)
+    set_vocabulary(vocab)
 
     extracted = 0
     for release in releases:
@@ -945,6 +951,7 @@ def cmd_review(args: argparse.Namespace) -> int:
             original_classification=item["classification"],
             reviewed_classification=classification,
         )
+        store.rebuild_enriched_genres_for_release(item["release_key"])
         reviewed += 1
         print(f"  → {classification}")
 

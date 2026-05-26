@@ -1012,12 +1012,18 @@ class SidecarStore:
                         t.source_tag_id,
                         t.source_page_id,
                         t.normalized_tag,
-                        c.confidence
+                        c.classification,
+                        c.confidence,
+                        d.reviewed_classification
                     FROM ai_genre_tag_classifications c
                     JOIN ai_genre_source_tags t ON t.source_tag_id = c.source_tag_id
                     JOIN ai_genre_source_pages p ON p.source_page_id = t.source_page_id
+                    LEFT JOIN ai_genre_review_decisions d ON d.source_tag_id = t.source_tag_id AND d.reviewer = 'human'
                     WHERE p.release_key = ?
-                      AND c.classification = 'genre_style'
+                      AND (
+                          (c.classification = 'genre_style' AND d.reviewed_classification IS NULL)
+                          OR d.reviewed_classification = 'genre_style'
+                      )
                       AND p.source_type IN (
                           'official_release',
                           'official_artist',
@@ -1062,7 +1068,9 @@ class SidecarStore:
                         else "local_metadata" if row["source_type"] == "local_metadata"
                         else "authoritative_source"
                     ),
-                    row["confidence"],
+                    # Use 0.90 for human-reviewed genre_style (promoted from review_only or other)
+                    # Keep original confidence for auto-classified genre_style
+                    0.90 if row["reviewed_classification"] == "genre_style" and row["classification"] != "genre_style" else row["confidence"],
                     row["source_tag_id"],
                     row["source_page_id"],
                     f"source_tag:{row['source_tag_id']}",

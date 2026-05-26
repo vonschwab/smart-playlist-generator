@@ -165,7 +165,11 @@ class ReviewPanel(QWidget):
             self._store.rebuild_enriched_genres_for_release(item["release_key"])
             stat_key = classification if classification in self._stats else "accepted"
             self._stats[stat_key] = self._stats.get(stat_key, 0) + 1
-            self._history.append({"source_tag_id": item["source_tag_id"], "classification": classification})
+            self._history.append({
+                "source_tag_id": item["source_tag_id"],
+                "classification": classification,
+                "release_key": item["release_key"],
+            })
         else:
             self._stats["skipped"] += 1
 
@@ -177,7 +181,8 @@ class ReviewPanel(QWidget):
             return
         last = self._history.pop()
         self._store.undo_review_decision(last["source_tag_id"])
-        stat_key = last["classification"] if last["classification"] in self._stats else "accepted"
+        self._store.rebuild_enriched_genres_for_release(last["release_key"])
+        stat_key = last["classification"] if last["classification"] in self._stats else "genre_style"
         self._stats[stat_key] = max(0, self._stats.get(stat_key, 0) - 1)
         self._index = max(0, self._index - 1)
         self._show_current()
