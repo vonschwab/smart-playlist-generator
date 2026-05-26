@@ -131,3 +131,76 @@ def test_apply_ui_state_round_trip_seeds_mode(qtbot):
 
     assert restored.mode == "seeds"
     assert restored.seed_auto_order is False
+
+
+from src.playlist_gui.config.presets import PresetManager
+
+
+def test_preset_save_load_round_trip_through_panel(qtbot, tmp_path, monkeypatch):
+    """Full workflow: build state from panel → save preset → load preset → apply → verify."""
+    monkeypatch.setattr(
+        "src.playlist_gui.config.presets.get_presets_dir",
+        lambda: tmp_path,
+    )
+    manager = PresetManager()
+    panel = GeneratePanel()
+    qtbot.addWidget(panel)
+
+    # Set up non-default state via controls
+    panel._cohesion_slider.set_cohesion_mode("strict")
+    panel._mode_sliders.set_genre_mode("dynamic")
+    panel._spacing_slider.setValue(3)  # very_strong
+    panel._diversity_slider.setValue(5)  # One Each
+
+    # Save preset from panel state
+    original_state = panel.build_ui_state()
+    manager.save_preset("Test Preset", original_state)
+
+    # Reset panel to defaults
+    panel.apply_ui_state(UIStateModel())
+    assert panel.build_ui_state().cohesion_mode == "dynamic"
+
+    # Load preset and apply
+    loaded_state = manager.load_preset("Test Preset")
+    assert loaded_state is not None
+    panel.apply_ui_state(loaded_state)
+
+    # Verify round-trip
+    final_state = panel.build_ui_state()
+    assert final_state.cohesion_mode == "strict"
+    assert final_state.genre_mode == "dynamic"
+    assert final_state.artist_spacing == "very_strong"
+    assert final_state.artist_diversity_mode == "one_per_artist"
+
+
+def test_session_save_load_round_trip_through_panel(qtbot, tmp_path, monkeypatch):
+    """Full workflow: build state → save session → load session → apply → verify."""
+    monkeypatch.setattr(
+        "src.playlist_gui.config.presets.get_presets_dir",
+        lambda: tmp_path,
+    )
+    manager = PresetManager()
+    panel = GeneratePanel()
+    qtbot.addWidget(panel)
+
+    # Set up state
+    panel._mode_sliders.set_pace_mode("strict")
+    panel._recency_check.setChecked(False)
+
+    # Save session
+    state = panel.build_ui_state()
+    manager.save_session(state)
+
+    # Reset
+    panel.apply_ui_state(UIStateModel())
+    assert panel.build_ui_state().pace_mode == "dynamic"
+    assert panel.build_ui_state().recency_enabled is True
+
+    # Restore session
+    session = manager.load_session()
+    assert session is not None
+    panel.apply_ui_state(session)
+
+    final = panel.build_ui_state()
+    assert final.pace_mode == "strict"
+    assert final.recency_enabled is False
