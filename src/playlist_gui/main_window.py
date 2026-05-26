@@ -1891,6 +1891,11 @@ class MainWindow(QMainWindow):
             if self._generate_panel:
                 ui_state = self._generate_panel.build_ui_state()
                 self._preset_manager.save_session(ui_state)
+
+            if self._active_preset_name:
+                self._settings.setValue("state/preset", self._active_preset_name)
+            else:
+                self._settings.remove("state/preset")
         except Exception as e:
             self._logger.warning("Failed to save settings: %s", e)
 

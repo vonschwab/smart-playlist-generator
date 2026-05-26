@@ -19,7 +19,6 @@ def test_debug_report_uses_generate_panel_state_not_hidden_widgets():
         UIStateModel(mode="artist", artist_queries=["Slowdive"])
     )
     window._active_preset_name = None
-    window._dirty_overrides = False
     window._config_path = "config.yaml"
     window._worker_client = None
     window._job_manager = None
