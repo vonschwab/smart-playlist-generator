@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sqlite3
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -360,9 +361,6 @@ def cmd_build_enriched(args: argparse.Namespace) -> int:
 
 
 def cmd_ingest_local(args: argparse.Namespace) -> int:
-    import sqlite3 as _sqlite3
-    from pathlib import Path as _Path
-
     from src.genre.normalize_unified import DROP_TOKENS, META_TAGS
     from src.ai_genre_enrichment.genre_vocabulary import GenreVocabulary
     from src.ai_genre_enrichment.tag_classification import set_vocabulary
@@ -378,12 +376,16 @@ def cmd_ingest_local(args: argparse.Namespace) -> int:
     set_vocabulary(vocab)
 
     noise = META_TAGS | DROP_TOKENS
+    resolved_db = Path(args.metadata_db).resolve()
+    uri = f"file:{resolved_db.as_posix()}?mode=ro"
     ingested = 0
     for release in releases:
-        resolved_db = _Path(args.metadata_db).resolve()
-        uri = f"file:{resolved_db.as_posix()}?mode=ro"
-        mconn = _sqlite3.connect(uri, uri=True)
-        mconn.row_factory = _sqlite3.Row
+        try:
+            mconn = sqlite3.connect(uri, uri=True)
+            mconn.row_factory = sqlite3.Row
+        except Exception as exc:
+            print(f"Warning: cannot open metadata DB: {exc}")
+            continue
         try:
             raw_genres: list[str] = []
             for row in mconn.execute(
@@ -400,9 +402,10 @@ def cmd_ingest_local(args: argparse.Namespace) -> int:
                     ):
                         if row["genre"]:
                             raw_genres.append(row["genre"])
-                except _sqlite3.OperationalError:
-                    pass
-        except _sqlite3.OperationalError:
+                except sqlite3.OperationalError as exc:
+                    print(f"Warning: could not read metadata genres for {release.release_key}: {exc}", file=sys.stderr)
+                    raw_genres = []
+        except sqlite3.OperationalError:
             raw_genres = []
         finally:
             mconn.close()
