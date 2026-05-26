@@ -22,6 +22,23 @@ _NON_GENRE_CATEGORIES = ("descriptor", "instrument", "place", "format", "mood_fu
 _DEFAULT_YAML_PATH = Path(__file__).resolve().parents[2] / "data" / "genre_vocabulary.yaml"
 
 
+def _collect_engine_genres() -> frozenset[str]:
+    from src.genre.normalize_unified import SYNONYM_MAP, PHRASE_MAP
+
+    genres: set[str] = set()
+    for target in SYNONYM_MAP.values():
+        if target:
+            genres.add(target)
+    for outputs in PHRASE_MAP.values():
+        for token in outputs:
+            if token:
+                genres.add(token)
+    return frozenset(genres)
+
+
+_ENGINE_GENRES: frozenset[str] = _collect_engine_genres()
+
+
 class GenreVocabulary:
     """Three-tier genre vocabulary: curated YAML → engine synonyms → library DB."""
 
@@ -46,7 +63,7 @@ class GenreVocabulary:
 
     def _load_yaml(self) -> None:
         if not self._yaml_path.exists():
-            return
+            raise FileNotFoundError(f"Genre vocabulary YAML not found: {self._yaml_path}")
         with self._yaml_path.open("r", encoding="utf-8") as fh:
             self._raw = yaml.safe_load(fh) or {}
         self._tier1_genres = set(self._raw.get("genre_style", []))
@@ -55,20 +72,12 @@ class GenreVocabulary:
         self._aliases = dict(self._raw.get("aliases", {}))
 
     def _bootstrap_engine_genres(self) -> None:
-        from src.genre.normalize_unified import SYNONYM_MAP, PHRASE_MAP
-
-        engine_genres: set[str] = set()
-        for target in SYNONYM_MAP.values():
-            if target:
-                engine_genres.add(target)
-        for outputs in PHRASE_MAP.values():
-            for token in outputs:
-                if token:
-                    engine_genres.add(token)
-        self._tier2_genres = engine_genres - self._tier1_genres - self._all_non_genre_terms()
+        self._tier2_genres = _ENGINE_GENRES - self._tier1_genres - self._all_non_genre_terms()
 
     def _load_library_genres(self, db_path: str | Path) -> None:
-        from src.genre.normalize_unified import normalize_genre_token
+        # normalize_and_split_genre handles both single-value rows and any multi-value
+        # strings (e.g. "dark ambient; drone") that may appear in the DB.
+        from src.genre.normalize_unified import normalize_and_split_genre
 
         resolved = Path(db_path).resolve()
         if not resolved.exists():
@@ -82,9 +91,9 @@ class GenreVocabulary:
                 try:
                     for row in conn.execute(f"SELECT DISTINCT genre FROM {table}"):
                         if row["genre"]:
-                            normalized = normalize_genre_token(row["genre"])
-                            if normalized:
-                                raw_genres.add(normalized)
+                            for token in normalize_and_split_genre(row["genre"]):
+                                if token:
+                                    raw_genres.add(token)
                 except sqlite3.OperationalError:
                     continue
             known = self._tier1_genres | self._tier2_genres | self._all_non_genre_terms()
@@ -127,6 +136,8 @@ class GenreVocabulary:
             raise ValueError(f"Unknown category: {category}")
 
     def save(self) -> None:
+        # Tier-2 (engine) and tier-3 (library DB) genres are derived at load time and not saved —
+        # they're re-bootstrapped from their sources on the next instantiation.
         data: dict[str, Any] = {"version": self._raw.get("version", 1)}
         data["genre_style"] = sorted(self._tier1_genres)
         for category in _NON_GENRE_CATEGORIES:
