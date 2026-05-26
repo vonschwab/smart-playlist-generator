@@ -21,6 +21,7 @@ SOURCE_TYPES = {
     "local_payload",
     "review_context",
     "model_knowledge",
+    "lastfm_tags",
 }
 SOURCE_RELIABILITIES = {"high", "medium", "low"}
 RECOMMENDATION_BASES = {"authoritative_source", "hybrid", "local_metadata", "model_knowledge", "review_context"}

@@ -3166,3 +3166,35 @@ def test_ingest_local_creates_source_pages_and_enriched_genres(tmp_path: Path) -
         assert len(enriched) >= 1
         genres = {row["genre"] for row in enriched}
         assert "shoegaze" in genres
+
+
+def test_extract_lastfm_tags_from_metadata(tmp_path: Path) -> None:
+    from src.ai_genre_enrichment.source_extraction import extract_lastfm_tags_from_metadata
+
+    db_path = tmp_path / "metadata.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE tracks (track_id TEXT, artist TEXT, title TEXT, album TEXT, album_id TEXT, year INTEGER)")
+    conn.execute("CREATE TABLE artist_genres (artist TEXT, genre TEXT, source TEXT)")
+    conn.execute("CREATE TABLE album_genres (album_id TEXT, genre TEXT, source TEXT)")
+    conn.execute("CREATE TABLE track_genres (track_id TEXT, genre TEXT, source TEXT)")
+    conn.execute("INSERT INTO tracks VALUES ('t1', 'Slowdive', 'Alison', 'Souvlaki', 'a1', 1993)")
+    conn.execute("INSERT INTO artist_genres VALUES ('Slowdive', 'shoegaze', 'lastfm_artist')")
+    conn.execute("INSERT INTO artist_genres VALUES ('Slowdive', 'dream pop', 'lastfm_artist')")
+    conn.execute("INSERT INTO artist_genres VALUES ('Slowdive', 'seen live', 'lastfm_artist')")
+    conn.execute("INSERT INTO artist_genres VALUES ('Slowdive', 'rock', 'musicbrainz_artist')")
+    conn.execute("INSERT INTO album_genres VALUES ('a1', 'indie', 'lastfm_album')")
+    conn.commit()
+    conn.close()
+
+    tags = extract_lastfm_tags_from_metadata(
+        artist="Slowdive",
+        album_id="a1",
+        metadata_db_path=db_path,
+    )
+    # Should only return lastfm-sourced tags, not musicbrainz
+    assert "shoegaze" in tags
+    assert "dream pop" in tags
+    assert "indie" in tags
+    assert "rock" not in tags
+    # Meta-tags should be pre-filtered
+    assert "seen live" not in tags
