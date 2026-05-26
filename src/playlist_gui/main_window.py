@@ -569,6 +569,12 @@ class MainWindow(QMainWindow):
             self._on_build_artifacts,
             "Build playlist generation artifacts.",
         )
+        self._add_tool_action(
+            "review_genre_tags",
+            "Genre Tag &Review...",
+            self._on_open_review_panel,
+            "Review AI-enriched genre tags.",
+        )
 
         # Settings menu
         settings_menu = QMenu("&Settings", self)
@@ -1106,6 +1112,22 @@ class MainWindow(QMainWindow):
     def _on_build_artifacts(self) -> None:
         """Run artifact building."""
         self._enqueue_job(JobType.BUILD_ARTIFACTS)
+
+    def _on_open_review_panel(self) -> None:
+        from pathlib import Path
+
+        sidecar_db = Path("data/ai_genre_enrichment.db")
+        if not sidecar_db.exists():
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.information(self, "No Data", "No enrichment sidecar DB found at data/ai_genre_enrichment.db.")
+            return
+        from src.playlist_gui.widgets.review_panel import ReviewPanel
+        panel = ReviewPanel(str(sidecar_db), parent=self)
+        panel.setWindowTitle("Genre Tag Review")
+        panel.setWindowFlags(Qt.WindowType.Window)
+        panel.resize(700, 500)
+        panel.load_queue()
+        panel.show()
 
     def _enqueue_job(self, job_type: JobType) -> None:
         """Queue a job through the JobManager."""
