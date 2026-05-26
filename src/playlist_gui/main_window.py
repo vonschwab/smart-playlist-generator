@@ -725,39 +725,11 @@ class MainWindow(QMainWindow):
         state = self._current_generation_ui_state()
         return state.genre_mode, state.sonic_mode
 
-    @staticmethod
-    def _normalize_saved_generation_mode(mode: object) -> str:
-        """Normalize persisted display labels and ids to a GeneratePanel mode id."""
-        mode_text = str(mode or "artist").strip().lower()
-        return mode_text if mode_text in _GENERATION_MODES else "artist"
-
     def _current_generation_ui_state(self) -> UIStateModel:
         """Return the current generation state owned by GeneratePanel."""
         if self._generate_panel:
             return self._generate_panel.build_ui_state()
         return UIStateModel()
-
-    def _restore_generation_state(
-        self,
-        *,
-        mode: object = None,
-        artist: object = None,
-        genre: object = None,
-        genre_mode: object = None,
-        sonic_mode: object = None,
-        pace_mode: object = None,
-    ) -> None:
-        """Restore persisted generation controls through GeneratePanel."""
-        if not self._generate_panel:
-            return
-        self._generate_panel.apply_saved_state(
-            mode=self._normalize_saved_generation_mode(mode),
-            artist=str(artist or ""),
-            genre=str(genre or ""),
-            genre_mode=str(genre_mode or "") or None,
-            sonic_mode=str(sonic_mode or "") or None,
-            pace_mode=str(pace_mode or "") or None,
-        )
 
     @staticmethod
     def _set_override_value(overrides: dict, key_path: str, value: Any) -> None:
@@ -1840,14 +1812,22 @@ class MainWindow(QMainWindow):
             cfg = self._settings.value("state/config_path")
             if cfg:
                 self._config_path = str(cfg)
-            self._restore_generation_state(
-                mode=self._settings.value("state/mode"),
-                artist=self._settings.value("state/artist"),
-                genre=self._settings.value("state/genre"),
-                genre_mode=self._settings.value("state/genre_mode"),
-                sonic_mode=self._settings.value("state/sonic_mode"),
-                pace_mode=self._settings.value("state/pace_mode"),
-            )
+
+            # Restore UIState from session file
+            if self._generate_panel:
+                session_state = self._preset_manager.load_session()
+                if session_state:
+                    self._generate_panel.apply_ui_state(session_state)
+
+            # Restore active preset name (for status bar only — not re-applying preset)
+            preset = self._settings.value("state/preset")
+            if preset:
+                self._active_preset_name = str(preset)
+                loaded = self._preset_manager.load_preset(self._active_preset_name)
+                if loaded:
+                    self._preset_ui_state_snapshot = loaded
+                self._update_override_status()
+
             filt = self._settings.value("state/filter")
             if filt:
                 self._track_table.set_filter_text(str(filt))
@@ -1900,10 +1880,6 @@ class MainWindow(QMainWindow):
             self._settings.setValue("ui/content_splitter", self._content_splitter.saveState())
             self._settings.setValue("ui/main_splitter", self._main_splitter.saveState())
             self._settings.setValue("state/config_path", self._config_path)
-            ui_state = self._current_generation_ui_state()
-            self._settings.setValue("state/mode", ui_state.mode)
-            self._settings.setValue("state/artist", ui_state.primary_artist() or "")
-            self._settings.setValue("state/genre", ui_state.genre_query)
             self._settings.setValue("state/filter", self._track_table.get_filter_text())
             self._settings.setValue("ui/track_table/header_state", self._track_table.get_header_state())
             self._settings.setValue(
@@ -1911,9 +1887,10 @@ class MainWindow(QMainWindow):
                 json.dumps(self._track_table.get_column_visibility_state()),
             )
 
-            self._settings.setValue("state/genre_mode", ui_state.genre_mode)
-            self._settings.setValue("state/sonic_mode", ui_state.sonic_mode)
-            self._settings.setValue("state/pace_mode", ui_state.pace_mode)
+            # Save full UIState as session file
+            if self._generate_panel:
+                ui_state = self._generate_panel.build_ui_state()
+                self._preset_manager.save_session(ui_state)
         except Exception as e:
             self._logger.warning("Failed to save settings: %s", e)
 

@@ -12,9 +12,6 @@ class _FakeGeneratePanel:
     def build_ui_state(self):
         return self._state
 
-    def apply_saved_state(self, **kwargs):
-        self.applied.append(kwargs)
-
 
 def test_debug_report_uses_generate_panel_state_not_hidden_widgets():
     window = MainWindow.__new__(MainWindow)
@@ -33,29 +30,3 @@ def test_debug_report_uses_generate_panel_state_not_hidden_widgets():
 
     assert args["mode"] == "artist"
     assert args["artist"] == "Slowdive"
-
-
-def test_restore_generation_state_delegates_to_generate_panel():
-    panel = _FakeGeneratePanel()
-    window = MainWindow.__new__(MainWindow)
-    window._generate_panel = panel
-
-    MainWindow._restore_generation_state(
-        window,
-        mode="Genre",
-        artist="Slowdive",
-        genre="shoegaze",
-        genre_mode="dynamic",
-        sonic_mode="off",
-    )
-
-    assert panel.applied == [
-        {
-            "mode": "genre",
-            "artist": "Slowdive",
-            "genre": "shoegaze",
-            "genre_mode": "dynamic",
-            "sonic_mode": "off",
-            "pace_mode": None,
-        }
-    ]
