@@ -3299,3 +3299,53 @@ def test_record_review_decision_removes_from_queue(tmp_path: Path) -> None:
 
     queue_after = store.get_review_queue()
     assert len(queue_after) == 0
+
+
+def test_graduate_reviewed_writes_to_yaml(tmp_path: Path) -> None:
+    sidecar_db = tmp_path / "ai_genre_enriched_test.db"
+    vocab_yaml = tmp_path / "genre_vocabulary.yaml"
+    vocab_yaml.write_text(
+        "version: 1\ngenre_style:\n  - ambient\ndescriptor: []\ninstrument: []\n"
+        "place: []\nformat: []\nmood_function: []\nlabel_or_org: []\naliases: {}\n",
+        encoding="utf-8",
+    )
+
+    store = SidecarStore(sidecar_db)
+    store.initialize()
+    page_id = store.upsert_source_page(
+        release_key="test::album",
+        normalized_artist="test",
+        normalized_album="album",
+        album_id=None,
+        source_url="https://test.bandcamp.com/album/album",
+        source_type="bandcamp_release",
+        identity_status="confirmed",
+        identity_confidence=1.0,
+        evidence_summary="Test.",
+    )
+    store.replace_source_tags(page_id, ["dark ambient"])
+    store.classify_source_tags(page_id)
+
+    queue = store.get_review_queue()
+    assert len(queue) >= 1
+    item = [q for q in queue if q["normalized_tag"] == "dark ambient"][0]
+
+    store.record_review_decision(
+        source_tag_id=item["source_tag_id"],
+        release_key="test::album",
+        raw_tag="dark ambient",
+        normalized_tag="dark ambient",
+        original_classification="review_only",
+        reviewed_classification="genre_style",
+    )
+
+    result = ai_genre_main([
+        "--sidecar-db", str(sidecar_db),
+        "graduate-reviewed",
+        "--vocab-yaml", str(vocab_yaml),
+    ])
+    assert result == 0
+
+    import yaml
+    data = yaml.safe_load(vocab_yaml.read_text(encoding="utf-8"))
+    assert "dark ambient" in data["genre_style"]

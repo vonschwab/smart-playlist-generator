@@ -53,6 +53,10 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_ingest_local(args)
     if args.command == "extract-lastfm":
         return cmd_extract_lastfm(args)
+    if args.command == "review":
+        return cmd_review(args)
+    if args.command == "graduate-reviewed":
+        return cmd_graduate_reviewed(args)
     parser.print_help()
     return 2
 
@@ -153,6 +157,18 @@ def build_parser() -> argparse.ArgumentParser:
     extract_lastfm = sub.add_parser("extract-lastfm", help="Extract Last.fm tags from metadata.db")
     add_release_filters(extract_lastfm)
     extract_lastfm.add_argument("--dry-run", action="store_true")
+
+    review_parser = sub.add_parser("review", help="Interactive CLI review of unclassified tags")
+    review_parser.add_argument("--limit", type=int, default=20)
+    review_parser.add_argument("--release-key")
+    review_parser.add_argument("--source-type")
+
+    graduate = sub.add_parser("graduate-reviewed", help="Graduate human-reviewed tags into vocabulary YAML")
+    graduate.add_argument(
+        "--vocab-yaml",
+        type=Path,
+        default=ROOT / "data" / "genre_vocabulary.yaml",
+    )
 
     return parser
 
@@ -872,6 +888,103 @@ def _source_page_ids_for_release(store: SidecarStore, release_key: str) -> list[
                 (release_key,),
             )
         ]
+
+
+def cmd_review(args: argparse.Namespace) -> int:
+    store = SidecarStore(args.sidecar_db)
+    store.initialize()
+    queue = store.get_review_queue(
+        release_key=getattr(args, "release_key", None),
+        source_type=getattr(args, "source_type", None),
+        limit=args.limit,
+    )
+    if not queue:
+        print("No tags in review queue.")
+        return 0
+
+    valid_keys = {"a": "genre_style", "d": "descriptor", "i": "instrument", "p": "place", "r": "rejected", "s": None}
+    reviewed = 0
+    for item in queue:
+        context = store.get_review_context(item["release_key"])
+        context_lines = [
+            f"  {c['normalized_tag']} ({c['classification']}, {c['confidence']:.2f})"
+            for c in context
+            if c["normalized_tag"] != item["normalized_tag"]
+        ]
+        print(f"\nRelease: {item['normalized_artist']} — {item['normalized_album']}")
+        print(f"Source:  {item['source_url']}")
+        print(f"Current: {item['classification']} ({item['confidence']:.2f})")
+        print(f'Tag: "{item["normalized_tag"]}"')
+        if context_lines:
+            print("Context:")
+            for line in context_lines[:8]:
+                print(line)
+        print("[A]ccept genre  [D]escriptor  [I]nstrument  [P]lace  [R]eject  [S]kip  [Q]uit")
+
+        while True:
+            try:
+                choice = input("> ").strip().casefold()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return 0
+            if choice == "q":
+                return 0
+            if choice in valid_keys:
+                break
+            print("Invalid choice. Use a/d/i/p/r/s/q.")
+
+        classification = valid_keys[choice]
+        if classification is None:
+            continue
+
+        store.record_review_decision(
+            source_tag_id=item["source_tag_id"],
+            release_key=item["release_key"],
+            raw_tag=item["raw_tag"],
+            normalized_tag=item["normalized_tag"],
+            original_classification=item["classification"],
+            reviewed_classification=classification,
+        )
+        reviewed += 1
+        print(f"  → {classification}")
+
+    print(f"\nReviewed {reviewed} tag(s).")
+    return 0
+
+
+def cmd_graduate_reviewed(args: argparse.Namespace) -> int:
+    from src.ai_genre_enrichment.genre_vocabulary import GenreVocabulary
+
+    store = SidecarStore(args.sidecar_db)
+    store.initialize()
+    terms = store.get_graduated_terms()
+    if not terms:
+        print("No reviewed terms to graduate.")
+        return 0
+
+    vocab = GenreVocabulary(args.vocab_yaml)
+    category_map = {
+        "genre_style": "genre_style",
+        "descriptor": "descriptor",
+        "instrument": "instrument",
+        "place": "place",
+        "format": "format",
+        "mood_function": "mood_function",
+        "label_or_org": "label_or_org",
+    }
+    added = 0
+    for classification, tags in terms.items():
+        category = category_map.get(classification)
+        if not category:
+            continue
+        for tag in sorted(tags):
+            vocab.add_term(category, tag)
+            added += 1
+            print(f"  graduated {tag} → {category}")
+
+    vocab.save()
+    print(f"Graduated {added} term(s) to {args.vocab_yaml}")
+    return 0
 
 
 if __name__ == "__main__":
