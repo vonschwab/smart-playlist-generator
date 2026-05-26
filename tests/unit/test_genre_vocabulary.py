@@ -56,12 +56,11 @@ def test_tier1_non_genre_category(vocab_yaml: Path) -> None:
 
 def test_tier2_engine_genre_lookup(vocab_yaml: Path) -> None:
     vocab = GenreVocabulary(vocab_yaml)
-    # "psychedelic rock" is in normalize_unified.py SYNONYM_MAP as a target
-    # but not in our test YAML's genre_style list
+    # "psychedelic rock" is a SYNONYM_MAP target in normalize_unified.py
     result = vocab.classify_genre("psychedelic rock")
-    if result is not None:
-        assert result.tier == 2
-        assert result.confidence == 0.85
+    assert result is not None
+    assert result.tier == 2
+    assert result.confidence == 0.85
 
 
 def test_tier3_library_genre_lookup(vocab_yaml: Path, tmp_path: Path) -> None:

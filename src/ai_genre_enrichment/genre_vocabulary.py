@@ -68,6 +68,8 @@ class GenreVocabulary:
         self._tier2_genres = engine_genres - self._tier1_genres - self._all_non_genre_terms()
 
     def _load_library_genres(self, db_path: str | Path) -> None:
+        from src.genre.normalize_unified import normalize_genre_token
+
         resolved = Path(db_path).resolve()
         if not resolved.exists():
             return
@@ -80,7 +82,9 @@ class GenreVocabulary:
                 try:
                     for row in conn.execute(f"SELECT DISTINCT genre FROM {table}"):
                         if row["genre"]:
-                            raw_genres.add(row["genre"].strip().casefold())
+                            normalized = normalize_genre_token(row["genre"])
+                            if normalized:
+                                raw_genres.add(normalized)
                 except sqlite3.OperationalError:
                     continue
             known = self._tier1_genres | self._tier2_genres | self._all_non_genre_terms()
