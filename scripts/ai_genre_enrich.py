@@ -509,6 +509,7 @@ def cmd_ingest_local(args: argparse.Namespace) -> int:
 
 def cmd_extract_lastfm(args: argparse.Namespace) -> int:
     import os
+    import time
     from src.ai_genre_enrichment.lastfm_enrichment import fetch_lastfm_tags
     from src.ai_genre_enrichment.genre_vocabulary import GenreVocabulary
     from src.ai_genre_enrichment.tag_classification import set_vocabulary
@@ -519,8 +520,11 @@ def cmd_extract_lastfm(args: argparse.Namespace) -> int:
             from src.config_loader import Config
             config = Config()
             api_key = config.lastfm_api_key
-        except Exception:
+        except FileNotFoundError:
             pass
+        except Exception:
+            import logging as _logging
+            _logging.getLogger(__name__).debug("config.yaml parse error while resolving Last.fm API key", exc_info=True)
     if not api_key:
         print(
             "Error: Last.fm API key required. "
@@ -558,12 +562,13 @@ def cmd_extract_lastfm(args: argparse.Namespace) -> int:
             }, ensure_ascii=False, sort_keys=True))
             continue
 
+        album_segment = f"/album/{release.normalized_album}" if release.normalized_album else ""
         page_id = store.upsert_source_page(
             release_key=release.release_key,
             normalized_artist=release.normalized_artist,
             normalized_album=release.normalized_album,
             album_id=release.album_id,
-            source_url=f"lastfm://artist/{release.normalized_artist}/album/{release.normalized_album}",
+            source_url=f"lastfm://artist/{release.normalized_artist}{album_segment}",
             source_type="lastfm_tags",
             identity_status="confirmed",
             identity_confidence=0.9,
@@ -574,6 +579,7 @@ def cmd_extract_lastfm(args: argparse.Namespace) -> int:
         store.rebuild_enriched_genres_for_release(release.release_key)
         extracted += 1
         print(f"extracted-lastfm {release.release_key} tags={len(tags)}")
+        time.sleep(0.25)  # Last.fm rate limit: ~5 req/s, two calls per release
 
     print(f"Extracted Last.fm tags for {extracted} release(s).")
     return 0
