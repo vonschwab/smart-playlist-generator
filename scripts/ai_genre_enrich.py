@@ -1036,25 +1036,34 @@ def cmd_graduate_ai(args: argparse.Namespace) -> int:
     terms = store.get_ai_graduated_terms(min_times_seen=args.min_times_seen)
     if not terms:
         print("No AI-adjudicated tags meet the graduation threshold.")
+        reset_vocabulary()
         return 0
 
     vocab = GenreVocabulary(args.vocab_yaml)
     added = 0
-    for classification, tags in sorted(terms.items()):
-        for tag in sorted(tags):
-            try:
-                vocab.add_term(classification, tag)
-                added += 1
-                print(f"  graduated {tag!r} → {classification}")
-            except ValueError:
-                print(f"  skipped {tag!r} — unknown category {classification!r}")
+    try:
+        for classification, tags in sorted(terms.items()):
+            for tag in sorted(tags):
+                try:
+                    # Check before adding so added counts net-new terms only
+                    if classification == "genre_style":
+                        already = vocab.classify_genre(tag) is not None
+                    else:
+                        already = vocab.classify_non_genre(tag) is not None
+                    if not already:
+                        vocab.add_term(classification, tag)
+                        added += 1
+                        print(f"  graduated {tag!r} → {classification}")
+                except ValueError:
+                    print(f"  skipped {tag!r} — unknown category {classification!r}")
 
-    if added:
-        vocab.save()
-        print(f"\nGraduated {added} term(s) into {args.vocab_yaml}.")
-    else:
-        print("No new terms to graduate.")
-    reset_vocabulary()
+        if added:
+            vocab.save()
+            print(f"\nGraduated {added} term(s) into {args.vocab_yaml}.")
+        else:
+            print("No new terms to graduate.")
+    finally:
+        reset_vocabulary()
     return 0
 
 

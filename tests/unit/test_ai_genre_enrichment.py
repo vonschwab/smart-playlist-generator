@@ -3665,3 +3665,51 @@ def test_graduate_ai_writes_to_vocab_yaml(tmp_path):
     assert vocab.classify_genre("witch house") is not None
     assert vocab.classify_non_genre("lo-fi recording") == "descriptor"
     assert vocab.classify_genre("rare genre") is None
+
+
+def test_graduate_ai_is_idempotent(tmp_path):
+    """Running graduate-ai twice does not double-count or duplicate terms."""
+    from src.ai_genre_enrichment.genre_vocabulary import GenreVocabulary
+    from src.ai_genre_enrichment.tag_classification import reset_vocabulary
+
+    store = SidecarStore(tmp_path / "test.db")
+    store.initialize()
+
+    for _ in range(3):
+        store.cache_adjudication(
+            normalized_tag="witch house",
+            classification="genre_style",
+            confidence=0.88,
+            classifier="ai",
+        )
+
+    vocab_path = tmp_path / "genre_vocabulary.yaml"
+    import yaml
+    yaml.dump(
+        {"version": 1, "genre_style": ["ambient"], "descriptor": ["acoustic"], "aliases": {}},
+        vocab_path.open("w"),
+        default_flow_style=False,
+    )
+
+    reset_vocabulary()
+
+    args = [
+        "--sidecar-db", str(tmp_path / "test.db"),
+        "--metadata-db", str(tmp_path / "empty.db"),
+        "graduate-ai",
+        "--vocab-yaml", str(vocab_path),
+        "--min-times-seen", "3",
+    ]
+
+    result1 = ai_genre_cli.main(args)
+    assert result1 == 0
+    assert GenreVocabulary(vocab_path).classify_genre("witch house") is not None
+
+    # Second run should not crash and should report no new terms
+    result2 = ai_genre_cli.main(args)
+    assert result2 == 0
+
+    # Vocab still has the term exactly once
+    vocab = GenreVocabulary(vocab_path)
+    genres = yaml.safe_load(vocab_path.read_text())["genre_style"]
+    assert genres.count("witch house") == 1
