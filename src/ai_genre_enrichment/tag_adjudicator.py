@@ -96,6 +96,9 @@ def adjudicate_tags(
 
     Returns:
         Dict keyed by normalized_tag → {"classification", "confidence", "reason"}.
+
+    Note: No hard batch-size limit is enforced here. At scale, callers should
+    chunk large batches to avoid token-limit failures (TODO when needed).
     """
     if not tags or dry_run:
         return {}

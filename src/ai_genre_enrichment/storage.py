@@ -1401,7 +1401,12 @@ class SidecarStore:
         confidence: float,
         classifier: str = "ai",
     ) -> None:
-        """Cache an AI adjudication result, incrementing times_seen on conflict."""
+        """Cache an AI adjudication result, incrementing times_seen on conflict.
+
+        First-answer-wins: on conflict, only times_seen and decided_at are updated,
+        not classification/confidence. Re-run with graduate-ai to promote a new decision
+        after a model upgrade.
+        """
         with self.connect() as conn:
             conn.execute(
                 """

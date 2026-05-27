@@ -512,7 +512,7 @@ def cmd_extract_lastfm(args: argparse.Namespace) -> int:
     import time
     from src.ai_genre_enrichment.lastfm_enrichment import fetch_lastfm_tags
     from src.ai_genre_enrichment.genre_vocabulary import GenreVocabulary
-    from src.ai_genre_enrichment.tag_classification import set_vocabulary
+    from src.ai_genre_enrichment.tag_classification import set_vocabulary, reset_vocabulary
 
     api_key = getattr(args, "lastfm_api_key", None) or os.environ.get("LASTFM_API_KEY")
     if not api_key:
@@ -543,43 +543,46 @@ def cmd_extract_lastfm(args: argparse.Namespace) -> int:
     set_vocabulary(vocab)
 
     extracted = 0
-    for release in releases:
-        album_name = getattr(release, "normalized_album", None)
-        tags = fetch_lastfm_tags(
-            artist=release.normalized_artist,
-            album=album_name,
-            api_key=api_key,
-            limit=20,
-        )
-        if not tags:
-            continue
+    try:
+        for release in releases:
+            album_name = release.normalized_album or None
+            tags = fetch_lastfm_tags(
+                artist=release.normalized_artist,
+                album=album_name,
+                api_key=api_key,
+                limit=20,
+            )
+            if not tags:
+                continue
 
-        if getattr(args, "dry_run", False):
-            print(json.dumps({
-                "release_key": release.release_key,
-                "lastfm_tags": tags,
-                "dry_run": True,
-            }, ensure_ascii=False, sort_keys=True))
-            continue
+            if getattr(args, "dry_run", False):
+                print(json.dumps({
+                    "release_key": release.release_key,
+                    "lastfm_tags": tags,
+                    "dry_run": True,
+                }, ensure_ascii=False, sort_keys=True))
+                continue
 
-        album_segment = f"/album/{release.normalized_album}" if release.normalized_album else ""
-        page_id = store.upsert_source_page(
-            release_key=release.release_key,
-            normalized_artist=release.normalized_artist,
-            normalized_album=release.normalized_album,
-            album_id=release.album_id,
-            source_url=f"lastfm://artist/{release.normalized_artist}{album_segment}",
-            source_type="lastfm_tags",
-            identity_status="confirmed",
-            identity_confidence=0.9,
-            evidence_summary="Last.fm top tags via API.",
-        )
-        store.replace_source_tags(page_id, tags)
-        store.classify_source_tags(page_id, adjudicate=getattr(args, "adjudicate", False), model=args.model)
-        store.rebuild_enriched_genres_for_release(release.release_key)
-        extracted += 1
-        print(f"extracted-lastfm {release.release_key} tags={len(tags)}")
-        time.sleep(0.25)  # Last.fm rate limit: ~5 req/s, two calls per release
+            album_segment = f"/album/{release.normalized_album}" if release.normalized_album else ""
+            page_id = store.upsert_source_page(
+                release_key=release.release_key,
+                normalized_artist=release.normalized_artist,
+                normalized_album=release.normalized_album,
+                album_id=release.album_id,
+                source_url=f"lastfm://artist/{release.normalized_artist}{album_segment}",
+                source_type="lastfm_tags",
+                identity_status="confirmed",
+                identity_confidence=0.9,
+                evidence_summary="Last.fm top tags via API.",
+            )
+            store.replace_source_tags(page_id, tags)
+            store.classify_source_tags(page_id, adjudicate=getattr(args, "adjudicate", False), model=args.model)
+            store.rebuild_enriched_genres_for_release(release.release_key)
+            extracted += 1
+            print(f"extracted-lastfm {release.release_key} tags={len(tags)}")
+            time.sleep(0.25)  # Last.fm rate limit: ~5 req/s, two calls per release
+    finally:
+        reset_vocabulary()
 
     print(f"Extracted Last.fm tags for {extracted} release(s).")
     return 0
