@@ -3420,9 +3420,18 @@ def test_get_ai_graduated_terms_filters_by_times_seen(tmp_path):
             confidence=0.40,
             classifier="ai",
         )
+    # rejected — also excluded
+    for _ in range(5):
+        store.cache_adjudication(
+            normalized_tag="rejected tag",
+            classification="rejected",
+            confidence=0.40,
+            classifier="ai",
+        )
 
     terms = store.get_ai_graduated_terms(min_times_seen=3)
     assert "genre_style" in terms
     assert "common tag" in terms["genre_style"]
     assert "rare tag" not in terms.get("genre_style", set())
     assert "review_only" not in terms
+    assert "rejected tag" not in terms.get("rejected", set())
