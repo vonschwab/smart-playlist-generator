@@ -1001,6 +1001,9 @@ class SidecarStore:
                 seen_normalized_tags.add(classification.normalized_tag)
 
                 if classification.classification == "review_only":
+                    # lookup_cached_adjudication opens a separate read-only connection;
+                    # safe because it only reads ai_tag_adjudication_cache, not the tables
+                    # being written by the outer connection.
                     cached = self.lookup_cached_adjudication(classification.normalized_tag)
                     if cached is not None:
                         rows.append((
@@ -1058,22 +1061,26 @@ class SidecarStore:
         if not review_only_batch:
             return
 
+        ai_rows: list[tuple] = []
+
         if adjudicate:
             from .tag_adjudicator import adjudicate_tags
 
             ai_input = [(raw, norm) for _, raw, norm in review_only_batch]
             ai_results = adjudicate_tags(ai_input, model=model)
 
-            ai_rows: list[tuple] = []
             ai_cache_writes: list[tuple[str, str, float]] = []
             for source_tag_id, raw_tag, normalized_tag in review_only_batch:
                 ai_result = ai_results.get(normalized_tag)
                 if ai_result is not None:
-                    ai_cache_writes.append((
-                        normalized_tag,
-                        ai_result["classification"],
-                        ai_result["confidence"],
-                    ))
+                    # Only cache definitive classifications; review_only means AI was also
+                    # uncertain, so re-run adjudication on future encounters.
+                    if ai_result["classification"] != "review_only":
+                        ai_cache_writes.append((
+                            normalized_tag,
+                            ai_result["classification"],
+                            ai_result["confidence"],
+                        ))
                     ai_rows.append((
                         source_tag_id,
                         ai_result["classification"],

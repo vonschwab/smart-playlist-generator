@@ -3535,6 +3535,10 @@ def test_classify_source_tags_uses_adjudication_cache(tmp_path):
     assert row["confidence"] == 0.82
     assert row["classifier"] == "cached_ai"
 
+    # Verify that times_seen was incremented after the cache hit
+    cached_after = store.lookup_cached_adjudication("ambient pop")
+    assert cached_after["times_seen"] == 2
+
 
 def test_classify_source_tags_calls_ai_adjudicator_on_unknown(tmp_path, monkeypatch):
     """When adjudicate=True and a tag is unknown, AI is called and result is cached."""
