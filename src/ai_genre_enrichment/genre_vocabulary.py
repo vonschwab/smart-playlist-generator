@@ -53,6 +53,7 @@ class GenreVocabulary:
         self._tier1_genres: set[str] = set()
         self._non_genre_sets: dict[str, set[str]] = {}
         self._aliases: dict[str, str] = {}
+        self._decompose: dict[str, list[str]] = {}
         self._tier2_genres: set[str] = set()
         self._tier3_genres: set[str] = set()
 
@@ -70,6 +71,7 @@ class GenreVocabulary:
         for category in _NON_GENRE_CATEGORIES:
             self._non_genre_sets[category] = set(self._raw.get(category, []))
         self._aliases = dict(self._raw.get("aliases", {}))
+        self._decompose = {k: list(v) for k, v in self._raw.get("decompose", {}).items()}
 
     def _bootstrap_engine_genres(self) -> None:
         self._tier2_genres = _ENGINE_GENRES - self._tier1_genres - self._all_non_genre_terms()
@@ -110,6 +112,10 @@ class GenreVocabulary:
     def resolve_alias(self, tag: str) -> str:
         return self._aliases.get(tag, tag)
 
+    def decompose_tag(self, tag: str) -> list[str] | None:
+        """Return decomposed genre list if a decompose rule exists, else None."""
+        return self._decompose.get(tag) or None
+
     def classify_genre(self, normalized_tag: str) -> GenreLookupResult | None:
         tag = self.resolve_alias(normalized_tag)
         if tag in self._tier1_genres:
@@ -138,11 +144,32 @@ class GenreVocabulary:
     def save(self) -> None:
         # Tier-2 (engine) and tier-3 (library DB) genres are derived at load time and not saved —
         # they're re-bootstrapped from their sources on the next instantiation.
-        data: dict[str, Any] = {"version": self._raw.get("version", 1)}
-        data["genre_style"] = sorted(self._tier1_genres)
-        for category in _NON_GENRE_CATEGORIES:
-            data[category] = sorted(self._non_genre_sets.get(category, set()))
+        lines: list[str] = [f"version: {self._raw.get('version', 1)}"]
+
+        section_order = ["genre_style"] + list(_NON_GENRE_CATEGORIES)
+        section_data: dict[str, list[str]] = {"genre_style": sorted(self._tier1_genres)}
+        for cat in _NON_GENRE_CATEGORIES:
+            section_data[cat] = sorted(self._non_genre_sets.get(cat, set()))
+
+        for section in section_order:
+            if section_data[section]:
+                lines.append(f"{section}:")
+                for item in section_data[section]:
+                    lines.append(f"  - {item}")
+            else:
+                lines.append(f"{section}: []")
+
         if self._aliases:
-            data["aliases"] = dict(sorted(self._aliases.items()))
+            lines.append("aliases:")
+            for key, value in sorted(self._aliases.items()):
+                lines.append(f"  {key}: {value}")
+
+        if self._decompose:
+            lines.append("decompose:")
+            for key, values in sorted(self._decompose.items()):
+                lines.append(f"  {key}:")
+                for v in values:
+                    lines.append(f"    - {v}")
+
         with self._yaml_path.open("w", encoding="utf-8") as fh:
-            yaml.dump(data, fh, default_flow_style=False, allow_unicode=True, sort_keys=False)
+            fh.write("\n".join(lines) + "\n")

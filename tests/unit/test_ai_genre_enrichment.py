@@ -3469,7 +3469,7 @@ def test_adjudicate_tags_returns_classifications(monkeypatch):
             return FakeResponse()
 
     class FakeOpenAI:
-        def __init__(self):
+        def __init__(self, **kwargs):
             self.responses = FakeResponses()
 
     monkeypatch.setattr("src.ai_genre_enrichment.tag_adjudicator.OpenAI", FakeOpenAI)
@@ -3570,7 +3570,7 @@ def test_classify_source_tags_calls_ai_adjudicator_on_unknown(tmp_path, monkeypa
             return FakeResponse()
 
     class FakeOpenAI:
-        def __init__(self):
+        def __init__(self, **kwargs):
             self.responses = FakeResponses()
 
     monkeypatch.setattr("src.ai_genre_enrichment.tag_adjudicator.OpenAI", FakeOpenAI)
@@ -3607,6 +3607,54 @@ def test_classify_source_tags_calls_ai_adjudicator_on_unknown(tmp_path, monkeypa
     cached = store.lookup_cached_adjudication("witch house")
     assert cached is not None
     assert cached["classification"] == "genre_style"
+
+
+def test_vocab_save_preserves_indentation_style(tmp_path):
+    """save() must produce 2-space-indented list items, not flush-left."""
+    from src.ai_genre_enrichment.genre_vocabulary import GenreVocabulary
+
+    yaml_path = tmp_path / "vocab.yaml"
+    yaml_path.write_text(
+        "version: 1\n"
+        "genre_style:\n"
+        "  - ambient\n"
+        "  - shoegaze\n"
+        "descriptor:\n"
+        "  - acoustic\n"
+        "instrument:\n"
+        "  - piano\n"
+        "place:\n"
+        "  - oakland\n"
+        "format:\n"
+        "  - ep\n"
+        "mood_function:\n"
+        "  - chillout\n"
+        "label_or_org:\n"
+        "  - dfa\n"
+        "aliases:\n"
+        "  post punk: post-punk\n"
+        "decompose:\n"
+        "  funk / soul:\n"
+        "    - funk\n"
+        "    - soul\n",
+        encoding="utf-8",
+    )
+    vocab = GenreVocabulary(yaml_path)
+    vocab.add_term("genre_style", "drone")
+    vocab.save()
+
+    saved = yaml_path.read_text(encoding="utf-8")
+    # Every list item must be indented 2 spaces (4 for decompose values)
+    for line in saved.splitlines():
+        if line.strip().startswith("- "):
+            assert line.startswith("  - ") or line.startswith("    - "), (
+                f"List item not indented: {line!r}"
+            )
+    # Round-trip: reload and verify the new term is present
+    vocab2 = GenreVocabulary(yaml_path)
+    result = vocab2.classify_genre("drone")
+    assert result is not None
+    assert result.tier == 1
 
 
 def test_graduate_ai_writes_to_vocab_yaml(tmp_path):
