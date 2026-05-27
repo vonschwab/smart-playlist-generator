@@ -3435,3 +3435,171 @@ def test_get_ai_graduated_terms_filters_by_times_seen(tmp_path):
     assert "rare tag" not in terms.get("genre_style", set())
     assert "review_only" not in terms
     assert "rejected tag" not in terms.get("rejected", set())
+
+
+def test_adjudicate_tags_returns_classifications(monkeypatch):
+    from src.ai_genre_enrichment.tag_adjudicator import adjudicate_tags
+
+    fake_response = {
+        "tag_classifications": [
+            {
+                "raw_tag": "ambient pop",
+                "normalized_tag": "ambient pop",
+                "classification": "genre_style",
+                "confidence": 0.85,
+                "reason": "Recognized subgenre.",
+            },
+            {
+                "raw_tag": "stage & screen",
+                "normalized_tag": "stage & screen",
+                "classification": "review_only",
+                "confidence": 0.30,
+                "reason": "Market category, not a genre.",
+            },
+        ],
+        "warnings": [],
+    }
+
+    class FakeResponse:
+        output_text = json.dumps(fake_response)
+        usage = None
+
+    class FakeResponses:
+        def create(self, **kwargs):
+            return FakeResponse()
+
+    class FakeOpenAI:
+        def __init__(self):
+            self.responses = FakeResponses()
+
+    monkeypatch.setattr("src.ai_genre_enrichment.tag_adjudicator.OpenAI", FakeOpenAI)
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    results = adjudicate_tags(
+        [("ambient pop", "ambient pop"), ("stage & screen", "stage & screen")],
+        model="gpt-4o-mini",
+    )
+
+    assert len(results) == 2
+    assert results["ambient pop"]["classification"] == "genre_style"
+    assert results["stage & screen"]["classification"] == "review_only"
+
+
+def test_classify_source_tags_uses_adjudication_cache(tmp_path):
+    """When a tag is in the adjudication cache, classify_source_tags uses the cached result
+    instead of falling back to review_only."""
+    from src.ai_genre_enrichment.tag_classification import reset_vocabulary
+
+    store = SidecarStore(tmp_path / "test.db")
+    store.initialize()
+    reset_vocabulary()
+
+    # Pre-populate cache with a decision for "ambient pop"
+    store.cache_adjudication(
+        normalized_tag="ambient pop",
+        classification="genre_style",
+        confidence=0.82,
+        classifier="ai",
+    )
+
+    # Create a source page with "ambient pop" tag
+    page_id = store.upsert_source_page(
+        release_key="test::album",
+        normalized_artist="test",
+        normalized_album="album",
+        album_id=None,
+        source_url="https://test.bandcamp.com/album/test",
+        source_type="bandcamp_release",
+        identity_status="confirmed",
+        identity_confidence=1.0,
+        evidence_summary="test",
+    )
+    store.replace_source_tags(page_id, ["ambient pop"])
+
+    # Classify — should pick up cached adjudication
+    store.classify_source_tags(page_id, adjudicate=False)
+
+    with store.connect() as conn:
+        row = conn.execute(
+            """
+            SELECT c.classification, c.confidence, c.classifier
+            FROM ai_genre_tag_classifications c
+            JOIN ai_genre_source_tags t ON t.source_tag_id = c.source_tag_id
+            WHERE t.source_page_id = ? AND t.normalized_tag = 'ambient pop'
+            """,
+            (page_id,),
+        ).fetchone()
+
+    assert row is not None
+    assert row["classification"] == "genre_style"
+    assert row["confidence"] == 0.82
+    assert row["classifier"] == "cached_ai"
+
+
+def test_classify_source_tags_calls_ai_adjudicator_on_unknown(tmp_path, monkeypatch):
+    """When adjudicate=True and a tag is unknown, AI is called and result is cached."""
+    from src.ai_genre_enrichment.tag_classification import reset_vocabulary
+
+    store = SidecarStore(tmp_path / "test.db")
+    store.initialize()
+    reset_vocabulary()
+
+    fake_response = {
+        "tag_classifications": [
+            {
+                "raw_tag": "witch house",
+                "normalized_tag": "witch house",
+                "classification": "genre_style",
+                "confidence": 0.88,
+                "reason": "Recognized electronic subgenre.",
+            }
+        ],
+        "warnings": [],
+    }
+
+    class FakeResponse:
+        output_text = json.dumps(fake_response)
+        usage = None
+
+    class FakeResponses:
+        def create(self, **kwargs):
+            return FakeResponse()
+
+    class FakeOpenAI:
+        def __init__(self):
+            self.responses = FakeResponses()
+
+    monkeypatch.setattr("src.ai_genre_enrichment.tag_adjudicator.OpenAI", FakeOpenAI)
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    page_id = store.upsert_source_page(
+        release_key="test::album",
+        normalized_artist="test",
+        normalized_album="album",
+        album_id=None,
+        source_url="https://test.bandcamp.com/album/test",
+        source_type="bandcamp_release",
+        identity_status="confirmed",
+        identity_confidence=1.0,
+        evidence_summary="test",
+    )
+    store.replace_source_tags(page_id, ["witch house"])
+    store.classify_source_tags(page_id, adjudicate=True)
+
+    with store.connect() as conn:
+        row = conn.execute(
+            """
+            SELECT c.classification, c.confidence, c.classifier
+            FROM ai_genre_tag_classifications c
+            JOIN ai_genre_source_tags t ON t.source_tag_id = c.source_tag_id
+            WHERE t.source_page_id = ?
+            """,
+            (page_id,),
+        ).fetchone()
+
+    assert row["classification"] == "genre_style"
+    assert row["classifier"] == "ai"
+
+    cached = store.lookup_cached_adjudication("witch house")
+    assert cached is not None
+    assert cached["classification"] == "genre_style"

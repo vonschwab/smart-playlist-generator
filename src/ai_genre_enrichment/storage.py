@@ -920,8 +920,18 @@ class SidecarStore:
                 ),
             )
 
-    def classify_source_tags(self, source_page_id: int) -> None:
-        """Run deterministic source-tag classification for one source page."""
+    def classify_source_tags(
+        self,
+        source_page_id: int,
+        *,
+        adjudicate: bool = False,
+        model: str = "gpt-4o-mini",
+    ) -> None:
+        """Run deterministic source-tag classification for one source page.
+
+        Unknown tags (review_only) are checked against the adjudication cache first.
+        If adjudicate=True, any remaining unknowns are sent to the AI in a single batch.
+        """
         from .tag_classification import classify_source_tag
 
         with self.connect() as conn:
@@ -947,9 +957,15 @@ class SidecarStore:
                 """,
                 (source_page_id,),
             )
-            rows = []
+            rows: list[tuple] = []
             seen_normalized_tags: set[str] = set()
             deleted_source_tag_ids: set[int] = set()
+            # (source_tag_id, raw_tag, normalized_tag) for tags that need AI adjudication
+            review_only_batch: list[tuple[int, str, str]] = []
+            # Cache entries to increment after this connection closes (to avoid nested lock)
+            # Each entry: (normalized_tag, classification, confidence, classifier)
+            cache_increments: list[tuple[str, str, float, str]] = []
+
             for tag in tags:
                 source_tag_id = int(tag["source_tag_id"])
                 if source_tag_id in deleted_source_tag_ids:
@@ -983,6 +999,29 @@ class SidecarStore:
                     (classification.normalized_tag, source_tag_id),
                 )
                 seen_normalized_tags.add(classification.normalized_tag)
+
+                if classification.classification == "review_only":
+                    cached = self.lookup_cached_adjudication(classification.normalized_tag)
+                    if cached is not None:
+                        rows.append((
+                            source_tag_id,
+                            cached["classification"],
+                            cached["confidence"],
+                            "cached_ai",
+                            f"Cached AI adjudication (seen {cached['times_seen']}x).",
+                            _now_iso(),
+                        ))
+                        # Queue cache increment — will write after this connection closes
+                        cache_increments.append((
+                            classification.normalized_tag,
+                            cached["classification"],
+                            cached["confidence"],
+                            cached["classifier"],
+                        ))
+                        continue
+                    review_only_batch.append((source_tag_id, tag["raw_tag"], classification.normalized_tag))
+                    continue
+
                 rows.append(
                     (
                         source_tag_id,
@@ -993,6 +1032,7 @@ class SidecarStore:
                         _now_iso(),
                     )
                 )
+
             if rows:
                 conn.executemany(
                     """
@@ -1002,6 +1042,87 @@ class SidecarStore:
                     VALUES (?, ?, ?, ?, ?, ?)
                     """,
                     rows,
+                )
+
+        # --- outside the connection block to avoid nested lock ---
+
+        # Flush cache increments for cache-hit tags
+        for norm_tag, cls, conf, classifier in cache_increments:
+            self.cache_adjudication(
+                normalized_tag=norm_tag,
+                classification=cls,
+                confidence=conf,
+                classifier=classifier,
+            )
+
+        if not review_only_batch:
+            return
+
+        if adjudicate:
+            from .tag_adjudicator import adjudicate_tags
+
+            ai_input = [(raw, norm) for _, raw, norm in review_only_batch]
+            ai_results = adjudicate_tags(ai_input, model=model)
+
+            ai_rows: list[tuple] = []
+            ai_cache_writes: list[tuple[str, str, float]] = []
+            for source_tag_id, raw_tag, normalized_tag in review_only_batch:
+                ai_result = ai_results.get(normalized_tag)
+                if ai_result is not None:
+                    ai_cache_writes.append((
+                        normalized_tag,
+                        ai_result["classification"],
+                        ai_result["confidence"],
+                    ))
+                    ai_rows.append((
+                        source_tag_id,
+                        ai_result["classification"],
+                        ai_result["confidence"],
+                        "ai",
+                        ai_result.get("reason", "AI adjudication."),
+                        _now_iso(),
+                    ))
+                else:
+                    ai_rows.append((
+                        source_tag_id,
+                        "review_only",
+                        0.5,
+                        "deterministic",
+                        "Unknown source tag requires adjudication before use.",
+                        _now_iso(),
+                    ))
+
+            # Cache AI results before writing classification rows
+            for norm_tag, cls, conf in ai_cache_writes:
+                self.cache_adjudication(
+                    normalized_tag=norm_tag,
+                    classification=cls,
+                    confidence=conf,
+                    classifier="ai",
+                )
+        else:
+            ai_rows = [
+                (
+                    source_tag_id,
+                    "review_only",
+                    0.5,
+                    "deterministic",
+                    "Unknown source tag requires adjudication before use.",
+                    _now_iso(),
+                )
+                for source_tag_id, _, _ in review_only_batch
+            ]
+
+        if ai_rows:
+            with self.connect() as conn:
+                conn.executemany(
+                    """
+                    INSERT INTO ai_genre_tag_classifications (
+                        source_tag_id, classification, confidence, classifier, reason, classified_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    ai_rows,
                 )
 
     def rebuild_enriched_genres_for_release(self, release_key: str) -> None:

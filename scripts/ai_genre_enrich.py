@@ -140,6 +140,8 @@ def build_parser() -> argparse.ArgumentParser:
     classify = sub.add_parser("classify-tags", help="Classify extracted source tags")
     add_release_filters(classify)
     classify.add_argument("--dry-run", action="store_true")
+    classify.add_argument("--adjudicate", action="store_true", help="Send unknown tags to AI for adjudication")
+    classify.add_argument("--model", default=DEFAULT_MODEL)
 
     build = sub.add_parser("build-enriched", help="Build enriched_genres from classified source tags")
     add_release_filters(build)
@@ -153,10 +155,14 @@ def build_parser() -> argparse.ArgumentParser:
     ingest_local = sub.add_parser("ingest-local", help="Ingest genres from local metadata.db genre tables as a confirmed source")
     add_release_filters(ingest_local)
     ingest_local.add_argument("--dry-run", action="store_true")
+    ingest_local.add_argument("--adjudicate", action="store_true", help="Send unknown tags to AI for adjudication")
+    ingest_local.add_argument("--model", default=DEFAULT_MODEL)
 
     extract_lastfm = sub.add_parser("extract-lastfm", help="Extract Last.fm tags from metadata.db")
     add_release_filters(extract_lastfm)
     extract_lastfm.add_argument("--dry-run", action="store_true")
+    extract_lastfm.add_argument("--adjudicate", action="store_true", help="Send unknown tags to AI for adjudication")
+    extract_lastfm.add_argument("--model", default=DEFAULT_MODEL)
 
     review_parser = sub.add_parser("review", help="Interactive CLI review of unclassified tags")
     review_parser.add_argument("--limit", type=int, default=20)
@@ -361,7 +367,11 @@ def cmd_classify_tags(args: argparse.Namespace) -> int:
             )
             continue
         for page_id in page_ids:
-            store.classify_source_tags(page_id)
+            store.classify_source_tags(
+                page_id,
+                adjudicate=getattr(args, "adjudicate", False),
+                model=getattr(args, "model", DEFAULT_MODEL),
+            )
         print(f"classified {release.release_key} pages={len(page_ids)}")
     return 0
 
@@ -468,7 +478,11 @@ def cmd_ingest_local(args: argparse.Namespace) -> int:
             evidence_summary="Genres from local metadata.db genre tables.",
         )
         store.replace_source_tags(page_id, deduped)
-        store.classify_source_tags(page_id)
+        store.classify_source_tags(
+            page_id,
+            adjudicate=getattr(args, "adjudicate", False),
+            model=getattr(args, "model", DEFAULT_MODEL),
+        )
         store.rebuild_enriched_genres_for_release(release.release_key)
         ingested += 1
         print(f"ingested {release.release_key} tags={len(deduped)}")
@@ -523,7 +537,11 @@ def cmd_extract_lastfm(args: argparse.Namespace) -> int:
             evidence_summary="Last.fm tags from local metadata.db genre tables.",
         )
         store.replace_source_tags(page_id, tags)
-        store.classify_source_tags(page_id)
+        store.classify_source_tags(
+            page_id,
+            adjudicate=getattr(args, "adjudicate", False),
+            model=getattr(args, "model", DEFAULT_MODEL),
+        )
         store.rebuild_enriched_genres_for_release(release.release_key)
         extracted += 1
         print(f"extracted-lastfm {release.release_key} tags={len(tags)}")
