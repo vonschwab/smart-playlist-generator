@@ -160,11 +160,12 @@ def build_parser() -> argparse.ArgumentParser:
     ingest_local.add_argument("--adjudicate", action="store_true", help="Send unknown tags to AI for adjudication")
     ingest_local.add_argument("--model", default=DEFAULT_MODEL)
 
-    extract_lastfm = sub.add_parser("extract-lastfm", help="Extract Last.fm tags from metadata.db")
+    extract_lastfm = sub.add_parser("extract-lastfm", help="Fetch Last.fm top tags via API and ingest as a source page")
     add_release_filters(extract_lastfm)
     extract_lastfm.add_argument("--dry-run", action="store_true")
     extract_lastfm.add_argument("--adjudicate", action="store_true", help="Send unknown tags to AI for adjudication")
     extract_lastfm.add_argument("--model", default=DEFAULT_MODEL)
+    extract_lastfm.add_argument("--lastfm-api-key", help="Last.fm API key (overrides config.yaml/env)")
 
     review_parser = sub.add_parser("review", help="Interactive CLI review of unclassified tags")
     review_parser.add_argument("--limit", type=int, default=20)
@@ -507,7 +508,25 @@ def cmd_ingest_local(args: argparse.Namespace) -> int:
 
 
 def cmd_extract_lastfm(args: argparse.Namespace) -> int:
-    from src.ai_genre_enrichment.source_extraction import extract_lastfm_tags_from_metadata
+    import os
+    from src.ai_genre_enrichment.lastfm_enrichment import fetch_lastfm_tags
+    from src.ai_genre_enrichment.genre_vocabulary import GenreVocabulary
+    from src.ai_genre_enrichment.tag_classification import set_vocabulary
+
+    api_key = getattr(args, "lastfm_api_key", None) or os.environ.get("LASTFM_API_KEY")
+    if not api_key:
+        try:
+            from src.config_loader import Config
+            config = Config()
+            api_key = config.lastfm_api_key
+        except Exception:
+            pass
+    if not api_key:
+        print(
+            "Error: Last.fm API key required. "
+            "Set LASTFM_API_KEY env var, use --lastfm-api-key, or configure in config.yaml."
+        )
+        return 1
 
     store = SidecarStore(args.sidecar_db)
     store.initialize()
@@ -516,23 +535,22 @@ def cmd_extract_lastfm(args: argparse.Namespace) -> int:
         print("No matching release found.")
         return 1
 
-    # Set tier-3 vocabulary so library genres are recognized
-    from src.ai_genre_enrichment.genre_vocabulary import GenreVocabulary
-    from src.ai_genre_enrichment.tag_classification import set_vocabulary
     vocab = GenreVocabulary(library_db_path=args.metadata_db)
     set_vocabulary(vocab)
 
     extracted = 0
     for release in releases:
-        tags = extract_lastfm_tags_from_metadata(
-            artist=release.artist,
-            album_id=release.album_id,
-            metadata_db_path=args.metadata_db,
+        album_name = getattr(release, "normalized_album", None)
+        tags = fetch_lastfm_tags(
+            artist=release.normalized_artist,
+            album=album_name,
+            api_key=api_key,
+            limit=20,
         )
         if not tags:
             continue
 
-        if args.dry_run:
+        if getattr(args, "dry_run", False):
             print(json.dumps({
                 "release_key": release.release_key,
                 "lastfm_tags": tags,
@@ -549,14 +567,10 @@ def cmd_extract_lastfm(args: argparse.Namespace) -> int:
             source_type="lastfm_tags",
             identity_status="confirmed",
             identity_confidence=0.9,
-            evidence_summary="Last.fm tags from local metadata.db genre tables.",
+            evidence_summary="Last.fm top tags via API.",
         )
         store.replace_source_tags(page_id, tags)
-        store.classify_source_tags(
-            page_id,
-            adjudicate=getattr(args, "adjudicate", False),
-            model=getattr(args, "model", DEFAULT_MODEL),
-        )
+        store.classify_source_tags(page_id, adjudicate=getattr(args, "adjudicate", False), model=args.model)
         store.rebuild_enriched_genres_for_release(release.release_key)
         extracted += 1
         print(f"extracted-lastfm {release.release_key} tags={len(tags)}")
