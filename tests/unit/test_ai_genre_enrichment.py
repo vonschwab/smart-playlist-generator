@@ -3713,3 +3713,104 @@ def test_graduate_ai_is_idempotent(tmp_path):
     vocab = GenreVocabulary(vocab_path)
     genres = yaml.safe_load(vocab_path.read_text())["genre_style"]
     assert genres.count("witch house") == 1
+
+
+# ---------------------------------------------------------------------------
+# Task 4 — Last.fm API integration
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_lastfm_tags_calls_api_and_returns_tags(monkeypatch):
+    from src.ai_genre_enrichment.lastfm_enrichment import fetch_lastfm_tags
+
+    fake_api_response = {
+        "toptags": {
+            "tag": [
+                {"name": "shoegaze", "count": "100", "url": ""},
+                {"name": "dream pop", "count": "80", "url": ""},
+                {"name": "noise pop", "count": "60", "url": ""},
+                {"name": "seen live", "count": "50", "url": ""},
+                {"name": "indie", "count": "40", "url": ""},
+                {"name": "favorites", "count": "30", "url": ""},
+            ],
+            "@attr": {"artist": "Slowdive", "album": "Souvlaki"},
+        }
+    }
+
+    def mock_get(url, params=None, timeout=None):
+        class FakeResp:
+            status_code = 200
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return fake_api_response
+
+        return FakeResp()
+
+    monkeypatch.setattr("src.ai_genre_enrichment.lastfm_enrichment.requests.get", mock_get)
+
+    tags = fetch_lastfm_tags(
+        artist="Slowdive",
+        album="Souvlaki",
+        api_key="test-key",
+        limit=20,
+    )
+
+    # "seen live" and "favorites" should be filtered out
+    assert "shoegaze" in tags
+    assert "dream pop" in tags
+    assert "noise pop" in tags
+    assert "indie" in tags
+    assert "seen live" not in tags
+    assert "favorites" not in tags
+
+
+def test_extract_lastfm_command_calls_api(tmp_path, monkeypatch):
+    from src.ai_genre_enrichment.tag_classification import reset_vocabulary
+
+    metadata_db = _metadata_db(tmp_path)
+    sidecar_db = tmp_path / "sidecar.db"
+    reset_vocabulary()
+
+    fake_api_response = {
+        "toptags": {
+            "tag": [
+                {"name": "shoegaze", "count": "100", "url": ""},
+                {"name": "dream pop", "count": "80", "url": ""},
+            ],
+            "@attr": {"artist": "Slowdive"},
+        }
+    }
+
+    def mock_get(url, params=None, timeout=None):
+        class FakeResp:
+            status_code = 200
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return fake_api_response
+
+        return FakeResp()
+
+    monkeypatch.setattr("src.ai_genre_enrichment.lastfm_enrichment.requests.get", mock_get)
+
+    result = ai_genre_cli.main([
+        "--metadata-db", str(metadata_db),
+        "--sidecar-db", str(sidecar_db),
+        "extract-lastfm",
+        "--artist", "Slowdive",
+        "--lastfm-api-key", "test-key",
+    ])
+
+    assert result == 0
+
+    store = SidecarStore(sidecar_db)
+    with store.connect() as conn:
+        pages = list(conn.execute(
+            "SELECT * FROM ai_genre_source_pages WHERE source_type = 'lastfm_tags'"
+        ))
+    assert len(pages) >= 1
