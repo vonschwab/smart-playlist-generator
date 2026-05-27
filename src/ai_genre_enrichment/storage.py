@@ -315,6 +315,15 @@ class SidecarStore:
                     UNIQUE (source_tag_id, reviewer)
                 );
 
+                CREATE TABLE IF NOT EXISTS ai_tag_adjudication_cache (
+                    normalized_tag TEXT PRIMARY KEY,
+                    classification TEXT NOT NULL,
+                    confidence REAL NOT NULL,
+                    classifier TEXT NOT NULL DEFAULT 'ai',
+                    times_seen INTEGER NOT NULL DEFAULT 1,
+                    decided_at TEXT NOT NULL
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_review_decisions_tag
                     ON ai_genre_review_decisions (source_tag_id);
                 CREATE INDEX IF NOT EXISTS idx_review_decisions_release
@@ -1245,6 +1254,54 @@ class SidecarStore:
             for row in rows:
                 classification = row["reviewed_classification"]
                 result.setdefault(classification, set()).add(row["normalized_tag"])
+            return result
+
+    def lookup_cached_adjudication(self, normalized_tag: str) -> dict[str, Any] | None:
+        """Look up a cached AI adjudication result by normalized tag."""
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT classification, confidence, classifier, times_seen FROM ai_tag_adjudication_cache WHERE normalized_tag = ?",
+                (normalized_tag,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def cache_adjudication(
+        self,
+        *,
+        normalized_tag: str,
+        classification: str,
+        confidence: float,
+        classifier: str = "ai",
+    ) -> None:
+        """Cache an AI adjudication result, incrementing times_seen on conflict."""
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO ai_tag_adjudication_cache (normalized_tag, classification, confidence, classifier, times_seen, decided_at)
+                VALUES (?, ?, ?, ?, 1, ?)
+                ON CONFLICT(normalized_tag)
+                DO UPDATE SET
+                    times_seen = ai_tag_adjudication_cache.times_seen + 1,
+                    decided_at = excluded.decided_at
+                """,
+                (normalized_tag, classification, confidence, classifier, _now_iso()),
+            )
+
+    def get_ai_graduated_terms(self, min_times_seen: int = 3) -> dict[str, set[str]]:
+        """Return AI-adjudicated terms grouped by classification, filtered by frequency."""
+        with self.connect() as conn:
+            rows = list(conn.execute(
+                """
+                SELECT normalized_tag, classification
+                FROM ai_tag_adjudication_cache
+                WHERE times_seen >= ?
+                  AND classification NOT IN ('review_only', 'rejected')
+                """,
+                (min_times_seen,),
+            ))
+            result: dict[str, set[str]] = {}
+            for row in rows:
+                result.setdefault(row["classification"], set()).add(row["normalized_tag"])
             return result
 
     def _upsert_check(

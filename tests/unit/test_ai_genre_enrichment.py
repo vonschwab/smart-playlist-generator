@@ -3349,3 +3349,80 @@ def test_graduate_reviewed_writes_to_yaml(tmp_path: Path) -> None:
     import yaml
     data = yaml.safe_load(vocab_yaml.read_text(encoding="utf-8"))
     assert "dark ambient" in data["genre_style"]
+
+
+def test_adjudication_cache_stores_and_retrieves(tmp_path):
+    store = SidecarStore(tmp_path / "test.db")
+    store.initialize()
+
+    assert store.lookup_cached_adjudication("ambient pop") is None
+
+    store.cache_adjudication(
+        normalized_tag="ambient pop",
+        classification="genre_style",
+        confidence=0.82,
+        classifier="ai",
+    )
+
+    cached = store.lookup_cached_adjudication("ambient pop")
+    assert cached is not None
+    assert cached["classification"] == "genre_style"
+    assert cached["confidence"] == 0.82
+    assert cached["classifier"] == "ai"
+    assert cached["times_seen"] == 1
+
+
+def test_adjudication_cache_increments_times_seen(tmp_path):
+    store = SidecarStore(tmp_path / "test.db")
+    store.initialize()
+
+    store.cache_adjudication(
+        normalized_tag="ambient pop",
+        classification="genre_style",
+        confidence=0.82,
+        classifier="ai",
+    )
+    store.cache_adjudication(
+        normalized_tag="ambient pop",
+        classification="genre_style",
+        confidence=0.82,
+        classifier="ai",
+    )
+
+    cached = store.lookup_cached_adjudication("ambient pop")
+    assert cached["times_seen"] == 2
+
+
+def test_get_ai_graduated_terms_filters_by_times_seen(tmp_path):
+    store = SidecarStore(tmp_path / "test.db")
+    store.initialize()
+
+    # Seen once — not enough
+    store.cache_adjudication(
+        normalized_tag="rare tag",
+        classification="genre_style",
+        confidence=0.80,
+        classifier="ai",
+    )
+    # Seen 3 times — qualifies
+    for _ in range(3):
+        store.cache_adjudication(
+            normalized_tag="common tag",
+            classification="genre_style",
+            confidence=0.85,
+            classifier="ai",
+        )
+    # review_only — excluded
+    for _ in range(5):
+        store.cache_adjudication(
+            normalized_tag="junk tag",
+            classification="review_only",
+            confidence=0.40,
+            classifier="ai",
+        )
+
+    terms = store.get_ai_graduated_terms(min_times_seen=3)
+    assert "genre_style" in terms
+    assert "common tag" in terms["genre_style"]
+    assert "rare tag" not in terms.get("genre_style", set())
+    assert "review_only" not in terms
