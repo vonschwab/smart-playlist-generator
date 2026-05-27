@@ -3607,3 +3607,61 @@ def test_classify_source_tags_calls_ai_adjudicator_on_unknown(tmp_path, monkeypa
     cached = store.lookup_cached_adjudication("witch house")
     assert cached is not None
     assert cached["classification"] == "genre_style"
+
+
+def test_graduate_ai_writes_to_vocab_yaml(tmp_path):
+    from src.ai_genre_enrichment.genre_vocabulary import GenreVocabulary
+    from src.ai_genre_enrichment.tag_classification import set_vocabulary, reset_vocabulary
+
+    store = SidecarStore(tmp_path / "test.db")
+    store.initialize()
+
+    # Simulate an AI-adjudicated tag seen 5 times
+    for _ in range(5):
+        store.cache_adjudication(
+            normalized_tag="witch house",
+            classification="genre_style",
+            confidence=0.88,
+            classifier="ai",
+        )
+    # And a descriptor seen 3 times
+    for _ in range(3):
+        store.cache_adjudication(
+            normalized_tag="lo-fi recording",
+            classification="descriptor",
+            confidence=0.90,
+            classifier="ai",
+        )
+    # And one seen only once — should not graduate
+    store.cache_adjudication(
+        normalized_tag="rare genre",
+        classification="genre_style",
+        confidence=0.80,
+        classifier="ai",
+    )
+
+    # Create a minimal vocab YAML
+    vocab_path = tmp_path / "genre_vocabulary.yaml"
+    import yaml
+    yaml.dump(
+        {"version": 1, "genre_style": ["ambient"], "descriptor": ["acoustic"], "aliases": {}},
+        vocab_path.open("w"),
+        default_flow_style=False,
+    )
+
+    reset_vocabulary()
+
+    result = ai_genre_cli.main([
+        "--sidecar-db", str(tmp_path / "test.db"),
+        "--metadata-db", str(tmp_path / "empty.db"),
+        "graduate-ai",
+        "--vocab-yaml", str(vocab_path),
+        "--min-times-seen", "3",
+    ])
+
+    assert result == 0
+
+    vocab = GenreVocabulary(vocab_path)
+    assert vocab.classify_genre("witch house") is not None
+    assert vocab.classify_non_genre("lo-fi recording") == "descriptor"
+    assert vocab.classify_genre("rare genre") is None

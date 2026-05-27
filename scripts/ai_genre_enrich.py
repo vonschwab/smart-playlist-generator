@@ -57,6 +57,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_review(args)
     if args.command == "graduate-reviewed":
         return cmd_graduate_reviewed(args)
+    if args.command == "graduate-ai":
+        return cmd_graduate_ai(args)
     parser.print_help()
     return 2
 
@@ -174,6 +176,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--vocab-yaml",
         type=Path,
         default=ROOT / "data" / "genre_vocabulary.yaml",
+    )
+
+    graduate_ai = sub.add_parser("graduate-ai", help="Graduate AI-adjudicated tags into vocabulary YAML")
+    graduate_ai.add_argument(
+        "--vocab-yaml",
+        type=Path,
+        default=ROOT / "data" / "genre_vocabulary.yaml",
+    )
+    graduate_ai.add_argument(
+        "--min-times-seen",
+        type=int,
+        default=3,
+        help="Minimum times a tag must have been seen to graduate (default: 3)",
     )
 
     return parser
@@ -1009,6 +1024,37 @@ def cmd_graduate_reviewed(args: argparse.Namespace) -> int:
 
     vocab.save()
     print(f"Graduated {added} term(s) to {args.vocab_yaml}")
+    return 0
+
+
+def cmd_graduate_ai(args: argparse.Namespace) -> int:
+    from src.ai_genre_enrichment.genre_vocabulary import GenreVocabulary
+    from src.ai_genre_enrichment.tag_classification import reset_vocabulary
+
+    store = SidecarStore(args.sidecar_db)
+    store.initialize()
+    terms = store.get_ai_graduated_terms(min_times_seen=args.min_times_seen)
+    if not terms:
+        print("No AI-adjudicated tags meet the graduation threshold.")
+        return 0
+
+    vocab = GenreVocabulary(args.vocab_yaml)
+    added = 0
+    for classification, tags in sorted(terms.items()):
+        for tag in sorted(tags):
+            try:
+                vocab.add_term(classification, tag)
+                added += 1
+                print(f"  graduated {tag!r} → {classification}")
+            except ValueError:
+                print(f"  skipped {tag!r} — unknown category {classification!r}")
+
+    if added:
+        vocab.save()
+        print(f"\nGraduated {added} term(s) into {args.vocab_yaml}.")
+    else:
+        print("No new terms to graduate.")
+    reset_vocabulary()
     return 0
 
 
