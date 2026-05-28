@@ -34,6 +34,7 @@ Security:
 """
 import json
 import logging
+import subprocess
 import sys
 import sqlite3
 import tempfile
@@ -1839,6 +1840,64 @@ def handle_blacklist_scope_set(cmd_data: Dict[str, Any]) -> None:
         emit_done("blacklist_scope_set", False, str(e))
 
 
+def handle_enrich_artist(cmd_data: Optional[Dict[str, Any]] = None, *, artist: str = "", request_id: str = "") -> Dict[str, Any]:
+    """Run the full enrichment pipeline for an artist as subprocess invocations.
+
+    Steps: ingest-local → extract-lastfm → extract-bandcamp → classify-tags → build-enriched.
+    Stops at the first failure.
+
+    Can be called directly (unit tests pass artist/request_id as kwargs) or via
+    the command dispatch system (cmd_data dict).
+    """
+    if cmd_data is not None:
+        artist = cmd_data.get("artist", artist)
+        request_id = cmd_data.get("request_id", request_id)
+
+    steps = [
+        ("ingest-local", []),
+        ("extract-lastfm", []),
+        ("extract-bandcamp", []),
+        ("classify-tags", ["--adjudicate"]),
+        ("build-enriched", []),
+    ]
+    for i, (command, extra_args) in enumerate(steps, 1):
+        argv = [
+            sys.executable,
+            "scripts/ai_genre_enrich.py",
+            command,
+            "--artist", artist,
+            *extra_args,
+        ]
+        emit_progress(f"enrich:{command}", i, len(steps), artist)
+        completed = subprocess.run(argv, capture_output=True, text=True, check=False)
+        if completed.returncode != 0:
+            return {
+                "ok": False,
+                "error": f"{command} failed: {completed.stderr.strip()[:200]}",
+                "step": command,
+            }
+        emit_log("INFO", f"{command} completed for {artist}", request_id=request_id)
+    return {"ok": True, "artist": artist}
+
+
+def handle_enrich_artist_cmd(cmd_data: Dict[str, Any]) -> None:
+    """Command handler wrapper for enrich_artist — called from the dispatch table."""
+    artist = cmd_data.get("artist", "")
+    request_id = cmd_data.get("request_id", "")
+    if not artist:
+        emit_error("enrich_artist requires 'artist' field")
+        emit_done("enrich_artist", False, "artist required")
+        return
+
+    result = handle_enrich_artist(artist=artist, request_id=request_id)
+    if result["ok"]:
+        emit_result("enrich_artist", result)
+        emit_done("enrich_artist", True, artist)
+    else:
+        emit_error(result.get("error", "enrichment failed"))
+        emit_done("enrich_artist", False, artist)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Command Router
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1857,6 +1916,7 @@ TRACKED_COMMAND_HANDLERS = {
     "blacklist_fetch": handle_blacklist_fetch,
     "blacklist_set": handle_blacklist_set,
     "blacklist_scope_set": handle_blacklist_scope_set,
+    "enrich_artist": handle_enrich_artist_cmd,
 }
 
 # Commands that don't have their own request context

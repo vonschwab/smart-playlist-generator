@@ -371,6 +371,7 @@ class WorkerClient(QObject):
         sonic_mode: Optional[str] = None,
         pace_mode: Optional[str] = None,
         include_collaborations: bool = False,
+        exclude_seed_tracks_from_recency: bool = False,
         job_id: Optional[str] = None,
     ) -> Optional[str]:
         """
@@ -405,6 +406,7 @@ class WorkerClient(QObject):
             sonic_mode=sonic_mode,
             pace_mode=pace_mode,
             include_collaborations=include_collaborations,
+            exclude_seed_tracks_from_recency=exclude_seed_tracks_from_recency,
         )
 
         return self.send_command(
@@ -544,6 +546,16 @@ class WorkerClient(QObject):
                 "value": value,
                 "artist": artist,
                 "enabled": bool(enabled),
+            },
+            job_id=job_id,
+        )
+
+    def enrich_artist(self, artist: str, job_id: Optional[str] = None) -> Optional[str]:
+        """Send an enrich_artist command to the worker. Returns the request_id."""
+        return self.send_command(
+            {
+                "cmd": "enrich_artist",
+                "artist": artist,
             },
             job_id=job_id,
         )
