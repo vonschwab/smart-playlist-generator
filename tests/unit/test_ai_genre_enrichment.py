@@ -3768,6 +3768,147 @@ def test_graduate_ai_is_idempotent(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Task 2 — Year-pattern guard, decompose_tag, alias+decompose at enrichment
+# ---------------------------------------------------------------------------
+
+
+def test_year_tags_classified_as_descriptor():
+    """Year-based tags from Last.fm should be caught deterministically as descriptors."""
+    from src.ai_genre_enrichment.tag_classification import classify_source_tag
+
+    cases = [
+        ("2016", "descriptor"),
+        ("2021", "descriptor"),
+        ("2016 albums", "descriptor"),
+        ("2016 releases", "descriptor"),
+        ("best of 2023", "descriptor"),
+    ]
+    for raw_tag, expected_cls in cases:
+        result = classify_source_tag(raw_tag)
+        assert result.classification == expected_cls, (
+            f"{raw_tag!r}: expected {expected_cls}, got {result.classification}"
+        )
+
+
+def test_decompose_tag_returns_list_or_none(tmp_path):
+    """decompose_tag returns the decomposed list for known entries, None otherwise."""
+    yaml_path = tmp_path / "vocab.yaml"
+    yaml_path.write_text(
+        "version: 1\n"
+        "genre_style:\n"
+        "  - ambient\n"
+        "descriptor: []\n"
+        "instrument: []\n"
+        "place: []\n"
+        "format: []\n"
+        "mood_function: []\n"
+        "label_or_org: []\n"
+        "decompose:\n"
+        "  funk / soul:\n"
+        "    - funk\n"
+        "    - soul\n",
+        encoding="utf-8",
+    )
+    from src.ai_genre_enrichment.genre_vocabulary import GenreVocabulary
+
+    vocab = GenreVocabulary(yaml_path)
+    assert vocab.decompose_tag("funk / soul") == ["funk", "soul"]
+    assert vocab.decompose_tag("ambient") is None
+    assert vocab.decompose_tag("nonexistent") is None
+
+
+def test_rebuild_enriched_applies_alias_and_decompose(tmp_path, monkeypatch):
+    """rebuild_enriched_genres_for_release applies alias resolution and decompose expansion."""
+    import src.ai_genre_enrichment.genre_vocabulary as gv_mod
+    from src.ai_genre_enrichment.genre_vocabulary import GenreVocabulary
+
+    yaml_path = tmp_path / "vocab.yaml"
+    yaml_path.write_text(
+        "version: 1\n"
+        "genre_style:\n"
+        "  - space rock\n"
+        "  - funk\n"
+        "  - soul\n"
+        "descriptor: []\n"
+        "instrument: []\n"
+        "place: []\n"
+        "format: []\n"
+        "mood_function: []\n"
+        "label_or_org: []\n"
+        "aliases:\n"
+        "  spacerock: space rock\n"
+        "decompose:\n"
+        "  funk / soul:\n"
+        "    - funk\n"
+        "    - soul\n",
+        encoding="utf-8",
+    )
+
+    # Patch GenreVocabulary in the genre_vocabulary module so that the local import
+    # inside rebuild_enriched_genres_for_release picks up the test vocab.
+    def _test_vocab(*args, **kwargs):
+        return GenreVocabulary(yaml_path)
+
+    monkeypatch.setattr(gv_mod, "GenreVocabulary", _test_vocab)
+
+    store = SidecarStore(tmp_path / "test.db")
+    store.initialize()
+
+    release_key = "testartist::testalbum"
+    now = "2026-01-01T00:00:00"
+    with store.connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO ai_genre_source_pages (
+                release_key, normalized_artist, normalized_album, album_id,
+                source_url, source_domain, source_type,
+                identity_status, identity_confidence
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (release_key, "testartist", "testalbum", None,
+             "https://lastfm.example/testartist/testalbum",
+             "lastfm.example",
+             "lastfm_tags",
+             "confirmed", 1.0),
+        )
+        page_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+        for pos, (raw, norm) in enumerate([
+            ("spacerock", "spacerock"),
+            ("Funk / Soul", "funk / soul"),
+        ]):
+            conn.execute(
+                """
+                INSERT INTO ai_genre_source_tags (
+                    source_page_id, raw_tag, normalized_tag, tag_position, extracted_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (page_id, raw, norm, pos, now),
+            )
+            tag_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            conn.execute(
+                """
+                INSERT INTO ai_genre_tag_classifications (
+                    source_tag_id, classification, confidence, classifier, reason, classified_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (tag_id, "genre_style", 0.95, "vocabulary", "Curated genre vocabulary.", now),
+            )
+
+    store.rebuild_enriched_genres_for_release(release_key)
+
+    with store.connect() as conn:
+        genres = sorted(
+            row[0]
+            for row in conn.execute(
+                "SELECT genre FROM enriched_genres WHERE release_key = ?",
+                (release_key,),
+            )
+        )
+    assert genres == ["funk", "soul", "space rock"]
+
+
+# ---------------------------------------------------------------------------
 # Task 4 — Last.fm API integration
 # ---------------------------------------------------------------------------
 
