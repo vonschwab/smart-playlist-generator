@@ -39,6 +39,19 @@ def _collect_engine_genres() -> frozenset[str]:
 _ENGINE_GENRES: frozenset[str] = _collect_engine_genres()
 
 
+def _safe_yaml_scalar(s: str) -> str:
+    """Return a YAML scalar representation of s (quoted if necessary).
+
+    Uses yaml.dump to handle special characters (colons, brackets, etc.) correctly,
+    stripping the trailing newline and document markers.
+    """
+    dumped = yaml.dump(s, default_flow_style=True, allow_unicode=True).strip()
+    # yaml.dump may add '...' document end marker in some versions, strip it
+    if dumped.endswith('\n...'):
+        dumped = dumped[:-4]
+    return dumped
+
+
 class GenreVocabulary:
     """Three-tier genre vocabulary: curated YAML → engine synonyms → library DB."""
 
@@ -162,14 +175,17 @@ class GenreVocabulary:
         if self._aliases:
             lines.append("aliases:")
             for key, value in sorted(self._aliases.items()):
-                lines.append(f"  {key}: {value}")
+                # Use yaml to emit each scalar so special chars (colons, brackets) are quoted
+                k_str = _safe_yaml_scalar(key)
+                v_str = _safe_yaml_scalar(value)
+                lines.append(f"  {k_str}: {v_str}")
 
         if self._decompose:
             lines.append("decompose:")
             for key, values in sorted(self._decompose.items()):
-                lines.append(f"  {key}:")
+                lines.append(f"  {_safe_yaml_scalar(key)}:")
                 for v in values:
-                    lines.append(f"    - {v}")
+                    lines.append(f"    - {_safe_yaml_scalar(v)}")
 
         with self._yaml_path.open("w", encoding="utf-8") as fh:
             fh.write("\n".join(lines) + "\n")

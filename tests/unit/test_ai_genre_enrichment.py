@@ -3655,6 +3655,10 @@ def test_vocab_save_preserves_indentation_style(tmp_path):
     result = vocab2.classify_genre("drone")
     assert result is not None
     assert result.tier == 1
+    # Aliases round-trip correctly
+    assert vocab2._aliases == vocab._aliases
+    # Decompose round-trip correctly
+    assert vocab2._decompose == vocab._decompose
 
 
 def test_graduate_ai_writes_to_vocab_yaml(tmp_path):
