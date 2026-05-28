@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import Callable
 from typing import Any
 
@@ -47,6 +46,7 @@ def fetch_bandcamp_tags(
     filtered: list[str] = []
     for tag in tags:
         key = tag.strip().casefold()
+        # skip single-char noise tags
         if key and key not in seen and len(key) > 2:
             seen.add(key)
             filtered.append(tag.strip())
@@ -72,10 +72,9 @@ def _locate_bandcamp_url(
     *, artist: str, album: str | None, model: str, api_key: str
 ) -> dict[str, Any]:
     """Call OpenAI source locator to find a Bandcamp URL for the release."""
-    os.environ["OPENAI_API_KEY"] = api_key  # client picks this up
     from .client import OpenAIEnrichmentClient
 
-    client = OpenAIEnrichmentClient(model=model)
+    client = OpenAIEnrichmentClient(model=model, api_key=api_key)
     payload = {"artist": artist, "album": album or ""}
     prompt = f"artist: {artist}\nalbum: {album or ''}"
     result = client.enrich(

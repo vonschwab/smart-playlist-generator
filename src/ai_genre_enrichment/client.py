@@ -35,6 +35,7 @@ class OpenAIEnrichmentClient:
         allowed_web_domains: list[str] | None = None,
         max_retries: int = 2,
         retry_sleep_seconds: float = 1.0,
+        api_key: str | None = None,
         ) -> None:
         self.model = model
         self.dry_run = dry_run
@@ -42,6 +43,7 @@ class OpenAIEnrichmentClient:
         self.allowed_web_domains = list(DEFAULT_ALLOWED_WEB_DOMAINS if allowed_web_domains is None else allowed_web_domains)
         self.max_retries = max_retries
         self.retry_sleep_seconds = retry_sleep_seconds
+        self._api_key = api_key
 
     def enrich(
         self,
@@ -79,7 +81,7 @@ class OpenAIEnrichmentClient:
                 ),
             )
 
-        api_key = os.environ.get("OPENAI_API_KEY")
+        api_key = self._api_key or os.environ.get("OPENAI_API_KEY")
         if not api_key:
             return EnrichmentResult(
                 status="failed",
@@ -140,7 +142,7 @@ class OpenAIEnrichmentClient:
                 "OpenAI SDK is not installed. Install the optional dependency with `pip install openai`."
             ) from exc
 
-        client = OpenAI()
+        client = OpenAI(api_key=self._api_key or os.environ.get("OPENAI_API_KEY"))
         last_exc: Exception | None = None
         for attempt in range(self.max_retries + 1):
             try:

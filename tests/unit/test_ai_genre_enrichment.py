@@ -552,7 +552,7 @@ def test_web_search_tool_omits_domain_filter_by_default_and_accepts_override(mon
             raise RuntimeError("stop before network")
 
     class _OpenAI:
-        def __init__(self):
+        def __init__(self, **kwargs):
             self.responses = _Responses()
 
     monkeypatch.setitem(sys.modules, "openai", types.SimpleNamespace(OpenAI=_OpenAI))
