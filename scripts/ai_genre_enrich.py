@@ -53,6 +53,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_ingest_local(args)
     if args.command == "extract-lastfm":
         return cmd_extract_lastfm(args)
+    if args.command == "extract-bandcamp":
+        return cmd_extract_bandcamp(args)
     if args.command == "review":
         return cmd_review(args)
     if args.command == "graduate-reviewed":
@@ -166,6 +168,13 @@ def build_parser() -> argparse.ArgumentParser:
     extract_lastfm.add_argument("--adjudicate", action="store_true", help="Send unknown tags to AI for adjudication")
     extract_lastfm.add_argument("--model", default=DEFAULT_MODEL)
     extract_lastfm.add_argument("--lastfm-api-key", help="Last.fm API key (overrides config.yaml/env)")
+
+    extract_bandcamp = sub.add_parser("extract-bandcamp", help="Find Bandcamp URL via AI and ingest release tags")
+    add_release_filters(extract_bandcamp)
+    extract_bandcamp.add_argument("--dry-run", action="store_true")
+    extract_bandcamp.add_argument("--adjudicate", action="store_true", help="Send unknown tags to AI for adjudication")
+    extract_bandcamp.add_argument("--model", default=DEFAULT_MODEL)
+    extract_bandcamp.add_argument("--openai-api-key", help="OpenAI API key (overrides env/config.yaml)")
 
     review_parser = sub.add_parser("review", help="Interactive CLI review of unclassified tags")
     review_parser.add_argument("--limit", type=int, default=20)
@@ -585,6 +594,82 @@ def cmd_extract_lastfm(args: argparse.Namespace) -> int:
         reset_vocabulary()
 
     print(f"Extracted Last.fm tags for {extracted} release(s).")
+    return 0
+
+
+def cmd_extract_bandcamp(args: argparse.Namespace) -> int:
+    import os
+    from src.ai_genre_enrichment.bandcamp_enrichment import fetch_bandcamp_tags
+    from src.ai_genre_enrichment.genre_vocabulary import GenreVocabulary
+    from src.ai_genre_enrichment.tag_classification import set_vocabulary, reset_vocabulary
+
+    api_key = getattr(args, "openai_api_key", None) or os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        try:
+            from src.config_loader import Config
+            config = Config()
+            api_key = config.openai_api_key
+        except (FileNotFoundError, AttributeError):
+            pass
+    if not api_key:
+        print(
+            "Error: OpenAI API key required. "
+            "Set OPENAI_API_KEY env var, use --openai-api-key, or configure in config.yaml."
+        )
+        return 1
+
+    store = SidecarStore(args.sidecar_db)
+    store.initialize()
+    releases = _discover(args)
+    if not releases:
+        print("No matching release found.")
+        return 1
+
+    vocab = GenreVocabulary(library_db_path=args.metadata_db)
+    set_vocabulary(vocab)
+
+    extracted = 0
+    try:
+        for release in releases:
+            album_name = release.normalized_album or None
+            tags = fetch_bandcamp_tags(
+                artist=release.normalized_artist,
+                album=album_name,
+                api_key=api_key,
+                model=args.model,
+            )
+            if not tags:
+                continue
+
+            if getattr(args, "dry_run", False):
+                print(json.dumps({
+                    "release_key": release.release_key,
+                    "bandcamp_tags": tags,
+                    "dry_run": True,
+                }, ensure_ascii=False, sort_keys=True))
+                continue
+
+            album_segment = f"/album/{release.normalized_album}" if release.normalized_album else ""
+            page_id = store.upsert_source_page(
+                release_key=release.release_key,
+                normalized_artist=release.normalized_artist,
+                normalized_album=release.normalized_album,
+                album_id=release.album_id,
+                source_url=f"bandcamp://artist/{release.normalized_artist}{album_segment}",
+                source_type="bandcamp_tags",
+                identity_status="confirmed",
+                identity_confidence=0.9,
+                evidence_summary="Bandcamp release tags via AI source locator.",
+            )
+            store.replace_source_tags(page_id, tags)
+            store.classify_source_tags(page_id, adjudicate=getattr(args, "adjudicate", False), model=args.model)
+            store.rebuild_enriched_genres_for_release(release.release_key)
+            extracted += 1
+            print(f"extracted-bandcamp {release.release_key} tags={len(tags)}")
+    finally:
+        reset_vocabulary()
+
+    print(f"Extracted Bandcamp tags for {extracted} release(s).")
     return 0
 
 

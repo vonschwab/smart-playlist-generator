@@ -4078,3 +4078,33 @@ def test_fetch_bandcamp_tags_returns_empty_when_no_confirmed_url(monkeypatch):
         fetch_html=lambda url: "",
     )
     assert tags == []
+
+
+def test_extract_bandcamp_command_calls_fetcher_and_stores_tags(monkeypatch, tmp_path):
+    import src.ai_genre_enrichment.bandcamp_enrichment as bc_mod
+    from src.ai_genre_enrichment.tag_classification import reset_vocabulary
+
+    metadata_db = _metadata_db(tmp_path)
+    sidecar_db = tmp_path / "sidecar.db"
+    reset_vocabulary()
+
+    def fake_fetch(*, artist, album, api_key, model, fetch_html=None):
+        return ["slowcore", "space rock", "shoegaze"]
+
+    monkeypatch.setattr(bc_mod, "fetch_bandcamp_tags", fake_fetch)
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    rc = ai_genre_cli.main([
+        "--metadata-db", str(metadata_db),
+        "--sidecar-db", str(sidecar_db),
+        "extract-bandcamp",
+        "--artist", "Slowdive",
+    ])
+    assert rc == 0
+
+    store = SidecarStore(sidecar_db)
+    with store.connect() as conn:
+        tags = [row["raw_tag"] for row in conn.execute(
+            "SELECT raw_tag FROM ai_genre_source_tags ORDER BY raw_tag"
+        )]
+    assert tags == ["shoegaze", "slowcore", "space rock"]
