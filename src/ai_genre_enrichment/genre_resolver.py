@@ -54,6 +54,34 @@ class EnrichedGenreResolver:
         albums = [row["normalized_album"] for row in rows]
         return {"enriched_count": len(albums), "enriched_albums": albums}
 
+    def get_release_keys_with_genre(self, genre: str) -> set[str]:
+        """Return release_keys whose enriched signature contains the given genre (casefold-matched)."""
+        index = self._build_reverse_index()
+        return index.get(genre.casefold(), set())
+
+    def get_all_enriched_release_keys(self) -> set[str]:
+        """Return the set of all release_keys with an enriched signature."""
+        if self._all_enriched_cache is None:
+            with self._connect() as conn:
+                rows = conn.execute("SELECT release_key FROM enriched_genre_signatures").fetchall()
+            self._all_enriched_cache = {row["release_key"] for row in rows}
+        return self._all_enriched_cache
+
+    def _build_reverse_index(self) -> dict[str, set[str]]:
+        if self._reverse_index_cache is not None:
+            return self._reverse_index_cache
+        index: dict[str, set[str]] = {}
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT release_key, signature_json FROM enriched_genre_signatures"
+            ).fetchall()
+        for row in rows:
+            payload = json.loads(row["signature_json"])
+            for genre in (payload.get("genres") or []):
+                index.setdefault(genre.casefold(), set()).add(row["release_key"])
+        self._reverse_index_cache = index
+        return index
+
     def _release_key(self, artist: str, album: str) -> str:
         return f"{normalize_source_tag(artist)}::{normalize_source_tag(album)}"
 

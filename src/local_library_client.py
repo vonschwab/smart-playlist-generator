@@ -4,11 +4,15 @@ Provides the same interface as LibraryClient but queries metadata.db instead
 """
 import sqlite3
 import logging
-from typing import List, Dict, Any, Optional
+from typing import TYPE_CHECKING, List, Dict, Any, Optional
 from .artist_key_db import ensure_artist_key_schema
 from .blacklist_db import ensure_blacklist_schema
 from .similarity_calculator import SimilarityCalculator
 from .string_utils import normalize_artist_key
+from .ai_genre_enrichment.tag_classification import normalize_source_tag
+
+if TYPE_CHECKING:
+    from .ai_genre_enrichment.genre_resolver import EnrichedGenreResolver
 
 logger = logging.getLogger(__name__)
 
@@ -19,15 +23,24 @@ class LocalLibraryClient:
     Uses metadata.db and SimilarityCalculator instead of local database
     """
 
-    def __init__(self, db_path: str = "data/metadata.db"):
+    def __init__(
+        self,
+        db_path: str = "data/metadata.db",
+        *,
+        enriched_resolver: "Optional[EnrichedGenreResolver]" = None,
+    ):
         """
         Initialize local library client
 
         Args:
             db_path: Path to metadata database
+            enriched_resolver: Optional EnrichedGenreResolver for sidecar-aware genre lookups.
+                When provided, get_tracks_for_genre uses enriched signatures as the
+                authoritative source (enriched releases never fall back to raw genres).
         """
         self.db_path = db_path
         self.conn = None
+        self._enriched_resolver = enriched_resolver
         self.similarity_calc = SimilarityCalculator(db_path)
         self._init_db_connection()
         logger.info("Initialized LocalLibraryClient (local library mode)")
@@ -257,8 +270,10 @@ class LocalLibraryClient:
         """
         Get tracks matching a specific genre (normalized).
 
-        Uses a single optimized UNION query to fetch from all genre sources.
-        Genres are already normalized/lowercase in DB, so no LOWER() needed.
+        When an EnrichedGenreResolver is configured, enriched signatures are authoritative:
+        - Enriched releases are included only if the genre appears in their signature.
+        - Enriched releases are excluded from the raw UNION results (no mixing).
+        - Unenriched releases use the existing raw UNION query as before.
 
         Args:
             genre: Normalized genre string (already lowercase)
@@ -266,6 +281,45 @@ class LocalLibraryClient:
 
         Returns:
             List of track dictionaries
+        """
+        if self._enriched_resolver is None:
+            return self._raw_tracks_for_genre(genre, limit)
+
+        enriched_with_genre = self._enriched_resolver.get_release_keys_with_genre(genre)
+        enriched_all = self._enriched_resolver.get_all_enriched_release_keys()
+
+        # Raw path: only tracks whose release has no enriched signature
+        raw_tracks = self._raw_tracks_for_genre(genre, limit)
+        filtered_raw = [
+            t for t in raw_tracks
+            if f"{normalize_source_tag(t['artist'])}::{normalize_source_tag(t['album'])}"
+            not in enriched_all
+        ]
+
+        # Enriched path: tracks from releases whose signature contains the genre
+        enriched_tracks = self._tracks_for_release_keys(enriched_with_genre, limit)
+
+        # Deduplicate by rating_key, keeping order (filtered_raw first)
+        seen: set[str] = set()
+        result: List[Dict[str, Any]] = []
+        for track in filtered_raw + enriched_tracks:
+            key = str(track["rating_key"])
+            if key not in seen:
+                seen.add(key)
+                result.append(track)
+
+        logger.debug(
+            f"Found {len(result)} tracks for genre '{genre}' "
+            f"({len(filtered_raw)} raw + {len(enriched_tracks)} enriched)"
+        )
+        return result[:limit]
+
+    def _raw_tracks_for_genre(self, genre: str, limit: int = 1000) -> List[Dict[str, Any]]:
+        """
+        Fetch tracks matching a genre via the raw metadata UNION query.
+
+        This is the original get_tracks_for_genre implementation, extracted so it can
+        be called independently from the sidecar-aware path.
         """
         cursor = self.conn.cursor()
 
@@ -326,6 +380,56 @@ class LocalLibraryClient:
             tracks.append(track)
 
         logger.debug(f"Found {len(tracks)} tracks for genre '{genre}' (optimized UNION query)")
+        return tracks
+
+    def _tracks_for_release_keys(
+        self, release_keys: set, limit: int = 1000
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch all non-blacklisted tracks whose (artist, album) release_key is in the given set.
+
+        release_key is computed as normalize_source_tag(artist)::normalize_source_tag(album),
+        matching the convention used by EnrichedGenreResolver.
+        """
+        if not release_keys:
+            return []
+
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT track_id as rating_key,
+                   artist, artist_key, title, album,
+                   duration_ms as duration, file_path, musicbrainz_id as mbid
+            FROM tracks
+            WHERE file_path IS NOT NULL
+              AND is_blacklisted = 0
+            ORDER BY artist, album, title
+        """)
+
+        tracks = []
+        for row in cursor.fetchall():
+            artist = row["artist"] or ""
+            album = row["album"] or ""
+            rk = f"{normalize_source_tag(artist)}::{normalize_source_tag(album)}"
+            if rk not in release_keys:
+                continue
+            artist_key = (
+                row["artist_key"]
+                if "artist_key" in row.keys() and row["artist_key"]
+                else normalize_artist_key(artist)
+            )
+            tracks.append({
+                'rating_key': row['rating_key'],
+                'artist': artist,
+                'artist_key': artist_key,
+                'title': row['title'] or '',
+                'album': album,
+                'duration': row['duration'],
+                'file_path': row['file_path'],
+                'mbid': row['mbid'],
+            })
+            if len(tracks) >= limit:
+                break
+
         return tracks
 
     def suggest_similar_genres(self, partial: str, limit: int = 10) -> List[str]:

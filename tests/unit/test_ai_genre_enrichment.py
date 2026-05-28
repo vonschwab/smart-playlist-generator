@@ -4203,3 +4203,74 @@ def test_resolver_artist_status_reports_per_album(tmp_path):
     status = resolver.get_artist_enrichment_status("Duster")
     assert status["enriched_count"] == 2
     assert sorted(status["enriched_albums"]) == ["stratosphere", "together"]
+
+
+def test_resolver_release_keys_with_genre(tmp_path):
+    from src.ai_genre_enrichment.storage import SidecarStore
+    from src.ai_genre_enrichment.genre_resolver import EnrichedGenreResolver
+    import json
+
+    sidecar = tmp_path / "sidecar.db"
+    store = SidecarStore(str(sidecar))
+    store.initialize()
+    with store.connect() as conn:
+        for release_key, normalized_artist, normalized_album, genres in [
+            ("duster::stratosphere", "duster", "stratosphere", ["slowcore", "space rock"]),
+            ("duster::together", "duster", "together", ["slowcore", "shoegaze"]),
+            ("sigur ros::atta", "sigur ros", "atta", ["ambient", "post-rock"]),
+        ]:
+            conn.execute(
+                "INSERT INTO enriched_genre_signatures(release_key, normalized_artist, "
+                "normalized_album, album_id, signature_json, updated_at) VALUES(?, ?, ?, ?, ?, ?)",
+                (
+                    release_key, normalized_artist, normalized_album, None,
+                    json.dumps({"genres": genres, "sources": []}),
+                    "2026-05-28T00:00:00",
+                ),
+            )
+        conn.commit()
+
+    resolver = EnrichedGenreResolver(str(sidecar))
+    assert resolver.get_release_keys_with_genre("slowcore") == {"duster::stratosphere", "duster::together"}
+    assert resolver.get_release_keys_with_genre("ambient") == {"sigur ros::atta"}
+    assert resolver.get_release_keys_with_genre("nonexistent") == set()
+
+
+def test_resolver_all_enriched_release_keys(tmp_path):
+    from src.ai_genre_enrichment.storage import SidecarStore
+    from src.ai_genre_enrichment.genre_resolver import EnrichedGenreResolver
+
+    sidecar = tmp_path / "sidecar.db"
+    store = SidecarStore(str(sidecar))
+    store.initialize()
+    with store.connect() as conn:
+        conn.execute(
+            "INSERT INTO enriched_genre_signatures(release_key, normalized_artist, "
+            "normalized_album, album_id, signature_json, updated_at) VALUES(?, ?, ?, ?, ?, ?)",
+            ("duster::stratosphere", "duster", "stratosphere", None,
+             '{"genres": ["slowcore"], "sources": []}', "2026-05-28T00:00:00"),
+        )
+        conn.commit()
+
+    resolver = EnrichedGenreResolver(str(sidecar))
+    assert resolver.get_all_enriched_release_keys() == {"duster::stratosphere"}
+
+
+def test_resolver_reverse_index_is_case_normalized(tmp_path):
+    from src.ai_genre_enrichment.storage import SidecarStore
+    from src.ai_genre_enrichment.genre_resolver import EnrichedGenreResolver
+
+    sidecar = tmp_path / "sidecar.db"
+    store = SidecarStore(str(sidecar))
+    store.initialize()
+    with store.connect() as conn:
+        conn.execute(
+            "INSERT INTO enriched_genre_signatures(release_key, normalized_artist, "
+            "normalized_album, album_id, signature_json, updated_at) VALUES(?, ?, ?, ?, ?, ?)",
+            ("duster::stratosphere", "duster", "stratosphere", None,
+             '{"genres": ["Slowcore", "Space Rock"], "sources": []}', "2026-05-28T00:00:00"),
+        )
+        conn.commit()
+
+    resolver = EnrichedGenreResolver(str(sidecar))
+    assert resolver.get_release_keys_with_genre("slowcore") == {"duster::stratosphere"}
