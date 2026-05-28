@@ -55,6 +55,7 @@ from .widgets.generate_panel import GeneratePanel
 from .widgets.jobs_panel import JobsPanel
 from .widgets.log_panel import LogPanel
 from .widgets.replace_dialog import ReplaceTrackDialog
+from .widgets.review_panel import ReviewPanel
 from .widgets.track_table import TrackTable
 from .blacklist_window import BlacklistWindow
 from .worker_client import WorkerClient
@@ -171,6 +172,7 @@ class MainWindow(QMainWindow):
         self._generate_panel: Optional[GeneratePanel] = None
         self._replace_dialog: Optional[ReplaceTrackDialog] = None
         self._enrichment_panel: Optional[EnrichmentPanel] = None
+        self._review_panel: Optional[ReviewPanel] = None
 
         # Apply theme
         self._apply_theme()
@@ -411,6 +413,16 @@ class MainWindow(QMainWindow):
             QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable | QDockWidget.DockWidgetClosable
         )
         self.addDockWidget(Qt.RightDockWidgetArea, self._advanced_dock)
+
+        # ─────────────────────────────────────────────────────────────────────
+        # Genre Review dock (right, hidden by default)
+        # ─────────────────────────────────────────────────────────────────────
+        self._review_panel = ReviewPanel(sidecar_db_path="data/ai_genre_enrichment.db")
+        self._review_panel.vocab_graduated.connect(self._on_vocab_graduated)
+        self._review_dock = QDockWidget("Genre Review", self)
+        self._review_dock.setWidget(self._review_panel)
+        self.addDockWidget(Qt.RightDockWidgetArea, self._review_dock)
+        self._review_dock.setVisible(False)
 
         # ─────────────────────────────────────────────────────────────────────
         # Status bar with override indicator
@@ -1137,21 +1149,11 @@ class MainWindow(QMainWindow):
         self._enqueue_job(JobType.BUILD_ARTIFACTS)
 
     def _on_open_review_panel(self) -> None:
-        from pathlib import Path
-
-        sidecar_db = Path("data/ai_genre_enrichment.db")
-        if not sidecar_db.exists():
-            from PySide6.QtWidgets import QMessageBox
+        if self._review_panel is not None:
+            self._review_dock.setVisible(True)
+            self._review_panel.load_queue()
+        else:
             QMessageBox.information(self, "No Data", "No enrichment sidecar DB found at data/ai_genre_enrichment.db.")
-            return
-        from src.playlist_gui.widgets.review_panel import ReviewPanel
-        self._review_panel = ReviewPanel(str(sidecar_db), parent=self)
-        panel = self._review_panel
-        panel.setWindowTitle("Genre Tag Review")
-        panel.setWindowFlags(Qt.WindowType.Window)
-        panel.resize(700, 500)
-        panel.load_queue()
-        panel.show()
 
     def _enqueue_job(self, job_type: JobType) -> None:
         """Queue a job through the JobManager."""
@@ -1346,6 +1348,12 @@ class MainWindow(QMainWindow):
     def _on_enrichment_result(self, result_type: str, data: dict, job_id: object = None) -> None:
         """Refresh panel when an enrich_artist result arrives."""
         if result_type == "enrich_artist" and self._enrichment_panel:
+            self._enrichment_panel.refresh()
+
+    @Slot()
+    def _on_vocab_graduated(self) -> None:
+        """Refresh the enrichment panel after vocabulary graduation."""
+        if hasattr(self, "_enrichment_panel") and self._enrichment_panel:
             self._enrichment_panel.refresh()
 
     @Slot(str, str, object)

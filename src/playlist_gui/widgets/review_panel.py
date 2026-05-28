@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from typing import Any
 
 from PySide6.QtCore import Qt, Signal
@@ -22,6 +24,7 @@ class ReviewPanel(QWidget):
     """Single-keystroke review panel for genre tag classification."""
 
     review_completed = Signal()
+    vocab_graduated = Signal()
 
     def __init__(self, sidecar_db_path: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -87,6 +90,18 @@ class ReviewPanel(QWidget):
             btn.clicked.connect(lambda checked=False, c=classification: self._decide(c))
             buttons.addWidget(btn)
         layout.addLayout(buttons)
+
+        action_row = QHBoxLayout()
+        self.graduate_button = QPushButton("Graduate to YAML")
+        self.graduate_button.setToolTip("Promote AI- and human-reviewed tags into the vocabulary YAML.")
+        self.graduate_button.clicked.connect(self._on_graduate_clicked)
+        action_row.addWidget(self.graduate_button)
+
+        self.cli_review_button = QPushButton("Open CLI review")
+        self.cli_review_button.setToolTip("Launch an interactive terminal for the review CLI.")
+        self.cli_review_button.clicked.connect(self._on_cli_review_clicked)
+        action_row.addWidget(self.cli_review_button)
+        layout.addLayout(action_row)
 
         self._progress_label = QLabel()
         layout.addWidget(self._progress_label)
@@ -195,3 +210,20 @@ class ReviewPanel(QWidget):
             if count > 0:
                 parts.append(f"{count} {key}")
         self._progress_label.setText(" | ".join(parts))
+
+    def _on_graduate_clicked(self) -> None:
+        for command in ("graduate-ai", "graduate-reviewed"):
+            argv = [sys.executable, "scripts/ai_genre_enrich.py", command]
+            result = subprocess.run(argv, capture_output=True, text=True, check=False)
+            if result.returncode != 0:
+                return
+        self.vocab_graduated.emit()
+        if hasattr(self, "load_queue"):
+            self.load_queue()
+
+    def _on_cli_review_clicked(self) -> None:
+        argv = [sys.executable, "scripts/ai_genre_enrich.py", "review"]
+        if sys.platform == "win32":
+            subprocess.Popen(argv, creationflags=subprocess.CREATE_NEW_CONSOLE)
+        else:
+            subprocess.Popen(argv)
