@@ -76,6 +76,7 @@ class GeneratePlaylistRequest:
     sonic_mode: Optional[ModeValue] = None
     pace_mode: Optional[PaceModeValue] = None
     include_collaborations: bool = False
+    exclude_seed_tracks_from_recency: bool = False
     artist_only: bool = False
 
     @classmethod
@@ -97,6 +98,9 @@ class GeneratePlaylistRequest:
             sonic_mode=ui_state.sonic_mode,
             pace_mode=getattr(ui_state, "pace_mode", "dynamic"),
             include_collaborations=ui_state.include_collaborations,
+            exclude_seed_tracks_from_recency=bool(
+                getattr(ui_state, "exclude_seed_tracks_from_recency", False)
+            ),
         )
 
     @classmethod
@@ -121,6 +125,7 @@ class GeneratePlaylistRequest:
             sonic_mode=_clean_text(args.get("sonic_mode")),
             pace_mode=_clean_text(args.get("pace_mode")),
             include_collaborations=bool(args.get("include_collaborations", False)),
+            exclude_seed_tracks_from_recency=bool(args.get("exclude_seed_tracks_from_recency", False)),
             artist_only=bool(args.get("artist_only", False)),
         )
 
@@ -191,6 +196,8 @@ class GeneratePlaylistRequest:
             args["anchor_seed_ids"] = anchor_seed_ids
         if self.include_collaborations:
             args["include_collaborations"] = True
+        if self.exclude_seed_tracks_from_recency:
+            args["exclude_seed_tracks_from_recency"] = True
         if self.artist_only:
             args["artist_only"] = True
         return args

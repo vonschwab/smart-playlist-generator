@@ -12,6 +12,8 @@ genre_style:
   - bedroom pop
   - bossa nova
   - chamber pop
+  - city pop
+  - contemporary jazz
   - creative music
   - devotional
   - disco
@@ -24,6 +26,7 @@ genre_style:
   - electronic
   - electronic jazz
   - electronica
+  - electronica dance
   - emo
   - experimental
   - experimental jazz
@@ -33,7 +36,10 @@ genre_style:
   - folk-pop
   - fourth world
   - free improvisation
+  - funk
+  - funk / soul
   - garage rock
+  - hard bop
   - hip hop
   - house
   - idm
@@ -73,24 +79,30 @@ genre_style:
   - soul
   - space ambient
   - space music
+  - space rock
   - spiritual jazz
   - synthpop
+  - twee
   - uk dubstep
   - world
 descriptor:
   - abstract
   - acid
   - acoustic
+  - aor
   - art
   - bass
   - beats
+  - boogie
   - billboard top 40
   - brazilian
   - cosmic
   - eurorack
+  - experimental rock
   - folk, world, & country
   - fuzz
   - instrumental
+  - jazz rap
   - living room music
   - modular synthesizer
   - natural
@@ -98,6 +110,7 @@ descriptor:
   - songs
   - soundscapes
   - space
+  - christmas
   - stage & screen
   - syntheziser
 instrument:
@@ -149,6 +162,8 @@ format:
   - remastered
   - single
   - soundtrack
+  - video
+  - vidwo
 mood_function:
   - chillout
   - meditation
@@ -179,6 +194,7 @@ label_or_org:
   - tim kinsella
 aliases:
   avant garde: avant-garde
+  avantgarde: avant-garde
   creative-music: creative music
   electronic-music: electronic
   experiemental: experimental
@@ -186,5 +202,15 @@ aliases:
   jazz-and-improvised-music: jazz and improvised music
   jazz-vibraphone: jazz vibraphone
   post punk: post-punk
+  post rock: post-rock
   rnb: r&b
   soundscape: soundscapes
+  spacerock: space rock
+  twee pop: twee
+decompose:
+  electronica dance:
+    - electronica
+    - dance
+  funk / soul:
+    - funk
+    - soul

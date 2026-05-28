@@ -243,7 +243,8 @@ class DatabaseCompleter(QObject):
         instead of re-querying the database.
 
         Args:
-            display: Track display string "Title - Artist (Album)"
+            display: Track display string "Title - Artist (Album)", or just
+                     the title when the user didn't select from the dropdown.
 
         Returns:
             (track_id, title, artist, album, artist_key) or None if not found
@@ -252,6 +253,20 @@ class DatabaseCompleter(QObject):
             return None
 
         idx = self._track_display_to_index.get(display)
+
+        # Title-only fallback: user typed just the song title without selecting
+        # a dropdown suggestion that would have filled in " - Artist (Album)".
+        if idx is None:
+            prefix = display + " - "
+            candidates = [
+                i for i, d in enumerate(self._track_display)
+                if d == display or d.startswith(prefix)
+            ]
+            if len(candidates) == 1:
+                idx = candidates[0]
+            # Multiple candidates → ambiguous; leave idx as None so the
+            # DB fallback can apply its own LIMIT 1 with the user's typed text.
+
         if idx is None:
             return None
 

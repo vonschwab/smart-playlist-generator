@@ -65,7 +65,7 @@ class CohesionSlider(QWidget):
         self._slider.setMinimum(0)
         self._slider.setMaximum(len(COHESION_MODE_LEVELS) - 1)
         self._slider.setValue(COHESION_MODE_LEVELS.index(self._value))
-        self._slider.setTickPosition(QSlider.TicksBelow)
+        self._slider.setTickPosition(QSlider.NoTicks)
         self._slider.setTickInterval(1)
         self._slider.setPageStep(1)
         self._slider.setSingleStep(1)

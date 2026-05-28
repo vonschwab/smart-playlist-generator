@@ -50,6 +50,7 @@ class ReplaceTrackDialog(QDialog):
         self._status_labels: dict[str, QLabel] = {}
         self._library_tracks = list(library_tracks or [])
         self._completer_data = completer_data
+        self._candidate_data: Dict[str, Dict[str, Any]] = {}
 
         self.setWindowTitle("Replace Track")
         self.setMinimumSize(760, 460)
@@ -140,6 +141,7 @@ class ReplaceTrackDialog(QDialog):
         model.removeRows(0, model.rowCount())
         for candidate in candidates:
             track_id = str(candidate.get("track_id") or candidate.get("rating_key") or "")
+            self._candidate_data[track_id] = candidate
             row = [
                 self._item(str(candidate.get("title") or track_id), track_id),
                 self._item(str(candidate.get("artist") or "")),

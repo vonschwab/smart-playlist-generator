@@ -284,6 +284,7 @@ def cluster_artist_tracks(
     sonic_variant: Optional[str] = None,
     medoid_top_k: int = 1,
     include_collaborations: bool = False,
+    excluded_track_ids: Optional[set[str]] = None,
 ) -> Tuple[List[List[int]], List[int], List[List[int]], np.ndarray]:
     """Cluster artist tracks in sonic space and return clusters + medoids."""
     track_ids = bundle.track_ids
@@ -299,6 +300,18 @@ def cluster_artist_tracks(
     artist_indices = _artist_indices_in_bundle(
         bundle, artist_name, include_collaborations=include_collaborations
     )
+    if excluded_track_ids:
+        before = len(artist_indices)
+        excluded_ids = {str(tid) for tid in excluded_track_ids}
+        artist_indices = [
+            idx for idx in artist_indices if str(bundle.track_ids[idx]) not in excluded_ids
+        ]
+        removed = before - len(artist_indices)
+        if removed:
+            logger.info(
+                "Artist style seed freshness: removed %d recent artist tracks before clustering",
+                removed,
+            )
     if include_collaborations:
         # Count solo vs collab purely for visibility in the log.
         solo_only = _artist_indices_in_bundle(bundle, artist_name)

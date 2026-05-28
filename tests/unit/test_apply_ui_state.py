@@ -62,6 +62,7 @@ def test_apply_ui_state_round_trip_defaults(qtbot):
     assert restored.recency_enabled == original.recency_enabled
     assert restored.recency_days == original.recency_days
     assert restored.recency_plays_threshold == original.recency_plays_threshold
+    assert restored.exclude_seed_tracks_from_recency == original.exclude_seed_tracks_from_recency
     assert restored.artist_spacing == original.artist_spacing
 
 
@@ -81,6 +82,7 @@ def test_apply_ui_state_round_trip_custom_artist_mode(qtbot):
         recency_enabled=False,
         recency_days=30,
         recency_plays_threshold=3,
+        exclude_seed_tracks_from_recency=True,
         artist_spacing="very_strong",
         artist_queries=["Slowdive"],
         artist_presence="high",
@@ -101,6 +103,7 @@ def test_apply_ui_state_round_trip_custom_artist_mode(qtbot):
     assert restored.recency_enabled is False
     assert restored.recency_days == 30
     assert restored.recency_plays_threshold == 3
+    assert restored.exclude_seed_tracks_from_recency is True
     assert restored.artist_spacing == "very_strong"
     assert restored.artist_queries == ["Slowdive"]
     assert restored.artist_presence == "high"
@@ -118,6 +121,7 @@ def test_apply_ui_state_round_trip_genre_mode(qtbot):
 
     assert restored.mode == "genre"
     assert restored.genre_query == "shoegaze"
+    assert restored.exclude_seed_tracks_from_recency is False
 
 
 def test_apply_ui_state_round_trip_seeds_mode(qtbot):

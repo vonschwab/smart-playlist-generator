@@ -41,8 +41,19 @@ from .seed_chips import SeedChip
 
 ModeType = Literal["artist", "genre", "seeds", "history"]
 
-CONTROL_GROUP_HEIGHT = 84
-HEADER_BREAKPOINT_WIDTH = 1500
+CONTROL_GROUP_HEIGHT = 66
+CONTROL_GROUP_TITLE_WIDTH = 54
+HEADER_BREAKPOINT_WIDTH = 1780
+HEADER_NARROW_BREAKPOINT_WIDTH = 1040
+HEADER_GROUP_WIDTHS = {
+    "mode": 168,
+    "cohesion": 226,
+    "matching": 292,
+    "length": 134,
+    "freshness": 296,
+    "spacing": 292,
+    "actions": 288,
+}
 
 
 class GeneratePanel(QWidget):
@@ -71,7 +82,8 @@ class GeneratePanel(QWidget):
         self._db_path = db_path
         self._is_generating = False
         self._has_run = False
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        self._is_reflowing_header = False
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self._setup_ui()
         self._update_run_controls()
 
@@ -81,17 +93,18 @@ class GeneratePanel(QWidget):
         layout.setSpacing(8)
 
         # ─────────────────────────────────────────────────────────────────────
-        # Header toolbar - two compact rows so controls fit without spreading apart
+        # Header toolbar - compact responsive groups for primary generation controls.
         # ─────────────────────────────────────────────────────────────────────
         self._header_frame = QFrame()
         header_frame = self._header_frame
         header_frame.setObjectName("headerFrame")
+        header_frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         header_frame.setMinimumHeight(CONTROL_GROUP_HEIGHT + 12)
-        header_layout = QGridLayout(header_frame)
+        header_frame.setMaximumHeight(CONTROL_GROUP_HEIGHT + 12)
+        header_layout = QVBoxLayout(header_frame)
         self._header_layout = header_layout
         header_layout.setContentsMargins(8, 6, 8, 6)
-        header_layout.setHorizontalSpacing(8)
-        header_layout.setVerticalSpacing(8)
+        header_layout.setSpacing(8)
         self._control_groups: dict[str, QFrame] = {}
         self._header_group_order = [
             "mode",
@@ -104,6 +117,18 @@ class GeneratePanel(QWidget):
         ]
         self._header_group_positions: dict[str, tuple[int, int, int, int]] = {}
         self._header_row_count = 1
+        self._header_rows: list[tuple[QWidget, QHBoxLayout]] = []
+        for _ in range(3):
+            row_widget = QWidget()
+            row_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            row_widget.setMinimumHeight(CONTROL_GROUP_HEIGHT)
+            row_widget.setMaximumHeight(CONTROL_GROUP_HEIGHT)
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(8)
+            header_layout.addWidget(row_widget)
+            row_widget.hide()
+            self._header_rows.append((row_widget, row_layout))
 
         # Mode selector (dropdown)
         mode_container = QWidget()
@@ -118,7 +143,8 @@ class GeneratePanel(QWidget):
         self._mode_combo.addItem("History", "history")
         self._mode_combo.setCurrentIndex(0)
         self._mode_combo.currentIndexChanged.connect(self._on_mode_changed)
-        self._mode_combo.setMinimumWidth(110)
+        self._mode_combo.setMinimumWidth(108)
+        self._mode_combo.setMaximumWidth(128)
         self._mode_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         mode_layout.addWidget(self._mode_combo)
 
@@ -126,7 +152,7 @@ class GeneratePanel(QWidget):
 
         # Overall cohesion (pier-bridge beam tuning)
         self._cohesion_slider = CohesionSlider()
-        self._create_control_group("cohesion", "OVERALL\nCOHESION", self._cohesion_slider)
+        self._create_control_group("cohesion", "Overall\nCohesion", self._cohesion_slider)
 
         # Genre/Sonic/Pace mode sliders (stacked)
         self._mode_sliders = ModeSliders()
@@ -149,31 +175,48 @@ class GeneratePanel(QWidget):
 
         # Recency filter (compact)
         self._recency_container = QWidget()
-        recency_layout = QHBoxLayout(self._recency_container)
+        recency_layout = QGridLayout(self._recency_container)
         recency_layout.setContentsMargins(0, 0, 0, 0)
-        recency_layout.setSpacing(4)
+        recency_layout.setHorizontalSpacing(5)
+        recency_layout.setVerticalSpacing(4)
+        recency_layout.setColumnMinimumWidth(0, 18)
 
         self._recency_check = QCheckBox("")
+        self._recency_check.setObjectName("headerCheckBox")
         self._recency_check.setChecked(True)
         self._recency_check.setToolTip("Exclude recently played tracks")
         self._recency_check.toggled.connect(self._on_recency_toggled)
-        recency_layout.addWidget(self._recency_check)
+        recency_layout.addWidget(self._recency_check, 0, 0, alignment=Qt.AlignCenter)
 
         self._recency_days = self._create_menu_button(
             options=[("7d", 7), ("14d", 14), ("30d", 30), ("60d", 60), ("90d", 90)],
             default_value=14,
-            width=80,
+            width=72,
             tooltip="Lookback days",
         )
-        recency_layout.addWidget(self._recency_days)
+        recency_layout.addWidget(self._recency_days, 0, 1)
 
         self._recency_plays = self._create_menu_button(
             options=[("1+", 1), ("2+", 2), ("3+", 3), ("5+", 5), ("10+", 10)],
             default_value=1,
-            width=70,
+            width=62,
             tooltip="Min plays to exclude",
         )
-        recency_layout.addWidget(self._recency_plays)
+        recency_layout.addWidget(self._recency_plays, 0, 2)
+
+        self._recency_seed_row = QWidget()
+        recency_seed_layout = QHBoxLayout(self._recency_seed_row)
+        recency_seed_layout.setContentsMargins(5, 0, 0, 0)
+        recency_seed_layout.setSpacing(0)
+
+        self._recency_seed_check = QCheckBox("Don't seed from recent plays")
+        self._recency_seed_check.setObjectName("headerCheckBox")
+        self._recency_seed_check.setToolTip(
+            "Also prevent recently played artist seed tracks from being chosen as playlist piers"
+        )
+        recency_seed_layout.addWidget(self._recency_seed_check)
+        recency_seed_layout.addStretch(1)
+        recency_layout.addWidget(self._recency_seed_row, 1, 0, 1, 3)
 
         self._create_control_group("freshness", "Freshness", self._recency_container)
 
@@ -252,18 +295,18 @@ class GeneratePanel(QWidget):
         actions_container = QWidget()
         actions_layout = QHBoxLayout(actions_container)
         actions_layout.setContentsMargins(0, 0, 0, 0)
-        actions_layout.setSpacing(8)
+        actions_layout.setSpacing(6)
 
         self._generate_btn = QPushButton("Generate")
         self._generate_btn.setObjectName("primaryButton")
-        self._generate_btn.setMinimumWidth(110)
+        self._generate_btn.setMinimumWidth(118)
         self._generate_btn.clicked.connect(self._on_generate)
         actions_layout.addWidget(self._generate_btn)
 
         self._new_seeds_btn = QPushButton("New Seeds")
         self._new_seeds_btn.setObjectName("secondaryButton")
         self._new_seeds_btn.setToolTip("Re-pick internal seeds")
-        self._new_seeds_btn.setMinimumWidth(110)
+        self._new_seeds_btn.setMinimumWidth(86)
         self._new_seeds_btn.clicked.connect(self._on_new_seeds)
         self._new_seeds_btn.setVisible(False)
         actions_layout.addWidget(self._new_seeds_btn)
@@ -345,7 +388,8 @@ class GeneratePanel(QWidget):
     def resizeEvent(self, event) -> None:
         """Reflow header cards when the panel width changes."""
         super().resizeEvent(event)
-        self._reflow_header_groups(self._header_frame.width() or self.width())
+        if not self._is_reflowing_header:
+            self._reflow_header_groups(self._header_frame.width() or self.width())
 
     def _create_vsep(self) -> QFrame:
         """Create a vertical separator line."""
@@ -358,7 +402,9 @@ class GeneratePanel(QWidget):
         """Create a compact visual group for one header control category."""
         group = QFrame()
         group.setObjectName("controlGroup")
-        group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        group.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        group.setMinimumWidth(HEADER_GROUP_WIDTHS.get(key, 140))
+        group.setMaximumWidth(HEADER_GROUP_WIDTHS.get(key, 140))
         group.setMinimumHeight(CONTROL_GROUP_HEIGHT)
         group.setMaximumHeight(CONTROL_GROUP_HEIGHT)
         group_layout = QHBoxLayout(group)
@@ -367,61 +413,114 @@ class GeneratePanel(QWidget):
 
         title_label = QLabel(title)
         title_label.setObjectName("controlGroupTitle")
+        title_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        title_label.setWordWrap(True)
+        title_label.setMinimumWidth(CONTROL_GROUP_TITLE_WIDTH)
+        title_label.setMaximumWidth(CONTROL_GROUP_TITLE_WIDTH)
+        title_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
         group_layout.addWidget(title_label)
-        group_layout.addWidget(content)
+
+        content_row = QHBoxLayout()
+        content_row.setContentsMargins(0, 0, 0, 0)
+        content_row.setSpacing(0)
+        content_row.addWidget(content, 0, Qt.AlignVCenter)
+        content_row.addStretch(1)
+        group_layout.addLayout(content_row, 1)
 
         self._control_groups[key] = group
         setattr(self, f"_{key}_group_title", title_label)
         return group
 
-    def _clear_header_layout(self) -> None:
-        while self._header_layout.count():
-            item = self._header_layout.takeAt(0)
-            widget = item.widget()
-            if widget:
-                self._header_layout.removeWidget(widget)
+    def _clear_header_rows(self) -> None:
+        for row_widget, row_layout in self._header_rows:
+            while row_layout.count():
+                item = row_layout.takeAt(0)
+                widget = item.widget()
+                if widget:
+                    row_layout.removeWidget(widget)
+            row_widget.hide()
+
+    def _header_required_width(self, keys: list[str]) -> int:
+        margins = self._header_layout.contentsMargins()
+        spacing = self._header_rows[0][1].spacing()
+        return (
+            sum(HEADER_GROUP_WIDTHS.get(key, 140) for key in keys)
+            + max(0, len(keys) - 1) * spacing
+            + margins.left()
+            + margins.right()
+        )
 
     def _reflow_header_groups(self, available_width: int) -> None:
-        """Place header cards in one row when possible, else in a balanced 4/3 grid."""
-        self._clear_header_layout()
-        self._header_group_positions.clear()
+        """Pack header cards into left-aligned rows that fit the available width."""
+        if self._is_reflowing_header:
+            return
+        self._is_reflowing_header = True
+        try:
+            self._clear_header_rows()
+            self._header_group_positions.clear()
 
-        for col in range(14):
-            self._header_layout.setColumnStretch(col, 0)
-            self._header_layout.setColumnMinimumWidth(col, 0)
-        self._header_layout.setRowStretch(0, 0)
-        self._header_layout.setRowStretch(1, 0)
+            medium_rows = [
+                self._header_group_order[:4],
+                self._header_group_order[4:],
+            ]
+            narrow_rows = [
+                ["mode", "cohesion", "length"],
+                ["matching", "spacing"],
+                ["freshness", "actions"],
+            ]
+            if available_width >= self._header_required_width(self._header_group_order):
+                rows = [self._header_group_order]
+            elif available_width >= max(
+                self._header_required_width(row) for row in medium_rows
+            ):
+                rows = medium_rows
+            else:
+                rows = narrow_rows
 
-        if available_width >= HEADER_BREAKPOINT_WIDTH:
-            self._header_row_count = 1
-            placements = [
-                (key, 0, index * 2, 1, 2)
-                for index, key in enumerate(self._header_group_order)
-            ]
-            stretch_columns = 14
-        else:
-            self._header_row_count = 2
-            top = self._header_group_order[:4]
-            bottom = self._header_group_order[4:]
-            placements = [
-                (key, 0, index * 3, 1, 3)
-                for index, key in enumerate(top)
-            ]
-            placements.extend(
-                (key, 1, index * 4, 1, 4)
-                for index, key in enumerate(bottom)
+            self._header_row_count = len(rows)
+            for row_index, row_keys in enumerate(rows):
+                row_widget, row_layout = self._header_rows[row_index]
+                row_widget.show()
+                for column_index, key in enumerate(row_keys):
+                    group = self._control_groups[key]
+                    row_layout.addWidget(group, 0, Qt.AlignLeft | Qt.AlignVCenter)
+                    self._header_group_positions[key] = (row_index, column_index, 1, 1)
+                row_layout.addStretch(1)
+
+            margins = self._header_layout.contentsMargins()
+            minimum_height = (
+                self._header_row_count * CONTROL_GROUP_HEIGHT
+                + max(0, self._header_row_count - 1) * self._header_layout.spacing()
+                + margins.top()
+                + margins.bottom()
             )
-            stretch_columns = 12
+            self._header_frame.setMinimumHeight(minimum_height)
+            self._header_frame.setMaximumHeight(minimum_height)
+            self._sync_panel_height()
+            self._header_frame.updateGeometry()
+        finally:
+            self._is_reflowing_header = False
 
-        for col in range(stretch_columns):
-            self._header_layout.setColumnStretch(col, 1)
-
-        for key, row, col, row_span, col_span in placements:
-            group = self._control_groups[key]
-            self._header_layout.addWidget(group, row, col, row_span, col_span)
-            self._header_group_positions[key] = (row, col, row_span, col_span)
-
-        self._header_frame.updateGeometry()
+    def _sync_panel_height(self) -> None:
+        """Keep the generation panel tight to its header and active inputs."""
+        if not hasattr(self, "_inputs_frame"):
+            return
+        layout = self.layout()
+        if layout is None:
+            return
+        margins = layout.contentsMargins()
+        total_height = (
+            self._header_frame.maximumHeight()
+            + self._inputs_frame.maximumHeight()
+            + layout.spacing()
+            + margins.top()
+            + margins.bottom()
+        )
+        if self.minimumHeight() != total_height:
+            self.setMinimumHeight(total_height)
+        if self.maximumHeight() != total_height:
+            self.setMaximumHeight(total_height)
+        self.updateGeometry()
 
     def _create_menu_button(
         self,
@@ -478,6 +577,7 @@ class GeneratePanel(QWidget):
         mode = self._get_current_mode()
         index = {"artist": 0, "genre": 1, "seeds": 2, "history": 3}.get(mode, 0)
         self._mode_stack.setCurrentIndex(index)
+        self._update_recency_seed_control()
         self.clear_validation_message()
         QTimer.singleShot(0, self._apply_mode_sizing)
         if self._has_run:
@@ -489,6 +589,16 @@ class GeneratePanel(QWidget):
         """Handle recency checkbox toggle."""
         self._recency_days.setEnabled(checked)
         self._recency_plays.setEnabled(checked)
+        self._update_recency_seed_control()
+
+    def _update_recency_seed_control(self) -> None:
+        """Show seed freshness only where artist seed selection is automatic."""
+        is_artist_mode = self._get_current_mode() == "artist"
+        self._recency_seed_row.setVisible(is_artist_mode)
+        self._recency_seed_check.setVisible(is_artist_mode)
+        self._recency_seed_check.setEnabled(
+            is_artist_mode and self._recency_check.isChecked()
+        )
 
     def _get_current_mode(self) -> ModeType:
         """Get currently selected mode."""
@@ -537,6 +647,8 @@ class GeneratePanel(QWidget):
         self._recency_check.setChecked(state.recency_enabled)
         self._set_menu_button_value(self._recency_days, state.recency_days)
         self._set_menu_button_value(self._recency_plays, state.recency_plays_threshold)
+        self._recency_seed_check.setChecked(bool(state.exclude_seed_tracks_from_recency))
+        self._update_recency_seed_control()
 
         # Mode-specific controls
         if state.mode == "artist":
@@ -581,7 +693,7 @@ class GeneratePanel(QWidget):
                 )
             self._inputs_frame.setMinimumHeight(inputs_height)
             self._inputs_frame.setMaximumHeight(inputs_height)
-        self.updateGeometry()
+        self._sync_panel_height()
 
     def _update_run_controls(self) -> None:
         mode = self._get_current_mode()
@@ -632,6 +744,9 @@ class GeneratePanel(QWidget):
             recency_enabled=self._recency_check.isChecked(),
             recency_days=int(self._recency_days.property("value") or 14),
             recency_plays_threshold=int(self._recency_plays.property("value") or 1),
+            exclude_seed_tracks_from_recency=(
+                self._recency_seed_check.isChecked() if mode == "artist" else False
+            ),
             artist_spacing=self._spacing_levels[self._spacing_slider.value()],
             artist_queries=self._artist_panel.get_artists() if mode == "artist" else [],
             artist_presence=self._artist_panel.get_presence() if mode == "artist" else "medium",

@@ -1977,6 +1977,7 @@ class PlaylistGenerator:
         anchor_seed_ids: Optional[List[str]] = None,
         seed_epoch: int = 0,
         include_collaborations: bool = False,
+        exclude_seed_tracks_from_recency: bool = False,
         artist: Optional[str] = None,
         num_tracks: Optional[int] = None,
         mode: Optional[str] = None,
@@ -2072,6 +2073,42 @@ class PlaylistGenerator:
             track['play_count'] = 0
 
         ds_cfg = self.config.get('playlists', 'ds_pipeline', default={}) or {}
+        scrobbles: List[Dict[str, Any]] = []
+        history: List[Dict[str, Any]] = []
+        seed_recency_excluded_ids: Set[str] = set()
+        if self.lastfm:
+            try:
+                scrobbles = self._get_lastfm_scrobbles_raw(use_cache=True)
+            except Exception as exc:
+                logger.warning("Last.FM scrobble fetch failed; skipping scrobble recency filter (%s)", exc, exc_info=True)
+        elif exclude_seed_tracks_from_recency and getattr(self.config, "recently_played_filter_enabled", False):
+            try:
+                history = self._get_local_history()
+            except Exception as exc:
+                logger.warning("Local history fetch failed; skipping seed freshness filter (%s)", exc, exc_info=True)
+
+        if (
+            exclude_seed_tracks_from_recency
+            and getattr(self.config, "recently_played_filter_enabled", False)
+        ):
+            if scrobbles:
+                seed_recency_excluded_ids = self._compute_excluded_from_scrobbles(
+                    all_library_tracks,
+                    scrobbles,
+                    lookback_days=self.config.recently_played_lookback_days,
+                    seed_id=None,
+                )
+            elif history:
+                seed_recency_excluded_ids = self._compute_excluded_from_history(
+                    all_library_tracks,
+                    history,
+                    lookback_days=self.config.recently_played_lookback_days,
+                )
+            logger.info(
+                "Seed freshness filter: %s (%d excluded tracks)",
+                "enabled" if seed_recency_excluded_ids else "enabled; no recent seed candidates found",
+                len(seed_recency_excluded_ids),
+            )
 
         fixed_seed_tracks: List[Dict[str, Any]] = []
         fixed_anchor_ids: Optional[List[str]] = None
@@ -2169,9 +2206,22 @@ class PlaylistGenerator:
                 seed_tracks,
                 context="artist_seed_selection",
             )
+            if seed_recency_excluded_ids:
+                before_freshness = len(seed_tracks)
+                seed_tracks = [
+                    t for t in seed_tracks
+                    if str(t.get("rating_key")) not in seed_recency_excluded_ids
+                ]
+                removed = before_freshness - len(seed_tracks)
+                if removed:
+                    logger.info(
+                        "Seed freshness filter: removed %d selected seed tracks for %s",
+                        removed,
+                        artist_name,
+                    )
             if before and not seed_tracks:
                 logger.warning(
-                    "All selected seed tracks for %s were removed by title exclusions; falling back to automatic seeds.",
+                    "All selected seed tracks for %s were removed by title/freshness exclusions; falling back to automatic seeds.",
                     artist_name,
                 )
 
@@ -2185,9 +2235,22 @@ class PlaylistGenerator:
                 valid_tracks,
                 context="artist_seed_selection",
             )
+            if seed_recency_excluded_ids:
+                before = len(valid_tracks)
+                valid_tracks = [
+                    t for t in valid_tracks
+                    if str(t.get("rating_key")) not in seed_recency_excluded_ids
+                ]
+                removed = before - len(valid_tracks)
+                if removed:
+                    logger.info(
+                        "Seed freshness filter: removed %d automatic seed candidates for %s",
+                        removed,
+                        artist_name,
+                    )
             if len(valid_tracks) == 0:
                 raise ValueError(
-                    f"Artist '{artist_name}' has no tracks after duration/title exclusions "
+                    f"Artist '{artist_name}' has no tracks after duration/title/freshness exclusions "
                     "(duration=47s-720s)"
                 )
             if len(valid_tracks) < 4:
@@ -2207,15 +2270,6 @@ class PlaylistGenerator:
         logger.info(f"Seeds ({len(seed_tracks)}): {', '.join(seed_titles)}")
 
         # Genre tags are sourced from database/file tags only (Last.FM disabled for genres)
-
-        # Prepare recency data (scrobbles preferred; matched history retained for filtering)
-        scrobbles: List[Dict[str, Any]] = []
-        history: List[Dict[str, Any]] = []
-        if self.lastfm:
-            try:
-                scrobbles = self._get_lastfm_scrobbles_raw(use_cache=True)
-            except Exception as exc:
-                logger.warning("Last.FM scrobble fetch failed; skipping scrobble recency filter (%s)", exc, exc_info=True)
 
         # DS scope selection
         allowed_track_ids: Optional[List[str]] = None
@@ -2369,6 +2423,7 @@ class PlaylistGenerator:
                     sonic_variant=sonic_variant_cfg,
                     medoid_top_k=medoid_top_k,
                     include_collaborations=include_collaborations,
+                    excluded_track_ids=seed_recency_excluded_ids if exclude_seed_tracks_from_recency else None,
                 )
                 if not medoids:
                     raise ValueError("Style clustering returned no medoids")

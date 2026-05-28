@@ -45,6 +45,7 @@ def test_generate_playlist_request_parses_worker_args_with_defaults():
             "seed_tracks": [" A - T ", ""],
             "seed_track_ids": [" 123 "],
             "include_collaborations": True,
+            "exclude_seed_tracks_from_recency": True,
             "pace_mode": "strict",
         }
     )
@@ -54,7 +55,18 @@ def test_generate_playlist_request_parses_worker_args_with_defaults():
     assert request.seed_tracks == ["A - T"]
     assert request.seed_track_ids == ["123"]
     assert request.include_collaborations is True
+    assert request.exclude_seed_tracks_from_recency is True
     assert request.pace_mode == "strict"
+
+
+def test_generate_playlist_request_serializes_seed_freshness_flag():
+    request = GeneratePlaylistRequest(
+        mode="artist",
+        artist="The Strokes",
+        exclude_seed_tracks_from_recency=True,
+    )
+
+    assert request.to_worker_args()["exclude_seed_tracks_from_recency"] is True
 
 
 def test_generate_playlist_request_validates_mode_inputs():

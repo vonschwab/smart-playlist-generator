@@ -883,6 +883,91 @@ def test_playlist_generator_excludes_title_words_from_automatic_artist_seeds(mon
     assert "Acapella Version" not in captured_seed_titles
 
 
+def test_playlist_generator_can_exclude_recent_automatic_artist_seeds(monkeypatch):
+    from datetime import datetime
+
+    from src.playlist_generator import PlaylistGenerator
+
+    class DummyLibrary:
+        similarity_calc = object()
+
+        def __init__(self, tracks):
+            self._tracks = list(tracks)
+
+        def get_all_tracks(self, library_id=None):
+            return list(self._tracks)
+
+    class DummyConfig:
+        recently_played_filter_enabled = True
+        recently_played_lookback_days = 14
+        recently_played_min_playcount = 1
+        lastfm_history_days = 90
+        min_track_duration_seconds = 47
+        max_track_duration_seconds = 720
+        config = {"playlists": {"ds_pipeline": {"random_seed": 0}}}
+
+        def get(self, section, key=None, default=None):
+            if key is None:
+                return self.config.get(section, default)
+            return self.config.get(section, {}).get(key, default)
+
+    class DummyLastFM:
+        def get_recent_tracks(self, days=90, use_cache=True):
+            return [
+                {
+                    "artist": "The Strokes",
+                    "title": "Hard to Explain",
+                    "timestamp": int(datetime.now().timestamp()),
+                }
+            ]
+
+    artist = "The Strokes"
+    library_tracks = [
+        {
+            "rating_key": f"s{i}",
+            "artist": artist,
+            "artist_key": "the strokes",
+            "title": title,
+            "duration": 180000,
+        }
+        for i, title in enumerate([
+            "Hard to Explain",
+            "The Modern Age",
+            "Barely Legal",
+            "Someday",
+            "Alone, Together",
+        ])
+    ]
+    gen = PlaylistGenerator(DummyLibrary(library_tracks), DummyConfig(), lastfm_client=DummyLastFM())
+    monkeypatch.setattr(gen, "_print_playlist_report", lambda *args, **kwargs: None)
+    monkeypatch.setattr(gen, "_compute_edge_scores_from_artifact", lambda *args, **kwargs: [])
+
+    captured_seed_titles = []
+
+    def _stub_ds(*args, **kwargs):
+        captured_seed_titles.extend(track.get("title") for track in kwargs["anchor_seed_tracks"])
+        gen._last_ds_report = {
+            "metrics": {"strategy": "pier_bridge"},
+            "playlist_stats": {"playlist": {}},
+        }
+        return [
+            {"rating_key": "p0", "artist": artist, "title": "Pier 0", "duration": 180000},
+            {"rating_key": "x1", "artist": "Other", "title": "Bridge 1", "duration": 180000},
+            {"rating_key": "p2", "artist": artist, "title": "Pier 2", "duration": 180000},
+        ]
+
+    monkeypatch.setattr(gen, "_maybe_generate_ds_playlist", _stub_ds)
+
+    result = gen.create_playlist_for_artist(
+        artist,
+        track_count=3,
+        exclude_seed_tracks_from_recency=True,
+    )
+
+    assert len(result["tracks"]) == 3
+    assert "Hard to Explain" not in captured_seed_titles
+
+
 def test_playlist_generator_refreshes_ds_metrics_after_final_edge_recompute(monkeypatch):
     from src.playlist_generator import PlaylistGenerator
 

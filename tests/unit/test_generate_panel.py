@@ -31,6 +31,22 @@ def test_generate_panel_builds_genre_state(qtbot):
     assert state.genre_query == "ambient"
 
 
+def test_seed_freshness_checkbox_is_artist_mode_only(qtbot):
+    panel = GeneratePanel()
+    qtbot.addWidget(panel)
+
+    assert panel.get_current_mode() == "artist"
+    assert panel._recency_seed_check.isHidden() is False
+    panel._recency_seed_check.setChecked(True)
+    assert panel.build_ui_state().exclude_seed_tracks_from_recency is True
+
+    genre_index = panel._mode_combo.findData("genre")
+    panel._mode_combo.setCurrentIndex(genre_index)
+
+    assert panel._recency_seed_check.isHidden() is True
+    assert panel.build_ui_state().exclude_seed_tracks_from_recency is False
+
+
 def test_pace_mode_selector_defaults_to_dynamic(qtbot):
     panel = GeneratePanel()
     qtbot.addWidget(panel)
@@ -68,8 +84,8 @@ def test_generate_panel_header_can_expand_to_container(qtbot):
     panel = GeneratePanel()
     qtbot.addWidget(panel)
 
-    panel.resize(1800, panel.sizeHint().height())
-    panel.show()
+    panel.resize(1800, panel.maximumHeight())
+    panel._reflow_header_groups(1800)
 
     assert panel._header_frame.maximumWidth() >= 16777215
     assert not panel._header_frame.hasHeightForWidth()
@@ -82,9 +98,11 @@ def test_generate_panel_header_uses_responsive_two_row_layout(qtbot):
     panel._reflow_header_groups(2000)
     assert panel._header_row_count == 1
     assert [panel._header_group_positions[key][0] for key in panel._header_group_order] == [0] * 7
+    assert panel._header_frame.maximumHeight() == panel._header_frame.minimumHeight()
 
-    panel._reflow_header_groups(900)
+    panel._reflow_header_groups(1300)
     assert panel._header_row_count == 2
+    assert panel._header_frame.maximumHeight() == panel._header_frame.minimumHeight()
     assert [key for key, pos in panel._header_group_positions.items() if pos[0] == 0] == [
         "mode",
         "cohesion",
@@ -96,10 +114,25 @@ def test_generate_panel_header_uses_responsive_two_row_layout(qtbot):
         "spacing",
         "actions",
     ]
-    assert [panel._header_group_positions[key][3] for key in panel._header_group_order[:4]] == [3, 3, 3, 3]
-    assert [panel._header_group_positions[key][3] for key in panel._header_group_order[4:]] == [4, 4, 4]
-    assert sum(panel._header_group_positions[key][3] for key in panel._header_group_order[:4]) == 12
-    assert sum(panel._header_group_positions[key][3] for key in panel._header_group_order[4:]) == 12
+    assert [panel._header_group_positions[key][1] for key in panel._header_group_order[:4]] == [0, 1, 2, 3]
+    assert [panel._header_group_positions[key][1] for key in panel._header_group_order[4:]] == [0, 1, 2]
+
+    panel._reflow_header_groups(900)
+    assert panel._header_row_count == 3
+    assert panel._header_frame.maximumHeight() == panel._header_frame.minimumHeight()
+    assert [key for key, pos in panel._header_group_positions.items() if pos[0] == 0] == [
+        "mode",
+        "cohesion",
+        "length",
+    ]
+    assert [key for key, pos in panel._header_group_positions.items() if pos[0] == 1] == [
+        "matching",
+        "spacing",
+    ]
+    assert [key for key, pos in panel._header_group_positions.items() if pos[0] == 2] == [
+        "freshness",
+        "actions",
+    ]
 
 
 def test_generate_panel_header_uses_named_control_groups(qtbot):
@@ -119,7 +152,7 @@ def test_generate_panel_header_uses_named_control_groups(qtbot):
         assert group.objectName() == "controlGroup"
 
     assert panel._mode_group_title.text() == "Mode"
-    assert panel._cohesion_group_title.text() == "OVERALL\nCOHESION"
+    assert panel._cohesion_group_title.text() == "Overall\nCohesion"
     assert panel._matching_group_title.text() == "Matching"
     assert panel._actions_group_title.text() == "Actions"
 
@@ -132,6 +165,57 @@ def test_generate_panel_header_control_groups_have_equal_height(qtbot):
 
     assert len(heights) == 1
     assert heights.pop() >= panel._control_groups["matching"].minimumSizeHint().height()
+
+
+def test_generate_panel_header_control_groups_do_not_overexpand(qtbot):
+    panel = GeneratePanel()
+    qtbot.addWidget(panel)
+
+    panel._reflow_header_groups(2400)
+
+    for group in panel._control_groups.values():
+        assert group.maximumWidth() == group.minimumWidth()
+
+
+def test_generate_panel_height_stays_tight_to_controls(qtbot):
+    panel = GeneratePanel()
+    qtbot.addWidget(panel)
+
+    panel._reflow_header_groups(2000)
+    panel._apply_mode_sizing()
+    margins = panel.layout().contentsMargins()
+    expected_height = (
+        panel._header_frame.maximumHeight()
+        + panel._inputs_frame.maximumHeight()
+        + panel.layout().spacing()
+        + margins.top()
+        + margins.bottom()
+    )
+
+    assert panel.minimumHeight() == expected_height
+    assert panel.maximumHeight() == expected_height
+
+
+def test_generate_panel_actions_fit_regenerate_and_new_seeds(qtbot):
+    panel = GeneratePanel()
+    qtbot.addWidget(panel)
+
+    panel.mark_run_complete()
+
+    actions_group = panel._control_groups["actions"]
+    layout_margins = actions_group.layout().contentsMargins()
+    expected_minimum = (
+        panel._actions_group_title.minimumWidth()
+        + panel._generate_btn.minimumWidth()
+        + panel._new_seeds_btn.minimumWidth()
+        + layout_margins.left()
+        + layout_margins.right()
+        + actions_group.layout().spacing()
+        + panel._generate_btn.parentWidget().layout().spacing()
+    )
+
+    assert panel._new_seeds_btn.isHidden() is False
+    assert actions_group.minimumWidth() >= expected_minimum
 
 
 def test_artist_mode_panel_uses_grouped_input_controls(qtbot):
@@ -265,7 +349,6 @@ def test_slider_styles_inset_groove_for_handle_clearance():
 def test_generate_panel_collapses_from_seeds_to_genre(qtbot):
     panel = GeneratePanel()
     qtbot.addWidget(panel)
-    panel.show()
 
     seeds_index = panel._mode_combo.findData("seeds")
     genre_index = panel._mode_combo.findData("genre")

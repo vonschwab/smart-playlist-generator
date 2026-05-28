@@ -68,6 +68,7 @@ class UIStateModel:
     recency_enabled: bool = True
     recency_days: int = 14
     recency_plays_threshold: int = 1
+    exclude_seed_tracks_from_recency: bool = False
 
     history_window_days: int = 30
 
