@@ -49,6 +49,7 @@ from src.playlist.request_models import GeneratePlaylistRequest
 from .ui_state import UIStateModel
 from .widgets.advanced_panel import AdvancedSettingsPanel
 from .widgets.analyze_library_options_dialog import AnalyzeLibraryOptionsDialog
+from .widgets.enrichment_panel import EnrichmentPanel
 from .widgets.export_dialog import ExportLocalDialog, ExportPlexDialog
 from .widgets.generate_panel import GeneratePanel
 from .widgets.jobs_panel import JobsPanel
@@ -169,6 +170,7 @@ class MainWindow(QMainWindow):
         self._blacklist_window: Optional[BlacklistWindow] = None
         self._generate_panel: Optional[GeneratePanel] = None
         self._replace_dialog: Optional[ReplaceTrackDialog] = None
+        self._enrichment_panel: Optional[EnrichmentPanel] = None
 
         # Apply theme
         self._apply_theme()
@@ -295,7 +297,19 @@ class MainWindow(QMainWindow):
         self._generate_panel.regenerate_requested.connect(self._on_generate_v2)
         self._generate_panel.new_seeds_requested.connect(self._on_generate_v2)
         self._generate_panel.mode_changed.connect(self._on_generate_panel_mode_changed)
-        top_layout.addWidget(self._generate_panel)
+        top_layout.addWidget(self._generate_panel, alignment=Qt.AlignTop)
+
+        # ─────────────────────────────────────────────────────────────────────
+        # Enrichment panel — shows per-artist genre enrichment status
+        # ─────────────────────────────────────────────────────────────────────
+        self._enrichment_panel = EnrichmentPanel(sidecar_db_path="data/ai_genre_enrichment.db")
+        self._enrichment_panel.enrich_requested.connect(self._on_enrich_requested)
+        top_layout.addWidget(self._enrichment_panel, alignment=Qt.AlignTop)
+
+        # Forward artist changes from ArtistModePanel → EnrichmentPanel
+        self._generate_panel._artist_panel.artist_changed.connect(
+            self._enrichment_panel.set_artist
+        )
 
         # Expose internal progress bar/label for compatibility
         self._progress_bar = self._generate_panel._progress_bar
@@ -625,6 +639,10 @@ class MainWindow(QMainWindow):
         self._worker_client.worker_started.connect(self._on_worker_started)
         self._worker_client.worker_stopped.connect(self._on_worker_stopped)
         self._worker_client.busy_changed.connect(self._on_busy_changed)
+
+        # Enrichment signals
+        self._worker_client.busy_changed.connect(self._on_enrichment_busy_changed)
+        self._worker_client.result_received.connect(self._on_enrichment_result)
 
     def _get_worker_overrides(self) -> dict:
         if self._config_model is None:
@@ -992,6 +1010,9 @@ class MainWindow(QMainWindow):
             sonic_mode=generation_request.sonic_mode,
             pace_mode=generation_request.pace_mode,
             include_collaborations=generation_request.include_collaborations,
+            exclude_seed_tracks_from_recency=(
+                generation_request.exclude_seed_tracks_from_recency
+            ),
         )
 
         # Log generation start
@@ -1008,6 +1029,8 @@ class MainWindow(QMainWindow):
             log_msg += f", artist={generation_request.artist}"
             if generation_request.include_collaborations:
                 log_msg += ", collabs=ON"
+            if generation_request.exclude_seed_tracks_from_recency:
+                log_msg += ", seed_freshness=ON"
         if generation_request.genre:
             log_msg += f", genre={generation_request.genre}"
         if generation_request.seed_tracks:
@@ -1298,6 +1321,32 @@ class MainWindow(QMainWindow):
     # ─────────────────────────────────────────────────────────────────────────
     # Worker Signal Handlers
     # ─────────────────────────────────────────────────────────────────────────
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Enrichment Handlers
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @Slot(str)
+    def _on_enrich_requested(self, artist: str) -> None:
+        """Handle Enrich button press from EnrichmentPanel."""
+        if not self._worker_client:
+            return
+        if self._enrichment_panel:
+            self._enrichment_panel.set_running(True)
+        self._worker_client.enrich_artist(artist)
+
+    @Slot(bool)
+    def _on_enrichment_busy_changed(self, is_busy: bool) -> None:
+        """Reset enrichment panel when the worker becomes idle."""
+        if not is_busy and self._enrichment_panel:
+            self._enrichment_panel.set_running(False)
+            self._enrichment_panel.refresh()
+
+    @Slot(str, dict, object)
+    def _on_enrichment_result(self, result_type: str, data: dict, job_id: object = None) -> None:
+        """Refresh panel when an enrich_artist result arrives."""
+        if result_type == "enrich_artist" and self._enrichment_panel:
+            self._enrichment_panel.refresh()
 
     @Slot(str, str, object)
     def _on_worker_log(self, level: str, message: str, job_id: object = None) -> None:
@@ -1887,7 +1936,7 @@ class MainWindow(QMainWindow):
         if total_height <= 0:
             return
         self._generate_panel.adjustSize()
-        preferred = self._generate_panel.minimumSizeHint().height()
+        preferred = self._generate_panel.maximumHeight()
         if mode == "seeds":
             target = max(preferred, 320)
         else:
