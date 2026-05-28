@@ -1192,30 +1192,41 @@ class SidecarStore:
             conn.execute("DELETE FROM enriched_genres WHERE release_key = ?", (release_key,))
             conn.execute("DELETE FROM enriched_genre_signatures WHERE release_key = ?", (release_key,))
 
+            from .genre_vocabulary import GenreVocabulary
+            _vocab = GenreVocabulary()
+
             now = _now_iso()
-            rows = [
-                (
-                    row["release_key"],
-                    row["normalized_artist"],
-                    row["normalized_album"],
-                    row["album_id"],
-                    row["normalized_tag"],
-                    (
-                        "lastfm_tags" if row["source_type"] == "lastfm_tags"
-                        else "local_metadata" if row["source_type"] == "local_metadata"
-                        else "authoritative_source"
-                    ),
-                    # Use 0.90 for human-reviewed genre_style (promoted from review_only or other)
-                    # Keep original confidence for auto-classified genre_style
-                    0.90 if row["reviewed_classification"] == "genre_style" and row["classification"] != "genre_style" else row["confidence"],
-                    row["source_tag_id"],
-                    row["source_page_id"],
-                    f"source_tag:{row['source_tag_id']}",
-                    "accepted",
-                    now,
+            rows = []
+            expanded_genres: set[str] = set()
+            for row in source_rows:
+                basis = (
+                    "lastfm_tags" if row["source_type"] == "lastfm_tags"
+                    else "local_metadata" if row["source_type"] == "local_metadata"
+                    else "authoritative_source"
                 )
-                for row in source_rows
-            ]
+                confidence = (
+                    0.90 if row["reviewed_classification"] == "genre_style" and row["classification"] != "genre_style"
+                    else row["confidence"]
+                )
+                canonical = _vocab.resolve_alias(row["normalized_tag"])
+                decomposed = _vocab.decompose_tag(canonical)
+                genres = decomposed if decomposed else [canonical]
+                for genre in genres:
+                    rows.append((
+                        row["release_key"],
+                        row["normalized_artist"],
+                        row["normalized_album"],
+                        row["album_id"],
+                        genre,
+                        basis,
+                        confidence,
+                        row["source_tag_id"],
+                        row["source_page_id"],
+                        f"source_tag:{row['source_tag_id']}",
+                        "accepted",
+                        now,
+                    ))
+                    expanded_genres.add(genre)
             if rows:
                 conn.executemany(
                     """
@@ -1230,7 +1241,7 @@ class SidecarStore:
                 )
             if metadata_row and rows:
                 signature = {
-                    "genres": sorted({row["normalized_tag"] for row in source_rows}),
+                    "genres": sorted(expanded_genres),
                     "sources": _signature_sources(source_rows),
                 }
                 conn.execute(

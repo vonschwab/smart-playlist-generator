@@ -105,6 +105,12 @@ def adjudicate_tags(
 
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
+        try:
+            from src.config_loader import Config
+            api_key = Config().openai_api_key
+        except (FileNotFoundError, AttributeError):
+            pass
+    if not api_key:
         logger.warning("OPENAI_API_KEY not set — skipping AI adjudication")
         return {}
 
@@ -116,7 +122,7 @@ def adjudicate_tags(
             logger.warning("OpenAI SDK not installed — skipping AI adjudication")
             return {}
 
-        client = OpenAI()
+        client = OpenAI(api_key=api_key)
         response = client.responses.create(
             model=model,
             instructions=TAG_ADJUDICATOR_INSTRUCTIONS,

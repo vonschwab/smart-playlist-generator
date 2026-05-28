@@ -86,6 +86,13 @@ class Config:
         return self.config['library'].get('music_directory', 'E:\\MUSIC')
 
     @property
+    def openai_api_key(self) -> str:
+        """Get OpenAI API key (env var takes precedence over config.yaml)"""
+        if 'openai' not in self.config or 'api_key' not in self.config.get('openai', {}):
+            return ''
+        return os.getenv('OPENAI_API_KEY') or self.config['openai']['api_key']
+
+    @property
     def lastfm_api_key(self) -> str:
         """Get Last.FM API key (with environment variable override)"""
         if 'lastfm' not in self.config or 'api_key' not in self.config.get('lastfm', {}):

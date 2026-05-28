@@ -60,10 +60,23 @@ class SourceTagClassification:
     reason: str
 
 
+_YEAR_PATTERN = re.compile(r"^\d{4}(\s+\S.*)?$")
+
+
 def classify_source_tag(raw_tag: str) -> SourceTagClassification:
     """Classify a source tag without collapsing precise source vocabulary."""
     vocab = _get_vocabulary()
     normalized = normalize_source_tag(raw_tag)
+
+    # Catch year-based tags ("2016", "2016 albums", "best of 2023", etc.) before vocab lookup
+    if _YEAR_PATTERN.match(normalized) or re.search(r"\b(19|20)\d{2}\b", normalized):
+        return SourceTagClassification(
+            raw_tag=raw_tag,
+            normalized_tag=normalized,
+            classification="descriptor",
+            confidence=0.95,
+            reason="Year or year-based list tag.",
+        )
 
     genre_result = vocab.classify_genre(normalized)
     if genre_result is not None:

@@ -33,6 +33,9 @@ dependencies = [
 gui = [
     "PySide6>=6.5.0",
 ]
+ai = [
+    "openai>=1.68.0",
+]
 dev = [
     "pytest>=8.0",
     "pytest-qt>=4.4",
