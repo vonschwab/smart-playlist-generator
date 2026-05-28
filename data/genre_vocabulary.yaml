@@ -6,8 +6,8 @@ genre_style:
   - ambient
   - ambient jazz
   - art pop
-  - avant-garde
   - avant-folk
+  - avant-garde
   - balearic
   - bedroom pop
   - bossa nova
@@ -78,21 +78,27 @@ genre_style:
   - uk dubstep
   - world
 descriptor:
+  - abstract
+  - acid
   - acoustic
+  - art
   - bass
   - beats
   - billboard top 40
   - brazilian
   - cosmic
   - eurorack
+  - folk, world, & country
   - fuzz
   - instrumental
   - living room music
   - modular synthesizer
   - natural
+  - orchestral
   - songs
   - soundscapes
   - space
+  - stage & screen
   - syntheziser
 instrument:
   - 7 string guitar
@@ -159,6 +165,8 @@ label_or_org:
   - kim gordon
   - lcd soundsystem
   - lee ranaldo
+  - leftfield
+  - mexican summer
   - mike kinsella
   - of montreal
   - owen
