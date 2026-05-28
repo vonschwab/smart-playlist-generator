@@ -41,7 +41,7 @@ class LocalLibraryClient:
         self.db_path = db_path
         self.conn = None
         self._enriched_resolver = enriched_resolver
-        self.similarity_calc = SimilarityCalculator(db_path)
+        self.similarity_calc = SimilarityCalculator(db_path, enriched_resolver=enriched_resolver)
         self._init_db_connection()
         logger.info("Initialized LocalLibraryClient (local library mode)")
 

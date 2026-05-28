@@ -8,7 +8,7 @@ import logging
 import math
 import re
 import sqlite3
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from scipy.spatial.distance import cosine
@@ -16,13 +16,22 @@ from scipy.spatial.distance import cosine
 from .genre_similarity_v2 import GenreSimilarityV2
 from .blacklist_db import ensure_blacklist_schema
 
+if TYPE_CHECKING:
+    from .ai_genre_enrichment.genre_resolver import EnrichedGenreResolver
+
 logger = logging.getLogger(__name__)
 
 
 class SimilarityCalculator:
     """Calculates similarity between tracks using sonic features and genre"""
 
-    def __init__(self, db_path: str = "metadata.db", config: Dict[str, Any] = None):
+    def __init__(
+        self,
+        db_path: str = "metadata.db",
+        config: Dict[str, Any] = None,
+        *,
+        enriched_resolver: "Optional[EnrichedGenreResolver]" = None,
+    ):
         """
         Initialize similarity calculator
 
@@ -33,6 +42,7 @@ class SimilarityCalculator:
         self.db_path = db_path
         self.conn = None
         self.config = config or {}
+        self._enriched_resolver = enriched_resolver
         # Sonic feature vector layout (slices, weights, lengths) built lazily
         self._sonic_feature_layout: Optional[Dict[str, Dict[str, Any]]] = None
         # Track per-segment fallbacks (for diagnostics in experiments)
@@ -897,6 +907,22 @@ class SimilarityCalculator:
 
         return filtered
 
+    def _lookup_artist_album(self, track_id: str) -> Tuple[str, str]:
+        """Return (artist, album) for a track_id, or empty strings if not found."""
+        try:
+            cursor = self.conn.cursor()
+            row = cursor.execute(
+                "SELECT artist, album FROM tracks WHERE track_id = ?", (track_id,)
+            ).fetchone()
+            if not row:
+                return ("", "")
+            # Handle both dict-style (sqlite3.Row) and positional row access
+            if hasattr(row, 'keys'):
+                return (row["artist"] or "", row["album"] or "")
+            return (row[0] or "", row[1] or "")
+        except Exception:
+            return ("", "")
+
     @functools.lru_cache(maxsize=8192)
     def _get_combined_genres_with_weights(self, track_id: str) -> Tuple[Tuple[str, float], ...]:
         """
@@ -1030,9 +1056,20 @@ class SimilarityCalculator:
         """
         Get combined genre tags from track, album, and artist.
 
+        When an EnrichedGenreResolver is configured and the track's release has an
+        enriched signature, the enriched genres are returned directly (authoritative
+        replacement for the raw DB path). Falls back to the cached raw DB path when
+        no enriched signature exists.
+
         Returns:
             Combined, filtered, deduplicated list of genres
         """
+        if self._enriched_resolver is not None:
+            artist, album = self._lookup_artist_album(track_id)
+            if artist and album:
+                enriched = self._enriched_resolver.get_enriched_genres(artist=artist, album=album)
+                if enriched:
+                    return [SimilarityCalculator._normalize_genre(g) for g in enriched]
         weighted = self._get_combined_genres_with_weights(track_id)
         return [genre for genre, _ in weighted]
 
@@ -1349,10 +1386,20 @@ class SimilarityCalculator:
         """
         Public helper to retrieve weighted combined genres for a track.
 
+        When an EnrichedGenreResolver is configured and the track's release has an
+        enriched signature, enriched genres are returned with uniform weight 1.0.
+        Falls back to the cached raw DB path when no enriched signature exists.
+
         Returns:
             List of (genre, weight) tuples.
         """
-        return self._get_combined_genres_with_weights(track_id)
+        if self._enriched_resolver is not None:
+            artist, album = self._lookup_artist_album(track_id)
+            if artist and album:
+                enriched = self._enriched_resolver.get_enriched_genres(artist=artist, album=album)
+                if enriched:
+                    return [(SimilarityCalculator._normalize_genre(g), 1.0) for g in enriched]
+        return list(self._get_combined_genres_with_weights(track_id))
 
     def close(self):
         """Close database connection"""
