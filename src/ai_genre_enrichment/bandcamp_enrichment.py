@@ -72,23 +72,24 @@ def _locate_bandcamp_url(
     *, artist: str, album: str | None, model: str, api_key: str
 ) -> dict[str, Any]:
     """Call OpenAI source locator to find a Bandcamp URL for the release."""
-    from .client import OpenAIEnrichmentClient
+    from .client import OpenAIEnrichmentClient, _extract_response_json
 
     client = OpenAIEnrichmentClient(model=model, api_key=api_key)
-    payload = {"artist": artist, "album": album or ""}
     prompt = f"artist: {artist}\nalbum: {album or ''}"
-    result = client.enrich(
-        payload,
-        prompt,
-        source_locator_response_format(),
-        instructions=SOURCE_LOCATOR_INSTRUCTIONS,
-    )
-    if result.status != "complete":
+    try:
+        # Use _call_openai directly — source locator schema differs from the
+        # classification schema that client.enrich() validates against.
+        raw = client._call_openai(
+            prompt,
+            source_locator_response_format(),
+            instructions=SOURCE_LOCATOR_INSTRUCTIONS,
+        )
+        return _extract_response_json(raw) or {"candidate_sources": [], "warnings": []}
+    except Exception as exc:
         logger.warning(
             "Source locator failed for %s / %s — %s",
             artist,
             album,
-            result.error_message,
+            exc,
         )
         return {"candidate_sources": [], "warnings": []}
-    return result.response_json

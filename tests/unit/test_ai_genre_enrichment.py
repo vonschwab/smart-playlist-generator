@@ -4110,6 +4110,53 @@ def test_extract_bandcamp_command_calls_fetcher_and_stores_tags(monkeypatch, tmp
     assert tags == ["shoegaze", "slowcore", "space rock"]
 
 
+def test_locate_bandcamp_url_uses_call_openai_not_enrich(monkeypatch):
+    """Regression: _locate_bandcamp_url must bypass validate_ai_response (classification schema).
+
+    client.enrich() calls validate_ai_response() which expects classification keys.
+    The source locator returns a different schema (candidate_sources, warnings).
+    This test ensures _locate_bandcamp_url calls _call_openai directly.
+    """
+    from src.ai_genre_enrichment import bandcamp_enrichment
+    from src.ai_genre_enrichment.client import OpenAIEnrichmentClient
+
+    locator_json = {
+        "candidate_sources": [
+            {
+                "source_url": "https://duster.bandcamp.com/album/stratosphere",
+                "source_type": "bandcamp_release",
+                "source_name": "Bandcamp",
+                "identity_status": "confirmed",
+                "identity_confidence": 0.9,
+                "release_specific": True,
+                "reason": "official",
+            }
+        ],
+        "warnings": [],
+    }
+
+    enrich_called = []
+
+    class _FakeResponse:
+        output_text = __import__("json").dumps(locator_json)
+
+    def fake_call_openai(self, prompt, response_format, *, instructions):
+        return _FakeResponse()
+
+    def fake_enrich(self, *args, **kwargs):
+        enrich_called.append(True)
+        raise AssertionError("enrich() must not be called — it validates against the classification schema")
+
+    monkeypatch.setattr(OpenAIEnrichmentClient, "_call_openai", fake_call_openai)
+    monkeypatch.setattr(OpenAIEnrichmentClient, "enrich", fake_enrich)
+
+    result = bandcamp_enrichment._locate_bandcamp_url(
+        artist="Duster", album="Stratosphere", model="gpt-4o-mini", api_key="test-key"
+    )
+    assert result["candidate_sources"][0]["source_url"] == "https://duster.bandcamp.com/album/stratosphere"
+    assert not enrich_called
+
+
 def test_resolver_returns_enriched_genres_when_present(tmp_path):
     from src.ai_genre_enrichment.storage import SidecarStore
     from src.ai_genre_enrichment.genre_resolver import EnrichedGenreResolver
