@@ -162,6 +162,68 @@ def _smooth_genres(X: np.ndarray, S: Optional[np.ndarray], vocab: List[str], sim
     return X.astype(np.float32) @ S_sub
 
 
+def collect_track_genres(
+    track_id: str,
+    metadata_db_path: str,
+    *,
+    enriched_resolver=None,
+) -> list[tuple[str, float]]:
+    """Return (genre, weight) list for a single track.
+
+    Prefers enriched genres (weight 1.0 each) when a resolver is provided
+    and the track's (artist, album) is enriched; falls back to the existing
+    weighted DB lookup otherwise.
+    """
+    import sqlite3 as _sqlite3
+
+    conn = _sqlite3.connect(metadata_db_path)
+    conn.row_factory = _sqlite3.Row
+    try:
+        row = conn.execute(
+            "SELECT artist, album, album_id FROM tracks WHERE track_id = ?", (track_id,)
+        ).fetchone()
+        if not row:
+            return []
+        artist = row["artist"] or ""
+        album = row["album"] or ""
+
+        if enriched_resolver is not None and artist and album:
+            enriched = enriched_resolver.get_enriched_genres(artist=artist, album=album)
+            if enriched:
+                return [(g, 1.0) for g in enriched]
+
+        # Fallback: read per-track → album → artist genres (matching SimilarityCalculator priority)
+        genres: dict[str, float] = {}
+
+        for r in conn.execute(
+            "SELECT genre, weight FROM track_genres WHERE track_id = ?", (track_id,)
+        ):
+            if r["genre"]:
+                genres[r["genre"]] = max(genres.get(r["genre"], 0.0), r["weight"] if r["weight"] is not None else 1.0)
+
+        if not genres:
+            album_id = row["album_id"]
+            if album_id:
+                for r in conn.execute(
+                    "SELECT genre FROM album_genres WHERE album_id = ?", (album_id,)
+                ):
+                    if r["genre"]:
+                        genres.setdefault(r["genre"], 1.0)
+
+        if not genres:
+            for r in conn.execute(
+                "SELECT g.genre FROM artist_genres g "
+                "JOIN tracks t ON g.artist = t.artist WHERE t.track_id = ?",
+                (track_id,),
+            ):
+                if r["genre"]:
+                    genres.setdefault(r["genre"], 0.4)
+
+        return list(genres.items())
+    finally:
+        conn.close()
+
+
 def build_ds_artifacts(
     *,
     db_path: str,
@@ -171,6 +233,7 @@ def build_ds_artifacts(
     max_tracks: int = 0,
     random_seed: int = 0,
     normalize_genres: bool = True,
+    enriched_resolver=None,
 ) -> ArtifactBuildResult:
     """
     Build DS pipeline artifacts from database.
@@ -189,7 +252,7 @@ def build_ds_artifacts(
     """
     cfg = Config(config_path)
     rng = np.random.default_rng(random_seed)
-    calc = SimilarityCalculator(db_path=db_path, config=cfg.config)
+    calc = SimilarityCalculator(db_path=db_path, config=cfg.config, enriched_resolver=enriched_resolver)
     cursor = calc.conn.cursor()
 
     limit_clause = ""

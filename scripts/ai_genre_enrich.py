@@ -61,6 +61,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_graduate_reviewed(args)
     if args.command == "graduate-ai":
         return cmd_graduate_ai(args)
+    if args.command == "rebuild-artifacts":
+        return cmd_rebuild_artifacts(args)
     parser.print_help()
     return 2
 
@@ -199,6 +201,26 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=3,
         help="Minimum times a tag must have been seen to graduate (default: 3)",
+    )
+
+    rebuild = sub.add_parser(
+        "rebuild-artifacts",
+        help="Rebuild data_matrices_step1.npz using enriched genres for processed releases",
+    )
+    rebuild.add_argument(
+        "--artifacts-dir",
+        default="data/artifacts/beat3tower_32k",
+        help="Directory containing the artifact NPZ (default: data/artifacts/beat3tower_32k)",
+    )
+    rebuild.add_argument(
+        "--config",
+        default="config.yaml",
+        help="Path to config.yaml (default: config.yaml)",
+    )
+    rebuild.add_argument(
+        "--genre-sim-path",
+        default=None,
+        help="Optional path to genre similarity NPZ for smoothing",
     )
 
     return parser
@@ -1172,6 +1194,31 @@ def cmd_graduate_ai(args: argparse.Namespace) -> int:
             print("No new terms to graduate.")
     finally:
         reset_vocabulary()
+    return 0
+
+
+def cmd_rebuild_artifacts(args: argparse.Namespace) -> int:
+    from pathlib import Path as _Path
+    from src.ai_genre_enrichment.genre_resolver import EnrichedGenreResolver
+    from src.analyze.artifact_builder import build_ds_artifacts
+
+    resolver = EnrichedGenreResolver(args.sidecar_db)
+    artifacts_dir = _Path(getattr(args, "artifacts_dir", "data/artifacts/beat3tower_32k"))
+    out_path = artifacts_dir / "data_matrices_step1.npz"
+    config_path = getattr(args, "config", "config.yaml")
+    genre_sim_path = getattr(args, "genre_sim_path", None)
+
+    result = build_ds_artifacts(
+        db_path=str(args.metadata_db),
+        config_path=config_path,
+        out_path=out_path,
+        genre_sim_path=genre_sim_path,
+        enriched_resolver=resolver,
+    )
+    print(
+        f"Rebuilt artifacts at {result.out_path} "
+        f"(tracks={result.n_tracks}, genres={result.n_genres})"
+    )
     return 0
 
 
