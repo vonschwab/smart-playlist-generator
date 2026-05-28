@@ -72,6 +72,9 @@ except ImportError:
 # Protocol version
 PROTOCOL_VERSION = 1
 
+# Path to the AI genre enrichment sidecar DB (relative to project root / cwd)
+SIDECAR_DB_PATH = "data/ai_genre_enrichment.db"
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Worker State Management
@@ -554,6 +557,29 @@ def _infer_tower_pca_dims(dim: int) -> tuple[int, int, int]:
     return (rhythm, timbre, harmony)
 
 
+def _resolve_track_genres(
+    track: Dict[str, Any],
+    *,
+    sidecar_db_path: str,
+    fallback,
+) -> List[str]:
+    """Return enriched genres if available for (artist, album), else call fallback.
+
+    fallback is a no-arg callable returning the raw genres list.
+    """
+    from src.ai_genre_enrichment.genre_resolver import EnrichedGenreResolver
+
+    artist = track.get("artist") or ""
+    album = track.get("album") or ""
+    if not artist or not album:
+        return list(fallback() or [])
+    resolver = EnrichedGenreResolver(sidecar_db_path)
+    enriched = resolver.get_enriched_genres(artist=artist, album=album)
+    if enriched:
+        return enriched
+    return list(fallback() or [])
+
+
 def _reset_last_generation_cache() -> None:
     global _LAST_GENERATION_CACHE
     _LAST_GENERATION_CACHE = _LastGenerationCache()
@@ -948,6 +974,7 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
     seed_track_ids = request.seed_track_ids or None
     track_count = request.tracks
     include_collaborations = request.include_collaborations
+    exclude_seed_tracks_from_recency = request.exclude_seed_tracks_from_recency
 
     emit_log("INFO", f"Starting playlist generation (mode={mode})")
     emit_progress("init", 0, 100, "Loading configuration")
@@ -1171,6 +1198,7 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                 dynamic=(cohesion_mode == "dynamic"),
                 cohesion_mode_override=cohesion_mode,
                 include_collaborations=include_collaborations,
+                exclude_seed_tracks_from_recency=exclude_seed_tracks_from_recency,
             )
         elif mode == "seeds" and seed_tracks:
             # Seeds mode (Phase 2 UI)
@@ -1237,14 +1265,24 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
             formatted_tracks = []
 
             for i, track in enumerate(tracks, 1):
-                genres = track.get('genres', [])
                 rating_key = track.get('rating_key') or track.get('id') or track.get('track_id')
-                # Fill genres lazily from similarity calculator if missing
-                if (not genres) and rating_key and getattr(generator, "similarity_calc", None):
-                    try:
-                        genres = generator.similarity_calc.get_filtered_combined_genres_for_track(str(rating_key)) or []
-                    except Exception:
-                        genres = track.get('genres', []) or []
+
+                def _raw_genres(_track=track, _rk=rating_key) -> List[str]:
+                    raw = _track.get('genres', []) or []
+                    if raw:
+                        return raw
+                    if _rk and getattr(generator, "similarity_calc", None):
+                        try:
+                            return generator.similarity_calc.get_filtered_combined_genres_for_track(str(_rk)) or []
+                        except Exception:
+                            return []
+                    return []
+
+                genres = _resolve_track_genres(
+                    track,
+                    sidecar_db_path=SIDECAR_DB_PATH,
+                    fallback=_raw_genres,
+                )
 
                 # Prefer explicit similarity fields; fall back to edge scores from DS report
                 edge = edge_map.get(str(rating_key), {})
