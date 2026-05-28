@@ -4007,3 +4007,74 @@ def test_extract_lastfm_command_calls_api(tmp_path, monkeypatch):
             "SELECT * FROM ai_genre_source_pages WHERE source_type = 'lastfm_tags'"
         ))
     assert len(pages) >= 1
+
+
+def test_fetch_bandcamp_tags_uses_source_locator_and_extractor(monkeypatch):
+    from src.ai_genre_enrichment import bandcamp_enrichment
+
+    fake_locator_response = {
+        "candidate_sources": [
+            {
+                "source_url": "https://duster.bandcamp.com/album/stratosphere",
+                "source_type": "bandcamp_release",
+                "source_name": "Bandcamp",
+                "identity_status": "confirmed",
+                "identity_confidence": 0.95,
+                "release_specific": True,
+                "reason": "Official artist Bandcamp page",
+            }
+        ],
+        "warnings": [],
+    }
+
+    def fake_locate(*, artist, album, model, api_key):
+        assert artist == "Duster"
+        assert album == "Stratosphere"
+        return fake_locator_response
+
+    def fake_fetch_html(url):
+        assert url == "https://duster.bandcamp.com/album/stratosphere"
+        return (
+            '<a class="tag" href="https://bandcamp.com/discover/slowcore">slowcore</a>'
+            '<a class="tag" href="https://bandcamp.com/discover/space-rock">space rock</a>'
+        )
+
+    monkeypatch.setattr(bandcamp_enrichment, "_locate_bandcamp_url", fake_locate)
+    tags = bandcamp_enrichment.fetch_bandcamp_tags(
+        artist="Duster",
+        album="Stratosphere",
+        api_key="test-key",
+        model="gpt-4o-mini",
+        fetch_html=fake_fetch_html,
+    )
+    assert tags == ["slowcore", "space rock"]
+
+
+def test_fetch_bandcamp_tags_returns_empty_when_no_confirmed_url(monkeypatch):
+    from src.ai_genre_enrichment import bandcamp_enrichment
+
+    def fake_locate(*, artist, album, model, api_key):
+        return {
+            "candidate_sources": [
+                {
+                    "source_url": "https://example.com/x",
+                    "source_type": "official_release",
+                    "source_name": "x",
+                    "identity_status": "ambiguous",
+                    "identity_confidence": 0.4,
+                    "release_specific": False,
+                    "reason": "low confidence",
+                }
+            ],
+            "warnings": [],
+        }
+
+    monkeypatch.setattr(bandcamp_enrichment, "_locate_bandcamp_url", fake_locate)
+    tags = bandcamp_enrichment.fetch_bandcamp_tags(
+        artist="X",
+        album="Y",
+        api_key="test-key",
+        model="gpt-4o-mini",
+        fetch_html=lambda url: "",
+    )
+    assert tags == []
