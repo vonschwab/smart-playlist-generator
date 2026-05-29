@@ -1155,14 +1155,20 @@ class SimilarityCalculator:
         album_weight = self.genre_source_weights.get("album", 1.0)
         artist_weight = self.genre_source_weights.get("artist", 0.4)
 
+        # Prefetch all enriched signatures in one query to avoid per-track connection opens.
+        enriched_genres_map: Dict[str, List[str]] = (
+            self._enriched_resolver.get_all_enriched_genres()
+            if self._enriched_resolver is not None
+            else {}
+        )
+
         result: Dict[str, List[str]] = {}
         for tid, (artist_name, album_name, album_id) in track_meta.items():
             # Enriched signatures are authoritative — skip the raw UNION entirely
             # for enriched releases so the bulk path matches _get_combined_genres.
-            if self._enriched_resolver is not None and artist_name and album_name:
-                enriched = self._enriched_resolver.get_enriched_genres(
-                    artist=artist_name, album=album_name
-                )
+            if enriched_genres_map and artist_name and album_name:
+                release_key = self._enriched_resolver.make_release_key(artist_name, album_name)
+                enriched = enriched_genres_map.get(release_key)
                 if enriched:
                     result[tid] = [SimilarityCalculator._normalize_genre(g) for g in enriched]
                     continue

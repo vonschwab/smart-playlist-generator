@@ -401,20 +401,22 @@ def load_genres_for_tracks(
 
     # 0. Apply enriched signatures first — these are authoritative, raw lookups skip them.
     if enriched_resolver is not None:
+        # Fetch all enriched signatures in one query, then do per-track dict lookups.
+        all_enriched = enriched_resolver.get_all_enriched_genres()
+        enriched_release_keys: set = set()
         for tid in track_ids:
             artist, album = track_info.get(tid, ('', ''))
             if not artist or not album:
                 continue
-            enriched = enriched_resolver.get_enriched_genres(artist=artist, album=album)
-            if not enriched:
+            release_key = enriched_resolver.make_release_key(artist, album)
+            genres = all_enriched.get(release_key)
+            if not genres:
                 continue
             enriched_tids.add(tid)
-            for g in enriched:
+            enriched_release_keys.add(release_key)
+            for g in genres:
                 add_genre(tid, g, WEIGHT_TRACK)
-        enriched_release_count = len({
-            (track_info[tid][0], track_info[tid][1])
-            for tid in enriched_tids
-        })
+        enriched_release_count = len(enriched_release_keys)
         if enriched_release_count:
             logger.info(
                 f"Using enriched genres for {len(enriched_tids)} tracks "
@@ -566,12 +568,16 @@ def build_artifacts(args: argparse.Namespace, enriched_resolver: Optional[Any] =
     if enriched_resolver is None:
         sidecar_path = getattr(args, "sidecar_db", None)
         if sidecar_path:
-            try:
-                from src.ai_genre_enrichment.genre_resolver import EnrichedGenreResolver
-                enriched_resolver = EnrichedGenreResolver(sidecar_path)
-                logger.info(f"Loaded enriched genre resolver from {sidecar_path}")
-            except Exception as e:
-                logger.warning(f"Could not load enriched resolver from {sidecar_path}: {e}")
+            from pathlib import Path as _Path
+            if not _Path(sidecar_path).exists():
+                logger.info(f"Sidecar DB not found at {sidecar_path}; using raw genres only")
+            else:
+                try:
+                    from src.ai_genre_enrichment.genre_resolver import EnrichedGenreResolver
+                    enriched_resolver = EnrichedGenreResolver(sidecar_path)
+                    logger.info(f"Loaded enriched genre resolver from {sidecar_path}")
+                except Exception as e:
+                    logger.warning(f"Could not load enriched resolver from {sidecar_path}: {e}")
 
     logger.info("Loading tracks with beat3tower features...")
     tracks, features_list = load_tracks_with_beat3tower(args.db_path, args.max_tracks)

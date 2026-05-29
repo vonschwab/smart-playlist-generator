@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from pathlib import Path
+from typing import Iterable
 
 from .tag_classification import normalize_source_tag
 
@@ -20,6 +21,7 @@ class EnrichedGenreResolver:
         self._db_path = Path(sidecar_db_path).resolve()
         self._reverse_index_cache: dict[str, set[str]] | None = None
         self._all_enriched_cache: set[str] | None = None
+        self._all_enriched_genres_cache: dict[str, list[str]] | None = None
 
     def get_enriched_genres(self, *, artist: str, album: str | None) -> list[str] | None:
         if not album:
@@ -62,10 +64,34 @@ class EnrichedGenreResolver:
     def get_all_enriched_release_keys(self) -> set[str]:
         """Return the set of all release_keys with an enriched signature."""
         if self._all_enriched_cache is None:
-            with self._connect() as conn:
-                rows = conn.execute("SELECT release_key FROM enriched_genre_signatures").fetchall()
-            self._all_enriched_cache = {row["release_key"] for row in rows}
+            self._all_enriched_cache = set(self.get_all_enriched_genres().keys())
         return self._all_enriched_cache
+
+    def get_all_enriched_genres(self) -> dict[str, list[str]]:
+        """Return {release_key: [genres]} for every enriched signature in one query.
+
+        Result is cached for the lifetime of this resolver instance. Use this
+        in bulk paths (artifact build, library preload) to avoid per-track
+        connection opens.
+        """
+        if self._all_enriched_genres_cache is not None:
+            return self._all_enriched_genres_cache
+        mapping: dict[str, list[str]] = {}
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT release_key, signature_json FROM enriched_genre_signatures"
+            ).fetchall()
+        for row in rows:
+            payload = json.loads(row["signature_json"])
+            genres = payload.get("genres") or []
+            if genres:
+                mapping[row["release_key"]] = list(genres)
+        self._all_enriched_genres_cache = mapping
+        return mapping
+
+    def make_release_key(self, artist: str, album: str) -> str:
+        """Return the normalized release key for (artist, album)."""
+        return self._release_key(artist, album)
 
     def _build_reverse_index(self) -> dict[str, set[str]]:
         if self._reverse_index_cache is not None:

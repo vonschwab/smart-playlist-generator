@@ -100,6 +100,20 @@ def test_get_user_override_missing_returns_none(tmp_path):
     store = SidecarStore(tmp_path / "sidecar.db")
     store.initialize()
     assert store.get_user_override("never::seen") is None
+
+
+def test_user_override_casefolds_genres(tmp_path):
+    """Genres are stored casefolded so 'IDM' and 'idm' collapse to 'idm'."""
+    store = SidecarStore(tmp_path / "sidecar.db")
+    store.initialize()
+    store.set_user_override(
+        release_key="a::b", normalized_artist="a", normalized_album="b",
+        genres_add=["IDM", "idm", "Glitch"],
+        genres_remove=["Warp"],
+    )
+    override = store.get_user_override("a::b")
+    assert set(override["genres_add"]) == {"idm", "glitch"}
+    assert set(override["genres_remove"]) == {"warp"}
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -153,8 +167,8 @@ Append the following methods to `SidecarStore` (near where other CRUD helpers li
                 """,
                 (
                     release_key, normalized_artist, normalized_album,
-                    json.dumps(sorted(set(genres_add))),
-                    json.dumps(sorted(set(genres_remove))),
+                    json.dumps(sorted({g.casefold() for g in genres_add})),
+                    json.dumps(sorted({g.casefold() for g in genres_remove})),
                     now,
                 ),
             )
@@ -310,12 +324,21 @@ In `src/ai_genre_enrichment/genre_resolver.py`, replace the body of `get_enriche
         if not override_row:
             return sig_genres if sig_genres else None
 
-        add = set(json.loads(override_row["genres_add_json"]))
-        remove = set(json.loads(override_row["genres_remove_json"]))
-        combined = [g for g in sig_genres if g not in remove]
-        for g in add:
-            if g not in combined:
+        # Both sets are stored casefolded (normalised at write time in set_user_override).
+        add = list(json.loads(override_row["genres_add_json"]))
+        remove_lower = set(json.loads(override_row["genres_remove_json"]))
+        combined: list[str] = []
+        combined_lower: set[str] = set()
+        for g in sig_genres:
+            gk = g.casefold()
+            if gk not in remove_lower and gk not in combined_lower:
                 combined.append(g)
+                combined_lower.add(gk)
+        for g in add:
+            gk = g.casefold()
+            if gk not in combined_lower:
+                combined.append(g)
+                combined_lower.add(gk)
         return combined if combined else None
 
     @staticmethod
@@ -661,6 +684,22 @@ def test_dialog_deduplicates(qtbot):
     dialog._on_save_clicked()
     # Lowercase-deduplicated, original first occurrence kept
     assert captured == [["idm"]]
+
+
+def test_dialog_rejects_empty_save(qtbot, monkeypatch):
+    """Saving with all lines blank must NOT emit genres_committed."""
+    from src.playlist_gui.widgets.edit_genres_dialog import EditGenresDialog
+    from PySide6.QtWidgets import QMessageBox
+
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **kw: None)
+    dialog = EditGenresDialog(artist="X", album="Y", current_genres=["a"])
+    qtbot.addWidget(dialog)
+    dialog.set_text("   \n\n\n")
+
+    captured = []
+    dialog.genres_committed.connect(lambda artist, album, genres: captured.append(genres))
+    dialog._on_save_clicked()
+    assert captured == []  # signal must not fire; at least one genre required
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -720,7 +759,9 @@ class EditGenresDialog(QDialog):
             f"<b>{artist} / {album}</b><br>"
             "One genre per line. Lines you remove will be marked as user-removed; "
             "lines you add will be marked as user-added. Edits are preserved across "
-            "future re-runs of build-enriched."
+            "future re-runs of build-enriched.<br>"
+            "<i>After saving, run <b>Tools → Build Artifacts</b> to apply changes "
+            "to playlist generation.</i>"
         )
         label.setWordWrap(True)
         layout.addWidget(label)
@@ -751,6 +792,15 @@ class EditGenresDialog(QDialog):
                 continue
             seen.add(key)
             cleaned.append(line)
+        if not cleaned:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(
+                self,
+                "No genres",
+                "At least one genre is required. "
+                "To remove enriched genres entirely, delete the override via the pipeline.",
+            )
+            return
         self.genres_committed.emit(self._artist, self._album, cleaned)
         self.accept()
 ```
@@ -789,7 +839,7 @@ def test_track_table_emits_edit_genres_for_single_album_selection(qtbot, monkeyp
     table.set_tracks([
         {"position": 1, "artist": "Autechre", "album": "Amber", "title": "Foil"},
     ])
-    table._table.selectRow(0)
+    table.select_row(0)  # TrackTable public helper — QTableView has no selectRow()
 
     captured = []
     table.edit_genres_requested.connect(lambda payload: captured.append(payload))
