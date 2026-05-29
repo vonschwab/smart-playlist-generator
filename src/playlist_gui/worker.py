@@ -1601,6 +1601,7 @@ def handle_build_artifacts(cmd_data: Dict[str, Any]) -> None:
             clip_sigma=3.0,
             random_seed=42,
             no_genre_normalization=False,
+            sidecar_db=SIDECAR_DB_PATH,
             verbose=False
         )
         build_artifacts(args)

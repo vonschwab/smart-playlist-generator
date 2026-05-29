@@ -103,3 +103,67 @@ def test_no_resolver_preserves_existing_behavior(tmp_path):
     calc = SimilarityCalculator(db_path=str(metadata))  # no resolver
     genres = calc.get_filtered_combined_genres_for_track("t1")
     assert "indie rock" in genres  # raw behavior preserved
+
+
+def test_bulk_preload_uses_enriched_signatures(tmp_path):
+    """Regression: _preload_combined_genres_for_library must honor the resolver.
+
+    The bulk preload is used by find_similar_tracks for candidate scoring. Before
+    the fix, it bypassed the resolver and used raw genres for all candidates,
+    while the single-track path used enriched. Mixing the two caused inconsistent
+    similarity scoring between seed and candidates.
+    """
+    from src.similarity_calculator import SimilarityCalculator
+    from src.ai_genre_enrichment.genre_resolver import EnrichedGenreResolver
+
+    metadata = tmp_path / "metadata.db"
+    _make_metadata_db(metadata)
+    conn = sqlite3.connect(str(metadata))
+    conn.execute("INSERT INTO tracks VALUES('t2', 'Foo Bar', 'Baz', 'a2', 0)")
+    conn.execute("INSERT INTO track_genres VALUES('t2', 'jazz', 'file', 1.0)")
+    conn.commit()
+    conn.close()
+
+    sidecar = tmp_path / "sidecar.db"
+    _make_sidecar(sidecar, [
+        ("duster::stratosphere", "duster", "stratosphere", ["slowcore", "space rock"]),
+    ])
+    resolver = EnrichedGenreResolver(str(sidecar))
+    calc = SimilarityCalculator(db_path=str(metadata), enriched_resolver=resolver)
+
+    bulk = calc._preload_combined_genres_for_library()
+
+    # t1 is enriched: must use enriched signature, NOT raw 'indie rock' or 'rock'
+    assert set(bulk["t1"]) == {"slowcore", "space rock"}, (
+        f"Enriched release t1 should use signature only, got {bulk['t1']}"
+    )
+    # t2 is unenriched: must fall back to raw DB lookup
+    assert "jazz" in bulk["t2"], f"Unenriched release t2 should keep raw, got {bulk['t2']}"
+
+
+def test_bulk_preload_matches_single_track_path(tmp_path):
+    """The bulk and single-track paths must return the same genres per track."""
+    from src.similarity_calculator import SimilarityCalculator
+    from src.ai_genre_enrichment.genre_resolver import EnrichedGenreResolver
+
+    metadata = tmp_path / "metadata.db"
+    _make_metadata_db(metadata)
+    conn = sqlite3.connect(str(metadata))
+    conn.execute("INSERT INTO tracks VALUES('t2', 'Foo Bar', 'Baz', 'a2', 0)")
+    conn.execute("INSERT INTO track_genres VALUES('t2', 'jazz', 'file', 1.0)")
+    conn.commit()
+    conn.close()
+
+    sidecar = tmp_path / "sidecar.db"
+    _make_sidecar(sidecar, [
+        ("duster::stratosphere", "duster", "stratosphere", ["slowcore", "space rock"]),
+    ])
+    resolver = EnrichedGenreResolver(str(sidecar))
+    calc = SimilarityCalculator(db_path=str(metadata), enriched_resolver=resolver)
+
+    bulk = calc._preload_combined_genres_for_library()
+    for tid in ("t1", "t2"):
+        single = calc._get_combined_genres(tid)
+        assert set(bulk[tid]) == set(single), (
+            f"Bulk vs single divergence for {tid}: bulk={bulk[tid]} single={single}"
+        )

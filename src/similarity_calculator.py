@@ -1157,6 +1157,16 @@ class SimilarityCalculator:
 
         result: Dict[str, List[str]] = {}
         for tid, (artist_name, album_name, album_id) in track_meta.items():
+            # Enriched signatures are authoritative — skip the raw UNION entirely
+            # for enriched releases so the bulk path matches _get_combined_genres.
+            if self._enriched_resolver is not None and artist_name and album_name:
+                enriched = self._enriched_resolver.get_enriched_genres(
+                    artist=artist_name, album=album_name
+                )
+                if enriched:
+                    result[tid] = [SimilarityCalculator._normalize_genre(g) for g in enriched]
+                    continue
+
             # Resolve album genres against the same album_id candidates the
             # per-track path tries, in the same order. First match wins.
             album_genres: List[str] = []

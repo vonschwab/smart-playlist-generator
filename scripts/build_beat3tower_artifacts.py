@@ -122,6 +122,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Disable Genre Taxonomy v1 normalization (use raw genres)",
     )
+    parser.add_argument(
+        "--sidecar-db",
+        default="data/ai_genre_enrichment.db",
+        help="Path to AI genre enrichment sidecar DB (use enriched signatures when present)",
+    )
     return parser.parse_args()
 
 
@@ -286,6 +291,7 @@ def load_genres_for_tracks(
     track_ids: List[str],
     normalize_genres: bool = True,
     tracks_metadata: Optional[List[Dict[str, Any]]] = None,
+    enriched_resolver: Optional[Any] = None,
 ) -> Tuple[List[List[Tuple[str, float]]], List[str], Dict[str, int]]:
     """
     Load weighted genres for tracks from database, including artist and album genres.
@@ -295,11 +301,16 @@ def load_genres_for_tracks(
     - album_genres: 0.8
     - artist_genres: 0.5
 
+    When an EnrichedGenreResolver is provided, enriched releases use the enriched
+    signature as the authoritative source (replacement, not supplement). Only
+    unenriched releases fall back to the raw DB lookups.
+
     Args:
         db_path: Path to database
         track_ids: List of track IDs to load genres for
         normalize_genres: Apply Genre Taxonomy v1 normalization (default True)
         tracks_metadata: Optional list of track metadata dicts with 'artist' and 'album' keys
+        enriched_resolver: Optional EnrichedGenreResolver for sidecar-aware genre lookups
 
     Returns:
         Tuple of (weighted_genre_lists per track, vocabulary, stats dict)
@@ -353,6 +364,11 @@ def load_genres_for_tracks(
     # Initialize genre storage: track_id -> {genre: max_weight}
     track_genres: Dict[str, Dict[str, float]] = {tid: {} for tid in track_ids}
 
+    # Tracks whose release has an enriched signature — populated below after
+    # add_genre is defined. Raw lookups skip these so enriched is authoritative.
+    enriched_tids: set = set()
+    enriched_release_count = 0
+
     def add_genre(tid: str, raw_genre: str, weight: float) -> None:
         """Add a genre to a track with weight, keeping max weight for duplicates."""
         nonlocal total_raw_genres, total_normalized_tokens
@@ -383,6 +399,28 @@ def load_genres_for_tracks(
                     total_normalized_tokens += 1
                 track_genres[tid][raw_genre] = weight
 
+    # 0. Apply enriched signatures first — these are authoritative, raw lookups skip them.
+    if enriched_resolver is not None:
+        for tid in track_ids:
+            artist, album = track_info.get(tid, ('', ''))
+            if not artist or not album:
+                continue
+            enriched = enriched_resolver.get_enriched_genres(artist=artist, album=album)
+            if not enriched:
+                continue
+            enriched_tids.add(tid)
+            for g in enriched:
+                add_genre(tid, g, WEIGHT_TRACK)
+        enriched_release_count = len({
+            (track_info[tid][0], track_info[tid][1])
+            for tid in enriched_tids
+        })
+        if enriched_release_count:
+            logger.info(
+                f"Using enriched genres for {len(enriched_tids)} tracks "
+                f"across {enriched_release_count} releases (raw lookups skipped for these)"
+            )
+
     # 1. Load track genres (highest priority - weight 1.0)
     if has_track_genres:
         batch_size = 800
@@ -394,6 +432,8 @@ def load_genres_for_tracks(
                 batch,
             )
             for row in cursor.fetchall():
+                if row['track_id'] in enriched_tids:
+                    continue
                 add_genre(row['track_id'], row['genre'], WEIGHT_TRACK)
 
     # 2. Load album genres (weight 0.8)
@@ -401,6 +441,8 @@ def load_genres_for_tracks(
         # Build album_id -> [track_ids] mapping
         album_to_tracks: Dict[str, List[str]] = {}
         for tid in track_ids:
+            if tid in enriched_tids:
+                continue
             artist, album = track_info.get(tid, ('', ''))
             if artist and album:
                 # Compute album_id as md5 hash (matching schema generation)
@@ -427,6 +469,8 @@ def load_genres_for_tracks(
         # Build artist -> [track_ids] mapping
         artist_to_tracks: Dict[str, List[str]] = {}
         for tid in track_ids:
+            if tid in enriched_tids:
+                continue
             artist, _ = track_info.get(tid, ('', ''))
             if artist:
                 artist_key = artist.lower().strip()
@@ -458,7 +502,10 @@ def load_genres_for_tracks(
             "track_genres": has_track_genres,
             "album_genres": has_album_genres,
             "artist_genres": has_artist_genres,
+            "enriched_signatures": bool(enriched_resolver is not None and enriched_tids),
         },
+        "enriched_tracks": len(enriched_tids),
+        "enriched_releases": enriched_release_count,
     }
     return genre_lists, vocab, stats
 
@@ -506,8 +553,26 @@ def build_genre_matrices(
     return X_genre_raw, X_genre_smoothed
 
 
-def build_artifacts(args: argparse.Namespace) -> None:
-    """Main artifact building workflow."""
+def build_artifacts(args: argparse.Namespace, enriched_resolver: Optional[Any] = None) -> None:
+    """Main artifact building workflow.
+
+    Args:
+        args: Parsed CLI arguments
+        enriched_resolver: Optional EnrichedGenreResolver for sidecar-aware genre lookups.
+            When provided, enriched releases use their authoritative signatures and bypass
+            raw track/album/artist genre lookups.
+    """
+    # Auto-construct resolver from --sidecar-db when not explicitly provided
+    if enriched_resolver is None:
+        sidecar_path = getattr(args, "sidecar_db", None)
+        if sidecar_path:
+            try:
+                from src.ai_genre_enrichment.genre_resolver import EnrichedGenreResolver
+                enriched_resolver = EnrichedGenreResolver(sidecar_path)
+                logger.info(f"Loaded enriched genre resolver from {sidecar_path}")
+            except Exception as e:
+                logger.warning(f"Could not load enriched resolver from {sidecar_path}: {e}")
+
     logger.info("Loading tracks with beat3tower features...")
     tracks, features_list = load_tracks_with_beat3tower(args.db_path, args.max_tracks)
 
@@ -608,7 +673,8 @@ def build_artifacts(args: argparse.Namespace) -> None:
     logger.info(f"Loading genre information (normalization={'enabled' if normalize_genres else 'disabled'})...")
     track_ids = [t["track_id"] for t in tracks]
     genre_lists, vocab, genre_stats = load_genres_for_tracks(
-        args.db_path, track_ids, normalize_genres=normalize_genres, tracks_metadata=tracks
+        args.db_path, track_ids, normalize_genres=normalize_genres,
+        tracks_metadata=tracks, enriched_resolver=enriched_resolver,
     )
     X_genre_raw, X_genre_smoothed = build_genre_matrices(
         genre_lists, vocab, args.genre_sim_path
@@ -618,6 +684,11 @@ def build_artifacts(args: argparse.Namespace) -> None:
     sources = genre_stats.get("sources", {})
     source_names = [k for k, v in sources.items() if v]
     logger.info(f"Genre sources: {', '.join(source_names) if source_names else 'none'}")
+    if genre_stats.get("enriched_tracks"):
+        logger.info(
+            f"Enriched signatures applied to {genre_stats['enriched_tracks']} tracks "
+            f"({genre_stats['enriched_releases']} releases)"
+        )
 
     if genre_stats["normalization_applied"]:
         raw_count = genre_stats["raw_genres"]

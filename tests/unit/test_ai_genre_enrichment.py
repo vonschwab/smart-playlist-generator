@@ -3487,22 +3487,27 @@ def test_adjudicate_tags_returns_classifications(monkeypatch):
 
 def test_classify_source_tags_uses_adjudication_cache(tmp_path):
     """When a tag is in the adjudication cache, classify_source_tags uses the cached result
-    instead of falling back to review_only."""
+    instead of falling back to review_only.
+
+    Uses 'witch house' rather than a curated vocab tag — the curated tier-1 path
+    takes precedence over the cache, so this test must pick a tag the curated
+    vocab has never seen.
+    """
     from src.ai_genre_enrichment.tag_classification import reset_vocabulary
 
     store = SidecarStore(tmp_path / "test.db")
     store.initialize()
     reset_vocabulary()
 
-    # Pre-populate cache with a decision for "ambient pop"
+    # Pre-populate cache with a decision for "witch house"
     store.cache_adjudication(
-        normalized_tag="ambient pop",
+        normalized_tag="witch house",
         classification="genre_style",
         confidence=0.82,
         classifier="ai",
     )
 
-    # Create a source page with "ambient pop" tag
+    # Create a source page with "witch house" tag
     page_id = store.upsert_source_page(
         release_key="test::album",
         normalized_artist="test",
@@ -3514,7 +3519,7 @@ def test_classify_source_tags_uses_adjudication_cache(tmp_path):
         identity_confidence=1.0,
         evidence_summary="test",
     )
-    store.replace_source_tags(page_id, ["ambient pop"])
+    store.replace_source_tags(page_id, ["witch house"])
 
     # Classify — should pick up cached adjudication
     store.classify_source_tags(page_id, adjudicate=False)
@@ -3525,7 +3530,7 @@ def test_classify_source_tags_uses_adjudication_cache(tmp_path):
             SELECT c.classification, c.confidence, c.classifier
             FROM ai_genre_tag_classifications c
             JOIN ai_genre_source_tags t ON t.source_tag_id = c.source_tag_id
-            WHERE t.source_page_id = ? AND t.normalized_tag = 'ambient pop'
+            WHERE t.source_page_id = ? AND t.normalized_tag = 'witch house'
             """,
             (page_id,),
         ).fetchone()
@@ -3536,7 +3541,7 @@ def test_classify_source_tags_uses_adjudication_cache(tmp_path):
     assert row["classifier"] == "cached_ai"
 
     # Verify that times_seen was incremented after the cache hit
-    cached_after = store.lookup_cached_adjudication("ambient pop")
+    cached_after = store.lookup_cached_adjudication("witch house")
     assert cached_after["times_seen"] == 2
 
 
