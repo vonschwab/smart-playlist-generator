@@ -1335,6 +1335,10 @@ class MainWindow(QMainWindow):
         """Handle Enrich button press from EnrichmentPanel."""
         if not self._worker_client:
             return
+        if not self._worker_client.is_running():
+            if not self._worker_client.start():
+                QMessageBox.critical(self, "Worker Error", "Failed to start worker process.")
+                return
         if self._enrichment_panel:
             self._enrichment_panel.set_running(True)
         self._worker_client.enrich_artist(artist)
@@ -1562,6 +1566,10 @@ class MainWindow(QMainWindow):
         album = (payload.get("album") or "").strip()
         if not artist or not album:
             return
+        if not self._worker_client.is_running():
+            if not self._worker_client.start():
+                QMessageBox.critical(self, "Worker Error", "Failed to start worker process.")
+                return
         from src.ai_genre_enrichment.genre_resolver import EnrichedGenreResolver
         resolver = EnrichedGenreResolver("data/ai_genre_enrichment.db")
         current = resolver.get_enriched_genres(artist=artist, album=album) or []
