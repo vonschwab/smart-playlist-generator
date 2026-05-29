@@ -54,6 +54,7 @@ from .widgets.export_dialog import ExportLocalDialog, ExportPlexDialog
 from .widgets.generate_panel import GeneratePanel
 from .widgets.jobs_panel import JobsPanel
 from .widgets.log_panel import LogPanel
+from .widgets.edit_genres_dialog import EditGenresDialog
 from .widgets.replace_dialog import ReplaceTrackDialog
 from .widgets.review_panel import ReviewPanel
 from .widgets.track_table import TrackTable
@@ -334,6 +335,7 @@ class MainWindow(QMainWindow):
         self._track_table.blacklist_requested.connect(self._on_blacklist_requested)
         self._track_table.blacklist_scope_requested.connect(self._on_blacklist_scope_requested)
         self._track_table.replace_track_requested.connect(self._open_replace_dialog)
+        self._track_table.edit_genres_requested.connect(self._on_edit_genres_requested)
         table_layout.addWidget(self._track_table, stretch=1)
 
         # Results footer (playlist summary + export actions)
@@ -1443,6 +1445,10 @@ class MainWindow(QMainWindow):
         # Note: busy state is now managed by _on_busy_changed
         # but we still update UI elements here for the specific completion state
 
+        if cmd == "edit_genres":
+            self._on_edit_genres_done(ok)
+            return
+
         if cancelled:
             self._progress_bar.setValue(0)
             self._stage_label.setText("Cancelled")
@@ -1549,6 +1555,34 @@ class MainWindow(QMainWindow):
             True,
             self._get_worker_overrides(),
         )
+
+    @Slot(dict)
+    def _on_edit_genres_requested(self, payload: dict) -> None:
+        artist = (payload.get("artist") or "").strip()
+        album = (payload.get("album") or "").strip()
+        if not artist or not album:
+            return
+        from src.ai_genre_enrichment.genre_resolver import EnrichedGenreResolver
+        resolver = EnrichedGenreResolver("data/ai_genre_enrichment.db")
+        current = resolver.get_enriched_genres(artist=artist, album=album) or []
+        dialog = EditGenresDialog(
+            artist=artist, album=album, current_genres=current, parent=self
+        )
+        dialog.genres_committed.connect(self._on_genres_committed)
+        dialog.exec()
+
+    @Slot(str, str, list)
+    def _on_genres_committed(self, artist: str, album: str, genres: list) -> None:
+        self._pending_genre_edit = (artist, album)
+        self._worker_client.edit_genres(artist, album, genres)
+
+    def _on_edit_genres_done(self, ok: bool) -> None:
+        if not getattr(self, "_pending_genre_edit", None):
+            return
+        artist, album = self._pending_genre_edit
+        self._pending_genre_edit = None
+        if ok:
+            self._track_table.refresh_genres_for_album(artist=artist, album=album)
 
     @Slot(int)
     def _open_replace_dialog(self, position: int) -> None:

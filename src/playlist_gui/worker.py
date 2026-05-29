@@ -1881,6 +1881,55 @@ def handle_enrich_artist(cmd_data: Optional[Dict[str, Any]] = None, *, artist: s
     return {"ok": True, "artist": artist}
 
 
+def handle_edit_genres(cmd_data: Dict[str, Any]) -> None:
+    """Write a user genre override for (artist, album) computed from a target list.
+
+    Diffs the target list against the current resolved genres so the override
+    stores the minimal add/remove set rather than the full signature.
+    """
+    try:
+        artist = (cmd_data.get("artist") or "").strip()
+        album = (cmd_data.get("album") or "").strip()
+        target_genres = [
+            str(g).strip() for g in (cmd_data.get("genres") or []) if str(g).strip()
+        ]
+        if not artist or not album:
+            raise ValueError("artist and album are required")
+
+        from src.ai_genre_enrichment.storage import SidecarStore
+        from src.ai_genre_enrichment.genre_resolver import EnrichedGenreResolver
+        from src.ai_genre_enrichment.tag_classification import normalize_source_tag
+
+        resolver = EnrichedGenreResolver(SIDECAR_DB_PATH)
+        current = set(resolver.get_enriched_genres(artist=artist, album=album) or [])
+        target = {g.casefold() for g in target_genres}
+        current_lower = {g.casefold() for g in current}
+        add = target - current_lower
+        remove = current_lower - target
+
+        store = SidecarStore(SIDECAR_DB_PATH)
+        store.initialize()
+        release_key = f"{normalize_source_tag(artist)}::{normalize_source_tag(album)}"
+        store.set_user_override(
+            release_key=release_key,
+            normalized_artist=normalize_source_tag(artist),
+            normalized_album=normalize_source_tag(album),
+            genres_add=sorted(add),
+            genres_remove=sorted(remove),
+        )
+
+        emit_result("edit_genres", {
+            "artist": artist, "album": album,
+            "genres": sorted(target),
+            "added": sorted(add), "removed": sorted(remove),
+        })
+        emit_done("edit_genres", True, "ok")
+    except Exception as e:
+        tb = traceback.format_exc()
+        emit_error(str(e), tb)
+        emit_done("edit_genres", False, str(e))
+
+
 def handle_enrich_artist_cmd(cmd_data: Dict[str, Any]) -> None:
     """Command handler wrapper for enrich_artist — called from the dispatch table."""
     artist = cmd_data.get("artist", "")
@@ -1918,6 +1967,7 @@ TRACKED_COMMAND_HANDLERS = {
     "blacklist_set": handle_blacklist_set,
     "blacklist_scope_set": handle_blacklist_scope_set,
     "enrich_artist": handle_enrich_artist_cmd,
+    "edit_genres": handle_edit_genres,
 }
 
 # Commands that don't have their own request context

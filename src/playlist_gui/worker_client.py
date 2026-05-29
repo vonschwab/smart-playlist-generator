@@ -560,6 +560,24 @@ class WorkerClient(QObject):
             job_id=job_id,
         )
 
+    def edit_genres(
+        self,
+        artist: str,
+        album: str,
+        genres: list,
+        job_id: Optional[str] = None,
+    ) -> Optional[str]:
+        """Send an edit_genres command. Returns the request_id."""
+        return self.send_command(
+            {
+                "cmd": "edit_genres",
+                "artist": artist,
+                "album": album,
+                "genres": genres,
+            },
+            job_id=job_id,
+        )
+
     def doctor(self, config_path: str, overrides: Optional[Dict[str, Any]] = None) -> Optional[str]:
         """Send diagnostics command."""
         return self.send_command(

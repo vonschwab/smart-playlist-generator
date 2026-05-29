@@ -300,6 +300,15 @@ class SidecarStore:
                     updated_at TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS ai_genre_user_overrides (
+                    release_key TEXT PRIMARY KEY,
+                    normalized_artist TEXT NOT NULL,
+                    normalized_album TEXT NOT NULL,
+                    genres_add_json TEXT NOT NULL DEFAULT '[]',
+                    genres_remove_json TEXT NOT NULL DEFAULT '[]',
+                    updated_at TEXT NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS ai_genre_review_decisions (
                     decision_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     source_tag_id INTEGER,
@@ -1240,8 +1249,17 @@ class SidecarStore:
                     rows,
                 )
             if metadata_row and rows:
+                override_row = conn.execute(
+                    "SELECT genres_add_json, genres_remove_json "
+                    "FROM ai_genre_user_overrides WHERE release_key = ?",
+                    (release_key,),
+                ).fetchone()
+                final_genres: set[str] = set(expanded_genres)
+                if override_row:
+                    final_genres -= set(json.loads(override_row["genres_remove_json"]))
+                    final_genres |= set(json.loads(override_row["genres_add_json"]))
                 signature = {
-                    "genres": sorted(expanded_genres),
+                    "genres": sorted(final_genres),
                     "sources": _signature_sources(source_rows),
                 }
                 conn.execute(
@@ -1600,6 +1618,67 @@ class SidecarStore:
                     """,
                     rows,
                 )
+
+    # -------------------------------------------------------------------------
+    # User override CRUD
+    # -------------------------------------------------------------------------
+
+    def set_user_override(
+        self,
+        *,
+        release_key: str,
+        normalized_artist: str,
+        normalized_album: str,
+        genres_add: list[str],
+        genres_remove: list[str],
+    ) -> None:
+        """Upsert the manual genre override for a release. Replaces prior entry."""
+        now = _now_iso()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO ai_genre_user_overrides (
+                    release_key, normalized_artist, normalized_album,
+                    genres_add_json, genres_remove_json, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(release_key) DO UPDATE SET
+                    genres_add_json = excluded.genres_add_json,
+                    genres_remove_json = excluded.genres_remove_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    release_key, normalized_artist, normalized_album,
+                    json.dumps(sorted({g.casefold() for g in genres_add})),
+                    json.dumps(sorted({g.casefold() for g in genres_remove})),
+                    now,
+                ),
+            )
+            conn.commit()
+
+    def get_user_override(self, release_key: str) -> dict | None:
+        """Return the override dict or None when no override exists."""
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT genres_add_json, genres_remove_json, updated_at "
+                "FROM ai_genre_user_overrides WHERE release_key = ?",
+                (release_key,),
+            ).fetchone()
+        if not row:
+            return None
+        return {
+            "genres_add": json.loads(row["genres_add_json"]),
+            "genres_remove": json.loads(row["genres_remove_json"]),
+            "updated_at": row["updated_at"],
+        }
+
+    def delete_user_override(self, release_key: str) -> None:
+        """Remove the manual override for a release."""
+        with self.connect() as conn:
+            conn.execute(
+                "DELETE FROM ai_genre_user_overrides WHERE release_key = ?",
+                (release_key,),
+            )
+            conn.commit()
 
 
 def _is_conservative_auto_apply_candidate(

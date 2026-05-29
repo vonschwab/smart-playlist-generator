@@ -28,15 +28,52 @@ class EnrichedGenreResolver:
             return None
         release_key = self._release_key(artist, album)
         with self._connect() as conn:
-            row = conn.execute(
+            sig_row = conn.execute(
                 "SELECT signature_json FROM enriched_genre_signatures WHERE release_key = ?",
                 (release_key,),
             ).fetchone()
-        if not row:
-            return None
-        payload = json.loads(row["signature_json"])
-        genres = payload.get("genres") or []
-        return list(genres) if genres else None
+            override_row = (
+                conn.execute(
+                    "SELECT genres_add_json, genres_remove_json "
+                    "FROM ai_genre_user_overrides WHERE release_key = ?",
+                    (release_key,),
+                ).fetchone()
+                if self._user_overrides_exist(conn)
+                else None
+            )
+
+        sig_genres: list[str] = []
+        if sig_row:
+            payload = json.loads(sig_row["signature_json"])
+            sig_genres = list(payload.get("genres") or [])
+
+        if not override_row:
+            return sig_genres if sig_genres else None
+
+        # Both sets stored casefolded; compare sig genres by casefold to match.
+        add = list(json.loads(override_row["genres_add_json"]))
+        remove_lower = set(json.loads(override_row["genres_remove_json"]))
+        combined: list[str] = []
+        combined_lower: set[str] = set()
+        for g in sig_genres:
+            gk = g.casefold()
+            if gk not in remove_lower and gk not in combined_lower:
+                combined.append(g)
+                combined_lower.add(gk)
+        for g in add:
+            gk = g.casefold()
+            if gk not in combined_lower:
+                combined.append(g)
+                combined_lower.add(gk)
+        return combined if combined else None
+
+    @staticmethod
+    def _user_overrides_exist(conn) -> bool:
+        row = conn.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='table' AND name='ai_genre_user_overrides'"
+        ).fetchone()
+        return row is not None
 
     def is_enriched(self, *, artist: str, album: str | None) -> bool:
         return self.get_enriched_genres(artist=artist, album=album) is not None
@@ -119,6 +156,11 @@ class EnrichedGenreResolver:
             conn.execute(
                 "CREATE TABLE enriched_genre_signatures(release_key TEXT, "
                 "normalized_artist TEXT, normalized_album TEXT, signature_json TEXT)"
+            )
+            conn.execute(
+                "CREATE TABLE ai_genre_user_overrides("
+                "release_key TEXT, normalized_artist TEXT, normalized_album TEXT, "
+                "genres_add_json TEXT, genres_remove_json TEXT, updated_at TEXT)"
             )
             return conn
         uri = f"file:{self._db_path.as_posix()}?mode=ro"

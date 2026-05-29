@@ -38,6 +38,8 @@ from PySide6.QtWidgets import (
 
 from .track_table_model import Column, TrackTableModel, TrackFilterProxyModel
 
+SIDECAR_DB_PATH = "data/ai_genre_enrichment.db"
+
 
 class TrackTable(QWidget):
     """
@@ -69,6 +71,7 @@ class TrackTable(QWidget):
     blacklist_requested = Signal(list)
     blacklist_scope_requested = Signal(dict)
     replace_track_requested = Signal(int)
+    edit_genres_requested = Signal(dict)  # {"artist": str, "album": str}
 
     def __init__(self, parent: Optional[QWidget] = None):
         # Ensure a QApplication exists (tests may construct this widget outside
@@ -363,12 +366,28 @@ class TrackTable(QWidget):
 
     def select_row(self, row: int) -> None:
         """Select a specific row."""
+        from PySide6.QtCore import QItemSelectionModel
         if 0 <= row < self._proxy.rowCount():
             index = self._proxy.index(row, 0)
             self._table.selectionModel().select(
                 index,
-                self._table.selectionModel().ClearAndSelect | self._table.selectionModel().Rows
+                QItemSelectionModel.SelectionFlag.ClearAndSelect
+                | QItemSelectionModel.SelectionFlag.Rows
             )
+
+    def refresh_genres_for_album(self, *, artist: str, album: str) -> None:
+        """Re-resolve enriched genres for all rows matching (artist, album) and update the model."""
+        from src.ai_genre_enrichment.genre_resolver import EnrichedGenreResolver
+        resolver = EnrichedGenreResolver(SIDECAR_DB_PATH)
+        enriched = resolver.get_enriched_genres(artist=artist, album=album)
+        if enriched is None:
+            return
+        tracks = list(self._model.get_tracks())
+        for track in tracks:
+            if (track.get("artist") or "").strip() == artist and \
+               (track.get("album") or "").strip() == album:
+                track["genres"] = list(enriched)
+        self._model.set_tracks(tracks)
 
     def focus_filter(self) -> None:
         """Focus the filter input."""
@@ -548,6 +567,10 @@ class TrackTable(QWidget):
                         f"Blacklist Artist: {artist}",
                         lambda t=track: self._confirm_blacklist_scope("artist", t),
                     )
+            edit_action = self._build_edit_genres_action_for_selection()
+            if edit_action is not None:
+                menu.addSeparator()
+                menu.addAction(edit_action)
 
         # Column visibility submenu
         columns_menu = menu.addMenu("Columns")
@@ -563,6 +586,27 @@ class TrackTable(QWidget):
             action.triggered.connect(lambda checked, c=col: self._toggle_column(c, checked))
 
         menu.exec(global_pos)
+
+    def _build_edit_genres_action_for_selection(self):
+        """Return a QAction for editing enriched genres, or None if selection spans multiple albums."""
+        from PySide6.QtGui import QAction
+        selected = self.get_selected_tracks()
+        if not selected:
+            return None
+        artists = {(t.get("artist") or "").strip() for t in selected}
+        albums = {(t.get("album") or "").strip() for t in selected}
+        if len(artists) != 1 or len(albums) != 1:
+            return None
+        artist = next(iter(artists))
+        album = next(iter(albums))
+        if not artist or not album:
+            return None
+        action = QAction(f"Edit genres for album: {album}", self)
+        action.triggered.connect(
+            lambda checked=False, a=artist, b=album:
+                self.edit_genres_requested.emit({"artist": a, "album": b})
+        )
+        return action
 
     def _confirm_blacklist(self, selected: List[Dict[str, Any]]) -> None:
         """Confirm blacklist action and emit request."""
