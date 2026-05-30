@@ -31,6 +31,11 @@ NON_GENRE_AUTO_APPLY_BLOCKLIST = {
     "oakland",
     "saxophone",
 }
+# Strings that are never valid genres: always pruned, never added or stored.
+ALWAYS_PRUNE_GENRES: frozenset[str] = frozenset({
+    "electronicnic",
+    "empty",
+})
 REVIEW_ONLY_REASON_HINTS = (
     "album title",
     "track title",
@@ -1223,7 +1228,7 @@ class SidecarStore:
                 )
                 canonical = _vocab.resolve_alias(row["normalized_tag"])
                 decomposed = _vocab.decompose_tag(canonical)
-                genres = decomposed if decomposed else [canonical]
+                genres = [g for g in (decomposed if decomposed else [canonical]) if g not in ALWAYS_PRUNE_GENRES]
                 for genre in genres:
                     rows.append((
                         row["release_key"],
@@ -1655,10 +1660,16 @@ class SidecarStore:
             conn.execute("DELETE FROM ai_genre_suggestions WHERE check_id = ?", (check_id,))
             rows = []
             for item in response_json.get("existing_genres_to_keep", []):
-                rows.append(_suggestion_row(check_id, "keep", item, genre_key="genre"))
+                genre = str(item.get("genre") or "").casefold()
+                if genre in ALWAYS_PRUNE_GENRES:
+                    rows.append(_suggestion_row(check_id, "prune", item, genre_key="genre"))
+                else:
+                    rows.append(_suggestion_row(check_id, "keep", item, genre_key="genre"))
             for item in response_json.get("existing_genres_to_prune", []):
                 rows.append(_suggestion_row(check_id, "prune", item, genre_key="genre"))
             for item in response_json.get("new_genres_to_add", []):
+                if str(item.get("genre") or "").casefold() in ALWAYS_PRUNE_GENRES:
+                    continue
                 auto_apply = _is_conservative_auto_apply_candidate(
                     item,
                     overall_confidence=response_json.get("release_level_confidence"),
@@ -1711,7 +1722,7 @@ class SidecarStore:
                 """,
                 (
                     release_key, normalized_artist, normalized_album,
-                    json.dumps(sorted({g.casefold() for g in genres_add})),
+                    json.dumps(sorted({g.casefold() for g in genres_add if g.casefold() not in ALWAYS_PRUNE_GENRES})),
                     json.dumps(sorted({g.casefold() for g in genres_remove})),
                     now,
                 ),
