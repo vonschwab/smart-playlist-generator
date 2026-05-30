@@ -16,7 +16,7 @@ from src.ai_genre_enrichment.client import OpenAIEnrichmentClient
 from src.ai_genre_enrichment.discovery import ReleasePayload, compute_input_hash, discover_releases
 from src.ai_genre_enrichment.models import RESPONSE_SCHEMA_VERSION, response_format_schema, validate_ai_response
 from src.ai_genre_enrichment.prompt import PROMPT_VERSION, SYSTEM_INSTRUCTIONS, TAXONOMY_VERSION, build_batch_request, build_prompt
-from src.ai_genre_enrichment.routing import EnrichmentLane, WebMode, route_release
+from src.ai_genre_enrichment.routing import EnrichmentLane, RouteDecision, WebMode, route_release
 from src.ai_genre_enrichment.source_extraction import fetch_bandcamp_release_tags, is_bandcamp_release_url
 from src.ai_genre_enrichment.storage import SidecarStore
 
@@ -57,6 +57,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_extract_bandcamp(args)
     if args.command == "review":
         return cmd_review(args)
+    if args.command == "review-escalated":
+        return cmd_review_escalated(args)
     if args.command == "graduate-reviewed":
         return cmd_graduate_reviewed(args)
     if args.command == "graduate-ai":
@@ -182,6 +184,15 @@ def build_parser() -> argparse.ArgumentParser:
     review_parser.add_argument("--limit", type=int, default=20)
     review_parser.add_argument("--release-key")
     review_parser.add_argument("--source-type")
+
+    review_esc = sub.add_parser(
+        "review-escalated",
+        help="Interactive CLI review of AI-escalated release suggestions",
+    )
+    review_esc.add_argument("--limit", type=int)
+    review_esc.add_argument("--release-key")
+    review_esc.add_argument("--artist")
+    review_esc.add_argument("--album")
 
     graduate = sub.add_parser("graduate-reviewed", help="Graduate human-reviewed tags into vocabulary YAML")
     graduate.add_argument(
@@ -398,11 +409,25 @@ def cmd_extract_tags(args: argparse.Namespace) -> int:
 def cmd_classify_tags(args: argparse.Namespace) -> int:
     store = SidecarStore(args.sidecar_db)
     store.initialize()
-    releases = _discover(args)
+    adjudicate = getattr(args, "adjudicate", False)
+    model = getattr(args, "model", DEFAULT_MODEL)
+    limit: int | None = args.limit
+    # Discover without limit; when adjudicating, cached releases don't count toward limit.
+    releases = discover_releases(
+        args.metadata_db,
+        limit=None if adjudicate else limit,
+        artist=args.artist,
+        album=args.album,
+        generic_only=args.generic_only,
+        min_existing_specific_genres=getattr(args, "min_existing_specific_genres", None),
+    )
     if not releases:
         print("No matching release found.")
         return 1
+    uncached_count = 0
     for release in releases:
+        if adjudicate and limit is not None and uncached_count >= limit:
+            break
         page_ids = _source_page_ids_for_release(store, release.release_key)
         if args.dry_run:
             print(
@@ -413,12 +438,12 @@ def cmd_classify_tags(args: argparse.Namespace) -> int:
                 )
             )
             continue
+        ai_called = False
         for page_id in page_ids:
-            store.classify_source_tags(
-                page_id,
-                adjudicate=getattr(args, "adjudicate", False),
-                model=getattr(args, "model", DEFAULT_MODEL),
-            )
+            if store.classify_source_tags(page_id, adjudicate=adjudicate, model=model):
+                ai_called = True
+        if ai_called:
+            uncached_count += 1
         print(f"classified {release.release_key} pages={len(page_ids)}")
     return 0
 
@@ -728,6 +753,121 @@ def _discover(args: argparse.Namespace) -> list[ReleasePayload]:
     )
 
 
+def _print_release_result(
+    release: "ReleasePayload",
+    response_json: dict,
+    route: "RouteDecision",
+    idx: int,
+    total: int,
+    *,
+    dry_run: bool = False,
+    cost_usd: float | None = None,
+    token_usage: dict | None = None,
+) -> None:
+    """Print a detailed per-album progress block to stdout."""
+    w = len(str(total))
+    label = f"[{idx:{w}}/{total}] {release.artist} / {release.album}"
+    if dry_run:
+        label += "  (dry-run)"
+    sep = "─" * max(0, 72 - len(label) - 4)
+    print(f"\n─── {label} {sep}")
+
+    # Header: lane, evidence quality, confidence, cost
+    conf = response_json.get("release_level_confidence")
+    eq = response_json.get("evidence_quality") or "?"
+    conf_str = f"{conf:.2f}" if isinstance(conf, (int, float)) else "?"
+    cost_str = f"  |  ${cost_usd:.4f}" if cost_usd is not None else ""
+    tok_str = ""
+    if token_usage:
+        inp = token_usage.get("input_tokens") or token_usage.get("estimated_prompt_tokens", 0)
+        out = token_usage.get("output_tokens") or token_usage.get("estimated_output_tokens", 0)
+        if inp or out:
+            tok_str = f"  |  {inp}in/{out}out tok"
+    print(f"  lane: {route.lane.value}  |  evidence: {eq}  |  conf: {conf_str}{cost_str}{tok_str}")
+
+    if dry_run:
+        print(f"  reasons: {'; '.join(route.reasons)}")
+        return
+
+    # Identity
+    identity = response_json.get("release_identity") or {}
+    id_status = identity.get("status", "?")
+    id_artist = identity.get("canonical_artist", "")
+    id_album = identity.get("canonical_album", "")
+    id_note = identity.get("notes", "")
+    id_line = f"  identity: {id_status}"
+    if id_artist or id_album:
+        id_line += f"  —  {id_artist} / {id_album}"
+    if id_note:
+        id_line += f"  ({id_note[:60]})"
+    print(id_line)
+
+    # Sources used (release-specific only)
+    sources = response_json.get("source_evidence") or []
+    src_types = [
+        s.get("source_url") or s.get("source_type", "?")
+        for s in sources
+        if isinstance(s, dict) and s.get("release_specific")
+    ]
+    # Shorten to just domain or source_type for readability
+    def _short_src(url_or_type: str) -> str:
+        if "://" in url_or_type:
+            from urllib.parse import urlparse as _up
+            p = _up(url_or_type)
+            return p.netloc.removeprefix("www.") or url_or_type[:30]
+        return url_or_type
+    if src_types:
+        print(f"  sources: {', '.join(_short_src(s) for s in src_types)}")
+
+    # Existing genres kept
+    keep = response_json.get("existing_genres_to_keep") or []
+    if keep:
+        keep_names = "  •  ".join(item.get("genre", "?") for item in keep)
+        print(f"  keep ({len(keep)}):  {keep_names}")
+
+    # Existing genres pruned
+    prune = response_json.get("existing_genres_to_prune") or []
+    for item in prune:
+        g = item.get("genre", "?")
+        pt = item.get("prune_type", "?")
+        reason = (item.get("reason") or "")[:70]
+        print(f"  prune:  {g}  [{pt}]  \"{reason}\"")
+
+    # New genres — auto-apply
+    add_all = response_json.get("new_genres_to_add") or []
+    auto_add = [item for item in add_all if item.get("auto_apply_eligible")]
+    review_add = [item for item in add_all if not item.get("auto_apply_eligible")]
+    if auto_add:
+        parts = [f"{item.get('genre', '?')} ({item.get('confidence', 0):.2f})" for item in auto_add]
+        print(f"  add / auto ({len(auto_add)}):  {',  '.join(parts)}")
+    if review_add:
+        parts = [
+            f"{item.get('genre', '?')} ({item.get('confidence', 0):.2f}) [{item.get('recommendation_basis', '?')}]"
+            for item in review_add
+        ]
+        print(f"  add / needs-review ({len(review_add)}):  {',  '.join(parts)}")
+
+    # Descriptor tags
+    desc = response_json.get("descriptor_tags") or []
+    if desc:
+        desc_names = ",  ".join(item.get("tag", "?") for item in desc)
+        print(f"  descriptors ({len(desc)}):  {desc_names}")
+
+    # Review-only suggestions (uncertain / require human judgement)
+    review_only = response_json.get("review_only_suggestions") or []
+    if review_only:
+        parts = [f"{item.get('tag', '?')} ({item.get('confidence', 0):.2f})" for item in review_only]
+        print(f"  review-only ({len(review_only)}):  {',  '.join(parts)}")
+
+    # Warnings and escalation
+    for w_msg in (response_json.get("warnings") or [])[:3]:
+        print(f"  warn:  {w_msg}")
+    if response_json.get("should_escalate"):
+        notes = (response_json.get("uncertainty_notes") or [])[:2]
+        note_str = "  —  " + "; ".join(notes) if notes else ""
+        print(f"  *** ESCALATE: needs human review{note_str}")
+
+
 def _run_releases(args: argparse.Namespace, releases: list[ReleasePayload]) -> int:
     store = SidecarStore(args.sidecar_db)
     store.initialize()
@@ -741,14 +881,17 @@ def _run_releases(args: argparse.Namespace, releases: list[ReleasePayload]) -> i
     needs_review_count = 0
     web_enrichment_used = 0
     tokens: dict[str, int] = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+    total = len(releases)
+    w = len(str(total))
 
-    for release in releases:
+    for i, release in enumerate(releases, 1):
+        prefix = f"[{i:{w}}/{total}]"
         route = route_release(release, getattr(args, "web_mode", WebMode.OFF.value))
         effective_web_mode = _effective_web_mode(route.lane, route.web_mode)
         if route.lane == EnrichmentLane.SKIP_WELL_TAGGED:
             skipped += 1
             skipped_well_tagged += 1
-            print(f"skip_well_tagged {release.release_key}: {'; '.join(route.reasons)}")
+            print(f"{prefix} skip (well-tagged): {release.release_key}  —  {'; '.join(route.reasons)}")
             continue
         if (
             route.lane == EnrichmentLane.AUTHORITATIVE_SOURCE_ENRICHMENT
@@ -757,7 +900,7 @@ def _run_releases(args: argparse.Namespace, releases: list[ReleasePayload]) -> i
         ):
             skipped += 1
             needs_review_count += 1
-            print(f"needs_review {release.release_key}: max web enrichment reached")
+            print(f"{prefix} skip (max-web-enrichment): {release.release_key}")
             continue
 
         payload = _request_payload(
@@ -787,25 +930,11 @@ def _run_releases(args: argparse.Namespace, releases: list[ReleasePayload]) -> i
         ):
             skipped += 1
             cache_hits += 1
-            print(f"cached {release.release_key}")
+            print(f"{prefix} cached: {release.release_key}")
             continue
 
         prompt = build_prompt(payload)
-        if args.dry_run:
-            print(
-                json.dumps(
-                    {
-                        "release_key": release.release_key,
-                        "lane": route.lane.value,
-                        "web_mode": effective_web_mode.value,
-                        "reasons": route.reasons,
-                        "payload": payload,
-                    },
-                    ensure_ascii=False,
-                    sort_keys=True,
-                )
-            )
-        else:
+        if not args.dry_run:
             store.record_pending_check(
                 release_key=release.release_key,
                 normalized_artist=release.normalized_artist,
@@ -846,20 +975,24 @@ def _run_releases(args: argparse.Namespace, releases: list[ReleasePayload]) -> i
                     response_schema_version=RESPONSE_SCHEMA_VERSION,
                     error_message=result.error_message or "unknown OpenAI error",
                 )
-            print(f"failed {release.release_key}: {result.error_message}")
+            print(f"{prefix} FAIL: {release.release_key}  —  {result.error_message}")
             continue
 
         for key in tokens:
             tokens[key] += result.token_usage.get(key, 0)
-        if args.dry_run and result.estimated_cost_usd is not None:
-            print(
-                "estimate "
-                f"{release.release_key} "
-                f"input_tokens~{result.token_usage.get('estimated_prompt_tokens', 0)} "
-                f"output_tokens~{result.token_usage.get('estimated_output_tokens', 0)} "
-                f"cost~${result.estimated_cost_usd:.6f}"
+
+        if args.dry_run:
+            _print_release_result(
+                release,
+                result.response_json,
+                route,
+                i,
+                total,
+                dry_run=True,
+                cost_usd=result.estimated_cost_usd,
+                token_usage=result.token_usage,
             )
-        if not args.dry_run:
+        else:
             response_json = validate_ai_response(result.response_json)
             additions = response_json.get("new_genres_to_add", [])
             store.record_complete_check(
@@ -882,6 +1015,17 @@ def _run_releases(args: argparse.Namespace, releases: list[ReleasePayload]) -> i
                 token_usage=result.token_usage,
                 estimated_cost_usd=result.estimated_cost_usd,
             )
+            _print_release_result(
+                release,
+                response_json,
+                route,
+                i,
+                total,
+                dry_run=False,
+                cost_usd=result.estimated_cost_usd,
+                token_usage=result.token_usage,
+            )
+
         called += 1
         if route.lane == EnrichmentLane.AUTHORITATIVE_SOURCE_ENRICHMENT:
             web_enrichment_used += 1
@@ -890,13 +1034,12 @@ def _run_releases(args: argparse.Namespace, releases: list[ReleasePayload]) -> i
             no_web_checks += 1
         if not args.dry_run and result.response_json.get("should_escalate"):
             needs_review_count += 1
-        print(f"{'dry-run' if args.dry_run else 'checked'} {route.lane.value} {release.release_key}")
 
     if not args.dry_run:
         store.record_run_log(
             command=args.command,
             status="failed" if failed else "complete",
-            releases_seen=len(releases),
+            releases_seen=total,
             releases_called=called,
             releases_skipped=skipped,
             releases_failed=failed,
@@ -907,6 +1050,21 @@ def _run_releases(args: argparse.Namespace, releases: list[ReleasePayload]) -> i
             needs_review=needs_review_count,
             token_usage=tokens,
         )
+
+    print(
+        f"\n{'─'*72}\n"
+        f"Done: {total} releases  "
+        f"|  checked: {called}  "
+        f"|  skipped (well-tagged): {skipped_well_tagged}  "
+        f"|  cached: {cache_hits}  "
+        f"|  failed: {failed}  "
+        f"|  escalated: {needs_review_count}"
+    )
+    if tokens.get("total_tokens"):
+        print(
+            f"Tokens: {tokens['input_tokens']}in / {tokens['output_tokens']}out / {tokens['total_tokens']}total"
+        )
+
     return 1 if failed else 0
 
 
@@ -1120,6 +1278,147 @@ def cmd_review(args: argparse.Namespace) -> int:
 
     print(f"\nReviewed {reviewed} tag(s).")
     return 0
+
+
+def cmd_review_escalated(args: argparse.Namespace) -> int:
+    store = SidecarStore(args.sidecar_db)
+    store.initialize()
+    queue = store.get_escalated_queue(
+        release_key=getattr(args, "release_key", None),
+        artist=getattr(args, "artist", None),
+        album=getattr(args, "album", None),
+    )
+    if not queue:
+        print("No escalated releases to review.")
+        return 0
+
+    limit = getattr(args, "limit", None)
+
+    # Per-release accumulator state.
+    cur_key: str | None = None
+    cur: dict | None = None
+    flushed = 0
+
+    def _flush(acc: dict) -> None:
+        nonlocal flushed
+        store.set_user_override(
+            release_key=acc["release_key"],
+            normalized_artist=acc["normalized_artist"],
+            normalized_album=acc["normalized_album"],
+            genres_add=acc["genres_add"],
+            genres_remove=acc["genres_remove"],
+        )
+        store.rebuild_enriched_genres_for_release(acc["release_key"])
+        store.mark_check_complete(acc["check_id"])
+        flushed += 1
+
+    # Count distinct releases for the [idx/total] header.
+    release_order: list[str] = []
+    for row in queue:
+        if row["release_key"] not in release_order:
+            release_order.append(row["release_key"])
+    total = len(release_order) if limit is None else min(limit, len(release_order))
+
+    for row in queue:
+        key = row["release_key"]
+        if key != cur_key:
+            # Boundary: flush the previous (fully traversed) release.
+            if cur is not None:
+                _flush(cur)
+            if limit is not None and flushed >= limit:
+                cur = None
+                break
+            cur_key = key
+            notes = []
+            try:
+                notes = (json.loads(row["response_json"]) or {}).get("uncertainty_notes") or []
+            except (TypeError, ValueError, json.JSONDecodeError):
+                notes = []
+            cur = {
+                "release_key": key,
+                "normalized_artist": row["normalized_artist"],
+                "normalized_album": row["normalized_album"],
+                "check_id": row["check_id"],
+                "genres_add": [],
+                "genres_remove": [],
+                "touched": False,
+                "uncertainty_notes": notes,
+                "idx": len(set(r["release_key"] for r in queue[:queue.index(row) + 1])),
+            }
+            _print_escalated_header(cur, total)
+
+        assert cur is not None
+        # Context: other actionable suggestions for this release.
+        keep_ctx = [
+            r["genre"] for r in queue
+            if r["release_key"] == key and r["suggestion_type"] == "add" and r["suggestion_id"] != row["suggestion_id"]
+        ]
+        prune_ctx = [
+            r["genre"] for r in queue
+            if r["release_key"] == key and r["suggestion_type"] == "prune" and r["suggestion_id"] != row["suggestion_id"]
+        ]
+        _print_escalated_suggestion(row, keep_ctx, prune_ctx)
+
+        while True:
+            try:
+                choice = input("> ").strip().casefold()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                if cur["touched"]:
+                    _flush(cur)
+                return 0
+            if choice in {"a", "r", "s", "q"}:
+                break
+            print("Invalid choice. Use a/r/s/q.")
+
+        if choice == "q":
+            if cur["touched"]:
+                _flush(cur)
+            return 0
+
+        cur["touched"] = True
+        if choice == "a":
+            if row["suggestion_type"] == "add":
+                cur["genres_add"].append(row["genre"])
+            else:
+                cur["genres_remove"].append(row["genre"])
+            print(f"  → accepted {row['suggestion_type']} {row['genre']}")
+        else:
+            print(f"  → {'rejected' if choice == 'r' else 'skipped'}")
+
+    # Flush the final accumulated release (loop ended naturally).
+    if cur is not None:
+        _flush(cur)
+
+    print(f"\nReviewed {flushed} release(s).")
+    return 0
+
+
+def _print_escalated_header(acc: dict, total: int) -> None:
+    label = f"[{acc['idx']}/{total}] {acc['normalized_artist']} / {acc['normalized_album']}"
+    sep = "─" * max(0, 72 - len(label) - 4)
+    print(f"\n─── {label} {sep}")
+    if acc["uncertainty_notes"]:
+        print(f"  uncertainty: {'; '.join(acc['uncertainty_notes'][:2])}")
+
+
+def _print_escalated_suggestion(row: dict, keep_ctx: list[str], prune_ctx: list[str]) -> None:
+    conf = row.get("suggestion_confidence")
+    conf_str = f"{conf:.2f}" if isinstance(conf, (int, float)) else "?"
+    basis = row.get("recommendation_basis") or "?"
+    verb = "ADD" if row["suggestion_type"] == "add" else "PRUNE"
+    print(f"\n  {verb}:  {row['genre']}  ({conf_str})  [{basis}]")
+    reason = (row.get("reason") or "")[:80]
+    if reason:
+        print(f'  "{reason}"')
+    ctx_parts = []
+    if keep_ctx:
+        ctx_parts.append("add → " + "  •  ".join(keep_ctx))
+    if prune_ctx:
+        ctx_parts.append("prune → " + "  •  ".join(prune_ctx))
+    if ctx_parts:
+        print("  context:  " + "  |  ".join(ctx_parts))
+    print("[A]ccept  [R]eject  [S]kip  [Q]uit")
 
 
 def cmd_graduate_reviewed(args: argparse.Namespace) -> int:

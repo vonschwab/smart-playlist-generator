@@ -4445,3 +4445,100 @@ def test_get_escalated_queue_filters_by_release_key(tmp_path: Path) -> None:
     queue = store.get_escalated_queue(release_key="b::two")
 
     assert {row["release_key"] for row in queue} == {"b::two"}
+
+
+def test_review_escalated_accept_applies_override_and_completes(tmp_path: Path, monkeypatch, capsys) -> None:
+    db_path = tmp_path / "ai_genre_enrichment.db"
+    store = SidecarStore(db_path)
+    store.initialize()
+    # Need a real enriched signature target so rebuild has something to attach to;
+    # rebuild tolerates absence, so we only assert override + status here.
+    _seed_escalated_release(store, "artist::album", "artist", "album", ["afro-funk"], ["soukous"])
+
+    # Two suggestions for this release (order: add 'afro-funk', prune 'soukous').
+    # Accept the add, reject the prune.
+    answers = iter(["a", "r"])
+    monkeypatch.setattr("builtins.input", lambda *a, **k: next(answers))
+
+    rc = ai_genre_main([
+        "--sidecar-db", str(db_path),
+        "review-escalated",
+    ])
+    assert rc == 0
+
+    override = store.get_user_override("artist::album")
+    assert override is not None
+    assert override["genres_add"] == ["afro-funk"]
+    assert override["genres_remove"] == []
+
+    status = sqlite3.connect(db_path).execute(
+        "SELECT status FROM ai_genre_release_checks WHERE release_key = 'artist::album'"
+    ).fetchone()[0]
+    assert status == "complete"
+
+
+def test_review_escalated_accept_prune_records_removal(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "ai_genre_enrichment.db"
+    store = SidecarStore(db_path)
+    store.initialize()
+    _seed_escalated_release(store, "artist::album", "artist", "album", ["afro-funk"], ["soukous"])
+
+    # Reject the add, accept the prune.
+    answers = iter(["r", "a"])
+    monkeypatch.setattr("builtins.input", lambda *a, **k: next(answers))
+
+    ai_genre_main(["--sidecar-db", str(db_path), "review-escalated"])
+
+    override = store.get_user_override("artist::album")
+    assert override["genres_add"] == []
+    assert override["genres_remove"] == ["soukous"]
+
+
+def test_review_escalated_quit_before_decision_leaves_needs_review(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "ai_genre_enrichment.db"
+    store = SidecarStore(db_path)
+    store.initialize()
+    _seed_escalated_release(store, "artist::album", "artist", "album", ["afro-funk"], [])
+
+    answers = iter(["q"])
+    monkeypatch.setattr("builtins.input", lambda *a, **k: next(answers))
+
+    ai_genre_main(["--sidecar-db", str(db_path), "review-escalated"])
+
+    status = sqlite3.connect(db_path).execute(
+        "SELECT status FROM ai_genre_release_checks WHERE release_key = 'artist::album'"
+    ).fetchone()[0]
+    assert status == "needs_review"
+    assert store.get_user_override("artist::album") is None
+
+
+def test_review_escalated_empty_queue(tmp_path: Path, monkeypatch, capsys) -> None:
+    db_path = tmp_path / "ai_genre_enrichment.db"
+    store = SidecarStore(db_path)
+    store.initialize()
+
+    rc = ai_genre_main(["--sidecar-db", str(db_path), "review-escalated"])
+
+    assert rc == 0
+    assert "No escalated releases to review." in capsys.readouterr().out
+
+
+def test_review_escalated_limit_counts_releases(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "ai_genre_enrichment.db"
+    store = SidecarStore(db_path)
+    store.initialize()
+    _seed_escalated_release(store, "a::one", "a", "one", ["x"], [])
+    _seed_escalated_release(store, "b::two", "b", "two", ["y"], [])
+
+    # Limit 1 release. First release has one suggestion -> accept it.
+    answers = iter(["a"])
+    monkeypatch.setattr("builtins.input", lambda *a, **k: next(answers))
+
+    ai_genre_main(["--sidecar-db", str(db_path), "review-escalated", "--limit", "1"])
+
+    conn = sqlite3.connect(db_path)
+    statuses = dict(conn.execute(
+        "SELECT release_key, status FROM ai_genre_release_checks"
+    ).fetchall())
+    assert statuses["a::one"] == "complete"
+    assert statuses["b::two"] == "needs_review"
