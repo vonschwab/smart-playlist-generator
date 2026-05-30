@@ -84,7 +84,7 @@ class LocalLibraryClient:
 
         tracks = []
         for row in cursor.fetchall():
-            artist_key = row["artist_key"] if "artist_key" in row.keys() and row["artist_key"] else normalize_artist_key(row["artist"] or "")
+            artist_key = normalize_artist_key(row["artist"] or "")
             track = {
                 'rating_key': row['rating_key'],
                 'artist': row['artist'] or '',
@@ -132,7 +132,7 @@ class LocalLibraryClient:
             logger.warning(f"Track {rating_key} not found in local library")
             return None
 
-        artist_key = row["artist_key"] if "artist_key" in row.keys() and row["artist_key"] else normalize_artist_key(row["artist"] or "")
+        artist_key = normalize_artist_key(row["artist"] or "")
         track = {
             'rating_key': row['rating_key'],
             'artist': row['artist'] or '',
@@ -174,7 +174,7 @@ class LocalLibraryClient:
         rows = cursor.fetchall()
         lookup = {}
         for row in rows:
-            artist_key = row["artist_key"] if "artist_key" in row.keys() and row["artist_key"] else normalize_artist_key(row["artist"] or "")
+            artist_key = normalize_artist_key(row["artist"] or "")
             track = {
                 'rating_key': row['rating_key'],
                 'artist': row['artist'] or '',
@@ -366,7 +366,7 @@ class LocalLibraryClient:
 
         tracks = []
         for row in cursor.fetchall():
-            artist_key = row["artist_key"] if "artist_key" in row.keys() and row["artist_key"] else normalize_artist_key(row["artist"] or "")
+            artist_key = normalize_artist_key(row["artist"] or "")
             track = {
                 'rating_key': row['rating_key'],
                 'artist': row['artist'] or '',
@@ -412,11 +412,7 @@ class LocalLibraryClient:
             rk = f"{normalize_source_tag(artist)}::{normalize_source_tag(album)}"
             if rk not in release_keys:
                 continue
-            artist_key = (
-                row["artist_key"]
-                if "artist_key" in row.keys() and row["artist_key"]
-                else normalize_artist_key(artist)
-            )
+            artist_key = normalize_artist_key(artist)
             tracks.append({
                 'rating_key': row['rating_key'],
                 'artist': artist,

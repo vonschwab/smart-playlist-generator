@@ -311,6 +311,9 @@ def normalize_artist_key(name: str) -> str:
     text = unicodedata.normalize("NFKD", text)
     text = "".join(ch for ch in text if not unicodedata.combining(ch))
     text = text.casefold()
+    # Normalize "and" to a space so "A & B" and "A and B" produce the same key.
+    # & is already converted to space by the punctuation step below; this aligns "and".
+    text = re.sub(r"\band\b", " ", text)
 
     normalized = "".join(
         " " if unicodedata.category(ch).startswith("P") else ch for ch in text

@@ -28,15 +28,14 @@ def safe_get_artist(track: Dict[str, Any], lowercase: bool = True) -> str:
 def safe_get_artist_key(track: Dict[str, Any]) -> str:
     """
     Safely get a normalized artist key from a track dictionary.
+    Always re-normalizes so stored keys computed before the & / 'and' fix
+    compare equal to freshly computed ones.
     """
-    key = track.get("artist_key")
-    if key:
-        return str(key)
     artist = track.get("artist") or ""
-    key = normalize_artist_key(artist)
-    if key:
-        track["artist_key"] = key
-    return key
+    if artist:
+        return normalize_artist_key(artist)
+    key = track.get("artist_key") or ""
+    return normalize_artist_key(key) if key else ""
 
 
 def convert_seconds_to_ms(seconds: Optional[int]) -> int:
