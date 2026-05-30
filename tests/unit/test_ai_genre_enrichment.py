@@ -4214,9 +4214,9 @@ def test_resolver_normalizes_artist_and_album(tmp_path):
             "INSERT INTO enriched_genre_signatures(release_key, normalized_artist, "
             "normalized_album, album_id, signature_json, updated_at) VALUES(?, ?, ?, ?, ?, ?)",
             (
-                "sigur ros::atta",
+                "sigur ros::átta",
                 "sigur ros",
-                "atta",
+                "átta",
                 None,
                 '{"genres": ["ambient", "post-rock"], "sources": []}',
                 "2026-05-28T00:00:00",
@@ -4326,3 +4326,35 @@ def test_resolver_reverse_index_is_case_normalized(tmp_path):
 
     resolver = EnrichedGenreResolver(str(sidecar))
     assert resolver.get_release_keys_with_genre("slowcore") == {"duster::stratosphere"}
+
+
+def test_mark_check_complete_changes_status(tmp_path: Path) -> None:
+    db_path = tmp_path / "ai_genre_enrichment.db"
+    store = SidecarStore(db_path)
+    store.initialize()
+    check_id = store.record_complete_check(
+        release_key="artist::album",
+        normalized_artist="artist",
+        normalized_album="album",
+        album_id="a1",
+        identifiers={},
+        input_hash="hash1",
+        prompt_version="prompt-v1",
+        taxonomy_version="taxonomy-v1",
+        model="gpt-test",
+        response_json={"should_escalate": True},
+        overall_confidence=0.6,
+        evidence_quality="medium",
+        auto_apply_eligible=False,
+    )
+    before = sqlite3.connect(db_path).execute(
+        "SELECT status FROM ai_genre_release_checks WHERE check_id = ?", (check_id,)
+    ).fetchone()[0]
+    assert before == "needs_review"
+
+    store.mark_check_complete(check_id)
+
+    after = sqlite3.connect(db_path).execute(
+        "SELECT status FROM ai_genre_release_checks WHERE check_id = ?", (check_id,)
+    ).fetchone()[0]
+    assert after == "complete"

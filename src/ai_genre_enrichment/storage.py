@@ -935,11 +935,13 @@ class SidecarStore:
         *,
         adjudicate: bool = False,
         model: str = "gpt-4o-mini",
-    ) -> None:
+    ) -> bool:
         """Run deterministic source-tag classification for one source page.
 
         Unknown tags (review_only) are checked against the adjudication cache first.
         If adjudicate=True, any remaining unknowns are sent to the AI in a single batch.
+
+        Returns True if adjudicate_tags was called (uncached AI work was done).
         """
         from .tag_classification import classify_source_tag
 
@@ -1068,7 +1070,7 @@ class SidecarStore:
             )
 
         if not review_only_batch:
-            return
+            return False
 
         ai_rows: list[tuple] = []
 
@@ -1140,6 +1142,8 @@ class SidecarStore:
                     """,
                     ai_rows,
                 )
+
+        return adjudicate
 
     def rebuild_enriched_genres_for_release(self, release_key: str) -> None:
         """Rebuild accepted enriched_genres and release signature for one release."""
@@ -1279,6 +1283,15 @@ class SidecarStore:
                         now,
                     ),
                 )
+
+    def mark_check_complete(self, check_id: int) -> None:
+        """Mark a release check as reviewed so it leaves the escalation queue."""
+        with self.connect() as conn:
+            conn.execute(
+                "UPDATE ai_genre_release_checks SET status = 'complete' WHERE check_id = ?",
+                (check_id,),
+            )
+            conn.commit()
 
     def get_review_queue(
         self,
