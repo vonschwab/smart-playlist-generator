@@ -4542,3 +4542,27 @@ def test_review_escalated_limit_counts_releases(tmp_path: Path, monkeypatch) -> 
     ).fetchall())
     assert statuses["a::one"] == "complete"
     assert statuses["b::two"] == "needs_review"
+
+
+def test_review_escalated_reject_all_still_marks_complete(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "ai_genre_enrichment.db"
+    store = SidecarStore(db_path)
+    store.initialize()
+    _seed_escalated_release(store, "artist::album", "artist", "album", ["afro-funk"], [])
+
+    # Reject the only suggestion.
+    answers = iter(["r"])
+    monkeypatch.setattr("builtins.input", lambda *a, **k: next(answers))
+
+    rc = ai_genre_main(["--sidecar-db", str(db_path), "review-escalated"])
+    assert rc == 0
+
+    status = sqlite3.connect(db_path).execute(
+        "SELECT status FROM ai_genre_release_checks WHERE release_key = 'artist::album'"
+    ).fetchone()[0]
+    assert status == "complete"
+    # Override row is written with empty lists (flush always happens).
+    override = store.get_user_override("artist::album")
+    assert override is not None
+    assert override["genres_add"] == []
+    assert override["genres_remove"] == []

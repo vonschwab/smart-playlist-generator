@@ -1343,7 +1343,7 @@ def cmd_review_escalated(args: argparse.Namespace) -> int:
                 "genres_remove": [],
                 "touched": False,
                 "uncertainty_notes": notes,
-                "idx": len(set(r["release_key"] for r in queue[:queue.index(row) + 1])),
+                "idx": release_order.index(key) + 1,
             }
             _print_escalated_header(cur, total)
 
