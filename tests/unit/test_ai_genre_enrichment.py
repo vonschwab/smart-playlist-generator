@@ -4358,3 +4358,90 @@ def test_mark_check_complete_changes_status(tmp_path: Path) -> None:
         "SELECT status FROM ai_genre_release_checks WHERE check_id = ?", (check_id,)
     ).fetchone()[0]
     assert after == "complete"
+
+
+def _seed_escalated_release(store, release_key, artist, album, adds, prunes):
+    """Create a needs_review check with add/prune/keep suggestions."""
+    store.record_complete_check(
+        release_key=release_key,
+        normalized_artist=artist,
+        normalized_album=album,
+        album_id=None,
+        identifiers={},
+        input_hash="hash-" + release_key,
+        prompt_version="prompt-v1",
+        taxonomy_version="taxonomy-v1",
+        model="gpt-test",
+        response_json={
+            "should_escalate": True,
+            "release_level_confidence": 0.7,
+            "evidence_quality": "medium",
+            "uncertainty_notes": ["boundaries unclear"],
+            "existing_genres_to_keep": [{"genre": "african"}],
+            "existing_genres_to_prune": [
+                {"genre": g, "prune_type": "incorrect", "reason": "off-axis"} for g in prunes
+            ],
+            "new_genres_to_add": [
+                {
+                    "genre": g,
+                    "confidence": 0.9,
+                    "reason": "fits the record",
+                    "recommendation_basis": "local_metadata",
+                    "supporting_source_indexes": [],
+                    "auto_apply_eligible": False,
+                }
+                for g in adds
+            ],
+        },
+        overall_confidence=0.7,
+        evidence_quality="medium",
+        auto_apply_eligible=False,
+    )
+
+
+def test_get_escalated_queue_returns_add_and_prune_only(tmp_path: Path) -> None:
+    db_path = tmp_path / "ai_genre_enrichment.db"
+    store = SidecarStore(db_path)
+    store.initialize()
+    _seed_escalated_release(store, "artist::album", "artist", "album", ["afro-funk"], ["soukous"])
+
+    queue = store.get_escalated_queue()
+
+    types = sorted({row["suggestion_type"] for row in queue})
+    assert types == ["add", "prune"]
+    genres = {(row["suggestion_type"], row["genre"]) for row in queue}
+    assert ("add", "afro-funk") in genres
+    assert ("prune", "soukous") in genres
+    # keep is excluded
+    assert all(row["suggestion_type"] != "keep" for row in queue)
+    # check-level fields are carried on every row
+    assert queue[0]["release_key"] == "artist::album"
+    assert queue[0]["normalized_artist"] == "artist"
+    assert queue[0]["evidence_quality"] == "medium"
+    assert "uncertainty_notes" in json.loads(queue[0]["response_json"])
+
+
+def test_get_escalated_queue_excludes_completed_checks(tmp_path: Path) -> None:
+    db_path = tmp_path / "ai_genre_enrichment.db"
+    store = SidecarStore(db_path)
+    store.initialize()
+    _seed_escalated_release(store, "artist::album", "artist", "album", ["afro-funk"], [])
+    check_id = sqlite3.connect(db_path).execute(
+        "SELECT check_id FROM ai_genre_release_checks WHERE release_key = 'artist::album'"
+    ).fetchone()[0]
+
+    store.mark_check_complete(check_id)
+
+    assert store.get_escalated_queue() == []
+
+
+def test_get_escalated_queue_filters_by_release_key(tmp_path: Path) -> None:
+    db_path = tmp_path / "ai_genre_enrichment.db"
+    store = SidecarStore(db_path)
+    store.initialize()
+    _seed_escalated_release(store, "a::one", "a", "one", ["x"], [])
+    _seed_escalated_release(store, "b::two", "b", "two", ["y"], [])
+
+    queue = store.get_escalated_queue(release_key="b::two")
+
+    assert {row["release_key"] for row in queue} == {"b::two"}

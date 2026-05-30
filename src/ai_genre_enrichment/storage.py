@@ -1293,6 +1293,56 @@ class SidecarStore:
             )
             conn.commit()
 
+    def get_escalated_queue(
+        self,
+        *,
+        release_key: str | None = None,
+        artist: str | None = None,
+        album: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return one row per actionable suggestion (add/prune) for escalated releases.
+
+        Rows are grouped by release (consecutive) so a caller can flush per release.
+        Each row carries the parent check's identity, confidence, and response_json.
+        """
+        with self.connect() as conn:
+            clauses = ["c.status = 'needs_review'", "s.suggestion_type IN ('add', 'prune')"]
+            params: list[Any] = []
+            if release_key:
+                clauses.append("c.release_key = ?")
+                params.append(release_key)
+            if artist:
+                clauses.append("c.normalized_artist = ?")
+                params.append(artist)
+            if album:
+                clauses.append("c.normalized_album = ?")
+                params.append(album)
+            where = " AND ".join(clauses)
+            rows = list(conn.execute(
+                f"""
+                SELECT
+                    c.check_id,
+                    c.release_key,
+                    c.normalized_artist,
+                    c.normalized_album,
+                    c.overall_confidence,
+                    c.evidence_quality,
+                    c.response_json,
+                    s.suggestion_id,
+                    s.suggestion_type,
+                    s.genre,
+                    s.confidence AS suggestion_confidence,
+                    s.reason,
+                    s.recommendation_basis
+                FROM ai_genre_release_checks c
+                JOIN ai_genre_suggestions s ON s.check_id = c.check_id
+                WHERE {where}
+                ORDER BY c.release_key, s.suggestion_type, s.suggestion_id
+                """,
+                params,
+            ))
+            return [dict(row) for row in rows]
+
     def get_review_queue(
         self,
         *,
