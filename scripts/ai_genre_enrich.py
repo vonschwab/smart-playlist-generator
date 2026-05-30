@@ -1334,6 +1334,13 @@ def cmd_review_escalated(args: argparse.Namespace) -> int:
                 notes = (json.loads(row["response_json"]) or {}).get("uncertainty_notes") or []
             except (TypeError, ValueError, json.JSONDecodeError):
                 notes = []
+            with store.connect() as _conn:
+                artist_genres = [
+                    r[0] for r in _conn.execute(
+                        "SELECT DISTINCT genre FROM enriched_genres WHERE normalized_artist = ? ORDER BY genre",
+                        (row["normalized_artist"],),
+                    )
+                ]
             cur = {
                 "release_key": key,
                 "normalized_artist": row["normalized_artist"],
@@ -1344,6 +1351,7 @@ def cmd_review_escalated(args: argparse.Namespace) -> int:
                 "touched": False,
                 "uncertainty_notes": notes,
                 "idx": release_order.index(key) + 1,
+                "artist_genres": artist_genres,
             }
             _print_escalated_header(cur, total)
 
@@ -1398,6 +1406,8 @@ def _print_escalated_header(acc: dict, total: int) -> None:
     label = f"[{acc['idx']}/{total}] {acc['normalized_artist']} / {acc['normalized_album']}"
     sep = "─" * max(0, 72 - len(label) - 4)
     print(f"\n─── {label} {sep}")
+    if acc.get("artist_genres"):
+        print(f"  artist genres:  {'  •  '.join(acc['artist_genres'])}")
     if acc["uncertainty_notes"]:
         print(f"  uncertainty: {'; '.join(acc['uncertainty_notes'][:2])}")
 
