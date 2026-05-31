@@ -185,6 +185,7 @@ def _beam_search_segment(
     X_genre_norm_idf: Optional[np.ndarray] = None,
     X_genre_raw: Optional[np.ndarray] = None,
     X_genre_smoothed: Optional[np.ndarray] = None,
+    X_genre_dense: Optional[np.ndarray] = None,
     genre_idf: Optional[np.ndarray] = None,
     genre_vocab: Optional[np.ndarray] = None,
     artist_key_by_idx: Optional[Dict[int, str]] = None,
@@ -669,33 +670,40 @@ def _beam_search_segment(
 
     # Phase 3: Use correct genre matrix for genre_sim (matching target construction)
     # Must use same source (raw vs smoothed) and IDF settings as used for g_targets
-    vector_source = str(cfg.dj_genre_vector_source or "smoothed").strip().lower()
-    if vector_source == "raw" and X_genre_raw is not None:
-        # Raw mode: use raw matrix, apply IDF if enabled
-        if bool(cfg.dj_genre_use_idf) and genre_idf is not None:
-            # Apply IDF weighting to raw matrix
-            X_genre_for_sim = X_genre_raw * genre_idf
-            # Normalize rows
-            row_norms = np.linalg.norm(X_genre_for_sim, axis=1, keepdims=True)
-            X_genre_for_sim = np.divide(
-                X_genre_for_sim,
-                row_norms,
-                out=np.zeros_like(X_genre_for_sim),
-                where=row_norms > 1e-12
-            )
-        else:
-            # Raw mode without IDF: normalize raw matrix
-            X_genre_for_sim = X_genre_raw.copy()
-            row_norms = np.linalg.norm(X_genre_for_sim, axis=1, keepdims=True)
-            X_genre_for_sim = np.divide(
-                X_genre_for_sim,
-                row_norms,
-                out=np.zeros_like(X_genre_for_sim),
-                where=row_norms > 1e-12
-            )
+    # Genre-steering: prefer the dense PMI-SVD embedding when enabled + available.
+    genre_present = None
+    _steering = bool(getattr(cfg, "genre_steering_enabled", False))
+    if _steering and X_genre_dense is not None:
+        X_genre_for_sim = X_genre_dense  # rows already L2-normalized
+        genre_present = np.linalg.norm(X_genre_dense, axis=1) > 1e-9
     else:
-        # Smoothed mode (default): use IDF-weighted if available, else normalized
-        X_genre_for_sim = X_genre_norm_idf if X_genre_norm_idf is not None else X_genre_norm
+        vector_source = str(cfg.dj_genre_vector_source or "smoothed").strip().lower()
+        if vector_source == "raw" and X_genre_raw is not None:
+            # Raw mode: use raw matrix, apply IDF if enabled
+            if bool(cfg.dj_genre_use_idf) and genre_idf is not None:
+                # Apply IDF weighting to raw matrix
+                X_genre_for_sim = X_genre_raw * genre_idf
+                # Normalize rows
+                row_norms = np.linalg.norm(X_genre_for_sim, axis=1, keepdims=True)
+                X_genre_for_sim = np.divide(
+                    X_genre_for_sim,
+                    row_norms,
+                    out=np.zeros_like(X_genre_for_sim),
+                    where=row_norms > 1e-12
+                )
+            else:
+                # Raw mode without IDF: normalize raw matrix
+                X_genre_for_sim = X_genre_raw.copy()
+                row_norms = np.linalg.norm(X_genre_for_sim, axis=1, keepdims=True)
+                X_genre_for_sim = np.divide(
+                    X_genre_for_sim,
+                    row_norms,
+                    out=np.zeros_like(X_genre_for_sim),
+                    where=row_norms > 1e-12
+                )
+        else:
+            # Smoothed mode (default): use IDF-weighted if available, else normalized
+            X_genre_for_sim = X_genre_norm_idf if X_genre_norm_idf is not None else X_genre_norm
 
     def _get_genre_sim(a_idx: int, b_idx: int) -> Optional[float]:
         nonlocal genre_cache_hits, genre_cache_misses
@@ -982,8 +990,23 @@ def _beam_search_segment(
                             combined_score -= progress_arc_max_step_penalty * (step_jump - float(progress_arc_max_step))
 
                 genre_sim = None
-                if X_genre_norm is not None:
+                if X_genre_for_sim is not None:
                     genre_sim = _get_genre_sim(int(current), int(cand))
+                _both_present = (
+                    genre_present is None
+                    or (genre_sim is not None
+                        and bool(genre_present[int(current)])
+                        and bool(genre_present[int(cand)]))
+                )
+                if _steering:
+                    if genre_sim is not None and math.isfinite(genre_sim) and _both_present:
+                        # Hard floor (safeguard): reject egregiously off-genre edges.
+                        if genre_sim < float(getattr(cfg, "genre_edge_floor", 0.0)):
+                            continue
+                        # Steering: genre as a first-class (renormalized) edge weight.
+                        if float(getattr(cfg, "weight_genre", 0.0)) > 0.0:
+                            combined_score += float(cfg.weight_genre) * genre_sim
+                else:
                     if genre_sim is not None and math.isfinite(genre_sim):
                         if cfg.genre_tiebreak_weight:
                             combined_score += cfg.genre_tiebreak_weight * genre_sim
@@ -1026,7 +1049,7 @@ def _beam_search_segment(
                         best_score = float(combined_score)
                 else:
                     base_score_for_rank = float(combined_score)
-                    if genre_sim is not None and math.isfinite(genre_sim):
+                    if (not _steering) and genre_sim is not None and math.isfinite(genre_sim):
                         if penalty_strength > 0 and genre_sim < penalty_threshold:
                             combined_score *= (1.0 - penalty_strength)
                             genre_penalty_hits += 1
@@ -1411,7 +1434,20 @@ def _beam_search_segment(
 
         final_edge_score = final_trans
         edges_scored += 1
-        if X_genre_norm is not None:
+        if _steering:
+            genre_sim = _get_genre_sim(int(last), int(pier_b)) if X_genre_for_sim is not None else None
+            _both_present_final = (
+                genre_present is None
+                or (genre_sim is not None
+                    and bool(genre_present[int(last)])
+                    and bool(genre_present[int(pier_b)]))
+            )
+            if genre_sim is not None and math.isfinite(genre_sim) and _both_present_final:
+                if genre_sim < float(getattr(cfg, "genre_edge_floor", 0.0)):
+                    continue  # this beam state cannot legally connect to pier_b
+                if float(getattr(cfg, "weight_genre", 0.0)) > 0.0:
+                    final_edge_score += float(cfg.weight_genre) * genre_sim
+        elif X_genre_norm is not None:
             genre_sim = _get_genre_sim(int(last), int(pier_b))
             if genre_sim is not None and math.isfinite(genre_sim):
                 if cfg.genre_tiebreak_weight:
