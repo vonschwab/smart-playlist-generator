@@ -260,6 +260,22 @@ def _enforce_min_gap_global(
     return output, dropped
 
 
+def _genre_floor_attempts_for_test(initial: float, minimum: float, enabled: bool) -> list[float]:
+    """Descending genre-edge-floor sequence (initial -> minimum), step 0.10.
+    Pure helper exposed for unit testing; mirrors the relaxation used in the
+    segment backoff loop."""
+    if not enabled or minimum >= initial - 1e-9:
+        return [float(initial)]
+    attempts = [float(initial)]
+    cur = round(float(initial) - 0.10, 2)
+    while cur > minimum + 1e-9 and len(attempts) < 5:
+        attempts.append(cur)
+        cur = round(cur - 0.10, 2)
+    if not any(abs(a - minimum) < 1e-9 for a in attempts):
+        attempts.append(float(minimum))
+    return attempts
+
+
 def build_pier_bridge_playlist(
     *,
     seed_track_ids: List[str],
@@ -419,6 +435,7 @@ def build_pier_bridge_playlist(
     # Extract genre matrices from bundle (Phase 2: needed for IDF and vector mode)
     # Prefer parameter if provided, otherwise extract from bundle
     X_genre_raw = getattr(bundle, "X_genre_raw", None)
+    X_genre_dense = getattr(bundle, "X_genre_dense", None)
     if X_genre_smoothed is None:
         X_genre_smoothed = getattr(bundle, "X_genre_smoothed", None)
 
@@ -713,10 +730,13 @@ def build_pier_bridge_playlist(
         seg_idx: int,
         recent_boundary_artists: Optional[List[str]],
         transition_floor_override: Optional[float] = None,
+        genre_edge_floor_override: Optional[float] = None,
     ) -> dict[str, Any]:
         cfg = cfg_attempt_base
         if transition_floor_override is not None:
             cfg = replace(cfg, transition_floor=float(transition_floor_override))
+        if genre_edge_floor_override is not None:
+            cfg = replace(cfg, genre_edge_floor=float(genre_edge_floor_override))
         segment_path: Optional[List[int]] = None
         chosen_bridge_floor = float(cfg.bridge_floor)
         backoff_attempts = _bridge_floor_attempts(float(cfg.bridge_floor))
@@ -1112,6 +1132,7 @@ def build_pier_bridge_playlist(
                         X_genre_norm_idf=X_genre_norm_idf,
                         X_genre_raw=X_genre_raw,
                         X_genre_smoothed=X_genre_smoothed,
+                        X_genre_dense=X_genre_dense,
                         genre_idf=genre_idf,
                         genre_vocab=genre_vocab,
                         artist_key_by_idx=(cand_artist_keys if cand_artist_keys else None),
@@ -1468,6 +1489,58 @@ def build_pier_bridge_playlist(
                         last_waypoint_stats = dict(_t_result.get("last_waypoint_stats", {}))
                         last_pool_diag = dict(_t_result.get("last_pool_diag", {}))
                         segment_edge_components = list(_t_result.get("edge_components") or [])
+                        break
+                if segment_path is not None:
+                    break
+
+        # Genre-edge-floor relaxation tier: if the transition-floor tier still
+        # could not build the segment, progressively lower genre_edge_floor toward
+        # infeasible_handling.min_genre_edge_floor so genre-sparse seeds don't go
+        # infeasible. Gated on steering + infeasible_handling + genre_floor_relaxation.
+        if segment_path is None and bool(getattr(cfg_base, "genre_steering_enabled", False)) \
+           and infeasible_handling and infeasible_handling.enabled \
+           and infeasible_handling.genre_floor_relaxation_enabled:
+            _gfloors = _genre_floor_attempts_for_test(
+                float(cfg_base.genre_edge_floor),
+                float(infeasible_handling.min_genre_edge_floor),
+                True,
+            )
+            for _gf in _gfloors[1:]:  # first value already tried in the relax loop above
+                for _relax in relaxation_attempts:
+                    _g_result = _run_segment_backoff_attempts(
+                        cfg_attempt_base=_relax["cfg"],
+                        segment_allow_detours=segment_allow_detours_base or bool(_relax.get("force_allow_detours")),
+                        segment_g_targets=segment_g_targets,
+                        pier_a=pier_a,
+                        pier_b=pier_b,
+                        interior_len=interior_len,
+                        pier_a_id=pier_a_id,
+                        pier_b_id=pier_b_id,
+                        seg_idx=seg_idx,
+                        recent_boundary_artists=_recent_artists_for_segment(seg_idx),
+                        genre_edge_floor_override=float(_gf),
+                    )
+                    if _g_result["segment_path"] is not None:
+                        segment_path = _g_result["segment_path"]
+                        chosen_bridge_floor = float(_g_result["chosen_bridge_floor"])
+                        backoff_used_count = int(_g_result["backoff_used_count"])
+                        backoff_attempts = list(_g_result.get("backoff_attempts") or [])
+                        widened_search_used = bool(_g_result["widened_search_used"])
+                        expansions = int(_g_result["expansions"])
+                        pool_size_initial = int(_g_result["pool_size_initial"])
+                        pool_size_final = int(_g_result["pool_size_final"])
+                        beam_width_used = int(_g_result["beam_width_used"])
+                        soft_genre_penalty_hits_segment = int(_g_result["soft_genre_penalty_hits_segment"])
+                        soft_genre_penalty_edges_scored_segment = int(_g_result["soft_genre_penalty_edges_scored_segment"])
+                        local_sonic_stats_segment = dict(_g_result.get("local_sonic_stats_segment", {}))
+                        last_failure_reason = _g_result["last_failure_reason"]
+                        last_segment_candidates = list(_g_result["last_segment_candidates"])
+                        last_candidate_artist_keys = dict(_g_result["last_candidate_artist_keys"])
+                        pool_cache = _g_result.get("segment_pool_cache")
+                        last_segment_pool_cache = dict(pool_cache) if pool_cache is not None else None
+                        last_waypoint_stats = dict(_g_result.get("last_waypoint_stats", {}))
+                        last_pool_diag = dict(_g_result.get("last_pool_diag", {}))
+                        segment_edge_components = list(_g_result.get("edge_components") or [])
                         break
                 if segment_path is not None:
                     break
