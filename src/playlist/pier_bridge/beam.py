@@ -672,7 +672,7 @@ def _beam_search_segment(
     # Must use same source (raw vs smoothed) and IDF settings as used for g_targets
     # Genre-steering: prefer the dense PMI-SVD embedding when enabled + available.
     genre_present = None
-    _steering = bool(getattr(cfg, "genre_steering_enabled", False))
+    _steering = bool(cfg.genre_steering_enabled)
     if _steering and X_genre_dense is not None:
         X_genre_for_sim = X_genre_dense  # rows already L2-normalized
         genre_present = np.linalg.norm(X_genre_dense, axis=1) > 1e-9
@@ -1001,10 +1001,10 @@ def _beam_search_segment(
                 if _steering:
                     if genre_sim is not None and math.isfinite(genre_sim) and _both_present:
                         # Hard floor (safeguard): reject egregiously off-genre edges.
-                        if genre_sim < float(getattr(cfg, "genre_edge_floor", 0.0)):
+                        if genre_sim < cfg.genre_edge_floor:
                             continue
                         # Steering: genre as a first-class (renormalized) edge weight.
-                        if float(getattr(cfg, "weight_genre", 0.0)) > 0.0:
+                        if cfg.weight_genre > 0.0:
                             combined_score += float(cfg.weight_genre) * genre_sim
                 else:
                     if genre_sim is not None and math.isfinite(genre_sim):
@@ -1443,9 +1443,9 @@ def _beam_search_segment(
                     and bool(genre_present[int(pier_b)]))
             )
             if genre_sim is not None and math.isfinite(genre_sim) and _both_present_final:
-                if genre_sim < float(getattr(cfg, "genre_edge_floor", 0.0)):
+                if genre_sim < cfg.genre_edge_floor:
                     continue  # this beam state cannot legally connect to pier_b
-                if float(getattr(cfg, "weight_genre", 0.0)) > 0.0:
+                if cfg.weight_genre > 0.0:
                     final_edge_score += float(cfg.weight_genre) * genre_sim
         elif X_genre_norm is not None:
             genre_sim = _get_genre_sim(int(last), int(pier_b))
@@ -1473,7 +1473,7 @@ def _beam_search_segment(
         # Build edge component for the final edge
         _final_local_sonic_cos = float(np.dot(X_full_norm[int(last)], X_full_norm[int(pier_b)]))
         _final_genre_pen_applied = 0.0
-        if X_genre_norm is not None:
+        if (not _steering) and X_genre_norm is not None:
             genre_sim = _get_genre_sim(int(last), int(pier_b))
             if genre_sim is not None and math.isfinite(genre_sim):
                 if penalty_strength > 0 and genre_sim < penalty_threshold:

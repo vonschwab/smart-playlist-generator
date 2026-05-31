@@ -106,6 +106,26 @@ def test_tuning_steering_on_zero_weight_genre_is_noop():
     assert abs(t.weight_transition - 0.3) < 1e-6
 
 
+def test_beam_genreless_endpoint_skips_floor():
+    """A candidate with a zero dense vector is genreless: the floor must NOT reject it
+    and no genre weight is credited (the edge passes through cleanly)."""
+    Xn, dense = _diag4()
+    dense = dense.copy()
+    dense[1] = 0.0  # candidate 1 is genreless (zero dense vector)
+    cfg = PierBridgeConfig(
+        bridge_floor=-1.0, transition_floor=-1.0, progress_enabled=False,
+        genre_steering_enabled=True, weight_genre=0.2, genre_edge_floor=0.9,  # high floor
+        weight_bridge=0.5, weight_transition=0.3,
+    )
+    # Only candidate 1 (genreless) offered; high floor must NOT reject it.
+    path, _h, _e, err = _beam_search_segment(
+        0, 3, 1, [1], Xn, Xn, None, None, None, None, cfg, 5,
+        X_genre_dense=dense,
+    )
+    assert err is None
+    assert path == [1]
+
+
 def test_infeasible_handling_genre_floor_fields_default():
     from src.playlist.run_audit import InfeasibleHandlingConfig, parse_infeasible_handling_config
     cfg = InfeasibleHandlingConfig()
