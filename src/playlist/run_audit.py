@@ -34,6 +34,8 @@ class InfeasibleHandlingConfig:
     # rather than the pool admission floor.
     transition_floor_relaxation_enabled: bool = True
     min_transition_floor: float = 0.20
+    genre_floor_relaxation_enabled: bool = True
+    min_genre_edge_floor: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -95,6 +97,8 @@ def parse_infeasible_handling_config(raw: Any) -> InfeasibleHandlingConfig:
         extra_expansion_attempts=int(raw.get("extra_expansion_attempts", 2)),
         transition_floor_relaxation_enabled=bool(raw.get("transition_floor_relaxation_enabled", True)),
         min_transition_floor=float(raw.get("min_transition_floor", 0.20)),
+        genre_floor_relaxation_enabled=bool(raw.get("genre_floor_relaxation_enabled", True)),
+        min_genre_edge_floor=float(raw.get("min_genre_edge_floor", 0.0)),
     )
 
 
