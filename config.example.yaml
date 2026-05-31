@@ -222,6 +222,19 @@ playlists:
       weight_transition_narrow: 0.3
       # Small genre tie-breaker (never rescues hard gates)
       genre_tiebreak_weight: 0.05
+      # Genre edge safeguards & steering (opt-in; default ON here).
+      # When enabled the beam scores genre on the dense PMI-SVD embedding, rejects
+      # edges below genre_edge_floor, and adds weight_genre * genre_sim as a
+      # renormalized third weight (bridge + transition + genre sum to 1).
+      genre_steering_enabled: true
+      weight_genre_strict: 0.30
+      weight_genre_narrow: 0.20
+      weight_genre_dynamic: 0.12
+      weight_genre_discover: 0.06
+      genre_edge_floor_strict: 0.50
+      genre_edge_floor_narrow: 0.40
+      genre_edge_floor_dynamic: 0.25
+      genre_edge_floor_discover: 0.10
       # Soft genre whiplash penalty (does NOT gate): if edge_genre < threshold,
       # final_edge_score *= (1 - strength). Per-mode so stricter modes can
       # enforce local genre continuity while discover/off keep safety-net
@@ -496,6 +509,8 @@ playlists:
       # this can retry the SAME segment with a lower bridge_floor.
       infeasible_handling:
         enabled: false
+        genre_floor_relaxation_enabled: true
+        min_genre_edge_floor: 0.0
         strategy: "backoff"
         min_bridge_floor: 0.00
         backoff_steps: [0.08, 0.06, 0.05, 0.04, 0.03, 0.02, 0.01, 0.00]
