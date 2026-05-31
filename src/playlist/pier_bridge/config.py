@@ -66,6 +66,13 @@ class PierBridgeConfig:
     # multiply the edge score by (1 - strength).
     genre_penalty_threshold: float = 0.20
     genre_penalty_strength: float = 0.10
+    # Genre edge safeguards & steering (opt-in; code default OFF).
+    # When enabled, the beam scores genre on the dense embedding, rejects edges
+    # below genre_edge_floor, and adds weight_genre * genre_sim as a third term
+    # (bridge/transition/genre weights are pre-renormalized to sum to 1).
+    genre_steering_enabled: bool = False
+    weight_genre: float = 0.0
+    genre_edge_floor: float = 0.0
     # Local sonic edge penalty (does not gate by default): demote candidates
     # whose immediate predecessor/successor sonic cosine falls below threshold.
     # Use local_sonic_edge_floor only for explicit hard-gate experiments.
