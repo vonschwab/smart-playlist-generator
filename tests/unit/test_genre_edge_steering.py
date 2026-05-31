@@ -32,3 +32,12 @@ def test_tuning_genre_steering_renormalizes_weights():
     assert abs(total - 1.0) < 1e-6
     # genre share is 0.20 / 1.20
     assert abs(t.weight_genre - (0.20 / 1.20)) < 1e-6
+
+
+def test_tuning_steering_on_zero_weight_genre_is_noop():
+    overrides = {"pier_bridge": {"genre_steering_enabled": True}}  # no weight_genre
+    t, _ = resolve_pier_bridge_tuning(mode="narrow", similarity_floor=0.35, overrides=overrides)
+    assert t.genre_steering_enabled is True
+    assert t.weight_genre == 0.0
+    assert abs(t.weight_bridge - 0.7) < 1e-6
+    assert abs(t.weight_transition - 0.3) < 1e-6

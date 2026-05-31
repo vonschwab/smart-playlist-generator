@@ -2585,6 +2585,9 @@ class PlaylistGenerator:
                     genre_tiebreak_weight=genre_tiebreak_weight,
                     genre_penalty_threshold=float(pb_tuning["genre_penalty_threshold"]),
                     genre_penalty_strength=float(pb_tuning["genre_penalty_strength"]),
+                    genre_steering_enabled=bool(pb_tuning.get("genre_steering_enabled", False)),
+                    weight_genre=float(pb_tuning.get("weight_genre", 0.0)),
+                    genre_edge_floor=float(pb_tuning.get("genre_edge_floor", 0.0)),
                 )
 
                 using_artist_style = True
@@ -2632,11 +2635,11 @@ class PlaylistGenerator:
                 )
             except ValueError as e:
                 error_msg = str(e)
-                # Check if this is genre isolation failure (zero candidates after genre gate)
-                if "pool_after_gate 0" in error_msg and "interior_len" in error_msg:
+                # Catch any pool-too-small infeasibility: pool_after_gate N < interior_len M
+                if "pool_after_gate" in error_msg and "interior_len" in error_msg:
                     logger.warning(
-                        "❌ Genre isolation detected for '%s': Zero candidates passed genre similarity filter",
-                        artist_name
+                        "❌ Candidate pool too small for '%s': %s",
+                        artist_name, error_msg.split('\n')[0]
                     )
                     logger.info(
                         "🔄 Fallback: Retrying without genre gating (artist=%s, mode=%s)",
@@ -2644,11 +2647,12 @@ class PlaylistGenerator:
                         cohesion_mode_effective
                     )
 
-                    # Retry without genre gating by temporarily overriding config
-                    original_gate_enabled = self.config.config.get("playlists", {}).get("ds_pipeline", {}).get("genre_gate_enabled", True)
+                    # Disable genre gating via playlists.genre_similarity.enabled (the key
+                    # _maybe_generate_ds_playlist actually reads).
+                    gs_cfg = self.config.config.setdefault("playlists", {}).setdefault("genre_similarity", {})
+                    original_gate_enabled = gs_cfg.get("enabled", True)
                     try:
-                        # Disable genre gating
-                        self.config.config.setdefault("playlists", {}).setdefault("ds_pipeline", {})["genre_gate_enabled"] = False
+                        gs_cfg["enabled"] = False
 
                         ds_tracks = self._maybe_generate_ds_playlist(
                             seed_track_id=style_seed_track_id,
@@ -2675,8 +2679,7 @@ class PlaylistGenerator:
                             artist_name
                         )
                     finally:
-                        # Restore original setting
-                        self.config.config["playlists"]["ds_pipeline"]["genre_gate_enabled"] = original_gate_enabled
+                        gs_cfg["enabled"] = original_gate_enabled
                 else:
                     # Different error, re-raise
                     raise
@@ -3454,6 +3457,9 @@ class PlaylistGenerator:
                         genre_tiebreak_weight=genre_tiebreak_weight,
                         genre_penalty_threshold=float(pb_tuning["genre_penalty_threshold"]),
                         genre_penalty_strength=float(pb_tuning["genre_penalty_strength"]),
+                        genre_steering_enabled=bool(pb_tuning.get("genre_steering_enabled", False)),
+                        weight_genre=float(pb_tuning.get("weight_genre", 0.0)),
+                        genre_edge_floor=float(pb_tuning.get("genre_edge_floor", 0.0)),
                     )
                     using_artist_style = True
                     pool_source = "artist_style"

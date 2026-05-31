@@ -272,6 +272,9 @@ def resolve_pier_bridge_tuning(
         "genre_tiebreak_weight": float(tuning.genre_tiebreak_weight),
         "genre_penalty_threshold": float(tuning.genre_penalty_threshold),
         "genre_penalty_strength": float(tuning.genre_penalty_strength),
+        "genre_steering_enabled": bool(tuning.genre_steering_enabled),
+        "weight_genre": float(tuning.weight_genre),
+        "genre_edge_floor": float(tuning.genre_edge_floor),
     }
 
 
