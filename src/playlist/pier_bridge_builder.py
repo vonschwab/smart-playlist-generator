@@ -674,6 +674,32 @@ def build_pier_bridge_playlist(
         max_attempts = max(1, int(infeasible_handling.max_attempts_per_segment))
         return attempts[:max_attempts]
 
+    def _transition_floor_attempts(initial_floor: float) -> list[float]:
+        """Return transition_floor values to try in order (initial first, then lower).
+
+        Only relaxes when infeasible_handling is enabled and
+        transition_floor_relaxation_enabled is True.  Steps down by 0.07
+        from initial_floor to min_transition_floor (up to 3 extra attempts),
+        e.g. 0.35→0.28→0.21→0.20 for initial=0.35, min=0.20.
+        """
+        if (
+            not infeasible_handling
+            or not infeasible_handling.enabled
+            or not infeasible_handling.transition_floor_relaxation_enabled
+        ):
+            return [float(initial_floor)]
+        min_t = float(infeasible_handling.min_transition_floor)
+        if min_t >= float(initial_floor) - 1e-9:
+            return [float(initial_floor)]
+        attempts: list[float] = [float(initial_floor)]
+        cur = round(float(initial_floor) - 0.07, 2)
+        while cur > min_t + 1e-9 and len(attempts) < 4:
+            attempts.append(cur)
+            cur = round(cur - 0.07, 2)
+        if not any(abs(a - min_t) < 1e-9 for a in attempts):
+            attempts.append(min_t)
+        return attempts
+
     def _run_segment_backoff_attempts(
         *,
         cfg_attempt_base: PierBridgeConfig,
@@ -686,8 +712,11 @@ def build_pier_bridge_playlist(
         pier_b_id: str,
         seg_idx: int,
         recent_boundary_artists: Optional[List[str]],
+        transition_floor_override: Optional[float] = None,
     ) -> dict[str, Any]:
         cfg = cfg_attempt_base
+        if transition_floor_override is not None:
+            cfg = replace(cfg, transition_floor=float(transition_floor_override))
         segment_path: Optional[List[int]] = None
         chosen_bridge_floor = float(cfg.bridge_floor)
         backoff_attempts = _bridge_floor_attempts(float(cfg.bridge_floor))
@@ -1398,6 +1427,50 @@ def build_pier_bridge_playlist(
 
         cfg = cfg_base
         segment_allow_detours = segment_allow_detours_base
+
+        # Transition-floor relaxation tier: if all bridge_floor backoffs exhausted,
+        # progressively lower transition_floor before declaring infeasibility.
+        if segment_path is None:
+            _t_attempts = _transition_floor_attempts(float(cfg_base.transition_floor))
+            for _t_floor in _t_attempts[1:]:  # first value already tried in relax loop above
+                for _relax in relaxation_attempts:
+                    _t_result = _run_segment_backoff_attempts(
+                        cfg_attempt_base=_relax["cfg"],
+                        segment_allow_detours=segment_allow_detours_base or bool(_relax.get("force_allow_detours")),
+                        segment_g_targets=segment_g_targets,
+                        pier_a=pier_a,
+                        pier_b=pier_b,
+                        interior_len=interior_len,
+                        pier_a_id=pier_a_id,
+                        pier_b_id=pier_b_id,
+                        seg_idx=seg_idx,
+                        recent_boundary_artists=_recent_artists_for_segment(seg_idx),
+                        transition_floor_override=float(_t_floor),
+                    )
+                    if _t_result["segment_path"] is not None:
+                        segment_path = _t_result["segment_path"]
+                        chosen_bridge_floor = float(_t_result["chosen_bridge_floor"])
+                        backoff_used_count = int(_t_result["backoff_used_count"])
+                        backoff_attempts = list(_t_result.get("backoff_attempts") or [])
+                        widened_search_used = bool(_t_result["widened_search_used"])
+                        expansions = int(_t_result["expansions"])
+                        pool_size_initial = int(_t_result["pool_size_initial"])
+                        pool_size_final = int(_t_result["pool_size_final"])
+                        beam_width_used = int(_t_result["beam_width_used"])
+                        soft_genre_penalty_hits_segment = int(_t_result["soft_genre_penalty_hits_segment"])
+                        soft_genre_penalty_edges_scored_segment = int(_t_result["soft_genre_penalty_edges_scored_segment"])
+                        local_sonic_stats_segment = dict(_t_result.get("local_sonic_stats_segment", {}))
+                        last_failure_reason = _t_result["last_failure_reason"]
+                        last_segment_candidates = list(_t_result["last_segment_candidates"])
+                        last_candidate_artist_keys = dict(_t_result["last_candidate_artist_keys"])
+                        pool_cache = _t_result.get("segment_pool_cache")
+                        last_segment_pool_cache = dict(pool_cache) if pool_cache is not None else None
+                        last_waypoint_stats = dict(_t_result.get("last_waypoint_stats", {}))
+                        last_pool_diag = dict(_t_result.get("last_pool_diag", {}))
+                        segment_edge_components = list(_t_result.get("edge_components") or [])
+                        break
+                if segment_path is not None:
+                    break
 
         micro_pier_diag: dict[str, Any] = {}
         if relaxation_enabled and bool(cfg.dj_relaxation_emit_warnings):
