@@ -260,10 +260,9 @@ def _enforce_min_gap_global(
     return output, dropped
 
 
-def _genre_floor_attempts_for_test(initial: float, minimum: float, enabled: bool) -> list[float]:
-    """Descending genre-edge-floor sequence (initial -> minimum), step 0.10.
-    Pure helper exposed for unit testing; mirrors the relaxation used in the
-    segment backoff loop."""
+def _genre_floor_attempts(initial: float, minimum: float, enabled: bool) -> list[float]:
+    """Pure helper that builds the descending genre-edge-floor sequence (initial -> minimum, step 0.10).
+    Used by the genre-floor relaxation tier; also directly unit-tested."""
     if not enabled or minimum >= initial - 1e-9:
         return [float(initial)]
     attempts = [float(initial)]
@@ -1500,10 +1499,10 @@ def build_pier_bridge_playlist(
         if segment_path is None and bool(getattr(cfg_base, "genre_steering_enabled", False)) \
            and infeasible_handling and infeasible_handling.enabled \
            and infeasible_handling.genre_floor_relaxation_enabled:
-            _gfloors = _genre_floor_attempts_for_test(
+            _gfloors = _genre_floor_attempts(
                 float(cfg_base.genre_edge_floor),
                 float(infeasible_handling.min_genre_edge_floor),
-                True,
+                bool(infeasible_handling.genre_floor_relaxation_enabled),
             )
             for _gf in _gfloors[1:]:  # first value already tried in the relax loop above
                 for _relax in relaxation_attempts:
