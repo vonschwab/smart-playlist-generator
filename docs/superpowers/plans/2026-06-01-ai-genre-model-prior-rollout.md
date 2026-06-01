@@ -107,4 +107,3 @@ Do not attribute those three failures to this rollout unless their measured outp
 - Stop after stabilization and review artifact-mode behavior before adding the model prior.
 - Stop after the CLI prototype and review sample prior output before enabling shadow integration.
 - Stop after shadow reporting and inspect comparison evidence before considering GUI controls or production adoption.
-
