@@ -1530,21 +1530,31 @@ def build_pier_bridge_playlist(
                 float(infeasible_handling.min_genre_arc_percentile),
                 step=0.15,
             )
+            # Niche-genre seeds (jazz, hyperpop) often need the genre-arc floor AND the
+            # transition floor relaxed *together* — the genre-coherent candidates and the
+            # sonically-reachable ones only overlap once both gates ease. The earlier tiers
+            # relax these dimensions independently and never explore the joint relaxation,
+            # so sweep transition_floor inside the arc-floor loop here.
+            _t_attempts_arc = _transition_floor_attempts(float(cfg_base.transition_floor))
             for _gf in _gfloors[1:]:  # first value already tried in the relax loop above
-                for _relax in relaxation_attempts:
-                    _g_result = _run_segment_backoff_attempts(
-                        cfg_attempt_base=_relax["cfg"],
-                        segment_allow_detours=segment_allow_detours_base or bool(_relax.get("force_allow_detours")),
-                        segment_g_targets=segment_g_targets,
-                        pier_a=pier_a,
-                        pier_b=pier_b,
-                        interior_len=interior_len,
-                        pier_a_id=pier_a_id,
-                        pier_b_id=pier_b_id,
-                        seg_idx=seg_idx,
-                        recent_boundary_artists=_recent_artists_for_segment(seg_idx),
-                        genre_arc_floor_percentile_override=float(_gf),
-                    )
+                for _t_floor in _t_attempts_arc:
+                    for _relax in relaxation_attempts:
+                        _g_result = _run_segment_backoff_attempts(
+                            cfg_attempt_base=_relax["cfg"],
+                            segment_allow_detours=segment_allow_detours_base or bool(_relax.get("force_allow_detours")),
+                            segment_g_targets=segment_g_targets,
+                            pier_a=pier_a,
+                            pier_b=pier_b,
+                            interior_len=interior_len,
+                            pier_a_id=pier_a_id,
+                            pier_b_id=pier_b_id,
+                            seg_idx=seg_idx,
+                            recent_boundary_artists=_recent_artists_for_segment(seg_idx),
+                            genre_arc_floor_percentile_override=float(_gf),
+                            transition_floor_override=float(_t_floor),
+                        )
+                        if _g_result["segment_path"] is not None:
+                            break
                     if _g_result["segment_path"] is not None:
                         segment_path = _g_result["segment_path"]
                         chosen_bridge_floor = float(_g_result["chosen_bridge_floor"])
