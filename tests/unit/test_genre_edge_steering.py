@@ -28,9 +28,11 @@ def test_beam_floor_rejects_off_genre_candidate():
         genre_steering_enabled=True, weight_genre=0.2, genre_arc_floor=0.5,
         weight_bridge=0.5, weight_transition=0.3,
     )
+    # Arc target == piers' genre; cand 1 is on-arc (sim 1.0), cand 2 off (sim 0.0).
+    g_targets = [np.array([1.0, 0.0, 0.0])]
     path, _h, _e, err = _beam_search_segment(
         0, 3, 1, [2, 1], Xn, Xn, None, None, None, None, cfg, 5,
-        X_genre_dense=dense,
+        X_genre_dense=dense, g_targets_override=g_targets,
     )
     assert err is None
     assert path == [1], f"expected genre-OK cand 1, got {path}"
@@ -44,9 +46,11 @@ def test_beam_steering_prefers_higher_genre_when_sonic_tied():
         genre_steering_enabled=True, weight_genre=0.3, genre_arc_floor=0.0,
         weight_bridge=0.4, weight_transition=0.3,
     )
+    # Arc target == piers' genre; cand 1 (sim 1.0) outranks cand 2 (sim 0.0).
+    g_targets = [np.array([1.0, 0.0, 0.0])]
     path, _h, _e, err = _beam_search_segment(
         0, 3, 1, [2, 1], Xn, Xn, None, None, None, None, cfg, 5,
-        X_genre_dense=dense,
+        X_genre_dense=dense, g_targets_override=g_targets,
     )
     assert err is None
     assert path == [1]
@@ -112,15 +116,17 @@ def test_beam_genreless_endpoint_skips_floor():
     Xn, dense = _diag4()
     dense = dense.copy()
     dense[1] = 0.0  # candidate 1 is genreless (zero dense vector)
+    # Only candidate 1 (genreless) offered; high absolute + percentile floor must
+    # NOT reject it (genreless candidates are exempt from the on-arc floor).
+    g_targets = [np.array([1.0, 0.0, 0.0])]
     cfg = PierBridgeConfig(
         bridge_floor=-1.0, transition_floor=-1.0, progress_enabled=False,
-        genre_steering_enabled=True, weight_genre=0.2, genre_arc_floor=0.9,  # high floor
-        weight_bridge=0.5, weight_transition=0.3,
+        genre_steering_enabled=True, weight_genre=0.2, genre_arc_floor=0.9,
+        genre_arc_floor_percentile=0.9, weight_bridge=0.5, weight_transition=0.3,
     )
-    # Only candidate 1 (genreless) offered; high floor must NOT reject it.
     path, _h, _e, err = _beam_search_segment(
         0, 3, 1, [1], Xn, Xn, None, None, None, None, cfg, 5,
-        X_genre_dense=dense,
+        X_genre_dense=dense, g_targets_override=g_targets,
     )
     assert err is None
     assert path == [1]
@@ -164,6 +170,55 @@ def test_per_seed_admission_floor_adapts_to_density():
     f_dense = floor_at_percentile(s_dense, 0.90)
     # both admit ~top 10%, but the absolute floor differs by neighborhood density
     assert f_dense >= f_sparse
+
+
+def test_arc_vote_is_first_class_and_uses_waypoint_target():
+    # 4 tracks, sonic identical; candidate 1's dense vec matches g_target[0],
+    # candidate 2 matches the previous track but NOT the target. Steering must
+    # pick candidate 1 (on the arc), proving it scores vs g_target not prev-track.
+    import numpy as np
+    from src.playlist.pier_bridge.beam import _beam_search_segment
+    from src.playlist.pier_bridge.config import PierBridgeConfig
+    Xn = np.ones((4, 3))
+    Xn = Xn / np.linalg.norm(Xn, axis=1, keepdims=True)
+    dense = np.array([
+        [1.0, 0.0, 0.0],   # pierA
+        [0.0, 1.0, 0.0],   # cand 1: matches the step-0 target below
+        [1.0, 0.0, 0.0],   # cand 2: matches pierA (prev track) but not target
+        [0.0, 0.0, 1.0],   # pierB
+    ])
+    g_targets = [np.array([0.0, 1.0, 0.0])]  # step-0 target == cand 1's genre
+    cfg = PierBridgeConfig(bridge_floor=-1.0, transition_floor=-1.0, progress_enabled=False,
+                           genre_steering_enabled=True, weight_genre=0.4,
+                           genre_arc_floor_percentile=0.0, weight_bridge=0.4, weight_transition=0.2)
+    path, *_ = _beam_search_segment(0, 3, 1, [2, 1], Xn, Xn, None, None, None, None, cfg, 5,
+                                    X_genre_dense=dense, g_targets_override=g_targets)
+    assert path == [1]
+
+
+def test_arc_floor_percentile_rejects_below_floor_candidate():
+    # 3 candidates with arc-sims to target of 1.0, 0.5, 0.0. A 0.5 percentile
+    # floor (median == 0.5) admits sims >= 0.5, dropping the 0.0 candidate.
+    import numpy as np
+    from src.playlist.pier_bridge.beam import _beam_search_segment
+    from src.playlist.pier_bridge.config import PierBridgeConfig
+    Xn = np.ones((5, 3))
+    Xn = Xn / np.linalg.norm(Xn, axis=1, keepdims=True)
+    dense = np.array([
+        [1.0, 0.0, 0.0],   # pierA
+        [0.0, 1.0, 0.0],   # cand 1: arc-sim 1.0 (on target)
+        [0.70710678, 0.70710678, 0.0],  # cand 2: arc-sim ~0.707
+        [1.0, 0.0, 0.0],   # cand 3: arc-sim 0.0 (off target) -> below median floor
+        [0.0, 0.0, 1.0],   # pierB
+    ])
+    g_targets = [np.array([0.0, 1.0, 0.0])]
+    cfg = PierBridgeConfig(bridge_floor=-1.0, transition_floor=-1.0, progress_enabled=False,
+                           genre_steering_enabled=True, weight_genre=0.4,
+                           genre_arc_floor_percentile=0.5, weight_bridge=0.4, weight_transition=0.2)
+    path, *_ = _beam_search_segment(0, 3, 1, [1, 2, 3], Xn, Xn, None, None, None, None, cfg, 5,
+                                    X_genre_dense=dense, g_targets_override=g_targets)
+    # cand 3 (idx 3) must be rejected by the percentile floor; cand 1 wins on arc-vote.
+    assert path == [1]
 
 
 def test_arc_knobs_resolve():
