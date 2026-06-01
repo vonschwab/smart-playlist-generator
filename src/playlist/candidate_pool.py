@@ -359,8 +359,11 @@ def build_candidate_pool(
     # IDENTICAL to legacy behavior.
     effective_genre_floor: Optional[float] = min_genre_similarity
 
-    # Dense PMI-SVD path: when X_genre_dense is available, use it in preference to sparse methods
-    _use_dense = X_genre_dense is not None and min_genre_similarity is not None
+    # Dense PMI-SVD path: when X_genre_dense is available, use it in preference to sparse methods.
+    # Note: also activates when genre_admission_percentile is set without a fixed min_genre_similarity.
+    _use_dense = X_genre_dense is not None and (
+        min_genre_similarity is not None or genre_admission_percentile is not None
+    )
     if _use_dense:
         # X_genre_dense rows are already L2-normalized; seed vec = average of seed rows
         seed_dense = X_genre_dense[seed_list].mean(axis=0)
@@ -368,22 +371,20 @@ def build_candidate_pool(
         if seed_dense_norm > 1e-12:
             seed_dense = seed_dense / seed_dense_norm
         genre_sim_all = (X_genre_dense @ seed_dense).astype(np.float64)
-        genre_sim_all = np.clip(genre_sim_all, 0.0, 1.0)
+        # Do NOT clip to [0,1]. The mean-centered dense embedding produces negative cosine
+        # similarities for genuinely dissimilar genres — clipping collapses them all to 0.000
+        # and destroys the rank ordering, making the percentile floor non-functional for
+        # niche artists (jazz, hyperpop) where most of the library is negative-sim.
         genre_sim_all[seed_idx] = 1.0
         # Per-seed adaptive admission floor: derive from THIS seed's dense-sim distribution.
-        # When genre_admission_percentile is None, fall back to the fixed min_genre_similarity
-        # (exact legacy behavior — no change).
+        # When genre_admission_percentile is set, the percentile IS the floor — do not override
+        # with the fixed min_genre_similarity, which was calibrated for the old anisotropic
+        # embedding (p50≈0.24) and is far too tight at the new mean-centered scale (p50≈-0.14).
         if genre_admission_percentile is not None:
             from src.playlist.pier_bridge.percentiles import floor_at_percentile
-            # Exclude the seed's self-sim (set to 1.0 above) from the distribution.
             _dist = genre_sim_all.copy()
             _dist[seed_idx] = np.nan
-            _eff_floor = floor_at_percentile(_dist[~np.isnan(_dist)], genre_admission_percentile)
-            effective_genre_floor = (
-                max(float(min_genre_similarity), float(_eff_floor))
-                if min_genre_similarity is not None
-                else float(_eff_floor)
-            )
+            effective_genre_floor = floor_at_percentile(_dist[~np.isnan(_dist)], genre_admission_percentile)
         else:
             effective_genre_floor = min_genre_similarity
         logger.info(
@@ -696,7 +697,7 @@ def build_candidate_pool(
                     sonic_seed_sim=sonic_seed_sim,
                     sonic_floor=sonic_floor,
                     genre_sim_all=genre_sim_all,
-                    min_genre_similarity=min_genre_similarity,
+                    min_genre_similarity=effective_genre_floor,
                     genre_compatibility_result=genre_compatibility_result,
                     pool_set=pool_set,
                     eligible_set=eligible_set,
