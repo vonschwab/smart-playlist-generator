@@ -355,6 +355,7 @@ def generate_playlist_ds(
             X_sonic=embedding.X_sonic_for_embed,
             X_genre_raw=X_genre_raw if genre_gate is not None else None,
             X_genre_smoothed=X_genre_smoothed if genre_gate is not None else None,
+            X_genre_dense=getattr(bundle, "X_genre_dense", None) if genre_gate is not None else None,
             min_genre_similarity=genre_gate,
             genre_method=genre_method or "ensemble",
             genre_vocab=genre_vocab,

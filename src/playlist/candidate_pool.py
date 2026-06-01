@@ -186,6 +186,7 @@ def build_candidate_pool(
     # Genre gating (optional)
     X_genre_raw: Optional[np.ndarray] = None,  # (N, D_genre) binary genres
     X_genre_smoothed: Optional[np.ndarray] = None,  # (N, D_genre) float genres
+    X_genre_dense: Optional[np.ndarray] = None,  # (N, dim) L2-normalized dense embedding
     min_genre_similarity: Optional[float] = None,
     genre_method: str = "ensemble",
     genre_vocab: Optional[list[str]] = None,
@@ -352,7 +353,23 @@ def build_candidate_pool(
                 str(g) for g, keep in zip(genre_vocab_effective, genre_mask) if bool(keep)
             ]
 
-    if min_genre_similarity is not None and (X_genre_raw is not None or X_genre_smoothed is not None):
+    # Dense PMI-SVD path: when X_genre_dense is available, use it in preference to sparse methods
+    _use_dense = X_genre_dense is not None and min_genre_similarity is not None
+    if _use_dense:
+        # X_genre_dense rows are already L2-normalized; seed vec = average of seed rows
+        seed_dense = X_genre_dense[seed_list].mean(axis=0)
+        seed_dense_norm = np.linalg.norm(seed_dense)
+        if seed_dense_norm > 1e-12:
+            seed_dense = seed_dense / seed_dense_norm
+        genre_sim_all = (X_genre_dense @ seed_dense).astype(np.float64)
+        genre_sim_all = np.clip(genre_sim_all, 0.0, 1.0)
+        genre_sim_all[seed_idx] = 1.0
+        logger.info(
+            "Candidate pool genre gating: method=dense (PMI-SVD), dim=%d, min_threshold=%.3f, mode=%s",
+            X_genre_dense.shape[1], min_genre_similarity, mode,
+        )
+
+    elif min_genre_similarity is not None and (X_genre_raw is not None or X_genre_smoothed is not None):
         # Choose matrix based on method
         if genre_method == "weighted_jaccard" and genre_raw_matrix is not None:
             genre_matrix = genre_raw_matrix
