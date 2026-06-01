@@ -79,7 +79,8 @@ Thumbs.db
 .env.local
 
 # Local tooling artifacts
-.claude/
+.claude/*
+!.claude/skills/
 .worktrees/
 pytest_output.txt
 
