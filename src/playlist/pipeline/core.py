@@ -341,9 +341,10 @@ def generate_playlist_ds(
     X_genre_smoothed = embedding.X_genre_smoothed
 
     # Per-seed adaptive admission percentile (Task 4: genre-arc steering).
-    # Extracted from pier_bridge overrides; None (default) preserves legacy behavior exactly.
+    # Check both the base key and the mode-specific key (e.g. genre_admission_percentile_narrow)
+    # because resolve_pier_bridge_tuning isn't called until after the pool is built.
     _genre_admission_percentile: Optional[float] = None
-    _raw_pct = pb_overrides.get("genre_admission_percentile")
+    _raw_pct = pb_overrides.get("genre_admission_percentile") or pb_overrides.get(f"genre_admission_percentile_{mode}")
     if _raw_pct is not None:
         try:
             _genre_admission_percentile = float(_raw_pct)
