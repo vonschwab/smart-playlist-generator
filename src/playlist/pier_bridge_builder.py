@@ -285,6 +285,7 @@ def build_pier_bridge_playlist(
     artist_identity_cfg: Optional[ArtistIdentityConfig] = None,
     perceptual_bpm: Optional[np.ndarray] = None,
     tempo_stability_arr: Optional[np.ndarray] = None,
+    min_gap: int = 1,
 ) -> PierBridgeResult:
     """
     Build playlist using pier + bridge strategy.
@@ -646,9 +647,15 @@ def build_pier_bridge_playlist(
     segment_bridge_floors_used: list[float] = []
     segment_backoff_attempts_used: list[int] = []
 
-    # Boundary context tracking for cross-segment min_gap enforcement
-    # Tracks artist keys from the last min_gap positions of the concatenated result
-    MIN_GAP_GLOBAL = 1  # Cross-segment min_gap constraint
+    # Boundary context tracking for cross-segment min_gap enforcement.
+    # Each segment's beam enforces one-track-per-artist WITHIN the segment, but
+    # repeats across a segment boundary were previously only blocked 1 position
+    # back (hardcoded), so e.g. an artist at the end of segment N and the start of
+    # segment N+1 sat far closer than the configured min_gap. Use the resolved
+    # min_gap so the last `min_gap` placed artists are carried into the next
+    # segment's blocked set. Segments are typically <= min_gap long, so a flat
+    # block of the boundary window matches min_gap semantics without over-blocking.
+    MIN_GAP_GLOBAL = max(1, int(min_gap))  # Cross-segment min_gap constraint
     recent_boundary_artists: List[str] = []
     global_non_seed_artist_counts: Dict[str, int] = {}
 

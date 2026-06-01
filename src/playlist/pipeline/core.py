@@ -574,6 +574,7 @@ def generate_playlist_ds(
                     artist_identity_cfg=artist_identity_cfg,
                     perceptual_bpm=perceptual_bpm,
                     tempo_stability_arr=tempo_stability_bpm,
+                    min_gap=int(getattr(cfg.construct, "min_gap", 1) or 1),
                 )
 
             one_each_candidate_relaxation: Optional[Dict[str, Any]] = None
