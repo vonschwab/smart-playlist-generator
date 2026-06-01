@@ -1617,6 +1617,17 @@ def handle_build_artifacts(cmd_data: Dict[str, Any]) -> None:
         sidecar_path = build_genre_embedding_sidecar(output_path, skip_prior=True)
         emit_log("INFO", f"Rebuilt dense genre sidecar: {sidecar_path}")
 
+        # Invalidate the in-process bundle cache so the NEXT generation in this
+        # worker picks up the freshly-built artifact + sidecar. load_artifact_bundle
+        # is @lru_cache'd, so without this the worker keeps serving the stale bundle
+        # it loaded at startup (the rebuild would be invisible until a GUI restart).
+        try:
+            from src.features.artifacts import load_artifact_bundle
+            load_artifact_bundle.cache_clear()
+            emit_log("INFO", "Cleared artifact bundle cache; new artifact is live for this session")
+        except Exception as exc:  # pragma: no cover - defensive
+            emit_log("WARNING", f"Could not clear artifact bundle cache (restart GUI to pick up rebuild): {exc}")
+
         check_cancelled()
         emit_result("artifacts", {"output_path": output_path, "sidecar_path": str(sidecar_path)})
         summary = f"Built artifacts + genre embedding at {output_path}"
