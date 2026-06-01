@@ -56,6 +56,118 @@ def sidecar_path(artifact_path: Path, dim: int) -> Path:
     return artifact_path.parent / f"{artifact_path.stem}_genre_emb_dim{dim}.npz"
 
 
+def build_genre_embedding_sidecar(
+    artifact_path,
+    *,
+    dim: int = 64,
+    smoothing: float = 1.0,
+    random_state: int = 42,
+    skip_prior: bool = True,
+    provider: str = "dry-run",
+    model=None,
+    dry_run: bool = False,
+    alpha_at_zero: float = 0.9,
+    half_life: float = 25.0,
+    remove_top_components: int = 2,
+    idf_projection: bool = True,
+) -> Path:
+    """Train the PMI-SVD dense genre embedding for ``artifact_path`` and write
+    the sidecar NPZ that ``load_artifact_bundle`` picks up automatically.
+
+    ``skip_prior=True`` (the default) is corpus-only and makes NO API calls — the
+    safe default for automated rebuilds (GUI button, Analyze Library). Pass
+    ``skip_prior=False`` with a real ``provider`` only for the manual LLM-prior path.
+
+    Returns the sidecar path.
+    """
+    artifact_path = Path(artifact_path)
+    if not artifact_path.exists():
+        raise FileNotFoundError(f"Artifact not found: {artifact_path}")
+    out_path = sidecar_path(artifact_path, dim)
+
+    logger.info("Loading artifact: %s", artifact_path)
+    data = np.load(artifact_path, allow_pickle=True)
+    X_genre_raw: np.ndarray = data["X_genre_raw"]
+    genre_vocab: list[str] = [str(g) for g in data["genre_vocab"]]
+    track_ids: np.ndarray = data["track_ids"]
+    N, V = X_genre_raw.shape
+    logger.info("  %d tracks × %d genres", N, V)
+    if V < dim:
+        raise ValueError(f"vocab size {V} < dim {dim}; reduce dim")
+
+    logger.info(
+        "Training PMI-SVD (dim=%d, smoothing=%.2f, remove_top_components=%d) ...",
+        dim, smoothing, remove_top_components,
+    )
+    corpus_emb = train_pmi_svd(
+        X_genre_raw,
+        dim=dim,
+        smoothing=smoothing,
+        random_state=random_state,
+        remove_top_components=remove_top_components,
+    )  # (V, dim)
+
+    support = (X_genre_raw > 0).sum(axis=0).astype(np.int32)
+    if skip_prior:
+        genre_emb = corpus_emb
+    else:
+        use_dry_run = dry_run or provider == "dry-run"
+        llm_client = make_llm_client(
+            provider="dry-run" if use_dry_run else provider,
+            model=model,
+            dry_run=use_dry_run,
+        )
+        prior_cache = CACHE_DIR / f"llm_prior_{llm_client.provider}__{llm_client.model}_dim{dim}.json"
+        logger.info("Building LLM prior (provider=%s) ...", llm_client.provider)
+        prior_emb = build_llm_prior(
+            genre_vocab, corpus_emb, support, llm_client,
+            prior_cache, n_anchors=min(dim, V),
+        )
+        logger.info("Blending (alpha_at_zero=%.2f, half_life=%.0f) ...", alpha_at_zero, half_life)
+        genre_emb = blend_with_prior(
+            corpus_emb, prior_emb, support,
+            alpha_at_zero=alpha_at_zero,
+            half_life=half_life,
+        )
+
+    idf = None
+    if idf_projection:
+        idf = compute_genre_idf(X_genre_raw=X_genre_raw, power=1.0, norm="max1")
+        logger.info("IDF-weighting track projection (hub genres down-weighted)")
+    logger.info("Projecting %d tracks to %d-dim dense genre space ...", N, dim)
+    X_genre_dense = project_tracks(X_genre_raw, genre_emb, idf=idf)  # (N, dim)
+
+    coverage = int((X_genre_raw > 0).any(axis=1).sum())
+    logger.info("  Coverage: %d / %d tracks have at least one genre", coverage, N)
+
+    emb_config = {
+        "dim": dim,
+        "smoothing": smoothing,
+        "random_state": random_state,
+        "skip_prior": skip_prior,
+        "provider": "dry-run" if (dry_run or provider == "dry-run") else provider,
+        "alpha_at_zero": alpha_at_zero if not skip_prior else None,
+        "half_life": half_life if not skip_prior else None,
+        "remove_top_components": remove_top_components,
+        "idf_projection": idf_projection,
+        "artifact": str(artifact_path),
+        "vocab_size": V,
+        "n_tracks": N,
+    }
+
+    logger.info("Saving sidecar → %s", out_path)
+    np.savez(
+        out_path,
+        X_genre_dense=X_genre_dense,     # (N, dim) track embeddings
+        genre_emb=genre_emb,             # (V, dim) genre vocabulary embedding
+        genre_vocab=np.array(genre_vocab, dtype=object),  # (V,) for alignment check
+        track_ids=track_ids,             # (N,) for alignment check
+        emb_config=emb_config,
+    )
+    logger.info("Done. Sidecar: %s (%.1f MB)", out_path, out_path.stat().st_size / 1e6)
+    return out_path
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build PMI-SVD genre embedding sidecar")
     parser.add_argument("--artifact", type=Path, default=DEFAULT_ARTIFACT)
@@ -84,100 +196,24 @@ def main() -> int:
 
     configure_logging(level=args.log_level)
 
-    if not args.artifact.exists():
-        logger.error("Artifact not found: %s", args.artifact)
-        return 1
-
-    out_path = sidecar_path(args.artifact, args.dim)
-
-    # --- Load artifact ---
-    logger.info("Loading artifact: %s", args.artifact)
-    data = np.load(args.artifact, allow_pickle=True)
-    X_genre_raw: np.ndarray = data["X_genre_raw"]
-    genre_vocab: list[str] = [str(g) for g in data["genre_vocab"]]
-    track_ids: np.ndarray = data["track_ids"]
-    N, V = X_genre_raw.shape
-    logger.info("  %d tracks × %d genres", N, V)
-
-    if V < args.dim:
-        logger.error("vocab size %d < dim %d; reduce --dim", V, args.dim)
-        return 1
-
-    # --- Train PMI-SVD ---
-    logger.info(
-        "Training PMI-SVD (dim=%d, smoothing=%.2f, remove_top_components=%d) ...",
-        args.dim, args.smoothing, args.remove_top_components,
-    )
-    corpus_emb = train_pmi_svd(
-        X_genre_raw,
-        dim=args.dim,
-        smoothing=args.smoothing,
-        random_state=args.random_state,
-        remove_top_components=args.remove_top_components,
-    )  # (V, dim)
-
-    # --- LLM prior ---
-    support = (X_genre_raw > 0).sum(axis=0).astype(np.int32)
-
-    if args.skip_prior:
-        genre_emb = corpus_emb
-    else:
-        use_dry_run = args.dry_run or args.provider == "dry-run"
-        llm_client = make_llm_client(
-            provider="dry-run" if use_dry_run else args.provider,
+    try:
+        build_genre_embedding_sidecar(
+            args.artifact,
+            dim=args.dim,
+            smoothing=args.smoothing,
+            random_state=args.random_state,
+            skip_prior=args.skip_prior,
+            provider=args.provider,
             model=args.model,
-            dry_run=use_dry_run,
-        )
-        prior_cache = CACHE_DIR / f"llm_prior_{llm_client.provider}__{llm_client.model}_dim{args.dim}.json"
-        logger.info("Building LLM prior (provider=%s) ...", llm_client.provider)
-        prior_emb = build_llm_prior(
-            genre_vocab, corpus_emb, support, llm_client,
-            prior_cache, n_anchors=min(args.dim, V),
-        )
-        logger.info("Blending (alpha_at_zero=%.2f, half_life=%.0f) ...", args.alpha_at_zero, args.half_life)
-        genre_emb = blend_with_prior(
-            corpus_emb, prior_emb, support,
+            dry_run=args.dry_run,
             alpha_at_zero=args.alpha_at_zero,
             half_life=args.half_life,
+            remove_top_components=args.remove_top_components,
+            idf_projection=not args.no_idf_projection,
         )
-
-    # --- Project tracks ---
-    idf = None
-    if not args.no_idf_projection:
-        idf = compute_genre_idf(X_genre_raw=X_genre_raw, power=1.0, norm="max1")
-        logger.info("IDF-weighting track projection (hub genres down-weighted)")
-    logger.info("Projecting %d tracks to %d-dim dense genre space ...", N, args.dim)
-    X_genre_dense = project_tracks(X_genre_raw, genre_emb, idf=idf)  # (N, dim)
-
-    coverage = int((X_genre_raw > 0).any(axis=1).sum())
-    logger.info("  Coverage: %d / %d tracks have at least one genre", coverage, N)
-
-    # --- Save sidecar ---
-    emb_config = {
-        "dim": args.dim,
-        "smoothing": args.smoothing,
-        "random_state": args.random_state,
-        "skip_prior": args.skip_prior,
-        "provider": "dry-run" if (args.dry_run or args.provider == "dry-run") else args.provider,
-        "alpha_at_zero": args.alpha_at_zero if not args.skip_prior else None,
-        "half_life": args.half_life if not args.skip_prior else None,
-        "remove_top_components": args.remove_top_components,
-        "idf_projection": not args.no_idf_projection,
-        "artifact": str(args.artifact),
-        "vocab_size": V,
-        "n_tracks": N,
-    }
-
-    logger.info("Saving sidecar → %s", out_path)
-    np.savez(
-        out_path,
-        X_genre_dense=X_genre_dense,     # (N, dim) track embeddings
-        genre_emb=genre_emb,             # (V, dim) genre vocabulary embedding
-        genre_vocab=np.array(genre_vocab, dtype=object),  # (V,) for alignment check
-        track_ids=track_ids,             # (N,) for alignment check
-        emb_config=emb_config,
-    )
-    logger.info("Done. Sidecar: %s (%.1f MB)", out_path, out_path.stat().st_size / 1e6)
+    except (FileNotFoundError, ValueError) as exc:
+        logger.error(str(exc))
+        return 1
     return 0
 
 

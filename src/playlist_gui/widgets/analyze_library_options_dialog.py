@@ -28,7 +28,7 @@ from src.playlist.request_models import (
 PRESET_STAGES: dict[str, list[str]] = {
     "Full Analyze": list(ANALYZE_LIBRARY_STAGE_ORDER),
     "Quick Verify": ["verify"],
-    "Rebuild Sonic + Artifacts": ["sonic", "genre-sim", "artifacts", "verify"],
+    "Rebuild Sonic + Artifacts": ["sonic", "genre-sim", "artifacts", "genre-embedding", "verify"],
     "Custom": list(ANALYZE_LIBRARY_STAGE_ORDER),
 }
 

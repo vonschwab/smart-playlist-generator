@@ -38,11 +38,11 @@ def test_analyze_library_options_dialog_builds_custom_request(qtbot):
 
     request = dialog.build_request("config.yaml", {})
 
-    assert request.stages == ["sonic", "genre-sim", "artifacts"]
+    assert request.stages == ["sonic", "genre-sim", "artifacts", "genre-embedding"]
     assert request.force is True
     assert request.dry_run is True
     assert dialog._stages_group.isVisibleTo(dialog) is True
-    assert "Will run: Update sonic features -> Build genre similarity -> Build DS artifacts" in dialog._preview_label.text()
+    assert "Will run: Update sonic features -> Build genre similarity -> Build DS artifacts -> Build genre embedding" in dialog._preview_label.text()
     assert "Options: force rebuild, dry run" in dialog._preview_label.text()
 
 

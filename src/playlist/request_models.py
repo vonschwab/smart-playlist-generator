@@ -23,6 +23,7 @@ AnalyzeLibraryStage = Literal[
     "sonic",
     "genre-sim",
     "artifacts",
+    "genre-embedding",
     "verify",
 ]
 
@@ -33,6 +34,7 @@ ANALYZE_LIBRARY_STAGE_ORDER: tuple[AnalyzeLibraryStage, ...] = (
     "sonic",
     "genre-sim",
     "artifacts",
+    "genre-embedding",
     "verify",
 )
 

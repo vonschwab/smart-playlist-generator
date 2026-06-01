@@ -1607,8 +1607,19 @@ def handle_build_artifacts(cmd_data: Dict[str, Any]) -> None:
         build_artifacts(args)
 
         check_cancelled()
-        emit_result("artifacts", {"output_path": output_path})
-        summary = f"Built artifacts at {output_path}"
+
+        # Rebuild the dense genre embedding sidecar so the new genre system stays in
+        # sync with the freshly-built artifact. Without this the sidecar goes stale
+        # (its X_genre_dense reflects the OLD genres) and load_artifact_bundle either
+        # silently serves stale dense vectors or drops dense steering entirely.
+        emit_progress("artifacts", 80, 100, "Building genre embedding sidecar")
+        from scripts.build_genre_embedding import build_genre_embedding_sidecar
+        sidecar_path = build_genre_embedding_sidecar(output_path, skip_prior=True)
+        emit_log("INFO", f"Rebuilt dense genre sidecar: {sidecar_path}")
+
+        check_cancelled()
+        emit_result("artifacts", {"output_path": output_path, "sidecar_path": str(sidecar_path)})
+        summary = f"Built artifacts + genre embedding at {output_path}"
         emit_done("build_artifacts", True, summary, summary=summary)
 
     except CancellationError:
