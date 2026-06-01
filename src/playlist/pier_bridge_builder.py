@@ -122,7 +122,11 @@ from src.playlist.pier_bridge.pool import (  # noqa: F401  (re-exported for test
 from src.playlist.pier_bridge.genre_targets import (  # noqa: F401  (re-exported for tests/back-compat)
     _build_genre_targets,
     _fallback_genre_vector,
+    build_dense_genre_targets,
 )
+
+# Genre-arc steering: distribution-relative floor relaxation.
+from src.playlist.pier_bridge.percentiles import relax_percentile
 
 # Tier-3.1 PR-8: beam search engine + duration penalty.
 from src.playlist.pier_bridge.beam import (  # noqa: F401  (re-exported for tests/back-compat)
@@ -536,6 +540,19 @@ def build_pier_bridge_playlist(
                         "message": "Genre ladder disabled; similarity graph unavailable.",
                     })
 
+    # Genre-arc steering: build the niche genre graph ONCE per run from the dense
+    # genre embedding (distinct from the hand-curated YAML graph above). Used to
+    # route dense per-segment g_targets when steering is enabled.
+    genre_graph_arc: Optional[dict[str, list[tuple[str, float]]]] = None
+    if bool(cfg.genre_steering_enabled) and getattr(bundle, "genre_emb", None) is not None and getattr(bundle, "genre_vocab", None) is not None:
+        from src.playlist.pier_bridge.genre_graph import build_genre_graph
+        genre_graph_arc = build_genre_graph(
+            bundle.genre_emb, bundle.genre_vocab,
+            k=int(getattr(cfg, "dj_ladder_top_labels", 8) or 8),
+            min_cos=float(getattr(cfg, "dj_ladder_min_similarity", 0.35) or 0.35),
+            hub_labels={"rock", "indie", "alternative", "pop", "indie rock", "electronic"},
+        )
+
     # Precompute allowed indices set if caller passed allowed_track_ids_set.
     # (In style-aware runs, the bundle is often already restricted, but this still
     # acts as a hard gate for candidate admission inside pier-bridge.)
@@ -729,13 +746,13 @@ def build_pier_bridge_playlist(
         seg_idx: int,
         recent_boundary_artists: Optional[List[str]],
         transition_floor_override: Optional[float] = None,
-        genre_arc_floor_override: Optional[float] = None,
+        genre_arc_floor_percentile_override: Optional[float] = None,
     ) -> dict[str, Any]:
         cfg = cfg_attempt_base
         if transition_floor_override is not None:
             cfg = replace(cfg, transition_floor=float(transition_floor_override))
-        if genre_arc_floor_override is not None:
-            cfg = replace(cfg, genre_arc_floor=float(genre_arc_floor_override))
+        if genre_arc_floor_percentile_override is not None:
+            cfg = replace(cfg, genre_arc_floor_percentile=float(genre_arc_floor_percentile_override))
         segment_path: Optional[List[int]] = None
         chosen_bridge_floor = float(cfg.bridge_floor)
         backoff_attempts = _bridge_floor_attempts(float(cfg.bridge_floor))
@@ -1364,6 +1381,28 @@ def build_pier_bridge_playlist(
                     segment_is_far = True
                 if scarcity is not None and float(scarcity) < float(cfg.dj_far_threshold_connector_scarcity):
                     segment_is_far = True
+
+        # Genre-arc steering: when enabled, override the per-segment genre targets
+        # with dense (linear/ladder) g_targets routed in the dense genre space.
+        # These feed the beam's first-class arc vote via g_targets_override.
+        if bool(cfg.genre_steering_enabled) and getattr(bundle, "X_genre_dense", None) is not None:
+            labels_a = _select_top_genre_labels(
+                bundle.X_genre_raw[pier_a], bundle.genre_vocab,
+                top_n=int(cfg.dj_ladder_top_labels), min_weight=float(cfg.dj_ladder_min_label_weight),
+            ) if getattr(bundle, "genre_vocab", None) is not None else None
+            labels_b = _select_top_genre_labels(
+                bundle.X_genre_raw[pier_b], bundle.genre_vocab,
+                top_n=int(cfg.dj_ladder_top_labels), min_weight=float(cfg.dj_ladder_min_label_weight),
+            ) if getattr(bundle, "genre_vocab", None) is not None else None
+            segment_g_targets = build_dense_genre_targets(
+                bundle.X_genre_dense[pier_a], bundle.X_genre_dense[pier_b],
+                interior_length=interior_len, route=str(cfg.dj_route_shape or "linear"),
+                genre_emb=getattr(bundle, "genre_emb", None),
+                genre_vocab=list(bundle.genre_vocab) if getattr(bundle, "genre_vocab", None) is not None else None,
+                genre_graph=genre_graph_arc, labels_a=labels_a, labels_b=labels_b,
+                max_steps=int(cfg.dj_ladder_max_steps),
+            )
+
         segment_allow_detours = bool(cfg.dj_allow_detours_when_far) and segment_is_far
 
         relaxation_enabled = (
@@ -1493,16 +1532,17 @@ def build_pier_bridge_playlist(
                     break
 
         # Genre-arc-floor relaxation tier: if the transition-floor tier still
-        # could not build the segment, progressively lower genre_arc_floor toward
-        # infeasible_handling.min_genre_arc_percentile so genre-sparse seeds don't go
-        # infeasible. Gated on steering + infeasible_handling + genre_arc_relaxation.
+        # could not build the segment, progressively lower the genre-arc floor
+        # percentile toward infeasible_handling.min_genre_arc_percentile so
+        # genre-sparse seeds don't go infeasible. Gated on steering +
+        # infeasible_handling + genre_arc_relaxation.
         if segment_path is None and bool(getattr(cfg_base, "genre_steering_enabled", False)) \
            and infeasible_handling and infeasible_handling.enabled \
            and infeasible_handling.genre_arc_relaxation_enabled:
-            _gfloors = _genre_floor_attempts(
-                float(cfg_base.genre_arc_floor),
+            _gfloors = relax_percentile(
+                float(cfg_base.genre_arc_floor_percentile),
                 float(infeasible_handling.min_genre_arc_percentile),
-                bool(infeasible_handling.genre_arc_relaxation_enabled),
+                step=0.15,
             )
             for _gf in _gfloors[1:]:  # first value already tried in the relax loop above
                 for _relax in relaxation_attempts:
@@ -1517,7 +1557,7 @@ def build_pier_bridge_playlist(
                         pier_b_id=pier_b_id,
                         seg_idx=seg_idx,
                         recent_boundary_artists=_recent_artists_for_segment(seg_idx),
-                        genre_arc_floor_override=float(_gf),
+                        genre_arc_floor_percentile_override=float(_gf),
                     )
                     if _g_result["segment_path"] is not None:
                         segment_path = _g_result["segment_path"]
