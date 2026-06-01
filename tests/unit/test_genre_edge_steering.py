@@ -25,7 +25,7 @@ def test_beam_floor_rejects_off_genre_candidate():
     Xn, dense = _diag4()
     cfg = PierBridgeConfig(
         bridge_floor=-1.0, transition_floor=-1.0, progress_enabled=False,
-        genre_steering_enabled=True, weight_genre=0.2, genre_edge_floor=0.5,
+        genre_steering_enabled=True, weight_genre=0.2, genre_arc_floor=0.5,
         weight_bridge=0.5, weight_transition=0.3,
     )
     path, _h, _e, err = _beam_search_segment(
@@ -41,7 +41,7 @@ def test_beam_steering_prefers_higher_genre_when_sonic_tied():
     # No floor (0.0) so cand 2 is allowed; steering weight should still rank cand 1 first.
     cfg = PierBridgeConfig(
         bridge_floor=-1.0, transition_floor=-1.0, progress_enabled=False,
-        genre_steering_enabled=True, weight_genre=0.3, genre_edge_floor=0.0,
+        genre_steering_enabled=True, weight_genre=0.3, genre_arc_floor=0.0,
         weight_bridge=0.4, weight_transition=0.3,
     )
     path, _h, _e, err = _beam_search_segment(
@@ -72,7 +72,7 @@ def test_tuning_genre_steering_defaults_off():
     t, _ = resolve_pier_bridge_tuning(mode="narrow", similarity_floor=0.35, overrides=None)
     assert t.genre_steering_enabled is False
     assert t.weight_genre == 0.0
-    assert t.genre_edge_floor == 0.0
+    assert t.genre_arc_floor == 0.0
     # Legacy narrow weights unchanged when steering off
     assert abs(t.weight_bridge - 0.7) < 1e-6
     assert abs(t.weight_transition - 0.3) < 1e-6
@@ -84,13 +84,13 @@ def test_tuning_genre_steering_renormalizes_weights():
         "pier_bridge": {
             "genre_steering_enabled": True,
             "weight_genre_narrow": 0.20,
-            "genre_edge_floor_narrow": 0.40,
+            "genre_arc_floor_narrow": 0.40,
             # leave bridge/transition at narrow defaults 0.7/0.3
         }
     }
     t, _ = resolve_pier_bridge_tuning(mode="narrow", similarity_floor=0.35, overrides=overrides)
     assert t.genre_steering_enabled is True
-    assert abs(t.genre_edge_floor - 0.40) < 1e-6
+    assert abs(t.genre_arc_floor - 0.40) < 1e-6
     total = t.weight_bridge + t.weight_transition + t.weight_genre
     assert abs(total - 1.0) < 1e-6
     # genre share is 0.20 / 1.20
@@ -114,7 +114,7 @@ def test_beam_genreless_endpoint_skips_floor():
     dense[1] = 0.0  # candidate 1 is genreless (zero dense vector)
     cfg = PierBridgeConfig(
         bridge_floor=-1.0, transition_floor=-1.0, progress_enabled=False,
-        genre_steering_enabled=True, weight_genre=0.2, genre_edge_floor=0.9,  # high floor
+        genre_steering_enabled=True, weight_genre=0.2, genre_arc_floor=0.9,  # high floor
         weight_bridge=0.5, weight_transition=0.3,
     )
     # Only candidate 1 (genreless) offered; high floor must NOT reject it.
@@ -129,18 +129,18 @@ def test_beam_genreless_endpoint_skips_floor():
 def test_infeasible_handling_genre_floor_fields_default():
     from src.playlist.run_audit import InfeasibleHandlingConfig, parse_infeasible_handling_config
     cfg = InfeasibleHandlingConfig()
-    assert cfg.genre_floor_relaxation_enabled is True
-    assert cfg.min_genre_edge_floor == 0.0
+    assert cfg.genre_arc_relaxation_enabled is True
+    assert cfg.min_genre_arc_percentile == 0.5
     parsed = parse_infeasible_handling_config({
-        "enabled": True, "min_genre_edge_floor": 0.15, "genre_floor_relaxation_enabled": False,
+        "enabled": True, "min_genre_arc_percentile": 0.15, "genre_arc_relaxation_enabled": False,
     })
-    assert parsed.genre_floor_relaxation_enabled is False
-    assert abs(parsed.min_genre_edge_floor - 0.15) < 1e-6
+    assert parsed.genre_arc_relaxation_enabled is False
+    assert abs(parsed.min_genre_arc_percentile - 0.15) < 1e-6
 
 
 def test_genre_floor_attempts_steps_down():
     # The relaxation helper should produce a descending sequence from the initial
-    # floor toward min_genre_edge_floor when relaxation is enabled.
+    # floor toward min_genre_arc_percentile when relaxation is enabled.
     from src.playlist.pier_bridge_builder import _genre_floor_attempts
     attempts = _genre_floor_attempts(initial=0.40, minimum=0.10, enabled=True)
     assert attempts[0] == 0.40
@@ -164,3 +164,18 @@ def test_per_seed_admission_floor_adapts_to_density():
     f_dense = floor_at_percentile(s_dense, 0.90)
     # both admit ~top 10%, but the absolute floor differs by neighborhood density
     assert f_dense >= f_sparse
+
+
+def test_arc_knobs_resolve():
+    overrides = {"pier_bridge": {
+        "genre_steering_enabled": True,
+        "weight_genre_narrow": 0.20,
+        "genre_arc_floor_percentile_narrow": 0.85,
+        "genre_admission_percentile_narrow": 0.90,
+        "dj_route_shape": "ladder",
+    }}
+    from src.playlist.config import resolve_pier_bridge_tuning
+    t, _ = resolve_pier_bridge_tuning(mode="narrow", similarity_floor=0.35, overrides=overrides)
+    assert t.genre_steering_enabled is True
+    assert abs(t.genre_arc_floor_percentile - 0.85) < 1e-9
+    assert abs(t.genre_admission_percentile - 0.90) < 1e-9

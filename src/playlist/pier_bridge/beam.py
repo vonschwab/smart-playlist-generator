@@ -1001,7 +1001,7 @@ def _beam_search_segment(
                 if _steering:
                     if genre_sim is not None and math.isfinite(genre_sim) and _both_present:
                         # Hard floor (safeguard): reject egregiously off-genre edges.
-                        if genre_sim < cfg.genre_edge_floor:
+                        if genre_sim < cfg.genre_arc_floor:
                             continue
                         # Steering: genre as a first-class (renormalized) edge weight.
                         if cfg.weight_genre > 0.0:
@@ -1443,7 +1443,7 @@ def _beam_search_segment(
                     and bool(genre_present[int(pier_b)]))
             )
             if genre_sim is not None and math.isfinite(genre_sim) and _both_present_final:
-                if genre_sim < cfg.genre_edge_floor:
+                if genre_sim < cfg.genre_arc_floor:
                     continue  # this beam state cannot legally connect to pier_b
                 if cfg.weight_genre > 0.0:
                     final_edge_score += float(cfg.weight_genre) * genre_sim

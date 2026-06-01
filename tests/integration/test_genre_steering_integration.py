@@ -41,7 +41,7 @@ def test_smiths_edge_genre_coherence_improves_with_steering():
                                    overrides={"pier_bridge": {
                                        "genre_steering_enabled": True,
                                        "weight_genre_narrow": 0.20,
-                                       "genre_edge_floor_narrow": 0.40,
+                                       "genre_arc_floor_narrow": 0.40,
                                    }})
     g_base = _mean_edge_genre(bundle, base.track_ids)
     g_steer = _mean_edge_genre(bundle, steered.track_ids)
@@ -58,10 +58,10 @@ def test_charli_narrow_still_feasible_with_steering_and_relaxation():
                                overrides={"pier_bridge": {
                                    "genre_steering_enabled": True,
                                    "weight_genre_narrow": 0.20,
-                                   "genre_edge_floor_narrow": 0.40,
+                                   "genre_arc_floor_narrow": 0.40,
                                    "infeasible_handling": {
                                        "enabled": True,
-                                       "genre_floor_relaxation_enabled": True,
-                                       "min_genre_edge_floor": 0.0,
+                                       "genre_arc_relaxation_enabled": True,
+                                       "min_genre_arc_percentile": 0.0,
                                    }}})
     assert res is not None and len(res.track_ids) >= 30

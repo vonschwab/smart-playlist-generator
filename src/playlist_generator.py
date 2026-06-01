@@ -2587,7 +2587,9 @@ class PlaylistGenerator:
                     genre_penalty_strength=float(pb_tuning["genre_penalty_strength"]),
                     genre_steering_enabled=bool(pb_tuning.get("genre_steering_enabled", False)),
                     weight_genre=float(pb_tuning.get("weight_genre", 0.0)),
-                    genre_edge_floor=float(pb_tuning.get("genre_edge_floor", 0.0)),
+                    genre_arc_floor=float(pb_tuning.get("genre_arc_floor", 0.0)),
+                    genre_arc_floor_percentile=float(pb_tuning.get("genre_arc_floor_percentile", 0.0)),
+                    genre_admission_percentile=float(pb_tuning.get("genre_admission_percentile", 0.0)),
                 )
 
                 using_artist_style = True
@@ -3459,7 +3461,9 @@ class PlaylistGenerator:
                         genre_penalty_strength=float(pb_tuning["genre_penalty_strength"]),
                         genre_steering_enabled=bool(pb_tuning.get("genre_steering_enabled", False)),
                         weight_genre=float(pb_tuning.get("weight_genre", 0.0)),
-                        genre_edge_floor=float(pb_tuning.get("genre_edge_floor", 0.0)),
+                        genre_arc_floor=float(pb_tuning.get("genre_arc_floor", 0.0)),
+                        genre_arc_floor_percentile=float(pb_tuning.get("genre_arc_floor_percentile", 0.0)),
+                        genre_admission_percentile=float(pb_tuning.get("genre_admission_percentile", 0.0)),
                     )
                     using_artist_style = True
                     pool_source = "artist_style"

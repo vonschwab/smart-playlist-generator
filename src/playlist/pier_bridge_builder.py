@@ -729,13 +729,13 @@ def build_pier_bridge_playlist(
         seg_idx: int,
         recent_boundary_artists: Optional[List[str]],
         transition_floor_override: Optional[float] = None,
-        genre_edge_floor_override: Optional[float] = None,
+        genre_arc_floor_override: Optional[float] = None,
     ) -> dict[str, Any]:
         cfg = cfg_attempt_base
         if transition_floor_override is not None:
             cfg = replace(cfg, transition_floor=float(transition_floor_override))
-        if genre_edge_floor_override is not None:
-            cfg = replace(cfg, genre_edge_floor=float(genre_edge_floor_override))
+        if genre_arc_floor_override is not None:
+            cfg = replace(cfg, genre_arc_floor=float(genre_arc_floor_override))
         segment_path: Optional[List[int]] = None
         chosen_bridge_floor = float(cfg.bridge_floor)
         backoff_attempts = _bridge_floor_attempts(float(cfg.bridge_floor))
@@ -1492,17 +1492,17 @@ def build_pier_bridge_playlist(
                 if segment_path is not None:
                     break
 
-        # Genre-edge-floor relaxation tier: if the transition-floor tier still
-        # could not build the segment, progressively lower genre_edge_floor toward
-        # infeasible_handling.min_genre_edge_floor so genre-sparse seeds don't go
-        # infeasible. Gated on steering + infeasible_handling + genre_floor_relaxation.
+        # Genre-arc-floor relaxation tier: if the transition-floor tier still
+        # could not build the segment, progressively lower genre_arc_floor toward
+        # infeasible_handling.min_genre_arc_percentile so genre-sparse seeds don't go
+        # infeasible. Gated on steering + infeasible_handling + genre_arc_relaxation.
         if segment_path is None and bool(getattr(cfg_base, "genre_steering_enabled", False)) \
            and infeasible_handling and infeasible_handling.enabled \
-           and infeasible_handling.genre_floor_relaxation_enabled:
+           and infeasible_handling.genre_arc_relaxation_enabled:
             _gfloors = _genre_floor_attempts(
-                float(cfg_base.genre_edge_floor),
-                float(infeasible_handling.min_genre_edge_floor),
-                bool(infeasible_handling.genre_floor_relaxation_enabled),
+                float(cfg_base.genre_arc_floor),
+                float(infeasible_handling.min_genre_arc_percentile),
+                bool(infeasible_handling.genre_arc_relaxation_enabled),
             )
             for _gf in _gfloors[1:]:  # first value already tried in the relax loop above
                 for _relax in relaxation_attempts:
@@ -1517,7 +1517,7 @@ def build_pier_bridge_playlist(
                         pier_b_id=pier_b_id,
                         seg_idx=seg_idx,
                         recent_boundary_artists=_recent_artists_for_segment(seg_idx),
-                        genre_edge_floor_override=float(_gf),
+                        genre_arc_floor_override=float(_gf),
                     )
                     if _g_result["segment_path"] is not None:
                         segment_path = _g_result["segment_path"]

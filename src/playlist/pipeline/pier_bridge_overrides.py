@@ -106,7 +106,9 @@ def apply_pier_bridge_overrides(
         genre_penalty_strength=float(tuning.genre_penalty_strength),
         genre_steering_enabled=bool(tuning.genre_steering_enabled),
         weight_genre=float(tuning.weight_genre),
-        genre_edge_floor=float(tuning.genre_edge_floor),
+        genre_arc_floor=float(tuning.genre_arc_floor),
+        genre_arc_floor_percentile=float(tuning.genre_arc_floor_percentile),
+        genre_admission_percentile=float(tuning.genre_admission_percentile),
     )
     if isinstance(pb_overrides.get("pace_bridge_floor"), (int, float)):
         pb_cfg = replace(pb_cfg, pace_bridge_floor=float(pb_overrides.get("pace_bridge_floor")))
