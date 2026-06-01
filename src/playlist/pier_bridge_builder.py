@@ -304,6 +304,15 @@ def build_pier_bridge_playlist(
     """
     if cfg is None:
         cfg = PierBridgeConfig()
+    # Genre steering supersedes the older dj_bridging waypoint system. They are two
+    # overlapping genre-arc implementations (dense 64-dim arc vote vs. 893-dim waypoint
+    # pooling) and were never meant to run together. When steering is on, force
+    # dj_bridging off so only the steering path drives genre routing.
+    if bool(cfg.genre_steering_enabled) and bool(cfg.dj_bridging_enabled):
+        logger.info(
+            "genre_steering_enabled=True supersedes dj_bridging_enabled; disabling dj_bridging for this run."
+        )
+        cfg = replace(cfg, dj_bridging_enabled=False)
     if infeasible_handling is None:
         infeasible_handling = InfeasibleHandlingConfig()
     if audit_config is None:
