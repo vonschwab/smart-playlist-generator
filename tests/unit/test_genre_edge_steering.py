@@ -144,17 +144,6 @@ def test_infeasible_handling_genre_floor_fields_default():
     assert abs(parsed.min_genre_arc_percentile - 0.15) < 1e-6
 
 
-def test_genre_floor_attempts_steps_down():
-    # The relaxation helper should produce a descending sequence from the initial
-    # floor toward min_genre_arc_percentile when relaxation is enabled.
-    from src.playlist.pier_bridge_builder import _genre_floor_attempts
-    attempts = _genre_floor_attempts(initial=0.40, minimum=0.10, enabled=True)
-    assert attempts[0] == 0.40
-    assert attempts[-1] <= 0.10 + 1e-9
-    assert all(attempts[i] >= attempts[i + 1] for i in range(len(attempts) - 1))
-    # Disabled -> only the initial floor.
-    assert _genre_floor_attempts(initial=0.40, minimum=0.10, enabled=False) == [0.40]
-
 
 def test_per_seed_admission_floor_adapts_to_density():
     # This guards the *helper contract* candidate_pool will use: floor derived

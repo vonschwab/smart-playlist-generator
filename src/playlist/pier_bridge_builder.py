@@ -264,20 +264,6 @@ def _enforce_min_gap_global(
     return output, dropped
 
 
-def _genre_floor_attempts(initial: float, minimum: float, enabled: bool) -> list[float]:
-    """Pure helper that builds the descending genre-edge-floor sequence (initial -> minimum, step 0.10).
-    Used by the genre-floor relaxation tier; also directly unit-tested."""
-    if not enabled or minimum >= initial - 1e-9:
-        return [float(initial)]
-    attempts = [float(initial)]
-    cur = round(float(initial) - 0.10, 2)
-    while cur > minimum + 1e-9 and len(attempts) < 5:
-        attempts.append(cur)
-        cur = round(cur - 0.10, 2)
-    if not any(abs(a - minimum) < 1e-9 for a in attempts):
-        attempts.append(float(minimum))
-    return attempts
-
 
 def build_pier_bridge_playlist(
     *,
