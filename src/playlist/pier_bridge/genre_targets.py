@@ -376,3 +376,68 @@ def _build_genre_targets(
             g = _normalize_vec(g)
         g_targets.append(g)
     return g_targets
+
+
+def build_dense_genre_targets(
+    dense_a: np.ndarray,
+    dense_b: np.ndarray,
+    *,
+    interior_length: int,
+    route: str,
+    genre_emb: Optional[np.ndarray],
+    genre_vocab: Optional[list[str]],
+    genre_graph: Optional[dict[str, list[tuple[str, float]]]],
+    labels_a: Optional[list[str]],
+    labels_b: Optional[list[str]],
+    max_steps: int = 6,
+) -> list[np.ndarray]:
+    """Per-step dense genre targets from dense_a -> dense_b.
+
+    route='linear': interpolate the two dense pier vectors directly.
+    route='ladder': walk a shortest niche path (genre_graph) and interpolate the
+        path's dense rung vectors (genre_emb rows). Falls back to linear when a
+        path / vocab / graph is unavailable.
+    """
+    route = (route or "linear").strip().lower()
+    na = dense_a / max(float(np.linalg.norm(dense_a)), 1e-12)
+    nb = dense_b / max(float(np.linalg.norm(dense_b)), 1e-12)
+
+    rung_vecs: Optional[list[np.ndarray]] = None
+    if route == "ladder" and genre_graph and genre_emb is not None and genre_vocab and labels_a and labels_b:
+        vocab_index = {str(g).strip().lower(): i for i, g in enumerate(genre_vocab)}
+        path = None
+        for la in labels_a:
+            for lb in labels_b:
+                path = _shortest_genre_path(genre_graph, la, lb, max_steps=int(max_steps))
+                if path:
+                    break
+            if path:
+                break
+        if path and len(path) >= 2:
+            vecs = []
+            for lab in path:
+                j = vocab_index.get(str(lab).strip().lower())
+                if j is not None:
+                    vecs.append(_normalize_vec(np.asarray(genre_emb[j], dtype=np.float64)))
+            if len(vecs) >= 2:
+                rung_vecs = vecs
+
+    targets: list[np.ndarray] = []
+    if rung_vecs is not None:
+        # interpolate along the rung sequence
+        for i in range(int(interior_length)):
+            frac = _step_fraction(i, int(interior_length))
+            scaled = frac * float(len(rung_vecs) - 1)
+            idx = int(math.floor(scaled))
+            if idx >= len(rung_vecs) - 1:
+                targets.append(rung_vecs[-1])
+            else:
+                local = scaled - float(idx)
+                targets.append(_normalize_vec((1.0 - local) * rung_vecs[idx] + local * rung_vecs[idx + 1]))
+        return targets
+
+    # linear (fallback)
+    for i in range(int(interior_length)):
+        frac = _progress_target_curve(i, int(interior_length), "arc") if route == "arc" else _step_fraction(i, int(interior_length))
+        targets.append(_normalize_vec((1.0 - frac) * na + frac * nb))
+    return targets
