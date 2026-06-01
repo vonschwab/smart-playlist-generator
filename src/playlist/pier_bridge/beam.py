@@ -385,6 +385,12 @@ def _beam_search_segment(
     arc_g_targets: Optional[List[np.ndarray]] = None
     if _steering_cfg and g_targets_override is not None and len(g_targets_override) == int(interior_length):
         arc_g_targets = g_targets_override
+    if _steering_cfg and arc_g_targets is None:
+        logger.warning(
+            "genre_steering_enabled but no usable g_targets (interior_length=%d) — "
+            "genre arc inactive for this segment",
+            int(interior_length),
+        )
     arc_floor_percentile = float(cfg.genre_arc_floor_percentile)
     if not math.isfinite(arc_floor_percentile):
         arc_floor_percentile = 0.0
@@ -1025,7 +1031,7 @@ def _beam_search_segment(
                             combined_score -= progress_arc_max_step_penalty * (step_jump - float(progress_arc_max_step))
 
                 genre_sim = None
-                if X_genre_for_sim is not None:
+                if X_genre_for_sim is not None and not _steering:
                     genre_sim = _get_genre_sim(int(current), int(cand))
                 if _steering:
                     # Genre ARC vote (first-class): closeness to this step's g_target,
@@ -1201,7 +1207,7 @@ def _beam_search_segment(
                 for cand, cand_t, base_score, dest_pull, genre_sim, waypoint_sim, trans_score, edge_metric_tb in cand_entries:
                     base_score_for_rank = float(base_score)
                     combined_score = float(base_score)
-                    if genre_sim is not None and math.isfinite(genre_sim):
+                    if (not _steering) and genre_sim is not None and math.isfinite(genre_sim):
                         if genre_tie_break_band is not None:
                             if (best_score - combined_score) <= float(genre_tie_break_band):
                                 if penalty_strength > 0 and genre_sim < penalty_threshold:
