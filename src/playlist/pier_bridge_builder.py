@@ -724,6 +724,7 @@ def build_pier_bridge_playlist(
         cfg_attempt_base: PierBridgeConfig,
         segment_allow_detours: bool,
         segment_g_targets: Optional[list[np.ndarray]],
+        segment_g_targets_dense: Optional[list[np.ndarray]] = None,
         pier_a: int,
         pier_b: int,
         interior_len: int,
@@ -1145,7 +1146,15 @@ def build_pier_bridge_playlist(
                         bundle=bundle,
                         arc_stats=arc_stats_segment,
                         genre_cache_stats=genre_cache_stats_segment,
-                        g_targets_override=segment_g_targets,
+                        # Beam arc vote uses the 64-dim dense targets when steering is on;
+                        # falls back to the 893-dim dj-bridging targets otherwise. Keeping
+                        # these separate from the pooling's genre_targets prevents a
+                        # 893-vs-64 dimension crash when both systems are enabled.
+                        g_targets_override=(
+                            segment_g_targets_dense
+                            if segment_g_targets_dense is not None
+                            else segment_g_targets
+                        ),
                         waypoint_stats=waypoint_stats_segment,
                         local_sonic_stats=local_sonic_stats_segment,
                         edge_components_out=_edge_components_buf,
@@ -1327,6 +1336,7 @@ def build_pier_bridge_playlist(
                    seg_idx, pier_a_id, pier_b_id, interior_len)
 
         segment_g_targets: Optional[list[np.ndarray]] = None
+        segment_g_targets_dense: Optional[list[np.ndarray]] = None
         segment_ladder_diag: dict[str, Any] = {}
         segment_far_stats: Optional[dict[str, Optional[float]]] = None
         segment_is_far = False
@@ -1368,9 +1378,13 @@ def build_pier_bridge_playlist(
                 if scarcity is not None and float(scarcity) < float(cfg.dj_far_threshold_connector_scarcity):
                     segment_is_far = True
 
-        # Genre-arc steering: when enabled, override the per-segment genre targets
-        # with dense (linear/ladder) g_targets routed in the dense genre space.
-        # These feed the beam's first-class arc vote via g_targets_override.
+        # Genre-arc steering: when enabled, build dense (linear/ladder) g_targets routed
+        # in the dense genre space. These feed ONLY the beam's first-class arc vote
+        # (via g_targets_override, which scores against the 64-dim X_genre_dense). They
+        # are kept in a SEPARATE variable from segment_g_targets, which the dj-bridging
+        # vector-mode pooling consumes against the 893-dim X_genre_norm. Overwriting
+        # segment_g_targets with the 64-dim dense vectors crashes the pooling's genre
+        # scoring when dj_bridging and genre_steering are both enabled.
         if bool(cfg.genre_steering_enabled) and getattr(bundle, "X_genre_dense", None) is not None:
             labels_a = _select_top_genre_labels(
                 bundle.X_genre_raw[pier_a], bundle.genre_vocab,
@@ -1380,7 +1394,7 @@ def build_pier_bridge_playlist(
                 bundle.X_genre_raw[pier_b], bundle.genre_vocab,
                 top_n=int(cfg.dj_ladder_top_labels), min_weight=float(cfg.dj_ladder_min_label_weight),
             ) if getattr(bundle, "genre_vocab", None) is not None else None
-            segment_g_targets = build_dense_genre_targets(
+            segment_g_targets_dense = build_dense_genre_targets(
                 bundle.X_genre_dense[pier_a], bundle.X_genre_dense[pier_b],
                 interior_length=interior_len, route=str(cfg.dj_route_shape or "linear"),
                 genre_emb=getattr(bundle, "genre_emb", None),
@@ -1431,6 +1445,7 @@ def build_pier_bridge_playlist(
                 cfg_attempt_base=cfg,
                 segment_allow_detours=attempt_allow_detours,
                 segment_g_targets=segment_g_targets,
+                segment_g_targets_dense=segment_g_targets_dense,
                 pier_a=pier_a,
                 pier_b=pier_b,
                 interior_len=interior_len,
@@ -1483,6 +1498,7 @@ def build_pier_bridge_playlist(
                         cfg_attempt_base=_relax["cfg"],
                         segment_allow_detours=segment_allow_detours_base or bool(_relax.get("force_allow_detours")),
                         segment_g_targets=segment_g_targets,
+                        segment_g_targets_dense=segment_g_targets_dense,
                         pier_a=pier_a,
                         pier_b=pier_b,
                         interior_len=interior_len,
@@ -1543,6 +1559,7 @@ def build_pier_bridge_playlist(
                             cfg_attempt_base=_relax["cfg"],
                             segment_allow_detours=segment_allow_detours_base or bool(_relax.get("force_allow_detours")),
                             segment_g_targets=segment_g_targets,
+                            segment_g_targets_dense=segment_g_targets_dense,
                             pier_a=pier_a,
                             pier_b=pier_b,
                             interior_len=interior_len,
