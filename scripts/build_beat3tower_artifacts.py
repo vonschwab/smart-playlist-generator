@@ -399,28 +399,51 @@ def load_genres_for_tracks(
                     total_normalized_tokens += 1
                 track_genres[tid][raw_genre] = weight
 
+    # Per-track override deltas for override-only releases (no signature).
+    # Applied after raw tiers load (step 4). Maps tid -> (add_list, remove_list).
+    track_override_delta: Dict[str, Tuple[List[str], List[str]]] = {}
+
     # 0. Apply enriched signatures first — these are authoritative, raw lookups skip them.
+    #    User overrides are applied here too: signature releases get the
+    #    (sig - remove) + add set as a full replacement; override-only releases
+    #    keep their raw tiers and have the delta applied in step 4 below.
     if enriched_resolver is not None:
-        # Fetch all enriched signatures in one query, then do per-track dict lookups.
-        all_enriched = enriched_resolver.get_all_enriched_genres()
+        # Fetch all enrichment (signatures UNION overrides) in one query.
+        all_enrichment = enriched_resolver.get_all_enrichment()
         enriched_release_keys: set = set()
+        override_only_release_keys: set = set()
         for tid in track_ids:
             artist, album = track_info.get(tid, ('', ''))
             if not artist or not album:
                 continue
             release_key = enriched_resolver.make_release_key(artist, album)
-            genres = all_enriched.get(release_key)
-            if not genres:
+            rec = all_enrichment.get(release_key)
+            if rec is None:
                 continue
-            enriched_tids.add(tid)
-            enriched_release_keys.add(release_key)
-            for g in genres:
-                add_genre(tid, g, WEIGHT_TRACK)
+            if rec["genres"] is not None:
+                # Signature (override-applied): full replacement of raw tiers.
+                genres = rec["genres"]
+                if not genres:
+                    continue
+                enriched_tids.add(tid)
+                enriched_release_keys.add(release_key)
+                for g in genres:
+                    add_genre(tid, g, WEIGHT_TRACK)
+            else:
+                # Override-only: keep raw tiers; record delta for step 4.
+                if rec["add"] or rec["remove"]:
+                    track_override_delta[tid] = (rec["add"], rec["remove"])
+                    override_only_release_keys.add(release_key)
         enriched_release_count = len(enriched_release_keys)
         if enriched_release_count:
             logger.info(
                 f"Using enriched genres for {len(enriched_tids)} tracks "
                 f"across {enriched_release_count} releases (raw lookups skipped for these)"
+            )
+        if override_only_release_keys:
+            logger.info(
+                f"Applying override-only deltas for {len(track_override_delta)} tracks "
+                f"across {len(override_only_release_keys)} releases (raw tiers retained)"
             )
 
     # 1. Load track genres (highest priority - weight 1.0)
@@ -487,6 +510,25 @@ def load_genres_for_tracks(
             if artist_key in artist_to_tracks:
                 for tid in artist_to_tracks[artist_key]:
                     add_genre(tid, row['genre'], WEIGHT_ARTIST)
+
+    # 4. Apply override-only deltas on top of the raw tiers. Removes are global
+    #    (subtract from whatever tier produced the token); adds use track weight.
+    #    Remove labels are normalized the same way genres are so they match the
+    #    stored token form.
+    for tid, (add_labels, remove_labels) in track_override_delta.items():
+        if remove_labels:
+            remove_tokens: set = set()
+            for label in remove_labels:
+                if apply_normalization:
+                    remove_tokens.update(t for t in normalize_and_split_genre(label) if t)
+                else:
+                    token = label.strip().lower()
+                    if token:
+                        remove_tokens.add(token)
+            for token in remove_tokens:
+                track_genres[tid].pop(token, None)
+        for label in add_labels:
+            add_genre(tid, label, WEIGHT_TRACK)
 
     conn.close()
 
