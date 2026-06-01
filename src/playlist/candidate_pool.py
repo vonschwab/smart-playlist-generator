@@ -196,6 +196,7 @@ def build_candidate_pool(
     uncap_pool: bool = False,  # seeded mode: skip max_pool_size; per-artist cap still applies
     perceptual_bpm: Optional[np.ndarray] = None,
     tempo_stability: Optional[np.ndarray] = None,
+    genre_admission_percentile: Optional[float] = None,
 ) -> CandidatePoolResult:
     """
     Implement current experiments behavior with optional genre gating:
@@ -353,6 +354,11 @@ def build_candidate_pool(
                 str(g) for g, keep in zip(genre_vocab_effective, genre_mask) if bool(keep)
             ]
 
+    # Effective genre floor: may be overridden by per-seed adaptive percentile in the dense path.
+    # Initialized to the fixed floor so the sparse path and the None-percentile dense path are
+    # IDENTICAL to legacy behavior.
+    effective_genre_floor: Optional[float] = min_genre_similarity
+
     # Dense PMI-SVD path: when X_genre_dense is available, use it in preference to sparse methods
     _use_dense = X_genre_dense is not None and min_genre_similarity is not None
     if _use_dense:
@@ -364,9 +370,29 @@ def build_candidate_pool(
         genre_sim_all = (X_genre_dense @ seed_dense).astype(np.float64)
         genre_sim_all = np.clip(genre_sim_all, 0.0, 1.0)
         genre_sim_all[seed_idx] = 1.0
+        # Per-seed adaptive admission floor: derive from THIS seed's dense-sim distribution.
+        # When genre_admission_percentile is None, fall back to the fixed min_genre_similarity
+        # (exact legacy behavior — no change).
+        if genre_admission_percentile is not None:
+            from src.playlist.pier_bridge.percentiles import floor_at_percentile
+            # Exclude the seed's self-sim (set to 1.0 above) from the distribution.
+            _dist = genre_sim_all.copy()
+            _dist[seed_idx] = np.nan
+            _eff_floor = floor_at_percentile(_dist[~np.isnan(_dist)], genre_admission_percentile)
+            effective_genre_floor = (
+                max(float(min_genre_similarity), float(_eff_floor))
+                if min_genre_similarity is not None
+                else float(_eff_floor)
+            )
+        else:
+            effective_genre_floor = min_genre_similarity
         logger.info(
-            "Candidate pool genre gating: method=dense (PMI-SVD), dim=%d, min_threshold=%.3f, mode=%s",
-            X_genre_dense.shape[1], min_genre_similarity, mode,
+            "Candidate pool genre gating: method=dense (PMI-SVD), dim=%d, "
+            "admission_percentile=%s, effective_floor=%.3f, mode=%s",
+            X_genre_dense.shape[1],
+            genre_admission_percentile,
+            float(effective_genre_floor) if effective_genre_floor is not None else float("nan"),
+            mode,
         )
 
     elif min_genre_similarity is not None and (X_genre_raw is not None or X_genre_smoothed is not None):
@@ -519,9 +545,11 @@ def build_candidate_pool(
             genre_sim_all = np.where(zero_overlap_mask, 0.0, genre_sim_all)
 
         if mode in ("dynamic", "narrow"):
-            # Hard gate: exclude candidates below threshold
+            # Hard gate: exclude candidates below threshold.
+            # Uses effective_genre_floor (which equals min_genre_similarity when
+            # genre_admission_percentile is None — exact legacy behavior).
             eligible_before_genre = len(eligible)
-            eligible = [i for i in eligible if genre_sim_all[i] >= min_genre_similarity]
+            eligible = [i for i in eligible if genre_sim_all[i] >= effective_genre_floor]
             below_genre_count = eligible_before_genre - len(eligible)
             logger.info(
                 "Genre hard gate applied: %d candidates excluded (mode=%s)",

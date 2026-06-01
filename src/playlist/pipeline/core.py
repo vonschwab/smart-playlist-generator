@@ -340,6 +340,16 @@ def generate_playlist_ds(
     X_genre_raw = embedding.X_genre_raw
     X_genre_smoothed = embedding.X_genre_smoothed
 
+    # Per-seed adaptive admission percentile (Task 4: genre-arc steering).
+    # Extracted from pier_bridge overrides; None (default) preserves legacy behavior exactly.
+    _genre_admission_percentile: Optional[float] = None
+    _raw_pct = pb_overrides.get("genre_admission_percentile")
+    if _raw_pct is not None:
+        try:
+            _genre_admission_percentile = float(_raw_pct)
+        except (TypeError, ValueError):
+            pass
+
     def _build_pool(candidate_cfg: Any, genre_gate: Optional[float]):
         return build_candidate_pool(
             seed_idx=seed_idx,
@@ -365,6 +375,7 @@ def generate_playlist_ds(
             uncap_pool=not artist_playlist,
             perceptual_bpm=perceptual_bpm,
             tempo_stability=tempo_stability_bpm,
+            genre_admission_percentile=_genre_admission_percentile,
         )
 
     pool = _build_pool(cfg.candidate, min_genre_similarity)

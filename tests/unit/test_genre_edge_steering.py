@@ -148,3 +148,19 @@ def test_genre_floor_attempts_steps_down():
     assert all(attempts[i] >= attempts[i + 1] for i in range(len(attempts) - 1))
     # Disabled -> only the initial floor.
     assert _genre_floor_attempts(initial=0.40, minimum=0.10, enabled=False) == [0.40]
+
+
+def test_per_seed_admission_floor_adapts_to_density():
+    # This guards the *helper contract* candidate_pool will use: floor derived
+    # from THIS seed's dense-sim distribution at percentile P_admit.
+    from src.playlist.pier_bridge.percentiles import floor_at_percentile
+    seed = np.array([1.0, 0.0, 0.0])
+    # sparse neighborhood: few aligned, many orthogonal
+    D_sparse = np.vstack([np.tile([1, 0, 0], (50, 1)), np.tile([0, 1, 0], (950, 1))]).astype(float)
+    D_dense = np.vstack([np.tile([1, 0, 0], (700, 1)), np.tile([0, 1, 0], (300, 1))]).astype(float)
+    s_sparse = (D_sparse / np.linalg.norm(D_sparse, axis=1, keepdims=True)) @ seed
+    s_dense = (D_dense / np.linalg.norm(D_dense, axis=1, keepdims=True)) @ seed
+    f_sparse = floor_at_percentile(s_sparse, 0.90)
+    f_dense = floor_at_percentile(s_dense, 0.90)
+    # both admit ~top 10%, but the absolute floor differs by neighborhood density
+    assert f_dense >= f_sparse
