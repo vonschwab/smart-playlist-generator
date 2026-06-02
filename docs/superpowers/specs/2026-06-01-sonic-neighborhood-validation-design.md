@@ -2,9 +2,18 @@
 
 **Date:** 2026-06-01
 **Branch:** sonic-neighborhood-validation (off `genre-edge-safeguards`)
-**Status:** approved, ready for implementation plan
+**Status:** approved — this is **PHASE 2** of the initiative.
 **Origin:** `docs/SONIC_INITIATIVE_NOTES.md` — sonic is now the weakest playlist axis;
 mirror the genre-embedding investigation that cracked the genre space (anisotropy/IDF).
+
+> **PHASE 1 PRECEDES THIS.** Investigation on 2026-06-01 found that the production
+> sonic path silently does **not** apply the intended 0.20/0.50/0.30 tower weighting
+> (config/artifact/code drift; see [[project-sonic-tower-weights-inert]]), and applies
+> PCA whitening twice (compressing cosines). Phase 1 fixes that drift by rebuilding the
+> artifact in a `tower_weighted` variant and cleaning the runtime path. Phase 1 design +
+> plan: `2026-06-01-sonic-tower-weighted-fix-design.md` /
+> `docs/superpowers/plans/2026-06-01-sonic-tower-weighted-fix.md`. This audition (Phase 2)
+> runs **after** Phase 1 and validates the corrected space by ear.
 
 ## Scope (this session)
 
