@@ -10,14 +10,14 @@ saves a sidecar NPZ that load_artifact_bundle() picks up automatically.
 The sidecar name is: <artifact_stem>_genre_emb_dim<DIM>.npz
 
 Usage:
-    # Quick test — dim=32, no LLM prior
-    python scripts/build_genre_embedding.py --skip-prior --dim 32
+    # Default — corpus-only, no API calls
+    python scripts/build_genre_embedding.py --dim 32
 
-    # Production default — dim=64, Anthropic prior
-    python scripts/build_genre_embedding.py --provider anthropic
+    # Opt in to Anthropic prior
+    python scripts/build_genre_embedding.py --use-prior --provider anthropic
 
-    # Use OpenAI for prior
-    python scripts/build_genre_embedding.py --provider openai
+    # Opt in to OpenAI prior
+    python scripts/build_genre_embedding.py --use-prior --provider openai
 
 The load_artifact_bundle() function looks for the default sidecar (dim=64) at
 load time.  To change which dim is loaded, set artifact.genre_emb_dim in
@@ -177,7 +177,20 @@ def main() -> int:
     parser.add_argument("--provider", default="anthropic", choices=["anthropic", "openai", "dry-run"])
     parser.add_argument("--model", default=None)
     parser.add_argument("--dry-run", action="store_true", help="Mock LLM — no API calls")
-    parser.add_argument("--skip-prior", action="store_true", help="Skip LLM prior step")
+    prior_group = parser.add_mutually_exclusive_group()
+    prior_group.add_argument(
+        "--use-prior",
+        dest="skip_prior",
+        action="store_false",
+        help="Opt in to the LLM prior step; may call the selected provider API",
+    )
+    prior_group.add_argument(
+        "--skip-prior",
+        dest="skip_prior",
+        action="store_true",
+        help="Skip LLM prior step (default; retained for explicit corpus-only runs)",
+    )
+    parser.set_defaults(skip_prior=True)
     parser.add_argument("--alpha-at-zero", type=float, default=0.9)
     parser.add_argument("--half-life", type=float, default=25.0)
     parser.add_argument(
