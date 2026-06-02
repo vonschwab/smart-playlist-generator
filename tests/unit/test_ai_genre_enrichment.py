@@ -4913,3 +4913,16 @@ def test_fetch_bandcamp_tags_returns_selected_locator_confidence(monkeypatch):
         ["shoegaze"],
         0.76,
     )
+
+
+def test_artifact_mode_defaults_to_legacy():
+    from src.ai_genre_enrichment.artifact_modes import GenreArtifactSource
+
+    assert GenreArtifactSource.resolve(None) is GenreArtifactSource.LEGACY
+
+
+def test_rebuild_artifacts_cli_defaults_to_legacy_genre_source():
+    from scripts.ai_genre_enrich import build_parser
+
+    args = build_parser().parse_args(["rebuild-artifacts"])
+    assert args.genre_source == "legacy"

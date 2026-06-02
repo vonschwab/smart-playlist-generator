@@ -118,6 +118,10 @@ class Config:
             'data/artifacts/beat3tower_32k/data_matrices_step1.npz',
         )
 
+    def get_ds_genre_source(self) -> str:
+        """Get artifact-build genre source. Legacy is the backward-compatible default."""
+        return self._get_ds_pipeline("genre_source", default="legacy")
+
     @property
     def min_duration_minutes(self) -> int:
         """Get minimum playlist duration in minutes"""

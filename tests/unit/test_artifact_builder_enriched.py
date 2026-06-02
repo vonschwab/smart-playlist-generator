@@ -147,3 +147,64 @@ def test_beat3tower_load_genres_works_without_resolver(tmp_path):
     assert "indie rock" in {g for g, _ in genre_lists[0]}
     assert stats["enriched_tracks"] == 0
     assert stats["sources"]["enriched_signatures"] is False
+
+
+def test_beat3tower_builder_legacy_default_does_not_auto_load_sidecar(tmp_path, monkeypatch):
+    from argparse import Namespace
+    from scripts import build_beat3tower_artifacts as builder
+
+    called = []
+    monkeypatch.setattr(
+        builder,
+        "load_tracks_with_beat3tower",
+        lambda *_args: (_ for _ in ()).throw(RuntimeError("stop")),
+    )
+    monkeypatch.setattr(
+        "src.ai_genre_enrichment.genre_resolver.EnrichedGenreResolver",
+        lambda *_args: called.append("resolver"),
+    )
+
+    args = Namespace(
+        db_path="metadata.db", config="config.yaml", output=str(tmp_path / "out.npz"),
+        genre_sim_path=None, max_tracks=0, no_pca=False, pca_variance=0.95,
+        clip_sigma=3.0, random_seed=42, no_genre_normalization=False,
+        sidecar_db=str(tmp_path / "sidecar.db"), verbose=False,
+    )
+    (tmp_path / "sidecar.db").touch()
+    with pytest.raises(RuntimeError, match="stop"):
+        builder.build_artifacts(args)
+    assert called == []
+
+
+def test_beat3tower_builder_uses_configured_enriched_source(tmp_path, monkeypatch):
+    from argparse import Namespace
+    from scripts import build_beat3tower_artifacts as builder
+
+    called = []
+    monkeypatch.setattr(
+        "src.config_loader.Config",
+        lambda *_args: type(
+            "Configured",
+            (),
+            {"config": {"playlists": {"ds_pipeline": {"genre_source": "enriched"}}}},
+        )(),
+    )
+    monkeypatch.setattr(
+        "src.ai_genre_enrichment.artifact_modes.make_resolver",
+        lambda mode, sidecar_db: called.append((mode.value, sidecar_db)) or object(),
+    )
+    monkeypatch.setattr(
+        builder,
+        "load_tracks_with_beat3tower",
+        lambda *_args: (_ for _ in ()).throw(RuntimeError("stop")),
+    )
+
+    args = Namespace(
+        db_path="metadata.db", config="config.yaml", output=str(tmp_path / "out.npz"),
+        genre_sim_path=None, max_tracks=0, no_pca=False, pca_variance=0.95,
+        clip_sigma=3.0, random_seed=42, no_genre_normalization=False,
+        sidecar_db=str(tmp_path / "sidecar.db"), verbose=False,
+    )
+    with pytest.raises(RuntimeError, match="stop"):
+        builder.build_artifacts(args)
+    assert called == [("enriched", str(tmp_path / "sidecar.db"))]

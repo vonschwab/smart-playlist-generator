@@ -125,7 +125,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--sidecar-db",
         default="data/ai_genre_enrichment.db",
-        help="Path to AI genre enrichment sidecar DB (use enriched signatures when present)",
+        help="Path to AI genre enrichment sidecar DB (used only with explicit non-legacy genre source)",
+    )
+    parser.add_argument(
+        "--genre-source",
+        choices=["legacy", "enriched", "hybrid_shadow"],
+        default=None,
+        help="Genre source for artifact matrices. Defaults to config, then legacy.",
     )
     return parser.parse_args()
 
@@ -606,20 +612,19 @@ def build_artifacts(args: argparse.Namespace, enriched_resolver: Optional[Any] =
             When provided, enriched releases use their authoritative signatures and bypass
             raw track/album/artist genre lookups.
     """
-    # Auto-construct resolver from --sidecar-db when not explicitly provided
+    from src.ai_genre_enrichment.artifact_modes import GenreArtifactSource, make_resolver
+    from src.config_loader import Config
+
+    config_genre_source = (
+        Config(args.config).config.get("playlists", {}).get("ds_pipeline", {}).get("genre_source")
+    )
+    genre_source = GenreArtifactSource.resolve(getattr(args, "genre_source", None) or config_genre_source)
     if enriched_resolver is None:
-        sidecar_path = getattr(args, "sidecar_db", None)
-        if sidecar_path:
-            from pathlib import Path as _Path
-            if not _Path(sidecar_path).exists():
-                logger.info(f"Sidecar DB not found at {sidecar_path}; using raw genres only")
-            else:
-                try:
-                    from src.ai_genre_enrichment.genre_resolver import EnrichedGenreResolver
-                    enriched_resolver = EnrichedGenreResolver(sidecar_path)
-                    logger.info(f"Loaded enriched genre resolver from {sidecar_path}")
-                except Exception as e:
-                    logger.warning(f"Could not load enriched resolver from {sidecar_path}: {e}")
+        enriched_resolver = make_resolver(
+            genre_source,
+            getattr(args, "sidecar_db", "data/ai_genre_enrichment.db"),
+        )
+    logger.info("Artifact genre source: %s", genre_source.value)
 
     logger.info("Loading tracks with beat3tower features...")
     tracks, features_list = load_tracks_with_beat3tower(args.db_path, args.max_tracks)
@@ -829,6 +834,7 @@ def build_artifacts(args: argparse.Namespace, enriched_resolver: Optional[Any] =
             'extraction_method': 'beat3tower',
             'genre_normalization': genre_stats["normalization_applied"],
             'genre_stats': genre_stats,
+            'genre_source': genre_source.value,
         },
     )
 

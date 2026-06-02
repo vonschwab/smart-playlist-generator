@@ -216,7 +216,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     rebuild = sub.add_parser(
         "rebuild-artifacts",
-        help="Rebuild data_matrices_step1.npz using enriched genres for processed releases",
+        help="Rebuild data_matrices_step1.npz (legacy genres by default; enriched modes require opt-in)",
     )
     rebuild.add_argument(
         "--artifacts-dir",
@@ -232,6 +232,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--genre-sim-path",
         default=None,
         help="Optional path to genre similarity NPZ for smoothing",
+    )
+    rebuild.add_argument(
+        "--genre-source",
+        choices=["legacy", "enriched", "hybrid_shadow"],
+        default="legacy",
     )
 
     return parser
@@ -1523,10 +1528,11 @@ def cmd_graduate_ai(args: argparse.Namespace) -> int:
 
 def cmd_rebuild_artifacts(args: argparse.Namespace) -> int:
     from pathlib import Path as _Path
-    from src.ai_genre_enrichment.genre_resolver import EnrichedGenreResolver
+    from src.ai_genre_enrichment.artifact_modes import GenreArtifactSource, make_resolver
     from src.analyze.artifact_builder import build_ds_artifacts
 
-    resolver = EnrichedGenreResolver(args.sidecar_db)
+    genre_source = GenreArtifactSource.resolve(getattr(args, "genre_source", None))
+    resolver = make_resolver(genre_source, args.sidecar_db)
     artifacts_dir = _Path(getattr(args, "artifacts_dir", "data/artifacts/beat3tower_32k"))
     out_path = artifacts_dir / "data_matrices_step1.npz"
     config_path = getattr(args, "config", "config.yaml")

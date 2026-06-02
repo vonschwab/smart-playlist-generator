@@ -1135,10 +1135,9 @@ def stage_artifacts(ctx: Dict) -> Dict:
         return {"path": str(out_path), "skipped": True}
     if out_path.exists() and force_rebuild and not ctx["args"].force:
         logger.info("Rebuilding artifacts (new genres or sonic updates detected since last build)")
-    # Unified on the same enrichment-aware beat3tower builder the GUI "Build
-    # Artifacts" button uses, so both paths produce identical artifacts that honor
-    # the AI genre enrichment / human review (the "new genre system"). The older
-    # build_ds_artifacts path ignored enrichment and produced raw-genre artifacts.
+    # Unified on the same beat3tower builder the GUI "Build Artifacts" button uses.
+    # Normal analysis remains legacy-compatible; enriched artifact modes are explicit
+    # CLI opt-ins for evaluation.
     from argparse import Namespace
     from scripts.build_beat3tower_artifacts import build_artifacts as build_beat3tower_artifacts
     args_ns = Namespace(
@@ -1153,6 +1152,7 @@ def stage_artifacts(ctx: Dict) -> Dict:
         random_seed=42,
         no_genre_normalization=False,
         sidecar_db=str(ENRICHMENT_DB_PATH),
+        genre_source="legacy",
         verbose=bool(getattr(ctx["args"], "verbose", False)),
     )
     try:
