@@ -190,10 +190,23 @@ class AuditionHandler(BaseHTTPRequestHandler):
         space_data = m.get("space_data", {}).get(track_id, {})
 
         artist, title = "", ""
-        for n in m.get("neighbors", []):
-            if n["track_id"] == track_id:
-                artist, title = n.get("artist", ""), n.get("title", "")
-                break
+        # Check seed track
+        if m.get("seed", {}).get("track_id") == track_id:
+            artist = m["seed"].get("artist", "")
+            title = m["seed"].get("title", "")
+        else:
+            # Check neighbors
+            for n in m.get("neighbors", []):
+                if n["track_id"] == track_id:
+                    artist, title = n.get("artist", ""), n.get("title", "")
+                    break
+            else:
+                # Check transition pair sides
+                for pair in m.get("pairs", []):
+                    for side in ("prev", "next"):
+                        if pair[side]["track_id"] == track_id:
+                            artist = pair[side].get("artist", "")
+                            title = pair[side].get("title", "")
 
         entry = {
             "track_id": track_id,
@@ -220,7 +233,8 @@ class AuditionHandler(BaseHTTPRequestHandler):
         self.send_response(206 if range_hdr else 200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(length))
-        self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
+        if range_hdr:
+            self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
         self.send_header("Accept-Ranges", "bytes")
         self.end_headers()
         with open(p, "rb") as f:
