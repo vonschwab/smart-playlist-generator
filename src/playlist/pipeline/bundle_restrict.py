@@ -111,10 +111,11 @@ def restrict_bundle(
         bundle = _slice_bundle(bundle, allowed_indices)
         new_seed_idx = bundle.track_id_to_index[str(seed_track_id)]
         logger.info(
-            "DS pipeline bundle restricted: N=%d X_sonic=%s X_genre_smoothed=%s",
+            "DS pipeline bundle restricted: N=%d X_sonic=%s X_genre_smoothed=%s X_genre_dense=%s",
             N_allowed,
             getattr(bundle.X_sonic, "shape", None),
             getattr(bundle.X_genre_smoothed, "shape", None),
+            getattr(bundle.X_genre_dense, "shape", None),
         )
         if excluded_track_ids and (os.environ.get("PLAYLIST_DIAG_RECENCY") or os.environ.get("PLAYLIST_DIAG_POOL")):
             logger.info(
@@ -190,6 +191,7 @@ def _slice_bundle(
         X_sonic_end=_opt(bundle.X_sonic_end),
         X_genre_raw=bundle.X_genre_raw[indices],
         X_genre_smoothed=bundle.X_genre_smoothed[indices],
+        X_genre_dense=_opt(bundle.X_genre_dense),
         genre_vocab=bundle.genre_vocab,
         track_id_to_index={str(tid): i for i, tid in enumerate(bundle.track_ids[indices])},
     )

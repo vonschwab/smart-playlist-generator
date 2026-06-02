@@ -30,7 +30,6 @@ import sqlite3
 
 from src.config_loader import Config
 from src.analyze.genre_similarity import build_genre_similarity_matrix
-from src.analyze.artifact_builder import build_ds_artifacts
 from src.features.artifacts import load_artifact_bundle
 from scripts.update_genres_v3_normalized import NormalizedGenreUpdater
 from scripts.update_sonic import SonicFeaturePipeline
@@ -39,7 +38,8 @@ from scripts.update_discogs_genres import DiscogsClient, iter_albums, upsert_alb
 from src.logging_utils import ProgressLogger
 
 DEFAULT_OUT_DIR = ROOT_DIR / "data" / "artifacts" / "beat3tower_32k"
-STAGE_ORDER_DEFAULT = ["scan", "genres", "discogs", "sonic", "genre-sim", "artifacts", "verify"]
+ENRICHMENT_DB_PATH = ROOT_DIR / "data" / "ai_genre_enrichment.db"
+STAGE_ORDER_DEFAULT = ["scan", "genres", "discogs", "sonic", "genre-sim", "artifacts", "genre-embedding", "verify"]
 
 logger = logging.getLogger("analyze_library")
 
@@ -282,6 +282,19 @@ def compute_stage_fingerprint(ctx: Dict, stage: str) -> str:
             "artifact_exists": out_path.exists(),
             "artifact_mtime": out_mtime,
             "manifest_mtime": manifest_mtime,
+        }
+        return _hash_obj(key)
+
+    if stage == "genre-embedding":
+        art = Path(ctx["out_dir"]) / "data_matrices_step1.npz"
+        sc = Path(ctx["out_dir"]) / "data_matrices_step1_genre_emb_dim64.npz"
+        key = {
+            "stage": stage,
+            "artifact_exists": art.exists(),
+            "artifact_mtime": int(art.stat().st_mtime) if art.exists() else 0,
+            "sidecar_exists": sc.exists(),
+            "sidecar_mtime": int(sc.stat().st_mtime) if sc.exists() else 0,
+            "config": cfg_hash,
         }
         return _hash_obj(key)
 
@@ -1122,26 +1135,71 @@ def stage_artifacts(ctx: Dict) -> Dict:
         return {"path": str(out_path), "skipped": True}
     if out_path.exists() and force_rebuild and not ctx["args"].force:
         logger.info("Rebuilding artifacts (new genres or sonic updates detected since last build)")
+    # Unified on the same enrichment-aware beat3tower builder the GUI "Build
+    # Artifacts" button uses, so both paths produce identical artifacts that honor
+    # the AI genre enrichment / human review (the "new genre system"). The older
+    # build_ds_artifacts path ignored enrichment and produced raw-genre artifacts.
+    from argparse import Namespace
+    from scripts.build_beat3tower_artifacts import build_artifacts as build_beat3tower_artifacts
+    args_ns = Namespace(
+        db_path=ctx["db_path"],
+        config=ctx["config_path"],
+        output=str(out_path),
+        genre_sim_path=str(genre_sim_use) if genre_sim_use else None,
+        max_tracks=ctx["args"].max_tracks or ctx["args"].limit or 0,
+        no_pca=False,
+        pca_variance=0.95,
+        clip_sigma=3.0,
+        random_seed=42,
+        no_genre_normalization=False,
+        sidecar_db=str(ENRICHMENT_DB_PATH),
+        verbose=bool(getattr(ctx["args"], "verbose", False)),
+    )
     try:
-        result = build_ds_artifacts(
-            db_path=ctx["db_path"],
-            config_path=ctx["config_path"],
-            out_path=out_path,
-            genre_sim_path=genre_sim_use,
-            max_tracks=ctx["args"].max_tracks or ctx["args"].limit or 0,
-        )
+        build_beat3tower_artifacts(args_ns)
     except RuntimeError as exc:
         logger.warning("Skipping artifacts stage: %s", exc)
         return {"path": str(out_path), "skipped": True, "reason": str(exc)}
     fingerprint = compute_stage_fingerprint(ctx, "artifacts")
-    manifest_path = _write_artifact_manifest(out_dir, fingerprint, ctx.get("config_hash", ""), getattr(result, "stats", {}))
+    manifest_path = _write_artifact_manifest(out_dir, fingerprint, ctx.get("config_hash", ""), {})
+    # Signal the genre-embedding stage that the artifact changed and its dense
+    # sidecar must be rebuilt (otherwise the dense genre vectors go stale).
+    ctx["artifacts_dirty"] = True
     return {
         "path": str(out_path),
         "skipped": False,
-        "stats": getattr(result, "stats", {}),
         "fingerprint": fingerprint,
         "manifest": str(manifest_path),
     }
+
+
+def stage_genre_embedding(ctx: Dict) -> Dict:
+    """Rebuild the dense PMI-SVD genre embedding sidecar (the 'new genre system').
+
+    Corpus-only (skip_prior=True) — no API calls. Reruns whenever the main
+    artifact was rebuilt this run (artifacts_dirty) or its mtime changed.
+    """
+    out_dir = ctx["out_dir"]
+    artifact_path = out_dir / "data_matrices_step1.npz"
+    sidecar = artifact_path.parent / f"{artifact_path.stem}_genre_emb_dim64.npz"
+    if not artifact_path.exists():
+        logger.warning("Skipping genre-embedding stage: artifact not found at %s", artifact_path)
+        return {"skipped": True, "reason": "artifact_missing"}
+    force_rebuild = (
+        ctx["args"].force
+        or bool(ctx.get("artifacts_dirty"))
+        or bool(ctx.get("force_stage"))
+    )
+    if sidecar.exists() and not force_rebuild:
+        logger.info("Skipping genre-embedding stage (exists: %s; use --force to rebuild)", sidecar)
+        return {"path": str(sidecar), "skipped": True}
+    from scripts.build_genre_embedding import build_genre_embedding_sidecar
+    try:
+        out = build_genre_embedding_sidecar(artifact_path, skip_prior=True)
+    except (FileNotFoundError, ValueError) as exc:
+        logger.warning("Skipping genre-embedding stage: %s", exc)
+        return {"path": str(sidecar), "skipped": True, "reason": str(exc)}
+    return {"path": str(out), "skipped": False}
 
 
 def stage_verify(ctx: Dict) -> Dict:
@@ -1174,6 +1232,24 @@ def stage_verify(ctx: Dict) -> Dict:
         issues.append("row_mismatch")
     if np.any([k == "" for k in bundle.artist_keys]):
         issues.append("empty_artist_keys")
+    # Dense genre embedding sidecar (the "new genre system") must exist and be
+    # aligned to this artifact on BOTH track_ids and genre_vocab — a vocab drift
+    # silently mis-indexes the ladder even when track_ids still match.
+    sidecar_path = artifact_path.parent / f"{artifact_path.stem}_genre_emb_dim64.npz"
+    if not sidecar_path.exists():
+        issues.append("genre_embedding_missing")
+    else:
+        try:
+            _sc = np.load(sidecar_path, allow_pickle=True)
+            _sc_tids = _sc["track_ids"]
+            _sc_vocab = _sc["genre_vocab"]
+            if len(_sc_tids) != bundle.track_ids.size or not np.array_equal(_sc_tids, bundle.track_ids):
+                issues.append("genre_embedding_track_mismatch")
+            elif len(_sc_vocab) != bundle.genre_vocab.size or not np.array_equal(_sc_vocab, bundle.genre_vocab):
+                issues.append("genre_embedding_vocab_mismatch")
+        except Exception as exc:
+            logger.warning("Verify: could not read genre embedding sidecar: %s", exc)
+            issues.append("genre_embedding_unreadable")
     return {
         "skipped": False,
         "tracks": int(bundle.track_ids.size),
@@ -1191,6 +1267,7 @@ STAGE_FUNCS = {
     "sonic": stage_sonic,
     "genre-sim": stage_genre_sim,
     "artifacts": stage_artifacts,
+    "genre-embedding": stage_genre_embedding,
     "verify": stage_verify,
 }
 
@@ -1302,6 +1379,7 @@ def run_pipeline(
         "conn": conn,
         "genres_dirty": False,
         "sonic_dirty": False,
+        "artifacts_dirty": False,
         "config_hash": config_hash,
         "library_root": cfg.library_music_directory,
     }

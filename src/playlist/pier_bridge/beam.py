@@ -30,6 +30,7 @@ from src.playlist.pier_bridge.genre import (
     _compute_coverage_bonus,
     _extract_top_genres,
 )
+from src.playlist.pier_bridge.percentiles import floor_at_percentile
 from src.playlist.pier_bridge.metrics import (
     _progress_arc_loss_value,
     _progress_target_curve,
@@ -185,6 +186,7 @@ def _beam_search_segment(
     X_genre_norm_idf: Optional[np.ndarray] = None,
     X_genre_raw: Optional[np.ndarray] = None,
     X_genre_smoothed: Optional[np.ndarray] = None,
+    X_genre_dense: Optional[np.ndarray] = None,
     genre_idf: Optional[np.ndarray] = None,
     genre_vocab: Optional[np.ndarray] = None,
     artist_key_by_idx: Optional[Dict[int, str]] = None,
@@ -375,6 +377,23 @@ def _beam_search_segment(
                     g_targets.append(g)
     if waypoint_weight <= 0 and waypoint_penalty <= 0:
         waypoint_enabled = False
+
+    # Genre-arc steering targets (Task 6): the per-step interpolated pier-A->pier-B
+    # genre target. Independent of the waypoint machinery above (which gates on
+    # dj_bridging_enabled). Under steering, the dense g_targets arrive via override.
+    _steering_cfg = bool(cfg.genre_steering_enabled)
+    arc_g_targets: Optional[List[np.ndarray]] = None
+    if _steering_cfg and g_targets_override is not None and len(g_targets_override) == int(interior_length):
+        arc_g_targets = g_targets_override
+    if _steering_cfg and arc_g_targets is None:
+        logger.warning(
+            "genre_steering_enabled but no usable g_targets (interior_length=%d) — "
+            "genre arc inactive for this segment",
+            int(interior_length),
+        )
+    arc_floor_percentile = float(cfg.genre_arc_floor_percentile)
+    if not math.isfinite(arc_floor_percentile):
+        arc_floor_percentile = 0.0
 
     # Phase 3: Waypoint delta mode configuration
     waypoint_delta_mode = str(cfg.dj_waypoint_delta_mode or "absolute").strip().lower()
@@ -669,33 +688,40 @@ def _beam_search_segment(
 
     # Phase 3: Use correct genre matrix for genre_sim (matching target construction)
     # Must use same source (raw vs smoothed) and IDF settings as used for g_targets
-    vector_source = str(cfg.dj_genre_vector_source or "smoothed").strip().lower()
-    if vector_source == "raw" and X_genre_raw is not None:
-        # Raw mode: use raw matrix, apply IDF if enabled
-        if bool(cfg.dj_genre_use_idf) and genre_idf is not None:
-            # Apply IDF weighting to raw matrix
-            X_genre_for_sim = X_genre_raw * genre_idf
-            # Normalize rows
-            row_norms = np.linalg.norm(X_genre_for_sim, axis=1, keepdims=True)
-            X_genre_for_sim = np.divide(
-                X_genre_for_sim,
-                row_norms,
-                out=np.zeros_like(X_genre_for_sim),
-                where=row_norms > 1e-12
-            )
-        else:
-            # Raw mode without IDF: normalize raw matrix
-            X_genre_for_sim = X_genre_raw.copy()
-            row_norms = np.linalg.norm(X_genre_for_sim, axis=1, keepdims=True)
-            X_genre_for_sim = np.divide(
-                X_genre_for_sim,
-                row_norms,
-                out=np.zeros_like(X_genre_for_sim),
-                where=row_norms > 1e-12
-            )
+    # Genre-steering: prefer the dense PMI-SVD embedding when enabled + available.
+    genre_present = None
+    _steering = bool(cfg.genre_steering_enabled)
+    if _steering and X_genre_dense is not None:
+        X_genre_for_sim = X_genre_dense  # rows already L2-normalized
+        genre_present = np.linalg.norm(X_genre_dense, axis=1) > 1e-9
     else:
-        # Smoothed mode (default): use IDF-weighted if available, else normalized
-        X_genre_for_sim = X_genre_norm_idf if X_genre_norm_idf is not None else X_genre_norm
+        vector_source = str(cfg.dj_genre_vector_source or "smoothed").strip().lower()
+        if vector_source == "raw" and X_genre_raw is not None:
+            # Raw mode: use raw matrix, apply IDF if enabled
+            if bool(cfg.dj_genre_use_idf) and genre_idf is not None:
+                # Apply IDF weighting to raw matrix
+                X_genre_for_sim = X_genre_raw * genre_idf
+                # Normalize rows
+                row_norms = np.linalg.norm(X_genre_for_sim, axis=1, keepdims=True)
+                X_genre_for_sim = np.divide(
+                    X_genre_for_sim,
+                    row_norms,
+                    out=np.zeros_like(X_genre_for_sim),
+                    where=row_norms > 1e-12
+                )
+            else:
+                # Raw mode without IDF: normalize raw matrix
+                X_genre_for_sim = X_genre_raw.copy()
+                row_norms = np.linalg.norm(X_genre_for_sim, axis=1, keepdims=True)
+                X_genre_for_sim = np.divide(
+                    X_genre_for_sim,
+                    row_norms,
+                    out=np.zeros_like(X_genre_for_sim),
+                    where=row_norms > 1e-12
+                )
+        else:
+            # Smoothed mode (default): use IDF-weighted if available, else normalized
+            X_genre_for_sim = X_genre_norm_idf if X_genre_norm_idf is not None else X_genre_norm
 
     def _get_genre_sim(a_idx: int, b_idx: int) -> Optional[float]:
         nonlocal genre_cache_hits, genre_cache_misses
@@ -820,6 +846,29 @@ def _beam_search_segment(
             else target_t
         )
         g_target = g_targets[step] if waypoint_enabled and g_targets is not None else None
+
+        # Genre-arc steering (Task 6): per-step target + per-segment on-arc floor.
+        # Precompute the arc-sim distribution over the *pool* candidates to this
+        # step's target, then derive a percentile floor. Candidates below the floor
+        # are gated out in the candidate loop (mirroring _transition_gate_failed).
+        arc_target = (
+            arc_g_targets[step]
+            if (_steering_cfg and arc_g_targets is not None and step < len(arc_g_targets))
+            else None
+        )
+        step_arc_sims: Dict[int, float] = {}
+        arc_step_floor: Optional[float] = None
+        if arc_target is not None and X_genre_for_sim is not None:
+            for cand in candidates:
+                ci = int(cand)
+                if genre_present is not None and not bool(genre_present[ci]):
+                    continue  # genreless: not subject to the arc floor
+                step_arc_sims[ci] = float(np.dot(X_genre_for_sim[ci], arc_target))
+            if arc_floor_percentile > 0.0 and step_arc_sims:
+                arc_step_floor = floor_at_percentile(
+                    np.array(list(step_arc_sims.values()), dtype=float),
+                    arc_floor_percentile,
+                )
 
         # Phase 3: Centered waypoint mode - collect all candidate waypoint sims for this step
         waypoint_sim0 = 0.0  # Baseline for centered mode (median or mean)
@@ -982,8 +1031,24 @@ def _beam_search_segment(
                             combined_score -= progress_arc_max_step_penalty * (step_jump - float(progress_arc_max_step))
 
                 genre_sim = None
-                if X_genre_norm is not None:
+                if X_genre_for_sim is not None and not _steering:
                     genre_sim = _get_genre_sim(int(current), int(cand))
+                if _steering:
+                    # Genre ARC vote (first-class): closeness to this step's g_target,
+                    # NOT similarity to the previous track. Plus the per-segment on-arc
+                    # percentile floor (precomputed above into arc_step_floor).
+                    cand_present = (genre_present is None) or bool(genre_present[int(cand)])
+                    if arc_target is not None and X_genre_for_sim is not None and cand_present:
+                        arc_sim = float(step_arc_sims.get(int(cand), float(np.dot(X_genre_for_sim[int(cand)], arc_target))))
+                        # Per-segment on-arc floor: drop below-floor candidates.
+                        if arc_step_floor is not None and arc_sim < arc_step_floor:
+                            continue
+                        # Absolute safeguard floor (legacy genre_arc_floor).
+                        if arc_sim < cfg.genre_arc_floor:
+                            continue
+                        if float(cfg.weight_genre) > 0.0:
+                            combined_score += float(cfg.weight_genre) * arc_sim
+                else:
                     if genre_sim is not None and math.isfinite(genre_sim):
                         if cfg.genre_tiebreak_weight:
                             combined_score += cfg.genre_tiebreak_weight * genre_sim
@@ -1026,7 +1091,7 @@ def _beam_search_segment(
                         best_score = float(combined_score)
                 else:
                     base_score_for_rank = float(combined_score)
-                    if genre_sim is not None and math.isfinite(genre_sim):
+                    if (not _steering) and genre_sim is not None and math.isfinite(genre_sim):
                         if penalty_strength > 0 and genre_sim < penalty_threshold:
                             combined_score *= (1.0 - penalty_strength)
                             genre_penalty_hits += 1
@@ -1142,7 +1207,7 @@ def _beam_search_segment(
                 for cand, cand_t, base_score, dest_pull, genre_sim, waypoint_sim, trans_score, edge_metric_tb in cand_entries:
                     base_score_for_rank = float(base_score)
                     combined_score = float(base_score)
-                    if genre_sim is not None and math.isfinite(genre_sim):
+                    if (not _steering) and genre_sim is not None and math.isfinite(genre_sim):
                         if genre_tie_break_band is not None:
                             if (best_score - combined_score) <= float(genre_tie_break_band):
                                 if penalty_strength > 0 and genre_sim < penalty_threshold:
@@ -1398,6 +1463,28 @@ def _beam_search_segment(
                                     rank, cand_idx, base, delta, cov, full, genre_sim)
 
     # Final step: connect to pier_b
+    # Per-segment on-arc floor for the final connection: derive from the arc-sims of
+    # the surviving beam states' last interior tracks to the final target.
+    final_arc_floor: Optional[float] = None
+    if (
+        _steering_cfg
+        and arc_g_targets is not None
+        and len(arc_g_targets) > 0
+        and X_genre_for_sim is not None
+        and arc_floor_percentile > 0.0
+    ):
+        _final_target = arc_g_targets[-1]
+        _final_sims: List[float] = []
+        for state in beam:
+            li = int(state.path[-1])
+            if genre_present is not None and not bool(genre_present[li]):
+                continue
+            _final_sims.append(float(np.dot(X_genre_for_sim[li], _final_target)))
+        if _final_sims:
+            final_arc_floor = floor_at_percentile(
+                np.array(_final_sims, dtype=float), arc_floor_percentile
+            )
+
     final_candidates: List[BeamState] = []
 
     for state in beam:
@@ -1411,7 +1498,23 @@ def _beam_search_segment(
 
         final_edge_score = final_trans
         edges_scored += 1
-        if X_genre_norm is not None:
+        if _steering:
+            # Genre ARC vote at the final connection: closeness of the last interior
+            # track to the final target g_targets[-1] (NOT prev-track similarity to
+            # pier_b). Same per-segment on-arc floor applies (computed from the final
+            # step's pool distribution, stored in final_arc_floor below).
+            if arc_g_targets is not None and len(arc_g_targets) > 0 and X_genre_for_sim is not None:
+                final_target = arc_g_targets[-1]
+                last_present = (genre_present is None) or bool(genre_present[int(last)])
+                if last_present:
+                    final_arc_sim = float(np.dot(X_genre_for_sim[int(last)], final_target))
+                    if final_arc_floor is not None and final_arc_sim < final_arc_floor:
+                        continue  # this beam state cannot legally connect to pier_b
+                    if final_arc_sim < cfg.genre_arc_floor:
+                        continue
+                    if float(cfg.weight_genre) > 0.0:
+                        final_edge_score += float(cfg.weight_genre) * final_arc_sim
+        elif X_genre_norm is not None:
             genre_sim = _get_genre_sim(int(last), int(pier_b))
             if genre_sim is not None and math.isfinite(genre_sim):
                 if cfg.genre_tiebreak_weight:
@@ -1437,7 +1540,7 @@ def _beam_search_segment(
         # Build edge component for the final edge
         _final_local_sonic_cos = float(np.dot(X_full_norm[int(last)], X_full_norm[int(pier_b)]))
         _final_genre_pen_applied = 0.0
-        if X_genre_norm is not None:
+        if (not _steering) and X_genre_norm is not None:
             genre_sim = _get_genre_sim(int(last), int(pier_b))
             if genre_sim is not None and math.isfinite(genre_sim):
                 if penalty_strength > 0 and genre_sim < penalty_threshold:

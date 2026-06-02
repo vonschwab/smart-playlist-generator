@@ -29,6 +29,13 @@ class InfeasibleHandlingConfig:
     extra_bridge_helpers: int = 100
     extra_beam_width: int = 50
     extra_expansion_attempts: int = 2
+    # After all bridge_floor backoffs fail, progressively lower transition_floor.
+    # Addresses niche-artist infeasibility where the beam edge gate is the bottleneck
+    # rather than the pool admission floor.
+    transition_floor_relaxation_enabled: bool = True
+    min_transition_floor: float = 0.20
+    genre_arc_relaxation_enabled: bool = True
+    min_genre_arc_percentile: float = 0.5
 
 
 @dataclass(frozen=True)
@@ -88,6 +95,10 @@ def parse_infeasible_handling_config(raw: Any) -> InfeasibleHandlingConfig:
         extra_bridge_helpers=int(raw.get("extra_bridge_helpers", 100)),
         extra_beam_width=int(raw.get("extra_beam_width", 50)),
         extra_expansion_attempts=int(raw.get("extra_expansion_attempts", 2)),
+        transition_floor_relaxation_enabled=bool(raw.get("transition_floor_relaxation_enabled", True)),
+        min_transition_floor=float(raw.get("min_transition_floor", 0.20)),
+        genre_arc_relaxation_enabled=bool(raw.get("genre_arc_relaxation_enabled", True)),
+        min_genre_arc_percentile=float(raw.get("min_genre_arc_percentile", 0.5)),
     )
 
 

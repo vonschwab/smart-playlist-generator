@@ -7,6 +7,7 @@ import sqlite3
 from pathlib import Path
 from typing import Iterable
 
+from .normalization import make_release_key as _make_release_key
 from .tag_classification import normalize_source_tag
 
 
@@ -22,6 +23,7 @@ class EnrichedGenreResolver:
         self._reverse_index_cache: dict[str, set[str]] | None = None
         self._all_enriched_cache: set[str] | None = None
         self._all_enriched_genres_cache: dict[str, list[str]] | None = None
+        self._all_enrichment_cache: dict[str, dict] | None = None
 
     def get_enriched_genres(self, *, artist: str, album: str | None) -> list[str] | None:
         if not album:
@@ -126,6 +128,77 @@ class EnrichedGenreResolver:
         self._all_enriched_genres_cache = mapping
         return mapping
 
+    def get_all_enrichment(self) -> dict[str, dict]:
+        """Return per-release enrichment for the UNION of signatures and overrides.
+
+        For every release_key present in ``enriched_genre_signatures`` OR
+        ``ai_genre_user_overrides``::
+
+            {release_key: {"genres": list[str] | None,
+                           "add": list[str],
+                           "remove": list[str]}}
+
+        - Signature present: ``genres`` is the override-applied signature
+          ``(sig - remove) + add`` (mirroring ``get_enriched_genres``); ``add``
+          and ``remove`` carry the raw override lists (or empty).
+        - Override-only (no signature): ``genres`` is None; ``add``/``remove``
+          carry the override lists.
+
+        Cached for the lifetime of this resolver instance. Both tables are read
+        in a single connection. Read-only.
+        """
+        if self._all_enrichment_cache is not None:
+            return self._all_enrichment_cache
+
+        signatures: dict[str, list[str]] = {}
+        overrides: dict[str, tuple[list[str], list[str]]] = {}
+        with self._connect() as conn:
+            sig_rows = conn.execute(
+                "SELECT release_key, signature_json FROM enriched_genre_signatures"
+            ).fetchall()
+            for row in sig_rows:
+                payload = json.loads(row["signature_json"])
+                signatures[row["release_key"]] = list(payload.get("genres") or [])
+            if self._user_overrides_exist(conn):
+                ov_rows = conn.execute(
+                    "SELECT release_key, genres_add_json, genres_remove_json "
+                    "FROM ai_genre_user_overrides"
+                ).fetchall()
+                for row in ov_rows:
+                    add = list(json.loads(row["genres_add_json"] or "[]"))
+                    remove = list(json.loads(row["genres_remove_json"] or "[]"))
+                    overrides[row["release_key"]] = (add, remove)
+
+        result: dict[str, dict] = {}
+        for release_key in set(signatures) | set(overrides):
+            add, remove = overrides.get(release_key, ([], []))
+            if release_key in signatures:
+                sig_genres = signatures[release_key]
+                if add or remove:
+                    # Both override sets stored casefolded; compare sig by casefold.
+                    remove_lower = {r.casefold() for r in remove}
+                    combined: list[str] = []
+                    combined_lower: set[str] = set()
+                    for g in sig_genres:
+                        gk = g.casefold()
+                        if gk not in remove_lower and gk not in combined_lower:
+                            combined.append(g)
+                            combined_lower.add(gk)
+                    for g in add:
+                        gk = g.casefold()
+                        if gk not in combined_lower:
+                            combined.append(g)
+                            combined_lower.add(gk)
+                    genres: list[str] | None = combined
+                else:
+                    genres = list(sig_genres)
+            else:
+                genres = None
+            result[release_key] = {"genres": genres, "add": add, "remove": remove}
+
+        self._all_enrichment_cache = result
+        return result
+
     def make_release_key(self, artist: str, album: str) -> str:
         """Return the normalized release key for (artist, album)."""
         return self._release_key(artist, album)
@@ -146,7 +219,7 @@ class EnrichedGenreResolver:
         return index
 
     def _release_key(self, artist: str, album: str) -> str:
-        return f"{normalize_source_tag(artist)}::{normalize_source_tag(album)}"
+        return _make_release_key(artist, album)
 
     def _connect(self) -> sqlite3.Connection:
         if not self._db_path.exists():

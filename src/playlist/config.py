@@ -112,6 +112,12 @@ class PierBridgeTuning:
     genre_tiebreak_weight: float
     genre_penalty_threshold: float
     genre_penalty_strength: float
+    genre_steering_enabled: bool = False
+    weight_genre: float = 0.0
+    genre_arc_floor: float = 0.0
+    genre_arc_floor_percentile: float = 0.0
+    genre_admission_percentile: float = 0.0
+    dj_route_shape: str = "linear"
 
 
 def _resolve_mode_number_with_source(
@@ -306,6 +312,36 @@ def resolve_pier_bridge_tuning(
         genre_penalty_strength = 0.0
     genre_penalty_strength = float(max(0.0, min(1.0, float(genre_penalty_strength))))
 
+    genre_steering_enabled = bool(pier_raw.get("genre_steering_enabled", False))
+    weight_genre, src = _resolve_mode_number_with_source(
+        pier_raw, "weight_genre", mode_s, 0.0, source_prefix="pier_bridge"
+    )
+    sources["weight_genre"] = src
+    genre_arc_floor, src = _resolve_mode_number_with_source(
+        pier_raw, "genre_arc_floor", mode_s, 0.0, source_prefix="pier_bridge"
+    )
+    sources["genre_arc_floor"] = src
+    genre_arc_floor_percentile, src = _resolve_mode_number_with_source(
+        pier_raw, "genre_arc_floor_percentile", mode_s, 0.0, source_prefix="pier_bridge"
+    )
+    sources["genre_arc_floor_percentile"] = src
+    genre_admission_percentile, src = _resolve_mode_number_with_source(
+        pier_raw, "genre_admission_percentile", mode_s, 0.0, source_prefix="pier_bridge"
+    )
+    sources["genre_admission_percentile"] = src
+    dj_route_shape_raw = pier_raw.get("dj_route_shape", "linear")
+    dj_route_shape = str(dj_route_shape_raw).strip().lower() if dj_route_shape_raw else "linear"
+    sources["dj_route_shape"] = "pier_bridge.dj_route_shape" if "dj_route_shape" in pier_raw else "default"
+
+    # When steering is active, genre is a co-equal edge weight: renormalize the
+    # (bridge, transition, genre) triple to sum to 1 so the score stays in range.
+    if genre_steering_enabled and float(weight_genre) > 0.0:
+        _wsum = float(weight_bridge) + float(weight_transition) + float(weight_genre)
+        if _wsum > 0:
+            weight_bridge = float(weight_bridge) / _wsum
+            weight_transition = float(weight_transition) / _wsum
+            weight_genre = float(weight_genre) / _wsum
+
     tuning = PierBridgeTuning(
         transition_floor=float(transition_floor),
         bridge_floor=float(bridge_floor),
@@ -314,6 +350,12 @@ def resolve_pier_bridge_tuning(
         genre_tiebreak_weight=float(genre_tiebreak_weight),
         genre_penalty_threshold=float(genre_penalty_threshold),
         genre_penalty_strength=float(genre_penalty_strength),
+        genre_steering_enabled=bool(genre_steering_enabled),
+        weight_genre=float(weight_genre),
+        genre_arc_floor=float(genre_arc_floor),
+        genre_arc_floor_percentile=float(genre_arc_floor_percentile),
+        genre_admission_percentile=float(genre_admission_percentile),
+        dj_route_shape=str(dj_route_shape),
     )
     return tuning, sources
 

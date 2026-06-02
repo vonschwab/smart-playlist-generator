@@ -74,12 +74,18 @@ def setup_embedding(
     X_sonic_for_embed = bundle.X_sonic
     pre_scaled_sonic = False
     if bundle.X_sonic is not None:
-        if (
-            getattr(bundle, "sonic_variant", None) == resolved_variant
-            and getattr(bundle, "sonic_pre_scaled", False)
-        ):
+        if getattr(bundle, "sonic_pre_scaled", False):
+            # The artifact is the source of truth for its own preprocessing
+            # (e.g. tower_weighted baked at build time). Use it directly; do NOT
+            # re-apply a variant transform — that path no-ops via a dim-mismatch
+            # fallback AND mislabels the space as un-scaled, causing a spurious
+            # StandardScaler before the hybrid PCA. See
+            # docs/superpowers/specs/2026-06-01-sonic-tower-weighted-fix-design.md.
             X_sonic_for_embed = bundle.X_sonic
-            variant_stats = {"variant": resolved_variant, "pre_scaled": True}
+            variant_stats = {
+                "variant": getattr(bundle, "sonic_variant", resolved_variant),
+                "pre_scaled": True,
+            }
         else:
             X_sonic_for_embed, variant_stats = compute_sonic_variant_matrix(
                 bundle.X_sonic, resolved_variant, l2=False
@@ -201,7 +207,10 @@ def setup_embedding(
         w_genre=effective_w_genre,
         random_seed=random_seed,
         pre_scaled_sonic=pre_scaled_sonic,
-        use_pca_sonic=not pre_scaled_sonic,
+        # Always PCA the sonic block to 32 dims to keep the hybrid balanced with
+        # the 32-dim genre block; pre_scaled_sonic only skips the redundant
+        # StandardScaler inside _fit_pca when the space is already scaled.
+        use_pca_sonic=True,
     )
 
     return EmbeddingSetup(

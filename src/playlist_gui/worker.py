@@ -778,7 +778,7 @@ def _enrich_replacement_candidates(candidates: list[dict[str, Any]]) -> list[dic
                 "album": display.get("album", ""),
                 "duration_ms": display.get("duration_ms", 0),
                 "file_path": display.get("file_path", ""),
-                "genres": _top_genres_for_index(cache, int(entry["index"]), limit=3),
+                "genres": _top_genres_for_index(cache, int(entry["index"]), limit=12),  # full curated set (was 3 — truncated enriched genres out of the column)
             }
         )
         enriched.append(entry)
@@ -1607,8 +1607,30 @@ def handle_build_artifacts(cmd_data: Dict[str, Any]) -> None:
         build_artifacts(args)
 
         check_cancelled()
-        emit_result("artifacts", {"output_path": output_path})
-        summary = f"Built artifacts at {output_path}"
+
+        # Rebuild the dense genre embedding sidecar so the new genre system stays in
+        # sync with the freshly-built artifact. Without this the sidecar goes stale
+        # (its X_genre_dense reflects the OLD genres) and load_artifact_bundle either
+        # silently serves stale dense vectors or drops dense steering entirely.
+        emit_progress("artifacts", 80, 100, "Building genre embedding sidecar")
+        from scripts.build_genre_embedding import build_genre_embedding_sidecar
+        sidecar_path = build_genre_embedding_sidecar(output_path, skip_prior=True)
+        emit_log("INFO", f"Rebuilt dense genre sidecar: {sidecar_path}")
+
+        # Invalidate the in-process bundle cache so the NEXT generation in this
+        # worker picks up the freshly-built artifact + sidecar. load_artifact_bundle
+        # is @lru_cache'd, so without this the worker keeps serving the stale bundle
+        # it loaded at startup (the rebuild would be invisible until a GUI restart).
+        try:
+            from src.features.artifacts import load_artifact_bundle
+            load_artifact_bundle.cache_clear()
+            emit_log("INFO", "Cleared artifact bundle cache; new artifact is live for this session")
+        except Exception as exc:  # pragma: no cover - defensive
+            emit_log("WARNING", f"Could not clear artifact bundle cache (restart GUI to pick up rebuild): {exc}")
+
+        check_cancelled()
+        emit_result("artifacts", {"output_path": output_path, "sidecar_path": str(sidecar_path)})
+        summary = f"Built artifacts + genre embedding at {output_path}"
         emit_done("build_artifacts", True, summary, summary=summary)
 
     except CancellationError:
@@ -1898,7 +1920,11 @@ def handle_edit_genres(cmd_data: Dict[str, Any]) -> None:
 
         from src.ai_genre_enrichment.storage import SidecarStore
         from src.ai_genre_enrichment.genre_resolver import EnrichedGenreResolver
-        from src.ai_genre_enrichment.tag_classification import normalize_source_tag
+        from src.ai_genre_enrichment.normalization import (
+            make_release_key,
+            normalize_release_artist,
+            normalize_release_name,
+        )
 
         resolver = EnrichedGenreResolver(SIDECAR_DB_PATH)
         current = set(resolver.get_enriched_genres(artist=artist, album=album) or [])
@@ -1909,11 +1935,12 @@ def handle_edit_genres(cmd_data: Dict[str, Any]) -> None:
 
         store = SidecarStore(SIDECAR_DB_PATH)
         store.initialize()
-        release_key = f"{normalize_source_tag(artist)}::{normalize_source_tag(album)}"
+        # Key the override exactly as the resolver reads it (make_release_key),
+        # or punctuated albums silently never see their edits applied.
         store.set_user_override(
-            release_key=release_key,
-            normalized_artist=normalize_source_tag(artist),
-            normalized_album=normalize_source_tag(album),
+            release_key=make_release_key(artist, album),
+            normalized_artist=normalize_release_artist(artist),
+            normalized_album=normalize_release_name(album),
             genres_add=sorted(add),
             genres_remove=sorted(remove),
         )

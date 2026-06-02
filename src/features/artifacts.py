@@ -35,6 +35,9 @@ class ArtifactBundle:
     X_sonic_raw: Optional[np.ndarray] = None
     sonic_variant: Optional[str] = None
     sonic_pre_scaled: bool = False
+    # Optional: dense PMI-SVD genre embedding (from sidecar NPZ)
+    X_genre_dense: Optional[np.ndarray] = None   # (N, dim) L2-normalized
+    genre_emb: Optional[np.ndarray] = None       # (V, dim) vocabulary embedding
 
 
 def _require_keys(npz: np.lib.npyio.NpzFile, required: Dict[str, str]) -> None:
@@ -121,6 +124,34 @@ def _load_artifact_bundle_cached(artifact_path: Path) -> ArtifactBundle:
     else:
         X_sonic = X_sonic_raw
 
+    # --- Optional dense genre embedding sidecar ---
+    X_genre_dense: Optional[np.ndarray] = None
+    genre_emb: Optional[np.ndarray] = None
+    _DEFAULT_SIDECAR_DIM = 64
+    _sidecar_path = artifact_path.parent / f"{artifact_path.stem}_genre_emb_dim{_DEFAULT_SIDECAR_DIM}.npz"
+    if _sidecar_path.exists():
+        try:
+            _sc = np.load(_sidecar_path, allow_pickle=True)
+            # Validate that sidecar track_ids align with artifact track_ids
+            _sc_tids = _sc["track_ids"]
+            _sc_vocab = _sc["genre_vocab"]
+            if len(_sc_tids) == len(data["track_ids"]) and np.array_equal(_sc_tids, data["track_ids"]):
+                X_genre_dense = _sc["X_genre_dense"].astype(np.float32)
+                genre_emb = _sc["genre_emb"].astype(np.float32)
+                logger.info(
+                    "Loaded dense genre sidecar: %s | X_genre_dense=%s",
+                    _sidecar_path.name,
+                    X_genre_dense.shape,
+                )
+            else:
+                logger.warning(
+                    "Genre embedding sidecar %s track_ids mismatch — ignoring. "
+                    "Re-run scripts/build_genre_embedding.py to rebuild.",
+                    _sidecar_path.name,
+                )
+        except Exception as exc:
+            logger.warning("Could not load genre embedding sidecar %s: %s", _sidecar_path.name, exc)
+
     N = track_ids.shape[0]
     # Validate aligned shapes
     aligned = {
@@ -176,6 +207,8 @@ def _load_artifact_bundle_cached(artifact_path: Path) -> ArtifactBundle:
         X_sonic_raw=X_sonic_raw,
         sonic_variant=sonic_variant,
         sonic_pre_scaled=sonic_pre_scaled,
+        X_genre_dense=X_genre_dense,
+        genre_emb=genre_emb,
     )
 
 

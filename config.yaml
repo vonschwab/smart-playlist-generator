@@ -1,0 +1,366 @@
+discogs:
+  token: YOnVDXLrQdNBLunwnUaYzmYrvTZwFUlbhPfsFLuN
+lastfm:
+  api_key: 4063180b7849e7bf7bdf84d8c665a3f3
+  history_days: 90
+  username: vonschwab
+library:
+  database_path: data/metadata.db
+  music_directory: E:\MUSIC
+logging:
+  file: playlist_generator.log
+  level: DEBUG
+openai:
+  api_key: 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
+  model: gpt-4o-mini
+playlists:
+  artist_window_size: 5
+  cache_expiry_days: 30
+  cohesion_mode: dynamic
+  count: 8
+  ds_pipeline:
+    artifact_path: data/artifacts/beat3tower_32k/data_matrices_step1.npz
+    artist_style:
+      bridge_floor:
+        dynamic: 0.02
+        narrow: 0.05
+        strict: 0.1
+      bridge_score_weights:
+        dynamic:
+          bridge: 0.6
+          transition: 0.4
+        narrow:
+          bridge: 0.7
+          transition: 0.3
+      cluster_k_heuristic_enabled: true
+      cluster_k_max: 6
+      cluster_k_min: 3
+      enabled: true
+      genre_neighbor_compatible_threshold: 0.35
+      genre_neighbor_conflict_threshold: 0.15
+      genre_neighbor_min_confidence: null
+      genre_neighbor_min_similarity: 0.25
+      genre_neighbor_pool_enabled: true
+      genre_neighbor_pool_size: 1500
+      genre_tiebreak_weight: 0.05
+      internal_connector_max_per_segment: 2
+      internal_connector_priority: true
+      per_cluster_candidate_pool_size: 2000
+      piers_per_cluster: 1
+      pool_balance_mode: equal
+    candidate_pool:
+      duration_cutoff_multiplier: 2.5
+      duration_penalty_enabled: true
+      duration_penalty_weight: 0.6
+      genre_compatibility_compatible_threshold: 0.35
+      genre_compatibility_conflict_threshold: 0.15
+      genre_compatibility_enabled: true
+      genre_compatibility_penalty_strength: 0.2
+      genre_idf_enabled: true
+      max_artist_fraction: 0.125
+      max_pool_size: 2400
+      similarity_floor: 0.2
+      title_hard_exclude_flags:
+      - interlude
+      - skit
+      - acapella
+    constraints:
+      artist_identity:
+        enabled: true
+        split_delimiters:
+        - ','
+        - ' & '
+        - ' and '
+        - ' feat. '
+        - ' feat '
+        - ' featuring '
+        - ' ft. '
+        - ' ft '
+        - ' with '
+        - ' x '
+        - ' + '
+        strip_trailing_ensemble_terms: true
+      center_transitions: true
+      hard_floor: true
+      min_gap: 6
+      transition_floor: 0.2
+    embedding:
+      genre_components: 32
+      genre_weight: 0.4
+      sonic_components: 32
+      sonic_weight: 0.6
+    enable_logging: true
+    pier_bridge:
+      audit_run:
+        enabled: false
+        include_top_k: 25
+        max_bytes: 350000
+        out_dir: docs/run_audits
+        write_on_failure: true
+        write_on_success: true
+      bridge_floor_dynamic: 0.02
+      bridge_floor_narrow: 0.05
+      bridge_floor_strict: 0.1
+      collapse_segment_pool_by_artist: false
+      disallow_pier_artists_in_interiors: true
+      disallow_seed_artist_in_interiors: false
+      dj_bridging:
+        diagnostics:
+          pool_verbose: true
+          waypoint_rank_impact_enabled: true
+          waypoint_rank_sample_steps: 3
+        dj_coverage_mode: weighted
+        dj_coverage_presence_source: raw
+        dj_genre_coverage_power: 2.0
+        dj_genre_coverage_top_k: 8
+        dj_genre_coverage_weight: 0.15
+        dj_genre_idf_norm: max1
+        dj_genre_idf_power: 1.0
+        dj_genre_presence_threshold: 0.02
+        dj_genre_use_coverage: true
+        dj_genre_use_idf: true
+        dj_genre_vector_source: smoothed
+        dj_ladder_target_mode: vector
+        dj_waypoint_centered_baseline: median
+        dj_waypoint_delta_mode: centered
+        dj_waypoint_squash: tanh
+        dj_waypoint_squash_alpha: 4.0
+        enabled: true
+        pooling:
+          cache_enabled: true
+          debug_compare_baseline: false
+          k_genre: 0
+          k_local: 400
+          k_toward: 160
+          k_union_max: 1800
+          step_stride: 1
+          strategy: dj_union
+        route_shape: ladder
+        waypoint_cap: 0.1
+        waypoint_weight: 0.25
+      edge_repair:
+        centered_cos_floor: -0.5
+        enabled: true
+        margin: 0.05
+        variety_guard:
+          enabled: false
+          threshold: 0.85
+      emit_selected_edge_audit: true
+      genre_tiebreak_weight: 0.05
+      genre_steering_enabled: true
+      dj_route_shape: ladder
+      weight_genre_strict: 0.30
+      weight_genre_narrow: 0.20
+      weight_genre_dynamic: 0.12
+      weight_genre_discover: 0.06
+      genre_arc_floor_strict: 0.50
+      genre_arc_floor_narrow: 0.40
+      genre_arc_floor_dynamic: 0.25
+      genre_arc_floor_discover: 0.10
+      genre_admission_percentile_strict: 0.92
+      genre_admission_percentile_narrow: 0.90
+      genre_admission_percentile_dynamic: 0.85
+      genre_admission_percentile_discover: 0.70
+      genre_arc_floor_percentile_strict: 0.90
+      genre_arc_floor_percentile_narrow: 0.85
+      genre_arc_floor_percentile_dynamic: 0.70
+      genre_arc_floor_percentile_discover: 0.50
+      infeasible_handling:
+        backoff_steps:
+        - 0.08
+        - 0.06
+        - 0.05
+        - 0.04
+        - 0.03
+        - 0.02
+        - 0.01
+        - 0.0
+        enabled: true
+        genre_arc_relaxation_enabled: true
+        min_genre_arc_percentile: 0.40
+        extra_beam_width: 100
+        extra_bridge_helpers: 200
+        extra_expansion_attempts: 2
+        extra_neighbors_m: 400
+        max_attempts_per_segment: 8
+        min_bridge_floor: 0.0
+        strategy: backoff
+        widen_search_on_backoff: true
+      initial_beam_width: 40
+      initial_bridge_helpers: 100
+      initial_neighbors_m: 200
+      local_sonic_edge_floor: null
+      local_sonic_edge_penalty_enabled: true
+      local_sonic_edge_penalty_strength: 0.3
+      local_sonic_edge_penalty_threshold: 0.1
+      max_beam_width: 200
+      max_bridge_helpers: 400
+      max_neighbors_m: 800
+      max_segment_pool_max: 2400
+      progress:
+        enabled: true
+        monotonic_epsilon: 0.05
+        penalty_weight: 0.15
+      segment_pool_max: 800
+      segment_pool_strategy: segment_scored
+      soft_genre_penalty_strength_discover: 0.1
+      soft_genre_penalty_strength_dynamic: 0.15
+      soft_genre_penalty_strength_narrow: 0.3
+      soft_genre_penalty_strength_off: 0.1
+      soft_genre_penalty_strength_strict: 0.4
+      soft_genre_penalty_threshold_discover: 0.2
+      soft_genre_penalty_threshold_dynamic: 0.73
+      soft_genre_penalty_threshold_narrow: 0.7
+      soft_genre_penalty_threshold_off: 0.2
+      soft_genre_penalty_threshold_strict: 0.82
+      weight_bridge_dynamic: 0.6
+      weight_bridge_narrow: 0.7
+      weight_transition_dynamic: 0.4
+      weight_transition_narrow: 0.3
+    random_seed: 0
+    repair:
+      enabled: true
+      max_edges: 5
+      max_iters: 5
+      objective: gap_penalty
+    scoring:
+      alpha: 0.55
+      alpha_end: 0.6
+      alpha_mid: 0.45
+      alpha_schedule: arc
+      alpha_start: 0.65
+      arc_midpoint: 0.55
+      beta: 0.55
+      gamma: 0.04
+    tower_pca_dims:
+      harmony: 8
+      rhythm: 8
+      timbre: 16
+    tower_weights:
+      harmony: 0.3
+      rhythm: 0.2
+      timbre: 0.5
+    transition_weights:
+      harmony: 0.3
+      rhythm: 0.2
+      timbre: 0.5
+  duration_match:
+    enabled: true
+    falloff: 0.6
+    min_target_seconds: 40
+    weight: 0.35
+    window_frac: 0.25
+  export_m3u: true
+  genre_similarity:
+    broad_filters:
+    - 50s
+    - 60s
+    - 70s
+    - 80s
+    - 90s
+    - 00s
+    - 10s
+    - '1950'
+    - '1960'
+    - '1970'
+    - '1980'
+    - '1990'
+    - '2000'
+    - '2010'
+    - '2020'
+    - 2000s
+    - 2010s
+    - 2020s
+    - underground
+    - classic
+    - modern
+    - contemporary
+    - british
+    - american
+    - canadian
+    - english
+    - uk
+    - usa
+    - catchy
+    - awesome
+    - cool
+    - good
+    - great
+    - seen live
+    - favorites
+    - favourite
+    - my music
+    - owned
+    - liked
+    - to buy
+    - unknown
+    - various
+    - other
+    - misc
+    - soundtrack
+    - ost
+    - cover
+    - covers
+    - remix
+    - remixes
+    - live
+    - bootleg
+    - demo
+    - reissue
+    - compilation
+    - my top songs
+    enabled: true
+    method: ensemble
+    min_genre_similarity: 0.3
+    min_genre_similarity_narrow: 0.55
+    similarity_file: data/genre_similarity.yaml
+    sonic_weight: 0.6
+    use_artist_tags: true
+    weight: 0.5
+  history_days: 14
+  limits:
+    extension_base: 10
+    extension_increment: 20
+    similar_artists: 30
+    similar_tracks: 50
+  m3u_export_path: E:\PLAYLISTS
+  max_age_days: 14
+  max_artist_per_window: 1
+  max_track_duration_seconds: 720
+  max_tracks_per_artist: 4
+  min_duration_minutes: 90
+  min_seed_artist_ratio: 0.125
+  min_track_duration_seconds: 46
+  name_format: artists
+  name_prefix: 'Auto:'
+  pace_mode: dynamic
+  pipeline: ds
+  recently_played_filter:
+    enabled: true
+    lookback_days: 14
+    min_playcount_threshold: 0
+  seed_count: 5
+  similar_artists:
+    boost: 0.05
+    enabled: true
+  similar_per_seed: 20
+  similarity:
+    artist_direct_match: 0.9
+    artist_shared_base: 0.4
+    artist_shared_increment: 0.05
+    artist_shared_max: 0.7
+    min_threshold: 0.5
+  sonic:
+    # Production artifact bakes tower weighting at build time (tower_weighted variant);
+    # the pipeline uses the artifact's pre_scaled space directly. See
+    # docs/superpowers/specs/2026-06-01-sonic-tower-weighted-fix-design.md.
+    sim_variant: tower_weighted
+  tracks_per_playlist: 30
+plex:
+  base_url: http://192.168.1.120:32400
+  enabled: true
+  music_section: Music
+  path_map: []
+  replace_existing: true
+  token: nw3zXQS2qmPhQeSvJz7M
+  verify_ssl: true

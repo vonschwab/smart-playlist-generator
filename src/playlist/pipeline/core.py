@@ -340,6 +340,17 @@ def generate_playlist_ds(
     X_genre_raw = embedding.X_genre_raw
     X_genre_smoothed = embedding.X_genre_smoothed
 
+    # Per-seed adaptive admission percentile (Task 4: genre-arc steering).
+    # Check both the base key and the mode-specific key (e.g. genre_admission_percentile_narrow)
+    # because resolve_pier_bridge_tuning isn't called until after the pool is built.
+    _genre_admission_percentile: Optional[float] = None
+    _raw_pct = pb_overrides.get("genre_admission_percentile") or pb_overrides.get(f"genre_admission_percentile_{mode}")
+    if _raw_pct is not None:
+        try:
+            _genre_admission_percentile = float(_raw_pct)
+        except (TypeError, ValueError):
+            pass
+
     def _build_pool(candidate_cfg: Any, genre_gate: Optional[float]):
         return build_candidate_pool(
             seed_idx=seed_idx,
@@ -355,6 +366,7 @@ def generate_playlist_ds(
             X_sonic=embedding.X_sonic_for_embed,
             X_genre_raw=X_genre_raw if genre_gate is not None else None,
             X_genre_smoothed=X_genre_smoothed if genre_gate is not None else None,
+            X_genre_dense=getattr(bundle, "X_genre_dense", None) if genre_gate is not None else None,
             min_genre_similarity=genre_gate,
             genre_method=genre_method or "ensemble",
             genre_vocab=genre_vocab,
@@ -364,6 +376,7 @@ def generate_playlist_ds(
             uncap_pool=not artist_playlist,
             perceptual_bpm=perceptual_bpm,
             tempo_stability=tempo_stability_bpm,
+            genre_admission_percentile=_genre_admission_percentile,
         )
 
     pool = _build_pool(cfg.candidate, min_genre_similarity)
@@ -561,6 +574,7 @@ def generate_playlist_ds(
                     artist_identity_cfg=artist_identity_cfg,
                     perceptual_bpm=perceptual_bpm,
                     tempo_stability_arr=tempo_stability_bpm,
+                    min_gap=int(getattr(cfg.construct, "min_gap", 1) or 1),
                 )
 
             one_each_candidate_relaxation: Optional[Dict[str, Any]] = None

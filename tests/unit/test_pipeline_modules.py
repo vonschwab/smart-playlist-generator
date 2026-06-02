@@ -43,11 +43,22 @@ def _make_bundle(
     artist_keys: Optional[List[str]] = None,
     track_titles: Optional[List[str]] = None,
     sonic_dim: int = 2,
+    dense_dim: Optional[int] = None,
 ) -> ArtifactBundle:
-    """Build a minimal in-memory ArtifactBundle for unit tests."""
+    """Build a minimal in-memory ArtifactBundle for unit tests.
+
+    When ``dense_dim`` is given, populate ``X_genre_dense`` with a distinct,
+    per-row recoverable value (row i = i) so slicing/alignment can be asserted.
+    """
     n = len(track_ids)
     artist_keys = artist_keys or [f"a{i}" for i in range(n)]
     track_titles = track_titles or [f"Song {i}" for i in range(n)]
+    X_genre_dense = None
+    if dense_dim is not None:
+        # Row i is filled with the value i so kept rows are identifiable post-slice.
+        X_genre_dense = np.tile(
+            np.arange(n, dtype=float).reshape(n, 1), (1, dense_dim)
+        )
     return ArtifactBundle(
         artifact_path=Path("test://bundle"),
         track_ids=np.array(track_ids),
@@ -60,6 +71,7 @@ def _make_bundle(
         X_sonic_end=None,
         X_genre_raw=np.zeros((n, 1), dtype=float),
         X_genre_smoothed=np.zeros((n, 1), dtype=float),
+        X_genre_dense=X_genre_dense,
         genre_vocab=np.array(["g0"]),
         track_id_to_index={tid: i for i, tid in enumerate(track_ids)},
     )
@@ -153,6 +165,45 @@ class TestBundleRestrict:
         )
         assert "t1" in out_bundle.track_ids
         assert out_bundle.track_ids[out_seed] == "t1"
+
+    def test_restrict_carries_dense_and_realigns_rows(self):
+        """Dense PMI-SVD matrix must survive restriction and stay row-aligned.
+
+        Regression guard: _slice_bundle previously dropped X_genre_dense, which
+        silently routed restricted (artist-style) playlists onto the legacy
+        ensemble genre path instead of the redesigned dense embedding.
+        """
+        bundle = _make_bundle(["t0", "t1", "t2", "t3"], dense_dim=4)
+        out_bundle, out_seed, _ = restrict_bundle(
+            bundle, "t2", seed_idx=2,
+            anchor_seed_ids=[],
+            allowed_track_ids=["t1", "t3"],  # plus seed t2 via exemption
+            excluded_track_ids=None,
+            allowed_track_ids_set=None,
+        )
+        assert out_bundle.X_genre_dense is not None
+        # Kept ids are {t1, t2, t3}; dense dim preserved.
+        assert out_bundle.X_genre_dense.shape == (3, 4)
+        # Each surviving row must still equal its ORIGINAL row value (i), proving
+        # rows were sliced with the same index order as track_ids (alignment).
+        for i, tid in enumerate(out_bundle.track_ids):
+            orig_idx = int(tid[1:])  # "t3" -> 3
+            assert np.allclose(out_bundle.X_genre_dense[i], float(orig_idx))
+        # Seed row must align too.
+        seed_orig = int(out_bundle.track_ids[out_seed][1:])
+        assert np.allclose(out_bundle.X_genre_dense[out_seed], float(seed_orig))
+
+    def test_restrict_none_dense_passes_through_as_none(self):
+        """Artifacts without a dense sidecar restrict cleanly (no crash, stays None)."""
+        bundle = _make_bundle(["t0", "t1", "t2"])  # dense_dim omitted -> None
+        out_bundle, _, _ = restrict_bundle(
+            bundle, "t0", seed_idx=0,
+            anchor_seed_ids=[],
+            allowed_track_ids=["t0", "t1"],
+            excluded_track_ids=None,
+            allowed_track_ids_set=None,
+        )
+        assert out_bundle.X_genre_dense is None
 
     def test_empty_allowed_raises(self):
         bundle = _make_bundle(["t0", "t1"])
