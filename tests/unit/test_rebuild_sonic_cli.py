@@ -14,6 +14,7 @@ def _make_artifact(path, N=4):
         d[f"X_sonic_{seg}"] = np.zeros((N, 86), np.float32)
     d["X_genre_raw"] = np.ones((N, 3), np.float32)
     d["track_ids"] = np.array(["a", "b", "c", "d"], dtype=object)
+    d["X_sonic_variant"] = np.array("robust_whiten")
     np.savez(path, **d)
 
 
@@ -31,5 +32,6 @@ def test_rebuild_writes_variant_and_backs_up(tmp_path):
     assert np.linalg.norm(out["X_sonic_start"]) > 0  # segments rebuilt
     assert np.array_equal(out["X_genre_raw"], before)  # genre preserved
     # backup holds the pre-rebuild content
-    assert str(np.load(backup, allow_pickle=True)["X_sonic_variant"]) != "tower_weighted" \
-        if "X_sonic_variant" in np.load(backup, allow_pickle=True).files else True
+    bak_data = np.load(backup, allow_pickle=True)
+    assert "X_sonic_variant" in bak_data.files
+    assert str(bak_data["X_sonic_variant"]) == "robust_whiten"

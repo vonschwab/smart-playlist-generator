@@ -28,7 +28,8 @@ from src.features.sonic_rebuild import build_tower_weighted_arrays  # noqa: E402
 
 
 def _weights_from_config(config_path: str) -> Tuple[float, float, float]:
-    cfg = yaml.safe_load(open(config_path, encoding="utf-8"))
+    with open(config_path, encoding="utf-8") as fh:
+        cfg = yaml.safe_load(fh)
     tw = cfg["playlists"]["ds_pipeline"]["tower_weights"]
     return (float(tw["rhythm"]), float(tw["timbre"]), float(tw["harmony"]))
 
@@ -51,8 +52,12 @@ def rebuild_artifact(
         shutil.copy2(path, backup_path)
 
     tmp = path.with_name(path.stem + ".rebuild.npz")
-    np.savez(tmp, **out)
-    tmp.replace(path)
+    try:
+        np.savez(tmp, **out)
+        tmp.replace(path)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
     return backup_path
 
 
