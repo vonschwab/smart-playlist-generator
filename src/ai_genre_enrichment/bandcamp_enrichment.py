@@ -21,26 +21,27 @@ def fetch_bandcamp_tags(
     api_key: str,
     model: str = "gpt-4o-mini",
     fetch_html: Callable[[str], str] | None = None,
-) -> list[str]:
+) -> tuple[str | None, list[str], float | None]:
     """Fetch Bandcamp tags for a release.
 
     Uses the AI source locator to find a confirmed Bandcamp release URL,
     then scrapes the tag list from the page.
 
     Returns:
-        List of raw tag strings (deduplicated). Empty if no confirmed Bandcamp URL found.
+        Selected Bandcamp release URL, deduplicated raw tags, and locator
+        confidence. The URL is None if no confirmed release URL was found.
     """
     locator_response = _locate_bandcamp_url(
         artist=artist, album=album, model=model, api_key=api_key
     )
-    url = _pick_bandcamp_url(locator_response)
+    url, confidence = _pick_bandcamp_url(locator_response)
     if not url:
-        return []
+        return None, [], None
     try:
         tags = fetch_bandcamp_release_tags(url, fetch_html=fetch_html)
     except OSError:
         logger.exception("Bandcamp HTML fetch failed for %s", url)
-        return []
+        return url, [], confidence
 
     seen: set[str] = set()
     filtered: list[str] = []
@@ -50,10 +51,10 @@ def fetch_bandcamp_tags(
         if key and key not in seen and len(key) > 2:
             seen.add(key)
             filtered.append(tag.strip())
-    return filtered
+    return url, filtered, confidence
 
 
-def _pick_bandcamp_url(locator_response: dict[str, Any]) -> str | None:
+def _pick_bandcamp_url(locator_response: dict[str, Any]) -> tuple[str | None, float | None]:
     candidates = locator_response.get("candidate_sources", []) or []
     bandcamp_candidates = [
         c for c in candidates
@@ -63,9 +64,10 @@ def _pick_bandcamp_url(locator_response: dict[str, Any]) -> str | None:
         and is_bandcamp_release_url(c.get("source_url") or "")
     ]
     if not bandcamp_candidates:
-        return None
+        return None, None
     bandcamp_candidates.sort(key=lambda c: c.get("identity_confidence") or 0, reverse=True)
-    return bandcamp_candidates[0]["source_url"]
+    selected = bandcamp_candidates[0]
+    return selected["source_url"], selected["identity_confidence"]
 
 
 def _locate_bandcamp_url(

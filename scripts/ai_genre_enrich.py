@@ -564,6 +564,22 @@ def cmd_ingest_local(args: argparse.Namespace) -> int:
 
 
 def cmd_extract_lastfm(args: argparse.Namespace) -> int:
+    if getattr(args, "dry_run", False):
+        releases = _discover(args)
+        if not releases:
+            print("No matching release found.")
+            return 1
+        for release in releases:
+            print(json.dumps({
+                "release_key": release.release_key,
+                "source_type": "lastfm_tags",
+                "route": ["lastfm_api", "classify_tags"],
+                "network_calls": 0,
+                "sidecar_writes": 0,
+                "dry_run": True,
+            }, ensure_ascii=False, sort_keys=True))
+        return 0
+
     import os
     import time
     from src.ai_genre_enrichment.lastfm_enrichment import fetch_lastfm_tags
@@ -611,14 +627,6 @@ def cmd_extract_lastfm(args: argparse.Namespace) -> int:
             if not tags:
                 continue
 
-            if getattr(args, "dry_run", False):
-                print(json.dumps({
-                    "release_key": release.release_key,
-                    "lastfm_tags": tags,
-                    "dry_run": True,
-                }, ensure_ascii=False, sort_keys=True))
-                continue
-
             album_segment = f"/album/{release.normalized_album}" if release.normalized_album else ""
             page_id = store.upsert_source_page(
                 release_key=release.release_key,
@@ -645,6 +653,22 @@ def cmd_extract_lastfm(args: argparse.Namespace) -> int:
 
 
 def cmd_extract_bandcamp(args: argparse.Namespace) -> int:
+    if getattr(args, "dry_run", False):
+        releases = _discover(args)
+        if not releases:
+            print("No matching release found.")
+            return 1
+        for release in releases:
+            print(json.dumps({
+                "release_key": release.release_key,
+                "source_type": "bandcamp_release",
+                "route": ["openai_source_locator", "bandcamp_release_html", "classify_tags"],
+                "network_calls": 0,
+                "sidecar_writes": 0,
+                "dry_run": True,
+            }, ensure_ascii=False, sort_keys=True))
+        return 0
+
     import os
     from src.ai_genre_enrichment.bandcamp_enrichment import fetch_bandcamp_tags
     from src.ai_genre_enrichment.genre_vocabulary import GenreVocabulary
@@ -679,7 +703,7 @@ def cmd_extract_bandcamp(args: argparse.Namespace) -> int:
     try:
         for release in releases:
             album_name = release.normalized_album or None
-            tags = fetch_bandcamp_tags(
+            source_url, tags, locator_confidence = fetch_bandcamp_tags(
                 artist=release.normalized_artist,
                 album=album_name,
                 api_key=api_key,
@@ -688,24 +712,15 @@ def cmd_extract_bandcamp(args: argparse.Namespace) -> int:
             if not tags:
                 continue
 
-            if getattr(args, "dry_run", False):
-                print(json.dumps({
-                    "release_key": release.release_key,
-                    "bandcamp_tags": tags,
-                    "dry_run": True,
-                }, ensure_ascii=False, sort_keys=True))
-                continue
-
-            album_segment = f"/album/{release.normalized_album}" if release.normalized_album else ""
             page_id = store.upsert_source_page(
                 release_key=release.release_key,
                 normalized_artist=release.normalized_artist,
                 normalized_album=release.normalized_album,
                 album_id=release.album_id,
-                source_url=f"bandcamp://artist/{release.normalized_artist}{album_segment}",
-                source_type="bandcamp_tags",
+                source_url=source_url,
+                source_type="bandcamp_release",
                 identity_status="confirmed",
-                identity_confidence=0.9,
+                identity_confidence=locator_confidence,
                 evidence_summary="Bandcamp release tags via AI source locator.",
             )
             store.replace_source_tags(page_id, tags)

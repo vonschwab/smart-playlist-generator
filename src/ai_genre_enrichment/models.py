@@ -34,7 +34,6 @@ AUTHORITATIVE_SOURCE_TYPES = {
     "press_release",
     "liner_notes",
     "official_distributor",
-    "local_metadata",
 }
 EXCLUDED_AUTHORITY_DOMAINS = {
     "allaboutjazz.com",

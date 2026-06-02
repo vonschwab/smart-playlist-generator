@@ -10,6 +10,13 @@ from urllib.parse import urlparse
 from typing import Any
 
 from .models import AUTHORITATIVE_SOURCE_TYPES, RESPONSE_SCHEMA_VERSION
+from .policy import (
+    LEGACY_POLICY_VERSION,
+    STABILIZED_POLICY_VERSION,
+    can_seed_signature,
+    canonical_source_type,
+    evidence_basis,
+)
 
 VALID_STATUSES = {"pending", "complete", "failed", "skipped", "needs_review"}
 AUTO_APPLY_MIN_CONFIDENCE = 0.85
@@ -290,6 +297,7 @@ class SidecarStore:
                     source_page_id INTEGER,
                     source_ref TEXT NOT NULL,
                     status TEXT NOT NULL DEFAULT 'accepted',
+                    enrichment_policy_version TEXT,
                     added_at TEXT NOT NULL,
                     FOREIGN KEY (source_tag_id) REFERENCES ai_genre_source_tags(source_tag_id),
                     FOREIGN KEY (source_page_id) REFERENCES ai_genre_source_pages(source_page_id),
@@ -302,6 +310,7 @@ class SidecarStore:
                     normalized_album TEXT NOT NULL,
                     album_id TEXT,
                     signature_json TEXT NOT NULL,
+                    enrichment_policy_version TEXT,
                     updated_at TEXT NOT NULL
                 );
 
@@ -373,6 +382,8 @@ class SidecarStore:
             _ensure_column(conn, "ai_genre_run_log", "no_web_checks", "INTEGER NOT NULL DEFAULT 0")
             _ensure_column(conn, "ai_genre_run_log", "authoritative_source_checks", "INTEGER NOT NULL DEFAULT 0")
             _ensure_column(conn, "ai_genre_run_log", "needs_review", "INTEGER NOT NULL DEFAULT 0")
+            _ensure_column(conn, "enriched_genres", "enrichment_policy_version", "TEXT")
+            _ensure_column(conn, "enriched_genre_signatures", "enrichment_policy_version", "TEXT")
             _migrate_release_checks_cache_identity(conn)
 
     def has_complete_check(
@@ -655,6 +666,19 @@ class SidecarStore:
                     """
                 )
             }
+            signature_policy_counts = {
+                row["policy_version"]: row["count"]
+                for row in conn.execute(
+                    """
+                    SELECT COALESCE(enrichment_policy_version, ?) AS policy_version,
+                           COUNT(*) AS count
+                    FROM enriched_genre_signatures
+                    GROUP BY COALESCE(enrichment_policy_version, ?)
+                    ORDER BY policy_version
+                    """,
+                    (LEGACY_POLICY_VERSION, LEGACY_POLICY_VERSION),
+                )
+            }
             review_only_tag_gaps = [
                 {
                     "tag": row["normalized_tag"],
@@ -741,6 +765,7 @@ class SidecarStore:
             "top_prunes": dict(prunes),
             "low_confidence_examples": low_confidence,
             "classification_counts": classification_counts,
+            "signature_policy_counts": signature_policy_counts,
             "review_only_tag_gaps": review_only_tag_gaps,
             "source_domains_used": dict(source_domains.most_common(20)),
         }
@@ -1184,6 +1209,7 @@ class SidecarStore:
                           'official_artist',
                           'official_label',
                           'bandcamp_release',
+                          'bandcamp_tags',
                           'label_catalog',
                           'press_release',
                           'liner_notes',
@@ -1214,14 +1240,9 @@ class SidecarStore:
             _vocab = GenreVocabulary()
 
             now = _now_iso()
-            rows = []
-            expanded_genres: set[str] = set()
+            expanded_rows = []
             for row in source_rows:
-                basis = (
-                    "lastfm_tags" if row["source_type"] == "lastfm_tags"
-                    else "local_metadata" if row["source_type"] == "local_metadata"
-                    else "authoritative_source"
-                )
+                basis = evidence_basis(row["source_type"])
                 confidence = (
                     0.90 if row["reviewed_classification"] == "genre_style" and row["classification"] != "genre_style"
                     else row["confidence"]
@@ -1230,30 +1251,43 @@ class SidecarStore:
                 decomposed = _vocab.decompose_tag(canonical)
                 genres = [g for g in (decomposed if decomposed else [canonical]) if g not in ALWAYS_PRUNE_GENRES]
                 for genre in genres:
-                    rows.append((
-                        row["release_key"],
-                        row["normalized_artist"],
-                        row["normalized_album"],
-                        row["album_id"],
-                        genre,
-                        basis,
-                        confidence,
-                        row["source_tag_id"],
-                        row["source_page_id"],
-                        f"source_tag:{row['source_tag_id']}",
-                        "accepted",
-                        now,
-                    ))
-                    expanded_genres.add(genre)
+                    expanded_rows.append((row, genre, basis, confidence))
+
+            seed_genres = {
+                genre
+                for row, genre, _, _ in expanded_rows
+                if can_seed_signature(row["source_type"])
+            }
+            rows = []
+            expanded_genres: set[str] = set()
+            for row, genre, basis, confidence in expanded_rows:
+                if not can_seed_signature(row["source_type"]) and genre not in seed_genres:
+                    continue
+                rows.append((
+                    row["release_key"],
+                    row["normalized_artist"],
+                    row["normalized_album"],
+                    row["album_id"],
+                    genre,
+                    basis,
+                    confidence,
+                    row["source_tag_id"],
+                    row["source_page_id"],
+                    f"source_tag:{row['source_tag_id']}",
+                    "accepted",
+                    STABILIZED_POLICY_VERSION,
+                    now,
+                ))
+                expanded_genres.add(genre)
             if rows:
                 conn.executemany(
                     """
                     INSERT INTO enriched_genres (
                         release_key, normalized_artist, normalized_album, album_id,
                         genre, basis, confidence, source_tag_id, source_page_id,
-                        source_ref, status, added_at
+                        source_ref, status, enrichment_policy_version, added_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     rows,
                 )
@@ -1275,9 +1309,9 @@ class SidecarStore:
                     """
                     INSERT INTO enriched_genre_signatures (
                         release_key, normalized_artist, normalized_album, album_id,
-                        signature_json, updated_at
+                        signature_json, enrichment_policy_version, updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         metadata_row["release_key"],
@@ -1285,6 +1319,7 @@ class SidecarStore:
                         metadata_row["normalized_album"],
                         metadata_row["album_id"],
                         json.dumps(signature, ensure_ascii=False, sort_keys=True),
+                        STABILIZED_POLICY_VERSION,
                         now,
                     ),
                 )
@@ -1799,11 +1834,14 @@ def _signature_sources(source_rows: list[sqlite3.Row]) -> list[dict[str, str]]:
     seen: set[tuple[str, str]] = set()
     sources: list[dict[str, str]] = []
     for row in source_rows:
-        key = (row["source_type"], row["source_url"])
+        if not can_seed_signature(row["source_type"]):
+            continue
+        source_type = canonical_source_type(row["source_type"])
+        key = (source_type, row["source_url"])
         if key in seen:
             continue
         seen.add(key)
-        sources.append({"source_type": row["source_type"], "source_url": row["source_url"]})
+        sources.append({"source_type": source_type, "source_url": row["source_url"]})
     return sorted(sources, key=lambda item: (item["source_type"], item["source_url"]))
 
 

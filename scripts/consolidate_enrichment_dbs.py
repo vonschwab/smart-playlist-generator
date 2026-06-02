@@ -62,7 +62,11 @@ def main() -> int:
 
     for p in others:
         src = sqlite3.connect(f"file:{p}?mode=ro", uri=True); src.row_factory = sqlite3.Row
-        if "enriched_genre_signatures" not in _tables(src):
+        tables = _tables(src)
+        if "enriched_genre_signatures" not in tables:
+            src.close(); continue
+        if "enriched_genres" not in tables:
+            print(f"warning: skipping {os.path.basename(p)}: missing required table enriched_genres")
             src.close(); continue
         for r in src.execute("SELECT * FROM enriched_genre_signatures"):
             rk = r["release_key"]
@@ -99,13 +103,17 @@ def main() -> int:
         canon.execute(
             f"INSERT INTO enriched_genre_signatures ({','.join(sig_cols)}) "
             f"VALUES ({','.join('?' for _ in sig_cols)})",
-            [s[c] for c in sig_cols])
+            [s[c] if c in s.keys() else None for c in sig_cols])
         n_sig += 1
         for g in eg_rows[rk]:
             vals = []
             for c in eg_insert_cols:
                 # null out source refs that point at rows not present in canonical
-                vals.append(None if c in ("source_tag_id", "source_page_id") else g[c])
+                vals.append(
+                    None
+                    if c in ("source_tag_id", "source_page_id") or c not in g.keys()
+                    else g[c]
+                )
             canon.execute(
                 f"INSERT INTO enriched_genres ({','.join(eg_insert_cols)}) "
                 f"VALUES ({','.join('?' for _ in eg_insert_cols)})", vals)

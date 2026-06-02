@@ -3871,9 +3871,9 @@ def test_rebuild_enriched_applies_alias_and_decompose(tmp_path, monkeypatch):
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (release_key, "testartist", "testalbum", None,
-             "https://lastfm.example/testartist/testalbum",
-             "lastfm.example",
-             "lastfm_tags",
+             "https://testartist.bandcamp.com/album/testalbum",
+             "testartist.bandcamp.com",
+             "bandcamp_release",
              "confirmed", 1.0),
         )
         page_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
@@ -4045,14 +4045,16 @@ def test_fetch_bandcamp_tags_uses_source_locator_and_extractor(monkeypatch):
         )
 
     monkeypatch.setattr(bandcamp_enrichment, "_locate_bandcamp_url", fake_locate)
-    tags = bandcamp_enrichment.fetch_bandcamp_tags(
+    source_url, tags, confidence = bandcamp_enrichment.fetch_bandcamp_tags(
         artist="Duster",
         album="Stratosphere",
         api_key="test-key",
         model="gpt-4o-mini",
         fetch_html=fake_fetch_html,
     )
+    assert source_url == "https://duster.bandcamp.com/album/stratosphere"
     assert tags == ["slowcore", "space rock"]
+    assert confidence == 0.95
 
 
 def test_fetch_bandcamp_tags_returns_empty_when_no_confirmed_url(monkeypatch):
@@ -4075,14 +4077,16 @@ def test_fetch_bandcamp_tags_returns_empty_when_no_confirmed_url(monkeypatch):
         }
 
     monkeypatch.setattr(bandcamp_enrichment, "_locate_bandcamp_url", fake_locate)
-    tags = bandcamp_enrichment.fetch_bandcamp_tags(
+    source_url, tags, confidence = bandcamp_enrichment.fetch_bandcamp_tags(
         artist="X",
         album="Y",
         api_key="test-key",
         model="gpt-4o-mini",
         fetch_html=lambda url: "",
     )
+    assert source_url is None
     assert tags == []
+    assert confidence is None
 
 
 def test_extract_bandcamp_command_calls_fetcher_and_stores_tags(monkeypatch, tmp_path):
@@ -4094,7 +4098,11 @@ def test_extract_bandcamp_command_calls_fetcher_and_stores_tags(monkeypatch, tmp
     reset_vocabulary()
 
     def fake_fetch(*, artist, album, api_key, model, fetch_html=None):
-        return ["slowcore", "space rock", "shoegaze"]
+        return (
+            "https://slowdive.bandcamp.com/album/souvlaki",
+            ["slowcore", "space rock", "shoegaze"],
+            0.95,
+        )
 
     monkeypatch.setattr(bc_mod, "fetch_bandcamp_tags", fake_fetch)
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
@@ -4112,7 +4120,17 @@ def test_extract_bandcamp_command_calls_fetcher_and_stores_tags(monkeypatch, tmp
         tags = [row["raw_tag"] for row in conn.execute(
             "SELECT raw_tag FROM ai_genre_source_tags ORDER BY raw_tag"
         )]
+        source_types = {
+            row["source_type"]
+            for row in conn.execute("SELECT source_type FROM ai_genre_source_pages")
+        }
+        source_urls = {
+            row["source_url"]
+            for row in conn.execute("SELECT source_url FROM ai_genre_source_pages")
+        }
     assert tags == ["shoegaze", "slowcore", "space rock"]
+    assert source_types == {"bandcamp_release"}
+    assert source_urls == {"https://slowdive.bandcamp.com/album/souvlaki"}
 
 
 def test_locate_bandcamp_url_uses_call_openai_not_enrich(monkeypatch):
@@ -4566,3 +4584,332 @@ def test_review_escalated_reject_all_still_marks_complete(tmp_path: Path, monkey
     assert override is not None
     assert override["genres_add"] == []
     assert override["genres_remove"] == []
+
+
+def test_sidecar_initializes_forward_only_enrichment_policy_columns(tmp_path: Path):
+    db_path = tmp_path / "sidecar.db"
+    store = SidecarStore(db_path)
+    store.initialize()
+
+    with sqlite3.connect(db_path) as conn:
+        genre_cols = {row[1] for row in conn.execute("PRAGMA table_info(enriched_genres)")}
+        sig_cols = {row[1] for row in conn.execute("PRAGMA table_info(enriched_genre_signatures)")}
+
+    assert "enrichment_policy_version" in genre_cols
+    assert "enrichment_policy_version" in sig_cols
+
+
+def test_existing_signature_without_policy_is_reported_as_legacy_v0(tmp_path: Path):
+    db_path = tmp_path / "sidecar.db"
+    store = SidecarStore(db_path)
+    store.initialize()
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO enriched_genre_signatures(
+                release_key, normalized_artist, normalized_album, album_id,
+                signature_json, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            ("artist::album", "artist", "album", "a1", '{"genres":["rock"],"sources":[]}', "2026-01-01"),
+        )
+
+    assert store.report()["signature_policy_counts"] == {"legacy-v0": 1}
+
+
+def test_sidecar_migration_preserves_legacy_signature_without_policy(tmp_path: Path):
+    db_path = tmp_path / "sidecar.db"
+    signature_json = '{"genres":["rock"],"sources":[]}'
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript(
+            """
+            CREATE TABLE enriched_genres (
+                enriched_genre_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                release_key TEXT NOT NULL,
+                normalized_artist TEXT NOT NULL,
+                normalized_album TEXT NOT NULL,
+                album_id TEXT,
+                genre TEXT NOT NULL,
+                basis TEXT NOT NULL,
+                confidence REAL NOT NULL DEFAULT 0,
+                source_tag_id INTEGER,
+                source_page_id INTEGER,
+                source_ref TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'accepted',
+                added_at TEXT NOT NULL,
+                UNIQUE (release_key, genre, basis, source_ref)
+            );
+
+            CREATE TABLE enriched_genre_signatures (
+                release_key TEXT PRIMARY KEY,
+                normalized_artist TEXT NOT NULL,
+                normalized_album TEXT NOT NULL,
+                album_id TEXT,
+                signature_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO enriched_genre_signatures(
+                release_key, normalized_artist, normalized_album, album_id,
+                signature_json, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            ("artist::album", "artist", "album", "a1", signature_json, "2026-01-01"),
+        )
+
+    store = SidecarStore(db_path)
+    store.initialize()
+
+    with sqlite3.connect(db_path) as conn:
+        genre_cols = {row[1] for row in conn.execute("PRAGMA table_info(enriched_genres)")}
+        sig_cols = {row[1] for row in conn.execute("PRAGMA table_info(enriched_genre_signatures)")}
+        stored_signature = conn.execute(
+            "SELECT signature_json FROM enriched_genre_signatures WHERE release_key = ?",
+            ("artist::album",),
+        ).fetchone()[0]
+
+    assert "enrichment_policy_version" in genre_cols
+    assert "enrichment_policy_version" in sig_cols
+    assert stored_signature == signature_json
+    assert store.report()["signature_policy_counts"] == {"legacy-v0": 1}
+
+
+def _insert_classified_source_tag(
+    store: SidecarStore,
+    *,
+    release_key: str,
+    source_type: str,
+    source_url: str,
+    normalized_tag: str,
+) -> None:
+    page_id = store.upsert_source_page(
+        release_key=release_key,
+        normalized_artist="artist",
+        normalized_album="album",
+        album_id="a1",
+        source_url=source_url,
+        source_type=source_type,
+        identity_status="confirmed",
+        identity_confidence=1.0,
+        evidence_summary="Task 2 regression fixture.",
+    )
+    store.replace_source_tags(page_id, [normalized_tag])
+    store.classify_source_tags(page_id)
+
+
+def test_rebuild_reads_historical_bandcamp_tags_and_stamps_stabilized_policy(tmp_path: Path):
+    from src.ai_genre_enrichment.policy import STABILIZED_POLICY_VERSION
+
+    store = SidecarStore(tmp_path / "sidecar.db")
+    store.initialize()
+    _insert_classified_source_tag(
+        store,
+        release_key="artist::album",
+        source_type="bandcamp_tags",
+        source_url="bandcamp://artist/artist/album/album",
+        normalized_tag="shoegaze",
+    )
+
+    store.rebuild_enriched_genres_for_release("artist::album")
+
+    with store.connect() as conn:
+        genre_row = conn.execute(
+            "SELECT genre, basis, enrichment_policy_version FROM enriched_genres"
+        ).fetchone()
+        signature_row = conn.execute(
+            "SELECT signature_json, enrichment_policy_version FROM enriched_genre_signatures"
+        ).fetchone()
+    assert tuple(genre_row) == ("shoegaze", "authoritative_source", STABILIZED_POLICY_VERSION)
+    assert signature_row["enrichment_policy_version"] == STABILIZED_POLICY_VERSION
+    assert json.loads(signature_row["signature_json"])["sources"] == [
+        {
+            "source_type": "bandcamp_release",
+            "source_url": "bandcamp://artist/artist/album/album",
+        }
+    ]
+
+
+def test_rebuild_quarantines_lastfm_only_genres_and_signature_sources(tmp_path: Path):
+    store = SidecarStore(tmp_path / "sidecar.db")
+    store.initialize()
+    _insert_classified_source_tag(
+        store,
+        release_key="artist::album",
+        source_type="lastfm_tags",
+        source_url="lastfm://artist/artist/album/album",
+        normalized_tag="shoegaze",
+    )
+
+    store.rebuild_enriched_genres_for_release("artist::album")
+
+    with store.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM enriched_genres").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM enriched_genre_signatures").fetchone()[0] == 0
+
+
+def test_rebuild_keeps_lastfm_corroboration_without_serializing_quarantined_sources(tmp_path: Path):
+    store = SidecarStore(tmp_path / "sidecar.db")
+    store.initialize()
+    _insert_classified_source_tag(
+        store,
+        release_key="artist::album",
+        source_type="bandcamp_release",
+        source_url="bandcamp://artist/artist/album/album",
+        normalized_tag="shoegaze",
+    )
+    _insert_classified_source_tag(
+        store,
+        release_key="artist::album",
+        source_type="lastfm_tags",
+        source_url="lastfm://artist/artist/album/album",
+        normalized_tag="shoegaze",
+    )
+
+    store.rebuild_enriched_genres_for_release("artist::album")
+
+    with store.connect() as conn:
+        rows = {
+            (row["genre"], row["basis"])
+            for row in conn.execute("SELECT genre, basis FROM enriched_genres")
+        }
+        signature = json.loads(
+            conn.execute("SELECT signature_json FROM enriched_genre_signatures").fetchone()[0]
+        )
+    assert rows == {("shoegaze", "authoritative_source"), ("shoegaze", "lastfm_tags")}
+    assert signature["sources"] == [
+        {
+            "source_type": "bandcamp_release",
+            "source_url": "bandcamp://artist/artist/album/album",
+        }
+    ]
+
+
+def test_extract_lastfm_dry_run_only_prints_routing_plan(monkeypatch, tmp_path: Path, capsys):
+    import src.ai_genre_enrichment.lastfm_enrichment as lastfm_mod
+
+    metadata_db = _metadata_db(tmp_path)
+    sidecar_db = tmp_path / "sidecar.db"
+
+    def fail_fetch(**kwargs):
+        raise AssertionError("Last.fm fetcher must not run during dry-run")
+
+    monkeypatch.setattr(lastfm_mod, "fetch_lastfm_tags", fail_fetch)
+    monkeypatch.delenv("LASTFM_API_KEY", raising=False)
+
+    rc = ai_genre_cli.main([
+        "--metadata-db", str(metadata_db),
+        "--sidecar-db", str(sidecar_db),
+        "extract-lastfm",
+        "--artist", "Slowdive",
+        "--dry-run",
+    ])
+
+    assert rc == 0
+    assert not sidecar_db.exists()
+    assert json.loads(capsys.readouterr().out) == {
+        "dry_run": True,
+        "network_calls": 0,
+        "release_key": "slowdive::souvlaki",
+        "route": ["lastfm_api", "classify_tags"],
+        "sidecar_writes": 0,
+        "source_type": "lastfm_tags",
+    }
+
+
+def test_extract_bandcamp_dry_run_only_prints_routing_plan(monkeypatch, tmp_path: Path, capsys):
+    import src.ai_genre_enrichment.bandcamp_enrichment as bandcamp_mod
+
+    metadata_db = _metadata_db(tmp_path)
+    sidecar_db = tmp_path / "sidecar.db"
+
+    def fail_fetch(**kwargs):
+        raise AssertionError("Bandcamp fetcher must not run during dry-run")
+
+    monkeypatch.setattr(bandcamp_mod, "fetch_bandcamp_tags", fail_fetch)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    rc = ai_genre_cli.main([
+        "--metadata-db", str(metadata_db),
+        "--sidecar-db", str(sidecar_db),
+        "extract-bandcamp",
+        "--artist", "Slowdive",
+        "--dry-run",
+    ])
+
+    assert rc == 0
+    assert not sidecar_db.exists()
+    assert json.loads(capsys.readouterr().out) == {
+        "dry_run": True,
+        "network_calls": 0,
+        "release_key": "slowdive::souvlaki",
+        "route": ["openai_source_locator", "bandcamp_release_html", "classify_tags"],
+        "sidecar_writes": 0,
+        "source_type": "bandcamp_release",
+    }
+
+
+def test_extract_bandcamp_persists_selected_locator_confidence(monkeypatch, tmp_path: Path):
+    import src.ai_genre_enrichment.bandcamp_enrichment as bandcamp_mod
+
+    metadata_db = _metadata_db(tmp_path)
+    sidecar_db = tmp_path / "sidecar.db"
+    monkeypatch.setattr(
+        bandcamp_mod,
+        "fetch_bandcamp_tags",
+        lambda **_kwargs: (
+            "https://slowdive.bandcamp.com/album/souvlaki",
+            ["shoegaze"],
+            0.74,
+        ),
+    )
+
+    rc = ai_genre_cli.main([
+        "--metadata-db", str(metadata_db),
+        "--sidecar-db", str(sidecar_db),
+        "extract-bandcamp",
+        "--artist", "Slowdive",
+        "--openai-api-key", "test",
+    ])
+
+    assert rc == 0
+    with sqlite3.connect(sidecar_db) as conn:
+        assert conn.execute(
+            "SELECT identity_confidence FROM ai_genre_source_pages"
+        ).fetchone() == (0.74,)
+
+
+def test_fetch_bandcamp_tags_returns_selected_locator_confidence(monkeypatch):
+    import src.ai_genre_enrichment.bandcamp_enrichment as bandcamp_mod
+
+    monkeypatch.setattr(
+        bandcamp_mod,
+        "_locate_bandcamp_url",
+        lambda **_kwargs: {
+            "candidate_sources": [
+                {
+                    "source_type": "bandcamp_release",
+                    "identity_status": "confirmed",
+                    "identity_confidence": 0.76,
+                    "source_url": "https://slowdive.bandcamp.com/album/souvlaki",
+                },
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        bandcamp_mod,
+        "fetch_bandcamp_release_tags",
+        lambda *_args, **_kwargs: ["shoegaze"],
+    )
+
+    assert bandcamp_mod.fetch_bandcamp_tags(
+        artist="Slowdive",
+        album="Souvlaki",
+        api_key="test",
+    ) == (
+        "https://slowdive.bandcamp.com/album/souvlaki",
+        ["shoegaze"],
+        0.76,
+    )
