@@ -40,6 +40,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.genre.blend import blend_with_prior
+from src.genre.artifact_identity import DENSE_SIDECAR_SCHEMA_VERSION, genre_artifact_identity
 from src.genre.llm_client import make_llm_client
 from src.genre.llm_prior import build_llm_prior
 from src.genre.pmi_svd import project_tracks, train_pmi_svd
@@ -153,6 +154,12 @@ def build_genre_embedding_sidecar(
         "artifact": str(artifact_path),
         "vocab_size": V,
         "n_tracks": N,
+        "schema_version": DENSE_SIDECAR_SCHEMA_VERSION,
+        "sparse_genre_identity": genre_artifact_identity(
+            track_ids,
+            np.array(genre_vocab, dtype=object),
+            X_genre_raw,
+        ),
     }
 
     logger.info("Saving sidecar → %s", out_path)

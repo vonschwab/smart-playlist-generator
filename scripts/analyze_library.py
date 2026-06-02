@@ -31,6 +31,7 @@ import sqlite3
 from src.config_loader import Config
 from src.analyze.genre_similarity import build_genre_similarity_matrix
 from src.features.artifacts import load_artifact_bundle
+from src.genre.artifact_identity import dense_sidecar_mismatch_reason_from_paths
 from scripts.update_genres_v3_normalized import NormalizedGenreUpdater
 from scripts.update_sonic import SonicFeaturePipeline
 from scripts.scan_library import LibraryScanner
@@ -1233,20 +1234,25 @@ def stage_verify(ctx: Dict) -> Dict:
     if np.any([k == "" for k in bundle.artist_keys]):
         issues.append("empty_artist_keys")
     # Dense genre embedding sidecar (the "new genre system") must exist and be
-    # aligned to this artifact on BOTH track_ids and genre_vocab — a vocab drift
-    # silently mis-indexes the ladder even when track_ids still match.
+    # aligned to the exact sparse genre inputs used to build it.
     sidecar_path = artifact_path.parent / f"{artifact_path.stem}_genre_emb_dim64.npz"
     if not sidecar_path.exists():
         issues.append("genre_embedding_missing")
     else:
         try:
-            _sc = np.load(sidecar_path, allow_pickle=True)
-            _sc_tids = _sc["track_ids"]
-            _sc_vocab = _sc["genre_vocab"]
-            if len(_sc_tids) != bundle.track_ids.size or not np.array_equal(_sc_tids, bundle.track_ids):
-                issues.append("genre_embedding_track_mismatch")
-            elif len(_sc_vocab) != bundle.genre_vocab.size or not np.array_equal(_sc_vocab, bundle.genre_vocab):
-                issues.append("genre_embedding_vocab_mismatch")
+            reason = dense_sidecar_mismatch_reason_from_paths(
+                artifact_path=artifact_path,
+                sidecar_path=sidecar_path,
+            )
+            if reason is not None:
+                logger.warning("Verify: genre embedding sidecar %s", reason)
+                issue_by_reason = {
+                    "track_ids mismatch": "genre_embedding_track_mismatch",
+                    "vocabulary mismatch": "genre_embedding_vocab_mismatch",
+                    "schema version mismatch": "genre_embedding_schema_mismatch",
+                    "sparse genre identity mismatch": "genre_embedding_sparse_identity_mismatch",
+                }
+                issues.append(issue_by_reason.get(reason, "genre_embedding_invalid"))
         except Exception as exc:
             logger.warning("Verify: could not read genre embedding sidecar: %s", exc)
             issues.append("genre_embedding_unreadable")

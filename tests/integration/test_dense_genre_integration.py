@@ -26,6 +26,11 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from src.features.artifacts import ArtifactBundle, load_artifact_bundle
+from src.genre.artifact_identity import (
+    DENSE_SIDECAR_SCHEMA_VERSION,
+    dense_sidecar_mismatch_reason_from_paths,
+    genre_artifact_identity,
+)
 from src.genre.pmi_svd import train_pmi_svd
 from src.playlist.candidate_pool import build_candidate_pool, CandidatePoolConfig
 
@@ -149,16 +154,165 @@ def mini_bundle_with_sidecar(tmp_path_factory):
     np.savez(tmpdir / "mini_genre_emb_dim64.npz",
              X_genre_dense=X_dense_64, genre_emb=genre_emb_64,
              genre_vocab=np.array(vocab, dtype=object), track_ids=track_ids,
-             emb_config={"dim": 64})
+             emb_config={
+                 "dim": 64,
+                 "schema_version": DENSE_SIDECAR_SCHEMA_VERSION,
+                 "sparse_genre_identity": genre_artifact_identity(
+                     track_ids, np.array(vocab, dtype=object), X_raw,
+                 ),
+             })
 
     load_artifact_bundle.cache_clear()
     bundle = load_artifact_bundle(artifact_path)
     return bundle, X_dense  # Return true dim-8 dense for reference
 
 
+def _write_mini_artifact(tmp_path):
+    track_ids = np.array(["t1"], dtype=object)
+    vocab = np.array(["rock"], dtype=object)
+    X_raw = np.array([[1.0]], dtype=np.float32)
+    artifact = tmp_path / "mini.npz"
+    np.savez(
+        artifact,
+        track_ids=track_ids,
+        artist_keys=np.array(["a"], dtype=object),
+        track_artists=np.array(["A"], dtype=object),
+        track_titles=np.array(["T"], dtype=object),
+        X_sonic=np.array([[1.0]], dtype=np.float32),
+        X_genre_raw=X_raw,
+        X_genre_smoothed=X_raw,
+        genre_vocab=vocab,
+    )
+    return artifact, track_ids, vocab, X_raw
+
+
+def _write_mini_sidecar(tmp_path, *, track_ids, vocab, emb_config):
+    np.savez(
+        tmp_path / "mini_genre_emb_dim64.npz",
+        X_genre_dense=np.zeros((1, 64), dtype=np.float32),
+        genre_emb=np.zeros((1, 64), dtype=np.float32),
+        genre_vocab=vocab,
+        track_ids=track_ids,
+        emb_config=emb_config,
+    )
+
+
 # ---------------------------------------------------------------------------
 # 1. Sidecar integrity tests (fast, uses live artifact if present)
 # ---------------------------------------------------------------------------
+
+def test_loader_rejects_dense_sidecar_when_vocab_differs(tmp_path, caplog):
+    from src.genre.artifact_identity import (
+        DENSE_SIDECAR_SCHEMA_VERSION,
+        genre_artifact_identity,
+    )
+
+    artifact, track_ids, vocab, X_raw = _write_mini_artifact(tmp_path)
+    _write_mini_sidecar(
+        tmp_path,
+        track_ids=track_ids,
+        vocab=np.array(["jazz"], dtype=object),
+        emb_config={
+            "schema_version": DENSE_SIDECAR_SCHEMA_VERSION,
+            "sparse_genre_identity": genre_artifact_identity(track_ids, vocab, X_raw),
+        },
+    )
+
+    load_artifact_bundle.cache_clear()
+    bundle = load_artifact_bundle(artifact)
+    assert bundle.X_genre_dense is None
+    assert "vocabulary mismatch" in caplog.text
+
+
+def test_loader_rejects_dense_sidecar_when_track_ids_differ(tmp_path, caplog):
+    artifact, _, vocab, _ = _write_mini_artifact(tmp_path)
+    _write_mini_sidecar(
+        tmp_path,
+        track_ids=np.array(["other"], dtype=object),
+        vocab=vocab,
+        emb_config={},
+    )
+
+    load_artifact_bundle.cache_clear()
+    bundle = load_artifact_bundle(artifact)
+    assert bundle.X_genre_dense is None
+    assert "track_ids mismatch" in caplog.text
+
+
+def test_loader_rejects_dense_sidecar_when_sparse_identity_differs(tmp_path, caplog):
+    from src.genre.artifact_identity import DENSE_SIDECAR_SCHEMA_VERSION
+
+    artifact, track_ids, vocab, _ = _write_mini_artifact(tmp_path)
+    _write_mini_sidecar(
+        tmp_path,
+        track_ids=track_ids,
+        vocab=vocab,
+        emb_config={
+            "schema_version": DENSE_SIDECAR_SCHEMA_VERSION,
+            "sparse_genre_identity": "wrong",
+        },
+    )
+
+    load_artifact_bundle.cache_clear()
+    bundle = load_artifact_bundle(artifact)
+    assert bundle.X_genre_dense is None
+    assert "sparse genre identity mismatch" in caplog.text
+
+
+def test_loader_rejects_legacy_dense_sidecar_without_identity(tmp_path, caplog):
+    artifact, track_ids, vocab, _ = _write_mini_artifact(tmp_path)
+    _write_mini_sidecar(tmp_path, track_ids=track_ids, vocab=vocab, emb_config={"dim": 64})
+
+    load_artifact_bundle.cache_clear()
+    bundle = load_artifact_bundle(artifact)
+    assert bundle.X_genre_dense is None
+    assert "schema version mismatch" in caplog.text
+    assert "build_genre_embedding.py" in caplog.text
+
+
+def test_path_validator_rejects_sidecar_missing_expected_key(tmp_path):
+    artifact, track_ids, vocab, X_raw = _write_mini_artifact(tmp_path)
+    sidecar = tmp_path / "mini_genre_emb_dim64.npz"
+    np.savez(
+        sidecar,
+        X_genre_dense=np.zeros((1, 64), dtype=np.float32),
+        genre_vocab=vocab,
+        track_ids=track_ids,
+        emb_config={
+            "schema_version": DENSE_SIDECAR_SCHEMA_VERSION,
+            "sparse_genre_identity": genre_artifact_identity(track_ids, vocab, X_raw),
+        },
+    )
+
+    reason = dense_sidecar_mismatch_reason_from_paths(
+        artifact_path=artifact,
+        sidecar_path=sidecar,
+    )
+    assert reason == "sidecar missing required keys: genre_emb"
+
+
+def test_builder_persists_dense_sidecar_identity_metadata(tmp_path, monkeypatch):
+    from scripts import build_genre_embedding
+
+    artifact, track_ids, vocab, X_raw = _write_mini_artifact(tmp_path)
+    monkeypatch.setattr(
+        build_genre_embedding,
+        "train_pmi_svd",
+        lambda *_args, **_kwargs: np.zeros((1, 1), dtype=np.float32),
+    )
+    monkeypatch.setattr(
+        build_genre_embedding,
+        "project_tracks",
+        lambda *_args, **_kwargs: np.zeros((1, 1), dtype=np.float32),
+    )
+
+    sidecar = build_genre_embedding.build_genre_embedding_sidecar(artifact, dim=1)
+    with np.load(sidecar, allow_pickle=True) as data:
+        config = data["emb_config"].item()
+
+    assert config["schema_version"] == DENSE_SIDECAR_SCHEMA_VERSION
+    assert config["sparse_genre_identity"] == genre_artifact_identity(track_ids, vocab, X_raw)
+
 
 @pytest.mark.integration
 @_requires_live_artifact

@@ -8,6 +8,8 @@ from typing import Dict, Literal, Optional
 
 import numpy as np
 
+from src.genre.artifact_identity import dense_sidecar_mismatch_reason
+
 logger = logging.getLogger(__name__)
 
 Segment = Literal["full", "start", "mid", "end"]
@@ -131,13 +133,12 @@ def _load_artifact_bundle_cached(artifact_path: Path) -> ArtifactBundle:
     _sidecar_path = artifact_path.parent / f"{artifact_path.stem}_genre_emb_dim{_DEFAULT_SIDECAR_DIM}.npz"
     if _sidecar_path.exists():
         try:
-            _sc = np.load(_sidecar_path, allow_pickle=True)
-            # Validate that sidecar track_ids align with artifact track_ids
-            _sc_tids = _sc["track_ids"]
-            _sc_vocab = _sc["genre_vocab"]
-            if len(_sc_tids) == len(data["track_ids"]) and np.array_equal(_sc_tids, data["track_ids"]):
-                X_genre_dense = _sc["X_genre_dense"].astype(np.float32)
-                genre_emb = _sc["genre_emb"].astype(np.float32)
+            with np.load(_sidecar_path, allow_pickle=True) as _sc:
+                reason = dense_sidecar_mismatch_reason(artifact=data, sidecar=_sc)
+                if reason is None:
+                    X_genre_dense = _sc["X_genre_dense"].astype(np.float32)
+                    genre_emb = _sc["genre_emb"].astype(np.float32)
+            if reason is None:
                 logger.info(
                     "Loaded dense genre sidecar: %s | X_genre_dense=%s",
                     _sidecar_path.name,
@@ -145,9 +146,10 @@ def _load_artifact_bundle_cached(artifact_path: Path) -> ArtifactBundle:
                 )
             else:
                 logger.warning(
-                    "Genre embedding sidecar %s track_ids mismatch — ignoring. "
+                    "Genre embedding sidecar %s %s - ignoring. "
                     "Re-run scripts/build_genre_embedding.py to rebuild.",
                     _sidecar_path.name,
+                    reason,
                 )
         except Exception as exc:
             logger.warning("Could not load genre embedding sidecar %s: %s", _sidecar_path.name, exc)
