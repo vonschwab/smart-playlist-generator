@@ -1,5 +1,4 @@
 import numpy as np
-import pytest
 
 from src.features.sonic_rebuild import (
     tower_weighted_from_towers,
@@ -53,6 +52,8 @@ def test_build_arrays_overwrites_segments_sets_variant_preserves_genre(tmp_path)
     # segments are now the weighted vectors (no longer all-zero)
     for seg in ("start", "mid", "end"):
         assert np.linalg.norm(out[f"X_sonic_{seg}"]) > 0
+    # raw X_sonic key also updated for fallback consistency
+    assert np.array_equal(out["X_sonic"], out["X_sonic_tower_weighted"])
     # genre + ids preserved byte-identical
     assert np.array_equal(out["X_genre_raw"], d["X_genre_raw"])
     assert np.array_equal(out["track_ids"], d["track_ids"])

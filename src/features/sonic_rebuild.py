@@ -55,11 +55,12 @@ def build_tower_weighted_arrays(
       - sets ``X_sonic_variant`` = "tower_weighted", ``X_sonic_pre_scaled`` = True
     The raw ``X_sonic`` key and all genre/track/per-tower keys are left intact.
     """
-    out = {k: data[k] for k in data.files}  # type: ignore[attr-defined]
+    out = {k: data[k] for k in list(data.keys())}
 
     out["X_sonic_tower_weighted"] = tower_weighted_from_towers(
         data["X_sonic_rhythm"], data["X_sonic_timbre"], data["X_sonic_harmony"], weights
     )
+    out["X_sonic"] = out["X_sonic_tower_weighted"]
     for seg in ("start", "mid", "end"):
         out[f"X_sonic_{seg}"] = tower_weighted_from_towers(
             data[f"X_sonic_rhythm_{seg}"],
