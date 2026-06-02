@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sonic Audition</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Courier New', monospace; background: #1a1a1a; color: #e0e0e0; min-height: 100vh; }
+.top-bar { background: #111; border-bottom: 1px solid #333; padding: 10px 16px; display: flex; align-items: center; gap: 16px; position: sticky; top: 0; z-index: 10; flex-wrap: wrap; }
+.top-bar label { font-size: 13px; color: #aaa; }
+.top-bar select { background: #222; color: #e0e0e0; border: 1px solid #555; padding: 4px 8px; font-family: inherit; font-size: 13px; border-radius: 3px; cursor: pointer; }
+.nav a { background: #222; color: #aaa; text-decoration: none; padding: 4px 10px; border: 1px solid #444; border-radius: 3px; font-size: 12px; margin-right: 4px; }
+.nav a:hover { background: #333; color: #e0e0e0; }
+.progress-bar { background: #222; padding: 8px 16px; font-size: 12px; color: #888; border-bottom: 1px solid #2a2a2a; }
+.progress-bar span { color: #4caf50; font-weight: bold; }
+.seed-section { background: #111; border-bottom: 2px solid #333; padding: 16px; }
+.seed-section h2 { font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+.seed-section .track-name { font-size: 17px; color: #fff; margin-bottom: 10px; }
+audio { width: 100%; height: 36px; }
+.main { max-width: 860px; margin: 0 auto; padding: 16px; }
+.neighbor { background: #222; border: 1px solid #333; border-left: 4px solid #333; border-radius: 4px; padding: 12px; margin-bottom: 10px; transition: border-color 0.2s; }
+.neighbor.match { border-left-color: #4caf50; }
+.neighbor.close { border-left-color: #8bc34a; }
+.neighbor.off   { border-left-color: #ff9800; }
+.neighbor.wrong { border-left-color: #f44336; }
+.neighbor-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+.neighbor-header .meta { font-size: 13px; color: #ccc; }
+.neighbor-header .num { color: #555; font-size: 11px; margin-right: 6px; }
+.status { font-size: 11px; color: #4caf50; min-width: 60px; text-align: right; }
+.status.err { color: #f44336; }
+.verdicts { display: flex; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
+.vbtn { display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: #bbb; padding: 3px 9px; border: 1px solid #444; border-radius: 3px; }
+.vbtn:hover { background: #2a2a2a; }
+.vbtn input { accent-color: #4caf50; }
+textarea { width: 100%; background: #1a1a1a; color: #ddd; border: 1px solid #444; border-radius: 3px; padding: 6px; font-family: inherit; font-size: 12px; resize: vertical; min-height: 48px; margin-top: 4px; }
+textarea:focus { outline: none; border-color: #666; }
+.pair-card { background: #222; border: 1px solid #333; border-radius: 4px; padding: 14px; margin-bottom: 14px; }
+.pair-label { font-size: 13px; color: #aaa; margin-bottom: 6px; }
+.pair-s { font-size: 11px; color: #ff9800; margin-bottom: 10px; }
+.pair-tracks { display: grid; grid-template-columns: 1fr 24px 1fr; gap: 8px; align-items: start; margin-bottom: 10px; }
+.pair-track-label { font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 3px; }
+.pair-track-name { font-size: 12px; color: #ccc; margin-bottom: 5px; }
+.arrow { font-size: 18px; color: #555; text-align: center; padding-top: 20px; }
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <label>Seed: <select id="seed-select" onchange="location='/seed/'+this.value"></select></label>
+  <div class="nav" id="nav"></div>
+</div>
+<div class="progress-bar" id="progress-bar">Loading&hellip;</div>
+<div class="seed-section" id="seed-section">
+  <h2>Reference Seed</h2>
+  <div class="track-name" id="seed-name">&mdash;</div>
+  <audio id="seed-audio" controls preload="none"></audio>
+</div>
+<div class="main" id="main"></div>
+
+<script>
+const SLUG = location.pathname.split('/').pop();
+const ALL_SEEDS = SEED_LIST_PLACEHOLDER;
+let manifest = null, progress = {};
+
+async function init() {
+  const sel = document.getElementById('seed-select');
+  ALL_SEEDS.forEach(s => {
+    const o = document.createElement('option');
+    o.value = s.slug; o.textContent = s.artist || s.slug; o.selected = (s.slug === SLUG);
+    sel.appendChild(o);
+  });
+  const cur = ALL_SEEDS.findIndex(s => s.slug === SLUG);
+  const nav = document.getElementById('nav');
+  if (cur > 0) nav.innerHTML += `<a href="/seed/${ALL_SEEDS[cur-1].slug}">&larr; prev</a>`;
+  if (cur < ALL_SEEDS.length-1) nav.innerHTML += `<a href="/seed/${ALL_SEEDS[cur+1].slug}">next &rarr;</a>`;
+
+  const [mR, pR] = await Promise.all([
+    fetch(`/api/manifest/${SLUG}`), fetch(`/api/progress/${SLUG}`)
+  ]);
+  manifest = await mR.json();
+  (await pR.json()).forEach(e => { progress[e.track_id] = e; });
+
+  if (manifest.type === 'transition_pairs') renderPairs();
+  else renderNeighbors();
+}
+
+function renderNeighbors() {
+  document.getElementById('seed-name').textContent =
+    `${manifest.seed.artist} — ${manifest.seed.title}`;
+  document.getElementById('seed-audio').src = `/audio/${manifest.seed.track_id}`;
+  const main = document.getElementById('main');
+  manifest.neighbors.forEach((n, i) => {
+    const s = progress[n.track_id] || {};
+    main.appendChild(buildCard(n, i, s));
+  });
+  updateProgress();
+}
+
+function buildCard(n, i, saved) {
+  const div = document.createElement('div');
+  div.className = 'neighbor' + (saved.verdict ? ` ${saved.verdict}` : '');
+  div.id = `card-${n.track_id}`;
+  div.innerHTML = `
+    <div class="neighbor-header">
+      <span class="meta"><span class="num">#${i+1}</span>${n.artist} — ${n.title}</span>
+      <span class="status" id="st-${n.track_id}"></span>
+    </div>
+    <audio controls preload="none" src="/audio/${n.track_id}"></audio>
+    <div class="verdicts">
+      ${['match','close','off','wrong'].map(v => `
+        <label class="vbtn"><input type="radio" name="v-${n.track_id}" value="${v}"
+          ${saved.verdict===v?'checked':''} onchange="saveN('${n.track_id}')"> ${v}</label>
+      `).join('')}
+    </div>
+    <textarea id="nt-${n.track_id}" placeholder="Notes…"
+      onblur="saveN('${n.track_id}')">${saved.notes||''}</textarea>`;
+  return div;
+}
+
+async function saveN(tid) {
+  const v = document.querySelector(`input[name="v-${tid}"]:checked`)?.value||'';
+  const notes = document.getElementById(`nt-${tid}`).value;
+  const st = document.getElementById(`st-${tid}`);
+  try {
+    await post({seed:SLUG,track_id:tid,verdict:v,notes});
+    st.textContent='saved ✓'; st.className='status';
+    progress[tid]={track_id:tid,verdict:v,notes};
+    document.getElementById(`card-${tid}`).className='neighbor'+(v?` ${v}`:'');
+    updateProgress();
+    setTimeout(()=>{ st.textContent=''; },3000);
+  } catch(e){ st.textContent='error'; st.className='status err'; }
+}
+
+function renderPairs() {
+  document.getElementById('seed-section').style.display='none';
+  const main = document.getElementById('main');
+  const h = document.createElement('h2');
+  h.style.cssText='font-size:12px;color:#aaa;text-transform:uppercase;letter-spacing:1px;margin-bottom:14px';
+  h.textContent='Negative-S Transition Pairs — Do these transitions work by ear?';
+  main.appendChild(h);
+  manifest.pairs.forEach((pair, i) => {
+    const s = progress[`pair_${i}`]||{};
+    const div = document.createElement('div');
+    div.className='pair-card'; div.id=`card-pair_${i}`;
+    div.innerHTML=`
+      <div class="pair-label">${pair.label}</div>
+      <div class="pair-s">Transition S = ${pair.S} (negative in original space)</div>
+      <div class="pair-tracks">
+        <div>
+          <div class="pair-track-label">Prev</div>
+          <div class="pair-track-name">${pair.prev.artist} — ${pair.prev.title}</div>
+          <audio controls preload="none" src="/audio/${pair.prev.track_id}"></audio>
+        </div>
+        <div class="arrow">&rarr;</div>
+        <div>
+          <div class="pair-track-label">Next</div>
+          <div class="pair-track-name">${pair.next.artist} — ${pair.next.title}</div>
+          <audio controls preload="none" src="/audio/${pair.next.track_id}"></audio>
+        </div>
+      </div>
+      <div class="verdicts">
+        ${['yes','maybe','no'].map(v=>`
+          <label class="vbtn"><input type="radio" name="vp-${i}" value="${v}"
+            ${s.verdict===v?'checked':''} onchange="saveP(${i})"> ${v}</label>
+        `).join('')}
+      </div>
+      <textarea id="pnt-${i}" placeholder="Notes…"
+        onblur="saveP(${i})">${s.notes||''}</textarea>`;
+    main.appendChild(div);
+  });
+  updateProgress();
+}
+
+async function saveP(i) {
+  const v = document.querySelector(`input[name="vp-${i}"]:checked`)?.value||'';
+  const notes = document.getElementById(`pnt-${i}`).value;
+  await post({seed:SLUG,track_id:`pair_${i}`,verdict:v,notes}).catch(()=>{});
+  progress[`pair_${i}`]={track_id:`pair_${i}`,verdict:v,notes};
+  updateProgress();
+}
+
+async function post(body) {
+  const r = await fetch('/api/save',{
+    method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)
+  });
+  if (!r.ok) throw new Error('HTTP '+r.status);
+}
+
+function updateProgress() {
+  if (!manifest) return;
+  const total = manifest.type==='transition_pairs' ? manifest.pairs.length : manifest.neighbors.length;
+  const done = Object.values(progress).filter(e=>e.verdict).length;
+  document.getElementById('progress-bar').innerHTML = `<span>${done}</span> / ${total} reviewed`;
+}
+
+init();
+</script>
+</body>
+</html>
