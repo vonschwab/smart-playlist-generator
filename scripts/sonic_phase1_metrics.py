@@ -37,7 +37,9 @@ def _l2(M):
 
 def cosine_spread_to_seed(X: np.ndarray, seed_idx: int) -> Dict[str, float]:
     Xn = _l2(X.astype(np.float64))
-    sims = np.sort(Xn @ Xn[seed_idx])[::-1][1:]  # drop self
+    mask = np.ones(len(Xn), dtype=bool)
+    mask[seed_idx] = False
+    sims = np.sort(Xn[mask] @ Xn[seed_idx])[::-1]
     return {
         "max": float(sims[0]),
         "p99": float(np.percentile(sims, 99)),
