@@ -14,6 +14,7 @@ import datetime
 import json
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from socketserver import ThreadingMixIn
 from pathlib import Path
 from typing import Dict, List, Optional
 from urllib.parse import unquote
@@ -63,7 +64,8 @@ def _append_capture_entry(capture_path: Path, entry: dict) -> None:
     )
 
 
-class AuditionServer(HTTPServer):
+class AuditionServer(ThreadingMixIn, HTTPServer):
+    daemon_threads = True
     def __init__(
         self,
         addr: tuple,

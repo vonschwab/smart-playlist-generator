@@ -23,7 +23,7 @@ if str(ROOT) not in sys.path:
 
 VERDICT_ORDER = ["match", "close", "off", "wrong"]
 VERDICT_SCORE = {"match": 3, "close": 2, "off": 1, "wrong": 0}
-SPACES = ["full_track", "production_transition", "rhythm", "timbre", "harmony"]
+SPACES = ["full_track", "production_transition", "timbre", "harmony"]
 
 
 def load_captures(data_dir: Path) -> List[dict]:

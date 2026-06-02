@@ -70,14 +70,12 @@ def compute_spaces(
     Xe_c = _l2(Xe - Xe.mean(axis=0, keepdims=True))
     Xs_c = _l2(Xs - Xs.mean(axis=0, keepdims=True))
 
-    Xr = _l2(per_tower["X_sonic_rhythm"].astype(np.float64))
     Xt = _l2(per_tower["X_sonic_timbre"].astype(np.float64))
     Xh = _l2(per_tower["X_sonic_harmony"].astype(np.float64))
 
     return {
         "full_track": (Xf, Xf),
         "production_transition": (Xe_c, Xs_c),
-        "rhythm": (Xr, Xr),
         "timbre": (Xt, Xt),
         "harmony": (Xh, Xh),
     }
@@ -254,12 +252,11 @@ def main() -> None:
 
     npz = np.load(bundle.artifact_path, allow_pickle=True)
     per_tower = {
-        "X_sonic_rhythm": npz["X_sonic_rhythm"],
         "X_sonic_timbre": npz["X_sonic_timbre"],
         "X_sonic_harmony": npz["X_sonic_harmony"],
     }
 
-    print(f"Computing 5 sonic spaces over {len(bundle.track_ids)} tracks...")
+    print(f"Computing 4 sonic spaces over {len(bundle.track_ids)} tracks...")
     spaces = compute_spaces(bundle, per_tower)
 
     all_tids = [str(t) for t in bundle.track_ids]
