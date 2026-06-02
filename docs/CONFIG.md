@@ -551,16 +551,17 @@ playlists:
 ```yaml
 playlists:
   sonic:
-    sim_variant: tower_pca           # Preprocessing variant
+    sim_variant: tower_weighted      # Preprocessing variant
 ```
 
 Available variants:
-- `tower_pca` (default) - Per-tower PCA with weighting
-- `robust_whiten` - Robust scaling + PCA whitening
+- `tower_weighted` - Per-tower L2 + √weight, baked at build time, no global whitening. **Production artifact variant as of 2026-06-02.**
+- `tower_pca` - Per-tower PCA with weighting (alternative)
+- `robust_whiten` - Robust scaling + PCA whitening (alternative)
 - `raw` - No preprocessing (not recommended)
 
-Override via CLI: `--sonic-variant tower_pca`
-Override via env: `SONIC_SIM_VARIANT=tower_pca`
+Override via CLI: `--sonic-variant tower_weighted`
+Override via env: `SONIC_SIM_VARIANT=tower_weighted`
 
 ## Title Deduplication
 

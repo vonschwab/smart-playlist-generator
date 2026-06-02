@@ -73,6 +73,8 @@ playlists:
 
 **Why timbre-dominant works for indie/rock libraries:** In a relatively homogeneous neighborhood (e.g., indie pop), most tracks share tempo and time-feel — rhythm is a poor discriminator. What listeners actually notice is production style, density, and tone color, which are timbre. The previous rhythm-dominant default approved loud-to-loud handoffs (METZ → Dinosaur Jr) that felt jarring in texture.
 
+**Structural alignment as of 2026-06-02:** The `transition_weights == tower_weights` invariant is now satisfied structurally at build time. The production artifact (`tower_weighted` variant) bakes the 0.20/0.50/0.30 per-tower L2 + √weight scaling into the vectors themselves, so both the full embedding and the start/end vectors are already tower-weighted. The `apply_transition_weights` call in the runtime path is therefore a legitimate no-op (identity multiply against a pre-scaled space), not a silent fallback caused by dim-mismatch. You no longer need to manually verify weight alignment unless a new artifact rebuild resets the variant away from `tower_weighted`.
+
 ---
 
 ## Knob 1: Title-artifact penalty (Task 4)
