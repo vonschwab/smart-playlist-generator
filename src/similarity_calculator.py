@@ -8,6 +8,7 @@ import logging
 import math
 import re
 import sqlite3
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -31,6 +32,7 @@ class SimilarityCalculator:
         config: Dict[str, Any] = None,
         *,
         enriched_resolver: "Optional[EnrichedGenreResolver]" = None,
+        read_only_metadata: bool = False,
     ):
         """
         Initialize similarity calculator
@@ -38,11 +40,13 @@ class SimilarityCalculator:
         Args:
             db_path: Path to metadata database
             config: Configuration dictionary with genre similarity settings
+            read_only_metadata: Open SQLite in read-only mode and skip schema migration
         """
         self.db_path = db_path
         self.conn = None
         self.config = config or {}
         self._enriched_resolver = enriched_resolver
+        self._read_only_metadata = read_only_metadata
         # Sonic feature vector layout (slices, weights, lengths) built lazily
         self._sonic_feature_layout: Optional[Dict[str, Dict[str, Any]]] = None
         # Track per-segment fallbacks (for diagnostics in experiments)
@@ -135,10 +139,26 @@ class SimilarityCalculator:
 
     def _init_db_connection(self):
         """Initialize database connection"""
-        self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        if self._read_only_metadata:
+            db_uri = Path(self.db_path).resolve().as_uri() + "?mode=ro"
+            self.conn = sqlite3.connect(db_uri, uri=True, check_same_thread=False)
+        else:
+            self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
-        ensure_blacklist_schema(self.conn, logger=logger)
+        if not self._read_only_metadata:
+            ensure_blacklist_schema(self.conn, logger=logger)
+        self._tracks_not_blacklisted_sql = (
+            "is_blacklisted = 0"
+            if self._column_exists("tracks", "is_blacklisted")
+            else "1"
+        )
         logger.debug(f"Connected to database: {self.db_path}")
+
+    def _column_exists(self, table_name: str, column_name: str) -> bool:
+        return any(
+            row["name"] == column_name
+            for row in self.conn.execute(f"PRAGMA table_info({table_name})")
+        )
 
     @staticmethod
     def _normalize_sonic_features(features: Dict[str, Any]) -> Dict[str, Any]:
@@ -434,11 +454,11 @@ class SimilarityCalculator:
         """
         # Get seed track features and artist
         cursor = self.conn.cursor()
-        cursor.execute("""
+        cursor.execute(f"""
             SELECT sonic_features, artist, duration_ms
             FROM tracks
             WHERE track_id = ?
-              AND is_blacklisted = 0
+              AND {self._tracks_not_blacklisted_sql}
         """, (track_id,))
 
         seed_row = cursor.fetchone()
@@ -462,12 +482,12 @@ class SimilarityCalculator:
 
         # Get all tracks with features. Materialize so we can preload
         # genre data for them before iterating.
-        cursor.execute("""
+        cursor.execute(f"""
             SELECT track_id, sonic_features, artist, duration_ms
             FROM tracks
             WHERE sonic_features IS NOT NULL
               AND track_id != ?
-              AND is_blacklisted = 0
+              AND {self._tracks_not_blacklisted_sql}
         """, (track_id,))
         candidate_rows = cursor.fetchall()
 
@@ -571,11 +591,11 @@ class SimilarityCalculator:
             List of (track_id, similarity_score) tuples, sorted by similarity
         """
         cursor = self.conn.cursor()
-        cursor.execute("""
+        cursor.execute(f"""
             SELECT sonic_features, artist, duration_ms
             FROM tracks
             WHERE track_id = ?
-              AND is_blacklisted = 0
+              AND {self._tracks_not_blacklisted_sql}
         """, (track_id,))
 
         seed_row = cursor.fetchone()
@@ -591,12 +611,12 @@ class SimilarityCalculator:
         if "duration_ms" in seed_row.keys() and seed_row["duration_ms"]:
             seed_duration_s = (seed_row["duration_ms"] or 0) / 1000.0
 
-        cursor.execute("""
+        cursor.execute(f"""
             SELECT track_id, sonic_features, artist, duration_ms
             FROM tracks
             WHERE sonic_features IS NOT NULL
               AND track_id != ?
-              AND is_blacklisted = 0
+              AND {self._tracks_not_blacklisted_sql}
         """, (track_id,))
 
         similarities = []
@@ -675,7 +695,7 @@ class SimilarityCalculator:
             FROM tracks
             WHERE sonic_features IS NOT NULL
               AND track_id NOT IN ({placeholders})
-              AND is_blacklisted = 0
+              AND {self._tracks_not_blacklisted_sql}
         """, track_ids)
 
         # Calculate average similarity to seed tracks
@@ -713,11 +733,11 @@ class SimilarityCalculator:
         For multi-segment features, returns the 'average' segment.
         """
         cursor = self.conn.cursor()
-        cursor.execute("""
+        cursor.execute(f"""
             SELECT sonic_features
             FROM tracks
             WHERE track_id = ?
-              AND is_blacklisted = 0
+              AND {self._tracks_not_blacklisted_sql}
         """, (track_id,))
 
         row = cursor.fetchone()
@@ -757,7 +777,7 @@ class SimilarityCalculator:
             SELECT track_id, sonic_features
             FROM tracks
             WHERE track_id IN ({placeholders})
-              AND is_blacklisted = 0
+              AND {self._tracks_not_blacklisted_sql}
               AND sonic_features IS NOT NULL
             """,
             list(track_ids),
@@ -789,11 +809,11 @@ class SimilarityCalculator:
             Segment features or None if not available
         """
         cursor = self.conn.cursor()
-        cursor.execute("""
+        cursor.execute(f"""
             SELECT sonic_features
             FROM tracks
             WHERE track_id = ?
-              AND is_blacklisted = 0
+              AND {self._tracks_not_blacklisted_sql}
         """, (track_id,))
 
         row = cursor.fetchone()
@@ -955,11 +975,11 @@ class SimilarityCalculator:
         cursor = self.conn.cursor()
 
         # Get track's artist, album, and album_id
-        cursor.execute("""
+        cursor.execute(f"""
             SELECT artist, album, album_id
             FROM tracks
             WHERE track_id = ?
-              AND is_blacklisted = 0
+              AND {self._tracks_not_blacklisted_sql}
         """, (track_id,))
 
         row = cursor.fetchone()
@@ -1101,10 +1121,10 @@ class SimilarityCalculator:
         cursor = self.conn.cursor()
 
         # 1. tracks: artist / album / album_id keyed by track_id
-        cursor.execute("""
+        cursor.execute(f"""
             SELECT track_id, artist, album, album_id
             FROM tracks
-            WHERE is_blacklisted = 0
+            WHERE {self._tracks_not_blacklisted_sql}
         """)
         track_meta: Dict[str, Tuple[Optional[str], Optional[str], Optional[str]]] = {
             row['track_id']: (row['artist'], row['album'], row['album_id'])
@@ -1301,11 +1321,11 @@ class SimilarityCalculator:
         """
         # Get sonic features and artist names
         cursor = self.conn.cursor()
-        cursor.execute("""
+        cursor.execute(f"""
             SELECT track_id, sonic_features, artist
             FROM tracks
             WHERE track_id IN (?, ?)
-              AND is_blacklisted = 0
+              AND {self._tracks_not_blacklisted_sql}
         """, (track1_id, track2_id))
 
         rows = {row['track_id']: row for row in cursor.fetchall()}

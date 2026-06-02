@@ -236,7 +236,7 @@ class EnrichedGenreResolver:
                 "genres_add_json TEXT, genres_remove_json TEXT, updated_at TEXT)"
             )
             return conn
-        uri = f"file:{self._db_path.as_posix()}?mode=ro"
+        uri = self._db_path.resolve().as_uri() + "?mode=ro"
         conn = sqlite3.connect(uri, uri=True)
         conn.row_factory = sqlite3.Row
         return conn

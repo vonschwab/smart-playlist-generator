@@ -234,6 +234,7 @@ def build_ds_artifacts(
     random_seed: int = 0,
     normalize_genres: bool = True,
     enriched_resolver=None,
+    read_only_metadata: bool = False,
 ) -> ArtifactBuildResult:
     """
     Build DS pipeline artifacts from database.
@@ -249,10 +250,16 @@ def build_ds_artifacts(
     Args:
         normalize_genres: Apply Genre Taxonomy v1 normalization to genres (default True).
                          Splits multi-genre strings, normalizes synonyms, filters meta tags.
+        read_only_metadata: Open metadata SQLite in read-only mode without schema migration.
     """
     cfg = Config(config_path)
     rng = np.random.default_rng(random_seed)
-    calc = SimilarityCalculator(db_path=db_path, config=cfg.config, enriched_resolver=enriched_resolver)
+    calc = SimilarityCalculator(
+        db_path=db_path,
+        config=cfg.config,
+        enriched_resolver=enriched_resolver,
+        read_only_metadata=read_only_metadata,
+    )
     cursor = calc.conn.cursor()
 
     limit_clause = ""

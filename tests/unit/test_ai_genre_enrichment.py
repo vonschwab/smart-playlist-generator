@@ -1,3 +1,4 @@
+import hashlib
 import json
 import sqlite3
 import sys
@@ -4208,6 +4209,32 @@ def test_resolver_returns_enriched_genres_when_present(tmp_path):
     assert genres == ["slowcore", "space rock", "shoegaze"]
 
 
+def test_resolver_handles_hash_in_sidecar_filename(tmp_path):
+    from src.ai_genre_enrichment.genre_resolver import EnrichedGenreResolver
+    from src.ai_genre_enrichment.storage import SidecarStore
+
+    sidecar = tmp_path / "sidecar#snapshot.db"
+    store = SidecarStore(sidecar)
+    store.initialize()
+    with store.connect() as conn:
+        conn.execute(
+            "INSERT INTO enriched_genre_signatures(release_key, normalized_artist, "
+            "normalized_album, album_id, signature_json, updated_at) "
+            "VALUES(?, ?, ?, ?, ?, ?)",
+            (
+                "duster::stratosphere",
+                "duster",
+                "stratosphere",
+                None,
+                '{"genres": ["slowcore"], "sources": []}',
+                "2026-06-02T00:00:00",
+            ),
+        )
+
+    resolver = EnrichedGenreResolver(sidecar)
+    assert resolver.get_enriched_genres(artist="Duster", album="Stratosphere") == ["slowcore"]
+
+
 def test_resolver_returns_none_when_unenriched(tmp_path):
     from src.ai_genre_enrichment.storage import SidecarStore
     from src.ai_genre_enrichment.genre_resolver import EnrichedGenreResolver
@@ -4926,3 +4953,592 @@ def test_rebuild_artifacts_cli_defaults_to_legacy_genre_source():
 
     args = build_parser().parse_args(["rebuild-artifacts"])
     assert args.genre_source == "legacy"
+
+
+def test_shadow_output_path_is_fingerprinted_and_isolated(tmp_path: Path):
+    from src.ai_genre_enrichment.artifact_modes import shadow_output_paths
+
+    kwargs = {
+        "artifacts_dir": tmp_path,
+        "policy_version": "genre-enrichment-v2",
+        "signature_snapshot": "sig-123",
+        "prior_snapshot": "none",
+        "sparse_input_identity": "artifact-456",
+        "metadata_identity": "metadata-789",
+        "config_identity": "config-123",
+        "genre_sim_identity": "genre-sim-456",
+        "dense_config": {"dim": 64, "skip_prior": True},
+    }
+
+    paths = shadow_output_paths(**kwargs)
+
+    assert paths == shadow_output_paths(**kwargs)
+    assert paths.root.parent == tmp_path / "shadow"
+    assert paths.sparse_artifact == paths.root / "data_matrices_step1.npz"
+    assert paths.dense_sidecar == paths.root / "data_matrices_step1_genre_emb_dim64.npz"
+    assert paths.report == paths.root / "comparison_report.json"
+    assert paths.root.name
+    assert paths.root != shadow_output_paths(
+        **{**kwargs, "signature_snapshot": "sig-124"}
+    ).root
+
+
+@pytest.mark.parametrize(
+    ("input_name", "changed_identity"),
+    [
+        ("policy_version", "genre-enrichment-v3"),
+        ("signature_snapshot", "sig-changed"),
+        ("prior_snapshot", "prior-changed"),
+        ("sparse_input_identity", "artifact-changed"),
+        ("metadata_identity", "metadata-changed"),
+        ("config_identity", "config-changed"),
+        ("genre_sim_identity", "genre-sim-changed"),
+        ("dense_config", {"dim": 32, "skip_prior": False}),
+    ],
+)
+def test_shadow_output_path_changes_for_build_input_identity(
+    tmp_path: Path,
+    input_name: str,
+    changed_identity: str,
+):
+    from src.ai_genre_enrichment.artifact_modes import shadow_output_paths
+
+    kwargs = {
+        "artifacts_dir": tmp_path,
+        "policy_version": "genre-enrichment-v2",
+        "signature_snapshot": "sig-123",
+        "prior_snapshot": "none",
+        "sparse_input_identity": "artifact-456",
+        "metadata_identity": "metadata-789",
+        "config_identity": "config-123",
+        "genre_sim_identity": "genre-sim-456",
+        "dense_config": {"dim": 64, "skip_prior": True},
+    }
+
+    original = shadow_output_paths(**kwargs)
+    changed = shadow_output_paths(**{**kwargs, input_name: changed_identity})
+
+    assert changed.root != original.root
+
+
+def test_signature_snapshot_identity_reports_missing_sidecar(tmp_path: Path):
+    from src.ai_genre_enrichment.artifact_modes import signature_snapshot_identity
+
+    assert signature_snapshot_identity(tmp_path / "missing.db") == "missing-sidecar"
+
+
+def test_signature_snapshot_identity_is_deterministic_for_sidecar_contents(tmp_path: Path):
+    from src.ai_genre_enrichment.artifact_modes import signature_snapshot_identity
+
+    sidecar_db = tmp_path / "sidecar.db"
+    store = SidecarStore(sidecar_db)
+    store.initialize()
+    empty_identity = signature_snapshot_identity(sidecar_db)
+
+    with sqlite3.connect(sidecar_db) as conn:
+        conn.execute(
+            """
+            INSERT INTO enriched_genre_signatures(
+                release_key, normalized_artist, normalized_album, album_id,
+                signature_json, enrichment_policy_version, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "artist::album",
+                "artist",
+                "album",
+                "a1",
+                '{"genres":["rock"],"sources":[]}',
+                "genre-enrichment-v2",
+                "2026-06-02",
+            ),
+        )
+
+    populated_identity = signature_snapshot_identity(sidecar_db)
+    assert populated_identity == signature_snapshot_identity(sidecar_db)
+    assert populated_identity != empty_identity
+
+
+def test_signature_snapshot_identity_changes_for_user_override(tmp_path: Path):
+    from src.ai_genre_enrichment.artifact_modes import signature_snapshot_identity
+
+    sidecar_db = tmp_path / "sidecar.db"
+    store = SidecarStore(sidecar_db)
+    store.initialize()
+    initial_identity = signature_snapshot_identity(sidecar_db)
+
+    store.set_user_override(
+        release_key="artist::album",
+        normalized_artist="artist",
+        normalized_album="album",
+        genres_add=["slowcore"],
+        genres_remove=["indie rock"],
+    )
+
+    assert signature_snapshot_identity(sidecar_db) != initial_identity
+
+
+def test_signature_snapshot_identity_handles_hash_in_sidecar_filename(monkeypatch, tmp_path: Path):
+    import src.ai_genre_enrichment.artifact_modes as artifact_modes
+
+    sidecar_db = tmp_path / "sidecar#snapshot.db"
+    SidecarStore(sidecar_db).initialize()
+    original_connect = artifact_modes.sqlite3.connect
+    opened_uris = []
+
+    def capture_connect(database, **kwargs):
+        opened_uris.append(database)
+        return original_connect(database, **kwargs)
+
+    monkeypatch.setattr(artifact_modes.sqlite3, "connect", capture_connect)
+
+    assert artifact_modes.signature_snapshot_identity(sidecar_db)
+    assert opened_uris == [sidecar_db.resolve().as_uri() + "?mode=ro"]
+
+
+def test_signature_snapshot_identity_reads_one_wal_snapshot(monkeypatch, tmp_path: Path):
+    import src.ai_genre_enrichment.artifact_modes as artifact_modes
+
+    sidecar_db = tmp_path / "sidecar.db"
+    store = SidecarStore(sidecar_db)
+    store.initialize()
+    with sqlite3.connect(sidecar_db) as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA wal_autocheckpoint=0")
+        conn.execute(
+            """
+            INSERT INTO enriched_genre_signatures(
+                release_key, normalized_artist, normalized_album, album_id,
+                signature_json, enrichment_policy_version, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "artist::album",
+                "artist",
+                "album",
+                "a1",
+                '{"genres":["rock"],"sources":[]}',
+                "genre-enrichment-v2",
+                "2026-06-02",
+            ),
+        )
+        conn.commit()
+        baseline = artifact_modes.signature_snapshot_identity(sidecar_db)
+
+        original_connect = artifact_modes.sqlite3.connect
+        reader = original_connect(sidecar_db.resolve().as_uri() + "?mode=ro", uri=True)
+        statements = []
+        override_written = False
+
+        class SnapshotConnection:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                reader.close()
+
+            def execute(self, sql, *args):
+                nonlocal override_written
+                statements.append(sql.strip())
+                if "FROM ai_genre_user_overrides" in sql and not override_written:
+                    override_written = True
+                    conn.execute(
+                        """
+                        INSERT INTO ai_genre_user_overrides(
+                            release_key, normalized_artist, normalized_album,
+                            genres_add_json, genres_remove_json, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            "artist::album",
+                            "artist",
+                            "album",
+                            '["slowcore"]',
+                            "[]",
+                            "2026-06-02T00:00:00+00:00",
+                        ),
+                    )
+                    conn.commit()
+                return reader.execute(sql, *args)
+
+        monkeypatch.setattr(
+            artifact_modes.sqlite3,
+            "connect",
+            lambda *_args, **_kwargs: SnapshotConnection(),
+        )
+
+        assert artifact_modes.signature_snapshot_identity(sidecar_db) == baseline
+        assert statements[0] == "BEGIN"
+
+    monkeypatch.setattr(artifact_modes.sqlite3, "connect", original_connect)
+    assert artifact_modes.signature_snapshot_identity(sidecar_db) != baseline
+
+
+def test_signature_snapshot_identity_handles_legacy_sidecar_without_overrides(tmp_path: Path):
+    from src.ai_genre_enrichment.artifact_modes import signature_snapshot_identity
+
+    sidecar_db = tmp_path / "legacy-sidecar.db"
+    with sqlite3.connect(sidecar_db) as conn:
+        conn.execute(
+            """
+            CREATE TABLE enriched_genre_signatures(
+                release_key TEXT PRIMARY KEY,
+                signature_json TEXT NOT NULL,
+                enrichment_policy_version TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO enriched_genre_signatures(
+                release_key, signature_json, enrichment_policy_version
+            ) VALUES (?, ?, ?)
+            """,
+            ("artist::album", '{"genres":["rock"]}', "genre-enrichment-v1"),
+        )
+
+    assert signature_snapshot_identity(sidecar_db) == signature_snapshot_identity(sidecar_db)
+
+
+def test_sqlite_metadata_identity_observes_committed_wal_rows(tmp_path: Path):
+    from src.ai_genre_enrichment.artifact_modes import sqlite_metadata_identity
+
+    metadata_db = tmp_path / "metadata.db"
+    with sqlite3.connect(metadata_db) as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA wal_autocheckpoint=0")
+        conn.execute("CREATE TABLE tracks(track_id TEXT PRIMARY KEY, title TEXT)")
+        conn.execute("INSERT INTO tracks VALUES (?, ?)", ("t1", "first"))
+        conn.commit()
+        initial_identity = sqlite_metadata_identity(metadata_db)
+
+        conn.execute("INSERT INTO tracks VALUES (?, ?)", ("t2", "second"))
+        conn.commit()
+
+        assert (tmp_path / "metadata.db-wal").exists()
+        assert sqlite_metadata_identity(metadata_db) != initial_identity
+
+
+def test_file_identity_streams_chunks_without_read_bytes(monkeypatch, tmp_path: Path):
+    from src.ai_genre_enrichment.artifact_modes import file_identity
+
+    payload = b"chunked-content" * 1000
+    source = tmp_path / "input.bin"
+    source.write_bytes(payload)
+    monkeypatch.setattr(
+        Path,
+        "read_bytes",
+        lambda _self: (_ for _ in ()).throw(AssertionError("must stream file hashing")),
+    )
+
+    assert file_identity(source) == hashlib.sha256(payload).hexdigest()
+
+
+def _create_empty_sqlite_db(path: Path) -> None:
+    with sqlite3.connect(path) as conn:
+        conn.execute("CREATE TABLE tracks(track_id TEXT PRIMARY KEY)")
+
+
+def test_rebuild_artifacts_hybrid_shadow_initializes_sidecar_and_isolates_output(
+    monkeypatch,
+    tmp_path: Path,
+):
+    from argparse import Namespace
+    from types import SimpleNamespace
+
+    import src.analyze.artifact_builder as artifact_builder
+
+    artifacts_dir = tmp_path / "artifacts"
+    artifacts_dir.mkdir()
+    active_path = artifacts_dir / "data_matrices_step1.npz"
+    active_path.write_bytes(b"active-artifact")
+    metadata_db = tmp_path / "metadata.db"
+    _create_empty_sqlite_db(metadata_db)
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("playlists: {}\n", encoding="utf-8")
+    sidecar_db = tmp_path / "sidecar.db"
+    captured = {}
+
+    def fake_build_ds_artifacts(**kwargs):
+        captured.update(kwargs)
+        kwargs["out_path"].write_bytes(b"shadow-artifact")
+        return SimpleNamespace(out_path=kwargs["out_path"], n_tracks=1, n_genres=1)
+
+    monkeypatch.setattr(artifact_builder, "build_ds_artifacts", fake_build_ds_artifacts)
+
+    rc = ai_genre_cli.cmd_rebuild_artifacts(
+        Namespace(
+            metadata_db=metadata_db,
+            sidecar_db=sidecar_db,
+            artifacts_dir=artifacts_dir,
+            config=config_path,
+            genre_sim_path=None,
+            genre_source="hybrid_shadow",
+            overwrite_shadow=False,
+        )
+    )
+
+    build_path = captured["out_path"]
+    selected_path = next((artifacts_dir / "shadow").glob("*/data_matrices_step1.npz"))
+    assert rc == 0
+    assert build_path != selected_path
+    assert build_path != active_path
+    assert selected_path.parent.parent == artifacts_dir / "shadow"
+    assert selected_path.read_bytes() == b"shadow-artifact"
+    assert not build_path.exists()
+    assert active_path.read_bytes() == b"active-artifact"
+    assert captured["read_only_metadata"] is True
+    with sqlite3.connect(sidecar_db) as conn:
+        assert conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'enriched_genre_signatures'"
+        ).fetchone() == (1,)
+
+
+def test_rebuild_artifacts_hybrid_shadow_refuses_active_output(monkeypatch, tmp_path: Path):
+    from argparse import Namespace
+    from types import SimpleNamespace
+
+    import src.ai_genre_enrichment.artifact_modes as artifact_modes
+    import src.analyze.artifact_builder as artifact_builder
+
+    artifacts_dir = tmp_path / "artifacts"
+    artifacts_dir.mkdir()
+    active_path = artifacts_dir / "data_matrices_step1.npz"
+    active_path.write_bytes(b"active-artifact")
+    metadata_db = tmp_path / "metadata.db"
+    _create_empty_sqlite_db(metadata_db)
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("playlists: {}\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        artifact_modes,
+        "shadow_output_paths",
+        lambda **_kwargs: SimpleNamespace(sparse_artifact=active_path),
+    )
+    monkeypatch.setattr(
+        artifact_builder,
+        "build_ds_artifacts",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("builder must not run")),
+    )
+
+    with pytest.raises(ValueError, match="must not overwrite the active artifact"):
+        ai_genre_cli.cmd_rebuild_artifacts(
+            Namespace(
+                metadata_db=metadata_db,
+                sidecar_db=tmp_path / "sidecar.db",
+                artifacts_dir=artifacts_dir,
+                config=config_path,
+                genre_sim_path=None,
+                genre_source="hybrid_shadow",
+                overwrite_shadow=False,
+            )
+        )
+
+    assert active_path.read_bytes() == b"active-artifact"
+
+
+def test_rebuild_artifacts_hybrid_shadow_refuses_existing_shadow_target(
+    monkeypatch,
+    tmp_path: Path,
+):
+    from argparse import Namespace
+    from types import SimpleNamespace
+
+    import src.ai_genre_enrichment.artifact_modes as artifact_modes
+    import src.analyze.artifact_builder as artifact_builder
+
+    artifacts_dir = tmp_path / "artifacts"
+    artifacts_dir.mkdir()
+    active_path = artifacts_dir / "data_matrices_step1.npz"
+    active_path.write_bytes(b"active-artifact")
+    metadata_db = tmp_path / "metadata.db"
+    _create_empty_sqlite_db(metadata_db)
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("playlists: {}\n", encoding="utf-8")
+    shadow_path = artifacts_dir / "shadow" / "existing" / "data_matrices_step1.npz"
+    shadow_path.parent.mkdir(parents=True)
+    shadow_path.write_bytes(b"existing-shadow")
+
+    monkeypatch.setattr(
+        artifact_modes,
+        "shadow_output_paths",
+        lambda **_kwargs: SimpleNamespace(sparse_artifact=shadow_path),
+    )
+    monkeypatch.setattr(
+        artifact_builder,
+        "build_ds_artifacts",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("builder must not run")),
+    )
+
+    with pytest.raises(ValueError, match="already exists.*--overwrite-shadow"):
+        ai_genre_cli.cmd_rebuild_artifacts(
+            Namespace(
+                metadata_db=metadata_db,
+                sidecar_db=tmp_path / "sidecar.db",
+                artifacts_dir=artifacts_dir,
+                config=config_path,
+                genre_sim_path=None,
+                genre_source="hybrid_shadow",
+                overwrite_shadow=False,
+            )
+        )
+
+    assert shadow_path.read_bytes() == b"existing-shadow"
+
+
+def test_rebuild_artifacts_hybrid_shadow_allows_explicit_overwrite(monkeypatch, tmp_path: Path):
+    from argparse import Namespace
+    from types import SimpleNamespace
+
+    import src.ai_genre_enrichment.artifact_modes as artifact_modes
+    import src.analyze.artifact_builder as artifact_builder
+
+    artifacts_dir = tmp_path / "artifacts"
+    artifacts_dir.mkdir()
+    active_path = artifacts_dir / "data_matrices_step1.npz"
+    active_path.write_bytes(b"active-artifact")
+    metadata_db = tmp_path / "metadata.db"
+    _create_empty_sqlite_db(metadata_db)
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("playlists: {}\n", encoding="utf-8")
+    shadow_path = artifacts_dir / "shadow" / "existing" / "data_matrices_step1.npz"
+    shadow_path.parent.mkdir(parents=True)
+    shadow_path.write_bytes(b"existing-shadow")
+
+    monkeypatch.setattr(
+        artifact_modes,
+        "shadow_output_paths",
+        lambda **_kwargs: SimpleNamespace(sparse_artifact=shadow_path),
+    )
+
+    def fake_build_ds_artifacts(**kwargs):
+        kwargs["out_path"].write_bytes(b"replacement-shadow")
+        return SimpleNamespace(out_path=kwargs["out_path"], n_tracks=1, n_genres=1)
+
+    monkeypatch.setattr(artifact_builder, "build_ds_artifacts", fake_build_ds_artifacts)
+
+    rc = ai_genre_cli.cmd_rebuild_artifacts(
+        Namespace(
+            metadata_db=metadata_db,
+            sidecar_db=tmp_path / "sidecar.db",
+            artifacts_dir=artifacts_dir,
+            config=config_path,
+            genre_sim_path=None,
+            genre_source="hybrid_shadow",
+            overwrite_shadow=True,
+        )
+    )
+
+    assert rc == 0
+    assert shadow_path.read_bytes() == b"replacement-shadow"
+
+
+def test_rebuild_artifacts_hybrid_shadow_does_not_replace_concurrent_publish(
+    monkeypatch,
+    tmp_path: Path,
+):
+    from argparse import Namespace
+    from types import SimpleNamespace
+
+    import src.ai_genre_enrichment.artifact_modes as artifact_modes
+    import src.analyze.artifact_builder as artifact_builder
+
+    artifacts_dir = tmp_path / "artifacts"
+    artifacts_dir.mkdir()
+    active_path = artifacts_dir / "data_matrices_step1.npz"
+    active_path.write_bytes(b"active-artifact")
+    metadata_db = tmp_path / "metadata.db"
+    _create_empty_sqlite_db(metadata_db)
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("playlists: {}\n", encoding="utf-8")
+    shadow_path = artifacts_dir / "shadow" / "race" / "data_matrices_step1.npz"
+
+    monkeypatch.setattr(
+        artifact_modes,
+        "shadow_output_paths",
+        lambda **_kwargs: SimpleNamespace(sparse_artifact=shadow_path),
+    )
+    captured = {}
+
+    def fake_build_ds_artifacts(**kwargs):
+        captured.update(kwargs)
+        kwargs["out_path"].write_bytes(b"losing-shadow")
+        shadow_path.parent.mkdir(parents=True, exist_ok=True)
+        shadow_path.write_bytes(b"winning-shadow")
+        return SimpleNamespace(out_path=kwargs["out_path"], n_tracks=1, n_genres=1)
+
+    monkeypatch.setattr(artifact_builder, "build_ds_artifacts", fake_build_ds_artifacts)
+
+    with pytest.raises(ValueError, match="already exists.*--overwrite-shadow"):
+        ai_genre_cli.cmd_rebuild_artifacts(
+            Namespace(
+                metadata_db=metadata_db,
+                sidecar_db=tmp_path / "sidecar.db",
+                artifacts_dir=artifacts_dir,
+                config=config_path,
+                genre_sim_path=None,
+                genre_source="hybrid_shadow",
+                overwrite_shadow=False,
+            )
+        )
+
+    assert shadow_path.read_bytes() == b"winning-shadow"
+    assert not captured["out_path"].exists()
+
+
+@pytest.mark.parametrize("mutated_input", ["config", "sidecar"])
+def test_rebuild_artifacts_hybrid_shadow_refuses_changed_inputs_before_publish(
+    monkeypatch,
+    tmp_path: Path,
+    mutated_input: str,
+):
+    from argparse import Namespace
+    from types import SimpleNamespace
+
+    import src.analyze.artifact_builder as artifact_builder
+
+    artifacts_dir = tmp_path / "artifacts"
+    artifacts_dir.mkdir()
+    active_path = artifacts_dir / "data_matrices_step1.npz"
+    active_path.write_bytes(b"active-artifact")
+    metadata_db = tmp_path / "metadata.db"
+    _create_empty_sqlite_db(metadata_db)
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("playlists: {}\n", encoding="utf-8")
+    sidecar_db = tmp_path / "sidecar.db"
+    captured = {}
+
+    def fake_build_ds_artifacts(**kwargs):
+        captured.update(kwargs)
+        kwargs["out_path"].write_bytes(b"stale-shadow")
+        if mutated_input == "config":
+            config_path.write_text("playlists:\n  changed: true\n", encoding="utf-8")
+        else:
+            SidecarStore(sidecar_db).set_user_override(
+                release_key="artist::album",
+                normalized_artist="artist",
+                normalized_album="album",
+                genres_add=["slowcore"],
+                genres_remove=[],
+            )
+        return SimpleNamespace(out_path=kwargs["out_path"], n_tracks=1, n_genres=1)
+
+    monkeypatch.setattr(artifact_builder, "build_ds_artifacts", fake_build_ds_artifacts)
+
+    with pytest.raises(ValueError, match="inputs changed during build"):
+        ai_genre_cli.cmd_rebuild_artifacts(
+            Namespace(
+                metadata_db=metadata_db,
+                sidecar_db=sidecar_db,
+                artifacts_dir=artifacts_dir,
+                config=config_path,
+                genre_sim_path=None,
+                genre_source="hybrid_shadow",
+                overwrite_shadow=False,
+            )
+        )
+
+    assert not list((artifacts_dir / "shadow").glob("*/data_matrices_step1.npz"))
+    assert not list((artifacts_dir / "shadow").glob("*/.*.tmp.npz"))
+    assert active_path.read_bytes() == b"active-artifact"
+    assert not captured["out_path"].exists()

@@ -26,6 +26,76 @@ from src.similarity_calculator import SimilarityCalculator
 # Fixtures and Test Data
 # ===========================================================================================
 
+def test_read_only_metadata_does_not_create_blacklist_schema(tmp_path):
+    db_path = tmp_path / "read-only.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE tracks (track_id TEXT PRIMARY KEY)")
+    conn.commit()
+    conn.close()
+
+    calc = SimilarityCalculator(
+        str(db_path),
+        config={"playlists": {"genre_similarity": {"enabled": False}}},
+        read_only_metadata=True,
+    )
+    calc.close()
+
+    conn = sqlite3.connect(db_path)
+    tables = {
+        row[0]
+        for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+    }
+    columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(tracks)")
+    }
+    conn.close()
+
+    assert tables == {"tracks"}
+    assert columns == {"track_id"}
+
+
+def test_read_only_metadata_queries_legacy_db_without_blacklist_schema(tmp_path):
+    db_path = tmp_path / "legacy.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        CREATE TABLE tracks (
+            track_id TEXT PRIMARY KEY,
+            sonic_features TEXT
+        )
+        """
+    )
+    conn.execute(
+        "INSERT INTO tracks(track_id, sonic_features) VALUES (?, ?)",
+        ("t1", '{"mfcc_mean": [1.0]}'),
+    )
+    conn.commit()
+    conn.close()
+
+    calc = SimilarityCalculator(
+        str(db_path),
+        config={"playlists": {"genre_similarity": {"enabled": False}}},
+        read_only_metadata=True,
+    )
+    try:
+        assert calc._get_track_features("t1") == {"mfcc_mean": [1.0]}
+    finally:
+        calc.close()
+
+    conn = sqlite3.connect(db_path)
+    tables = {
+        row[0]
+        for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+    }
+    columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(tracks)")
+    }
+    conn.close()
+
+    assert tables == {"tracks"}
+    assert columns == {"track_id", "sonic_features"}
+
+
 @pytest.fixture
 def temp_db(tmp_path):
     """Create a temporary test database with minimal schema."""

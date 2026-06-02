@@ -238,6 +238,11 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["legacy", "enriched", "hybrid_shadow"],
         default="legacy",
     )
+    rebuild.add_argument(
+        "--overwrite-shadow",
+        action="store_true",
+        help="Allow replacement of an existing fingerprinted hybrid shadow artifact",
+    )
 
     return parser
 
@@ -1528,25 +1533,93 @@ def cmd_graduate_ai(args: argparse.Namespace) -> int:
 
 def cmd_rebuild_artifacts(args: argparse.Namespace) -> int:
     from pathlib import Path as _Path
-    from src.ai_genre_enrichment.artifact_modes import GenreArtifactSource, make_resolver
+    from src.ai_genre_enrichment.artifact_modes import (
+        GenreArtifactSource,
+        make_resolver,
+        publish_shadow_artifact,
+        shadow_input_identities,
+        shadow_output_paths,
+        temporary_shadow_artifact_path,
+    )
+    from src.ai_genre_enrichment.policy import STABILIZED_POLICY_VERSION
     from src.analyze.artifact_builder import build_ds_artifacts
 
     genre_source = GenreArtifactSource.resolve(getattr(args, "genre_source", None))
-    resolver = make_resolver(genre_source, args.sidecar_db)
     artifacts_dir = _Path(getattr(args, "artifacts_dir", "data/artifacts/beat3tower_32k"))
-    out_path = artifacts_dir / "data_matrices_step1.npz"
+    active_path = artifacts_dir / "data_matrices_step1.npz"
     config_path = getattr(args, "config", "config.yaml")
     genre_sim_path = getattr(args, "genre_sim_path", None)
+    if genre_source is GenreArtifactSource.HYBRID_SHADOW:
+        SidecarStore(args.sidecar_db).initialize()
+        shadow_inputs = shadow_input_identities(
+            sidecar_db=args.sidecar_db,
+            active_sparse_artifact=active_path,
+            metadata_db=args.metadata_db,
+            config_path=config_path,
+            genre_sim_path=genre_sim_path,
+            policy_version=STABILIZED_POLICY_VERSION,
+            prior_snapshot="none",
+            dense_config={"dim": 64, "skip_prior": True},
+        )
+        paths = shadow_output_paths(
+            artifacts_dir=artifacts_dir,
+            **shadow_inputs,
+        )
+        out_path = paths.sparse_artifact
+        if out_path.resolve() == active_path.resolve():
+            raise ValueError("hybrid_shadow output must not overwrite the active artifact")
+        if out_path.exists() and not getattr(args, "overwrite_shadow", False):
+            raise ValueError(
+                f"hybrid_shadow output already exists at {out_path}; "
+                "pass --overwrite-shadow to replace it"
+            )
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        build_path = temporary_shadow_artifact_path(out_path)
+    else:
+        out_path = active_path
+        build_path = out_path
+    resolver = make_resolver(genre_source, args.sidecar_db)
 
-    result = build_ds_artifacts(
-        db_path=str(args.metadata_db),
-        config_path=config_path,
-        out_path=out_path,
-        genre_sim_path=genre_sim_path,
-        enriched_resolver=resolver,
-    )
+    try:
+        result = build_ds_artifacts(
+            db_path=str(args.metadata_db),
+            config_path=config_path,
+            out_path=build_path,
+            genre_sim_path=genre_sim_path,
+            enriched_resolver=resolver,
+            read_only_metadata=True,
+        )
+        if genre_source is GenreArtifactSource.HYBRID_SHADOW:
+            current_shadow_inputs = shadow_input_identities(
+                sidecar_db=args.sidecar_db,
+                active_sparse_artifact=active_path,
+                metadata_db=args.metadata_db,
+                config_path=config_path,
+                genre_sim_path=genre_sim_path,
+                policy_version=STABILIZED_POLICY_VERSION,
+                prior_snapshot="none",
+                dense_config={"dim": 64, "skip_prior": True},
+            )
+            if current_shadow_inputs != shadow_inputs:
+                changed_inputs = sorted(
+                    name
+                    for name, identity in shadow_inputs.items()
+                    if current_shadow_inputs[name] != identity
+                )
+                raise ValueError(
+                    "hybrid_shadow inputs changed during build; refusing to publish stale "
+                    f"artifact (changed: {', '.join(changed_inputs)}). Re-run the build."
+                )
+            publish_shadow_artifact(
+                build_path,
+                out_path,
+                overwrite=getattr(args, "overwrite_shadow", False),
+            )
+    finally:
+        if genre_source is GenreArtifactSource.HYBRID_SHADOW:
+            build_path.unlink(missing_ok=True)
     print(
-        f"Rebuilt artifacts at {result.out_path} "
+        f"Rebuilt artifacts at {out_path} "
         f"(tracks={result.n_tracks}, genres={result.n_genres})"
     )
     return 0

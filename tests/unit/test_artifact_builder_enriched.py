@@ -86,6 +86,81 @@ def test_artifact_builder_falls_back_when_no_signature(tmp_path):
     assert "indie rock" in names
 
 
+def test_build_ds_artifacts_read_only_metadata_preserves_legacy_schema(tmp_path):
+    from src.analyze.artifact_builder import build_ds_artifacts
+
+    metadata = tmp_path / "metadata.db"
+    conn = sqlite3.connect(metadata)
+    conn.executescript(
+        """
+        CREATE TABLE tracks (
+            track_id TEXT PRIMARY KEY,
+            artist TEXT,
+            title TEXT,
+            album TEXT,
+            album_id TEXT,
+            duration_ms INTEGER,
+            sonic_features TEXT
+        );
+        CREATE TABLE track_genres (track_id TEXT, genre TEXT);
+        CREATE TABLE album_genres (album_id TEXT, genre TEXT);
+        CREATE TABLE artist_genres (artist TEXT, genre TEXT);
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO tracks(
+            track_id, artist, title, album, album_id, duration_ms, sonic_features
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "t1",
+            "Duster",
+            "Inside Out",
+            "Stratosphere",
+            "a1",
+            360000,
+            json.dumps(
+                {
+                    "mfcc_mean": [1.0, 2.0],
+                    "chroma_mean": [0.5, 0.25],
+                    "bpm": 90.0,
+                    "spectral_centroid": 1200.0,
+                }
+            ),
+        ),
+    )
+    conn.commit()
+    before_schema = list(
+        conn.execute(
+            "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
+        )
+    )
+    conn.close()
+
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        f"library:\n  database_path: {metadata.as_posix()}\nplaylists: {{}}\n",
+        encoding="utf-8",
+    )
+    result = build_ds_artifacts(
+        db_path=str(metadata),
+        config_path=str(config),
+        out_path=tmp_path / "artifact.npz",
+        read_only_metadata=True,
+    )
+
+    assert result.n_tracks == 1
+    conn = sqlite3.connect(metadata)
+    after_schema = list(
+        conn.execute(
+            "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
+        )
+    )
+    conn.close()
+    assert after_schema == before_schema
+
+
 def test_beat3tower_load_genres_uses_enriched_signatures(tmp_path):
     """build_beat3tower_artifacts.load_genres_for_tracks respects the resolver.
 
