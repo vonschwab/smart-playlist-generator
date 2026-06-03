@@ -268,12 +268,14 @@ def build_parser() -> argparse.ArgumentParser:
     add_release_filters(model_prior_one)
     model_prior_one.add_argument("--dry-run", action="store_true")
     model_prior_one.add_argument("--force", action="store_true")
+    model_prior_one.add_argument("--model", default=DEFAULT_MODEL)
 
     model_prior = sub.add_parser("model-prior", help="Generate no-web album model priors in a bounded batch")
     add_release_filters(model_prior)
     model_prior.add_argument("--dry-run", action="store_true")
     model_prior.add_argument("--missing-only", action="store_true")
     model_prior.add_argument("--force", action="store_true")
+    model_prior.add_argument("--model", default=DEFAULT_MODEL)
 
     sub.add_parser("model-prior-report", help="Report album model-prior coverage and mapping status")
 
@@ -1661,6 +1663,24 @@ def cmd_rebuild_artifacts(args: argparse.Namespace) -> int:
 def _run_model_prior_release(args: argparse.Namespace, release: ReleasePayload) -> int:
     payload = build_model_prior_payload(release)
     input_hash = stable_input_hash(payload)
+
+    store: SidecarStore | None = None
+    if not args.dry_run:
+        store = SidecarStore(args.sidecar_db)
+        store.initialize()
+        cached = store.find_model_prior(
+            release_key=release.release_key, provider="openai", model=args.model,
+            prompt_version=MODEL_PRIOR_PROMPT_VERSION, taxonomy_version=MODEL_PRIOR_TAXONOMY_VERSION,
+            schema_version=MODEL_PRIOR_SCHEMA_VERSION, enrichment_policy_version=STABILIZED_POLICY_VERSION,
+            input_hash=input_hash,
+        )
+        if cached and getattr(args, "missing_only", False) and not args.force:
+            print(f"existing-model-prior {release.release_key}")
+            return 0
+        if cached and cached["status"] == "complete" and not args.force:
+            print(f"cached-model-prior {release.release_key}")
+            return 0
+
     client = OpenAIEnrichmentClient(model=args.model, dry_run=args.dry_run, web_mode="off")
     result = client.request_structured(
         payload=payload,
@@ -1674,25 +1694,11 @@ def _run_model_prior_release(args: argparse.Namespace, release: ReleasePayload) 
         print(json.dumps(result.response_json, ensure_ascii=False, sort_keys=True))
         return 0
 
-    store = SidecarStore(args.sidecar_db)
-    store.initialize()
-    cached = store.find_model_prior(
-        release_key=release.release_key, provider="openai", model=args.model,
-        prompt_version=MODEL_PRIOR_PROMPT_VERSION, taxonomy_version=MODEL_PRIOR_TAXONOMY_VERSION,
-        schema_version=MODEL_PRIOR_SCHEMA_VERSION, enrichment_policy_version=STABILIZED_POLICY_VERSION,
-        input_hash=input_hash,
-    )
-    if cached and getattr(args, "missing_only", False) and not args.force:
-        print(f"existing-model-prior {release.release_key}")
-        return 0
-    if cached and cached["status"] == "complete" and not args.force:
-        print(f"cached-model-prior {release.release_key}")
-        return 0
-
     mapped_terms: list[dict] = []
     if result.status == "complete":
         vocabulary = GenreVocabulary(library_db_path=args.metadata_db)
         mapped_terms = map_model_prior_terms(result.response_json["genres"], vocabulary)
+    assert store is not None
     store.record_model_prior(
         release_key=release.release_key, normalized_artist=release.normalized_artist,
         normalized_album=release.normalized_album, album_id=release.album_id,

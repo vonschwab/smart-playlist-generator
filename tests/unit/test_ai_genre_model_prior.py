@@ -179,3 +179,80 @@ def test_model_prior_report_counts_mapping_statuses(tmp_path: Path):
     report = store.model_prior_report()
     assert report["mapping_status_counts"] == {"mapped": 1}
     assert report["accepted_for_shadow"] == 1
+
+
+def test_model_prior_missing_only_skips_before_api_call(monkeypatch, tmp_path: Path, capsys):
+    from scripts import ai_genre_enrich
+    from src.ai_genre_enrichment.storage import SidecarStore
+
+    metadata_db = tmp_path / "metadata.db"
+    with sqlite3.connect(metadata_db) as conn:
+        conn.execute("CREATE TABLE tracks(track_id TEXT, artist TEXT, album TEXT, album_id TEXT, title TEXT, year INTEGER)")
+        conn.execute("CREATE TABLE artist_genres(artist TEXT, genre TEXT, source TEXT)")
+        conn.execute("CREATE TABLE album_genres(album_id TEXT, genre TEXT, source TEXT)")
+        conn.execute("CREATE TABLE track_genres(track_id TEXT, genre TEXT, source TEXT, weight REAL)")
+        conn.execute("INSERT INTO tracks VALUES ('t1', 'Duster', 'Stratosphere', 'a1', 'Moon Age', 1998)")
+
+    sidecar = tmp_path / "sidecar.db"
+    store = SidecarStore(sidecar)
+    store.initialize()
+    release = ai_genre_enrich._discover(type("Args", (), {
+        "metadata_db": metadata_db,
+        "limit": 1,
+        "artist": "Duster",
+        "album": "Stratosphere",
+        "generic_only": False,
+        "min_existing_specific_genres": None,
+    })())[0]
+
+    payload = ai_genre_enrich.build_model_prior_payload(release)
+    store.record_model_prior(
+        release_key=release.release_key,
+        normalized_artist=release.normalized_artist,
+        normalized_album=release.normalized_album,
+        album_id=release.album_id,
+        provider="openai",
+        model="gpt-4o-mini",
+        prompt_version=ai_genre_enrich.MODEL_PRIOR_PROMPT_VERSION,
+        taxonomy_version=ai_genre_enrich.MODEL_PRIOR_TAXONOMY_VERSION,
+        schema_version=ai_genre_enrich.MODEL_PRIOR_SCHEMA_VERSION,
+        enrichment_policy_version=ai_genre_enrich.STABILIZED_POLICY_VERSION,
+        input_hash=ai_genre_enrich.stable_input_hash(payload),
+        status="complete",
+        response_json={"genres": [], "warnings": []},
+        warnings=[],
+        error_message=None,
+        token_usage={},
+        estimated_cost_usd=None,
+        mapped_terms=[],
+    )
+
+    monkeypatch.setattr(
+        "src.ai_genre_enrichment.client.OpenAIEnrichmentClient._call_openai",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("OpenAI called before cache check")),
+    )
+
+    rc = ai_genre_enrich.main([
+        "--metadata-db", str(metadata_db),
+        "--sidecar-db", str(sidecar),
+        "model-prior",
+        "--artist", "Duster",
+        "--album", "Stratosphere",
+        "--missing-only",
+    ])
+
+    assert rc == 0
+    assert "existing-model-prior" in capsys.readouterr().out
+
+
+def test_model_prior_subcommands_accept_model_after_command():
+    from scripts.ai_genre_enrich import build_parser
+
+    args = build_parser().parse_args([
+        "model-prior-one",
+        "--artist", "Duster",
+        "--album", "Stratosphere",
+        "--model", "gpt-4.1-mini",
+    ])
+
+    assert args.model == "gpt-4.1-mini"
