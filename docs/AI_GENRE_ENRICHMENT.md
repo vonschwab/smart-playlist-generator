@@ -264,6 +264,35 @@ For direct inspection, open `data/ai_genre_enrichment.db` with SQLite and query 
 
 Authoritative-source enrichment is kept separate from batch by default because it may require web search, stricter budgeting, and source URL caching.
 
+## Album Model Prior
+
+`model-prior-one`, `model-prior`, and `model-prior-report` are CLI-only commands that generate
+provisional album-level genre hypotheses without web access.
+
+- Provider: OpenAI (default model: `gpt-4o-mini`)
+- Web access: off — only local release metadata is supplied to the model
+- Prior terms are provisional classifier signals: never authoritative, never auto-apply eligible,
+  and never inserted into normal `enriched_genre_signatures`
+- All terms persist with `auto_apply_eligible=0` and a dedicated identity key
+  (release, input hash, provider, model, prompt version, taxonomy version, schema version, policy)
+
+```bash
+# Preview the payload that would be sent (no API call, no sidecar write)
+python scripts/ai_genre_enrich.py model-prior-one --artist "Duster" --album "Stratosphere" --dry-run
+
+# Generate a prior for one album (writes to dedicated sidecar tables)
+python scripts/ai_genre_enrich.py model-prior-one --artist "Duster" --album "Stratosphere"
+
+# Bounded batch run (skip albums that already have a cached complete prior)
+python scripts/ai_genre_enrich.py model-prior --limit 20 --missing-only
+
+# Report prior and mapping counts
+python scripts/ai_genre_enrich.py model-prior-report
+```
+
+Prior terms are stored in `ai_genre_model_priors` and `ai_genre_model_prior_terms` in the sidecar
+database. These tables are isolated from normal enrichment tables and do not affect artifact builds.
+
 ## Non-Goals
 
 This refinement does not apply AI suggestions to existing genre tables, rebuild genre artifacts, scrape Bandcamp directly, duplicate the existing MusicBrainz/Discogs genre pass, use Last.fm/user-tag clouds as authoritative evidence, or change playlist generation behavior.

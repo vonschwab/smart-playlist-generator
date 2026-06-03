@@ -1470,4 +1470,24 @@ This document was updated to reflect the major improvements released in v3.4 (20
 
 ---
 
+## Offline Album Model Prior
+
+The album model prior is a separate, CLI-only offline flow that generates provisional genre
+hypotheses for albums using local metadata and the OpenAI Responses API (no web access).
+
+**Isolation guarantee:** Prior terms are stored in dedicated sidecar tables
+(`ai_genre_model_priors`, `ai_genre_model_prior_terms`) and never enter normal
+`enriched_genre_signatures` or affect artifact builds or playlist generation.
+
+**Provenance:** Every prior run is keyed by release, input hash, provider, model, prompt version,
+taxonomy version, schema version, and policy version. Cache reuse requires an exact identity match.
+
+**Auto-apply: off.** All terms persist with `auto_apply_eligible=0`. Mapped terms
+(`accepted_for_shadow=1`) may be promoted to a `hybrid_shadow` comparison artifact in a later
+milestone after human review — that milestone is not yet implemented.
+
+See `docs/AI_GENRE_ENRICHMENT.md` § Album Model Prior for CLI usage.
+
+---
+
 **End of Document**
