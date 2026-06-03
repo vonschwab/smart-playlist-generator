@@ -55,3 +55,51 @@ def test_request_structured_dry_run_does_not_call_openai(monkeypatch):
     assert result.status == "skipped"
     assert result.response_json["dry_run"] is True
     assert result.response_json["estimated_output_tokens"] == 300
+
+
+def test_validate_model_prior_response_normalizes_terms():
+    from src.ai_genre_enrichment.model_prior import validate_model_prior_response
+
+    result = validate_model_prior_response({
+        "genres": [{
+            "term": "  Ambient Americana ",
+            "confidence": 0.82,
+            "specificity": "subgenre",
+            "taxonomy_role": "core_style",
+            "notes": "Taxonomic fit.",
+        }],
+        "warnings": [],
+    })
+    assert result["genres"][0]["term"] == "ambient americana"
+
+
+def test_validate_model_prior_response_rejects_source_claims():
+    from src.ai_genre_enrichment.model_prior import validate_model_prior_response
+
+    with pytest.raises(ValueError, match="source authority"):
+        validate_model_prior_response({
+            "genres": [{
+                "term": "slowcore", "confidence": 0.9, "specificity": "subgenre",
+                "taxonomy_role": "core_style", "notes": "Bandcamp says this is slowcore.",
+            }],
+            "warnings": [],
+        })
+
+
+def test_map_model_prior_terms_accepts_known_style_and_rejects_descriptor():
+    from src.ai_genre_enrichment.genre_vocabulary import GenreVocabulary
+    from src.ai_genre_enrichment.model_prior import map_model_prior_terms
+
+    mapped = map_model_prior_terms(
+        [
+            {"term": "slowcore", "confidence": 0.9, "specificity": "subgenre", "taxonomy_role": "core_style", "notes": ""},
+            {"term": "instrumental", "confidence": 0.8, "specificity": "broad", "taxonomy_role": "secondary_style", "notes": ""},
+        ],
+        GenreVocabulary(),
+    )
+
+    assert mapped[0]["mapping_status"] == "mapped"
+    assert mapped[0]["accepted_for_shadow"] == 1
+    assert mapped[0]["auto_apply_eligible"] == 0
+    assert mapped[1]["mapping_status"] == "descriptor"
+    assert mapped[1]["accepted_for_shadow"] == 0
