@@ -15,6 +15,7 @@ if str(ROOT) not in sys.path:
 from src.ai_genre_enrichment.client import OpenAIEnrichmentClient
 from src.ai_genre_enrichment.discovery import ReleasePayload, compute_input_hash, discover_releases
 from src.ai_genre_enrichment.genre_vocabulary import GenreVocabulary
+from src.ai_genre_enrichment.hybrid_evidence import collect_hybrid_evidence, fuse_hybrid_evidence
 from src.ai_genre_enrichment.model_prior import (
     MODEL_PRIOR_INSTRUCTIONS,
     MODEL_PRIOR_PROMPT_VERSION,
@@ -85,6 +86,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_model_prior(args)
     if args.command == "model-prior-report":
         return cmd_model_prior_report(args)
+    if args.command == "hybrid-enrich-one":
+        return cmd_hybrid_enrich_one(args)
     parser.print_help()
     return 2
 
@@ -278,6 +281,11 @@ def build_parser() -> argparse.ArgumentParser:
     model_prior.add_argument("--model", default=DEFAULT_MODEL)
 
     sub.add_parser("model-prior-report", help="Report album model-prior coverage and mapping status")
+
+    hybrid_one = sub.add_parser("hybrid-enrich-one", help="Fuse source evidence and model prior into one album genre report")
+    add_release_filters(hybrid_one)
+    hybrid_one.add_argument("--dry-run", action="store_true")
+    hybrid_one.add_argument("--include-provisional", action="store_true")
 
     return parser
 
@@ -1737,6 +1745,28 @@ def cmd_model_prior_report(args: argparse.Namespace) -> int:
     store = SidecarStore(args.sidecar_db)
     store.initialize()
     print(json.dumps(store.model_prior_report(), ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
+def cmd_hybrid_enrich_one(args: argparse.Namespace) -> int:
+    releases = _discover(args)
+    if len(releases) != 1:
+        print(f"Expected exactly one release, found {len(releases)}.")
+        return 2
+
+    release = releases[0]
+    store = SidecarStore(args.sidecar_db)
+    store.initialize()
+    evidence = collect_hybrid_evidence(store, release.release_key)
+    sparse_release = not release.existing_genres_by_source
+    report = fuse_hybrid_evidence(
+        release_key=release.release_key,
+        evidence=evidence,
+        sparse_release=sparse_release,
+    ).to_dict()
+    report["dry_run"] = bool(args.dry_run)
+    report["evidence_count"] = len(evidence)
+    print(json.dumps(report, ensure_ascii=False, sort_keys=True))
     return 0
 
 
