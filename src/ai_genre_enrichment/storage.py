@@ -1654,6 +1654,55 @@ class SidecarStore:
             ).fetchone()
             return dict(row) if row else None
 
+    def hybrid_source_terms_for_release(self, release_key: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    p.source_type,
+                    p.identity_confidence,
+                    t.normalized_tag AS term,
+                    t.normalized_tag AS canonical_slug,
+                    c.classification AS mapping_status,
+                    c.confidence
+                FROM ai_genre_tag_classifications c
+                JOIN ai_genre_source_tags t ON t.source_tag_id = c.source_tag_id
+                JOIN ai_genre_source_pages p ON p.source_page_id = t.source_page_id
+                WHERE p.release_key = ?
+                  AND p.identity_status IN ('confirmed', 'probable')
+                ORDER BY p.source_type, t.normalized_tag, t.source_tag_id
+                """,
+                (release_key,),
+            ).fetchall()
+            return [
+                {
+                    **dict(row),
+                    "source_type": canonical_source_type(row["source_type"]),
+                }
+                for row in rows
+            ]
+
+    def latest_model_prior_terms_for_release(self, release_key: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT t.*
+                FROM ai_genre_model_prior_terms t
+                JOIN ai_genre_model_priors p ON p.prior_id = t.prior_id
+                WHERE t.release_key = ?
+                  AND p.status = 'complete'
+                  AND p.updated_at = (
+                      SELECT MAX(p2.updated_at)
+                      FROM ai_genre_model_priors p2
+                      WHERE p2.release_key = p.release_key
+                        AND p2.status = 'complete'
+                  )
+                ORDER BY t.normalized_term
+                """,
+                (release_key,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
     def record_model_prior(
         self,
         *,

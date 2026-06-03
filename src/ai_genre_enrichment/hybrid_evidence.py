@@ -53,6 +53,35 @@ class HybridGenreReport:
         return asdict(self)
 
 
+def collect_hybrid_evidence(store: object, release_key: str) -> list[EvidenceTerm]:
+    evidence: list[EvidenceTerm] = []
+
+    for row in store.hybrid_source_terms_for_release(release_key):
+        mapping = str(row.get("mapping_status") or "")
+        if mapping == "genre_style":
+            mapping = "mapped"
+        confidence = float(row.get("confidence") or row.get("identity_confidence") or 0.50)
+        evidence.append(EvidenceTerm(
+            term=str(row["term"]),
+            source_type=str(row["source_type"]),
+            confidence=confidence,
+            canonical_slug=row.get("canonical_slug") or row["term"],
+            mapping_status=mapping,
+        ))
+
+    for row in store.latest_model_prior_terms_for_release(release_key):
+        evidence.append(EvidenceTerm(
+            term=str(row["normalized_term"]),
+            source_type="model_prior",
+            confidence=float(row["confidence"]),
+            canonical_slug=row.get("canonical_slug") or row["normalized_term"],
+            mapping_status=str(row["mapping_status"]),
+            notes=str(row.get("notes") or ""),
+        ))
+
+    return evidence
+
+
 def fuse_hybrid_evidence(
     *,
     release_key: str,

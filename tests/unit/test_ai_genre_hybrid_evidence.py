@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from src.ai_genre_enrichment.hybrid_evidence import EvidenceTerm, fuse_hybrid_evidence
+from pathlib import Path
+
+from src.ai_genre_enrichment.hybrid_evidence import (
+    EvidenceTerm,
+    collect_hybrid_evidence,
+    fuse_hybrid_evidence,
+)
 
 
 def test_bandcamp_and_model_accepts_specific_genre():
@@ -54,3 +60,61 @@ def test_local_and_model_can_accept_when_no_stronger_conflict():
 
     assert report.accepted_genres[0].term == "dream pop"
     assert "local_metadata" in report.accepted_genres[0].sources
+
+
+def test_collect_hybrid_evidence_reads_sidecar_sources_and_prior(tmp_path: Path):
+    from src.ai_genre_enrichment.storage import SidecarStore
+
+    store = SidecarStore(tmp_path / "sidecar.db")
+    store.initialize()
+
+    page_id = store.upsert_source_page(
+        release_key="duster::stratosphere",
+        normalized_artist="duster",
+        normalized_album="stratosphere",
+        album_id="a1",
+        source_url="https://example.bandcamp.com/album/stratosphere",
+        source_type="bandcamp_release",
+        identity_status="confirmed",
+        identity_confidence=0.95,
+        evidence_summary="Bandcamp release tags.",
+    )
+    store.replace_source_tags(page_id, ["slowcore"])
+    store.classify_source_tags(page_id)
+
+    store.record_model_prior(
+        release_key="duster::stratosphere",
+        normalized_artist="duster",
+        normalized_album="stratosphere",
+        album_id="a1",
+        provider="openai",
+        model="gpt-4o-mini",
+        prompt_version="album-model-prior-v1",
+        taxonomy_version="genre-vocabulary-v1",
+        schema_version="album-model-prior-response-v1",
+        enrichment_policy_version="genre-enrichment-v2",
+        input_hash="hash-1",
+        status="complete",
+        response_json={"genres": [], "warnings": []},
+        warnings=[],
+        error_message=None,
+        token_usage={},
+        estimated_cost_usd=None,
+        mapped_terms=[{
+            "raw_term": "slowcore",
+            "normalized_term": "slowcore",
+            "canonical_slug": "slowcore",
+            "confidence": 0.86,
+            "specificity": "subgenre",
+            "taxonomy_role": "core_style",
+            "mapping_status": "mapped",
+            "accepted_for_shadow": 1,
+            "auto_apply_eligible": 0,
+            "notes": "",
+        }],
+    )
+
+    evidence = collect_hybrid_evidence(store, "duster::stratosphere")
+    source_types = sorted({item.source_type for item in evidence if item.term == "slowcore"})
+
+    assert source_types == ["bandcamp_release", "model_prior"]
