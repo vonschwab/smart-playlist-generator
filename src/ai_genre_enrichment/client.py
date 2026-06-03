@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -121,6 +122,66 @@ class OpenAIEnrichmentClient:
                 raise validation_error
             if response_json is None:
                 raise ValueError("OpenAI response did not include parseable JSON output")
+            return EnrichmentResult(
+                status="complete",
+                response_json=response_json,
+                token_usage=token_usage,
+                estimated_cost_usd=estimate_cost_usd(
+                    self.model,
+                    input_tokens=token_usage.get("input_tokens", 0),
+                    output_tokens=token_usage.get("output_tokens", 0),
+                ),
+            )
+        except Exception as exc:
+            return EnrichmentResult(status="failed", response_json={}, token_usage={}, error_message=str(exc))
+
+    def request_structured(
+        self,
+        *,
+        payload: dict[str, Any],
+        prompt: str,
+        response_format: dict[str, Any],
+        validator: Callable[[dict[str, Any]], dict[str, Any]],
+        instructions: str,
+        estimated_output_tokens: int,
+    ) -> EnrichmentResult:
+        if self.dry_run:
+            estimated_chars = len(prompt)
+            estimated_prompt_tokens = max(1, estimated_chars // 4)
+            return EnrichmentResult(
+                status="skipped",
+                response_json={
+                    "dry_run": True,
+                    "model": self.model,
+                    "payload": payload,
+                    "web_mode": self.web_mode.value,
+                    "estimated_prompt_chars": estimated_chars,
+                    "estimated_prompt_tokens": estimated_prompt_tokens,
+                    "estimated_output_tokens": estimated_output_tokens,
+                },
+                token_usage={
+                    "estimated_prompt_chars": estimated_chars,
+                    "estimated_prompt_tokens": estimated_prompt_tokens,
+                    "estimated_output_tokens": estimated_output_tokens,
+                },
+                estimated_cost_usd=estimate_cost_usd(
+                    self.model,
+                    input_tokens=estimated_prompt_tokens,
+                    output_tokens=estimated_output_tokens,
+                ),
+            )
+        api_key = self._api_key or os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            return EnrichmentResult(
+                status="failed",
+                response_json={},
+                token_usage={},
+                error_message="OPENAI_API_KEY is not set",
+            )
+        try:
+            response = self._call_openai(prompt, response_format, instructions=instructions)
+            response_json = validator(_extract_response_json(response))
+            token_usage = _extract_token_usage(response)
             return EnrichmentResult(
                 status="complete",
                 response_json=response_json,
