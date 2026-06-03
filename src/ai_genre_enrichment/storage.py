@@ -1747,6 +1747,30 @@ class SidecarStore:
             )
             return prior_id
 
+    def model_prior_report(self) -> dict[str, Any]:
+        with self.connect() as conn:
+            status_counts = {
+                row["status"]: row["count"]
+                for row in conn.execute(
+                    "SELECT status, COUNT(*) AS count FROM ai_genre_model_priors GROUP BY status ORDER BY status"
+                )
+            }
+            mapping_status_counts = {
+                row["mapping_status"]: row["count"]
+                for row in conn.execute(
+                    "SELECT mapping_status, COUNT(*) AS count FROM ai_genre_model_prior_terms "
+                    "GROUP BY mapping_status ORDER BY mapping_status"
+                )
+            }
+            accepted = conn.execute(
+                "SELECT COUNT(*) FROM ai_genre_model_prior_terms WHERE accepted_for_shadow = 1"
+            ).fetchone()[0]
+            return {
+                "status_counts": status_counts,
+                "mapping_status_counts": mapping_status_counts,
+                "accepted_for_shadow": accepted,
+            }
+
     def _upsert_check(
         self,
         *,

@@ -156,3 +156,26 @@ def test_model_prior_one_dry_run_is_api_free_and_sidecar_free(monkeypatch, tmp_p
     assert rc == 0
     assert not sidecar.exists()
     assert '"dry_run": true' in capsys.readouterr().out
+
+
+def test_model_prior_report_counts_mapping_statuses(tmp_path: Path):
+    from src.ai_genre_enrichment.storage import SidecarStore
+
+    store = SidecarStore(tmp_path / "sidecar.db")
+    store.initialize()
+    store.record_model_prior(
+        release_key="duster::stratosphere", normalized_artist="duster", normalized_album="stratosphere",
+        album_id="a1", provider="openai", model="gpt-4o-mini", prompt_version="album-model-prior-v1",
+        taxonomy_version="genre-vocabulary-v1", schema_version="album-model-prior-response-v1",
+        enrichment_policy_version="genre-enrichment-v2", input_hash="h", status="complete",
+        response_json={"genres": [], "warnings": []}, warnings=[], error_message=None, token_usage={},
+        estimated_cost_usd=None, mapped_terms=[
+            {"raw_term": "slowcore", "normalized_term": "slowcore", "canonical_slug": "slowcore",
+             "confidence": 0.9, "specificity": "subgenre", "taxonomy_role": "core_style",
+             "mapping_status": "mapped", "accepted_for_shadow": 1, "auto_apply_eligible": 0, "notes": ""},
+        ],
+    )
+
+    report = store.model_prior_report()
+    assert report["mapping_status_counts"] == {"mapped": 1}
+    assert report["accepted_for_shadow"] == 1
