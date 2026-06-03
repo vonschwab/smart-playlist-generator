@@ -103,3 +103,30 @@ def test_map_model_prior_terms_accepts_known_style_and_rejects_descriptor():
     assert mapped[0]["auto_apply_eligible"] == 0
     assert mapped[1]["mapping_status"] == "descriptor"
     assert mapped[1]["accepted_for_shadow"] == 0
+
+
+def test_store_records_and_reuses_model_prior_cache(tmp_path: Path):
+    from src.ai_genre_enrichment.storage import SidecarStore
+
+    store = SidecarStore(tmp_path / "sidecar.db")
+    store.initialize()
+    prior_id = store.record_model_prior(
+        release_key="duster::stratosphere", normalized_artist="duster",
+        normalized_album="stratosphere", album_id="a1", provider="openai",
+        model="gpt-4o-mini", prompt_version="album-model-prior-v1",
+        taxonomy_version="genre-vocabulary-v1", schema_version="album-model-prior-response-v1",
+        enrichment_policy_version="genre-enrichment-v2", input_hash="hash-1",
+        status="complete", response_json={"genres": [], "warnings": []},
+        warnings=[], error_message=None, token_usage={"input_tokens": 10, "output_tokens": 4, "total_tokens": 14},
+        estimated_cost_usd=0.00001, mapped_terms=[],
+    )
+
+    cached = store.find_model_prior(
+        release_key="duster::stratosphere", provider="openai", model="gpt-4o-mini",
+        prompt_version="album-model-prior-v1", taxonomy_version="genre-vocabulary-v1",
+        schema_version="album-model-prior-response-v1", enrichment_policy_version="genre-enrichment-v2",
+        input_hash="hash-1",
+    )
+
+    assert prior_id > 0
+    assert cached["status"] == "complete"

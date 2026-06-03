@@ -364,6 +364,64 @@ class SidecarStore:
                     ON enriched_genres (release_key);
                 CREATE INDEX IF NOT EXISTS idx_enriched_genres_genre
                     ON enriched_genres (genre);
+
+                CREATE TABLE IF NOT EXISTS ai_genre_model_priors (
+                    prior_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    release_key TEXT NOT NULL,
+                    normalized_artist TEXT NOT NULL,
+                    normalized_album TEXT NOT NULL,
+                    album_id TEXT,
+                    provider TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    prompt_version TEXT NOT NULL,
+                    taxonomy_version TEXT NOT NULL,
+                    schema_version TEXT NOT NULL,
+                    enrichment_policy_version TEXT NOT NULL,
+                    input_hash TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    response_json TEXT,
+                    warnings_json TEXT,
+                    error_message TEXT,
+                    input_tokens INTEGER,
+                    output_tokens INTEGER,
+                    total_tokens INTEGER,
+                    estimated_cost_usd REAL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE (
+                        release_key, provider, model, prompt_version, taxonomy_version,
+                        schema_version, enrichment_policy_version, input_hash
+                    )
+                );
+
+                CREATE TABLE IF NOT EXISTS ai_genre_model_prior_terms (
+                    prior_term_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    prior_id INTEGER NOT NULL,
+                    release_key TEXT NOT NULL,
+                    raw_term TEXT NOT NULL,
+                    normalized_term TEXT NOT NULL,
+                    canonical_slug TEXT,
+                    confidence REAL NOT NULL,
+                    specificity TEXT NOT NULL,
+                    taxonomy_role TEXT NOT NULL,
+                    mapping_status TEXT NOT NULL,
+                    accepted_for_shadow INTEGER NOT NULL DEFAULT 0,
+                    auto_apply_eligible INTEGER NOT NULL DEFAULT 0,
+                    notes TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (prior_id) REFERENCES ai_genre_model_priors(prior_id) ON DELETE CASCADE
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_ai_genre_model_priors_release
+                    ON ai_genre_model_priors (release_key);
+                CREATE INDEX IF NOT EXISTS idx_ai_genre_model_priors_provider_model
+                    ON ai_genre_model_priors (provider, model);
+                CREATE INDEX IF NOT EXISTS idx_ai_genre_model_prior_terms_release
+                    ON ai_genre_model_prior_terms (release_key);
+                CREATE INDEX IF NOT EXISTS idx_ai_genre_model_prior_terms_normalized
+                    ON ai_genre_model_prior_terms (normalized_term);
+                CREATE INDEX IF NOT EXISTS idx_ai_genre_model_prior_terms_mapping
+                    ON ai_genre_model_prior_terms (mapping_status, accepted_for_shadow);
                 """
             )
             _ensure_column(conn, "ai_genre_release_checks", "web_mode", "TEXT NOT NULL DEFAULT 'off'")
@@ -1568,6 +1626,126 @@ class SidecarStore:
             for row in rows:
                 result.setdefault(row["classification"], set()).add(row["normalized_tag"])
             return result
+
+    def find_model_prior(
+        self,
+        *,
+        release_key: str,
+        provider: str,
+        model: str,
+        prompt_version: str,
+        taxonomy_version: str,
+        schema_version: str,
+        enrichment_policy_version: str,
+        input_hash: str,
+    ) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM ai_genre_model_priors
+                WHERE release_key = ? AND provider = ? AND model = ? AND prompt_version = ?
+                  AND taxonomy_version = ? AND schema_version = ?
+                  AND enrichment_policy_version = ? AND input_hash = ?
+                """,
+                (
+                    release_key, provider, model, prompt_version, taxonomy_version,
+                    schema_version, enrichment_policy_version, input_hash,
+                ),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def record_model_prior(
+        self,
+        *,
+        release_key: str,
+        normalized_artist: str,
+        normalized_album: str,
+        album_id: str | None,
+        provider: str,
+        model: str,
+        prompt_version: str,
+        taxonomy_version: str,
+        schema_version: str,
+        enrichment_policy_version: str,
+        input_hash: str,
+        status: str,
+        response_json: dict[str, Any] | None,
+        warnings: list[str],
+        error_message: str | None,
+        token_usage: dict[str, int],
+        estimated_cost_usd: float | None,
+        mapped_terms: list[dict[str, Any]],
+    ) -> int:
+        now = _now_iso()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO ai_genre_model_priors (
+                    release_key, normalized_artist, normalized_album, album_id,
+                    provider, model, prompt_version, taxonomy_version, schema_version,
+                    enrichment_policy_version, input_hash, status, response_json,
+                    warnings_json, error_message, input_tokens, output_tokens,
+                    total_tokens, estimated_cost_usd, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (
+                    release_key, provider, model, prompt_version, taxonomy_version,
+                    schema_version, enrichment_policy_version, input_hash
+                ) DO UPDATE SET
+                    status = excluded.status,
+                    response_json = excluded.response_json,
+                    warnings_json = excluded.warnings_json,
+                    error_message = excluded.error_message,
+                    input_tokens = excluded.input_tokens,
+                    output_tokens = excluded.output_tokens,
+                    total_tokens = excluded.total_tokens,
+                    estimated_cost_usd = excluded.estimated_cost_usd,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    release_key, normalized_artist, normalized_album, album_id,
+                    provider, model, prompt_version, taxonomy_version, schema_version,
+                    enrichment_policy_version, input_hash, status,
+                    json.dumps(response_json, sort_keys=True) if response_json is not None else None,
+                    json.dumps(warnings, sort_keys=True), error_message,
+                    token_usage.get("input_tokens"), token_usage.get("output_tokens"),
+                    token_usage.get("total_tokens"), estimated_cost_usd, now, now,
+                ),
+            )
+            prior_id = int(conn.execute(
+                """
+                SELECT prior_id FROM ai_genre_model_priors
+                WHERE release_key = ? AND provider = ? AND model = ? AND prompt_version = ?
+                  AND taxonomy_version = ? AND schema_version = ?
+                  AND enrichment_policy_version = ? AND input_hash = ?
+                """,
+                (
+                    release_key, provider, model, prompt_version, taxonomy_version,
+                    schema_version, enrichment_policy_version, input_hash,
+                ),
+            ).fetchone()["prior_id"])
+            conn.execute(
+                "DELETE FROM ai_genre_model_prior_terms WHERE prior_id = ?",
+                (prior_id,),
+            )
+            conn.executemany(
+                """
+                INSERT INTO ai_genre_model_prior_terms (
+                    prior_id, release_key, raw_term, normalized_term, canonical_slug,
+                    confidence, specificity, taxonomy_role, mapping_status,
+                    accepted_for_shadow, auto_apply_eligible, notes, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+                """,
+                [
+                    (
+                        prior_id, release_key, term["raw_term"], term["normalized_term"],
+                        term["canonical_slug"], term["confidence"], term["specificity"],
+                        term["taxonomy_role"], term["mapping_status"],
+                        term["accepted_for_shadow"], term["notes"], now,
+                    )
+                    for term in mapped_terms
+                ],
+            )
+            return prior_id
 
     def _upsert_check(
         self,
