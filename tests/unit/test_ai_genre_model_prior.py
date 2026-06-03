@@ -130,3 +130,29 @@ def test_store_records_and_reuses_model_prior_cache(tmp_path: Path):
 
     assert prior_id > 0
     assert cached["status"] == "complete"
+
+
+def test_model_prior_one_dry_run_is_api_free_and_sidecar_free(monkeypatch, tmp_path: Path, capsys):
+    from scripts import ai_genre_enrich
+
+    metadata_db = tmp_path / "metadata.db"
+    with sqlite3.connect(metadata_db) as conn:
+        conn.execute("CREATE TABLE tracks(track_id TEXT, artist TEXT, album TEXT, album_id TEXT, title TEXT, year INTEGER)")
+        conn.execute("CREATE TABLE artist_genres(artist TEXT, genre TEXT, source TEXT)")
+        conn.execute("CREATE TABLE album_genres(album_id TEXT, genre TEXT, source TEXT)")
+        conn.execute("CREATE TABLE track_genres(track_id TEXT, genre TEXT, source TEXT, weight REAL)")
+        conn.execute("INSERT INTO tracks VALUES ('t1', 'Duster', 'Stratosphere', 'a1', 'Moon Age', 1998)")
+
+    monkeypatch.setattr(
+        "src.ai_genre_enrichment.client.OpenAIEnrichmentClient._call_openai",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("OpenAI called")),
+    )
+    sidecar = tmp_path / "sidecar.db"
+    rc = ai_genre_enrich.main([
+        "--metadata-db", str(metadata_db), "--sidecar-db", str(sidecar),
+        "model-prior-one", "--artist", "Duster", "--album", "Stratosphere", "--dry-run",
+    ])
+
+    assert rc == 0
+    assert not sidecar.exists()
+    assert '"dry_run": true' in capsys.readouterr().out

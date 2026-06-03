@@ -14,7 +14,21 @@ if str(ROOT) not in sys.path:
 
 from src.ai_genre_enrichment.client import OpenAIEnrichmentClient
 from src.ai_genre_enrichment.discovery import ReleasePayload, compute_input_hash, discover_releases
+from src.ai_genre_enrichment.genre_vocabulary import GenreVocabulary
+from src.ai_genre_enrichment.model_prior import (
+    MODEL_PRIOR_INSTRUCTIONS,
+    MODEL_PRIOR_PROMPT_VERSION,
+    MODEL_PRIOR_SCHEMA_VERSION,
+    MODEL_PRIOR_TAXONOMY_VERSION,
+    build_model_prior_payload,
+    build_model_prior_prompt,
+    map_model_prior_terms,
+    model_prior_response_format,
+    stable_input_hash,
+    validate_model_prior_response,
+)
 from src.ai_genre_enrichment.models import RESPONSE_SCHEMA_VERSION, response_format_schema, validate_ai_response
+from src.ai_genre_enrichment.policy import STABILIZED_POLICY_VERSION
 from src.ai_genre_enrichment.prompt import PROMPT_VERSION, SYSTEM_INSTRUCTIONS, TAXONOMY_VERSION, build_batch_request, build_prompt
 from src.ai_genre_enrichment.routing import EnrichmentLane, RouteDecision, WebMode, route_release
 from src.ai_genre_enrichment.source_extraction import fetch_bandcamp_release_tags, is_bandcamp_release_url
@@ -65,6 +79,12 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_graduate_ai(args)
     if args.command == "rebuild-artifacts":
         return cmd_rebuild_artifacts(args)
+    if args.command == "model-prior-one":
+        return cmd_model_prior_one(args)
+    if args.command == "model-prior":
+        return cmd_model_prior(args)
+    if args.command == "model-prior-report":
+        return cmd_model_prior_report(args)
     parser.print_help()
     return 2
 
@@ -243,6 +263,19 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Allow replacement of an existing fingerprinted hybrid shadow artifact",
     )
+
+    model_prior_one = sub.add_parser("model-prior-one", help="Generate or preview one no-web album model prior")
+    add_release_filters(model_prior_one)
+    model_prior_one.add_argument("--dry-run", action="store_true")
+    model_prior_one.add_argument("--force", action="store_true")
+
+    model_prior = sub.add_parser("model-prior", help="Generate no-web album model priors in a bounded batch")
+    add_release_filters(model_prior)
+    model_prior.add_argument("--dry-run", action="store_true")
+    model_prior.add_argument("--missing-only", action="store_true")
+    model_prior.add_argument("--force", action="store_true")
+
+    sub.add_parser("model-prior-report", help="Report album model-prior coverage and mapping status")
 
     return parser
 
@@ -1622,6 +1655,82 @@ def cmd_rebuild_artifacts(args: argparse.Namespace) -> int:
         f"Rebuilt artifacts at {out_path} "
         f"(tracks={result.n_tracks}, genres={result.n_genres})"
     )
+    return 0
+
+
+def _run_model_prior_release(args: argparse.Namespace, release: ReleasePayload) -> int:
+    payload = build_model_prior_payload(release)
+    input_hash = stable_input_hash(payload)
+    client = OpenAIEnrichmentClient(model=args.model, dry_run=args.dry_run, web_mode="off")
+    result = client.request_structured(
+        payload=payload,
+        prompt=build_model_prior_prompt(payload),
+        response_format=model_prior_response_format(),
+        validator=validate_model_prior_response,
+        instructions=MODEL_PRIOR_INSTRUCTIONS,
+        estimated_output_tokens=300,
+    )
+    if args.dry_run:
+        print(json.dumps(result.response_json, ensure_ascii=False, sort_keys=True))
+        return 0
+
+    store = SidecarStore(args.sidecar_db)
+    store.initialize()
+    cached = store.find_model_prior(
+        release_key=release.release_key, provider="openai", model=args.model,
+        prompt_version=MODEL_PRIOR_PROMPT_VERSION, taxonomy_version=MODEL_PRIOR_TAXONOMY_VERSION,
+        schema_version=MODEL_PRIOR_SCHEMA_VERSION, enrichment_policy_version=STABILIZED_POLICY_VERSION,
+        input_hash=input_hash,
+    )
+    if cached and getattr(args, "missing_only", False) and not args.force:
+        print(f"existing-model-prior {release.release_key}")
+        return 0
+    if cached and cached["status"] == "complete" and not args.force:
+        print(f"cached-model-prior {release.release_key}")
+        return 0
+
+    mapped_terms: list[dict] = []
+    if result.status == "complete":
+        vocabulary = GenreVocabulary(library_db_path=args.metadata_db)
+        mapped_terms = map_model_prior_terms(result.response_json["genres"], vocabulary)
+    store.record_model_prior(
+        release_key=release.release_key, normalized_artist=release.normalized_artist,
+        normalized_album=release.normalized_album, album_id=release.album_id,
+        provider="openai", model=args.model, prompt_version=MODEL_PRIOR_PROMPT_VERSION,
+        taxonomy_version=MODEL_PRIOR_TAXONOMY_VERSION, schema_version=MODEL_PRIOR_SCHEMA_VERSION,
+        enrichment_policy_version=STABILIZED_POLICY_VERSION, input_hash=input_hash,
+        status=result.status, response_json=result.response_json or None,
+        warnings=result.response_json.get("warnings", []) if result.response_json else [],
+        error_message=result.error_message,
+        token_usage=result.token_usage, estimated_cost_usd=result.estimated_cost_usd,
+        mapped_terms=mapped_terms,
+    )
+    print(f"{result.status}-model-prior {release.release_key}")
+    return 0 if result.status == "complete" else 1
+
+
+def cmd_model_prior_one(args: argparse.Namespace) -> int:
+    releases = _discover(args)
+    if len(releases) != 1:
+        print(f"Expected exactly one release, found {len(releases)}.")
+        return 2
+    return _run_model_prior_release(args, releases[0])
+
+
+def cmd_model_prior(args: argparse.Namespace) -> int:
+    failures = 0
+    for release in _discover(args):
+        rc = _run_model_prior_release(args, release)
+        if rc != 0:
+            failures += 1
+    print(f"model-prior batch complete failures={failures}")
+    return 1 if failures else 0
+
+
+def cmd_model_prior_report(args: argparse.Namespace) -> int:
+    store = SidecarStore(args.sidecar_db)
+    store.initialize()
+    print(json.dumps(store.model_prior_report(), ensure_ascii=False, indent=2, sort_keys=True))
     return 0
 
 
