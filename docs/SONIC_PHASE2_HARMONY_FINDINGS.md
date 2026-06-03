@@ -274,24 +274,45 @@ harmful one — which is why nobody noticed for years, *and* why the fix's blend
 
 ---
 
-## 10. Decision & path forward
+## 10. Validation supplements (post-decision)
 
-**Production change deferred.** The full 2DFTM rebuild costs ~3 h re-extraction + a
-feature-schema change to the irreplaceable artifact, and its marginal value over the free
-re-weight is **+0.033 on 5 seeds / 1 rater** — the noise floor of the current sample.
+Two further checks after the gates, before committing to any rebuild:
 
-**Recommended next steps (in order):**
-1. **Gather more ground truth** — audition ~6–8 more seeds, prioritising harmonic corners
-   (Bill Evans, remaining classical, Boards of Canada) where 2DFTM should matter most, plus
-   a **J Dilla recheck** (the only regression).
-2. **Re-run probe + Gate 1 + weight sweep** on the expanded ground truth.
-3. **Decide once, with data:**
-   - If the 2DFTM marginal holds/grows → do a **harmony-only** re-extraction (not rhythm):
-     extend `Beat3TowerExtractor._extract_harmony_tower` (`src/features/beat3tower_extractor.py`)
-     + `HarmonyTowerFeatures`, back up the artifact, re-extract, rebuild `tower_weighted`,
-     re-audition to confirm in production.
-   - If it stays ~0.03 → ship the **cheap re-weight** (harmony 0.30 → ~0.20, with matching
-     `transition_weights`; extend the sweep below 0.20 first) and skip the rebuild.
+- **Key-invariance proven empirically** ([`sonic_keyinvariance_check.py`](../scripts/sonic_keyinvariance_check.py)):
+  pitch-shifting a track leaves 2DFTM at cosine **0.99+** across 1–7 semitones, while
+  chroma_median and CENS fall to **0.6–0.8**. The +0.210 is a deterministic property, not a
+  5-seed fluke. Also explains CENS underperforming: it stays key-sensitive (cover-song
+  matching in the *same* key), so it's the wrong invariance for cross-key similarity.
+- **Beat-sync vs frame-level 2DFTM is a wash** ([`sonic_beatsync_2dftm.py`](../scripts/sonic_beatsync_2dftm.py)):
+  isolated +0.230 vs +0.210, blend +0.348 vs +0.361 (−0.013, within noise). The
+  Bertin-Mahieux/Ellis beat-synchronous method buys nothing measurable here. **Use the
+  simpler frame-level** — cheaper, and uniform across the beatless ambient/drone corner where
+  beat tracking would constantly fall back.
+
+## 11. Decision & path forward
+
+**The proxy metric (Spearman vs verdict) has hit its resolution limit at 5 seeds** — the
+2DFTM rebuild's marginal over the free re-weight is ~+0.033, ambiguous. Rather than gather
+more proxy seeds, we switched to **stronger evidence: a blind legacy-vs-2DFTM ear A/B over
+the real library**, which also produces the rebuild's main artifact as a byproduct.
+
+**In progress:**
+1. **Full-library frame-level 2DFTM extraction** ([`extract_harmony_2dftm_sidecar.py`](../scripts/extract_harmony_2dftm_sidecar.py))
+   → `data/artifacts/beat3tower_32k/harmony_2dftm_sidecar.npz` (gitignored). Read-only,
+   multiprocessing, resumable. **Cost correction: this is an overnight run (~9–18 h depending
+   on cores), NOT the "~3 h" estimated earlier — the HPSS step dominates and I undercounted.**
+2. **Blind head-to-head wired into the audition** (`sonic_audition_build.py --head-to-head`):
+   `harmony_legacy` vs `harmony_2dftm` as blinded spaces over an identical candidate pool;
+   the existing per-space analysis yields the A/B directly. Output dir `sonic_audition_h2h`.
+
+**Then decide once, with ear evidence:**
+- If the blind A/B confirms 2DFTM neighbors beat legacy → fold the sidecar into the artifact
+  (cheap re-concat — the extraction is already done) + matching schema/version bump, rebuild
+  `tower_weighted`, re-audition to confirm in production.
+- If it's a wash by ear → ship the **cheap re-weight** (harmony 0.30 → ~0.20, matching
+  `transition_weights`; extend the sweep below 0.20 first) and skip the rebuild.
+
+Rhythm is excluded from any rebuild (Gate 2). Beat-sync is excluded (§10 wash).
 
 **Banked regardless of the decision:** root cause confirmed (absolute-key encoding);
 validated fix in hand (2DFTM); rhythm confirmed healthy; harmony weight shown
