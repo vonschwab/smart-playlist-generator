@@ -49,6 +49,15 @@ def _l2(M: np.ndarray) -> np.ndarray:
     return M / np.maximum(np.linalg.norm(M, axis=1, keepdims=True), 1e-12)
 
 
+def _zscore(M: np.ndarray, rows: np.ndarray) -> np.ndarray:
+    """Z-score each column using the mean/std of `rows` only (the valid pool)."""
+    M = M.astype(np.float64)
+    sub = M[rows]
+    mu, sd = sub.mean(axis=0), sub.std(axis=0)
+    sd[sd < 1e-9] = 1.0
+    return (M - mu) / sd
+
+
 def _slug(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
 
@@ -81,6 +90,45 @@ def compute_spaces(
     }
 
 
+def load_2dftm_sidecar(
+    sidecar_path: str, bundle
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Load the harmony 2DFTM sidecar, aligned to bundle.track_ids row order.
+
+    Returns (X_2dftm: (N, D) float64 with zero rows for tracks not yet extracted,
+    valid_mask: (N,) bool marking which rows actually have features).
+    """
+    z = np.load(sidecar_path, allow_pickle=True)
+    feat_by_tid = {str(t): z["features"][i] for i, t in enumerate(z["track_ids"])}
+    dim = z["features"].shape[1]
+    N = len(bundle.track_ids)
+    X = np.zeros((N, dim), dtype=np.float64)
+    valid = np.zeros(N, dtype=bool)
+    for i, tid in enumerate(bundle.track_ids):
+        v = feat_by_tid.get(str(tid))
+        if v is not None:
+            X[i] = v
+            valid[i] = True
+    return X, valid
+
+
+def compute_headtohead_spaces(
+    bundle, per_tower: Dict[str, np.ndarray], X_2dftm: np.ndarray, valid_mask: np.ndarray
+) -> Dict[str, Tuple[np.ndarray, np.ndarray]]:
+    """Two blinded harmony spaces for the legacy-vs-2DFTM A/B.
+
+    harmony_legacy = the shipped chroma-median tower; harmony_2dftm = key-invariant
+    2DFTM, z-scored over the valid pool then L2 (matching the probe pipeline).
+    """
+    Xleg = _l2(per_tower["X_sonic_harmony"].astype(np.float64))
+    rows = np.where(valid_mask)[0]
+    X2 = _l2(_zscore(X_2dftm, rows))
+    return {
+        "harmony_legacy": (Xleg, Xleg),
+        "harmony_2dftm": (X2, X2),
+    }
+
+
 def find_medoid(Xq: np.ndarray, indices: np.ndarray) -> int:
     """Return the index (in the full matrix) of the track closest to the artist centroid."""
     sub = Xq[indices]
@@ -94,11 +142,18 @@ def top_k_for_seed(
     spaces: Dict[str, Tuple[np.ndarray, np.ndarray]],
     exclude_indices: set,
     k: int,
+    valid_mask: Optional[np.ndarray] = None,
 ) -> Dict[str, List[Tuple[int, float]]]:
-    """Return {space: [(track_idx, cosine), ...]} top-k per space, excluding exclude_indices."""
+    """Return {space: [(track_idx, cosine), ...]} top-k per space, excluding exclude_indices.
+
+    If valid_mask is given, the candidate pool is restricted to those rows for ALL
+    spaces — so head-to-head spaces compete over an identical candidate set.
+    """
     N = next(iter(spaces.values()))[0].shape[0]
     exclude = set(exclude_indices) | {seed_idx}
     mask = np.ones(N, dtype=bool)
+    if valid_mask is not None:
+        mask &= valid_mask
     for idx in exclude:
         if 0 <= idx < N:
             mask[idx] = False
@@ -118,20 +173,26 @@ def build_seed_manifest(
     spaces: Dict[str, Tuple[np.ndarray, np.ndarray]],
     file_paths: Dict[str, str],
     k: int = 15,
+    valid_mask: Optional[np.ndarray] = None,
+    medoid_vectors: Optional[np.ndarray] = None,
 ) -> Optional[dict]:
-    """Build the blinded manifest for one seed artist. Returns None if artist not found."""
+    """Build the blinded manifest for one seed artist. Returns None if artist not found.
+
+    medoid_vectors picks the representative seed track (defaults to the full_track
+    space); valid_mask restricts the neighbor candidate pool (head-to-head mode).
+    """
     artists = np.array([str(a) for a in bundle.track_artists])
     artist_idx = np.where(np.char.lower(artists) == artist.lower())[0]
     if len(artist_idx) == 0:
         return None
 
-    Xq_full = spaces["full_track"][0]
+    Xq_full = medoid_vectors if medoid_vectors is not None else spaces["full_track"][0]
     seed_idx = find_medoid(Xq_full, artist_idx)
     seed_tid = str(bundle.track_ids[seed_idx])
     seed_title = str(bundle.track_titles[seed_idx]) if bundle.track_titles is not None else "?"
 
     exclude = {int(i) for i in artist_idx}
-    per_space = top_k_for_seed(seed_idx, spaces, exclude, k)
+    per_space = top_k_for_seed(seed_idx, spaces, exclude, k, valid_mask=valid_mask)
 
     seen: Dict[int, Dict[str, dict]] = {}
     for space, neighbors in per_space.items():
@@ -242,7 +303,17 @@ def main() -> None:
         default="data/artifacts/beat3tower_32k/data_matrices_step1.npz",
     )
     ap.add_argument("--db", default="data/metadata.db")
-    ap.add_argument("--out-dir", default="docs/run_audits/sonic_audition")
+    ap.add_argument("--out-dir", default=None)
+    ap.add_argument(
+        "--head-to-head",
+        action="store_true",
+        help="Build blinded harmony_legacy vs harmony_2dftm A/B manifests",
+    )
+    ap.add_argument(
+        "--sidecar",
+        default="data/artifacts/beat3tower_32k/harmony_2dftm_sidecar.npz",
+        help="2DFTM harmony sidecar npz (head-to-head mode)",
+    )
     args = ap.parse_args()
 
     from src.features.artifacts import load_artifact_bundle
@@ -256,19 +327,40 @@ def main() -> None:
         "X_sonic_harmony": npz["X_sonic_harmony"],
     }
 
-    print(f"Computing 4 sonic spaces over {len(bundle.track_ids)} tracks...")
-    spaces = compute_spaces(bundle, per_tower)
+    valid_mask = None
+    medoid_vectors = None
+    if args.head_to_head:
+        sidecar_path = ROOT / args.sidecar
+        if not sidecar_path.exists():
+            print(f"No sidecar at {sidecar_path}. Run extract_harmony_2dftm_sidecar.py first.")
+            sys.exit(1)
+        X_2dftm, valid_mask = load_2dftm_sidecar(str(sidecar_path), bundle)
+        n_valid = int(valid_mask.sum())
+        print(f"Head-to-head mode: 2DFTM sidecar has {n_valid}/{len(valid_mask)} tracks.")
+        spaces = compute_headtohead_spaces(bundle, per_tower, X_2dftm, valid_mask)
+        medoid_vectors = _l2(bundle.X_sonic.astype(np.float64))  # representative seed pick
+    else:
+        print(f"Computing 4 sonic spaces over {len(bundle.track_ids)} tracks...")
+        spaces = compute_spaces(bundle, per_tower)
 
     all_tids = [str(t) for t in bundle.track_ids]
     print("Looking up file paths...")
     file_paths = lookup_file_paths(all_tids, args.db)
 
-    out_dir = ROOT / args.out_dir
+    default_out = (
+        "docs/run_audits/sonic_audition_h2h"
+        if args.head_to_head
+        else "docs/run_audits/sonic_audition"
+    )
+    out_dir = ROOT / (args.out_dir or default_out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     index = []
     for artist in args.seeds:
-        manifest = build_seed_manifest(artist, bundle, spaces, file_paths, k=args.top_k)
+        manifest = build_seed_manifest(
+            artist, bundle, spaces, file_paths, k=args.top_k,
+            valid_mask=valid_mask, medoid_vectors=medoid_vectors,
+        )
         if manifest is None:
             print(f"  SKIP {artist!r} (not found in bundle)")
             continue
@@ -279,16 +371,18 @@ def main() -> None:
         index.append({"slug": slug, "artist": artist})
         print(f"  OK   {artist!r} → {slug}_manifest.json ({n} neighbors)")
 
-    neg = build_negative_s_manifest(NEGATIVE_S_PAIRS, bundle, spaces, file_paths)
-    (out_dir / "negative_s_manifest.json").write_text(
-        json.dumps(neg, indent=2), encoding="utf-8"
-    )
-    index.append({"slug": "negative_s", "artist": "Negative-S Pairs", "type": "transition_pairs"})
-    print(f"  OK   negative_s → negative_s_manifest.json ({len(neg['pairs'])} pairs)")
+    if not args.head_to_head:
+        neg = build_negative_s_manifest(NEGATIVE_S_PAIRS, bundle, spaces, file_paths)
+        (out_dir / "negative_s_manifest.json").write_text(
+            json.dumps(neg, indent=2), encoding="utf-8"
+        )
+        index.append({"slug": "negative_s", "artist": "Negative-S Pairs", "type": "transition_pairs"})
+        print(f"  OK   negative_s → negative_s_manifest.json ({len(neg['pairs'])} pairs)")
 
     (out_dir / "index.json").write_text(json.dumps(index, indent=2), encoding="utf-8")
     print(f"\nDone. {len(index)} manifests in {out_dir}")
-    print("Next: python scripts/sonic_audition_serve.py")
+    serve_hint = f" --data-dir {out_dir.relative_to(ROOT)}" if args.head_to_head else ""
+    print(f"Next: python scripts/sonic_audition_serve.py{serve_hint}")
 
 
 if __name__ == "__main__":
