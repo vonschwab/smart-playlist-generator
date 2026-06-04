@@ -194,6 +194,12 @@ def _slice_bundle(
         X_genre_dense=_opt(bundle.X_genre_dense),
         genre_vocab=bundle.genre_vocab,
         track_id_to_index={str(tid): i for i, tid in enumerate(bundle.track_ids[indices])},
+        # Scalar/metadata fields — not row-indexed; must be forwarded explicitly
+        # because ArtifactBundle is a frozen dataclass (defaults don't carry over).
+        sonic_variant=bundle.sonic_variant,
+        sonic_pre_scaled=bundle.sonic_pre_scaled,
+        tower_dims=bundle.tower_dims,
+        genre_emb=bundle.genre_emb,
     )
     if include_durations:
         kwargs["durations_ms"] = _opt(bundle.durations_ms)

@@ -123,6 +123,111 @@ def tower_weighted(
     ).astype(np.float32)
 
 
+def fold_harmony(
+    artifact_path: Path,
+    sidecar_path: Path,
+    *,
+    dry_run: bool = False,
+    no_backup: bool = False,
+    log_fn=print,
+) -> None:
+    """Fold the 2DFTM harmony sidecar into the artifact (programmatic entry point).
+
+    Callable from other scripts (e.g. analyze_library stage_artifacts). When
+    ``no_backup=True`` the caller is responsible for preserving the original if
+    needed. ``log_fn`` is called for progress messages (defaults to print).
+    """
+    if not artifact_path.exists():
+        raise FileNotFoundError(f"Artifact not found: {artifact_path}")
+    if not sidecar_path.exists():
+        raise FileNotFoundError(f"Sidecar not found: {sidecar_path}")
+
+    log_fn("Loading sidecar...", flush=True)
+    sc_tids, sc_feats = load_sidecar(sidecar_path)
+    log_fn(f"  Sidecar: {len(sc_tids)} tracks, {sc_feats.shape[1]}-dim", flush=True)
+
+    log_fn("Loading artifact...", flush=True)
+    with zipfile.ZipFile(artifact_path) as zf:
+        arrays: dict[str, np.ndarray] = {}
+        for name in zf.namelist():
+            arrays[name.replace(".npy", "")] = np.load(
+                io.BytesIO(zf.read(name)), allow_pickle=True
+            )
+    N = len(arrays["track_ids"])
+    log_fn(f"  Artifact: {N} tracks, {arrays['X_sonic'].shape[1]}-dim blend", flush=True)
+
+    log_fn("Aligning sidecar to artifact track order...", flush=True)
+    X_2dftm, valid = align_sidecar(sc_tids, sc_feats, arrays["track_ids"])
+    n_valid = int(valid.sum())
+    n_missing = N - n_valid
+    log_fn(f"  Valid: {n_valid}  Missing (zero): {n_missing}", flush=True)
+
+    log_fn("Z-scoring over valid pool...", flush=True)
+    X_2dftm_z = zscore_valid(X_2dftm, valid)
+
+    log_fn("Building new harmony tower (full-track used for all segment positions)...", flush=True)
+    harmony_full = X_2dftm_z
+
+    log_fn("Recomputing blend arrays...", flush=True)
+    new_X_sonic       = tower_weighted(arrays["X_sonic_rhythm"],      arrays["X_sonic_timbre"],      harmony_full)
+    new_X_sonic_start = tower_weighted(arrays["X_sonic_rhythm_start"], arrays["X_sonic_timbre_start"], harmony_full)
+    new_X_sonic_mid   = tower_weighted(arrays["X_sonic_rhythm_mid"],   arrays["X_sonic_timbre_mid"],   harmony_full)
+    new_X_sonic_end   = tower_weighted(arrays["X_sonic_rhythm_end"],   arrays["X_sonic_timbre_end"],   harmony_full)
+
+    new_dim = new_X_sonic.shape[1]
+    log_fn(f"  New blend dim: {new_dim}  (was {arrays['X_sonic'].shape[1]})", flush=True)
+
+    old_names = list(arrays.get("sonic_feature_names", []))
+    rhythm_names  = [n for n in old_names if "rhythm" in str(n)]
+    timbre_names  = [n for n in old_names if "timbre" in str(n)]
+    harmony_names = [f"harmony_2dftm_{i}" for i in range(TWODFTM_DIM)]
+    new_names = rhythm_names + timbre_names + harmony_names
+    assert len(new_names) == new_dim, f"name count {len(new_names)} != dim {new_dim}"
+
+    new_tower_dims = np.array([9, 57, TWODFTM_DIM], dtype=np.int64)
+
+    if dry_run:
+        log_fn("\nDry run — no files written.", flush=True)
+        log_fn(f"Would replace: X_sonic_harmony (→{TWODFTM_DIM}-dim), all segment harmony, all blends", flush=True)
+        log_fn(f"Would update:  tower_dims, sonic_feature_names", flush=True)
+        log_fn(f"New artifact size estimate: {new_dim}-dim blend, {N} tracks", flush=True)
+        return
+
+    if not no_backup:
+        ts = time.strftime("%Y%m%d_%H%M%S")
+        backup = artifact_path.with_name(artifact_path.name + f".bak_{ts}")
+        log_fn(f"\nBacking up → {backup.name} ...", flush=True)
+        shutil.copy2(artifact_path, backup)
+        log_fn(f"  Backup written ({backup.stat().st_size / 1e6:.0f} MB)", flush=True)
+
+    out = dict(arrays)
+    out["X_sonic_harmony"]        = harmony_full.astype(np.float32)
+    out["X_sonic_harmony_start"]  = harmony_full.astype(np.float32)
+    out["X_sonic_harmony_mid"]    = harmony_full.astype(np.float32)
+    out["X_sonic_harmony_end"]    = harmony_full.astype(np.float32)
+    out["X_sonic"]                = new_X_sonic
+    out["X_sonic_tower_weighted"] = new_X_sonic
+    out["X_sonic_start"]          = new_X_sonic_start
+    out["X_sonic_mid"]            = new_X_sonic_mid
+    out["X_sonic_end"]            = new_X_sonic_end
+    out["tower_dims"]             = new_tower_dims
+    out["sonic_feature_names"]    = np.array(new_names, dtype=object)
+    out["X_sonic_variant"]        = np.array("tower_weighted")
+    out["X_sonic_pre_scaled"]     = np.array(True)
+
+    tmp = artifact_path.with_name(artifact_path.stem + ".rebuild2dftm.npz")
+    log_fn("Writing rebuilt artifact...", flush=True)
+    try:
+        np.savez(tmp, **out)
+        tmp.replace(artifact_path)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+    log_fn(f"Done. {artifact_path.name} rebuilt with 2DFTM harmony ({new_dim}-dim blend).", flush=True)
+    if not no_backup:
+        log_fn(f"Original preserved as {backup.name}", flush=True)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--artifact",   default=str(ARTIFACT))
@@ -141,93 +246,12 @@ def main() -> None:
         print(f"Sidecar not found: {sidecar_path}")
         sys.exit(1)
 
-    print("Loading sidecar...", flush=True)
-    sc_tids, sc_feats = load_sidecar(sidecar_path)
-    print(f"  Sidecar: {len(sc_tids)} tracks, {sc_feats.shape[1]}-dim", flush=True)
-
-    print("Loading artifact...", flush=True)
-    with zipfile.ZipFile(artifact_path) as zf:
-        arrays: dict[str, np.ndarray] = {}
-        for name in zf.namelist():
-            arrays[name.replace(".npy", "")] = np.load(
-                io.BytesIO(zf.read(name)), allow_pickle=True
-            )
-    N = len(arrays["track_ids"])
-    print(f"  Artifact: {N} tracks, {arrays['X_sonic'].shape[1]}-dim blend", flush=True)
-
-    print("Aligning sidecar to artifact track order...", flush=True)
-    X_2dftm, valid = align_sidecar(sc_tids, sc_feats, arrays["track_ids"])
-    n_valid = int(valid.sum())
-    n_missing = N - n_valid
-    print(f"  Valid: {n_valid}  Missing (zero): {n_missing}", flush=True)
-
-    print("Z-scoring over valid pool...", flush=True)
-    X_2dftm_z = zscore_valid(X_2dftm, valid)
-
-    print("Building new harmony tower (full-track used for all segment positions)...", flush=True)
-    # Use full-track 2DFTM for all segment positions — harmonic character is global.
-    harmony_full = X_2dftm_z
-
-    print("Recomputing blend arrays...", flush=True)
-    new_X_sonic       = tower_weighted(arrays["X_sonic_rhythm"],     arrays["X_sonic_timbre"],     harmony_full)
-    new_X_sonic_start = tower_weighted(arrays["X_sonic_rhythm_start"],arrays["X_sonic_timbre_start"],harmony_full)
-    new_X_sonic_mid   = tower_weighted(arrays["X_sonic_rhythm_mid"],  arrays["X_sonic_timbre_mid"],  harmony_full)
-    new_X_sonic_end   = tower_weighted(arrays["X_sonic_rhythm_end"],  arrays["X_sonic_timbre_end"],  harmony_full)
-
-    new_dim = new_X_sonic.shape[1]
-    print(f"  New blend dim: {new_dim}  (was {arrays['X_sonic'].shape[1]})", flush=True)
-
-    # New feature names
-    old_names = list(arrays.get("sonic_feature_names", []))
-    rhythm_names  = [n for n in old_names if "rhythm" in str(n)]
-    timbre_names  = [n for n in old_names if "timbre" in str(n)]
-    harmony_names = [f"harmony_2dftm_{i}" for i in range(TWODFTM_DIM)]
-    new_names = rhythm_names + timbre_names + harmony_names
-    assert len(new_names) == new_dim, f"name count {len(new_names)} != dim {new_dim}"
-
-    new_tower_dims = np.array([9, 57, TWODFTM_DIM], dtype=np.int64)
-
-    if args.dry_run:
-        print("\nDry run — no files written.")
-        print(f"Would replace: X_sonic_harmony (20→{TWODFTM_DIM}), all segment harmony, all blends")
-        print(f"Would update:  tower_dims, sonic_feature_names")
-        print(f"New artifact size estimate: {new_dim}-dim blend, {N} tracks")
-        return
-
-    # Build output dict: copy everything, then overwrite changed arrays
-    out = dict(arrays)
-    out["X_sonic_harmony"]       = harmony_full.astype(np.float32)
-    out["X_sonic_harmony_start"] = harmony_full.astype(np.float32)
-    out["X_sonic_harmony_mid"]   = harmony_full.astype(np.float32)
-    out["X_sonic_harmony_end"]   = harmony_full.astype(np.float32)
-    out["X_sonic"]               = new_X_sonic
-    out["X_sonic_tower_weighted"]= new_X_sonic
-    out["X_sonic_start"]         = new_X_sonic_start
-    out["X_sonic_mid"]           = new_X_sonic_mid
-    out["X_sonic_end"]           = new_X_sonic_end
-    out["tower_dims"]            = new_tower_dims
-    out["sonic_feature_names"]   = np.array(new_names, dtype=object)
-    out["X_sonic_variant"]       = np.array("tower_weighted")
-    out["X_sonic_pre_scaled"]    = np.array(True)
-
-    if not args.no_backup:
-        ts = time.strftime("%Y%m%d_%H%M%S")
-        backup = artifact_path.with_name(artifact_path.name + f".bak_{ts}")
-        print(f"\nBacking up → {backup.name} ...", flush=True)
-        shutil.copy2(artifact_path, backup)
-        print(f"  Backup written ({backup.stat().st_size / 1e6:.0f} MB)", flush=True)
-
-    tmp = artifact_path.with_name(artifact_path.stem + ".rebuild2dftm.npz")
-    print(f"Writing rebuilt artifact...", flush=True)
-    try:
-        np.savez(tmp, **out)
-        tmp.replace(artifact_path)
-    except Exception:
-        tmp.unlink(missing_ok=True)
-        raise
-    print(f"Done. {artifact_path.name} rebuilt with 2DFTM harmony ({new_dim}-dim blend).")
-    if not args.no_backup:
-        print(f"Original preserved as {backup.name}")
+    fold_harmony(
+        artifact_path,
+        sidecar_path,
+        dry_run=args.dry_run,
+        no_backup=args.no_backup,
+    )
 
 
 if __name__ == "__main__":

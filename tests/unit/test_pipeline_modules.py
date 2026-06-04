@@ -6,6 +6,7 @@ Each module gets a small test class:
   * TestAuditEmitter   — disabled vs enabled, lazy context, flush semantics
   * TestPostValidation — build_failure_diagnostic (3 buckets) +
                           run_post_order_validation (length + recency)
+  * TestEmbeddingSetupPreScaled — pre_scaled path exposes tower_pca_dims
 
 The goldens in test_pipeline_smoke_golden.py cover end-to-end behavior;
 these tests cover unit-level seams now that the modules are independently
@@ -204,6 +205,46 @@ class TestBundleRestrict:
             allowed_track_ids_set=None,
         )
         assert out_bundle.X_genre_dense is None
+
+    def test_restrict_preserves_sonic_pre_scaled_and_tower_dims(self):
+        """sonic_pre_scaled and tower_dims must survive bundle restriction.
+
+        Regression guard: _slice_bundle previously omitted these scalar/metadata
+        fields, causing sonic_pre_scaled to revert to False on the restricted
+        bundle. Downstream, embedding_setup.py then took the non-pre_scaled path
+        and applied a StandardScaler to the already-weighted 162-dim blend before
+        PCA, undermining the tower weighting.
+        """
+        n = 4
+        bundle = ArtifactBundle(
+            artifact_path=Path("test://bundle"),
+            track_ids=np.array([f"t{i}" for i in range(n)]),
+            artist_keys=np.array([f"a{i}" for i in range(n)]),
+            track_artists=np.array([f"Artist {i}" for i in range(n)]),
+            track_titles=np.array([f"Track {i}" for i in range(n)]),
+            X_sonic=np.zeros((n, 162), dtype=float),
+            X_sonic_start=None,
+            X_sonic_mid=None,
+            X_sonic_end=None,
+            X_genre_raw=np.zeros((n, 1), dtype=float),
+            X_genre_smoothed=np.zeros((n, 1), dtype=float),
+            X_genre_dense=None,
+            genre_vocab=np.array(["g0"]),
+            track_id_to_index={f"t{i}": i for i in range(n)},
+            sonic_variant="tower_weighted",
+            sonic_pre_scaled=True,
+            tower_dims=(9, 57, 96),
+        )
+        out_bundle, _, _ = restrict_bundle(
+            bundle, "t0", seed_idx=0,
+            anchor_seed_ids=[],
+            allowed_track_ids=["t0", "t1"],
+            excluded_track_ids=None,
+            allowed_track_ids_set=None,
+        )
+        assert out_bundle.sonic_pre_scaled is True
+        assert out_bundle.tower_dims == (9, 57, 96)
+        assert out_bundle.sonic_variant == "tower_weighted"
 
     def test_empty_allowed_raises(self):
         bundle = _make_bundle(["t0", "t1"])
@@ -567,3 +608,106 @@ class TestRunPostOrderValidation:
         # Offender string includes artist + title for debugging.
         assert "Artist Y" in joined
         assert "Title Y" in joined
+
+
+# --------------------------------------------------------------------------- #
+# TestEmbeddingSetupPreScaled                                                  #
+# --------------------------------------------------------------------------- #
+
+class TestEmbeddingSetupPreScaled:
+    """The pre_scaled path in setup_embedding must expose tower_pca_dims.
+
+    Regression guard: before the fix, sonic_pre_scaled was dropped by
+    _slice_bundle, causing the pipeline to apply a StandardScaler to the
+    already-weighted 162-dim blend and omit tower_pca_dims from variant_stats.
+    The pace-mode rhythm gate in candidate_pool silently received None and was
+    disabled even when the user requested pace_mode=strict/narrow.
+    """
+
+    def _make_pre_scaled_bundle(self) -> ArtifactBundle:
+        n = 10
+        tids = [f"t{i}" for i in range(n)]
+        np.random.seed(0)
+        return ArtifactBundle(
+            artifact_path=Path("test://pre_scaled"),
+            track_ids=np.array(tids),
+            artist_keys=np.array(tids),
+            track_artists=np.array([f"Artist {i}" for i in range(n)]),
+            track_titles=np.array([f"Track {i}" for i in range(n)]),
+            X_sonic=np.random.randn(n, 162).astype(np.float32),
+            X_sonic_start=None,
+            X_sonic_mid=None,
+            X_sonic_end=None,
+            X_genre_raw=np.zeros((n, 4), dtype=np.float32),
+            X_genre_smoothed=np.zeros((n, 4), dtype=np.float32),
+            X_genre_dense=None,
+            genre_vocab=np.array(["g0", "g1", "g2", "g3"]),
+            track_id_to_index={tid: i for i, tid in enumerate(tids)},
+            sonic_variant="tower_weighted",
+            sonic_pre_scaled=True,
+            tower_dims=(9, 57, 96),
+        )
+
+    @staticmethod
+    def _minimal_cfg():
+        """Build the bare minimum DSPipelineConfig that setup_embedding needs."""
+        from types import SimpleNamespace
+        return SimpleNamespace(candidate=SimpleNamespace(broad_filters=()))
+
+    def test_pre_scaled_path_exposes_tower_pca_dims(self):
+        """When bundle.sonic_pre_scaled=True and tower_dims=(9,57,96),
+        variant_stats must include tower_pca_dims=(9,57,96)."""
+        from src.playlist.pipeline.embedding_setup import setup_embedding
+
+        bundle = self._make_pre_scaled_bundle()
+        result = setup_embedding(
+            bundle,
+            seed_track_id="t0",
+            seed_idx=0,
+            anchor_seed_ids=[],
+            sonic_variant=None,
+            mode="narrow",
+            cfg=self._minimal_cfg(),
+            sonic_weight=None,
+            genre_weight=None,
+            min_genre_similarity=None,
+            random_seed=0,
+        )
+        assert result.variant_stats.get("pre_scaled") is True, "should take pre_scaled path"
+        assert result.variant_stats.get("tower_pca_dims") == (9, 57, 96), (
+            "tower_pca_dims missing from pre_scaled variant_stats — pace rhythm gate will be disabled"
+        )
+        assert result.variant_stats.get("tower_dims") == (9, 57, 96)
+
+    def test_pre_scaled_path_omits_tower_pca_dims_when_tower_dims_missing(self):
+        """Legacy bundles without tower_dims don't crash; tower_pca_dims stays absent."""
+        from src.playlist.pipeline.embedding_setup import setup_embedding
+
+        n = 10
+        tids = [f"t{i}" for i in range(n)]
+        np.random.seed(1)
+        bundle = ArtifactBundle(
+            artifact_path=Path("test://legacy"),
+            track_ids=np.array(tids),
+            artist_keys=np.array(tids),
+            track_artists=None,
+            track_titles=None,
+            X_sonic=np.random.randn(n, 86).astype(np.float32),
+            X_sonic_start=None, X_sonic_mid=None, X_sonic_end=None,
+            X_genre_raw=np.zeros((n, 2), dtype=np.float32),
+            X_genre_smoothed=np.zeros((n, 2), dtype=np.float32),
+            X_genre_dense=None,
+            genre_vocab=np.array(["g0", "g1"]),
+            track_id_to_index={tid: i for i, tid in enumerate(tids)},
+            sonic_pre_scaled=True,
+            tower_dims=None,  # legacy artifact without tower_dims
+        )
+        result = setup_embedding(
+            bundle, "t0", 0,
+            anchor_seed_ids=[], sonic_variant=None,
+            mode="dynamic", cfg=self._minimal_cfg(),
+            sonic_weight=None, genre_weight=None,
+            min_genre_similarity=None, random_seed=0,
+        )
+        assert result.variant_stats.get("pre_scaled") is True
+        assert "tower_pca_dims" not in result.variant_stats

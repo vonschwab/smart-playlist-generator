@@ -1160,6 +1160,20 @@ def stage_artifacts(ctx: Dict) -> Dict:
     except RuntimeError as exc:
         logger.warning("Skipping artifacts stage: %s", exc)
         return {"path": str(out_path), "skipped": True, "reason": str(exc)}
+
+    # If the 2DFTM harmony sidecar exists, fold it into the freshly built artifact.
+    # New tracks without sidecar entries get zero harmony vectors (gracefully degraded
+    # until the user runs extract_harmony_2dftm_sidecar.py for the new tracks).
+    _sidecar = out_dir / "harmony_2dftm_sidecar.npz"
+    if _sidecar.exists():
+        logger.info("2DFTM sidecar found; folding harmony into rebuilt artifact...")
+        try:
+            from scripts.fold_2dftm_into_artifact import fold_harmony
+            fold_harmony(out_path, _sidecar, no_backup=True, log_fn=lambda *a, **kw: logger.info(*a))
+            logger.info("2DFTM harmony fold complete")
+        except Exception as exc:
+            logger.warning("2DFTM fold failed (artifact left as-is): %s", exc)
+
     fingerprint = compute_stage_fingerprint(ctx, "artifacts")
     manifest_path = _write_artifact_manifest(out_dir, fingerprint, ctx.get("config_hash", ""), {})
     # Signal the genre-embedding stage that the artifact changed and its dense
