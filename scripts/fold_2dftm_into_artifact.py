@@ -177,19 +177,32 @@ def fold_harmony(
     new_dim = new_X_sonic.shape[1]
     log_fn(f"  New blend dim: {new_dim}  (was {arrays['X_sonic'].shape[1]})", flush=True)
 
+    # Derive rhythm/timbre widths from the actual arrays — NOT hardcoded. The
+    # builder's per-tower dims come from PCA variance retention (--pca-variance),
+    # so they are data-dependent and can shift on a fresh build. tower_dims must
+    # describe the real blend layout or downstream axis-slicing silently breaks.
+    r_dim = int(arrays["X_sonic_rhythm"].shape[1])
+    t_dim = int(arrays["X_sonic_timbre"].shape[1])
+    assert r_dim + t_dim + TWODFTM_DIM == new_dim, (
+        f"tower split {r_dim}+{t_dim}+{TWODFTM_DIM} != blend dim {new_dim}"
+    )
+    new_tower_dims = np.array([r_dim, t_dim, TWODFTM_DIM], dtype=np.int64)
+
     old_names = list(arrays.get("sonic_feature_names", []))
     rhythm_names  = [n for n in old_names if "rhythm" in str(n)]
     timbre_names  = [n for n in old_names if "timbre" in str(n)]
     harmony_names = [f"harmony_2dftm_{i}" for i in range(TWODFTM_DIM)]
+    # Guard against name/array structural drift: filtered name counts must match
+    # the real per-tower widths, else the saved names won't align with the blend.
+    assert len(rhythm_names) == r_dim, f"rhythm name count {len(rhythm_names)} != dim {r_dim}"
+    assert len(timbre_names) == t_dim, f"timbre name count {len(timbre_names)} != dim {t_dim}"
     new_names = rhythm_names + timbre_names + harmony_names
     assert len(new_names) == new_dim, f"name count {len(new_names)} != dim {new_dim}"
-
-    new_tower_dims = np.array([9, 57, TWODFTM_DIM], dtype=np.int64)
 
     if dry_run:
         log_fn("\nDry run — no files written.", flush=True)
         log_fn(f"Would replace: X_sonic_harmony (→{TWODFTM_DIM}-dim), all segment harmony, all blends", flush=True)
-        log_fn(f"Would update:  tower_dims, sonic_feature_names", flush=True)
+        log_fn("Would update:  tower_dims, sonic_feature_names", flush=True)
         log_fn(f"New artifact size estimate: {new_dim}-dim blend, {N} tracks", flush=True)
         return
 

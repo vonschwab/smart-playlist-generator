@@ -1169,7 +1169,12 @@ def stage_artifacts(ctx: Dict) -> Dict:
         logger.info("2DFTM sidecar found; folding harmony into rebuilt artifact...")
         try:
             from scripts.fold_2dftm_into_artifact import fold_harmony
-            fold_harmony(out_path, _sidecar, no_backup=True, log_fn=lambda *a, **kw: logger.info(*a))
+            # Pass the message as a plain arg (%s), not as a logging format string,
+            # so any literal % in a fold message can't raise or mangle output.
+            fold_harmony(
+                out_path, _sidecar, no_backup=True,
+                log_fn=lambda msg="", **kw: logger.info("%s", msg),
+            )
             logger.info("2DFTM harmony fold complete")
         except Exception as exc:
             logger.warning("2DFTM fold failed (artifact left as-is): %s", exc)
