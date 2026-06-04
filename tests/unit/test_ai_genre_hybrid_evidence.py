@@ -81,6 +81,22 @@ def test_specific_lastfm_only_terms_are_provisional_when_release_evidence_exists
     assert [item.term for item in report.rejected_noise] == ["folk"]
 
 
+def test_ai_adjudicated_lastfm_only_terms_are_rejected_even_when_release_evidence_exists():
+    report = fuse_hybrid_evidence(
+        release_key="ada lea::one hand on the steering wheel the other sewing a garden",
+        evidence=[
+            EvidenceTerm(term="indie pop", source_type="local_metadata", confidence=0.95),
+            EvidenceTerm(term="mixtaperoom", source_type="lastfm_tags", confidence=0.90, classifier="ai"),
+            EvidenceTerm(term="rare sad girl", source_type="lastfm_tags", confidence=0.90, classifier="cached_ai"),
+        ],
+        sparse_release=False,
+    )
+
+    assert [item.term for item in report.provisional_genres] == []
+    assert [item.term for item in report.rejected_noise] == ["mixtaperoom", "rare sad girl"]
+    assert all("AI-adjudicated" in item.reason for item in report.rejected_noise)
+
+
 def test_lastfm_lofi_alias_collapses_to_lo_fi():
     report = fuse_hybrid_evidence(
         release_key="mount eerie::sauna",
@@ -209,3 +225,48 @@ def test_collect_hybrid_evidence_reads_sidecar_sources_and_prior(tmp_path: Path)
     source_types = sorted({item.source_type for item in evidence if item.term == "slowcore"})
 
     assert source_types == ["bandcamp_release", "model_prior"]
+
+
+def test_collect_hybrid_evidence_excludes_human_rejected_source_tags(tmp_path: Path):
+    from src.ai_genre_enrichment.storage import SidecarStore
+
+    store = SidecarStore(tmp_path / "sidecar.db")
+    store.initialize()
+
+    page_id = store.upsert_source_page(
+        release_key="ada lea::one hand on the steering wheel the other sewing a garden",
+        normalized_artist="ada lea",
+        normalized_album="one hand on the steering wheel the other sewing a garden",
+        album_id="a1",
+        source_url="lastfm://artist/ada lea/album/one hand on the steering wheel the other sewing a garden",
+        source_type="lastfm_tags",
+        identity_status="confirmed",
+        identity_confidence=0.9,
+        evidence_summary="Last.fm top tags.",
+    )
+    store.replace_source_tags(page_id, ["mixtaperoom"])
+    store.classify_source_tags(page_id, adjudicate=False)
+    with store.connect() as conn:
+        source_tag_id = int(conn.execute(
+            "SELECT source_tag_id FROM ai_genre_source_tags WHERE normalized_tag = 'mixtaperoom'"
+        ).fetchone()["source_tag_id"])
+        conn.execute(
+            """
+            UPDATE ai_genre_tag_classifications
+            SET classification = 'genre_style', confidence = 0.9, classifier = 'ai'
+            WHERE source_tag_id = ?
+            """,
+            (source_tag_id,),
+        )
+    store.record_review_decision(
+        source_tag_id=source_tag_id,
+        release_key="ada lea::one hand on the steering wheel the other sewing a garden",
+        raw_tag="mixtaperoom",
+        normalized_tag="mixtaperoom",
+        original_classification="genre_style",
+        reviewed_classification="rejected",
+    )
+
+    evidence = collect_hybrid_evidence(store, "ada lea::one hand on the steering wheel the other sewing a garden")
+
+    assert [item.term for item in evidence] == []

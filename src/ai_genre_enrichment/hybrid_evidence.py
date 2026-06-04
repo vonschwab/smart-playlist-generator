@@ -44,6 +44,7 @@ class EvidenceTerm:
     canonical_slug: str | None = None
     mapping_status: str = "mapped"
     notes: str = ""
+    classifier: str = "deterministic"
 
 
 @dataclass(frozen=True)
@@ -81,6 +82,7 @@ def collect_hybrid_evidence(store: object, release_key: str) -> list[EvidenceTer
             confidence=confidence,
             canonical_slug=row.get("canonical_slug") or row["term"],
             mapping_status=mapping,
+            classifier=str(row.get("classifier") or "deterministic"),
         ))
 
     for row in store.latest_model_prior_terms_for_release(release_key):
@@ -91,6 +93,7 @@ def collect_hybrid_evidence(store: object, release_key: str) -> list[EvidenceTer
             canonical_slug=row.get("canonical_slug") or row["normalized_term"],
             mapping_status=str(row["mapping_status"]),
             notes=str(row.get("notes") or ""),
+            classifier="model_prior",
         ))
 
     return evidence
@@ -133,6 +136,15 @@ def fuse_hybrid_evidence(
             continue
 
         if all(source in LASTFM_SOURCE_TYPES for source in sources):
+            if all(_is_ai_adjudicated(item) for item in items):
+                rejected.append(FusedGenreDecision(
+                    term=term,
+                    confidence=score,
+                    basis="lastfm_only",
+                    sources=sources,
+                    reason="Last.fm-only AI-adjudicated unknown tag is treated as noise until corroborated or human-reviewed.",
+                ))
+                continue
             if has_non_lastfm_release_evidence and score >= 0.90:
                 provisional.append(FusedGenreDecision(
                     term=term,
@@ -260,3 +272,7 @@ def _basis(sources: list[str]) -> str:
 
 def _is_broad_parent_term(term: str) -> bool:
     return term.casefold() in BROAD_PARENT_TERMS
+
+
+def _is_ai_adjudicated(item: EvidenceTerm) -> bool:
+    return item.classifier in {"ai", "cached_ai"}

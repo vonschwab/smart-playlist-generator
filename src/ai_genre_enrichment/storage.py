@@ -1756,13 +1756,19 @@ class SidecarStore:
                     p.identity_confidence,
                     t.normalized_tag AS term,
                     t.normalized_tag AS canonical_slug,
-                    c.classification AS mapping_status,
-                    c.confidence
+                    COALESCE(d.reviewed_classification, c.classification) AS mapping_status,
+                    c.confidence,
+                    CASE
+                        WHEN d.reviewed_classification IS NOT NULL THEN 'human'
+                        ELSE c.classifier
+                    END AS classifier
                 FROM ai_genre_tag_classifications c
                 JOIN ai_genre_source_tags t ON t.source_tag_id = c.source_tag_id
                 JOIN ai_genre_source_pages p ON p.source_page_id = t.source_page_id
+                LEFT JOIN ai_genre_review_decisions d ON d.source_tag_id = t.source_tag_id AND d.reviewer = 'human'
                 WHERE p.release_key = ?
                   AND p.identity_status IN ('confirmed', 'probable')
+                  AND (d.reviewed_classification IS NULL OR d.reviewed_classification != 'rejected')
                 ORDER BY p.source_type, t.normalized_tag, t.source_tag_id
                 """,
                 (release_key,),

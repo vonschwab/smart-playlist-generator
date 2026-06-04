@@ -212,11 +212,10 @@ class ReviewPanel(QWidget):
         self._progress_label.setText(" | ".join(parts))
 
     def _on_graduate_clicked(self) -> None:
-        for command in ("graduate-ai", "graduate-reviewed"):
-            argv = [sys.executable, "scripts/ai_genre_enrich.py", command]
-            result = subprocess.run(argv, capture_output=True, text=True, check=False)
-            if result.returncode != 0:
-                return
+        argv = [sys.executable, "scripts/ai_genre_enrich.py", "graduate-reviewed"]
+        result = subprocess.run(argv, capture_output=True, text=True, check=False)
+        if result.returncode != 0:
+            return
         self.vocab_graduated.emit()
         if hasattr(self, "load_queue"):
             self.load_queue()

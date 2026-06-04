@@ -16,7 +16,7 @@ def app():
     return QApplication.instance() or QApplication([])
 
 
-def test_graduate_button_runs_graduate_ai_and_graduate_reviewed(tmp_path, app):
+def test_graduate_button_runs_only_human_reviewed_graduation(tmp_path, app):
     from src.playlist_gui.widgets.review_panel import ReviewPanel
 
     sidecar = tmp_path / "sidecar.db"
@@ -32,8 +32,7 @@ def test_graduate_button_runs_graduate_ai_and_graduate_reviewed(tmp_path, app):
         panel.graduate_button.click()
 
     commands = [call.args[0][2] for call in mock_run.call_args_list]
-    assert "graduate-ai" in commands
-    assert "graduate-reviewed" in commands
+    assert commands == ["graduate-reviewed"]
 
 
 def test_cli_review_button_spawns_terminal_with_review_command(tmp_path, app):
