@@ -560,6 +560,25 @@ class WorkerClient(QObject):
             job_id=job_id,
         )
 
+    def enrich_genres(
+        self,
+        *,
+        scope: str,
+        artist: str = "",
+        album: str = "",
+        job_id: Optional[str] = None,
+    ) -> Optional[str]:
+        """Send a scoped hybrid genre enrichment command to the worker."""
+        return self.send_command(
+            {
+                "cmd": "enrich_genres",
+                "scope": scope,
+                "artist": artist,
+                "album": album,
+            },
+            job_id=job_id,
+        )
+
     def edit_genres(
         self,
         artist: str,

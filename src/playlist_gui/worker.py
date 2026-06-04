@@ -1878,21 +1878,10 @@ def handle_enrich_artist(cmd_data: Optional[Dict[str, Any]] = None, *, artist: s
         artist = cmd_data.get("artist", artist)
         request_id = cmd_data.get("request_id", request_id)
 
-    steps = [
-        ("ingest-local", []),
-        ("extract-lastfm", []),
-        ("extract-bandcamp", []),
-        ("classify-tags", ["--adjudicate"]),
-    ]
+    steps = _HYBRID_PREP_STEPS
     total_steps = len(steps) + 1
     for i, (command, extra_args) in enumerate(steps, 1):
-        argv = [
-            sys.executable,
-            "scripts/ai_genre_enrich.py",
-            command,
-            "--artist", artist,
-            *extra_args,
-        ]
+        argv = _ai_genre_argv(command, artist=artist, extra_args=extra_args)
         emit_progress(f"enrich:{command}", i, total_steps, artist)
         completed = subprocess.run(argv, capture_output=True, text=True, check=False)
         if completed.returncode != 0:
@@ -1914,15 +1903,12 @@ def handle_enrich_artist(cmd_data: Optional[Dict[str, Any]] = None, *, artist: s
         if not album:
             continue
         command = "hybrid-enrich-one"
-        argv = [
-            sys.executable,
-            "scripts/ai_genre_enrich.py",
+        argv = _ai_genre_argv(
             command,
-            "--artist", artist,
-            "--album", str(album),
-            "--with-model-prior",
-            "--apply",
-        ]
+            artist=artist,
+            album=str(album),
+            extra_args=["--with-model-prior", "--apply"],
+        )
         emit_progress(f"enrich:{command}", len(steps) + offset, total_steps, f"{artist} / {album}")
         completed = subprocess.run(argv, capture_output=True, text=True, check=False)
         if completed.returncode != 0:
@@ -1938,15 +1924,169 @@ def handle_enrich_artist(cmd_data: Optional[Dict[str, Any]] = None, *, artist: s
     return {"ok": True, "artist": artist, "releases": len(releases), "applied": applied}
 
 
+_HYBRID_PREP_STEPS = [
+    ("ingest-local", []),
+    ("extract-lastfm", []),
+    ("extract-bandcamp", []),
+    ("classify-tags", ["--adjudicate"]),
+]
+
+
+def handle_enrich_genres(
+    cmd_data: Optional[Dict[str, Any]] = None,
+    *,
+    scope: str = "",
+    artist: str = "",
+    album: str = "",
+    request_id: str = "",
+) -> Dict[str, Any]:
+    """Run hybrid genre enrichment by GUI scope.
+
+    scope:
+      - all_unenriched: discover all releases and enrich those missing a sidecar signature.
+      - artist: reuse the existing artist batch path.
+      - album: run exact-release prep and hybrid apply.
+    """
+    if cmd_data is not None:
+        scope = (cmd_data.get("scope") or scope or "").strip()
+        artist = (cmd_data.get("artist") or artist or "").strip()
+        album = (cmd_data.get("album") or album or "").strip()
+        request_id = cmd_data.get("request_id", request_id)
+
+    if scope == "artist":
+        if not artist:
+            return {"ok": False, "error": "artist required", "step": "validate"}
+        result = handle_enrich_artist(artist=artist, request_id=request_id)
+        result["scope"] = scope
+        return result
+
+    if scope == "album":
+        if not artist or not album:
+            return {"ok": False, "error": "artist and album required", "step": "validate"}
+        result = _enrich_single_release(artist=artist, album=album, request_id=request_id)
+        result["scope"] = scope
+        return result
+
+    if scope != "all_unenriched":
+        return {"ok": False, "error": f"unsupported enrichment scope: {scope}", "step": "validate"}
+
+    releases = _discover_releases_for_hybrid()
+    if not releases:
+        return {"ok": False, "error": "discover failed: no releases found", "step": "discover"}
+
+    enriched_keys = _enriched_release_keys()
+    pending = [release for release in releases if release.get("release_key") not in enriched_keys]
+    if not pending:
+        return {
+            "ok": True,
+            "scope": scope,
+            "releases": 0,
+            "applied": 0,
+            "skipped_enriched": len(releases),
+        }
+
+    applied = 0
+    completed = 0
+    total_steps = len(pending) * (len(_HYBRID_PREP_STEPS) + 1)
+    for release in pending:
+        release_artist = str(release.get("artist") or release.get("normalized_artist") or "")
+        release_album = str(release.get("album") or release.get("normalized_album") or "")
+        if not release_artist or not release_album:
+            continue
+        result = _enrich_single_release(
+            artist=release_artist,
+            album=release_album,
+            request_id=request_id,
+            progress_start=completed,
+            progress_total=total_steps,
+        )
+        if not result["ok"]:
+            result["scope"] = scope
+            return result
+        completed += len(_HYBRID_PREP_STEPS) + 1
+        applied += int(result.get("applied") or 0)
+
+    return {
+        "ok": True,
+        "scope": scope,
+        "releases": len(pending),
+        "applied": applied,
+        "skipped_enriched": len(releases) - len(pending),
+    }
+
+
+def _enrich_single_release(
+    *,
+    artist: str,
+    album: str,
+    request_id: str = "",
+    progress_start: int = 0,
+    progress_total: int | None = None,
+) -> Dict[str, Any]:
+    total_steps = progress_total or (len(_HYBRID_PREP_STEPS) + 1)
+    for offset, (command, extra_args) in enumerate(_HYBRID_PREP_STEPS, start=1):
+        argv = _ai_genre_argv(command, artist=artist, album=album, extra_args=extra_args)
+        emit_progress(f"enrich:{command}", progress_start + offset, total_steps, f"{artist} / {album}")
+        completed = subprocess.run(argv, capture_output=True, text=True, check=False)
+        if completed.returncode != 0:
+            return {
+                "ok": False,
+                "error": f"{command} failed: {_subprocess_error_excerpt(completed)}",
+                "step": command,
+                "artist": artist,
+                "album": album,
+            }
+        emit_log("INFO", f"{command} completed for {artist} / {album}", request_id=request_id)
+
+    command = "hybrid-enrich-one"
+    argv = _ai_genre_argv(
+        command,
+        artist=artist,
+        album=album,
+        extra_args=["--with-model-prior", "--apply"],
+    )
+    emit_progress(
+        f"enrich:{command}",
+        progress_start + len(_HYBRID_PREP_STEPS) + 1,
+        total_steps,
+        f"{artist} / {album}",
+    )
+    completed = subprocess.run(argv, capture_output=True, text=True, check=False)
+    if completed.returncode != 0:
+        return {
+            "ok": False,
+            "error": f"{command} failed: {_subprocess_error_excerpt(completed)}",
+            "step": command,
+            "artist": artist,
+            "album": album,
+        }
+    applied = _applied_count_from_hybrid_output(completed.stdout)
+    emit_log("INFO", f"{command} applied for {artist} / {album}", request_id=request_id)
+    return {"ok": True, "artist": artist, "album": album, "releases": 1, "applied": applied}
+
+
+def _ai_genre_argv(
+    command: str,
+    *,
+    artist: str = "",
+    album: str = "",
+    extra_args: Optional[list[str]] = None,
+) -> list[str]:
+    argv = [sys.executable, "scripts/ai_genre_enrich.py", command]
+    if artist:
+        argv.extend(["--artist", artist])
+    if album:
+        argv.extend(["--album", album])
+    argv.extend(extra_args or [])
+    return argv
+
+
 def _discover_artist_releases_for_hybrid(artist: str) -> list[dict[str, Any]]:
-    argv = [
-        sys.executable,
-        "scripts/ai_genre_enrich.py",
-        "discover",
-        "--artist",
-        artist,
-        "--dry-run",
-    ]
+    return _discover_releases_for_hybrid(artist=artist)
+
+
+def _discover_releases_for_hybrid(artist: str = "", album: str = "") -> list[dict[str, Any]]:
+    argv = _ai_genre_argv("discover", artist=artist, album=album, extra_args=["--dry-run"])
     completed = subprocess.run(argv, capture_output=True, text=True, check=False)
     if completed.returncode != 0:
         return []
@@ -1956,12 +2096,24 @@ def _discover_artist_releases_for_hybrid(artist: str) -> list[dict[str, Any]]:
         if not line.startswith("{"):
             continue
         try:
-            payload = json.loads(line).get("payload") or {}
+            data = json.loads(line)
+            payload = data.get("payload") or {}
         except json.JSONDecodeError:
             continue
+        if data.get("release_key") and not payload.get("release_key"):
+            payload["release_key"] = data["release_key"]
         if payload.get("album") or payload.get("normalized_album"):
             releases.append(payload)
     return releases
+
+
+def _enriched_release_keys() -> set[str]:
+    try:
+        from src.ai_genre_enrichment.genre_resolver import EnrichedGenreResolver
+
+        return EnrichedGenreResolver(SIDECAR_DB_PATH).get_all_enriched_release_keys()
+    except Exception:
+        return set()
 
 
 def _applied_count_from_hybrid_output(stdout: str) -> int:
@@ -2053,6 +2205,20 @@ def handle_enrich_artist_cmd(cmd_data: Dict[str, Any]) -> None:
         emit_done("enrich_artist", False, artist)
 
 
+def handle_enrich_genres_cmd(cmd_data: Dict[str, Any]) -> None:
+    """Command handler wrapper for scoped hybrid genre enrichment."""
+    result = handle_enrich_genres(cmd_data)
+    scope = cmd_data.get("scope", "")
+    if result["ok"]:
+        emit_result("enrich_genres", result)
+        detail = scope or result.get("artist") or "enrich_genres"
+        summary = f"Enriched {result.get('releases', 0)} release(s); applied {result.get('applied', 0)} genre(s)"
+        emit_done("enrich_genres", True, detail, summary=summary)
+    else:
+        emit_error(result.get("error", "enrichment failed"))
+        emit_done("enrich_genres", False, scope or "enrich_genres")
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Command Router
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2072,6 +2238,7 @@ TRACKED_COMMAND_HANDLERS = {
     "blacklist_set": handle_blacklist_set,
     "blacklist_scope_set": handle_blacklist_scope_set,
     "enrich_artist": handle_enrich_artist_cmd,
+    "enrich_genres": handle_enrich_genres_cmd,
     "edit_genres": handle_edit_genres,
 }
 

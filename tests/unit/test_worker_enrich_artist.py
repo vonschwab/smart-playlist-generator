@@ -66,3 +66,75 @@ def test_handle_enrich_artist_stops_on_first_failure():
     assert result["ok"] is False
     assert "extract-lastfm" in result.get("error", "")
     assert len(mock_run.call_args_list) == 2
+
+
+def test_handle_enrich_genres_album_runs_exact_release_pipeline():
+    from src.playlist_gui.worker import handle_enrich_genres
+
+    def fake_run(argv, **kwargs):
+        completed = MagicMock()
+        completed.returncode = 0
+        completed.stderr = ""
+        completed.stdout = '{"applied_count":3}\n' if argv[2] == "hybrid-enrich-one" else ""
+        return completed
+
+    with patch("src.playlist_gui.worker.subprocess.run", side_effect=fake_run) as mock_run:
+        result = handle_enrich_genres(scope="album", artist="Duster", album="Stratosphere")
+
+    assert result["ok"] is True
+    assert result["releases"] == 1
+    assert result["applied"] == 3
+    actual_commands = [call.args[0][2] for call in mock_run.call_args_list]
+    assert actual_commands == [
+        "ingest-local",
+        "extract-lastfm",
+        "extract-bandcamp",
+        "classify-tags",
+        "hybrid-enrich-one",
+    ]
+    for call in mock_run.call_args_list:
+        argv = call.args[0]
+        assert "--artist" in argv
+        assert "--album" in argv
+
+
+def test_handle_enrich_genres_full_scan_skips_already_enriched_releases():
+    from src.playlist_gui.worker import handle_enrich_genres
+
+    def fake_run(argv, **kwargs):
+        completed = MagicMock()
+        completed.returncode = 0
+        completed.stderr = ""
+        if argv[2] == "discover":
+            completed.stdout = (
+                '{"release_key":"duster::stratosphere","payload":{"artist":"Duster","album":"Stratosphere"}}\n'
+                '{"release_key":"duster::together","payload":{"artist":"Duster","album":"Together"}}\n'
+            )
+        elif argv[2] == "hybrid-enrich-one":
+            completed.stdout = '{"applied_count":2}\n'
+        else:
+            completed.stdout = ""
+        return completed
+
+    with (
+        patch("src.playlist_gui.worker.subprocess.run", side_effect=fake_run) as mock_run,
+        patch("src.playlist_gui.worker._enriched_release_keys", return_value={"duster::stratosphere"}),
+    ):
+        result = handle_enrich_genres(scope="all_unenriched")
+
+    assert result["ok"] is True
+    assert result["releases"] == 1
+    assert result["skipped_enriched"] == 1
+    assert result["applied"] == 2
+    actual_commands = [call.args[0][2] for call in mock_run.call_args_list]
+    assert actual_commands == [
+        "discover",
+        "ingest-local",
+        "extract-lastfm",
+        "extract-bandcamp",
+        "classify-tags",
+        "hybrid-enrich-one",
+    ]
+    hybrid_argv = mock_run.call_args_list[-1].args[0]
+    assert "Together" in hybrid_argv
+    assert "Stratosphere" not in hybrid_argv
