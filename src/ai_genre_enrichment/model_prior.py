@@ -15,7 +15,11 @@ MODEL_PRIOR_TAXONOMY_VERSION = "genre-vocabulary-v1"
 MODEL_PRIOR_INSTRUCTIONS = (
     "Classify the album into a compact multi-genre signature using only the supplied payload. "
     "Do not use web search. Do not claim that any external source says something. "
-    "Return taxonomic hypotheses, not authoritative evidence."
+    "Return taxonomic hypotheses, not authoritative evidence. "
+    "Artist, album, and year are enough to return cautious prior hypotheses when the release is plausibly known; do not abstain merely because tracks, tags, or identifiers are absent. "
+    "For sparse payloads, return no more than four cautious hypotheses and include an uncertainty warning when appropriate. "
+    "Do not infer genre from artist name, nationality, language, release title aesthetics, or demographic cues alone. "
+    "Keep sparse-payload confidence low even when returning hypotheses."
 )
 SPECIFICITIES = {"broad", "genre", "subgenre", "microgenre"}
 TAXONOMY_ROLES = {"parent", "core_style", "secondary_style", "edge_case"}
@@ -25,6 +29,20 @@ SOURCE_CLAIM_MARKERS = (
     "musicbrainz says",
     "last.fm says",
     "official source",
+)
+SPARSE_REASONING_MARKERS = (
+    "artist is known for",
+    "from japan",
+    "japanese artist",
+    "japanese name",
+    "name suggests",
+    "title suggests",
+    "album title suggests",
+    "porch",
+    "poppy",
+    "may hint",
+    "may incorporate",
+    "likely due",
 )
 
 MODEL_PRIOR_RESPONSE_SCHEMA = {
@@ -89,13 +107,69 @@ def validate_model_prior_response(data: dict[str, Any]) -> dict[str, Any]:
     return {"genres": normalized, "warnings": [str(v) for v in data["warnings"]]}
 
 
-def map_model_prior_terms(items: list[dict[str, Any]], vocabulary: Any) -> list[dict[str, Any]]:
+def evidence_richness_score(payload: dict[str, Any] | None) -> int:
+    if not payload:
+        return 0
+    score = 0
+    if payload.get("year"):
+        score += 1
+    if payload.get("track_titles"):
+        score += 2
+    if payload.get("known_tags"):
+        score += 3
+    if payload.get("baseline_genres_by_source"):
+        score += 3
+    if payload.get("identifiers"):
+        score += 2
+    if payload.get("album_id"):
+        score += 1
+    return score
+
+
+def model_prior_confidence_cap(payload: dict[str, Any] | None) -> float:
+    if payload is None:
+        return 1.0
+    has_year = bool(payload.get("year"))
+    has_tracks = bool(payload.get("track_titles"))
+    has_tags = bool(payload.get("known_tags") or payload.get("baseline_genres_by_source"))
+    has_ids = bool(payload.get("identifiers") or payload.get("album_id"))
+
+    if has_tags and has_tracks and has_ids:
+        return 0.80
+    if has_tags and (has_tracks or has_ids):
+        return 0.75
+    if has_ids and has_tracks:
+        return 0.70
+    if has_tags:
+        return 0.65
+    if has_tracks:
+        return 0.50
+    if has_ids:
+        return 0.45
+    if has_year:
+        return 0.35
+    return 0.30
+
+
+def map_model_prior_terms(
+    items: list[dict[str, Any]],
+    vocabulary: Any,
+    *,
+    payload: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    confidence_cap = model_prior_confidence_cap(payload)
     mapped: list[dict[str, Any]] = []
     for item in items:
         term = normalize_source_tag(item["term"])
+        raw_confidence = float(item["confidence"])
+        notes = str(item.get("notes", "")).strip()
+        term_cap = confidence_cap
+        if payload is not None and confidence_cap <= 0.35 and _has_sparse_reasoning(term, notes):
+            term_cap = min(term_cap, 0.30)
+        adjusted_confidence = min(raw_confidence, term_cap)
         non_genre = vocabulary.classify_non_genre(term)
         genre = vocabulary.classify_genre(term)
-        conditional = item["taxonomy_role"] == "edge_case" or item["confidence"] < 0.70
+        conditional = item["taxonomy_role"] == "edge_case" or adjusted_confidence < 0.70
         if non_genre:
             status, slug, accepted = non_genre, None, 0
         elif genre and conditional:
@@ -109,11 +183,21 @@ def map_model_prior_terms(items: list[dict[str, Any]], vocabulary: Any) -> list[
             "raw_term": item["term"],
             "normalized_term": term,
             "canonical_slug": slug,
+            "confidence": adjusted_confidence,
+            "raw_model_confidence": raw_confidence,
+            "evidence_adjusted_confidence": adjusted_confidence,
+            "evidence_confidence_cap": term_cap,
+            "evidence_richness_score": evidence_richness_score(payload),
             "mapping_status": status,
             "accepted_for_shadow": accepted,
             "auto_apply_eligible": 0,
         })
     return mapped
+
+
+def _has_sparse_reasoning(term: str, notes: str) -> bool:
+    text = f"{term} {notes}".casefold()
+    return any(marker in text for marker in SPARSE_REASONING_MARKERS)
 
 
 def stable_input_hash(payload: dict[str, Any]) -> str:

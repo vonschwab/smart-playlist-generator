@@ -105,6 +105,105 @@ def test_map_model_prior_terms_accepts_known_style_and_rejects_descriptor():
     assert mapped[1]["accepted_for_shadow"] == 0
 
 
+def test_sparse_model_prior_caps_overconfident_fake_release():
+    from src.ai_genre_enrichment.genre_vocabulary import GenreVocabulary
+    from src.ai_genre_enrichment.model_prior import map_model_prior_terms, model_prior_confidence_cap
+
+    payload = {
+        "artist": "donna hafford",
+        "album": "porch swing poppy",
+        "year": 2008,
+        "track_titles": [],
+        "baseline_genres_by_source": {},
+        "known_tags": [],
+        "identifiers": {},
+        "album_id": None,
+    }
+
+    mapped = map_model_prior_terms(
+        [{
+            "term": "indie pop",
+            "confidence": 0.92,
+            "specificity": "genre",
+            "taxonomy_role": "core_style",
+            "notes": "Album title suggests a playful pop sound.",
+        }],
+        GenreVocabulary(),
+        payload=payload,
+    )
+
+    assert model_prior_confidence_cap(payload) == 0.35
+    assert mapped[0]["raw_model_confidence"] == 0.92
+    assert mapped[0]["confidence"] == 0.30
+    assert mapped[0]["mapping_status"] == "conditional"
+    assert mapped[0]["accepted_for_shadow"] == 0
+
+
+def test_sparse_model_prior_does_not_shadow_accept_name_based_guess():
+    from src.ai_genre_enrichment.genre_vocabulary import GenreVocabulary
+    from src.ai_genre_enrichment.model_prior import map_model_prior_terms
+
+    payload = {
+        "artist": "miyauchi yuri",
+        "album": "beta",
+        "year": 2022,
+        "track_titles": [],
+        "baseline_genres_by_source": {},
+        "known_tags": [],
+        "identifiers": {},
+        "album_id": None,
+    }
+
+    mapped = map_model_prior_terms(
+        [{
+            "term": "j-pop",
+            "confidence": 0.85,
+            "specificity": "genre",
+            "taxonomy_role": "core_style",
+            "notes": "Artist is known for contributions to Japanese pop music.",
+        }],
+        GenreVocabulary(),
+        payload=payload,
+    )
+
+    assert mapped[0]["confidence"] <= 0.35
+    assert mapped[0]["mapping_status"] in {"conditional", "unmapped"}
+    assert mapped[0]["accepted_for_shadow"] == 0
+
+
+def test_source_rich_model_prior_allows_higher_confidence():
+    from src.ai_genre_enrichment.genre_vocabulary import GenreVocabulary
+    from src.ai_genre_enrichment.model_prior import map_model_prior_terms, model_prior_confidence_cap
+
+    payload = {
+        "artist": "duster",
+        "album": "stratosphere",
+        "year": 1998,
+        "track_titles": ["Moon Age", "Heading for the Door"],
+        "baseline_genres_by_source": {"local_metadata": ["slowcore"]},
+        "known_tags": ["slowcore"],
+        "identifiers": {"musicbrainz_release_mbid": "abc"},
+        "album_id": "a1",
+    }
+
+    mapped = map_model_prior_terms(
+        [{
+            "term": "slowcore",
+            "confidence": 0.91,
+            "specificity": "subgenre",
+            "taxonomy_role": "core_style",
+            "notes": "Corroborates supplied genre evidence.",
+        }],
+        GenreVocabulary(),
+        payload=payload,
+    )
+
+    assert model_prior_confidence_cap(payload) == 0.80
+    assert mapped[0]["confidence"] == 0.80
+    assert mapped[0]["mapping_status"] == "mapped"
+    assert mapped[0]["accepted_for_shadow"] == 1
+
+
 def test_store_records_and_reuses_model_prior_cache(tmp_path: Path):
     from src.ai_genre_enrichment.storage import SidecarStore
 

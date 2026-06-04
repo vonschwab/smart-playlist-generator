@@ -1705,7 +1705,7 @@ def _run_model_prior_release(args: argparse.Namespace, release: ReleasePayload) 
     mapped_terms: list[dict] = []
     if result.status == "complete":
         vocabulary = GenreVocabulary(library_db_path=args.metadata_db)
-        mapped_terms = map_model_prior_terms(result.response_json["genres"], vocabulary)
+        mapped_terms = map_model_prior_terms(result.response_json["genres"], vocabulary, payload=payload)
     assert store is not None
     store.record_model_prior(
         release_key=release.release_key, normalized_artist=release.normalized_artist,

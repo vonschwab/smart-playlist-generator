@@ -16,6 +16,7 @@ from `CLAUDE.md`.
 
 - Use `README.md` for the listener-facing feature catalog.
 - Treat `docs/TECHNICAL_PLAYLIST_GENERATION_FLOW.md` as the most authoritative implementation document.
+- For AI genre enrichment work, read `docs/AI_GENRE_ENRICHMENT_DEVELOPMENT_BIBLE.md` before planning or editing code. It is the source of truth for the hybrid deterministic/LLM genre model and overrides older "model prior" specs when they conflict.
 - Use `audit/07-roadmap.md` for active roadmap and audit references; do not re-derive already-cited findings.
 - Python 3.11+ is required. Install with `pip install -e .[gui]` for users and `pip install -e .[gui,dev]` for contributors.
 - GUI work uses PySide6. Older references to PyQt are stale.
@@ -56,6 +57,15 @@ from `CLAUDE.md`.
 - Prefer tunable config over hardcoded behavior. Document new knobs and tuning recipes.
 - Pre-compute heavy work; keep generation hot paths fast. N+1 SQL and repeated artifact decodes are bugs.
 - Edge cases need graceful fallbacks and actionable errors, not crashes.
+
+## Local Command Discipline
+
+- On this Windows workspace, do not probe multiple Python launch variants. `python` is not on PATH in the Codex shell.
+- When PowerShell process creation fails, use `cmd.exe` directly instead of retrying PowerShell variants.
+- Use `py` for Python commands, and if sandbox execution returns `Access is denied`, request escalation once with a clear reason instead of trying alternate launchers.
+- For AI genre enrichment commands from `.worktrees\ai-genre-model-prior-prototype`, use explicit database paths:
+  `--metadata-db C:\Users\Dylan\Desktop\PLAYLIST_GENERATOR_V3\data\metadata.db --sidecar-db C:\Users\Dylan\Desktop\PLAYLIST_GENERATOR_V3\data\ai_genre_enrichment.db`
+- When giving the user commands, make them copy-pasteable from the intended checkout. Include the `cd` command when location matters.
 
 ## Safety Rules
 
