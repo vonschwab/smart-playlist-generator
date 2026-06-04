@@ -1894,7 +1894,8 @@ def handle_enrich_artist(cmd_data: Optional[Dict[str, Any]] = None, *, artist: s
 
     Steps: ingest-local → extract-lastfm → extract-bandcamp → classify-tags →
     discover releases → hybrid-enrich-one --apply --with-model-prior per release.
-    Stops at the first failure.
+    Source-prep failures stop the batch; one per-release hybrid failure is logged
+    and skipped so later albums still receive the hybrid signature.
 
     Can be called directly (unit tests pass artist/request_id as kwargs) or via
     the command dispatch system (cmd_data dict).
@@ -1923,6 +1924,8 @@ def handle_enrich_artist(cmd_data: Optional[Dict[str, Any]] = None, *, artist: s
 
     total_steps = len(steps) + len(releases)
     applied = 0
+    succeeded = 0
+    failures: list[dict[str, str]] = []
     for offset, release in enumerate(releases, start=1):
         album = release.get("album") or release.get("normalized_album")
         if not album:
@@ -1937,22 +1940,36 @@ def handle_enrich_artist(cmd_data: Optional[Dict[str, Any]] = None, *, artist: s
         emit_progress(f"enrich:{command}", len(steps) + offset, total_steps, f"{artist} / {album}")
         completed = subprocess.run(argv, capture_output=True, text=True, check=False)
         if completed.returncode != 0:
-            return {
-                "ok": False,
-                "error": f"{command} failed: {_subprocess_error_excerpt(completed)}",
-                "step": command,
-                "album": str(album),
-            }
+            error = f"{command} failed for {artist} / {album}: {_subprocess_error_excerpt(completed)}"
+            failures.append({"album": str(album), "error": error})
+            emit_log("ERROR", error, request_id=request_id)
+            continue
         applied += _applied_count_from_hybrid_output(completed.stdout)
+        succeeded += 1
         emit_log("INFO", f"{command} applied for {artist} / {album}", request_id=request_id)
 
-    return {"ok": True, "artist": artist, "releases": len(releases), "applied": applied}
+    if succeeded == 0 and failures:
+        return {
+            "ok": False,
+            "error": f"hybrid-enrich-one failed for all {len(failures)} release(s)",
+            "step": "hybrid-enrich-one",
+            "failed": len(failures),
+            "failures": failures[:10],
+        }
+    return {
+        "ok": True,
+        "artist": artist,
+        "releases": len(releases),
+        "applied": applied,
+        "failed": len(failures),
+        "failures": failures[:10],
+    }
 
 
 _HYBRID_PREP_STEPS = [
-    ("ingest-local", []),
-    ("extract-lastfm", []),
-    ("extract-bandcamp", []),
+    ("ingest-local", ["--no-rebuild-signatures"]),
+    ("extract-lastfm", ["--no-rebuild-signatures"]),
+    ("extract-bandcamp", ["--no-rebuild-signatures"]),
     ("classify-tags", ["--adjudicate"]),
 ]
 
@@ -2012,6 +2029,8 @@ def handle_enrich_genres(
 
     applied = 0
     completed = 0
+    succeeded = 0
+    failures: list[dict[str, str]] = []
     total_steps = len(pending) * (len(_HYBRID_PREP_STEPS) + 1)
     for release in pending:
         release_artist = str(release.get("artist") or release.get("normalized_artist") or "")
@@ -2026,10 +2045,24 @@ def handle_enrich_genres(
             progress_total=total_steps,
         )
         if not result["ok"]:
-            result["scope"] = scope
-            return result
+            error = str(result.get("error") or "enrichment failed")
+            failures.append({"artist": release_artist, "album": release_album, "error": error})
+            emit_log("ERROR", error, request_id=request_id)
+            completed += len(_HYBRID_PREP_STEPS) + 1
+            continue
         completed += len(_HYBRID_PREP_STEPS) + 1
         applied += int(result.get("applied") or 0)
+        succeeded += 1
+
+    if succeeded == 0 and failures:
+        return {
+            "ok": False,
+            "scope": scope,
+            "error": f"enrichment failed for all {len(failures)} pending release(s)",
+            "step": "hybrid-enrich-one",
+            "failed": len(failures),
+            "failures": failures[:10],
+        }
 
     return {
         "ok": True,
@@ -2037,6 +2070,8 @@ def handle_enrich_genres(
         "releases": len(pending),
         "applied": applied,
         "skipped_enriched": len(releases) - len(pending),
+        "failed": len(failures),
+        "failures": failures[:10],
     }
 
 

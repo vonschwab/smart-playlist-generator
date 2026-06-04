@@ -187,12 +187,22 @@ def build_parser() -> argparse.ArgumentParser:
     add_release_filters(ingest_local)
     ingest_local.add_argument("--dry-run", action="store_true")
     ingest_local.add_argument("--adjudicate", action="store_true", help="Send unknown tags to AI for adjudication")
+    ingest_local.add_argument(
+        "--no-rebuild-signatures",
+        action="store_true",
+        help="Ingest and classify source tags without rebuilding final enriched signatures.",
+    )
     ingest_local.add_argument("--model", default=DEFAULT_MODEL)
 
     extract_lastfm = sub.add_parser("extract-lastfm", help="Fetch Last.fm top tags via API and ingest as a source page")
     add_release_filters(extract_lastfm)
     extract_lastfm.add_argument("--dry-run", action="store_true")
     extract_lastfm.add_argument("--adjudicate", action="store_true", help="Send unknown tags to AI for adjudication")
+    extract_lastfm.add_argument(
+        "--no-rebuild-signatures",
+        action="store_true",
+        help="Ingest and classify source tags without rebuilding final enriched signatures.",
+    )
     extract_lastfm.add_argument("--model", default=DEFAULT_MODEL)
     extract_lastfm.add_argument("--lastfm-api-key", help="Last.fm API key (overrides config.yaml/env)")
 
@@ -200,6 +210,11 @@ def build_parser() -> argparse.ArgumentParser:
     add_release_filters(extract_bandcamp)
     extract_bandcamp.add_argument("--dry-run", action="store_true")
     extract_bandcamp.add_argument("--adjudicate", action="store_true", help="Send unknown tags to AI for adjudication")
+    extract_bandcamp.add_argument(
+        "--no-rebuild-signatures",
+        action="store_true",
+        help="Ingest and classify source tags without rebuilding final enriched signatures.",
+    )
     extract_bandcamp.add_argument("--model", default=DEFAULT_MODEL)
     extract_bandcamp.add_argument("--openai-api-key", help="OpenAI API key (overrides env/config.yaml)")
 
@@ -620,7 +635,8 @@ def cmd_ingest_local(args: argparse.Namespace) -> int:
             adjudicate=getattr(args, "adjudicate", False),
             model=getattr(args, "model", DEFAULT_MODEL),
         )
-        store.rebuild_enriched_genres_for_release(release.release_key)
+        if not getattr(args, "no_rebuild_signatures", False):
+            store.rebuild_enriched_genres_for_release(release.release_key)
         ingested += 1
         print(f"ingested {release.release_key} tags={len(deduped)}")
 
@@ -706,7 +722,8 @@ def cmd_extract_lastfm(args: argparse.Namespace) -> int:
             )
             store.replace_source_tags(page_id, tags)
             store.classify_source_tags(page_id, adjudicate=getattr(args, "adjudicate", False), model=args.model)
-            store.rebuild_enriched_genres_for_release(release.release_key)
+            if not getattr(args, "no_rebuild_signatures", False):
+                store.rebuild_enriched_genres_for_release(release.release_key)
             extracted += 1
             print(f"extracted-lastfm {release.release_key} tags={len(tags)}")
             time.sleep(0.25)  # Last.fm rate limit: ~5 req/s, two calls per release
@@ -790,7 +807,8 @@ def cmd_extract_bandcamp(args: argparse.Namespace) -> int:
             )
             store.replace_source_tags(page_id, tags)
             store.classify_source_tags(page_id, adjudicate=getattr(args, "adjudicate", False), model=args.model)
-            store.rebuild_enriched_genres_for_release(release.release_key)
+            if not getattr(args, "no_rebuild_signatures", False):
+                store.rebuild_enriched_genres_for_release(release.release_key)
             extracted += 1
             print(f"extracted-bandcamp {release.release_key} tags={len(tags)}")
     finally:
