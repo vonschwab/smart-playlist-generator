@@ -32,11 +32,11 @@ def _make_per_tower(N=20):
     }
 
 
-def test_compute_spaces_returns_five_spaces():
+def test_compute_spaces_returns_four_spaces():
     b = _Bundle()
     spaces = compute_spaces(b, _make_per_tower())
     assert set(spaces.keys()) == {
-        "full_track", "production_transition", "rhythm", "timbre", "harmony"
+        "full_track", "production_transition", "timbre", "harmony"
     }
 
 

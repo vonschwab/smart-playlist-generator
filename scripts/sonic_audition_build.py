@@ -98,9 +98,16 @@ def load_2dftm_sidecar(
     Returns (X_2dftm: (N, D) float64 with zero rows for tracks not yet extracted,
     valid_mask: (N,) bool marking which rows actually have features).
     """
-    z = np.load(sidecar_path, allow_pickle=True)
-    feat_by_tid = {str(t): z["features"][i] for i, t in enumerate(z["track_ids"])}
-    dim = z["features"].shape[1]
+    import io
+    import zipfile
+
+    # Use zipfile+BytesIO instead of NpzFile's lazy-read path, which fails on
+    # Windows for large arrays despite sufficient RAM (mmap/tempfile issue).
+    with zipfile.ZipFile(sidecar_path) as zf:
+        tids_arr = np.load(io.BytesIO(zf.read("track_ids.npy")))
+        feats_arr = np.load(io.BytesIO(zf.read("features.npy")))
+    feat_by_tid = {str(t): feats_arr[i] for i, t in enumerate(tids_arr)}
+    dim = feats_arr.shape[1]
     N = len(bundle.track_ids)
     X = np.zeros((N, dim), dtype=np.float64)
     valid = np.zeros(N, dtype=bool)
