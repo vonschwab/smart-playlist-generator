@@ -41,10 +41,11 @@
 
 ### 3. Sonic Analysis (`update_sonic.py`)
 - Loads audio files with Librosa
-- Extracts beat3tower features (137 dimensions):
-  - Rhythm tower (21 dims): tempo, beats, onsets
-  - Timbre tower (83 dims): MFCCs, spectral features
-  - Harmony tower (33 dims): chroma, tonnetz
+- Extracts beat3tower features (162-dim production blend as of 2026-06-03):
+  - Rhythm tower (9 dims): tempo, beats, onsets
+  - Timbre tower (57 dims): MFCCs, spectral features
+  - Harmony tower (96 dims): 2DFTM — key-invariant 2D Fourier Transform Magnitude
+    of the chromagram (replaces legacy 20-dim chroma-median tower as of 2026-06-03)
 - Multi-segment extraction (start, mid, end, full)
 - Stores JSON features in tracks.sonic_features
 

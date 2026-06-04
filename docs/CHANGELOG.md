@@ -1,5 +1,70 @@
 # Playlist Generator Changelog
 
+## v4.3.0 - 2DFTM Harmony Tower Rebuild
+
+**Release Date:** 2026-06-03
+**Branch:** `sonic-harmony-keyinvariant`
+**Focus:** Replace the key-sensitive harmony tower with a key-invariant representation,
+validated by blind A/B audition against the full library.
+
+### Highlights
+
+- **Key-invariant harmony tower.** Replaced the 20-dim chroma-median harmony tower
+  with a 96-dim **2D Fourier Transform Magnitude (2DFTM)** representation. The old
+  tower encoded absolute pitch class (musical key), which is noise for harmonic-character
+  similarity — tracks in the same key ranked as harmonically similar regardless of actual
+  musical relationship. 2DFTM captures chordal texture and voice-leading patterns as
+  spatial frequencies; transposition becomes a circular shift on the pitch axis → phase
+  change → discarded by the magnitude operation. Tested: cosine similarity between a
+  track and itself pitch-shifted 1–7 semitones stays 0.99+ under 2DFTM vs 0.77–0.86
+  under chroma.
+
+- **Blind head-to-head A/B audition.** Three seeds rated (45 tracks per space, one rater,
+  verdicts match=3 / close=2 / off=1 / wrong=0):
+  | Seed | 2DFTM avg | Legacy avg | Δ |
+  |---|---|---|---|
+  | Jean-Yves Thibaudet (classical piano) | **2.53** | 0.87 | **+1.66** |
+  | Green-House (ambient new-age) | 1.67 | 1.53 | +0.13 |
+  | Minor Threat (hardcore punk) | 1.29 | **2.13** | **−0.84** |
+  | **Overall** | **1.84** | **1.51** | **+0.33** |
+
+  The Minor Threat counter was deliberately sought: power chords (root+fifth, no third)
+  have minimal harmonic texture, so the key acts as an accidental genre proxy for legacy.
+  The net result still favors 2DFTM ~2:1, and harmony is weighted at 0.30 of the blend.
+
+- **Blend grows from 86 → 162 dimensions.** New layout: rhythm 9 + timbre 57 + harmony 96,
+  all via `sqrt(w) * L2(tower)` per tower. The artifact's `tower_dims=[9,57,96]` is now
+  the authoritative source for axis slicing (exposed on `ArtifactBundle.tower_dims`).
+
+- **`ArtifactBundle.tower_dims` added.** The per-tower blend split (rhythm/timbre/harmony)
+  is now loaded from the artifact and exposed on the bundle. `worker._resolve_tower_pca_dims`
+  prefers it over width-based inference, which went wrong for the non-default 162-dim blend
+  (inferred `(40,81,41)` vs true `(9,57,96)`). Affected path: GUI track-replacement pace/sound
+  divergence scoring.
+
+- **Segment harmony is global.** Start/mid/end harmony all use the full-track 2DFTM
+  (only whole-track features were extracted). Rhythm and timbre segments remain
+  position-specific.
+
+### New scripts
+
+| Script | Role |
+|---|---|
+| `scripts/extract_harmony_2dftm_sidecar.py` | Full-library 2DFTM extraction (~17h, resumable, 0 failures) |
+| `scripts/fold_2dftm_into_artifact.py` | Surgical harmony-tower replacement with backup + atomic write |
+| `scripts/sonic_audition_build.py --head-to-head` | Blinded legacy-vs-2DFTM A/B manifest builder |
+
+Full investigation write-up (probe methodology, gate framework, weight sweep, key-invariance
+proof, beat-sync comparison, A/B results): `docs/SONIC_PHASE2_HARMONY_FINDINGS.md`.
+
+### Tests
+
+1432 unit tests pass. New: `test_worker_tower_pca_dims.py` (resolution priority for the
+authoritative tower split), `test_artifact_tower_weighted_load.py` extended (tower_dims
+load + None fallback). Updated: `test_sonic_audition_build.py` (4-space assertion).
+
+---
+
 ## v4.2.0 - Upstream Transition Alignment and Edge Repair Fallback
 
 **Release Date:** 2026-05-21
