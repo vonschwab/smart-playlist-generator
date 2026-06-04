@@ -1,8 +1,9 @@
 # Sonic Phase 2 — Harmony Diagnosis & Richer-Feature Investigation
 
-**Date:** 2026-06-02
+**Date:** 2026-06-02 (investigation); 2026-06-03 (head-to-head audition + rebuild — see §12)
 **Branch:** `sonic-harmony-keyinvariant` (off `master`)
-**Status:** Investigation complete; production change **deferred pending more audition seeds.**
+**Status:** **SHIPPED.** Full 40k 2DFTM extraction complete; blind A/B audition confirmed the
+win; harmony tower rebuilt into the production artifact (86→162 dim). See §12.
 **Scope:** Validate the corrected (tower-weighted) sonic space by ear, localize the
 weakest tower, and decide whether to act. Read-only throughout — no writes to
 `metadata.db`, no writes/moves of audio files; all extraction is cached to sidecars.
@@ -338,3 +339,82 @@ Artifact: `data/artifacts/beat3tower_32k/data_matrices_step1.npz` (variant `towe
 
 **Data safety:** every step is read-only. No writes to `data/metadata.db`; audio files
 read for extraction only, never modified; all derived features written to sidecar npz/JSON.
+
+---
+
+## 12. Head-to-head audition + production rebuild (2026-06-03)
+
+The deferred decision (§10) was resolved by completing the full-library extraction and
+running a **blind legacy-vs-2DFTM A/B** rather than committing on the 5-seed probe alone.
+
+### 12.1 Extraction
+
+`extract_harmony_2dftm_sidecar.py` extracted frame-level 2DFTM harmony for the whole
+library: **39,879 tracks, 0 failures**, ~17h on 18 workers, written to
+`data/artifacts/beat3tower_32k/harmony_2dftm_sidecar.npz` (39,887 total incl. smoke-test
+rows). Read-only throughout; atomic checkpointed saves.
+
+### 12.2 Blind A/B audition
+
+`sonic_audition_build.py --head-to-head` builds two blinded harmony spaces
+(`harmony_legacy` = shipped chroma-median; `harmony_2dftm` = key-invariant), each
+ranked over an identical candidate pool. Provenance hidden from the rater. Three seeds
+rated (avg verdict score: match=3, close=2, off=1, wrong=0):
+
+| Seed | 2DFTM avg | Legacy avg | Δ | note |
+|---|---|---|---|---|
+| Jean-Yves Thibaudet | **2.53** | 0.87 | **+1.66** | classical piano — key-invariance kills cross-key false positives (bossa nova, chillwave, noise rock) |
+| Green-House | 1.67 | 1.53 | +0.13 | ambient new-age — marginal 2DFTM win |
+| Minor Threat | 1.29 | **2.13** | **−0.84** | **counter:** power chords (root+fifth, no third) have ~no harmonic texture; absolute key acts as a genre proxy for legacy |
+| **Overall (44/45 rated)** | **1.84** | **1.51** | **+0.33** | |
+
+**Read:** the win is real but concentrated in harmonically-distinct material
+(classical/jazz). Minor Threat is a genuine, deliberately-sought counter — for
+texture-poor hardcore, legacy's key sensitivity is accidentally useful. Net +0.33
+favors 2DFTM; harmony is only 30% of the sonic blend, so the punk regression is
+attenuated in production. Within-space cosine↔verdict correlation is weak for both
+(r≈0.07 2DFTM): 2DFTM surfaces a *better pool* but does not *rank within it* much
+better — fine for retrieval, less so for fine-grained edge ordering.
+
+**Decision: full rebuild** (Jean-Yves +1.66 outweighs Minor Threat −0.84 ~2:1).
+
+### 12.3 Rebuild record
+
+`fold_2dftm_into_artifact.py` replaced the 20-dim chroma-median harmony tower with the
+96-dim 2DFTM tower, z-scored over the 39,887-track valid pool then folded via
+`sqrt(w)·L2(tower)` (weights unchanged at 0.20/0.50/0.30). Blend grew **86 → 162 dim**.
+Backup: `data_matrices_step1.npz.bak_20260603_204655`. The shipped representation is
+**identical** to the audited `harmony_2dftm` space (same z-score → L2 pipeline) for every
+track with features; the 70 audio-less tracks get zero harmony vectors.
+
+**Validation:** 1425 tests pass. End-to-end CLI generation healthy — Bill Evans seed
+clustered pure classic jazz (Miles Davis, Brubeck, Max Roach, Dexter Gordon, Ahmad Jamal,
+Ellington/Coltrane), `min_transition=0.546`, zero below-floor edges.
+
+### 12.4 Known caveats (deliberate / latent)
+
+1. **Segment harmony is now global.** Start/mid/end harmony all use the full-track 2DFTM
+   (no per-segment 2DFTM was extracted). The beam's transition harmony component therefore
+   measures *overall harmonic compatibility* rather than *end-of-A → start-of-B* flow.
+   Defensible (arguably better for character matching) but **not separately validated** —
+   the audition tested full-track retrieval only. Rhythm/timbre segments remain
+   position-specific.
+2. **`tower_pca_dims` mis-slicing — FIXED.** The artifact stores the authoritative
+   `tower_dims=[9,57,96]`, but `ArtifactBundle` did not expose it, so the GUI
+   track-replacement path inferred the split from total dim
+   (`_infer_tower_pca_dims(162) → (40,81,41)`, wrong) when slicing X_sonic into rhythm/
+   color axes. Fixed 2026-06-03: `ArtifactBundle` now loads `tower_dims`, and
+   `worker._resolve_tower_pca_dims` prefers it (validated against blend width) over config
+   override or width-inference. The CLI pace gate was unaffected — it builds a self-contained
+   `tower_pca` variant and degrades gracefully on mismatch. Covered by
+   `test_worker_tower_pca_dims.py` and `test_artifact_tower_weighted_load.py`.
+
+### 12.5 Scripts added
+
+| script | role |
+|---|---|
+| `extract_harmony_2dftm_sidecar.py` | full-library 2DFTM extraction (resumable, atomic) |
+| `fold_2dftm_into_artifact.py` | surgical harmony-tower replacement (backup + atomic write) |
+| `sonic_audition_build.py --head-to-head` | blinded legacy-vs-2DFTM A/B manifests |
+
+Audition verdicts: `docs/run_audits/sonic_audition_h2h/*_capture.yaml` + `findings.md`.
