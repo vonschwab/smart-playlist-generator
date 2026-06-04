@@ -59,13 +59,15 @@ config._validate_config()      # Validate required fields
 bundle = ArtifactBundle.from_file("data/artifacts/beat3tower_32k/data_matrices_step1.npz")
 ```
 
-**Loaded Arrays:**
-- `X_sonic` (35881 × 137): Sonic feature embeddings from beat3tower analysis
-  - Rhythm tower: 21 features (tempo, beat patterns)
-  - Timbre tower: 83 features (spectral texture, tone color)
-  - Harmony tower: 33 features (key, chord progressions)
-- `X_genre_raw` (35881 × 732): Raw genre tag vectors (one-hot encoded)
-- `X_genre_smoothed` (35881 × 732): Smoothed genre embeddings (similarity-based)
+**Loaded Arrays (current production artifact — 2026-06-03):**
+- `X_sonic` (39957 × 162): Tower-weighted sonic blend — `sqrt(w) * L2(tower)` per tower, concatenated
+  - Rhythm tower: 9 features (tempo, beat patterns) × √0.20
+  - Timbre tower: 57 features (spectral texture, tone color) × √0.50
+  - Harmony tower: 96 features (2DFTM — key-invariant chroma character) × √0.30
+- `X_sonic_start` / `_mid` / `_end` (39957 × 162): Segment-level blends (same layout)
+- `tower_dims`: [9, 57, 96] — authoritative split for axis slicing
+- `X_genre_raw` (39957 × 902): Raw genre tag vectors
+- `X_genre_smoothed` (39957 × 902): Smoothed genre embeddings
 - `track_ids`, `track_artists`, `track_titles`: Metadata arrays
 
 **Tower Configuration (beat3tower):**
@@ -73,8 +75,12 @@ bundle = ArtifactBundle.from_file("data/artifacts/beat3tower_32k/data_matrices_s
 tower_weights:
   rhythm: 0.20   # BPM, beat strength, rhythmic complexity
   timbre: 0.50   # Spectral centroid, MFCCs, timbral texture
-  harmony: 0.30  # Chroma features, key detection, harmonic content
+  harmony: 0.30  # 2DFTM: key-invariant harmonic character (2026-06-03 rebuild)
 ```
+
+> **Note:** This document covers v3.4 Artist Mode behavior. The artifact dimensions
+> above reflect the current production state; other dimension references in this doc
+> (e.g. "35881 × 137") reflect the v3.4 library count and pre-2DFTM 137-dim space.
 
 ---
 
@@ -1008,46 +1014,45 @@ def create_or_update_playlist(self, name, track_filepaths):
 
 ## Key Algorithms & Data Structures
 
-### 1. Tower PCA (Sonic Embedding)
-**Purpose:** Reduce high-dimensional sonic features while preserving structure
+### 1. Tower-Weighted Sonic Blend
+**Purpose:** Combine rhythm, timbre, and harmony into a single comparable space with
+explicit perceptual weighting baked in at build time.
 
 ```python
-# src/similarity/sonic_variant.py:234-298
-def tower_pca_embedding(X_sonic, tower_dims, tower_pca_dims, tower_weights):
+# src/features/sonic_rebuild.py — applied by scripts/fold_2dftm_into_artifact.py
+def tower_weighted(rhythm, timbre, harmony, weights=(0.20, 0.50, 0.30)):
+    """Per-tower L2-normalize, scale each by sqrt(weight), concatenate.
+
+    Each output row's per-tower sub-vector has norm sqrt(weight), so the tower
+    weighting is exact and invariant to the towers' raw scales.
     """
-    Multi-tower dimensionality reduction.
-
-    Each tower (rhythm/timbre/harmony) is reduced independently,
-    then weighted and concatenated.
-    """
-    rhythm_features = X_sonic[:, :21]     # BPM, beat strength, onset patterns
-    timbre_features = X_sonic[:, 21:104]  # MFCCs, spectral features, texture
-    harmony_features = X_sonic[:, 104:]   # Chroma, key, chord progressions
-
-    # PCA per tower
-    pca_rhythm = PCA(n_components=8)
-    rhythm_reduced = pca_rhythm.fit_transform(rhythm_features)  # (N, 8)
-
-    pca_timbre = PCA(n_components=16)
-    timbre_reduced = pca_timbre.fit_transform(timbre_features)  # (N, 16)
-
-    pca_harmony = PCA(n_components=8)
-    harmony_reduced = pca_harmony.fit_transform(harmony_features)  # (N, 8)
-
-    # Weighted concatenation
-    X_tower = np.hstack([
-        rhythm_reduced * tower_weights[0],   # 0.20
-        timbre_reduced * tower_weights[1],   # 0.50
-        harmony_reduced * tower_weights[2],  # 0.30
-    ])  # (N, 32)
-
-    return X_tower
+    w_r, w_t, w_h = weights
+    return np.concatenate([
+        sqrt(w_r) * L2(rhythm),    # rhythm: 9-dim  → sub-norm √0.20
+        sqrt(w_t) * L2(timbre),    # timbre: 57-dim → sub-norm √0.50
+        sqrt(w_h) * L2(harmony),   # harmony: 96-dim (2DFTM) → sub-norm √0.30
+    ], axis=1)  # (N, 162)
 ```
 
+**Current tower representations (2026-06-03):**
+- **Rhythm (9-dim):** librosa beat features — tempo, beat strength, onset patterns
+- **Timbre (57-dim):** MFCCs, spectral centroid, rolloff, contrast — textural identity
+- **Harmony (96-dim — 2DFTM):** `|FFT2(chroma_cqt)|[:, :8].flatten()` on the
+  HPSS-separated harmonic signal. Key-invariant: transposing a track by any interval
+  leaves cosine similarity at 0.99+. Replaces the legacy 20-dim chroma-median tower
+  that encoded absolute pitch class (noise for harmonic-character similarity).
+
+**Why 2DFTM for harmony?** The 2D Fourier Transform of a chromagram (pitch × time)
+captures chordal texture and voice-leading patterns as spatial frequencies. Transposition
+= circular shift on the pitch axis → becomes a phase change → discarded by taking the
+magnitude. Validated 2026-06-03: +1.66 verdict score improvement on a classical piano
+seed (Jean-Yves Thibaudet) where the legacy tower returned bossa nova and noise rock.
+Full write-up: `docs/SONIC_PHASE2_HARMONY_FINDINGS.md`.
+
 **Why Towers?**
-- Rhythm: Captures tempo/energy changes (important for flow)
-- Timbre: Dominant tower for sonic texture (50% weight)
-- Harmony: Captures tonal/modal similarity (jazz harmonic language)
+- Rhythm: Captures tempo/energy changes (important for flow); gated independently by `pace_mode`
+- Timbre: Dominant tower for sonic texture (50% weight); most reliable for genre adjacency
+- Harmony: Captures harmonic character independent of musical key (2DFTM)
 
 ### 2. Genre Smoothing
 **Purpose:** Propagate genre similarity through the semantic graph

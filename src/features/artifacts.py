@@ -4,7 +4,7 @@ import functools
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Literal, Optional
+from typing import Dict, Literal, Optional, Tuple
 
 import numpy as np
 
@@ -37,6 +37,10 @@ class ArtifactBundle:
     X_sonic_raw: Optional[np.ndarray] = None
     sonic_variant: Optional[str] = None
     sonic_pre_scaled: bool = False
+    # Authoritative per-tower blend split (rhythm, timbre, harmony) — sums to X_sonic
+    # width. The source of truth for slicing X_sonic into perceptual axes; None for
+    # legacy artifacts that predate the key.
+    tower_dims: Optional[Tuple[int, int, int]] = None
     # Optional: dense PMI-SVD genre embedding (from sidecar NPZ)
     X_genre_dense: Optional[np.ndarray] = None   # (N, dim) L2-normalized
     genre_emb: Optional[np.ndarray] = None       # (V, dim) vocabulary embedding
@@ -101,6 +105,15 @@ def _load_artifact_bundle_cached(artifact_path: Path) -> ArtifactBundle:
     sonic_feature_names = data["sonic_feature_names"] if "sonic_feature_names" in data else None
     sonic_feature_units = data["sonic_feature_units"] if "sonic_feature_units" in data else None
     durations_ms = data["durations_ms"] if "durations_ms" in data else None
+
+    tower_dims: Optional[Tuple[int, int, int]] = None
+    if "tower_dims" in data:
+        try:
+            td = tuple(int(v) for v in np.asarray(data["tower_dims"]).ravel())
+            if len(td) == 3:
+                tower_dims = td  # type: ignore[assignment]
+        except (TypeError, ValueError):
+            tower_dims = None
 
     # Prefer precomputed variant matrix when present
     sonic_variant = None
@@ -209,6 +222,7 @@ def _load_artifact_bundle_cached(artifact_path: Path) -> ArtifactBundle:
         X_sonic_raw=X_sonic_raw,
         sonic_variant=sonic_variant,
         sonic_pre_scaled=sonic_pre_scaled,
+        tower_dims=tower_dims,
         X_genre_dense=X_genre_dense,
         genre_emb=genre_emb,
     )

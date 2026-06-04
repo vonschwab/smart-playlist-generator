@@ -32,3 +32,48 @@ def test_tower_weighted_artifact_loads_pre_scaled(tmp_path):
     assert b.sonic_pre_scaled is True
     assert np.array_equal(b.X_sonic, tw_full)        # selected the variant key
     assert np.array_equal(b.X_sonic_start, tw_start)  # segment key used directly
+
+
+def test_artifact_exposes_tower_dims(tmp_path):
+    """The per-tower blend split (rhythm/timbre/harmony) is loaded onto the bundle.
+
+    This is the authoritative source for slicing X_sonic into perceptual axes —
+    consumers must not have to infer it from the total blend width.
+    """
+    N = 3
+    d = {
+        "track_ids": np.array(["a", "b", "c"], dtype=object),
+        "artist_keys": np.array(["a", "b", "c"], dtype=object),
+        "X_sonic": np.zeros((N, 162), np.float32),
+        "X_genre_raw": np.ones((N, 2), np.float32),
+        "X_genre_smoothed": np.ones((N, 2), np.float32),
+        "genre_vocab": np.array(["x", "y"], dtype=object),
+        "tower_dims": np.array([9, 57, 96], dtype=np.int64),
+    }
+    p = tmp_path / "td.npz"
+    np.savez(p, **d)
+
+    load_artifact_bundle.cache_clear()
+    b = load_artifact_bundle(p)
+
+    assert b.tower_dims == (9, 57, 96)
+
+
+def test_artifact_without_tower_dims_is_none(tmp_path):
+    """Legacy artifacts lacking the tower_dims key load with tower_dims=None."""
+    N = 3
+    d = {
+        "track_ids": np.array(["a", "b", "c"], dtype=object),
+        "artist_keys": np.array(["a", "b", "c"], dtype=object),
+        "X_sonic": np.zeros((N, 86), np.float32),
+        "X_genre_raw": np.ones((N, 2), np.float32),
+        "X_genre_smoothed": np.ones((N, 2), np.float32),
+        "genre_vocab": np.array(["x", "y"], dtype=object),
+    }
+    p = tmp_path / "notd.npz"
+    np.savez(p, **d)
+
+    load_artifact_bundle.cache_clear()
+    b = load_artifact_bundle(p)
+
+    assert b.tower_dims is None

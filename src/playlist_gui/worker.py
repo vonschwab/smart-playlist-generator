@@ -558,6 +558,35 @@ def _infer_tower_pca_dims(dim: int) -> tuple[int, int, int]:
     return (rhythm, timbre, harmony)
 
 
+def _resolve_tower_pca_dims(bundle, ds_cfg: dict) -> tuple[int, int, int]:
+    """Resolve the rhythm/timbre/harmony split used to slice X_sonic into axes.
+
+    Priority:
+      1. The artifact's own ``tower_dims`` — authoritative, records the exact blend
+         layout. Only trusted when it sums to the blend width (guards stale values).
+      2. An explicit 3-element ``tower_pca_dims`` in config that matches the width.
+      3. Width-based inference (lossy fallback for legacy artifacts).
+
+    Inference goes wrong whenever towers aren't in the default proportion — e.g. the
+    162-dim 2DFTM harmony rebuild is truly (9,57,96) but inference yields (40,81,41).
+    """
+    blend_dim = int(bundle.X_sonic.shape[1])
+
+    bundle_dims = getattr(bundle, "tower_dims", None)
+    if bundle_dims is not None:
+        dims = tuple(int(v) for v in bundle_dims)
+        if len(dims) == 3 and sum(dims) == blend_dim:
+            return dims  # type: ignore[return-value]
+
+    cfg_dims = ds_cfg.get("tower_pca_dims")
+    if isinstance(cfg_dims, (list, tuple)) and len(cfg_dims) == 3:
+        dims = tuple(int(v) for v in cfg_dims)
+        if sum(dims) == blend_dim:
+            return dims  # type: ignore[return-value]
+
+    return _infer_tower_pca_dims(blend_dim)
+
+
 def _resolve_track_genres(
     track: Dict[str, Any],
     *,
@@ -682,11 +711,7 @@ def _populate_last_generation_cache(
     )
 
     ds_cfg = (config.get("playlists", {}) or {}).get("ds_pipeline", {}) or {}
-    tower_dims_raw = ds_cfg.get("tower_pca_dims")
-    if isinstance(tower_dims_raw, (list, tuple)) and len(tower_dims_raw) == 3:
-        tower_pca_dims = tuple(int(v) for v in tower_dims_raw)
-    else:
-        tower_pca_dims = _infer_tower_pca_dims(int(bundle.X_sonic.shape[1]))
+    tower_pca_dims = _resolve_tower_pca_dims(bundle, ds_cfg)
 
     cache = _LAST_GENERATION_CACHE
     cache.playlist_id = str(playlist_result.get("name") or "")

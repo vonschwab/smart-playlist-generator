@@ -319,6 +319,7 @@ def _variant_transform(X_sonic: np.ndarray, variant: str) -> Tuple[np.ndarray, d
         else:
             mat = X_sonic
             tower_fallback = True
+            tower_dims = None  # beat3tower_types raw-extraction dims ≠ artifact blend dims
     elif variant == "tower_pca":
         try:
             from src.features.beat3tower_types import (

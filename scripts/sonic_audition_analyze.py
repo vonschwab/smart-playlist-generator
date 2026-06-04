@@ -81,6 +81,13 @@ def main() -> None:
     by_space = aggregate_by_space(entries)
     corr_rows = cosine_verdict_correlation(entries)
 
+    # Use spaces present in the data, falling back to the Phase 1 hardcoded order
+    # for display when both old and new runs are mixed.
+    active_spaces = [s for s in SPACES if s in by_space]
+    for s in sorted(by_space):
+        if s not in active_spaces:
+            active_spaces.append(s)
+
     lines = [
         "# Sonic Audition — Phase 2 Findings",
         "",
@@ -91,7 +98,7 @@ def main() -> None:
         "| Space | match | close | off | wrong | total |",
         "|---|---|---|---|---|---|",
     ]
-    for space in SPACES:
+    for space in active_spaces:
         counts = by_space.get(space, {})
         total = sum(counts.values())
         if total == 0:
@@ -104,7 +111,7 @@ def main() -> None:
     for r in corr_rows:
         space_groups[r["space"]].append((r["cosine"], r["score"]))
 
-    for space in SPACES:
+    for space in active_spaces:
         pairs = space_groups.get(space, [])
         if len(pairs) < 3:
             continue

@@ -85,7 +85,17 @@ def setup_embedding(
             variant_stats = {
                 "variant": getattr(bundle, "sonic_variant", resolved_variant),
                 "pre_scaled": True,
+                "dim": int(bundle.X_sonic.shape[1]),
             }
+            # Expose tower_dims / tower_pca_dims so downstream pace-mode rhythm
+            # gating (candidate_pool.py) can slice X_sonic by perceptual axis.
+            _td = getattr(bundle, "tower_dims", None)
+            if _td is not None:
+                _blend = int(bundle.X_sonic.shape[1])
+                _dims = tuple(int(v) for v in _td)
+                if len(_dims) == 3 and sum(_dims) == _blend:
+                    variant_stats["tower_dims"] = _dims
+                    variant_stats["tower_pca_dims"] = _dims
         else:
             X_sonic_for_embed, variant_stats = compute_sonic_variant_matrix(
                 bundle.X_sonic, resolved_variant, l2=False
