@@ -62,6 +62,50 @@ def test_local_and_model_can_accept_when_no_stronger_conflict():
     assert "local_metadata" in report.accepted_genres[0].sources
 
 
+def test_local_and_lastfm_accept_specific_corroborated_genre_without_bandcamp():
+    report = fuse_hybrid_evidence(
+        release_key="duster::stratosphere",
+        evidence=[
+            EvidenceTerm(term="slowcore", source_type="local_metadata", confidence=0.95),
+            EvidenceTerm(term="slowcore", source_type="lastfm_tags", confidence=0.95),
+        ],
+        sparse_release=False,
+    )
+
+    assert [item.term for item in report.accepted_genres] == ["slowcore"]
+    assert report.accepted_genres[0].basis == "local_metadata+lastfm_tags+taxonomy"
+    assert "Local metadata and Last.fm corroborate" in report.accepted_genres[0].reason
+
+
+def test_local_and_lastfm_reject_broad_parent_when_specific_terms_exist():
+    report = fuse_hybrid_evidence(
+        release_key="duster::stratosphere",
+        evidence=[
+            EvidenceTerm(term="rock", source_type="local_metadata", confidence=0.95),
+            EvidenceTerm(term="rock", source_type="lastfm_tags", confidence=0.95),
+        ],
+        sparse_release=False,
+    )
+
+    assert report.accepted_genres == []
+    assert report.rejected_noise[0].term == "rock"
+    assert "Broad parent genre" in report.rejected_noise[0].reason
+
+
+def test_local_only_broad_parent_is_rejected_not_reviewed():
+    report = fuse_hybrid_evidence(
+        release_key="duster::stratosphere",
+        evidence=[
+            EvidenceTerm(term="rock", source_type="local_metadata", confidence=0.95),
+        ],
+        sparse_release=False,
+    )
+
+    assert report.needs_review == []
+    assert report.rejected_noise[0].term == "rock"
+    assert "Broad parent genre" in report.rejected_noise[0].reason
+
+
 def test_collect_hybrid_evidence_reads_sidecar_sources_and_prior(tmp_path: Path):
     from src.ai_genre_enrichment.storage import SidecarStore
 

@@ -20,6 +20,20 @@ SOURCE_WEIGHTS: dict[str, float] = {
 LASTFM_SOURCE_TYPES = {"lastfm_tags", "lastfm"}
 STRONG_SOURCE_TYPES = {"bandcamp_release", "official_release"}
 MEDIUM_SOURCE_TYPES = {"local_metadata", "discogs", "musicbrainz"}
+BROAD_PARENT_TERMS = {
+    "alternative",
+    "alternative rock",
+    "electronic",
+    "experimental",
+    "folk",
+    "indie",
+    "indie rock",
+    "instrumental",
+    "pop",
+    "r&b",
+    "rock",
+    "singer-songwriter",
+}
 
 
 @dataclass(frozen=True)
@@ -114,6 +128,16 @@ def fuse_hybrid_evidence(
             ))
             continue
 
+        if _is_broad_parent_term(term):
+            rejected.append(FusedGenreDecision(
+                term=term,
+                confidence=score,
+                basis=_basis(sources),
+                sources=sources,
+                reason="Broad parent genre is kept out of automatic enrichment when more specific terms are available.",
+            ))
+            continue
+
         if any(source in STRONG_SOURCE_TYPES for source in sources):
             accepted.append(FusedGenreDecision(
                 term=term,
@@ -131,6 +155,16 @@ def fuse_hybrid_evidence(
                 basis=_basis(sources),
                 sources=sources,
                 reason="Model taxonomy agrees with existing non-Last.fm metadata.",
+            ))
+            continue
+
+        if "local_metadata" in sources and any(source in LASTFM_SOURCE_TYPES for source in sources):
+            accepted.append(FusedGenreDecision(
+                term=term,
+                confidence=max(score, 0.80),
+                basis=_basis(sources),
+                sources=sources,
+                reason="Local metadata and Last.fm corroborate this specific mapped genre.",
             ))
             continue
 
@@ -196,3 +230,7 @@ def _basis(sources: list[str]) -> str:
     ]
     extra = sorted(source for source in sources if source not in ordered)
     return "+".join(ordered + extra + ["taxonomy"])
+
+
+def _is_broad_parent_term(term: str) -> bool:
+    return term.casefold() in BROAD_PARENT_TERMS

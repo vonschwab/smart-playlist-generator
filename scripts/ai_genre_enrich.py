@@ -15,7 +15,7 @@ if str(ROOT) not in sys.path:
 from src.ai_genre_enrichment.client import OpenAIEnrichmentClient
 from src.ai_genre_enrichment.discovery import ReleasePayload, compute_input_hash, discover_releases
 from src.ai_genre_enrichment.genre_vocabulary import GenreVocabulary
-from src.ai_genre_enrichment.hybrid_evidence import collect_hybrid_evidence, fuse_hybrid_evidence
+from src.ai_genre_enrichment.hybrid_evidence import EvidenceTerm, collect_hybrid_evidence, fuse_hybrid_evidence
 from src.ai_genre_enrichment.model_prior import (
     MODEL_PRIOR_INSTRUCTIONS,
     MODEL_PRIOR_PROMPT_VERSION,
@@ -286,6 +286,17 @@ def build_parser() -> argparse.ArgumentParser:
     add_release_filters(hybrid_one)
     hybrid_one.add_argument("--dry-run", action="store_true")
     hybrid_one.add_argument("--include-provisional", action="store_true")
+    hybrid_one.add_argument(
+        "--with-model-prior",
+        action="store_true",
+        help="Generate or reuse the no-web LLM prior before fusing evidence.",
+    )
+    hybrid_one.add_argument(
+        "--force-model-prior",
+        action="store_true",
+        help="Refresh the no-web LLM prior before fusing evidence.",
+    )
+    hybrid_one.add_argument("--model", default=DEFAULT_MODEL)
 
     return parser
 
@@ -1723,6 +1734,81 @@ def _run_model_prior_release(args: argparse.Namespace, release: ReleasePayload) 
     return 0 if result.status == "complete" else 1
 
 
+def _ensure_model_prior_for_hybrid(
+    args: argparse.Namespace,
+    release: ReleasePayload,
+    store: SidecarStore,
+) -> tuple[str, list[EvidenceTerm], str | None]:
+    payload = build_model_prior_payload(release)
+    input_hash = stable_input_hash(payload)
+    model = getattr(args, "model", DEFAULT_MODEL)
+    cached = store.find_model_prior(
+        release_key=release.release_key,
+        provider="openai",
+        model=model,
+        prompt_version=MODEL_PRIOR_PROMPT_VERSION,
+        taxonomy_version=MODEL_PRIOR_TAXONOMY_VERSION,
+        schema_version=MODEL_PRIOR_SCHEMA_VERSION,
+        enrichment_policy_version=STABILIZED_POLICY_VERSION,
+        input_hash=input_hash,
+    )
+    if cached and cached["status"] == "complete" and not getattr(args, "force_model_prior", False):
+        return "cached", [], None
+
+    client = OpenAIEnrichmentClient(model=model, dry_run=False, web_mode="off")
+    result = client.request_structured(
+        payload=payload,
+        prompt=build_model_prior_prompt(payload),
+        response_format=model_prior_response_format(),
+        validator=validate_model_prior_response,
+        instructions=MODEL_PRIOR_INSTRUCTIONS,
+        estimated_output_tokens=300,
+    )
+    if result.status != "complete":
+        return result.status, [], result.error_message
+
+    vocabulary = GenreVocabulary(library_db_path=args.metadata_db)
+    mapped_terms = map_model_prior_terms(result.response_json["genres"], vocabulary, payload=payload)
+    if not getattr(args, "dry_run", False):
+        store.record_model_prior(
+            release_key=release.release_key,
+            normalized_artist=release.normalized_artist,
+            normalized_album=release.normalized_album,
+            album_id=release.album_id,
+            provider="openai",
+            model=model,
+            prompt_version=MODEL_PRIOR_PROMPT_VERSION,
+            taxonomy_version=MODEL_PRIOR_TAXONOMY_VERSION,
+            schema_version=MODEL_PRIOR_SCHEMA_VERSION,
+            enrichment_policy_version=STABILIZED_POLICY_VERSION,
+            input_hash=input_hash,
+            status=result.status,
+            response_json=result.response_json or None,
+            warnings=result.response_json.get("warnings", []) if result.response_json else [],
+            error_message=result.error_message,
+            token_usage=result.token_usage,
+            estimated_cost_usd=result.estimated_cost_usd,
+            mapped_terms=mapped_terms,
+        )
+        return "complete", [], None
+
+    return "complete-transient", _mapped_terms_to_evidence(mapped_terms), None
+
+
+def _mapped_terms_to_evidence(mapped_terms: list[dict]) -> list[EvidenceTerm]:
+    return [
+        EvidenceTerm(
+            term=str(term["normalized_term"]),
+            source_type="model_prior",
+            confidence=float(term["confidence"]),
+            canonical_slug=term.get("canonical_slug") or term["normalized_term"],
+            mapping_status=str(term["mapping_status"]),
+            notes=str(term.get("notes") or ""),
+        )
+        for term in mapped_terms
+    ]
+
+
 def cmd_model_prior_one(args: argparse.Namespace) -> int:
     releases = _discover(args)
     if len(releases) != 1:
@@ -1757,7 +1843,13 @@ def cmd_hybrid_enrich_one(args: argparse.Namespace) -> int:
     release = releases[0]
     store = SidecarStore(args.sidecar_db)
     store.initialize()
+    transient_evidence: list[EvidenceTerm] = []
+    model_prior_status: str | None = None
+    model_prior_error: str | None = None
+    if args.with_model_prior or args.force_model_prior:
+        model_prior_status, transient_evidence, model_prior_error = _ensure_model_prior_for_hybrid(args, release, store)
     evidence = collect_hybrid_evidence(store, release.release_key)
+    evidence.extend(transient_evidence)
     sparse_release = not release.existing_genres_by_source
     report = fuse_hybrid_evidence(
         release_key=release.release_key,
@@ -1766,6 +1858,10 @@ def cmd_hybrid_enrich_one(args: argparse.Namespace) -> int:
     ).to_dict()
     report["dry_run"] = bool(args.dry_run)
     report["evidence_count"] = len(evidence)
+    if model_prior_status is not None:
+        report["model_prior_status"] = model_prior_status
+    if model_prior_error:
+        report["model_prior_error"] = model_prior_error
     print(json.dumps(report, ensure_ascii=False, sort_keys=True))
     return 0
 
