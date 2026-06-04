@@ -1865,9 +1865,10 @@ def handle_blacklist_scope_set(cmd_data: Dict[str, Any]) -> None:
 
 
 def handle_enrich_artist(cmd_data: Optional[Dict[str, Any]] = None, *, artist: str = "", request_id: str = "") -> Dict[str, Any]:
-    """Run the full enrichment pipeline for an artist as subprocess invocations.
+    """Run the full hybrid enrichment pipeline for an artist as subprocess invocations.
 
-    Steps: ingest-local → extract-lastfm → extract-bandcamp → classify-tags → build-enriched.
+    Steps: ingest-local → extract-lastfm → extract-bandcamp → classify-tags →
+    discover releases → hybrid-enrich-one --apply --with-model-prior per release.
     Stops at the first failure.
 
     Can be called directly (unit tests pass artist/request_id as kwargs) or via
@@ -1882,8 +1883,8 @@ def handle_enrich_artist(cmd_data: Optional[Dict[str, Any]] = None, *, artist: s
         ("extract-lastfm", []),
         ("extract-bandcamp", []),
         ("classify-tags", ["--adjudicate"]),
-        ("build-enriched", []),
     ]
+    total_steps = len(steps) + 1
     for i, (command, extra_args) in enumerate(steps, 1):
         argv = [
             sys.executable,
@@ -1892,16 +1893,92 @@ def handle_enrich_artist(cmd_data: Optional[Dict[str, Any]] = None, *, artist: s
             "--artist", artist,
             *extra_args,
         ]
-        emit_progress(f"enrich:{command}", i, len(steps), artist)
+        emit_progress(f"enrich:{command}", i, total_steps, artist)
         completed = subprocess.run(argv, capture_output=True, text=True, check=False)
         if completed.returncode != 0:
             return {
                 "ok": False,
-                "error": f"{command} failed: {completed.stderr.strip()[:200]}",
+                "error": f"{command} failed: {_subprocess_error_excerpt(completed)}",
                 "step": command,
             }
         emit_log("INFO", f"{command} completed for {artist}", request_id=request_id)
-    return {"ok": True, "artist": artist}
+
+    releases = _discover_artist_releases_for_hybrid(artist)
+    if not releases:
+        return {"ok": False, "error": "discover failed: no releases found", "step": "discover"}
+
+    total_steps = len(steps) + len(releases)
+    applied = 0
+    for offset, release in enumerate(releases, start=1):
+        album = release.get("album") or release.get("normalized_album")
+        if not album:
+            continue
+        command = "hybrid-enrich-one"
+        argv = [
+            sys.executable,
+            "scripts/ai_genre_enrich.py",
+            command,
+            "--artist", artist,
+            "--album", str(album),
+            "--with-model-prior",
+            "--apply",
+        ]
+        emit_progress(f"enrich:{command}", len(steps) + offset, total_steps, f"{artist} / {album}")
+        completed = subprocess.run(argv, capture_output=True, text=True, check=False)
+        if completed.returncode != 0:
+            return {
+                "ok": False,
+                "error": f"{command} failed: {_subprocess_error_excerpt(completed)}",
+                "step": command,
+                "album": str(album),
+            }
+        applied += _applied_count_from_hybrid_output(completed.stdout)
+        emit_log("INFO", f"{command} applied for {artist} / {album}", request_id=request_id)
+
+    return {"ok": True, "artist": artist, "releases": len(releases), "applied": applied}
+
+
+def _discover_artist_releases_for_hybrid(artist: str) -> list[dict[str, Any]]:
+    argv = [
+        sys.executable,
+        "scripts/ai_genre_enrich.py",
+        "discover",
+        "--artist",
+        artist,
+        "--dry-run",
+    ]
+    completed = subprocess.run(argv, capture_output=True, text=True, check=False)
+    if completed.returncode != 0:
+        return []
+    releases: list[dict[str, Any]] = []
+    for line in completed.stdout.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            payload = json.loads(line).get("payload") or {}
+        except json.JSONDecodeError:
+            continue
+        if payload.get("album") or payload.get("normalized_album"):
+            releases.append(payload)
+    return releases
+
+
+def _applied_count_from_hybrid_output(stdout: str) -> int:
+    for line in reversed(stdout.splitlines()):
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            return int(json.loads(line).get("applied_count") or 0)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return 0
+    return 0
+
+
+def _subprocess_error_excerpt(completed: subprocess.CompletedProcess) -> str:
+    text = (completed.stderr or completed.stdout or "").strip()
+    return text[:200]
 
 
 def handle_edit_genres(cmd_data: Dict[str, Any]) -> None:

@@ -45,7 +45,7 @@ class EditGenresDialog(QDialog):
             f"<b>{artist} / {album}</b><br>"
             "One genre per line. Lines you remove will be marked as user-removed; "
             "lines you add will be marked as user-added. Edits are preserved across "
-            "future re-runs of build-enriched.<br>"
+            "future hybrid enrichment runs.<br>"
             "<i>After saving, run <b>Tools → Build Artifacts</b> to apply changes "
             "to playlist generation.</i>"
         )

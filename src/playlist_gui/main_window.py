@@ -1332,7 +1332,7 @@ class MainWindow(QMainWindow):
 
     @Slot(str)
     def _on_enrich_requested(self, artist: str) -> None:
-        """Handle Enrich button press from EnrichmentPanel."""
+        """Handle hybrid enrichment button press from EnrichmentPanel."""
         if not self._worker_client:
             return
         if not self._worker_client.is_running():

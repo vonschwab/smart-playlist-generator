@@ -10,21 +10,34 @@ import pytest
 def test_handle_enrich_artist_runs_pipeline_steps_in_order():
     from src.playlist_gui.worker import handle_enrich_artist
 
-    completed = MagicMock()
-    completed.returncode = 0
-    completed.stdout = ""
-    completed.stderr = ""
+    def fake_run(argv, **kwargs):
+        completed = MagicMock()
+        completed.returncode = 0
+        completed.stderr = ""
+        if argv[2] == "discover":
+            completed.stdout = (
+                'Discovered 1 release(s).\n'
+                '{"payload":{"artist":"Duster","album":"Stratosphere","normalized_album":"stratosphere"}}\n'
+            )
+        elif argv[2] == "hybrid-enrich-one":
+            completed.stdout = '{"applied_count":2}\n'
+        else:
+            completed.stdout = ""
+        return completed
 
-    with patch("src.playlist_gui.worker.subprocess.run", return_value=completed) as mock_run:
+    with patch("src.playlist_gui.worker.subprocess.run", side_effect=fake_run) as mock_run:
         result = handle_enrich_artist(artist="Duster", request_id="req-1")
 
     assert result["ok"] is True
+    assert result["releases"] == 1
+    assert result["applied"] == 2
     expected_commands = [
         "ingest-local",
         "extract-lastfm",
         "extract-bandcamp",
         "classify-tags",
-        "build-enriched",
+        "discover",
+        "hybrid-enrich-one",
     ]
     actual_commands = []
     for call in mock_run.call_args_list:
@@ -32,6 +45,9 @@ def test_handle_enrich_artist_runs_pipeline_steps_in_order():
         # argv = [sys.executable, "scripts/ai_genre_enrich.py", "<command>", ...]
         actual_commands.append(argv[2])
     assert actual_commands == expected_commands
+    hybrid_argv = mock_run.call_args_list[-1].args[0]
+    assert "--with-model-prior" in hybrid_argv
+    assert "--apply" in hybrid_argv
 
 
 def test_handle_enrich_artist_stops_on_first_failure():

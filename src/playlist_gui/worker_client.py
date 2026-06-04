@@ -551,7 +551,7 @@ class WorkerClient(QObject):
         )
 
     def enrich_artist(self, artist: str, job_id: Optional[str] = None) -> Optional[str]:
-        """Send an enrich_artist command to the worker. Returns the request_id."""
+        """Send the hybrid enrich_artist command to the worker. Returns the request_id."""
         return self.send_command(
             {
                 "cmd": "enrich_artist",

@@ -1,4 +1,4 @@
-"""Panel showing per-artist genre enrichment status and triggering enrichment runs."""
+"""Panel showing per-artist hybrid genre enrichment status and triggering enrichment runs."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from src.ai_genre_enrichment.genre_resolver import EnrichedGenreResolver
 
 
 class EnrichmentPanel(QWidget):
-    """Compact panel: shows artist + enrichment status + Enrich button.
+    """Compact panel: shows artist + hybrid enrichment status + Enrich button.
 
     Signals:
         enrich_requested(str): User clicked Enrich. Argument is the artist name.
@@ -34,7 +34,7 @@ class EnrichmentPanel(QWidget):
         layout.addWidget(self.status_label)
 
         button_row = QHBoxLayout()
-        self.enrich_button = QPushButton("Enrich genres")
+        self.enrich_button = QPushButton("Run hybrid genre enrichment")
         self.enrich_button.clicked.connect(self._on_enrich_clicked)
         button_row.addStretch(1)
         button_row.addWidget(self.enrich_button)
@@ -48,7 +48,7 @@ class EnrichmentPanel(QWidget):
     def set_running(self, running: bool) -> None:
         self.enrich_button.setEnabled(not running)
         if running:
-            self.status_label.setText("Enriching...")
+            self.status_label.setText("Running hybrid enrichment...")
 
     def refresh(self) -> None:
         """Re-read enrichment status from the sidecar."""

@@ -79,5 +79,6 @@ def test_panel_disables_button_while_running(tmp_path, app):
     panel.set_artist("Duster")
     panel.set_running(True)
     assert not panel.enrich_button.isEnabled()
+    assert "hybrid" in panel.status_label.text().lower()
     panel.set_running(False)
     assert panel.enrich_button.isEnabled()
