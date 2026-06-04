@@ -112,7 +112,7 @@ Behavior:
 
 The **Generate workspace**, end-to-end:
 
-1. **Generate controls:** generation mode (artist / seeds / history; genre-mode exposure noted in §10), seed input with DB-backed autocomplete, track count, and the four mode-axis selectors (cohesion / genre / sonic / pace).
+1. **Generate controls:** generation mode (artist / seeds / history), seed input with DB-backed autocomplete, track count, and **all four mode-axis selectors (cohesion / genre / sonic / pace)** — including genre mode (see §10).
 2. **Submit** → FastAPI → worker; UI shows progress via WS.
 3. **Track table:** ranked tracks with index, title, artist, genre chips, transition score (`T`); sortable; row selection (selection wired now, actions in Phase 2).
 4. **Quality stats:** min / mean / p10 / p90 transition, weakest-edge callout, distinct-artist count (CLAUDE.md Layer 4 §21).
@@ -137,7 +137,7 @@ Schemas are validated with pydantic and exported to the front-end as TS types (s
 
 ## 10. Open questions / deferred decisions
 
-- **Genre-mode exposure.** Genre mode is CLI-only in the current GUI (roadmap Tier-2.4). Since we're rebuilding the front-end, we *can* expose all four axes from the start. **Proposed:** expose it in Phase 1 (the request model already supports it). Confirm at plan time.
+- **Genre-mode exposure — DECIDED: expose it in Phase 1.** Genre mode is CLI-only in the current GUI (roadmap Tier-2.4) and is *currently broken* upstream, but a fix is planned soon; the web GUI exposes all four axes from the start so the control is ready when the engine fix lands. The selector ships in Phase 1; correctness of the underlying mode is tracked separately, not a Phase 1 blocker.
 - **UI sans face:** Spline Sans vs Inter — decide at build (both loaded in mockups; trivial swap).
 - **Default port** `8770` — confirm no collision.
 - **Worker lifecycle on server shutdown** — ensure the subprocess is reaped cleanly when FastAPI stops (mirror audition-serve teardown).
