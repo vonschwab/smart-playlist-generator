@@ -8,7 +8,7 @@ import pytest
 pytest.importorskip("PySide6")
 
 from PySide6.QtCore import QObject, Signal
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QWidget
 
 
 @pytest.fixture(scope="module")
@@ -81,6 +81,16 @@ def test_window_runs_scoped_enrichment_commands(tmp_path, app):
         ("enrich_genres", "artist", "Duster", ""),
         ("enrich_genres", "album", "Duster", "Stratosphere"),
     ]
+
+
+def test_window_is_top_level_when_parented(tmp_path, app):
+    from src.playlist_gui.widgets.genre_enrichment_window import GenreEnrichmentWindow
+
+    parent = QWidget()
+    worker = FakeWorkerClient()
+    window = GenreEnrichmentWindow(worker, sidecar_db_path=str(tmp_path / "sidecar.db"), parent=parent)
+
+    assert window.isWindow()
 
 
 def test_window_loads_and_saves_selected_release_genres(tmp_path, app):

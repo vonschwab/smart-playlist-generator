@@ -8,6 +8,7 @@ from typing import Any, Iterable
 from PySide6.QtCore import Qt, Slot
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QDialog,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -23,7 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 
-class GenreEnrichmentWindow(QWidget):
+class GenreEnrichmentWindow(QDialog):
     """Dedicated GUI surface for hybrid genre enrichment and direct edits."""
 
     def __init__(
@@ -34,6 +35,7 @@ class GenreEnrichmentWindow(QWidget):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+        self.setModal(False)
         self._worker_client = worker_client
         self._sidecar_db_path = Path(sidecar_db_path)
         self._rows: list[dict[str, Any]] = []
