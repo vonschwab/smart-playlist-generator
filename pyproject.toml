@@ -36,9 +36,15 @@ gui = [
 ai = [
     "openai>=1.68.0",
 ]
+web = [
+    "fastapi>=0.100.0",
+    "uvicorn[standard]>=0.22.0",
+    "httpx>=0.24.0",
+]
 dev = [
     "pytest>=8.0",
     "pytest-qt>=4.4",
+    "pytest-asyncio>=0.23.0",
     "pytest-cov>=5.0",
     "ruff>=0.15",
     "mypy>=1.10",
@@ -121,6 +127,7 @@ warn_return_any = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"
 addopts = [
     "-ra",
     "--strict-markers",
