@@ -1382,6 +1382,99 @@ class SidecarStore:
                     ),
                 )
 
+    def replace_hybrid_enriched_genres_for_release(
+        self,
+        *,
+        release_key: str,
+        normalized_artist: str,
+        normalized_album: str,
+        album_id: str | None,
+        accepted_genres: list[dict[str, Any]],
+    ) -> int:
+        """Replace one release's sidecar enriched genres from a fused hybrid report."""
+        now = _now_iso()
+        rows: list[tuple[Any, ...]] = []
+        signature_sources: list[dict[str, str]] = []
+        final_genres: set[str] = set()
+
+        for item in accepted_genres:
+            genre = str(item.get("term") or "").strip().casefold()
+            if not genre or genre in ALWAYS_PRUNE_GENRES:
+                continue
+            basis = str(item.get("basis") or "hybrid_evidence")
+            confidence = float(item.get("confidence") or 0.0)
+            source_ref = f"hybrid:{basis}:{genre}"
+            rows.append((
+                release_key,
+                normalized_artist,
+                normalized_album,
+                album_id,
+                genre,
+                basis,
+                confidence,
+                None,
+                None,
+                source_ref,
+                "accepted",
+                STABILIZED_POLICY_VERSION,
+                now,
+            ))
+            final_genres.add(genre)
+            signature_sources.append({
+                "source_type": "hybrid_evidence",
+                "source_url": f"hybrid://{basis.replace('+', '/')}/{genre.replace(' ', '%20')}",
+            })
+
+        with self.connect() as conn:
+            conn.execute("DELETE FROM enriched_genres WHERE release_key = ?", (release_key,))
+            conn.execute("DELETE FROM enriched_genre_signatures WHERE release_key = ?", (release_key,))
+            if rows:
+                conn.executemany(
+                    """
+                    INSERT INTO enriched_genres (
+                        release_key, normalized_artist, normalized_album, album_id,
+                        genre, basis, confidence, source_tag_id, source_page_id,
+                        source_ref, status, enrichment_policy_version, added_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    rows,
+                )
+                override_row = conn.execute(
+                    "SELECT genres_add_json, genres_remove_json "
+                    "FROM ai_genre_user_overrides WHERE release_key = ?",
+                    (release_key,),
+                ).fetchone()
+                if override_row:
+                    final_genres -= set(json.loads(override_row["genres_remove_json"]))
+                    final_genres |= set(json.loads(override_row["genres_add_json"]))
+                signature = {
+                    "genres": sorted(final_genres),
+                    "sources": sorted(
+                        signature_sources,
+                        key=lambda item: (item["source_type"], item["source_url"]),
+                    ),
+                }
+                conn.execute(
+                    """
+                    INSERT INTO enriched_genre_signatures (
+                        release_key, normalized_artist, normalized_album, album_id,
+                        signature_json, enrichment_policy_version, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        release_key,
+                        normalized_artist,
+                        normalized_album,
+                        album_id,
+                        json.dumps(signature, ensure_ascii=False, sort_keys=True),
+                        STABILIZED_POLICY_VERSION,
+                        now,
+                    ),
+                )
+        return len(rows)
+
     def mark_check_complete(self, check_id: int) -> None:
         """Mark a release check as reviewed so it leaves the escalation queue."""
         with self.connect() as conn:

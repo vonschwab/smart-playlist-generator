@@ -285,6 +285,7 @@ def build_parser() -> argparse.ArgumentParser:
     hybrid_one = sub.add_parser("hybrid-enrich-one", help="Fuse source evidence and model prior into one album genre report")
     add_release_filters(hybrid_one)
     hybrid_one.add_argument("--dry-run", action="store_true")
+    hybrid_one.add_argument("--apply", action="store_true", help="Persist accepted hybrid genres into the sidecar enriched genre tables.")
     hybrid_one.add_argument("--include-provisional", action="store_true")
     hybrid_one.add_argument(
         "--with-model-prior",
@@ -1835,6 +1836,9 @@ def cmd_model_prior_report(args: argparse.Namespace) -> int:
 
 
 def cmd_hybrid_enrich_one(args: argparse.Namespace) -> int:
+    if args.dry_run and args.apply:
+        print("hybrid-enrich-one cannot combine --dry-run and --apply.")
+        return 2
     releases = _discover(args)
     if len(releases) != 1:
         print(f"Expected exactly one release, found {len(releases)}.")
@@ -1856,7 +1860,18 @@ def cmd_hybrid_enrich_one(args: argparse.Namespace) -> int:
         evidence=evidence,
         sparse_release=sparse_release,
     ).to_dict()
+    applied_count = 0
+    if args.apply:
+        applied_count = store.replace_hybrid_enriched_genres_for_release(
+            release_key=release.release_key,
+            normalized_artist=release.normalized_artist,
+            normalized_album=release.normalized_album,
+            album_id=release.album_id,
+            accepted_genres=report["accepted_genres"],
+        )
     report["dry_run"] = bool(args.dry_run)
+    report["applied"] = bool(args.apply)
+    report["applied_count"] = applied_count
     report["evidence_count"] = len(evidence)
     if model_prior_status is not None:
         report["model_prior_status"] = model_prior_status
