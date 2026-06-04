@@ -102,6 +102,10 @@ def fuse_hybrid_evidence(
     evidence: list[EvidenceTerm],
     sparse_release: bool,
 ) -> HybridGenreReport:
+    has_non_lastfm_release_evidence = any(
+        item.source_type not in LASTFM_SOURCE_TYPES and item.source_type != "model_prior"
+        for item in evidence
+    )
     grouped: dict[str, list[EvidenceTerm]] = {}
     for item in evidence:
         term = _decision_term(item)
@@ -118,16 +122,6 @@ def fuse_hybrid_evidence(
         sources = sorted({item.source_type for item in items})
         score = _score(items)
 
-        if all(source in LASTFM_SOURCE_TYPES for source in sources):
-            rejected.append(FusedGenreDecision(
-                term=term,
-                confidence=score,
-                basis="lastfm_only",
-                sources=sources,
-                reason="Last.fm-only signal is treated as noisy corroboration, not accepted evidence.",
-            ))
-            continue
-
         if _is_broad_parent_term(term):
             rejected.append(FusedGenreDecision(
                 term=term,
@@ -136,6 +130,25 @@ def fuse_hybrid_evidence(
                 sources=sources,
                 reason="Broad parent genre is kept out of automatic enrichment when more specific terms are available.",
             ))
+            continue
+
+        if all(source in LASTFM_SOURCE_TYPES for source in sources):
+            if has_non_lastfm_release_evidence and score >= 0.90:
+                provisional.append(FusedGenreDecision(
+                    term=term,
+                    confidence=score,
+                    basis="lastfm_tags+taxonomy",
+                    sources=sources,
+                    reason="Specific high-confidence Last.fm signal is usable provisionally when release evidence exists.",
+                ))
+            else:
+                rejected.append(FusedGenreDecision(
+                    term=term,
+                    confidence=score,
+                    basis="lastfm_only",
+                    sources=sources,
+                    reason="Last.fm-only signal is treated as noisy corroboration, not accepted evidence.",
+                ))
             continue
 
         if any(source in STRONG_SOURCE_TYPES for source in sources):
@@ -178,6 +191,16 @@ def fuse_hybrid_evidence(
             ))
             continue
 
+        if sources == ["model_prior"] and has_non_lastfm_release_evidence and score >= 0.70:
+            provisional.append(FusedGenreDecision(
+                term=term,
+                confidence=score,
+                basis="model_prior+taxonomy",
+                sources=sources,
+                reason="Confirmed release evidence exists; high-confidence model taxonomy signal is usable provisionally.",
+            ))
+            continue
+
         review.append(FusedGenreDecision(
             term=term,
             confidence=score,
@@ -198,7 +221,10 @@ def fuse_hybrid_evidence(
 def _decision_term(item: EvidenceTerm) -> str:
     if item.mapping_status not in {"mapped", "canonical", "alias"}:
         return ""
-    return item.canonical_slug or item.term.strip().casefold()
+    term = (item.canonical_slug or item.term).strip().casefold()
+    if term == "lofi":
+        return "lo-fi"
+    return term
 
 
 def _score(items: list[EvidenceTerm]) -> float:

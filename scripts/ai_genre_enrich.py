@@ -1862,12 +1862,15 @@ def cmd_hybrid_enrich_one(args: argparse.Namespace) -> int:
     ).to_dict()
     applied_count = 0
     if args.apply:
+        genres_to_apply = list(report["accepted_genres"])
+        if args.include_provisional:
+            genres_to_apply.extend(report["provisional_genres"])
         applied_count = store.replace_hybrid_enriched_genres_for_release(
             release_key=release.release_key,
             normalized_artist=release.normalized_artist,
             normalized_album=release.normalized_album,
             album_id=release.album_id,
-            accepted_genres=report["accepted_genres"],
+            accepted_genres=genres_to_apply,
         )
     report["dry_run"] = bool(args.dry_run)
     report["applied"] = bool(args.apply)

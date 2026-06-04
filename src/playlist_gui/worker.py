@@ -1932,7 +1932,7 @@ def handle_enrich_artist(cmd_data: Optional[Dict[str, Any]] = None, *, artist: s
             command,
             artist=artist,
             album=str(album),
-            extra_args=["--with-model-prior", "--apply"],
+            extra_args=["--with-model-prior", "--include-provisional", "--apply"],
         )
         emit_progress(f"enrich:{command}", len(steps) + offset, total_steps, f"{artist} / {album}")
         completed = subprocess.run(argv, capture_output=True, text=True, check=False)
@@ -2068,7 +2068,7 @@ def _enrich_single_release(
         command,
         artist=artist,
         album=album,
-        extra_args=["--with-model-prior", "--apply"],
+        extra_args=["--with-model-prior", "--include-provisional", "--apply"],
     )
     emit_progress(
         f"enrich:{command}",

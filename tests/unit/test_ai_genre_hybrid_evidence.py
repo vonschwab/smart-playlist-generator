@@ -48,6 +48,53 @@ def test_model_only_high_confidence_sparse_release_is_provisional():
     assert report.provisional_genres[0].basis == "model_prior+taxonomy"
 
 
+def test_model_only_high_confidence_with_release_evidence_is_provisional():
+    report = fuse_hybrid_evidence(
+        release_key="mount eerie::sauna",
+        evidence=[
+            EvidenceTerm(term="indie folk", source_type="local_metadata", confidence=0.95),
+            EvidenceTerm(term="indie folk", source_type="lastfm_tags", confidence=0.95),
+            EvidenceTerm(term="ambient", source_type="model_prior", confidence=0.84),
+            EvidenceTerm(term="drone", source_type="model_prior", confidence=0.78),
+        ],
+        sparse_release=False,
+    )
+
+    assert [item.term for item in report.accepted_genres] == ["indie folk"]
+    assert [item.term for item in report.provisional_genres] == ["ambient", "drone"]
+
+
+def test_specific_lastfm_only_terms_are_provisional_when_release_evidence_exists():
+    report = fuse_hybrid_evidence(
+        release_key="mount eerie::sauna",
+        evidence=[
+            EvidenceTerm(term="indie folk", source_type="local_metadata", confidence=0.95),
+            EvidenceTerm(term="avant-folk", source_type="lastfm_tags", confidence=0.95),
+            EvidenceTerm(term="drone", source_type="lastfm_tags", confidence=0.95),
+            EvidenceTerm(term="folk", source_type="lastfm_tags", confidence=0.95),
+        ],
+        sparse_release=False,
+    )
+
+    assert [item.term for item in report.accepted_genres] == []
+    assert [item.term for item in report.provisional_genres] == ["avant-folk", "drone"]
+    assert [item.term for item in report.rejected_noise] == ["folk"]
+
+
+def test_lastfm_lofi_alias_collapses_to_lo_fi():
+    report = fuse_hybrid_evidence(
+        release_key="mount eerie::sauna",
+        evidence=[
+            EvidenceTerm(term="indie folk", source_type="local_metadata", confidence=0.95),
+            EvidenceTerm(term="lo-fi", source_type="lastfm_tags", confidence=0.95),
+            EvidenceTerm(term="lofi", source_type="lastfm_tags", confidence=0.95),
+        ],
+        sparse_release=False,
+    )
+
+    assert [item.term for item in report.provisional_genres] == ["lo-fi"]
+
+
 def test_local_and_model_can_accept_when_no_stronger_conflict():
     report = fuse_hybrid_evidence(
         release_key="test::album",

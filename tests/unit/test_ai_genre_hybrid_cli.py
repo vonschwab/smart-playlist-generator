@@ -191,6 +191,76 @@ def test_hybrid_enrich_one_apply_persists_accepted_signature(tmp_path: Path, cap
     assert json.loads(signature_row["signature_json"])["genres"] == ["slowcore"]
 
 
+def test_hybrid_enrich_one_apply_can_include_provisional_lastfm_terms(tmp_path: Path, capsys):
+    from scripts import ai_genre_enrich
+    from src.ai_genre_enrichment.storage import SidecarStore
+
+    metadata_db = tmp_path / "metadata.db"
+    with sqlite3.connect(metadata_db) as conn:
+        conn.execute("CREATE TABLE tracks(track_id TEXT, artist TEXT, album TEXT, album_id TEXT, title TEXT, year INTEGER)")
+        conn.execute("CREATE TABLE artist_genres(artist TEXT, genre TEXT, source TEXT)")
+        conn.execute("CREATE TABLE album_genres(album_id TEXT, genre TEXT, source TEXT)")
+        conn.execute("CREATE TABLE track_genres(track_id TEXT, genre TEXT, source TEXT, weight REAL)")
+        conn.execute("INSERT INTO tracks VALUES ('t1', 'Mount Eerie', 'Sauna', 'a1', 'Sauna', 2015)")
+
+    sidecar = tmp_path / "sidecar.db"
+    store = SidecarStore(sidecar)
+    store.initialize()
+    local_page_id = store.upsert_source_page(
+        release_key="mount eerie::sauna",
+        normalized_artist="mount eerie",
+        normalized_album="sauna",
+        album_id="a1",
+        source_url="local://metadata.db",
+        source_type="local_metadata",
+        identity_status="confirmed",
+        identity_confidence=1.0,
+        evidence_summary="Local metadata tags.",
+    )
+    store.replace_source_tags(local_page_id, ["indie folk"])
+    store.classify_source_tags(local_page_id)
+    lastfm_page_id = store.upsert_source_page(
+        release_key="mount eerie::sauna",
+        normalized_artist="mount eerie",
+        normalized_album="sauna",
+        album_id="a1",
+        source_url="lastfm://artist/mount eerie/album/sauna",
+        source_type="lastfm_tags",
+        identity_status="confirmed",
+        identity_confidence=0.95,
+        evidence_summary="Last.fm tags.",
+    )
+    store.replace_source_tags(lastfm_page_id, ["indie folk", "avant-folk", "drone", "folk"])
+    store.classify_source_tags(lastfm_page_id)
+
+    rc = ai_genre_enrich.main([
+        "--metadata-db", str(metadata_db),
+        "--sidecar-db", str(sidecar),
+        "hybrid-enrich-one",
+        "--artist", "Mount Eerie",
+        "--album", "Sauna",
+        "--include-provisional",
+        "--apply",
+    ])
+
+    assert rc == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["applied_count"] == 3
+    assert [item["term"] for item in output["accepted_genres"]] == ["indie folk"]
+    assert [item["term"] for item in output["provisional_genres"]] == ["avant-folk", "drone"]
+
+    with sqlite3.connect(sidecar) as conn:
+        genres = [
+            row[0]
+            for row in conn.execute(
+                "SELECT genre FROM enriched_genres WHERE release_key = ? ORDER BY genre",
+                ("mount eerie::sauna",),
+            )
+        ]
+
+    assert genres == ["avant-folk", "drone", "indie folk"]
+
+
 def test_hybrid_enrich_one_rejects_dry_run_apply_combo(tmp_path: Path, capsys):
     from scripts import ai_genre_enrich
 
