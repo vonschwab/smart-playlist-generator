@@ -51,9 +51,10 @@ React (browser)  ⟷  FastAPI  ⟷  existing JobManager / worker subprocess  ⟷
    WS:    stream job progress, log lines, status transitions
 ```
 
-- FastAPI is **serialization glue**, not logic. It translates HTTP/WS ⟷ the existing job system.
-- **Generation runs in the worker subprocess** exactly as today (confirmed decision: it's already wired, gives crash isolation, matches the job model). FastAPI submits to `JobManager` and relays events.
-- Request bodies map ~1:1 to `GeneratePlaylistRequest`. Runtime config is built with the existing `policy.derive_runtime_config` / `merge_overrides` — the web layer does not reimplement config derivation.
+- FastAPI is **serialization glue**, not logic. It translates HTTP/WS ⟷ the worker.
+- **Generation runs in the worker subprocess** exactly as today (confirmed decision: it's already wired, gives crash isolation, matches the job model). The worker (`src/playlist_gui/worker.py`) speaks a framework-agnostic **NDJSON-over-stdio protocol** (commands on stdin, `{type: log|progress|result|error|done}` events on stdout, correlated by `request_id`/`job_id`). The existing `WorkerClient`/`JobManager` are **Qt-bound** (`QProcess`, `QObject`, Signal/Slot) and cannot run inside an asyncio server, so the adapter ships a **new asyncio NDJSON client** that launches the same worker module and speaks the same protocol. We reuse the worker process, its protocol, and the shared `GeneratePlaylistRequest` model — not the Qt plumbing.
+- Request bodies map ~1:1 to `GeneratePlaylistRequest` (already a framework-agnostic dataclass in `src/playlist/request_models.py`, with `to_worker_args()` and `validation_error()`). The web layer reuses it directly rather than reimplementing config derivation.
+- The playlist `result` event carries `playlist.tracks[]` (position, artist, title, album, genres, sonic/genre similarity + components, file_path) and `playlist.metrics` (mean_transition, min_transition, distinct_artists). Phase 1 surfaces these; p10/p90 are shown only if present in a future metrics payload.
 - The bottom **Logs** panel is fed by the WebSocket log stream (the same events the Qt log panel consumes today).
 
 ### Coexistence & launch
