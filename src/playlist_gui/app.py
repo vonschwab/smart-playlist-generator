@@ -58,6 +58,12 @@ def check_dependencies():
 
 def main():
     """Main entry point for the GUI application."""
+    import sys as _sys
+    print(
+        "[DEPRECATED] The PySide6 desktop GUI is no longer actively maintained. "
+        "Use the browser GUI instead:\n    python tools/serve_web.py\n",
+        file=_sys.stderr,
+    )
     setup_environment()
     check_dependencies()
     emitter, log_buffer, log_path = setup_gui_logging()

@@ -41,8 +41,9 @@ Right-click any track in the playlist table → **Blacklist this artist** or **B
 
 ```bash
 # 1. Install (Python 3.11+ required)
-pip install -e .[gui]        # GUI + generation
-pip install -e .[gui,dev]    # + pytest, ruff, mypy, pre-commit
+pip install -e .[web]        # browser GUI + generation (recommended)
+pip install -e .[web,dev]    # contributors: + pytest, ruff, mypy, pre-commit
+# Legacy PySide6 desktop GUI (deprecated): pip install -e .[gui]
 
 # 2. Configure
 cp config.example.yaml config.yaml
@@ -74,8 +75,9 @@ python main_app.py --artist "Slowdive" --tracks 30
 python main_app.py --seeds "Alison,Lost and Found,Endless Summer" --tracks 30
 python main_app.py --genre "shoegaze" --tracks 30
 
-# 10. Launch GUI
-python -m playlist_gui.app
+# 10. Launch the browser GUI (http://127.0.0.1:8770)
+python tools/serve_web.py
+# Legacy PySide6 desktop GUI (deprecated): python -m playlist_gui.app
 ```
 
 See [docs/GOLDEN_COMMANDS.md](docs/GOLDEN_COMMANDS.md) for the full command reference.

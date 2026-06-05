@@ -9,7 +9,7 @@ For the listener-facing feature catalog, see `README.md`. Newest, most authorita
 - **Test:** `pytest`. Markers: `smoke`, `integration`, `golden`, `gui`, `slow`. Use `-m "not slow"` for fast feedback.
 - **Lint / types:** `ruff check` (E, F rules) and `mypy`. The `extend-ignore` list and `[[tool.mypy.overrides]]` modules are intentional — each entry has a comment. Don't relax without flagging.
 - **CLI:** `python main_app.py --artist "..." --tracks 30`. Full reference: `docs/GOLDEN_COMMANDS.md`.
-- **GUI:** `python -m playlist_gui.app`. Framework is **PySide6** (older docs may say PyQt6 — `pyproject.toml` is truth).
+- **GUI:** `python tools/serve_web.py` (browser GUI, default port 8770) — the maintained front-end. The legacy PySide6 app (`python -m playlist_gui.app`, install `pip install -e .[gui]`) is deprecated.
 - **Doctor:** `python tools/doctor.py`.
 
 ## Key paths
