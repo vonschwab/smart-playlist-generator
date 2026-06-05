@@ -50,3 +50,14 @@ def test_post_blacklist_artist_ok():
         resp = client.post("/api/blacklist/artist", json={"artist": "Coldplay"})
         assert resp.status_code == 200
         assert resp.json()["ok"] is True
+
+
+def test_generate_records_created_at_and_params():
+    with TestClient(create_app(worker_cmd=FAKE)) as client:
+        resp = client.post("/api/generate", json={"mode": "artist", "artist": "Acetone", "tracks": 5})
+        assert resp.status_code == 200
+        job_id = resp.json()["job_id"]
+        detail = client.get(f"/api/jobs/{job_id}").json()
+        assert detail["created_at"] is not None
+        assert detail["request_params"]["artist"] == "Acetone"
+        assert detail["request_params"]["tracks"] == 5

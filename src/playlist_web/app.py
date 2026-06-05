@@ -68,7 +68,7 @@ def create_app(worker_cmd: Optional[list[str]] = None, config_path: str = DEFAUL
         err = req.validation_error()
         if err:
             raise HTTPException(status_code=422, detail=err)
-        job_id = registry.create()
+        job_id = registry.create(request_params=body.model_dump())
         ui = UIStateModel(
             mode=body.mode,  # type: ignore[arg-type]
             cohesion_mode=body.cohesion_mode or "dynamic",  # type: ignore[arg-type]

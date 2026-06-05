@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 import uuid
 from collections import OrderedDict, deque
 from typing import Optional
@@ -12,13 +13,15 @@ from .schemas import JobOut, PlaylistOut
 class _JobState:
     """Internal mutable state for a job."""
 
-    def __init__(self, job_id: str, max_log_lines: int):
+    def __init__(self, job_id: str, max_log_lines: int, request_params: Optional[dict] = None):
         self.job_id = job_id
         self.status = "pending"
         self.stage = ""
         self.error: Optional[str] = None
         self.playlist: Optional[PlaylistOut] = None
         self.logs: deque[str] = deque(maxlen=max_log_lines)
+        self.created_at: float = time.time()
+        self.request_params: dict = request_params or {}
 
 
 class JobRegistry:
@@ -35,14 +38,10 @@ class JobRegistry:
         self._max_log_lines = max_log_lines
         self._max_jobs = max_jobs
 
-    def create(self) -> str:
-        """Create a new job and return its ID.
-
-        Returns:
-            A new UUID-based job ID.
-        """
+    def create(self, request_params: Optional[dict] = None) -> str:
+        """Create a new job and return its ID."""
         job_id = str(uuid.uuid4())
-        self._jobs[job_id] = _JobState(job_id, self._max_log_lines)
+        self._jobs[job_id] = _JobState(job_id, self._max_log_lines, request_params)
         self._jobs[job_id].status = "running"
         # Evict oldest job if we exceed max_jobs
         while len(self._jobs) > self._max_jobs:
@@ -84,6 +83,8 @@ class JobRegistry:
             stage=job.stage,
             error=job.error,
             playlist=job.playlist,
+            created_at=job.created_at,
+            request_params=job.request_params,
         )
 
     def get(self, job_id: str) -> Optional[JobOut]:

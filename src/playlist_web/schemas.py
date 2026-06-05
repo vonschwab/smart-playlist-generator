@@ -133,6 +133,8 @@ class JobOut(BaseModel):
     stage: str = ""
     error: Optional[str] = None
     playlist: Optional[PlaylistOut] = None
+    created_at: Optional[float] = None
+    request_params: Optional[dict] = None
 
 
 class CandidateOut(BaseModel):
