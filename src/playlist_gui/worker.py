@@ -1350,6 +1350,7 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                     "sonic_similarity_components": sonic_comp,
                     "genre_similarity_components": genre_comp,
                     "genres": genres,
+                    "transition_score": edge.get("T"),
                 })
 
             playlist_result = {
@@ -1364,6 +1365,8 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                 playlist_result["metrics"] = {
                     "mean_transition": metrics.get('mean_transition'),
                     "min_transition": metrics.get('min_transition'),
+                    "p10_transition": metrics.get('p10_transition'),
+                    "p90_transition": metrics.get('p90_transition'),
                     "distinct_artists": metrics.get('distinct_artists'),
                 }
 

@@ -28,12 +28,15 @@ def main():
                 "tracks": [
                     {"position": 0, "rating_key": "k0", "artist": "Acetone", "title": "Sundown",
                      "album": "Cindy", "duration_ms": 200000, "file_path": "/0.flac",
-                     "sonic_similarity": 0.91, "genre_similarity": 0.8, "genres": ["slowcore"]},
+                     "sonic_similarity": 0.91, "genre_similarity": 0.8, "genres": ["slowcore"],
+                     "transition_score": 0.62},
                     {"position": 1, "rating_key": "k1", "artist": "Mazzy Star", "title": "Taxi",
                      "album": "So Tonight", "duration_ms": 210000, "file_path": "/1.flac",
-                     "sonic_similarity": 0.87, "genre_similarity": 0.7, "genres": ["dreampop"]},
+                     "sonic_similarity": 0.87, "genre_similarity": 0.7, "genres": ["dreampop"],
+                     "transition_score": None},
                 ],
-                "metrics": {"mean_transition": 0.89, "min_transition": 0.87, "distinct_artists": 2},
+                "metrics": {"mean_transition": 0.89, "min_transition": 0.87,
+                            "p10_transition": 0.62, "p90_transition": 0.91, "distinct_artists": 2},
             }})
             emit({"type": "progress", "stage": "complete", "current": 100, "total": 100, "detail": "Done", "request_id": rid, "job_id": jid})
             emit({"type": "done", "cmd": "generate_playlist", "ok": True, "detail": "Generated 2 tracks", "request_id": rid, "job_id": jid})
