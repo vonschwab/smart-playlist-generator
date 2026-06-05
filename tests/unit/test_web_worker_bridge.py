@@ -12,7 +12,9 @@ FAKE = [sys.executable, "tests/fixtures/fake_worker.py"]
 @pytest.mark.asyncio
 async def test_bridge_streams_events_for_generate():
     events = []
-    bridge = WorkerBridge(worker_cmd=FAKE, on_event=lambda e: events.append(e) or asyncio.sleep(0))
+    async def collect(e):
+        events.append(e)
+    bridge = WorkerBridge(worker_cmd=FAKE, on_event=collect)
     await bridge.start()
     assert bridge.running
     rid = await bridge.submit({"cmd": "generate_playlist", "job_id": "j1",
@@ -32,7 +34,9 @@ async def test_bridge_streams_events_for_generate():
 
 @pytest.mark.asyncio
 async def test_bridge_rejects_concurrent_submit():
-    bridge = WorkerBridge(worker_cmd=FAKE, on_event=lambda e: asyncio.sleep(0))
+    async def noop(e):
+        pass
+    bridge = WorkerBridge(worker_cmd=FAKE, on_event=noop)
     await bridge.start()
     await bridge.submit({"cmd": "generate_playlist", "job_id": "j1", "args": {}})
     with pytest.raises(BridgeBusy):
