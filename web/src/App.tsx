@@ -56,7 +56,7 @@ export default function App() {
 
   const handleRerun = useCallback((params: GenerateRequestBody) => {
     setMode((params.mode as Mode) ?? "artist");
-    setRerunValues(params);
+    setRerunValues({ ...params });
   }, [setMode]);
 
   const openMenu = useCallback((track: TrackOut, index: number, x: number, y: number) => {
