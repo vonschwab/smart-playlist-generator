@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test";
 
 async function generate(page: Page) {
   await page.goto("/");
-  await page.getByPlaceholder("Acetone, Mazzy Star").fill("Acetone");
+  await page.getByTestId("seed-input").fill("Acetone");
   await page.getByRole("button", { name: /Generate/ }).click();
   await expect(page.getByTestId("track-table")).toBeVisible({ timeout: 15000 });
 }
