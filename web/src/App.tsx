@@ -6,6 +6,8 @@ import { TrackTable } from "./components/TrackTable";
 import { QualityStats } from "./components/QualityStats";
 import { LogPanel } from "./components/LogPanel";
 import { JobsPanel } from "./components/JobsPanel";
+import { PlayerProvider } from "./contexts/PlayerContext";
+import { MiniPlayer } from "./components/MiniPlayer";
 import { api } from "./lib/api";
 import { useWorkerEvents } from "./lib/ws";
 import type { GenerateRequestBody, JobOut, PlaylistOut, WsEvent } from "./lib/types";
@@ -42,25 +44,28 @@ export default function App() {
   }
 
   return (
-    <Shell
-      topBar={
-        <>
-          <div className="font-bold text-sm"><span className="text-accent">◆</span> Playlist Generator</div>
-          {error && <div className="text-danger text-xs">{error}</div>}
-        </>
-      }
-      jobs={<JobsPanel jobs={jobs} onSelect={(j) => setPlaylist(j.playlist ?? null)} />}
-      center={
-        <div className="h-full flex flex-col overflow-hidden">
-          <GenerateControls onSubmit={submit} busy={busy} />
-          <QualityStats metrics={playlist?.metrics} count={playlist?.track_count ?? 0} />
-          <div className="flex-1 overflow-auto">
-            <TrackTable tracks={playlist?.tracks ?? []} />
+    <PlayerProvider>
+      <Shell
+        topBar={
+          <>
+            <div className="font-bold text-sm"><span className="text-accent">◆</span> Playlist Generator</div>
+            {error && <div className="text-danger text-xs">{error}</div>}
+          </>
+        }
+        jobs={<JobsPanel jobs={jobs} onSelect={(j) => setPlaylist(j.playlist ?? null)} />}
+        center={
+          <div className="h-full flex flex-col overflow-hidden">
+            <GenerateControls onSubmit={submit} busy={busy} />
+            <QualityStats metrics={playlist?.metrics} count={playlist?.track_count ?? 0} />
+            <div className="flex-1 overflow-auto">
+              <TrackTable tracks={playlist?.tracks ?? []} />
+            </div>
           </div>
-        </div>
-      }
-      right={<AdvancedPanel />}
-      logs={<LogPanel lines={logs} />}
-    />
+        }
+        right={<AdvancedPanel />}
+        logs={<LogPanel lines={logs} />}
+      />
+      <MiniPlayer />
+    </PlayerProvider>
   );
 }
