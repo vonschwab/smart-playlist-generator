@@ -132,6 +132,40 @@ def create_app(worker_cmd: Optional[list[str]] = None, config_path: str = DEFAUL
             raw=result.get("candidates", []),
         )
 
+    @app.post("/api/blacklist")
+    async def blacklist(body: BlacklistRequest) -> dict:
+        if body.scope:
+            if body.scope not in ("album", "artist"):
+                raise HTTPException(status_code=422, detail="scope must be 'album' or 'artist'")
+            if body.scope == "album" and not body.artist:
+                raise HTTPException(status_code=422, detail="album scope requires 'artist'")
+            cmd = {
+                "cmd": "blacklist_scope_set",
+                "base_config_path": config_path,
+                "overrides": {},
+                "scope": body.scope,
+                "value": body.value,
+                "artist": body.artist,
+                "enabled": body.enabled,
+            }
+        else:
+            if not body.track_ids:
+                raise HTTPException(status_code=422, detail="track_ids required when no scope given")
+            cmd = {
+                "cmd": "blacklist_set",
+                "base_config_path": config_path,
+                "overrides": {},
+                "track_ids": body.track_ids,
+                "value": body.enabled,
+            }
+        try:
+            result = await bridge.command(cmd)
+        except BridgeBusy:
+            raise HTTPException(status_code=409, detail="A generation is in progress — try again when it finishes.")
+        except WorkerCommandError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        return {"ok": True, **result}
+
     @app.websocket("/ws")
     async def ws_endpoint(ws: WebSocket) -> None:
         await ws.accept()

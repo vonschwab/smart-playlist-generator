@@ -52,6 +52,15 @@ def main():
                            "duration_ms": 200000, "file_path": "/9.flac"},
                       ]})
                 emit({"type": "done", "cmd": name, "ok": True, "detail": "Found 1", "request_id": rid, "job_id": jid})
+        elif name == "blacklist_set":
+            tids = cmd.get("track_ids", []) or []
+            emit({"type": "result", "result_type": "blacklist_set", "request_id": rid, "job_id": jid,
+                  "track_ids": tids, "value": cmd.get("value", True), "updated": len(tids)})
+            emit({"type": "done", "cmd": name, "ok": True, "detail": f"Updated {len(tids)}", "request_id": rid, "job_id": jid})
+        elif name == "blacklist_scope_set":
+            emit({"type": "result", "result_type": "blacklist_scope_set", "request_id": rid, "job_id": jid,
+                  "scope": cmd.get("scope"), "value": cmd.get("value"), "enabled": cmd.get("enabled", True), "track_ids": []})
+            emit({"type": "done", "cmd": name, "ok": True, "detail": "scope set", "request_id": rid, "job_id": jid})
         else:
             emit({"type": "error", "message": f"unknown cmd {name}", "request_id": rid, "job_id": jid})
             emit({"type": "done", "cmd": name or "?", "ok": False, "request_id": rid, "job_id": jid})

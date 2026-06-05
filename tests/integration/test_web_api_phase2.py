@@ -110,3 +110,23 @@ def test_replace_suggestions_pier_rejected():
     with TestClient(create_app(worker_cmd=FAKE)) as client:
         resp = client.post("/api/replace_suggestions", json={"job_id": "j1", "position": 0})
         assert resp.status_code == 422
+
+
+def test_blacklist_track():
+    with TestClient(create_app(worker_cmd=FAKE)) as client:
+        resp = client.post("/api/blacklist", json={"track_ids": ["k0", "k1"], "enabled": True})
+        assert resp.status_code == 200
+        assert resp.json()["updated"] == 2
+
+
+def test_blacklist_album_scope():
+    with TestClient(create_app(worker_cmd=FAKE)) as client:
+        resp = client.post("/api/blacklist", json={"scope": "album", "value": "Leisure", "artist": "Marbled Eye"})
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+
+
+def test_blacklist_album_scope_requires_artist():
+    with TestClient(create_app(worker_cmd=FAKE)) as client:
+        resp = client.post("/api/blacklist", json={"scope": "album", "value": "Leisure"})
+        assert resp.status_code == 422
