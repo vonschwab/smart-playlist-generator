@@ -20,19 +20,9 @@ SOURCE_WEIGHTS: dict[str, float] = {
 LASTFM_SOURCE_TYPES = {"lastfm_tags", "lastfm"}
 STRONG_SOURCE_TYPES = {"bandcamp_release", "official_release"}
 MEDIUM_SOURCE_TYPES = {"local_metadata", "discogs", "musicbrainz"}
-BROAD_PARENT_TERMS = {
-    "alternative",
-    "alternative rock",
-    "electronic",
-    "experimental",
-    "folk",
-    "indie",
-    "indie rock",
-    "instrumental",
-    "pop",
-    "r&b",
-    "rock",
-    "singer-songwriter",
+REJECTED_NOISE_TERMS = {
+    "indie": "Standalone indie is a scene/context marker, not a usable genre assignment.",
+    "pop/rock": "Fake retail/store-section bucket; do not accept, infer, or split without independent evidence.",
 }
 
 
@@ -125,26 +115,18 @@ def fuse_hybrid_evidence(
         sources = sorted({item.source_type for item in items})
         score = _score(items)
 
-        if _is_broad_parent_term(term):
+        rejected_reason = _rejected_noise_reason(term)
+        if rejected_reason is not None:
             rejected.append(FusedGenreDecision(
                 term=term,
                 confidence=score,
                 basis=_basis(sources),
                 sources=sources,
-                reason="Broad parent genre is kept out of automatic enrichment when more specific terms are available.",
+                reason=rejected_reason,
             ))
             continue
 
         if all(source in LASTFM_SOURCE_TYPES for source in sources):
-            if all(_is_ai_adjudicated(item) for item in items):
-                rejected.append(FusedGenreDecision(
-                    term=term,
-                    confidence=score,
-                    basis="lastfm_only",
-                    sources=sources,
-                    reason="Last.fm-only AI-adjudicated unknown tag is treated as noise until corroborated or human-reviewed.",
-                ))
-                continue
             if has_non_lastfm_release_evidence and score >= 0.90:
                 provisional.append(FusedGenreDecision(
                     term=term,
@@ -154,12 +136,12 @@ def fuse_hybrid_evidence(
                     reason="Specific high-confidence Last.fm signal is usable provisionally when release evidence exists.",
                 ))
             else:
-                rejected.append(FusedGenreDecision(
+                review.append(FusedGenreDecision(
                     term=term,
                     confidence=score,
                     basis="lastfm_only",
                     sources=sources,
-                    reason="Last.fm-only signal is treated as noisy corroboration, not accepted evidence.",
+                    reason="Last.fm-only mapped signal needs review unless corroborated by release evidence.",
                 ))
             continue
 
@@ -270,8 +252,8 @@ def _basis(sources: list[str]) -> str:
     return "+".join(ordered + extra + ["taxonomy"])
 
 
-def _is_broad_parent_term(term: str) -> bool:
-    return term.casefold() in BROAD_PARENT_TERMS
+def _rejected_noise_reason(term: str) -> str | None:
+    return REJECTED_NOISE_TERMS.get(term.casefold())
 
 
 def _is_ai_adjudicated(item: EvidenceTerm) -> bool:

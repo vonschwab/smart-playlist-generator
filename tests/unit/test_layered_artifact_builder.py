@@ -79,14 +79,14 @@ def test_build_layered_genre_matrices_from_sidecar_assignments(tmp_path):
     )
 
     assert matrices.X_genre_leaf_idf.shape == (3, 2)
-    assert matrices.X_genre_family.shape == (3, 2)
+    assert matrices.X_genre_family.shape == (3, 3)
     assert matrices.X_facet.shape == (3, 1)
     assert matrices.X_genre_bridge.shape[0] == 3
 
     assert matrices.genre_leaf_vocab == ("jangle pop", "slowcore")
-    assert matrices.genre_family_vocab == ("pop", "rock")
+    assert matrices.genre_family_vocab == ("indie/alternative", "pop", "rock")
     assert matrices.facet_vocab == ("lo-fi",)
-    assert matrices.taxonomy_version == "layered-genre-graph-v0"
+    assert matrices.taxonomy_version == "0.1.1-layered-seed-reviewed"
     assert len(matrices.graph_fingerprint) == 64
 
     jangle_idx = matrices.genre_leaf_vocab.index("jangle pop")
@@ -210,9 +210,9 @@ def test_build_ds_artifacts_can_emit_layered_vectors_when_requested(tmp_path):
     assert "X_genre_bridge" in artifact.files
     assert "X_facet" in artifact.files
     assert artifact["genre_leaf_vocab"].tolist() == ["jangle pop"]
-    assert artifact["genre_family_vocab"].tolist() == ["pop", "rock"]
+    assert artifact["genre_family_vocab"].tolist() == ["indie/alternative", "pop", "rock"]
     assert artifact["facet_vocab"].tolist() == ["lo-fi"]
-    assert artifact["genre_graph_taxonomy_version"].item() == "layered-genre-graph-v0"
+    assert artifact["genre_graph_taxonomy_version"].item() == "0.1.1-layered-seed-reviewed"
     assert len(str(artifact["genre_graph_sidecar_fingerprint"].item())) == 64
 
 

@@ -52,10 +52,11 @@ def test_materialize_layered_assignments_observes_leaf_and_infers_parents(tmp_pa
             )
         ]
 
-    assert summary.genre_assignment_count == 4
+    assert summary.genre_assignment_count == 5
     assert {(row["genre_id"], row["assignment_layer"]) for row in rows} == {
         ("jangle_pop", "observed_leaf"),
         ("indie_pop", "inferred_parent"),
+        ("indie_alternative", "inferred_family"),
         ("pop", "inferred_family"),
         ("rock", "inferred_family"),
     }

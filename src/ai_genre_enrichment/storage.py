@@ -2014,6 +2014,18 @@ class SidecarStore:
     def upsert_layered_taxonomy(self, taxonomy: Any) -> dict[str, int]:
         """Persist a loaded layered taxonomy into the sidecar graph tables."""
         with self.connect() as conn:
+            # The reviewed taxonomy can rename ids while keeping canonical names.
+            # Replace the sidecar graph registry as a unit to avoid merging stale
+            # seed versions into the active taxonomy.
+            for table in (
+                "genre_graph_aliases",
+                "genre_graph_edges",
+                "genre_graph_bridge_rules",
+                "genre_graph_rejected_terms",
+                "genre_graph_canonical_facets",
+                "genre_graph_canonical_genres",
+            ):
+                conn.execute(f"DELETE FROM {table}")
             conn.executemany(
                 """
                 INSERT INTO genre_graph_canonical_genres (
@@ -2051,6 +2063,7 @@ class SidecarStore:
                 [
                     (alias.alias, alias.canonical_genre_id, alias.source, alias.confidence)
                     for alias in taxonomy.aliases
+                    if getattr(alias, "target_kind", "genre") == "genre"
                 ],
             )
             conn.executemany(
@@ -2137,7 +2150,7 @@ class SidecarStore:
             )
             return {
                 "genre_count": len(taxonomy.genres),
-                "alias_count": len(taxonomy.aliases),
+                "alias_count": len([alias for alias in taxonomy.aliases if getattr(alias, "target_kind", "genre") == "genre"]),
                 "edge_count": len(taxonomy.edges),
                 "facet_count": len(taxonomy.facets),
                 "bridge_rule_count": len(taxonomy.bridge_rules),

@@ -1,0 +1,92 @@
+version: layered-genre-smoke-v0
+fixtures:
+  - id: duster_stratosphere
+    artist: Duster
+    album: Stratosphere
+    expected_leaf_terms:
+      - slowcore
+      - post-rock
+      - shoegaze
+      - dream pop
+      - space rock
+      - slacker rock
+    expected_broad_terms:
+      - rock
+      - indie rock
+    expected_rejected_terms:
+      - indie
+      - pop/rock
+    forbidden_inferred_terms:
+      - pop
+    acceptable_review_terms:
+      - space rock revival
+    fail_zero_assignments_when_evidence_exists: true
+
+  - id: mount_eerie_sauna
+    artist: Mount Eerie
+    album: Sauna
+    expected_leaf_terms:
+      - indie folk
+    expected_broad_terms:
+      - folk
+    acceptable_review_terms:
+      - psychedelic folk
+      - singer-songwriter
+      - lo-fi
+      - drone
+      - avant-garde
+    fail_zero_assignments_when_evidence_exists: true
+    notes: Regression target for complex albums collapsing to too few tags.
+
+  - id: ada_lea_one_hand
+    artist: Ada Lea
+    album: One Hand on the Steering Wheel the Other Sewing a Garden
+    expected_rejected_terms:
+      - mixtaperoom
+      - rare sad girl
+      - rare sads
+    acceptable_review_terms:
+      - folk rock
+      - singer-songwriter
+      - canada
+    fail_zero_assignments_when_evidence_exists: true
+
+  - id: stereolab_dots_and_loops
+    artist: Stereolab
+    album: Dots and Loops
+    expected_leaf_terms:
+      - indie pop
+    acceptable_review_terms:
+      - art pop
+      - avant-garde pop
+      - experimental pop
+      - experimental rock
+      - krautrock
+      - noise pop
+      - indietronica
+      - electronica
+    expected_rejected_terms:
+      - pop/rock
+    forbidden_accepted_terms:
+      - pop/rock
+    fail_zero_assignments_when_evidence_exists: true
+
+  - id: explosions_all_of_a_sudden
+    artist: Explosions In The Sky
+    album: All of a Sudden I Miss Everyone
+    expected_leaf_terms:
+      - post-rock
+    expected_broad_terms:
+      - rock
+    expected_no_evidence: true
+    fail_zero_assignments_when_evidence_exists: true
+
+  - id: clientele_strange_geometry
+    release_key: the clientele::strange geometry
+    artist: The Clientele
+    album: Strange Geometry
+    expected_leaf_terms:
+      - indie pop
+    expected_no_evidence: true
+    fail_zero_assignments_when_evidence_exists: true
+    notes: Exact release inspection should be used if fuzzy album matching is ambiguous. Current copied sidecar has no evidence under this exact release_key.

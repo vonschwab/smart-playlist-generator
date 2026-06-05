@@ -16,7 +16,7 @@ from src.ai_genre_enrichment.client import OpenAIEnrichmentClient
 from src.ai_genre_enrichment.discovery import ReleasePayload, compute_input_hash, discover_releases
 from src.ai_genre_enrichment.genre_vocabulary import GenreVocabulary
 from src.ai_genre_enrichment.hybrid_evidence import EvidenceTerm, collect_hybrid_evidence, fuse_hybrid_evidence
-from src.ai_genre_enrichment.layered_assignment import materialize_layered_assignments
+from src.ai_genre_enrichment.layered_assignment import build_layered_release_diagnostics, materialize_layered_assignments
 from src.ai_genre_enrichment.layered_taxonomy import load_default_layered_taxonomy
 from src.ai_genre_enrichment.model_prior import (
     MODEL_PRIOR_INSTRUCTIONS,
@@ -39,6 +39,7 @@ from src.ai_genre_enrichment.storage import SidecarStore
 
 DEFAULT_METADATA_DB = ROOT / "data" / "metadata.db"
 DEFAULT_SIDECAR_DB = ROOT / "data" / "ai_genre_enrichment.db"
+DEFAULT_LAYERED_FIXTURES = ROOT / "data" / "layered_genre_smoke_fixtures.yaml"
 DEFAULT_MODEL = "gpt-4o-mini"
 
 
@@ -98,6 +99,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_graph_build_assignments(args)
     if args.command == "graph-show-release":
         return cmd_graph_show_release(args)
+    if args.command == "graph-fixture-report":
+        return cmd_graph_fixture_report(args)
     parser.print_help()
     return 2
 
@@ -314,6 +317,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     graph_show = sub.add_parser("graph-show-release", help="Show layered graph assignments for one release")
     add_release_filters(graph_show)
+    graph_show.add_argument("--release-key", help="Inspect one exact release_key, bypassing fuzzy artist/album matching")
+
+    graph_fixtures = sub.add_parser("graph-fixture-report", help="Run layered graph smoke fixtures and report failures")
+    graph_fixtures.add_argument("--fixtures", type=Path, default=DEFAULT_LAYERED_FIXTURES)
+    graph_fixtures.add_argument(
+        "--build-assignments",
+        action="store_true",
+        help="Materialize layered assignments in the selected sidecar before evaluating each fixture.",
+    )
 
     hybrid_one = sub.add_parser("hybrid-enrich-one", help="Fuse source evidence and model prior into one album genre report")
     add_release_filters(hybrid_one)
@@ -1942,15 +1954,200 @@ def cmd_graph_build_assignments(args: argparse.Namespace) -> int:
 
 
 def cmd_graph_show_release(args: argparse.Namespace) -> int:
+    store = SidecarStore(args.sidecar_db)
+    store.initialize()
+    taxonomy = load_default_layered_taxonomy()
+    store.upsert_layered_taxonomy(taxonomy)
+    if getattr(args, "release_key", None):
+        summary = build_layered_release_diagnostics(
+            store,
+            release_id=args.release_key,
+            taxonomy=taxonomy,
+        )
+        summary["lookup"] = {"mode": "release_key", "release_key": args.release_key, "ambiguous": False}
+        print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
+        return 0
+
     releases = _discover(args)
     if len(releases) != 1:
         print(f"Expected exactly one release, found {len(releases)}.")
         return 2
-    store = SidecarStore(args.sidecar_db)
-    store.initialize()
-    summary = store.layered_release_summary(releases[0].release_key)
+    summary = build_layered_release_diagnostics(
+        store,
+        release_id=releases[0].release_key,
+        taxonomy=taxonomy,
+        sparse_release=not releases[0].existing_genres_by_source,
+    )
+    summary["lookup"] = {
+        "mode": "artist_album",
+        "artist": getattr(args, "artist", None),
+        "album": getattr(args, "album", None),
+        "release_key": releases[0].release_key,
+        "ambiguous": False,
+    }
     print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
+
+
+def cmd_graph_fixture_report(args: argparse.Namespace) -> int:
+    import yaml
+
+    fixture_doc = yaml.safe_load(Path(args.fixtures).read_text(encoding="utf-8")) or {}
+    fixtures = list(fixture_doc.get("fixtures") or [])
+    store = SidecarStore(args.sidecar_db)
+    store.initialize()
+    taxonomy = load_default_layered_taxonomy()
+    store.upsert_layered_taxonomy(taxonomy)
+
+    results: list[dict[str, object]] = []
+    pass_count = 0
+    fail_count = 0
+    for fixture in fixtures:
+        result = _run_graph_fixture(args, store, taxonomy, fixture)
+        results.append(result)
+        if result["failures"]:
+            fail_count += 1
+        else:
+            pass_count += 1
+
+    print(json.dumps(
+        {
+            "fixture_version": fixture_doc.get("version"),
+            "summary": {"pass": pass_count, "fail": fail_count},
+            "fixtures": results,
+        },
+        ensure_ascii=False,
+        indent=2,
+        sort_keys=True,
+    ))
+    return 1 if fail_count else 0
+
+
+def _run_graph_fixture(
+    args: argparse.Namespace,
+    store: SidecarStore,
+    taxonomy,
+    fixture: dict[str, object],
+) -> dict[str, object]:
+    release_key = str(fixture.get("release_key") or "").strip()
+    lookup: dict[str, object] = {"mode": "release_key" if release_key else "artist_album"}
+    failures: list[str] = []
+    if not release_key:
+        releases = _discover(argparse.Namespace(
+            metadata_db=args.metadata_db,
+            limit=None,
+            artist=fixture.get("artist"),
+            album=fixture.get("album"),
+            generic_only=False,
+            min_existing_specific_genres=None,
+        ))
+        lookup["matched_release_keys"] = [release.release_key for release in releases]
+        if len(releases) != 1:
+            failures.append("ambiguous_release_match" if releases else "no_release_match")
+            return {
+                "id": fixture.get("id"),
+                "artist": fixture.get("artist"),
+                "album": fixture.get("album"),
+                "release_key": None,
+                "lookup": lookup,
+                "failures": failures,
+            }
+        release = releases[0]
+        release_key = release.release_key
+        sparse_release = not release.existing_genres_by_source
+    else:
+        release = None
+        sparse_release = False
+    if getattr(args, "build_assignments", False):
+        if release is not None:
+            fused_report = _fuse_hybrid_for_release(store, release)
+            materialize_layered_assignments(
+                store,
+                release_id=release.release_key,
+                artist=release.normalized_artist,
+                album=release.normalized_album,
+                report=fused_report,
+                taxonomy=taxonomy,
+            )
+        else:
+            evidence = collect_hybrid_evidence(store, release_key)
+            fused_report = fuse_hybrid_evidence(
+                release_key=release_key,
+                evidence=evidence,
+                sparse_release=False,
+            )
+            materialize_layered_assignments(
+                store,
+                release_id=release_key,
+                artist=str(fixture.get("artist") or "").casefold(),
+                album=str(fixture.get("album") or "").casefold(),
+                report=fused_report,
+                taxonomy=taxonomy,
+            )
+    diagnostics = build_layered_release_diagnostics(
+        store,
+        release_id=release_key,
+        taxonomy=taxonomy,
+        sparse_release=sparse_release,
+    )
+    failures.extend(_graph_fixture_failures(fixture, diagnostics))
+    return {
+        "id": fixture.get("id"),
+        "artist": fixture.get("artist"),
+        "album": fixture.get("album"),
+        "release_key": release_key,
+        "lookup": lookup,
+        "evidence_status": diagnostics["evidence_status"],
+        "zero_assignment_status": diagnostics.get("zero_assignment_status", diagnostics["evidence_status"]),
+        "model_prior_exists": diagnostics["model_prior_exists"],
+        "model_prior_presence": diagnostics.get("model_prior_presence", diagnostics["model_prior_exists"]),
+        "genre_assignment_count": diagnostics["genre_assignment_count"],
+        "facet_assignment_count": diagnostics["facet_assignment_count"],
+        "accepted_leaf_terms": [row["term"] for row in diagnostics["accepted_leaf_terms"]],
+        "accepted_broad_terms": [row["term"] for row in diagnostics["accepted_broad_terms"]],
+        "accepted_facets": [row["term"] for row in diagnostics["accepted_facets"]],
+        "inferred_terms": [row["term"] for row in diagnostics["inferred_terms"]],
+        "review_terms": [row["term"] for row in diagnostics["review_terms"]],
+        "rejected_terms": [row["term"] for row in diagnostics["rejected_terms"]],
+        "missing_taxonomy_terms": diagnostics["missing_taxonomy_terms"],
+        "failures": failures,
+    }
+
+
+def _graph_fixture_failures(fixture: dict[str, object], diagnostics: dict[str, object]) -> list[str]:
+    failures: list[str] = []
+    if fixture.get("expected_no_evidence") and diagnostics["evidence_status"] == "no_evidence":
+        return failures
+    accepted_leaf = {str(row["term"]) for row in diagnostics["accepted_leaf_terms"]}
+    accepted_broad = {str(row["term"]) for row in diagnostics["accepted_broad_terms"]}
+    accepted_facets = {str(row["term"]) for row in diagnostics.get("accepted_facets", [])}
+    accepted = accepted_leaf | accepted_broad | accepted_facets
+    inferred = {str(row["term"]) for row in diagnostics["inferred_terms"]}
+    rejected = {str(row["term"]) for row in diagnostics["rejected_terms"]}
+    review = {str(row["term"]) for row in diagnostics["review_terms"]}
+    observed = {str(row["term"]) for row in diagnostics.get("normalized_evidence", [])}
+
+    for term in fixture.get("expected_leaf_terms") or []:
+        if str(term) not in accepted_leaf:
+            failures.append(f"missing_expected_leaf:{term}")
+    for term in fixture.get("expected_broad_terms") or []:
+        if str(term) not in accepted and str(term) not in inferred:
+            failures.append(f"missing_expected_broad:{term}")
+    for term in fixture.get("expected_rejected_terms") or []:
+        if str(term) in observed and str(term) not in rejected:
+            failures.append(f"missing_expected_reject:{term}")
+    for term in fixture.get("acceptable_review_terms") or []:
+        if str(term) in observed and str(term) not in review and str(term) not in accepted and str(term) not in inferred:
+            failures.append(f"missing_expected_review_or_assignment:{term}")
+    for term in fixture.get("forbidden_accepted_terms") or []:
+        if str(term) in accepted:
+            failures.append(f"forbidden_accepted:{term}")
+    for term in fixture.get("forbidden_inferred_terms") or []:
+        if str(term) in inferred:
+            failures.append(f"forbidden_inferred:{term}")
+    if fixture.get("fail_zero_assignments_when_evidence_exists") and diagnostics["evidence_status"] == "evidence_present_no_assignments":
+        failures.append("zero_assignments_with_evidence")
+    return failures
 
 
 def _fuse_hybrid_for_release(store: SidecarStore, release: ReleasePayload):
