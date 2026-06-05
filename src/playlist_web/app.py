@@ -7,10 +7,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from .audio import stream_audio
 from .jobs import JobRegistry
 from .schemas import GenerateRequestBody, JobOut
 from .worker_bridge import BridgeBusy, WorkerBridge
@@ -101,6 +102,10 @@ def create_app(worker_cmd: Optional[list[str]] = None, config_path: str = DEFAUL
             return [r[0] for r in rows]
         except Exception:
             return []
+
+    @app.get("/api/audio/{track_id}")
+    async def audio(track_id: str, request: Request):
+        return stream_audio(track_id, DB_PATH, request)
 
     @app.websocket("/ws")
     async def ws_endpoint(ws: WebSocket) -> None:
