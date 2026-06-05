@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { PlaylistOut } from "../lib/types";
+import { BlacklistPanel } from "./BlacklistPanel";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
 
 type Tab = "diagnostics" | "blacklist" | "review";
@@ -27,9 +28,7 @@ export function AdvancedPanel({ playlist }: { playlist: PlaylistOut | null }) {
       </div>
       <div className="flex-1 overflow-hidden">
         {tab === "diagnostics" && <DiagnosticsPanel playlist={playlist} />}
-        {tab === "blacklist" && (
-          <div className="p-3 text-xs text-muted" data-testid="blacklist-placeholder">Loading…</div>
-        )}
+        {tab === "blacklist" && <BlacklistPanel />}
         {tab === "review" && (
           <div className="p-3 text-xs text-muted">Genre review lands in a later phase.</div>
         )}
