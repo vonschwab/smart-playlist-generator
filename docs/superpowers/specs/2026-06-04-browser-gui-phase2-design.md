@@ -7,7 +7,7 @@
 
 ## 1. Why
 
-Phase 1 delivered the core Generate loop. Phase 2 makes the resulting playlist *actionable*: you can listen to it in the browser, replace tracks that don't fit, blacklist things you never want in playlists, fix genre tags, and export the result. Writes to `ai_genre_enrichment.db` begin here (the metadata.db safety rule is not at risk — no writes to metadata.db in Phase 2).
+Phase 1 delivered the core Generate loop. Phase 2 makes the resulting playlist *actionable*: you can listen to it in the browser, replace tracks that don't fit, blacklist things you never want in playlists, fix genre tags, and export the result. Two write paths begin here — blacklist (the `is_blacklisted` flag in `metadata.db`) and edit-genres (a user override in `ai_genre_enrichment.db`) — both through existing worker commands. See §10 for the safety analysis.
 
 ## 2. Goals
 
@@ -68,14 +68,23 @@ class ReplaceSuggestionsRequest(BaseModel):
     position: int
     top_k: int = 10
 
+class CandidateOut(BaseModel):
+    track_id: str                     # from candidate "rating_key"/"track_id"
+    title: str
+    artist: str
+    album: str = ""
+    genres: list[str] = Field(default_factory=list)
+    fit_score: float                  # mapped from worker candidate "mean_t"
+
 class ReplaceSuggestionsResponse(BaseModel):
     position: int
-    candidates: list[CandidateOut]    # {track_id, title, artist, album, genres, fit_score}
+    candidates: list[CandidateOut]
 
 class BlacklistRequest(BaseModel):
     track_ids: list[str] = []         # for blacklist_set
     scope: Optional[str] = None       # "album" | "artist" for blacklist_scope_set
-    value: str = ""                   # album title or artist name for scope
+    value: str = ""                   # album title (album scope) or artist name (artist scope)
+    artist: str = ""                  # REQUIRED for album scope: set_album_blacklisted(artist, album, enabled)
     enabled: bool = True
 
 class EditGenresRequest(BaseModel):
@@ -229,7 +238,7 @@ export interface CandidateOut {
   artist: string;
   album: string;
   genres: string[];
-  fit_score: number;
+  fit_score: number;   // mapped from the worker candidate's `mean_t` field
 }
 
 export interface ReplaceSuggestionsResponse {
@@ -288,8 +297,13 @@ export interface ReplaceSuggestionsResponse {
 - Mini-player ⏭ → next track loads
 - M3U8 download → `<a download>` triggered (check element created)
 
-## 10. Safety constraints (unchanged from Phase 1)
+## 10. Safety constraints
 
-- `data/metadata.db` is read-only in Phase 2. The audio route reads `file_path` from it; no writes.
-- `ai_genre_enrichment.db` writes happen only via the worker `edit_genres` command — the worker is the authority.
-- Audio files on disk are streamed read-only. Never written, moved, or renamed.
+Phase 2 introduces two write paths. Both go exclusively through existing worker commands — the web layer never opens either database for writing directly.
+
+- **`data/metadata.db` — blacklist writes the `is_blacklisted` flag.** The blacklist feature calls `MetadataClient.set_blacklisted` / `set_artist_blacklisted` / `set_album_blacklisted`, which run `UPDATE tracks SET is_blacklisted = ?` (and maintain the `artist_blacklist` / album-scope tables). This is the **same code path the existing PySide6 GUI already uses** — a bounded, reversible boolean-flag toggle, not a schema migration or re-analysis. It is the kind of write CLAUDE.md permits ("explicit user instruction" — the user requested the blacklist feature). It is **not** the kind of destructive write the backup-first rule targets. No new tables, no destructive statements, no migrations.
+- **`ai_genre_enrichment.db` — edit-genres writes a user override.** Only via the worker `edit_genres` command (`SidecarStore.set_user_override`). The worker is the authority; the web layer never writes this DB directly.
+- **`data/metadata.db` reads** — the audio route reads `file_path`; autocomplete reads `artists`. Read-only.
+- **Audio files on disk are streamed read-only.** Never written, moved, or renamed.
+
+**One-time precaution:** before the blacklist task lands, take a timestamped backup of `data/metadata.db` (`metadata.db.bak.<timestamp>`), per the CLAUDE.md data-safety rule, even though the write is a bounded flag toggle.
