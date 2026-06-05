@@ -8,7 +8,7 @@ export interface EditGenresDialogProps {
   artist: string;
   album: string;
   initialGenres: string[];
-  onSaved: (album: string, genres: string[]) => void;
+  onSaved: (artist: string, album: string, genres: string[]) => void;
 }
 
 export function EditGenresDialog(props: EditGenresDialogProps) {
@@ -32,7 +32,7 @@ export function EditGenresDialog(props: EditGenresDialogProps) {
     setSaving(true); setErr(null);
     try {
       await api.editGenres({ artist: props.artist, album: props.album, genres });
-      props.onSaved(props.album, genres);
+      props.onSaved(props.artist, props.album, genres);
       props.onOpenChange(false);
     } catch (e) { setErr(String(e)); } finally { setSaving(false); }
   };

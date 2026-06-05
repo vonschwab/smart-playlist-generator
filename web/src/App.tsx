@@ -99,10 +99,12 @@ export default function App() {
     setEditGenresOpen(true);
   }, []);
 
-  const applyGenreEdit = useCallback((album: string, genres: string[]) => {
+  const applyGenreEdit = useCallback((artist: string, album: string, genres: string[]) => {
     setPlaylist((pl) => {
       if (!pl) return pl;
-      const tracks = pl.tracks.map((tr) => (tr.album === album ? { ...tr, genres } : tr));
+      const tracks = pl.tracks.map((tr) =>
+        (tr.album === album && tr.artist === artist) ? { ...tr, genres } : tr
+      );
       return { ...pl, tracks };
     });
   }, []);
@@ -114,8 +116,8 @@ export default function App() {
   }, [playlist]);
 
   useWorkerEvents(useCallback((e: WsEvent) => {
-    if (e.type === "log") setLogs((l) => [...l, `${(e as any).level ?? "INFO"}: ${(e as any).msg ?? ""}`].slice(-500));
-    if (e.type === "error") setError(String((e as any).message ?? "error"));
+    if (e.type === "log") setLogs((l) => [...l, `${e["level"] ?? "INFO"}: ${e["msg"] ?? ""}`].slice(-500));
+    if (e.type === "error") setError(String(e["message"] ?? "error"));
     if (e.type === "done") {
       setBusy(false);
       const jid = e.job_id;
