@@ -122,3 +122,61 @@ class JobOut(BaseModel):
     stage: str = ""
     error: Optional[str] = None
     playlist: Optional[PlaylistOut] = None
+
+
+class CandidateOut(BaseModel):
+    """A replacement candidate track."""
+
+    track_id: str
+    title: str = "Unknown"
+    artist: str = "Unknown"
+    album: str = ""
+    genres: list[str] = Field(default_factory=list)
+    fit_score: float = 0.0
+
+
+class ReplaceSuggestionsRequest(BaseModel):
+    # job_id is unused by the worker (it reads _LAST_GENERATION_CACHE) but kept
+    # for client correlation and future multi-job support.
+    job_id: str = ""
+    position: int
+    top_k: int = 10
+
+
+class ReplaceSuggestionsResponse(BaseModel):
+    position: int
+    candidates: list[CandidateOut] = Field(default_factory=list)
+
+    @classmethod
+    def from_worker_candidates(cls, position: int, raw: list[dict]) -> "ReplaceSuggestionsResponse":
+        cands = [
+            CandidateOut(
+                track_id=str(c.get("rating_key") or c.get("track_id") or ""),
+                title=c.get("title", "Unknown"),
+                artist=c.get("artist", "Unknown"),
+                album=c.get("album", ""),
+                genres=list(c.get("genres", []) or []),
+                fit_score=float(c.get("mean_t", 0.0) or 0.0),
+            )
+            for c in raw
+        ]
+        return cls(position=position, candidates=cands)
+
+
+class BlacklistRequest(BaseModel):
+    track_ids: list[str] = Field(default_factory=list)
+    scope: Optional[str] = None          # "album" | "artist"
+    value: str = ""                      # album title (album scope) or artist name (artist scope)
+    artist: str = ""                     # required for album scope
+    enabled: bool = True
+
+
+class EditGenresRequest(BaseModel):
+    artist: str
+    album: str
+    genres: list[str] = Field(default_factory=list)
+
+
+class PlexExportRequest(BaseModel):
+    title: str
+    tracks: list[dict] = Field(default_factory=list)
