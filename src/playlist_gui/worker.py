@@ -1829,6 +1829,31 @@ def handle_blacklist_fetch(cmd_data: Dict[str, Any]) -> None:
         emit_done("blacklist_fetch", False, str(e))
 
 
+def handle_blacklist_fetch_scopes(cmd_data: Dict[str, Any]) -> None:
+    """Fetch artist/album/track scope blacklists (grouped, for the web UI)."""
+    base_path = cmd_data.get("base_config_path", "config.yaml")
+    overrides = cmd_data.get("overrides", {})
+    try:
+        config = load_config_with_overrides(base_path, overrides)
+        db_path = config.get('library', {}).get('database_path', 'data/metadata.db')
+        from src.metadata_client import MetadataClient
+
+        metadata = MetadataClient(db_path)
+        artists = metadata.fetch_artist_blacklist()
+        albums = metadata.fetch_album_blacklist()
+        tracks = metadata.fetch_track_blacklist()
+        emit_result(
+            "blacklist_scopes",
+            {"artists": artists, "albums": albums, "tracks": tracks},
+        )
+        total = len(artists) + len(albums) + len(tracks)
+        emit_done("blacklist_fetch_scopes", True, f"Fetched {total} blacklist entries")
+    except Exception as e:
+        tb = traceback.format_exc()
+        emit_error(str(e), tb)
+        emit_done("blacklist_fetch_scopes", False, str(e))
+
+
 def handle_blacklist_set(cmd_data: Dict[str, Any]) -> None:
     """Set blacklisted flag for track ids."""
     base_path = cmd_data.get("base_config_path", "config.yaml")
@@ -2298,6 +2323,7 @@ TRACKED_COMMAND_HANDLERS = {
     "doctor": handle_doctor,
     "find_replacement_suggestions": handle_find_replacement_suggestions,
     "blacklist_fetch": handle_blacklist_fetch,
+    "blacklist_fetch_scopes": handle_blacklist_fetch_scopes,
     "blacklist_set": handle_blacklist_set,
     "blacklist_scope_set": handle_blacklist_scope_set,
     "enrich_artist": handle_enrich_artist_cmd,

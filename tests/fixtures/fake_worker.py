@@ -60,6 +60,13 @@ def main():
             emit({"type": "result", "result_type": "blacklist_set", "request_id": rid, "job_id": jid,
                   "track_ids": tids, "value": cmd.get("value", True), "updated": len(tids)})
             emit({"type": "done", "cmd": name, "ok": True, "detail": f"Updated {len(tids)}", "request_id": rid, "job_id": jid})
+        elif name == "blacklist_fetch_scopes":
+            emit({"type": "result", "result_type": "blacklist_scopes", "request_id": rid, "job_id": jid,
+                  "artists": [{"artist_key": "nick drake", "artist_name": "Nick Drake"}],
+                  "albums": [{"artist_key": "nick drake", "album_key": "pink moon",
+                              "artist_name": "Nick Drake", "album_name": "Pink Moon"}],
+                  "tracks": [{"track_id": "t1", "title": "Harvest", "artist": "Neil Young", "album": "Harvest"}]})
+            emit({"type": "done", "cmd": name, "ok": True, "detail": "3 entries", "request_id": rid, "job_id": jid})
         elif name == "blacklist_scope_set":
             emit({"type": "result", "result_type": "blacklist_scope_set", "request_id": rid, "job_id": jid,
                   "scope": cmd.get("scope"), "value": cmd.get("value"), "enabled": cmd.get("enabled", True), "track_ids": []})
