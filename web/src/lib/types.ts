@@ -109,3 +109,18 @@ export interface PlexExportRequest {
   title: string;
   tracks: TrackOut[];
 }
+
+export interface BlacklistEntry {
+  scope: "artist" | "album" | "track";
+  display_name: string;
+  track_id?: string | null;
+  artist?: string | null;
+  album?: string | null;
+}
+
+export interface BlacklistFetchResponse {
+  artists: BlacklistEntry[];
+  albums: BlacklistEntry[];
+  tracks: BlacklistEntry[];
+  total: number;
+}

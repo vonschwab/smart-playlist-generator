@@ -1,10 +1,12 @@
 import type {
+  BlacklistFetchResponse,
   BlacklistRequest,
   EditGenresRequest,
   GenerateRequestBody,
   JobOut,
   PlexExportRequest,
   ReplaceSuggestionsResponse,
+  SeedTrack,
 } from "./types";
 
 async function jsonOrThrow(resp: Response) {
@@ -32,6 +34,9 @@ export const api = {
   async autocomplete(q: string): Promise<string[]> {
     return jsonOrThrow(await fetch(`/api/autocomplete?q=${encodeURIComponent(q)}`));
   },
+  async searchTracks(q: string, limit = 15): Promise<SeedTrack[]> {
+    return jsonOrThrow(await fetch(`/api/tracks/search?q=${encodeURIComponent(q)}&limit=${limit}`));
+  },
   async replaceSuggestions(jobId: string, position: number, topK = 10): Promise<ReplaceSuggestionsResponse> {
     return jsonOrThrow(await fetch("/api/replace_suggestions", {
       method: "POST",
@@ -44,6 +49,16 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(req),
+    }));
+  },
+  async getBlacklist(): Promise<BlacklistFetchResponse> {
+    return jsonOrThrow(await fetch("/api/blacklist"));
+  },
+  async blacklistArtist(artist: string): Promise<{ ok: boolean }> {
+    return jsonOrThrow(await fetch("/api/blacklist/artist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ artist }),
     }));
   },
   async editGenres(req: EditGenresRequest): Promise<{ ok: boolean; genres: string[] }> {
