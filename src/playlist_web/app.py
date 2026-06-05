@@ -113,6 +113,16 @@ def create_app(worker_cmd: Optional[list[str]] = None, config_path: str = DEFAUL
     async def job_logs(job_id: str) -> dict:
         return {"logs": registry.logs(job_id)}
 
+    @app.post("/api/jobs/{job_id}/cancel")
+    async def cancel_job(job_id: str) -> dict:
+        job = registry.get(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        if job.status != "running":
+            raise HTTPException(status_code=409, detail="Job is not running")
+        await bridge.cancel()
+        return {"ok": True}
+
     @app.get("/api/tracks/search")
     async def track_search(q: str = "", limit: int = 15) -> list[dict]:
         q = q.strip()

@@ -113,6 +113,19 @@ class WorkerBridge:
                 self._active_request_id = None
             fut.cancel()
 
+    async def cancel(self) -> bool:
+        """Fire-and-forget cancel for the currently running request.
+
+        Returns True if a cancel was dispatched, False if nothing was active.
+        """
+        if not (self._active_request_id and self._proc and self._proc.stdin):
+            return False
+        cmd = {"cmd": "cancel", "request_id": self._active_request_id}
+        line = (json.dumps(cmd) + "\n").encode("utf-8")
+        self._proc.stdin.write(line)
+        await self._proc.stdin.drain()
+        return True
+
     async def _read_loop(self) -> None:
         assert self._proc and self._proc.stdout
         while True:

@@ -61,3 +61,24 @@ def test_generate_records_created_at_and_params():
         assert detail["created_at"] is not None
         assert detail["request_params"]["artist"] == "Acetone"
         assert detail["request_params"]["tracks"] == 5
+
+
+def test_cancel_unknown_job_404():
+    with TestClient(create_app(worker_cmd=FAKE)) as client:
+        resp = client.post("/api/jobs/does-not-exist/cancel")
+        assert resp.status_code == 404
+
+
+def test_cancel_completed_job_409():
+    with TestClient(create_app(worker_cmd=FAKE)) as client:
+        # Generate against the fake worker; it completes near-instantly.
+        job_id = client.post("/api/generate", json={"mode": "artist", "artist": "Acetone"}).json()["job_id"]
+        # Poll until the job is no longer running.
+        import time as _t
+        for _ in range(50):
+            status = client.get(f"/api/jobs/{job_id}").json()["status"]
+            if status != "running":
+                break
+            _t.sleep(0.05)
+        resp = client.post(f"/api/jobs/{job_id}/cancel")
+        assert resp.status_code == 409
