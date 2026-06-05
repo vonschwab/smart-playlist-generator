@@ -56,3 +56,36 @@ export interface WsEvent {
   job_id?: string;
   [k: string]: unknown;
 }
+
+export interface CandidateOut {
+  track_id: string;
+  title: string;
+  artist: string;
+  album: string;
+  genres: string[];
+  fit_score: number;
+}
+
+export interface ReplaceSuggestionsResponse {
+  position: number;
+  candidates: CandidateOut[];
+}
+
+export interface BlacklistRequest {
+  track_ids?: string[];
+  scope?: "album" | "artist";
+  value?: string;
+  artist?: string;
+  enabled?: boolean;
+}
+
+export interface EditGenresRequest {
+  artist: string;
+  album: string;
+  genres: string[];
+}
+
+export interface PlexExportRequest {
+  title: string;
+  tracks: TrackOut[];
+}

@@ -1,4 +1,11 @@
-import type { GenerateRequestBody, JobOut } from "./types";
+import type {
+  BlacklistRequest,
+  EditGenresRequest,
+  GenerateRequestBody,
+  JobOut,
+  PlexExportRequest,
+  ReplaceSuggestionsResponse,
+} from "./types";
 
 async function jsonOrThrow(resp: Response) {
   if (!resp.ok) {
@@ -24,5 +31,33 @@ export const api = {
   },
   async autocomplete(q: string): Promise<string[]> {
     return jsonOrThrow(await fetch(`/api/autocomplete?q=${encodeURIComponent(q)}`));
+  },
+  async replaceSuggestions(jobId: string, position: number, topK = 10): Promise<ReplaceSuggestionsResponse> {
+    return jsonOrThrow(await fetch("/api/replace_suggestions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ job_id: jobId, position, top_k: topK }),
+    }));
+  },
+  async blacklist(req: BlacklistRequest): Promise<{ ok: boolean; updated?: number }> {
+    return jsonOrThrow(await fetch("/api/blacklist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+    }));
+  },
+  async editGenres(req: EditGenresRequest): Promise<{ ok: boolean; genres: string[] }> {
+    return jsonOrThrow(await fetch("/api/edit_genres", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+    }));
+  },
+  async exportPlex(req: PlexExportRequest): Promise<{ ok: boolean; playlist_key: string }> {
+    return jsonOrThrow(await fetch("/api/export/plex", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+    }));
   },
 };
