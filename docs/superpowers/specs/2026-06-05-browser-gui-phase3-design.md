@@ -52,12 +52,12 @@ Color thresholds for transition bars:
 ### 2.2 Data changes required
 
 **Worker (`src/playlist_gui/worker.py`):**
-- Add `"transition_score"` to each formatted track from the `edge_map` (already built at line 1283). The edge dict contains `S` (sonic) and `G` (genre) component scores — check whether a combined `T` key exists; if not, compute it as `round(0.5 * S + 0.5 * G, 4)` as a fallback (or read the actual tower weights from config). Null for the last track, which has no outgoing edge.
-- Add `"p10_transition"` and `"p90_transition"` to `playlist_result["metrics"]`. These exist in `ds_report["metrics"]` but are currently omitted.
+- Add `"transition_score"` to each formatted track from the `edge_map` (already built at line 1283). The edge dict already contains a combined `"T"` key (`constructor.py:383`, `playlist_generator.py:165`) — use `edge.get("T")`. Null for the last track (no outgoing edge) and for any track missing an edge entry.
+- Add `"p10_transition"` and `"p90_transition"` to `playlist_result["metrics"]` (currently only mean/min/distinct are emitted, lines 1364-1368). They're available in `ds_report["metrics"]`.
 
 **Schemas (`src/playlist_web/schemas.py`):**
 - Add `transition_score: Optional[float] = None` to `TrackOut`.
-- Add `p10_transition` and `p90_transition` to `MetricsOut.from_worker()` mapping (already in the model, just not populated).
+- `MetricsOut.from_worker()` **already maps** `p10_transition`/`p90_transition` — no schema change needed; once the worker emits them they flow through.
 - Add `transition_score` to `PlaylistOut.from_worker()` track mapping.
 
 **Frontend (`web/src/lib/types.ts`):**
@@ -106,7 +106,12 @@ TRACKS   3
 
 ### 3.2 New API route: `GET /api/blacklist`
 
-Calls worker `blacklist_fetch` command (already implemented in `worker.py`). Returns:
+**Important:** the existing `blacklist_fetch` command returns *every track with the derived `is_blacklisted` flag set* — blacklisting one artist would surface all their tracks as individual rows. The grouped view must instead read the three scope tables directly (`artist_blacklist`, `album_blacklist`, `track_blacklist`). This requires:
+
+- New `MetadataClient` methods: `fetch_artist_blacklist()`, `fetch_album_blacklist()`, `fetch_track_blacklist()` (read the respective tables).
+- New worker command `blacklist_fetch_scopes` returning `{"artists": [...], "albums": [...], "tracks": [...]}`.
+
+The route calls `bridge.command({"cmd": "blacklist_fetch_scopes", ...})` and formats the result into:
 
 ```python
 class BlacklistEntryOut(BaseModel):
@@ -210,25 +215,24 @@ The job's status transitions from `"running"` to `"cancelled"` when the worker e
 
 ### 5.1 Scope
 
-The Qt GUI files (`main_window.py`, widgets/, etc.) remain on disk but PySide6 is removed from the install requirements so it is no longer needed to run the app. The worker subprocess (`worker.py`) is not Qt-bound and continues unchanged.
+PySide6 is **already isolated** in the `[gui]` optional extra — it is not a core dependency, and a `[web]` extra (fastapi, uvicorn, httpx) already exists. So "decommission" here means: make the browser the documented default surface, mark the Qt GUI deprecated, and stop treating Qt as a default test/install requirement. The Qt GUI files and the `[gui]` extra remain on disk for anyone who still wants them. The worker subprocess (`worker.py`) is not Qt-bound and is unchanged.
 
 ### 5.2 Changes
 
 **`pyproject.toml`:**
-- Remove `PySide6>=6.6` from `[project.optional-dependencies] gui`.
-- Rename the extra from `[gui]` to `[web]` (contains only `uvicorn`, `fastapi`, `pydantic`).
-- Keep a `[legacy-gui]` extra for anyone who still wants to run the Qt app: `PySide6>=6.6`.
-- Install instructions in README become: `pip install -e .[web]`.
+- Update the `description` string — remove "and a PySide6 GUI", replace with "and a browser GUI".
+- Add a comment above `[gui]` marking it deprecated/legacy (kept for the old Qt app).
+- Move `pytest-qt>=4.4` out of the default `[dev]` extra into the `[gui]` extra (Qt tests only matter if you run the Qt app). `[dev]` keeps pytest, pytest-asyncio, pytest-cov, ruff, mypy, pre-commit.
 
 **`playlist_gui/app.py`:**
-- Already guards PySide6 with a try/import check. Add a clear deprecation notice at the top: the Qt GUI is no longer actively maintained; use `python tools/serve_web.py`.
+- Already guards PySide6 with a try/import check. Add a clear deprecation notice (printed on launch): the Qt GUI is deprecated; use `python tools/serve_web.py`.
 
 **Docs:**
-- Update `CLAUDE.md` GUI line: `python tools/serve_web.py` (port 8770).
-- Update `README.md` install and launch instructions.
+- Update `CLAUDE.md` GUI line: primary surface is `python tools/serve_web.py` (port 8770); Qt GUI is legacy (`pip install -e .[gui]`).
+- Update `README.md` install and launch instructions to lead with the browser GUI.
 - Update `docs/GOLDEN_COMMANDS.md` if it references `python -m playlist_gui.app`.
 
-**Verification:** After these changes, `pip install -e .[web]` completes without installing PySide6, and `python tools/serve_web.py` works.
+**Verification:** `pip install -e .[web,dev]` completes without installing PySide6; `python tools/serve_web.py` works; `pytest -m "not gui"` passes without Qt installed.
 
 ---
 
@@ -251,7 +255,8 @@ Existing routes unchanged. `TrackOut` and `MetricsOut` gain new optional fields 
 - `web/src/components/BlacklistPanel.tsx`
 
 **Modified files:**
-- `src/playlist_gui/worker.py` — add `transition_score`, `p10_transition`, `p90_transition` to output
+- `src/metadata_client.py` — add `fetch_artist_blacklist()`, `fetch_album_blacklist()`, `fetch_track_blacklist()`
+- `src/playlist_gui/worker.py` — add `transition_score`, `p10_transition`, `p90_transition` to output; add `blacklist_fetch_scopes` command
 - `src/playlist_web/schemas.py` — `TrackOut.transition_score`, `MetricsOut` p10/p90 mapping, `BlacklistEntryOut`, `BlacklistFetchResponse`, `JobOut` new fields
 - `src/playlist_web/jobs.py` — `created_at`, `request_params` per job
 - `src/playlist_web/app.py` — new routes + cancel logic
