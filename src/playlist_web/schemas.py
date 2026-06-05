@@ -201,3 +201,44 @@ class EditGenresRequest(BaseModel):
 class PlexExportRequest(BaseModel):
     title: str
     tracks: list[dict] = Field(default_factory=list)
+
+
+class BlacklistEntryOut(BaseModel):
+    scope: str                              # "artist" | "album" | "track"
+    display_name: str
+    track_id: Optional[str] = None
+    artist: Optional[str] = None
+    album: Optional[str] = None
+
+
+class BlacklistFetchResponse(BaseModel):
+    artists: list[BlacklistEntryOut] = Field(default_factory=list)
+    albums: list[BlacklistEntryOut] = Field(default_factory=list)
+    tracks: list[BlacklistEntryOut] = Field(default_factory=list)
+    total: int = 0
+
+    @classmethod
+    def from_worker(cls, raw: dict) -> "BlacklistFetchResponse":
+        artists = [
+            BlacklistEntryOut(scope="artist", display_name=a.get("artist_name", ""),
+                              artist=a.get("artist_name", ""))
+            for a in raw.get("artists", [])
+        ]
+        albums = [
+            BlacklistEntryOut(scope="album", display_name=al.get("album_name", ""),
+                              artist=al.get("artist_name", ""), album=al.get("album_name", ""))
+            for al in raw.get("albums", [])
+        ]
+        tracks = [
+            BlacklistEntryOut(scope="track",
+                              display_name=t.get("title", "") or t.get("track_id", ""),
+                              track_id=t.get("track_id", ""), artist=t.get("artist", ""),
+                              album=t.get("album", ""))
+            for t in raw.get("tracks", [])
+        ]
+        return cls(artists=artists, albums=albums, tracks=tracks,
+                   total=len(artists) + len(albums) + len(tracks))
+
+
+class BlacklistArtistRequest(BaseModel):
+    artist: str

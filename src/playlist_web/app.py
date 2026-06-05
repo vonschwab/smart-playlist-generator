@@ -11,10 +11,15 @@ from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconn
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from src.playlist_gui.policy import derive_runtime_config
+from src.playlist_gui.ui_state import UIStateModel
+
 from .audio import stream_audio
 from .jobs import JobRegistry
 from .plex_export import PlexNotConfigured, run_plex_export
 from .schemas import (
+    BlacklistArtistRequest,
+    BlacklistFetchResponse,
     BlacklistRequest,
     EditGenresRequest,
     GenerateRequestBody,
@@ -64,9 +69,23 @@ def create_app(worker_cmd: Optional[list[str]] = None, config_path: str = DEFAUL
         if err:
             raise HTTPException(status_code=422, detail=err)
         job_id = registry.create()
-        overrides: dict = {}
-        if body.cohesion_mode:
-            overrides = {"playlists": {"cohesion_mode": body.cohesion_mode}}
+        ui = UIStateModel(
+            mode=body.mode,  # type: ignore[arg-type]
+            cohesion_mode=body.cohesion_mode or "dynamic",  # type: ignore[arg-type]
+            genre_mode=body.genre_mode or "dynamic",  # type: ignore[arg-type]
+            sonic_mode=body.sonic_mode or "dynamic",  # type: ignore[arg-type]
+            pace_mode=body.pace_mode or "dynamic",  # type: ignore[arg-type]
+            track_count=body.tracks,
+            recency_enabled=body.recency_enabled,
+            recency_days=body.recency_days,
+            recency_plays_threshold=body.recency_plays_threshold,
+            artist_spacing=body.artist_spacing,  # type: ignore[arg-type]
+            diversity_gamma=body.diversity_gamma,
+            artist_diversity_mode=body.artist_diversity_mode,  # type: ignore[arg-type]
+            artist_presence=body.artist_presence,  # type: ignore[arg-type]
+            artist_variety=body.artist_variety,  # type: ignore[arg-type]
+        )
+        overrides = derive_runtime_config(ui).overrides
         try:
             await bridge.submit({
                 "cmd": "generate_playlist",
@@ -93,6 +112,52 @@ def create_app(worker_cmd: Optional[list[str]] = None, config_path: str = DEFAUL
     @app.get("/api/jobs/{job_id}/logs")
     async def job_logs(job_id: str) -> dict:
         return {"logs": registry.logs(job_id)}
+
+    @app.get("/api/tracks/search")
+    async def track_search(q: str = "", limit: int = 15) -> list[dict]:
+        q = q.strip()
+        if not q or not DB_PATH.exists():
+            return []
+        pattern = f"%{q.lower()}%"
+        try:
+            conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT t.track_id, t.title, t.artist, t.album, t.duration_ms, t.file_path
+                    FROM tracks t
+                    WHERE lower(t.title) LIKE ? OR lower(t.artist) LIKE ? OR lower(t.album) LIKE ?
+                    ORDER BY t.artist, t.title
+                    LIMIT ?
+                    """,
+                    (pattern, pattern, pattern, limit),
+                ).fetchall()
+                results = []
+                for row in rows:
+                    track_id = row[0]
+                    genres = [g[0] for g in conn.execute(
+                        "SELECT genre FROM track_effective_genres WHERE track_id = ? ORDER BY priority LIMIT 5",
+                        (track_id,),
+                    ).fetchall()]
+                    if not genres:
+                        genres = [g[0] for g in conn.execute(
+                            "SELECT genre FROM track_genres WHERE track_id = ? ORDER BY weight DESC LIMIT 5",
+                            (track_id,),
+                        ).fetchall()]
+                    results.append({
+                        "track_id": track_id,
+                        "title": row[1] or "Unknown",
+                        "artist": row[2] or "Unknown",
+                        "album": row[3] or "",
+                        "duration_ms": row[4] or 0,
+                        "file_path": row[5] or "",
+                        "genres": genres,
+                    })
+                return results
+            finally:
+                conn.close()
+        except Exception:
+            return []
 
     @app.get("/api/autocomplete")
     async def autocomplete(q: str = "") -> list[str]:
@@ -161,6 +226,40 @@ def create_app(worker_cmd: Optional[list[str]] = None, config_path: str = DEFAUL
             }
         try:
             result = await bridge.command(cmd)
+        except BridgeBusy:
+            raise HTTPException(status_code=409, detail="A generation is in progress — try again when it finishes.")
+        except WorkerCommandError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        return {"ok": True, **result}
+
+    @app.get("/api/blacklist")
+    async def get_blacklist() -> BlacklistFetchResponse:
+        try:
+            result = await bridge.command({
+                "cmd": "blacklist_fetch_scopes",
+                "base_config_path": config_path,
+                "overrides": {},
+            })
+        except BridgeBusy:
+            raise HTTPException(status_code=409, detail="A generation is in progress — try again when it finishes.")
+        except WorkerCommandError as exc:
+            raise HTTPException(status_code=502, detail=str(exc))
+        return BlacklistFetchResponse.from_worker(result)
+
+    @app.post("/api/blacklist/artist")
+    async def blacklist_artist(body: BlacklistArtistRequest) -> dict:
+        if not body.artist.strip():
+            raise HTTPException(status_code=422, detail="artist is required")
+        try:
+            result = await bridge.command({
+                "cmd": "blacklist_scope_set",
+                "base_config_path": config_path,
+                "overrides": {},
+                "scope": "artist",
+                "value": body.artist,
+                "artist": body.artist,
+                "enabled": True,
+            })
         except BridgeBusy:
             raise HTTPException(status_code=409, detail="A generation is in progress — try again when it finishes.")
         except WorkerCommandError as exc:

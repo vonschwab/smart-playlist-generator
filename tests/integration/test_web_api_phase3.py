@@ -24,3 +24,29 @@ def test_playlist_out_maps_transition_score_and_percentiles():
     assert pl.tracks[1].transition_score is None
     assert pl.metrics.p10_transition == 0.55
     assert pl.metrics.p90_transition == 0.8
+
+
+from fastapi.testclient import TestClient
+from src.playlist_web.app import create_app
+
+
+def test_get_blacklist_groups_entries():
+    with TestClient(create_app(worker_cmd=FAKE)) as client:
+        resp = client.get("/api/blacklist")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 3
+        assert body["artists"][0]["display_name"] == "Nick Drake"
+        assert body["artists"][0]["scope"] == "artist"
+        assert body["albums"][0]["album"] == "Pink Moon"
+        assert body["albums"][0]["artist"] == "Nick Drake"
+        assert body["albums"][0]["scope"] == "album"
+        assert body["tracks"][0]["track_id"] == "t1"
+        assert body["tracks"][0]["scope"] == "track"
+
+
+def test_post_blacklist_artist_ok():
+    with TestClient(create_app(worker_cmd=FAKE)) as client:
+        resp = client.post("/api/blacklist/artist", json={"artist": "Coldplay"})
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
