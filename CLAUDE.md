@@ -5,7 +5,7 @@ For the listener-facing feature catalog, see `README.md`. Newest, most authorita
 ## Environment
 
 - **Python 3.11+** required (pinned in `pyproject.toml`; README's "3.8+" is stale).
-- **Install:** `pip install -e .[gui]` (users) or `pip install -e .[gui,dev]` (contributors — adds pytest, ruff, mypy, pre-commit).
+- **Install:** `pip install -e .[web]` (users) or `pip install -e .[web,dev]` (contributors — adds pytest, ruff, mypy, pre-commit). The legacy PySide6 GUI needs `pip install -e .[gui]`.
 - **Test:** `pytest`. Markers: `smoke`, `integration`, `golden`, `gui`, `slow`. Use `-m "not slow"` for fast feedback.
 - **Lint / types:** `ruff check` (E, F rules) and `mypy`. The `extend-ignore` list and `[[tool.mypy.overrides]]` modules are intentional — each entry has a comment. Don't relax without flagging.
 - **CLI:** `python main_app.py --artist "..." --tracks 30`. Full reference: `docs/GOLDEN_COMMANDS.md`.
