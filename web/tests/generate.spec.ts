@@ -5,7 +5,7 @@ test("generate loop renders tracks, stats, and logs", async ({ page }) => {
   await expect(page.getByText("Playlist Generator")).toBeVisible();
 
   // Fill seed input and click Generate
-  await page.locator('input[placeholder="Acetone, Mazzy Star"]').fill("Acetone");
+  await page.getByTestId("seed-input").fill("Acetone");
   await page.getByRole("button", { name: /Generate/ }).click();
 
   // Fake worker returns a 2-track playlist
