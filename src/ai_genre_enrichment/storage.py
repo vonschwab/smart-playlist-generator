@@ -422,6 +422,98 @@ class SidecarStore:
                     ON ai_genre_model_prior_terms (normalized_term);
                 CREATE INDEX IF NOT EXISTS idx_ai_genre_model_prior_terms_mapping
                     ON ai_genre_model_prior_terms (mapping_status, accepted_for_shadow);
+
+                CREATE TABLE IF NOT EXISTS genre_graph_canonical_genres (
+                    genre_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL UNIQUE,
+                    kind TEXT NOT NULL,
+                    specificity_score REAL NOT NULL,
+                    status TEXT NOT NULL,
+                    taxonomy_version TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS genre_graph_aliases (
+                    alias TEXT PRIMARY KEY,
+                    canonical_genre_id TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    confidence REAL NOT NULL,
+                    FOREIGN KEY (canonical_genre_id)
+                        REFERENCES genre_graph_canonical_genres(genre_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS genre_graph_edges (
+                    source_genre_id TEXT NOT NULL,
+                    target_genre_id TEXT NOT NULL,
+                    edge_type TEXT NOT NULL,
+                    weight REAL NOT NULL,
+                    confidence REAL NOT NULL,
+                    source TEXT NOT NULL,
+                    notes TEXT,
+                    PRIMARY KEY (source_genre_id, target_genre_id, edge_type),
+                    FOREIGN KEY (source_genre_id)
+                        REFERENCES genre_graph_canonical_genres(genre_id),
+                    FOREIGN KEY (target_genre_id)
+                        REFERENCES genre_graph_canonical_genres(genre_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS genre_graph_canonical_facets (
+                    facet_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL UNIQUE,
+                    facet_type TEXT NOT NULL,
+                    status TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS genre_graph_bridge_rules (
+                    source_genre_id TEXT NOT NULL,
+                    target_genre_id TEXT NOT NULL,
+                    required_family_min REAL NOT NULL,
+                    required_facet_overlap REAL NOT NULL,
+                    required_sonic_similarity REAL NOT NULL,
+                    required_transition_quality REAL NOT NULL,
+                    mode_allowed TEXT NOT NULL,
+                    notes TEXT,
+                    PRIMARY KEY (source_genre_id, target_genre_id),
+                    FOREIGN KEY (source_genre_id)
+                        REFERENCES genre_graph_canonical_genres(genre_id),
+                    FOREIGN KEY (target_genre_id)
+                        REFERENCES genre_graph_canonical_genres(genre_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS genre_graph_rejected_terms (
+                    term TEXT PRIMARY KEY,
+                    reason TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS genre_graph_release_genre_assignments (
+                    release_id TEXT NOT NULL,
+                    artist TEXT NOT NULL,
+                    album TEXT NOT NULL,
+                    genre_id TEXT NOT NULL,
+                    assignment_layer TEXT NOT NULL,
+                    confidence REAL NOT NULL,
+                    source_reliability REAL NOT NULL,
+                    evidence_count INTEGER NOT NULL,
+                    rejected_by_user INTEGER NOT NULL DEFAULT 0,
+                    provenance_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (release_id, genre_id, assignment_layer),
+                    FOREIGN KEY (genre_id)
+                        REFERENCES genre_graph_canonical_genres(genre_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS genre_graph_release_facet_assignments (
+                    release_id TEXT NOT NULL,
+                    artist TEXT NOT NULL,
+                    album TEXT NOT NULL,
+                    facet_id TEXT NOT NULL,
+                    confidence REAL NOT NULL,
+                    source TEXT NOT NULL,
+                    provenance_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (release_id, facet_id, source),
+                    FOREIGN KEY (facet_id)
+                        REFERENCES genre_graph_canonical_facets(facet_id)
+                );
                 """
             )
             _ensure_column(conn, "ai_genre_release_checks", "web_mode", "TEXT NOT NULL DEFAULT 'off'")
@@ -1918,6 +2010,350 @@ class SidecarStore:
                 "mapping_status_counts": mapping_status_counts,
                 "accepted_for_shadow": accepted,
             }
+
+    def upsert_layered_taxonomy(self, taxonomy: Any) -> dict[str, int]:
+        """Persist a loaded layered taxonomy into the sidecar graph tables."""
+        with self.connect() as conn:
+            conn.executemany(
+                """
+                INSERT INTO genre_graph_canonical_genres (
+                    genre_id, name, kind, specificity_score, status, taxonomy_version
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(genre_id) DO UPDATE SET
+                    name = excluded.name,
+                    kind = excluded.kind,
+                    specificity_score = excluded.specificity_score,
+                    status = excluded.status,
+                    taxonomy_version = excluded.taxonomy_version
+                """,
+                [
+                    (
+                        genre.genre_id,
+                        genre.name,
+                        genre.kind,
+                        genre.specificity_score,
+                        genre.status,
+                        genre.taxonomy_version,
+                    )
+                    for genre in taxonomy.genres
+                ],
+            )
+            conn.executemany(
+                """
+                INSERT INTO genre_graph_aliases (
+                    alias, canonical_genre_id, source, confidence
+                ) VALUES (?, ?, ?, ?)
+                ON CONFLICT(alias) DO UPDATE SET
+                    canonical_genre_id = excluded.canonical_genre_id,
+                    source = excluded.source,
+                    confidence = excluded.confidence
+                """,
+                [
+                    (alias.alias, alias.canonical_genre_id, alias.source, alias.confidence)
+                    for alias in taxonomy.aliases
+                ],
+            )
+            conn.executemany(
+                """
+                INSERT INTO genre_graph_edges (
+                    source_genre_id, target_genre_id, edge_type,
+                    weight, confidence, source, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(source_genre_id, target_genre_id, edge_type) DO UPDATE SET
+                    weight = excluded.weight,
+                    confidence = excluded.confidence,
+                    source = excluded.source,
+                    notes = excluded.notes
+                """,
+                [
+                    (
+                        edge.source_genre_id,
+                        edge.target_genre_id,
+                        edge.edge_type,
+                        edge.weight,
+                        edge.confidence,
+                        edge.source,
+                        edge.notes,
+                    )
+                    for edge in taxonomy.edges
+                ],
+            )
+            conn.executemany(
+                """
+                INSERT INTO genre_graph_canonical_facets (
+                    facet_id, name, facet_type, status
+                ) VALUES (?, ?, ?, ?)
+                ON CONFLICT(facet_id) DO UPDATE SET
+                    name = excluded.name,
+                    facet_type = excluded.facet_type,
+                    status = excluded.status
+                """,
+                [
+                    (facet.facet_id, facet.name, facet.facet_type, facet.status)
+                    for facet in taxonomy.facets
+                ],
+            )
+            conn.executemany(
+                """
+                INSERT INTO genre_graph_bridge_rules (
+                    source_genre_id, target_genre_id, required_family_min,
+                    required_facet_overlap, required_sonic_similarity,
+                    required_transition_quality, mode_allowed, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(source_genre_id, target_genre_id) DO UPDATE SET
+                    required_family_min = excluded.required_family_min,
+                    required_facet_overlap = excluded.required_facet_overlap,
+                    required_sonic_similarity = excluded.required_sonic_similarity,
+                    required_transition_quality = excluded.required_transition_quality,
+                    mode_allowed = excluded.mode_allowed,
+                    notes = excluded.notes
+                """,
+                [
+                    (
+                        rule.source_genre_id,
+                        rule.target_genre_id,
+                        rule.required_family_min,
+                        rule.required_facet_overlap,
+                        rule.required_sonic_similarity,
+                        rule.required_transition_quality,
+                        ",".join(rule.mode_allowed),
+                        rule.notes,
+                    )
+                    for rule in taxonomy.bridge_rules
+                ],
+            )
+            conn.executemany(
+                """
+                INSERT INTO genre_graph_rejected_terms (
+                    term, reason
+                ) VALUES (?, ?)
+                ON CONFLICT(term) DO UPDATE SET
+                    reason = excluded.reason
+                """,
+                [
+                    (term.term, term.reason)
+                    for term in taxonomy.rejected_terms
+                ],
+            )
+            return {
+                "genre_count": len(taxonomy.genres),
+                "alias_count": len(taxonomy.aliases),
+                "edge_count": len(taxonomy.edges),
+                "facet_count": len(taxonomy.facets),
+                "bridge_rule_count": len(taxonomy.bridge_rules),
+                "rejected_term_count": len(taxonomy.rejected_terms),
+            }
+
+    def layered_taxonomy_report(self) -> dict[str, Any]:
+        with self.connect() as conn:
+            taxonomy_version = conn.execute(
+                """
+                SELECT taxonomy_version
+                FROM genre_graph_canonical_genres
+                GROUP BY taxonomy_version
+                ORDER BY COUNT(*) DESC, taxonomy_version
+                LIMIT 1
+                """
+            ).fetchone()
+            genre_counts_by_kind = {
+                row["kind"]: row["count"]
+                for row in conn.execute(
+                    """
+                    SELECT kind, COUNT(*) AS count
+                    FROM genre_graph_canonical_genres
+                    GROUP BY kind
+                    ORDER BY kind
+                    """
+                )
+            }
+            facet_counts_by_type = {
+                row["facet_type"]: row["count"]
+                for row in conn.execute(
+                    """
+                    SELECT facet_type, COUNT(*) AS count
+                    FROM genre_graph_canonical_facets
+                    GROUP BY facet_type
+                    ORDER BY facet_type
+                    """
+                )
+            }
+            edge_counts_by_type = {
+                row["edge_type"]: row["count"]
+                for row in conn.execute(
+                    """
+                    SELECT edge_type, COUNT(*) AS count
+                    FROM genre_graph_edges
+                    GROUP BY edge_type
+                    ORDER BY edge_type
+                    """
+                )
+            }
+            alias_count = int(conn.execute("SELECT COUNT(*) FROM genre_graph_aliases").fetchone()[0])
+            bridge_rule_count = int(conn.execute("SELECT COUNT(*) FROM genre_graph_bridge_rules").fetchone()[0])
+            rejected_term_count = int(conn.execute("SELECT COUNT(*) FROM genre_graph_rejected_terms").fetchone()[0])
+            review_count = int(conn.execute(
+                "SELECT COUNT(*) FROM genre_graph_canonical_genres WHERE status = 'review'"
+            ).fetchone()[0])
+            deprecated_count = int(conn.execute(
+                "SELECT COUNT(*) FROM genre_graph_canonical_genres WHERE status = 'deprecated'"
+            ).fetchone()[0])
+        return {
+            "taxonomy_version": taxonomy_version["taxonomy_version"] if taxonomy_version else None,
+            "genre_counts_by_kind": genre_counts_by_kind,
+            "facet_counts_by_type": facet_counts_by_type,
+            "edge_counts_by_type": edge_counts_by_type,
+            "alias_count": alias_count,
+            "bridge_rule_count": bridge_rule_count,
+            "rejected_term_count": rejected_term_count,
+            "review_count": review_count,
+            "deprecated_count": deprecated_count,
+        }
+
+    def replace_layered_assignments_for_release(
+        self,
+        *,
+        release_id: str,
+        artist: str,
+        album: str,
+        genre_assignments: list[dict[str, Any]],
+        facet_assignments: list[dict[str, Any]],
+    ) -> dict[str, int]:
+        now = _now_iso()
+        with self.connect() as conn:
+            conn.execute(
+                "DELETE FROM genre_graph_release_genre_assignments WHERE release_id = ?",
+                (release_id,),
+            )
+            conn.execute(
+                "DELETE FROM genre_graph_release_facet_assignments WHERE release_id = ?",
+                (release_id,),
+            )
+            if genre_assignments:
+                conn.executemany(
+                    """
+                    INSERT INTO genre_graph_release_genre_assignments (
+                        release_id, artist, album, genre_id, assignment_layer,
+                        confidence, source_reliability, evidence_count,
+                        rejected_by_user, provenance_json, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        (
+                            release_id,
+                            artist,
+                            album,
+                            row["genre_id"],
+                            row["assignment_layer"],
+                            row["confidence"],
+                            row["source_reliability"],
+                            row["evidence_count"],
+                            1 if row.get("rejected_by_user") else 0,
+                            json.dumps(row.get("provenance", {}), sort_keys=True),
+                            now,
+                        )
+                        for row in genre_assignments
+                    ],
+                )
+            if facet_assignments:
+                conn.executemany(
+                    """
+                    INSERT INTO genre_graph_release_facet_assignments (
+                        release_id, artist, album, facet_id, confidence,
+                        source, provenance_json, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        (
+                            release_id,
+                            artist,
+                            album,
+                            row["facet_id"],
+                            row["confidence"],
+                            row["source"],
+                            json.dumps(row.get("provenance", {}), sort_keys=True),
+                            now,
+                        )
+                        for row in facet_assignments
+                    ],
+                )
+            return {
+                "genre_assignment_count": len(genre_assignments),
+                "facet_assignment_count": len(facet_assignments),
+            }
+
+    def layered_release_summary(self, release_id: str) -> dict[str, Any]:
+        with self.connect() as conn:
+            genre_rows = [
+                {
+                    "genre_id": row["genre_id"],
+                    "name": row["name"],
+                    "kind": row["kind"],
+                    "assignment_layer": row["assignment_layer"],
+                    "confidence": float(row["confidence"]),
+                    "source_reliability": float(row["source_reliability"]),
+                    "evidence_count": int(row["evidence_count"]),
+                    "rejected_by_user": bool(row["rejected_by_user"]),
+                    "provenance": json.loads(row["provenance_json"] or "{}"),
+                }
+                for row in conn.execute(
+                    """
+                    SELECT
+                        r.genre_id, c.name, c.kind, r.assignment_layer,
+                        r.confidence, r.source_reliability, r.evidence_count,
+                        r.rejected_by_user, r.provenance_json
+                    FROM genre_graph_release_genre_assignments r
+                    LEFT JOIN genre_graph_canonical_genres c
+                      ON c.genre_id = r.genre_id
+                    WHERE r.release_id = ?
+                    ORDER BY
+                        CASE r.assignment_layer
+                            WHEN 'human' THEN 0
+                            WHEN 'observed_leaf' THEN 1
+                            WHEN 'model_prior' THEN 2
+                            WHEN 'inferred_parent' THEN 3
+                            WHEN 'inferred_family' THEN 4
+                            ELSE 9
+                        END,
+                        c.name,
+                        r.genre_id
+                    """,
+                    (release_id,),
+                )
+            ]
+            facet_rows = [
+                {
+                    "facet_id": row["facet_id"],
+                    "name": row["name"],
+                    "facet_type": row["facet_type"],
+                    "confidence": float(row["confidence"]),
+                    "source": row["source"],
+                    "provenance": json.loads(row["provenance_json"] or "{}"),
+                }
+                for row in conn.execute(
+                    """
+                    SELECT
+                        r.facet_id, f.name, f.facet_type, r.confidence,
+                        r.source, r.provenance_json
+                    FROM genre_graph_release_facet_assignments r
+                    LEFT JOIN genre_graph_canonical_facets f
+                      ON f.facet_id = r.facet_id
+                    WHERE r.release_id = ?
+                    ORDER BY f.facet_type, f.name, r.facet_id
+                    """,
+                    (release_id,),
+                )
+            ]
+
+        genres_by_layer: dict[str, list[dict[str, Any]]] = {}
+        for row in genre_rows:
+            genres_by_layer.setdefault(str(row["assignment_layer"]), []).append(row)
+        return {
+            "release_id": release_id,
+            "genres_by_layer": genres_by_layer,
+            "facets": facet_rows,
+            "genre_assignment_count": len(genre_rows),
+            "facet_assignment_count": len(facet_rows),
+        }
 
     def _upsert_check(
         self,

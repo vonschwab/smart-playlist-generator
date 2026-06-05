@@ -1,0 +1,435 @@
+version: layered-genre-graph-v0
+
+genres:
+  - genre_id: rock
+    name: rock
+    kind: family
+    specificity_score: 0.10
+    status: active
+  - genre_id: pop
+    name: pop
+    kind: family
+    specificity_score: 0.10
+    status: active
+  - genre_id: electronic
+    name: electronic
+    kind: family
+    specificity_score: 0.10
+    status: active
+  - genre_id: folk
+    name: folk
+    kind: family
+    specificity_score: 0.10
+    status: active
+  - genre_id: jazz
+    name: jazz
+    kind: family
+    specificity_score: 0.10
+    status: active
+  - genre_id: hip_hop
+    name: hip hop
+    kind: family
+    specificity_score: 0.10
+    status: active
+  - genre_id: punk
+    name: punk
+    kind: family
+    specificity_score: 0.10
+    status: active
+  - genre_id: metal
+    name: metal
+    kind: family
+    specificity_score: 0.10
+    status: active
+  - genre_id: ambient_new_age
+    name: ambient/new age
+    kind: family
+    specificity_score: 0.10
+    status: active
+  - genre_id: rnb_soul
+    name: r&b/soul
+    kind: family
+    specificity_score: 0.10
+    status: active
+  - genre_id: country_roots
+    name: country/roots
+    kind: family
+    specificity_score: 0.10
+    status: active
+  - genre_id: classical_modern_composition
+    name: classical/modern composition
+    kind: family
+    specificity_score: 0.10
+    status: active
+  - genre_id: experimental
+    name: experimental
+    kind: family
+    specificity_score: 0.10
+    status: active
+  - genre_id: indie_context
+    name: indie
+    kind: family
+    specificity_score: 0.08
+    status: active
+
+  - genre_id: indie_pop
+    name: indie pop
+    kind: genre
+    specificity_score: 0.62
+    status: active
+  - genre_id: jangle_pop
+    name: jangle pop
+    kind: subgenre
+    specificity_score: 0.78
+    status: active
+  - genre_id: twee_pop
+    name: twee pop
+    kind: subgenre
+    specificity_score: 0.78
+    status: active
+  - genre_id: synth_pop
+    name: synth-pop
+    kind: subgenre
+    specificity_score: 0.72
+    status: active
+  - genre_id: slowcore
+    name: slowcore
+    kind: subgenre
+    specificity_score: 0.84
+    status: active
+  - genre_id: shoegaze
+    name: shoegaze
+    kind: subgenre
+    specificity_score: 0.82
+    status: active
+  - genre_id: dream_pop
+    name: dream pop
+    kind: subgenre
+    specificity_score: 0.76
+    status: active
+  - genre_id: post_rock
+    name: post-rock
+    kind: subgenre
+    specificity_score: 0.78
+    status: active
+  - genre_id: post_punk
+    name: post-punk
+    kind: subgenre
+    specificity_score: 0.74
+    status: active
+  - genre_id: dance_punk
+    name: dance-punk
+    kind: subgenre
+    specificity_score: 0.80
+    status: active
+  - genre_id: avant_folk
+    name: avant-folk
+    kind: subgenre
+    specificity_score: 0.82
+    status: active
+  - genre_id: indie_folk
+    name: indie folk
+    kind: genre
+    specificity_score: 0.68
+    status: active
+  - genre_id: american_primitivism
+    name: american primitivism
+    kind: subgenre
+    specificity_score: 0.88
+    status: active
+  - genre_id: ambient_americana
+    name: ambient americana
+    kind: subgenre
+    specificity_score: 0.86
+    status: active
+  - genre_id: ambient_dub
+    name: ambient dub
+    kind: subgenre
+    specificity_score: 0.82
+    status: active
+  - genre_id: experimental_ambient
+    name: experimental ambient
+    kind: subgenre
+    specificity_score: 0.80
+    status: active
+  - genre_id: ambient_pop
+    name: ambient pop
+    kind: subgenre
+    specificity_score: 0.78
+    status: active
+
+aliases:
+  - alias: jangle-pop
+    canonical_genre_id: jangle_pop
+    source: seed
+    confidence: 1.0
+  - alias: synth pop
+    canonical_genre_id: synth_pop
+    source: seed
+    confidence: 1.0
+  - alias: post rock
+    canonical_genre_id: post_rock
+    source: seed
+    confidence: 1.0
+  - alias: post punk
+    canonical_genre_id: post_punk
+    source: seed
+    confidence: 1.0
+  - alias: dance punk
+    canonical_genre_id: dance_punk
+    source: seed
+    confidence: 1.0
+  - alias: avant folk
+    canonical_genre_id: avant_folk
+    source: seed
+    confidence: 1.0
+
+facets:
+  - facet_id: lo_fi
+    name: lo-fi
+    facet_type: production
+    status: active
+  - facet_id: noisy
+    name: noisy
+    facet_type: texture
+    status: active
+  - facet_id: pastoral
+    name: pastoral
+    facet_type: mood
+    status: active
+  - facet_id: acoustic
+    name: acoustic
+    facet_type: instrumentation
+    status: active
+  - facet_id: synth_heavy
+    name: synth-heavy
+    facet_type: instrumentation
+    status: active
+  - facet_id: danceable
+    name: danceable
+    facet_type: function
+    status: active
+  - facet_id: melancholic
+    name: melancholic
+    facet_type: mood
+    status: active
+  - facet_id: minimal
+    name: minimal
+    facet_type: texture
+    status: active
+  - facet_id: warm
+    name: warm
+    facet_type: texture
+    status: active
+  - facet_id: reverb_heavy
+    name: reverb-heavy
+    facet_type: production
+    status: active
+  - facet_id: female_vocals
+    name: female vocals
+    facet_type: vocal
+    status: active
+  - facet_id: instrumental
+    name: instrumental
+    facet_type: vocal
+    status: active
+  - facet_id: drum_machine
+    name: drum machine
+    facet_type: production
+    status: active
+  - facet_id: diy
+    name: diy
+    facet_type: scene
+    status: active
+
+edges:
+  - source_genre_id: jangle_pop
+    target_genre_id: indie_pop
+    edge_type: is_a
+    weight: 0.90
+    confidence: 0.90
+    source: seed
+    notes: jangle pop is treated as a tighter indie-pop style.
+  - source_genre_id: indie_pop
+    target_genre_id: pop
+    edge_type: is_a
+    weight: 0.70
+    confidence: 0.90
+    source: seed
+    notes: indie pop carries pop-family context.
+  - source_genre_id: indie_pop
+    target_genre_id: rock
+    edge_type: is_a
+    weight: 0.55
+    confidence: 0.75
+    source: seed
+    notes: indie pop often carries rock-family context.
+  - source_genre_id: twee_pop
+    target_genre_id: indie_pop
+    edge_type: is_a
+    weight: 0.88
+    confidence: 0.90
+    source: seed
+    notes: twee pop is treated as a tighter indie-pop style.
+  - source_genre_id: synth_pop
+    target_genre_id: pop
+    edge_type: is_a
+    weight: 0.70
+    confidence: 0.90
+    source: seed
+    notes: synth-pop carries pop-family context.
+  - source_genre_id: synth_pop
+    target_genre_id: electronic
+    edge_type: is_a
+    weight: 0.65
+    confidence: 0.85
+    source: seed
+    notes: synth-pop carries electronic-family context.
+  - source_genre_id: slowcore
+    target_genre_id: rock
+    edge_type: is_a
+    weight: 0.65
+    confidence: 0.85
+    source: seed
+    notes: slowcore is tracked as a sparse rock-family style.
+  - source_genre_id: shoegaze
+    target_genre_id: rock
+    edge_type: is_a
+    weight: 0.70
+    confidence: 0.90
+    source: seed
+    notes: shoegaze carries rock-family context.
+  - source_genre_id: dream_pop
+    target_genre_id: pop
+    edge_type: is_a
+    weight: 0.70
+    confidence: 0.85
+    source: seed
+    notes: dream pop carries pop-family context.
+  - source_genre_id: dream_pop
+    target_genre_id: rock
+    edge_type: is_a
+    weight: 0.55
+    confidence: 0.75
+    source: seed
+    notes: dream pop often carries rock-family context.
+  - source_genre_id: avant_folk
+    target_genre_id: folk
+    edge_type: is_a
+    weight: 0.75
+    confidence: 0.90
+    source: seed
+    notes: avant-folk carries folk-family context.
+  - source_genre_id: indie_folk
+    target_genre_id: folk
+    edge_type: is_a
+    weight: 0.75
+    confidence: 0.90
+    source: seed
+    notes: indie folk carries folk-family context.
+  - source_genre_id: ambient_americana
+    target_genre_id: ambient_new_age
+    edge_type: is_a
+    weight: 0.72
+    confidence: 0.85
+    source: seed
+    notes: ambient americana carries ambient-family context.
+  - source_genre_id: ambient_americana
+    target_genre_id: country_roots
+    edge_type: is_a
+    weight: 0.52
+    confidence: 0.75
+    source: seed
+    notes: ambient americana may carry roots context.
+  - source_genre_id: american_primitivism
+    target_genre_id: folk
+    edge_type: is_a
+    weight: 0.70
+    confidence: 0.85
+    source: seed
+    notes: american primitivism carries folk-family context.
+  - source_genre_id: ambient_dub
+    target_genre_id: ambient_new_age
+    edge_type: is_a
+    weight: 0.70
+    confidence: 0.85
+    source: seed
+    notes: ambient dub carries ambient-family context.
+  - source_genre_id: experimental_ambient
+    target_genre_id: ambient_new_age
+    edge_type: is_a
+    weight: 0.70
+    confidence: 0.85
+    source: seed
+    notes: experimental ambient carries ambient-family context.
+  - source_genre_id: experimental_ambient
+    target_genre_id: experimental
+    edge_type: is_a
+    weight: 0.60
+    confidence: 0.85
+    source: seed
+    notes: experimental ambient carries experimental-family context.
+
+bridge_rules:
+  - source_genre_id: indie_pop
+    target_genre_id: synth_pop
+    required_family_min: 0.40
+    required_facet_overlap: 0.25
+    required_sonic_similarity: 0.60
+    required_transition_quality: 0.60
+    mode_allowed: [dynamic, discover]
+    notes: Pop-family bridge when synth/dance facets support it.
+  - source_genre_id: jangle_pop
+    target_genre_id: twee_pop
+    required_family_min: 0.45
+    required_facet_overlap: 0.20
+    required_sonic_similarity: 0.55
+    required_transition_quality: 0.55
+    mode_allowed: [narrow, dynamic, discover]
+    notes: Close indie-pop sibling bridge.
+  - source_genre_id: shoegaze
+    target_genre_id: dream_pop
+    required_family_min: 0.40
+    required_facet_overlap: 0.25
+    required_sonic_similarity: 0.58
+    required_transition_quality: 0.58
+    mode_allowed: [narrow, dynamic, discover]
+    notes: Texture-heavy rock/pop bridge.
+  - source_genre_id: avant_folk
+    target_genre_id: indie_folk
+    required_family_min: 0.45
+    required_facet_overlap: 0.25
+    required_sonic_similarity: 0.58
+    required_transition_quality: 0.58
+    mode_allowed: [narrow, dynamic, discover]
+    notes: Folk-family bridge.
+  - source_genre_id: ambient_americana
+    target_genre_id: american_primitivism
+    required_family_min: 0.35
+    required_facet_overlap: 0.30
+    required_sonic_similarity: 0.60
+    required_transition_quality: 0.60
+    mode_allowed: [dynamic, discover]
+    notes: Pastoral/acoustic ambient roots bridge.
+  - source_genre_id: post_punk
+    target_genre_id: dance_punk
+    required_family_min: 0.40
+    required_facet_overlap: 0.25
+    required_sonic_similarity: 0.58
+    required_transition_quality: 0.58
+    mode_allowed: [dynamic, discover]
+    notes: Punk-family rhythm bridge.
+
+rejected_terms:
+  - term: seen live
+    reason: Known non-genre/noise term.
+  - term: favorite
+    reason: Known non-genre/noise term.
+  - term: spotify
+    reason: Known non-genre/noise term.
+  - term: rare sad girl
+    reason: Known non-genre/noise term.
+  - term: rare sads
+    reason: Known non-genre/noise term.
+  - term: mixtaperoom
+    reason: Known non-genre/noise term.

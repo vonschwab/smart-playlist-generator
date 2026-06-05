@@ -192,6 +192,10 @@ def _slice_bundle(
         X_genre_raw=bundle.X_genre_raw[indices],
         X_genre_smoothed=bundle.X_genre_smoothed[indices],
         X_genre_dense=_opt(bundle.X_genre_dense),
+        X_genre_leaf_idf=_opt(getattr(bundle, "X_genre_leaf_idf", None)),
+        X_genre_family=_opt(getattr(bundle, "X_genre_family", None)),
+        X_genre_bridge=_opt(getattr(bundle, "X_genre_bridge", None)),
+        X_facet=_opt(getattr(bundle, "X_facet", None)),
         genre_vocab=bundle.genre_vocab,
         track_id_to_index={str(tid): i for i, tid in enumerate(bundle.track_ids[indices])},
         # Scalar/metadata fields — not row-indexed; must be forwarded explicitly
@@ -200,6 +204,12 @@ def _slice_bundle(
         sonic_pre_scaled=bundle.sonic_pre_scaled,
         tower_dims=bundle.tower_dims,
         genre_emb=bundle.genre_emb,
+        genre_leaf_vocab=getattr(bundle, "genre_leaf_vocab", None),
+        genre_family_vocab=getattr(bundle, "genre_family_vocab", None),
+        genre_bridge_vocab=getattr(bundle, "genre_bridge_vocab", None),
+        facet_vocab=getattr(bundle, "facet_vocab", None),
+        genre_graph_taxonomy_version=getattr(bundle, "genre_graph_taxonomy_version", None),
+        genre_graph_sidecar_fingerprint=getattr(bundle, "genre_graph_sidecar_fingerprint", None),
     )
     if include_durations:
         kwargs["durations_ms"] = _opt(bundle.durations_ms)

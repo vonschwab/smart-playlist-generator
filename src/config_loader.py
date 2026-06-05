@@ -122,6 +122,18 @@ class Config:
         """Get artifact-build genre source. Legacy is the backward-compatible default."""
         return self._get_ds_pipeline("genre_source", default="legacy")
 
+    def get_ds_genre_graph_source(self) -> str:
+        """Get runtime genre graph source. Legacy is the backward-compatible default."""
+        raw = self._get_ds_pipeline("genre_graph", "source", default=None)
+        if raw is None:
+            raw = self.get_ds_genre_source()
+            if raw == "enriched":
+                raw = "legacy"
+        source = str(raw or "legacy").strip().lower()
+        if source not in {"legacy", "layered_shadow", "layered"}:
+            return "legacy"
+        return source
+
     @property
     def min_duration_minutes(self) -> int:
         """Get minimum playlist duration in minutes"""
@@ -439,6 +451,10 @@ class Config:
                 'max_pool_size': self.ds_candidate_max_pool_size,
                 'max_artist_fraction': self.ds_candidate_max_artist_fraction,
             },
+            'genre_graph': {
+                'source': self.get_ds_genre_graph_source(),
+            },
+            'genre_source': self.get_ds_genre_source(),
             'scoring': {
                 'alpha': self.ds_scoring_alpha,
                 'beta': self.ds_scoring_beta,
