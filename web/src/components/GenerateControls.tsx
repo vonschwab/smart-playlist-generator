@@ -19,7 +19,7 @@ export function GenerateControls(props: { onSubmit: (body: GenerateRequestBody) 
   });
   const [cohesion, setCohesion] = useState("dynamic");
   const [suggestions, setSuggestions] = useState<string[]>([]);
-  const timer = useRef<number>();
+  const timer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     if (mode !== "artist" || seed.length < 2) {
