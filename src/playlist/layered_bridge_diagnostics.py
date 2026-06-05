@@ -68,6 +68,10 @@ def build_layered_transition_diagnostics(
         }
 
     track_ids = getattr(bundle, "track_ids", None)
+    leaf_vocab = _coerce_vocab(getattr(bundle, "genre_leaf_vocab", None), leaf.shape[1])
+    family_vocab = _coerce_vocab(getattr(bundle, "genre_family_vocab", None), family.shape[1])
+    bridge_vocab = _coerce_vocab(getattr(bundle, "genre_bridge_vocab", None), bridge.shape[1])
+    facet_vocab = _coerce_vocab(getattr(bundle, "facet_vocab", None), facet.shape[1])
     rows: list[dict[str, Any]] = []
     reason_counts: dict[str, int] = {}
     explained_count = 0
@@ -119,6 +123,18 @@ def build_layered_transition_diagnostics(
                         float(decision.components.unexplained_family_jump_penalty), 6
                     ),
                     "bridge_evidence_penalty": round(float(decision.components.bridge_evidence_penalty), 6),
+                    "from_leaf_terms": _active_terms(leaf[prev_idx], leaf_vocab),
+                    "to_leaf_terms": _active_terms(leaf[cur_idx], leaf_vocab),
+                    "shared_leaf_terms": _shared_terms(leaf[prev_idx], leaf[cur_idx], leaf_vocab),
+                    "from_family_terms": _active_terms(family[prev_idx], family_vocab),
+                    "to_family_terms": _active_terms(family[cur_idx], family_vocab),
+                    "shared_family_terms": _shared_terms(family[prev_idx], family[cur_idx], family_vocab),
+                    "from_bridge_terms": _active_terms(bridge[prev_idx], bridge_vocab),
+                    "to_bridge_terms": _active_terms(bridge[cur_idx], bridge_vocab),
+                    "shared_bridge_terms": _shared_terms(bridge[prev_idx], bridge[cur_idx], bridge_vocab),
+                    "from_facet_terms": _active_terms(facet[prev_idx], facet_vocab),
+                    "to_facet_terms": _active_terms(facet[cur_idx], facet_vocab),
+                    "shared_facet_terms": _shared_terms(facet[prev_idx], facet[cur_idx], facet_vocab),
                 }
             )
 
@@ -141,6 +157,38 @@ def _coerce_score(value: Any, *, fallback: Any, default: float) -> float:
     if raw != raw:
         return float(default)
     return max(0.0, min(1.0, float(raw)))
+
+
+def _coerce_vocab(vocab: Any, width: int) -> list[str] | None:
+    if vocab is None:
+        return None
+    try:
+        values = [str(value) for value in np.asarray(vocab, dtype=object).reshape(-1).tolist()]
+    except Exception:
+        return None
+    if len(values) != int(width):
+        return None
+    return values
+
+
+def _active_terms(vector: np.ndarray, vocab: list[str] | None) -> list[str]:
+    if vocab is None:
+        return []
+    values = np.asarray(vector, dtype=float).reshape(-1)
+    return [vocab[i] for i, value in enumerate(values) if i < len(vocab) and float(value) > 0.0]
+
+
+def _shared_terms(left: np.ndarray, right: np.ndarray, vocab: list[str] | None) -> list[str]:
+    if vocab is None:
+        return []
+    left_values = np.asarray(left, dtype=float).reshape(-1)
+    right_values = np.asarray(right, dtype=float).reshape(-1)
+    width = min(len(vocab), left_values.shape[0], right_values.shape[0])
+    return [
+        vocab[i]
+        for i in range(width)
+        if float(left_values[i]) > 0.0 and float(right_values[i]) > 0.0
+    ]
 
 
 def _track_id(track_ids: Any, idx: int) -> str:

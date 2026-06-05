@@ -47,6 +47,9 @@ def test_run_audit_renders_layered_candidate_diagnostics(tmp_path):
                                     "reason": "broad_only_without_leaf_support",
                                     "family_affinity": 1.0,
                                     "niche_similarity": 0.0,
+                                    "candidate_family_terms": ["pop"],
+                                    "candidate_leaf_terms": [],
+                                    "shared_family_terms": ["pop"],
                                 }
                             ],
                         },
@@ -63,6 +66,10 @@ def test_run_audit_renders_layered_candidate_diagnostics(tmp_path):
     assert "broad_only_without_leaf_support" in text
     assert "### layered_genre_shadow" in text
     assert "`broad-id`" in text
+    assert "leaf_terms" in text
+    assert "family_terms" in text
+    assert "| `broad-id` |  |  | broad_only_without_leaf_support" in text
+    assert "pop" in text
 
 
 def test_run_audit_renders_layered_transition_diagnostics(tmp_path):
@@ -92,6 +99,9 @@ def test_run_audit_renders_layered_transition_diagnostics(tmp_path):
                                 "to_track_id": "t1",
                                 "reason": "bridge_supported",
                                 "score": 0.75,
+                                "from_leaf_terms": ["jangle pop"],
+                                "to_leaf_terms": ["synth-pop"],
+                                "shared_facet_terms": ["reverb-heavy"],
                             }
                         ],
                     },
@@ -108,3 +118,9 @@ def test_run_audit_renders_layered_transition_diagnostics(tmp_path):
     assert "unexplained_family_jump" in text
     assert "`t0`" in text
     assert "`t1`" in text
+    assert "from_leaf_terms" in text
+    assert "to_leaf_terms" in text
+    assert "facet_terms" in text
+    assert "jangle pop" in text
+    assert "synth-pop" in text
+    assert "reverb-heavy" in text

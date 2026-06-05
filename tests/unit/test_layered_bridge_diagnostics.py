@@ -26,6 +26,10 @@ def _bundle():
             dtype=float,
         ),
         X_facet=np.ones((3, 1), dtype=float),
+        genre_leaf_vocab=np.array(["jangle pop", "synth-pop"], dtype=object),
+        genre_family_vocab=np.array(["pop"], dtype=object),
+        genre_bridge_vocab=np.array(["jangle pop", "synth-pop"], dtype=object),
+        facet_vocab=np.array(["reverb-heavy"], dtype=object),
     )
 
 
@@ -51,7 +55,13 @@ def test_layered_transition_diagnostics_summarize_selected_edges():
     assert diagnostics["samples"][0]["from_track_id"] == "t0"
     assert diagnostics["samples"][0]["to_track_id"] == "t1"
     assert diagnostics["samples"][0]["reason"] == "leaf_continuity"
+    assert diagnostics["samples"][0]["shared_leaf_terms"] == ["jangle pop"]
+    assert diagnostics["samples"][0]["shared_family_terms"] == ["pop"]
     assert diagnostics["samples"][1]["reason"] == "bridge_supported"
+    assert diagnostics["samples"][1]["from_bridge_terms"] == []
+    assert diagnostics["samples"][1]["to_leaf_terms"] == ["synth-pop"]
+    assert diagnostics["samples"][1]["to_bridge_terms"] == ["jangle pop"]
+    assert diagnostics["samples"][1]["shared_facet_terms"] == ["reverb-heavy"]
 
 
 def test_layered_transition_diagnostics_handles_missing_matrices():
