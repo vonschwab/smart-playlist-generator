@@ -44,13 +44,6 @@ async def test_bridge_rejects_concurrent_submit():
     await bridge.stop()
 
 
-import sys
-import pytest
-from src.playlist_web.worker_bridge import WorkerBridge, BridgeBusy, WorkerCommandError
-
-FAKE = [sys.executable, "tests/fixtures/fake_worker.py"]
-
-
 async def _noop(_e):
     pass
 

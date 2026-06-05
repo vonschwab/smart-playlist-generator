@@ -97,7 +97,7 @@ class WorkerBridge:
         cmd = dict(cmd)
         cmd["request_id"] = request_id
         cmd["protocol_version"] = PROTOCOL_VERSION
-        fut: asyncio.Future = asyncio.get_event_loop().create_future()
+        fut: asyncio.Future = asyncio.get_running_loop().create_future()
         self._pending[request_id] = fut
         self._active_request_id = request_id
         line = (json.dumps(cmd) + "\n").encode("utf-8")
@@ -109,6 +109,9 @@ class WorkerBridge:
             self._pending.pop(request_id, None)
             self._results.pop(request_id, None)
             self._errors.pop(request_id, None)
+            if self._active_request_id == request_id:
+                self._active_request_id = None
+            fut.cancel()
 
     async def _read_loop(self) -> None:
         assert self._proc and self._proc.stdout
