@@ -61,6 +61,12 @@ def main():
             emit({"type": "result", "result_type": "blacklist_scope_set", "request_id": rid, "job_id": jid,
                   "scope": cmd.get("scope"), "value": cmd.get("value"), "enabled": cmd.get("enabled", True), "track_ids": []})
             emit({"type": "done", "cmd": name, "ok": True, "detail": "scope set", "request_id": rid, "job_id": jid})
+        elif name == "edit_genres":
+            genres = cmd.get("genres", []) or []
+            emit({"type": "result", "result_type": "edit_genres", "request_id": rid, "job_id": jid,
+                  "artist": cmd.get("artist"), "album": cmd.get("album"),
+                  "genres": sorted(genres), "added": sorted(genres), "removed": []})
+            emit({"type": "done", "cmd": name, "ok": True, "detail": "ok", "request_id": rid, "job_id": jid})
         else:
             emit({"type": "error", "message": f"unknown cmd {name}", "request_id": rid, "job_id": jid})
             emit({"type": "done", "cmd": name or "?", "ok": False, "request_id": rid, "job_id": jid})

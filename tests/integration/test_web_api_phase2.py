@@ -130,3 +130,35 @@ def test_blacklist_album_scope_requires_artist():
     with TestClient(create_app(worker_cmd=FAKE)) as client:
         resp = client.post("/api/blacklist", json={"scope": "album", "value": "Leisure"})
         assert resp.status_code == 422
+
+
+def test_edit_genres():
+    with TestClient(create_app(worker_cmd=FAKE)) as client:
+        resp = client.post("/api/edit_genres", json={
+            "artist": "Marbled Eye", "album": "Leisure", "genres": ["post-punk", "dream pop"],
+        })
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["ok"] is True
+        assert "post-punk" in body["genres"]
+
+
+def test_edit_genres_requires_artist_album():
+    with TestClient(create_app(worker_cmd=FAKE)) as client:
+        resp = client.post("/api/edit_genres", json={"artist": "", "album": "", "genres": ["x"]})
+        assert resp.status_code == 422
+
+
+def test_plex_export_unconfigured_returns_503():
+    # Pass a config path with no plex section so the result is deterministic
+    # regardless of the developer's real config.yaml.
+    with tempfile.TemporaryDirectory() as d:
+        cfg = Path(d) / "config.yaml"
+        cfg.write_text("library:\n  database_path: data/metadata.db\n", encoding="utf-8")
+        with TestClient(create_app(worker_cmd=FAKE, config_path=str(cfg))) as client:
+            resp = client.post("/api/export/plex", json={
+                "title": "My Playlist",
+                "tracks": [{"rating_key": "k0", "title": "Sundown", "artist": "Acetone", "file_path": "/0.flac"}],
+            })
+            assert resp.status_code == 503
+            assert "plex" in resp.json()["detail"].lower()

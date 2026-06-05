@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .audio import stream_audio
 from .jobs import JobRegistry
+from .plex_export import PlexNotConfigured, run_plex_export
 from .schemas import (
     BlacklistRequest,
     EditGenresRequest,
@@ -165,6 +166,33 @@ def create_app(worker_cmd: Optional[list[str]] = None, config_path: str = DEFAUL
         except WorkerCommandError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
         return {"ok": True, **result}
+
+    @app.post("/api/edit_genres")
+    async def edit_genres(body: EditGenresRequest) -> dict:
+        if not body.artist.strip() or not body.album.strip():
+            raise HTTPException(status_code=422, detail="artist and album are required")
+        try:
+            result = await bridge.command({
+                "cmd": "edit_genres",
+                "artist": body.artist,
+                "album": body.album,
+                "genres": body.genres,
+            })
+        except BridgeBusy:
+            raise HTTPException(status_code=409, detail="A generation is in progress — try again when it finishes.")
+        except WorkerCommandError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        return {"ok": True, **result}
+
+    @app.post("/api/export/plex")
+    async def export_plex(body: PlexExportRequest) -> dict:
+        try:
+            key = run_plex_export(body.title, body.tracks, config_path)
+        except PlexNotConfigured as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        except Exception as exc:  # noqa: BLE001 - surface any export failure to the client
+            raise HTTPException(status_code=502, detail=f"Plex export failed: {exc}")
+        return {"ok": True, "playlist_key": key}
 
     @app.websocket("/ws")
     async def ws_endpoint(ws: WebSocket) -> None:
