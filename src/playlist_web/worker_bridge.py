@@ -13,6 +13,10 @@ class BridgeBusy(RuntimeError):
     """Raised when a request is submitted while another is active."""
 
 
+class WorkerCommandError(RuntimeError):
+    """Raised when a synchronous worker command completes with ok=false."""
+
+
 class WorkerBridge:
     """Asyncio NDJSON client for the playlist worker subprocess."""
 
@@ -22,6 +26,9 @@ class WorkerBridge:
         self._proc: Optional[asyncio.subprocess.Process] = None
         self._reader_task: Optional[asyncio.Task] = None
         self._active_request_id: Optional[str] = None
+        self._pending: dict[str, asyncio.Future] = {}
+        self._results: dict[str, dict] = {}
+        self._errors: dict[str, str] = {}
 
     @property
     def running(self) -> bool:
@@ -75,6 +82,34 @@ class WorkerBridge:
         await self._proc.stdin.drain()
         return request_id
 
+    async def command(self, cmd: dict, timeout: float = 60.0) -> dict:
+        """Submit a worker command and await its done event.
+
+        Returns the captured `result` event payload. Raises BridgeBusy if the
+        worker is already handling a request, or WorkerCommandError if the
+        command completes with ok=false.
+        """
+        if not self.running:
+            raise RuntimeError("Worker not running")
+        if self.busy:
+            raise BridgeBusy("Worker is busy with another request")
+        request_id = str(uuid.uuid4())
+        cmd = dict(cmd)
+        cmd["request_id"] = request_id
+        cmd["protocol_version"] = PROTOCOL_VERSION
+        fut: asyncio.Future = asyncio.get_event_loop().create_future()
+        self._pending[request_id] = fut
+        self._active_request_id = request_id
+        line = (json.dumps(cmd) + "\n").encode("utf-8")
+        self._proc.stdin.write(line)
+        await self._proc.stdin.drain()
+        try:
+            return await asyncio.wait_for(fut, timeout=timeout)
+        finally:
+            self._pending.pop(request_id, None)
+            self._results.pop(request_id, None)
+            self._errors.pop(request_id, None)
+
     async def _read_loop(self) -> None:
         assert self._proc and self._proc.stdout
         while True:
@@ -88,6 +123,21 @@ class WorkerBridge:
                 event = json.loads(text)
             except json.JSONDecodeError:
                 event = {"type": "log", "level": "INFO", "msg": text}
-            if event.get("type") == "done" and event.get("request_id") == self._active_request_id:
+            etype = event.get("type")
+            rid = event.get("request_id")
+            if rid in self._pending:
+                if etype == "result":
+                    self._results[rid] = event
+                elif etype == "error":
+                    self._errors[rid] = event.get("message", "command failed")
+                elif etype == "done":
+                    fut = self._pending.get(rid)
+                    if fut and not fut.done():
+                        if event.get("ok"):
+                            fut.set_result(self._results.get(rid, {}))
+                        else:
+                            msg = self._errors.get(rid) or event.get("detail") or "command failed"
+                            fut.set_exception(WorkerCommandError(msg))
+            if etype == "done" and rid == self._active_request_id:
                 self._active_request_id = None
             await self._on_event(event)

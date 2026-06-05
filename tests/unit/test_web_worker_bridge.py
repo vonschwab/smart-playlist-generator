@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from src.playlist_web.worker_bridge import WorkerBridge, BridgeBusy
+from src.playlist_web.worker_bridge import WorkerBridge, BridgeBusy, WorkerCommandError
 
 FAKE = [sys.executable, "tests/fixtures/fake_worker.py"]
 
@@ -42,3 +42,46 @@ async def test_bridge_rejects_concurrent_submit():
     with pytest.raises(BridgeBusy):
         await bridge.submit({"cmd": "generate_playlist", "job_id": "j2", "args": {}})
     await bridge.stop()
+
+
+import sys
+import pytest
+from src.playlist_web.worker_bridge import WorkerBridge, BridgeBusy, WorkerCommandError
+
+FAKE = [sys.executable, "tests/fixtures/fake_worker.py"]
+
+
+async def _noop(_e):
+    pass
+
+
+async def test_command_returns_result_payload():
+    bridge = WorkerBridge(FAKE, on_event=_noop)
+    await bridge.start()
+    try:
+        result = await bridge.command({"cmd": "ping"})
+        assert result["result_type"] == "pong"
+    finally:
+        await bridge.stop()
+
+
+async def test_command_raises_on_worker_error():
+    bridge = WorkerBridge(FAKE, on_event=_noop)
+    await bridge.start()
+    try:
+        with pytest.raises(WorkerCommandError):
+            await bridge.command({"cmd": "does_not_exist"})
+    finally:
+        await bridge.stop()
+
+
+async def test_command_rejects_when_busy():
+    bridge = WorkerBridge(FAKE, on_event=_noop)
+    await bridge.start()
+    try:
+        bridge._active_request_id = "someone-else"  # simulate in-flight request
+        with pytest.raises(BridgeBusy):
+            await bridge.command({"cmd": "ping"})
+    finally:
+        bridge._active_request_id = None
+        await bridge.stop()
