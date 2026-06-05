@@ -61,6 +61,9 @@ export const api = {
       body: JSON.stringify({ artist }),
     }));
   },
+  async cancelJob(jobId: string): Promise<{ ok: boolean }> {
+    return jsonOrThrow(await fetch(`/api/jobs/${jobId}/cancel`, { method: "POST" }));
+  },
   async editGenres(req: EditGenresRequest): Promise<{ ok: boolean; genres: string[] }> {
     return jsonOrThrow(await fetch("/api/edit_genres", {
       method: "POST",

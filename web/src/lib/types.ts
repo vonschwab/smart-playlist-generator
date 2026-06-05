@@ -69,6 +69,8 @@ export interface JobOut {
   stage: string;
   error?: string | null;
   playlist?: PlaylistOut | null;
+  created_at?: number | null;
+  request_params?: Record<string, unknown> | null;
 }
 
 export interface WsEvent {
