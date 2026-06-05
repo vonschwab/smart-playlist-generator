@@ -13,8 +13,16 @@ from fastapi.staticfiles import StaticFiles
 
 from .audio import stream_audio
 from .jobs import JobRegistry
-from .schemas import GenerateRequestBody, JobOut
-from .worker_bridge import BridgeBusy, WorkerBridge
+from .schemas import (
+    BlacklistRequest,
+    EditGenresRequest,
+    GenerateRequestBody,
+    JobOut,
+    PlexExportRequest,
+    ReplaceSuggestionsRequest,
+    ReplaceSuggestionsResponse,
+)
+from .worker_bridge import BridgeBusy, WorkerBridge, WorkerCommandError
 from .ws import WsHub
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -106,6 +114,23 @@ def create_app(worker_cmd: Optional[list[str]] = None, config_path: str = DEFAUL
     @app.get("/api/audio/{track_id}")
     async def audio(track_id: str, request: Request):
         return stream_audio(track_id, DB_PATH, request)
+
+    @app.post("/api/replace_suggestions")
+    async def replace_suggestions(body: ReplaceSuggestionsRequest) -> ReplaceSuggestionsResponse:
+        try:
+            result = await bridge.command({
+                "cmd": "find_replacement_suggestions",
+                "position": body.position,
+                "top_k": body.top_k,
+            })
+        except BridgeBusy:
+            raise HTTPException(status_code=409, detail="A generation is in progress — try again when it finishes.")
+        except WorkerCommandError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        return ReplaceSuggestionsResponse.from_worker_candidates(
+            position=result.get("position", body.position),
+            raw=result.get("candidates", []),
+        )
 
     @app.websocket("/ws")
     async def ws_endpoint(ws: WebSocket) -> None:

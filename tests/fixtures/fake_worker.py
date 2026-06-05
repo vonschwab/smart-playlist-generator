@@ -37,6 +37,21 @@ def main():
             }})
             emit({"type": "progress", "stage": "complete", "current": 100, "total": 100, "detail": "Done", "request_id": rid, "job_id": jid})
             emit({"type": "done", "cmd": "generate_playlist", "ok": True, "detail": "Generated 2 tracks", "request_id": rid, "job_id": jid})
+        elif name == "find_replacement_suggestions":
+            pos = cmd.get("position")
+            if pos in (0, None):
+                emit({"type": "error", "message": "Cannot replace pier track", "request_id": rid, "job_id": jid})
+                emit({"type": "done", "cmd": name, "ok": False, "detail": "Cannot replace pier track", "request_id": rid, "job_id": jid})
+            else:
+                emit({"type": "result", "result_type": "replacement_suggestions", "request_id": rid, "job_id": jid,
+                      "position": pos, "mode": "best",
+                      "candidates": [
+                          {"index": 7, "track_id": "k9", "rating_key": "k9", "artist_key": "band",
+                           "title": "Fall Like Rain", "artist": "Acetone", "album": "Cindy",
+                           "genres": ["slowcore"], "mean_t": 0.74, "t_prev": 0.75, "t_next": 0.73,
+                           "duration_ms": 200000, "file_path": "/9.flac"},
+                      ]})
+                emit({"type": "done", "cmd": name, "ok": True, "detail": "Found 1", "request_id": rid, "job_id": jid})
         else:
             emit({"type": "error", "message": f"unknown cmd {name}", "request_id": rid, "job_id": jid})
             emit({"type": "done", "cmd": name or "?", "ok": False, "request_id": rid, "job_id": jid})

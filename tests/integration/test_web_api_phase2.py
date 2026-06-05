@@ -94,3 +94,19 @@ def test_audio_unknown_track_404(monkeypatch):
         with TestClient(create_app(worker_cmd=FAKE)) as client:
             resp = client.get("/api/audio/nope")
             assert resp.status_code == 404
+
+
+def test_replace_suggestions_returns_candidates():
+    with TestClient(create_app(worker_cmd=FAKE)) as client:
+        resp = client.post("/api/replace_suggestions", json={"job_id": "j1", "position": 3})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["position"] == 3
+        assert body["candidates"][0]["track_id"] == "k9"
+        assert body["candidates"][0]["fit_score"] == 0.74
+
+
+def test_replace_suggestions_pier_rejected():
+    with TestClient(create_app(worker_cmd=FAKE)) as client:
+        resp = client.post("/api/replace_suggestions", json={"job_id": "j1", "position": 0})
+        assert resp.status_code == 422
