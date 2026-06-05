@@ -24,6 +24,15 @@ class GenerateRequestBody(BaseModel):
     pace_mode: Optional[str] = None
     include_collaborations: bool = False
     exclude_seed_tracks_from_recency: bool = False
+    # Policy fields — translated into config overrides via UIStateModel + derive_runtime_config
+    recency_enabled: bool = True
+    recency_days: int = 14
+    recency_plays_threshold: int = 1
+    artist_spacing: str = "normal"
+    diversity_gamma: float = 0.04
+    artist_diversity_mode: str = "weighted"
+    artist_presence: str = "medium"
+    artist_variety: str = "balanced"
 
     def to_request(self) -> GeneratePlaylistRequest:
         """Convert to internal GeneratePlaylistRequest for worker processing."""
@@ -54,6 +63,7 @@ class TrackOut(BaseModel):
     file_path: str = ""
     sonic_similarity: Optional[float] = None
     genre_similarity: Optional[float] = None
+    transition_score: Optional[float] = None
     genres: list[str] = Field(default_factory=list)
 
 
@@ -91,6 +101,7 @@ class PlaylistOut(BaseModel):
                 file_path=t.get("file_path", ""),
                 sonic_similarity=t.get("sonic_similarity"),
                 genre_similarity=t.get("genre_similarity"),
+                transition_score=t.get("transition_score"),
                 genres=t.get("genres", []),
             )
             for t in tracks_raw

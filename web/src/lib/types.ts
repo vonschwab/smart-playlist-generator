@@ -13,6 +13,25 @@ export interface GenerateRequestBody {
   sonic_mode?: AxisValue;
   pace_mode?: "strict" | "narrow" | "dynamic";
   include_collaborations?: boolean;
+  exclude_seed_tracks_from_recency?: boolean;
+  recency_enabled?: boolean;
+  recency_days?: number;
+  recency_plays_threshold?: number;
+  artist_spacing?: string;
+  diversity_gamma?: number;
+  artist_diversity_mode?: string;
+  artist_presence?: string;
+  artist_variety?: string;
+}
+
+export interface SeedTrack {
+  track_id: string;
+  title: string;
+  artist: string;
+  album: string;
+  genres: string[];
+  duration_ms: number;
+  file_path: string;
 }
 
 export interface TrackOut {
@@ -25,6 +44,7 @@ export interface TrackOut {
   file_path: string;
   sonic_similarity?: number | null;
   genre_similarity?: number | null;
+  transition_score?: number | null;
   genres: string[];
 }
 
