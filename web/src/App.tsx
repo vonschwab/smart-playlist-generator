@@ -14,6 +14,8 @@ import type { CandidateOut, GenerateRequestBody, JobOut, PlaylistOut, TrackOut, 
 import { TrackContextMenu, type MenuTarget } from "./components/TrackContextMenu";
 import { ReplaceDialog } from "./components/ReplaceDialog";
 import { EditGenresDialog } from "./components/EditGenresDialog";
+import { ExportPlexDialog } from "./components/ExportPlexDialog";
+import { downloadM3U8 } from "./lib/m3u";
 
 export default function App() {
   const [busy, setBusy] = useState(false);
@@ -30,6 +32,7 @@ export default function App() {
   const [replacePos, setReplacePos] = useState(0);
   const [editGenresOpen, setEditGenresOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<{ artist: string; album: string; genres: string[] }>({ artist: "", album: "", genres: [] });
+  const [plexOpen, setPlexOpen] = useState(false);
 
   const refreshJobs = useCallback(() => { api.jobs().then(setJobs).catch(() => {}); }, []);
 
@@ -104,6 +107,12 @@ export default function App() {
     });
   }, []);
 
+  const defaultPlexName = useCallback(() => {
+    const date = new Date().toISOString().slice(0, 10);
+    const seed = playlist?.tracks[0]?.artist ?? "Playlist";
+    return `${seed} — ${date}`;
+  }, [playlist]);
+
   useWorkerEvents(useCallback((e: WsEvent) => {
     if (e.type === "log") setLogs((l) => [...l, `${(e as any).level ?? "INFO"}: ${(e as any).msg ?? ""}`].slice(-500));
     if (e.type === "error") setError(String((e as any).message ?? "error"));
@@ -139,7 +148,13 @@ export default function App() {
         center={
           <div className="h-full flex flex-col overflow-hidden">
             <GenerateControls onSubmit={submit} busy={busy} />
-            <QualityStats metrics={playlist?.metrics} count={playlist?.track_count ?? 0} />
+            <QualityStats
+              metrics={playlist?.metrics}
+              count={playlist?.track_count ?? 0}
+              tracks={playlist?.tracks ?? []}
+              onExportM3U8={() => playlist && downloadM3U8(playlist.tracks)}
+              onExportPlex={() => setPlexOpen(true)}
+            />
             <div className="flex-1 overflow-auto">
               <TrackTable
                 tracks={playlist?.tracks ?? []}
@@ -180,6 +195,12 @@ export default function App() {
         album={editTarget.album}
         initialGenres={editTarget.genres}
         onSaved={applyGenreEdit}
+      />
+      <ExportPlexDialog
+        open={plexOpen}
+        onOpenChange={setPlexOpen}
+        tracks={playlist?.tracks ?? []}
+        defaultName={defaultPlexName()}
       />
     </PlayerProvider>
   );
