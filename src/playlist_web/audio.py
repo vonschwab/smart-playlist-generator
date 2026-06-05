@@ -77,6 +77,12 @@ def stream_audio(track_id: str, db_path: Path, request: Request) -> Response:
             headers={"Content-Range": f"bytes */{file_size}"},
         )
     end = min(end, file_size - 1)
+    if end < start:
+        raise HTTPException(
+            status_code=416,
+            detail="Range not satisfiable",
+            headers={"Content-Range": f"bytes */{file_size}"},
+        )
     length = end - start + 1
 
     def _iter():
