@@ -8,6 +8,7 @@ export interface GenerateRequestBody {
   genre?: string;
   seed_tracks?: string[];
   seed_track_ids?: string[];
+  cohesion_mode?: "strict" | "narrow" | "dynamic" | "discover";
   genre_mode?: AxisValue;
   sonic_mode?: AxisValue;
   pace_mode?: "strict" | "narrow" | "dynamic";

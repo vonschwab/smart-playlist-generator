@@ -45,6 +45,7 @@ export function GenerateControls(props: { onSubmit: (body: GenerateRequestBody) 
               .map((s) => s.trim())
               .filter(Boolean)
           : undefined,
+      cohesion_mode: cohesion as "strict" | "narrow" | "dynamic" | "discover",
       genre_mode: axes.genre_mode as AxisValue,
       sonic_mode: axes.sonic_mode as AxisValue,
       pace_mode: axes.pace_mode as "strict" | "narrow" | "dynamic",

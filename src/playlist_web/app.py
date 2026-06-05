@@ -54,12 +54,15 @@ def create_app(worker_cmd: Optional[list[str]] = None, config_path: str = DEFAUL
         if err:
             raise HTTPException(status_code=422, detail=err)
         job_id = registry.create()
+        overrides: dict = {}
+        if body.cohesion_mode:
+            overrides = {"playlists": {"cohesion_mode": body.cohesion_mode}}
         try:
             await bridge.submit({
                 "cmd": "generate_playlist",
                 "job_id": job_id,
                 "base_config_path": config_path,
-                "overrides": {},
+                "overrides": overrides,
                 "args": req.to_worker_args(),
             })
         except BridgeBusy:

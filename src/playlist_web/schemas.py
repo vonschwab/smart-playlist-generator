@@ -18,6 +18,7 @@ class GenerateRequestBody(BaseModel):
     genre: Optional[str] = None
     seed_tracks: list[str] = Field(default_factory=list)
     seed_track_ids: list[str] = Field(default_factory=list)
+    cohesion_mode: Optional[str] = None
     genre_mode: Optional[str] = None
     sonic_mode: Optional[str] = None
     pace_mode: Optional[str] = None
