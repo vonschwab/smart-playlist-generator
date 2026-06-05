@@ -164,6 +164,16 @@ class ReplaceSuggestionsResponse(BaseModel):
 
 
 class BlacklistRequest(BaseModel):
+    """Blacklist request body.
+
+    Mutually exclusive modes:
+    - Track mode: provide track_ids (non-empty list), leave scope empty.
+    - Album scope: scope="album", value=album_title, artist=artist_name.
+    - Artist scope: scope="artist", value=artist_name.
+
+    Route-level validation enforces these constraints.
+    """
+
     track_ids: list[str] = Field(default_factory=list)
     scope: Optional[str] = None          # "album" | "artist"
     value: str = ""                      # album title (album scope) or artist name (artist scope)

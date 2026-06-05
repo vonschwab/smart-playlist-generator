@@ -19,6 +19,16 @@ def test_phase2_schemas_importable():
     bl = BlacklistRequest(scope="album", value="Leisure", artist="Marbled Eye")
     assert bl.artist == "Marbled Eye"
 
+    req = ReplaceSuggestionsRequest(position=5)
+    assert req.position == 5
+    assert req.top_k == 10
+
+    eg = EditGenresRequest(artist="Acetone", album="York Blvd", genres=["slowcore"])
+    assert eg.genres == ["slowcore"]
+
+    pe = PlexExportRequest(title="My Mix")
+    assert pe.title == "My Mix"
+
     cands = ReplaceSuggestionsResponse.from_worker_candidates(
         position=3,
         raw=[{"rating_key": "k9", "title": "Song", "artist": "Band", "album": "LP",
