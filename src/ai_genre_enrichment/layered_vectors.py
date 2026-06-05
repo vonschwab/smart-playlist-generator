@@ -43,7 +43,11 @@ def build_layered_genre_matrices(
         for row in genre_rows
         if row["assignment_layer"] == "inferred_family"
     )
-    bridge_ids = _vocab_ids(_bridge_affordance_ids(genre_rows, taxonomy))
+    # Bridge affordance is scored against leaf/style vectors:
+    #   seed_bridge ⟂ candidate_leaf, candidate_bridge ⟂ seed_leaf.
+    # Keep bridge coordinates aligned to the leaf vocabulary so graph edges can
+    # authorize movement toward observed candidate styles.
+    bridge_ids = leaf_ids
     facet_ids = _vocab_ids(row["facet_id"] for row in facet_rows)
 
     leaf_index = {genre_id: idx for idx, genre_id in enumerate(leaf_ids)}

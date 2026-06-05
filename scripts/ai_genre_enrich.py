@@ -1949,7 +1949,7 @@ def cmd_graph_build_assignments(args: argparse.Namespace) -> int:
             }
         )
 
-    print(json.dumps({"releases": rows}, ensure_ascii=False, sort_keys=True))
+    print(json.dumps({"releases": rows}, ensure_ascii=True, sort_keys=True))
     return 0
 
 

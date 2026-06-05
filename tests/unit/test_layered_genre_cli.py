@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from types import SimpleNamespace
 
 
 def _write_one_release_metadata(metadata_db):
@@ -272,3 +273,42 @@ def test_graph_build_assignments_dry_run_does_not_write(tmp_path, capsys):
     with sqlite3.connect(sidecar) as conn:
         count = conn.execute("SELECT COUNT(*) FROM genre_graph_release_genre_assignments").fetchone()[0]
     assert count == 0
+
+
+def test_graph_build_assignments_output_is_console_encoding_safe(tmp_path, capsys, monkeypatch):
+    from scripts import ai_genre_enrich
+
+    sidecar = tmp_path / "sidecar.db"
+
+    monkeypatch.setattr(
+        ai_genre_enrich,
+        "_discover",
+        lambda _args: [
+            SimpleNamespace(
+                release_key="unicode::release",
+                normalized_artist="unicode",
+                normalized_album="release",
+                existing_genres_by_source={},
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        ai_genre_enrich,
+        "_fuse_hybrid_for_release",
+        lambda _store, _release: SimpleNamespace(
+            accepted_genres=[SimpleNamespace(term="日本語")],
+            needs_review=[],
+            rejected_noise=[],
+        ),
+    )
+
+    rc = ai_genre_enrich.main([
+        "--sidecar-db", str(sidecar),
+        "graph-build-assignments",
+        "--dry-run",
+    ])
+
+    assert rc == 0
+    output = capsys.readouterr().out
+    assert "\\u65e5\\u672c\\u8a9e" in output
+    json.loads(output)
