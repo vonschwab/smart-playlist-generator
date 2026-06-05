@@ -31,6 +31,7 @@ export default function App() {
   const clearSeeds = useCallback(() => setSeedTracks([]), [setSeedTracks]);
 
   const [busy, setBusy] = useState(false);
+  const [rerunValues, setRerunValues] = useState<GenerateRequestBody | null>(null);
   const [playlist, setPlaylist] = useState<PlaylistOut | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const [jobs, setJobs] = useState<JobOut[]>([]);
@@ -47,6 +48,16 @@ export default function App() {
   const [plexOpen, setPlexOpen] = useState(false);
 
   const refreshJobs = useCallback(() => { api.jobs().then(setJobs).catch(() => {}); }, []);
+
+  const handleCancel = useCallback(async (j: JobOut) => {
+    try { await api.cancelJob(j.job_id); refreshJobs(); }
+    catch (e) { setError(String(e)); }
+  }, [refreshJobs]);
+
+  const handleRerun = useCallback((params: GenerateRequestBody) => {
+    setMode((params.mode as Mode) ?? "artist");
+    setRerunValues(params);
+  }, [setMode]);
 
   const openMenu = useCallback((track: TrackOut, index: number, x: number, y: number) => {
     const last = (playlist?.tracks.length ?? 0) - 1;
@@ -158,7 +169,7 @@ export default function App() {
             {error && <div className="text-danger text-xs">{error}</div>}
           </>
         }
-        jobs={<JobsPanel jobs={jobs} onSelect={(j) => setPlaylist(j.playlist ?? null)} />}
+        jobs={<JobsPanel jobs={jobs} onSelect={(j) => setPlaylist(j.playlist ?? null)} onCancel={handleCancel} onRerun={handleRerun} />}
         center={
           <div className="h-full flex flex-col overflow-hidden">
             <GenerateControls
@@ -167,6 +178,7 @@ export default function App() {
               seedTrackIds={seedTracks.map((t) => t.track_id)}
               onSubmit={submit}
               busy={busy}
+              initialValues={rerunValues ?? undefined}
             />
             {mode === "seeds" && (
               <SeedTrackSection
