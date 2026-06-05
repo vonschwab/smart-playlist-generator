@@ -573,6 +573,53 @@ class MetadataClient:
         self.conn.commit()
         return self._apply_scoped_blacklist_for_rows(rowids)
 
+    def fetch_artist_blacklist(self) -> List[Dict[str, Any]]:
+        """Return artist-scope blacklist entries."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT artist_key, artist_name FROM artist_blacklist ORDER BY artist_name"
+        )
+        return [
+            {"artist_key": str(r["artist_key"] or ""), "artist_name": str(r["artist_name"] or "")}
+            for r in cursor.fetchall()
+        ]
+
+    def fetch_album_blacklist(self) -> List[Dict[str, Any]]:
+        """Return album-scope blacklist entries."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT artist_key, album_key, artist_name, album_name
+            FROM album_blacklist
+            ORDER BY artist_name, album_name
+            """
+        )
+        return [
+            {
+                "artist_key": str(r["artist_key"] or ""),
+                "album_key": str(r["album_key"] or ""),
+                "artist_name": str(r["artist_name"] or ""),
+                "album_name": str(r["album_name"] or ""),
+            }
+            for r in cursor.fetchall()
+        ]
+
+    def fetch_track_blacklist(self) -> List[Dict[str, Any]]:
+        """Return individually blacklisted tracks (track-scope only)."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT track_id, title, artist, album FROM track_blacklist ORDER BY artist, title"
+        )
+        return [
+            {
+                "track_id": str(r["track_id"] or ""),
+                "title": str(r["title"] or ""),
+                "artist": str(r["artist"] or ""),
+                "album": str(r["album"] or ""),
+            }
+            for r in cursor.fetchall()
+        ]
+
     def fetch_blacklisted_tracks(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """Fetch blacklisted tracks with basic metadata + genres."""
         cursor = self.conn.cursor()
