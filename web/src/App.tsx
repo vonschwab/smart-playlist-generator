@@ -10,8 +10,10 @@ import { PlayerProvider } from "./contexts/PlayerContext";
 import { MiniPlayer } from "./components/MiniPlayer";
 import { api } from "./lib/api";
 import { useWorkerEvents } from "./lib/ws";
-import type { GenerateRequestBody, JobOut, PlaylistOut, TrackOut, WsEvent } from "./lib/types";
+import type { CandidateOut, GenerateRequestBody, JobOut, PlaylistOut, TrackOut, WsEvent } from "./lib/types";
 import { TrackContextMenu, type MenuTarget } from "./components/TrackContextMenu";
+import { ReplaceDialog } from "./components/ReplaceDialog";
+import { EditGenresDialog } from "./components/EditGenresDialog";
 
 export default function App() {
   const [busy, setBusy] = useState(false);
@@ -23,6 +25,11 @@ export default function App() {
   const [menuTarget, setMenuTarget] = useState<MenuTarget | null>(null);
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
   const [blacklisted, setBlacklisted] = useState<Set<string>>(new Set());
+  const [jobId, setJobId] = useState<string>("");
+  const [replaceOpen, setReplaceOpen] = useState(false);
+  const [replacePos, setReplacePos] = useState(0);
+  const [editGenresOpen, setEditGenresOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<{ artist: string; album: string; genres: string[] }>({ artist: "", album: "", genres: [] });
 
   const refreshJobs = useCallback(() => { api.jobs().then(setJobs).catch(() => {}); }, []);
 
@@ -59,8 +66,43 @@ export default function App() {
     } catch (e) { setError(String(e)); }
   }, []);
 
-  const handleReplace = useCallback((_t: MenuTarget) => { setMenuOpen(false); }, []);
-  const handleEditGenres = useCallback((_t: MenuTarget) => { setMenuOpen(false); }, []);
+  const handleReplace = useCallback((t: MenuTarget) => {
+    setMenuOpen(false);
+    setReplacePos(t.index);
+    setReplaceOpen(true);
+  }, []);
+
+  const applyReplacement = useCallback((position: number, cand: CandidateOut) => {
+    setPlaylist((pl) => {
+      if (!pl) return pl;
+      const tracks = [...pl.tracks];
+      const old = tracks[position];
+      tracks[position] = {
+        ...old,
+        rating_key: cand.track_id,
+        title: cand.title,
+        artist: cand.artist,
+        album: cand.album,
+        genres: cand.genres,
+        sonic_similarity: cand.fit_score,
+      };
+      return { ...pl, tracks };
+    });
+  }, []);
+
+  const handleEditGenres = useCallback((t: MenuTarget) => {
+    setMenuOpen(false);
+    setEditTarget({ artist: t.track.artist, album: t.track.album, genres: t.track.genres });
+    setEditGenresOpen(true);
+  }, []);
+
+  const applyGenreEdit = useCallback((album: string, genres: string[]) => {
+    setPlaylist((pl) => {
+      if (!pl) return pl;
+      const tracks = pl.tracks.map((tr) => (tr.album === album ? { ...tr, genres } : tr));
+      return { ...pl, tracks };
+    });
+  }, []);
 
   useWorkerEvents(useCallback((e: WsEvent) => {
     if (e.type === "log") setLogs((l) => [...l, `${(e as any).level ?? "INFO"}: ${(e as any).msg ?? ""}`].slice(-500));
@@ -77,7 +119,7 @@ export default function App() {
     setError(null); setBusy(true); setLogs([]); setPlaylist(null);
     try {
       const { job_id } = await api.generate(body);
-      void job_id; // job_id tracked via WS events
+      setJobId(job_id);
       refreshJobs();
     } catch (err) {
       setError(String(err)); setBusy(false);
@@ -121,6 +163,23 @@ export default function App() {
         onBlacklistAlbum={handleBlacklistAlbum}
         onBlacklistArtist={handleBlacklistArtist}
         onEditGenres={handleEditGenres}
+      />
+      <ReplaceDialog
+        open={replaceOpen}
+        onOpenChange={setReplaceOpen}
+        jobId={jobId}
+        position={replacePos}
+        prevTitle={playlist?.tracks[replacePos - 1]?.title ?? ""}
+        nextTitle={playlist?.tracks[replacePos + 1]?.title ?? ""}
+        onConfirm={applyReplacement}
+      />
+      <EditGenresDialog
+        open={editGenresOpen}
+        onOpenChange={setEditGenresOpen}
+        artist={editTarget.artist}
+        album={editTarget.album}
+        initialGenres={editTarget.genres}
+        onSaved={applyGenreEdit}
       />
     </PlayerProvider>
   );
