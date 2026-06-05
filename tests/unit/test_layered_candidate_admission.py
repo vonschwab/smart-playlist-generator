@@ -54,11 +54,23 @@ def _layered_matrices():
     return X_leaf, X_family, X_bridge, X_facet
 
 
-def _run_pool(*, genre_graph_source: str):
+def _layered_vocabs():
+    return {
+        "genre_leaf_vocab": ["jangle pop", "synth-pop"],
+        "genre_family_vocab": ["pop"],
+        "genre_bridge_vocab": ["jangle pop", "synth-pop"],
+        "facet_vocab": ["reverb-heavy"],
+    }
+
+
+def _run_pool(*, genre_graph_source: str, include_vocabs: bool = False):
     emb = np.array([[1.0, 0.0]] * 4, dtype=float)
     artist_keys = np.array(["seed", "leaf_match", "broad_only", "bridge"])
     track_ids = np.array(["seed-id", "leaf-id", "broad-id", "bridge-id"])
     X_leaf, X_family, X_bridge, X_facet = _layered_matrices()
+    kwargs = {}
+    if include_vocabs:
+        kwargs.update(_layered_vocabs())
     return build_candidate_pool(
         seed_idx=0,
         embedding=emb,
@@ -72,6 +84,7 @@ def _run_pool(*, genre_graph_source: str):
         X_genre_family=X_family,
         X_genre_bridge=X_bridge,
         X_facet=X_facet,
+        **kwargs,
     )
 
 
@@ -98,6 +111,45 @@ def test_layered_admission_filters_broad_only_strict_candidate():
     assert result.stats["layered_genre_admission"]["rejection_reason_counts"] == {
         "broad_only_without_leaf_support": 1
     }
+
+
+def test_layered_shadow_samples_include_named_genre_graph_terms():
+    result = _run_pool(genre_graph_source="layered_shadow", include_vocabs=True)
+
+    samples = {
+        row["track_id"]: row
+        for row in result.stats["layered_genre_shadow"]["samples"]
+    }
+
+    broad_only = samples["broad-id"]
+    assert broad_only["reason"] == "broad_only_without_leaf_support"
+    assert broad_only["candidate_family_terms"] == ["pop"]
+    assert broad_only["candidate_leaf_terms"] == []
+    assert broad_only["shared_family_terms"] == ["pop"]
+
+    bridge = samples["bridge-id"]
+    assert bridge["reason"] == "bridge_supported"
+    assert bridge["candidate_leaf_terms"] == ["synth-pop"]
+    assert bridge["shared_facet_terms"] == ["reverb-heavy"]
+    assert bridge["seed_bridge_terms"] == ["synth-pop"]
+    assert bridge["candidate_bridge_terms"] == ["jangle pop"]
+
+
+def test_layered_rejected_samples_include_named_genre_graph_terms():
+    result = _run_pool(genre_graph_source="layered", include_vocabs=True)
+
+    rejected = result.stats["layered_genre_admission"]["rejected_samples"]
+
+    assert rejected == [
+        {
+            **rejected[0],
+            "track_id": "broad-id",
+            "reason": "broad_only_without_leaf_support",
+            "candidate_family_terms": ["pop"],
+            "candidate_leaf_terms": [],
+            "shared_family_terms": ["pop"],
+        }
+    ]
 
 
 def test_layered_source_without_complete_matrices_falls_back_to_legacy():

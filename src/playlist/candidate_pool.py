@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -173,6 +173,73 @@ def _first_rejection_reason(
     return "admitted" if idx in pool_set else "not_selected"
 
 
+def _coerce_vocab(vocab: Optional[Sequence[Any]], width: int) -> Optional[list[str]]:
+    if vocab is None:
+        return None
+    try:
+        values = [str(value) for value in np.asarray(vocab, dtype=object).reshape(-1).tolist()]
+    except Exception:
+        return None
+    if len(values) != int(width):
+        return None
+    return values
+
+
+def _active_terms(vector: np.ndarray, vocab: Optional[list[str]]) -> list[str]:
+    if vocab is None:
+        return []
+    values = np.asarray(vector, dtype=float).reshape(-1)
+    return [vocab[i] for i, value in enumerate(values) if i < len(vocab) and float(value) > 0.0]
+
+
+def _shared_terms(left: np.ndarray, right: np.ndarray, vocab: Optional[list[str]]) -> list[str]:
+    if vocab is None:
+        return []
+    left_values = np.asarray(left, dtype=float).reshape(-1)
+    right_values = np.asarray(right, dtype=float).reshape(-1)
+    width = min(len(vocab), left_values.shape[0], right_values.shape[0])
+    return [
+        vocab[i]
+        for i in range(width)
+        if float(left_values[i]) > 0.0 and float(right_values[i]) > 0.0
+    ]
+
+
+def _layered_term_diagnostics(
+    *,
+    seed_leaf: np.ndarray,
+    candidate_leaf: np.ndarray,
+    seed_family: np.ndarray,
+    candidate_family: np.ndarray,
+    seed_bridge: np.ndarray,
+    candidate_bridge: np.ndarray,
+    seed_facet: np.ndarray,
+    candidate_facet: np.ndarray,
+    genre_leaf_vocab: Optional[Sequence[Any]],
+    genre_family_vocab: Optional[Sequence[Any]],
+    genre_bridge_vocab: Optional[Sequence[Any]],
+    facet_vocab: Optional[Sequence[Any]],
+) -> dict[str, list[str]]:
+    leaf_vocab = _coerce_vocab(genre_leaf_vocab, np.asarray(seed_leaf).reshape(-1).shape[0])
+    family_vocab = _coerce_vocab(genre_family_vocab, np.asarray(seed_family).reshape(-1).shape[0])
+    bridge_vocab = _coerce_vocab(genre_bridge_vocab, np.asarray(seed_bridge).reshape(-1).shape[0])
+    facet_names = _coerce_vocab(facet_vocab, np.asarray(seed_facet).reshape(-1).shape[0])
+    return {
+        "seed_leaf_terms": _active_terms(seed_leaf, leaf_vocab),
+        "candidate_leaf_terms": _active_terms(candidate_leaf, leaf_vocab),
+        "shared_leaf_terms": _shared_terms(seed_leaf, candidate_leaf, leaf_vocab),
+        "seed_family_terms": _active_terms(seed_family, family_vocab),
+        "candidate_family_terms": _active_terms(candidate_family, family_vocab),
+        "shared_family_terms": _shared_terms(seed_family, candidate_family, family_vocab),
+        "seed_bridge_terms": _active_terms(seed_bridge, bridge_vocab),
+        "candidate_bridge_terms": _active_terms(candidate_bridge, bridge_vocab),
+        "shared_bridge_terms": _shared_terms(seed_bridge, candidate_bridge, bridge_vocab),
+        "seed_facet_terms": _active_terms(seed_facet, facet_names),
+        "candidate_facet_terms": _active_terms(candidate_facet, facet_names),
+        "shared_facet_terms": _shared_terms(seed_facet, candidate_facet, facet_names),
+    }
+
+
 def _build_layered_genre_shadow_diagnostics(
     *,
     seed_list: list[int],
@@ -191,6 +258,10 @@ def _build_layered_genre_shadow_diagnostics(
     X_genre_family: Optional[np.ndarray],
     X_genre_bridge: Optional[np.ndarray],
     X_facet: Optional[np.ndarray],
+    genre_leaf_vocab: Optional[Sequence[Any]],
+    genre_family_vocab: Optional[Sequence[Any]],
+    genre_bridge_vocab: Optional[Sequence[Any]],
+    facet_vocab: Optional[Sequence[Any]],
     mode: str,
     sample_limit: int,
 ) -> dict[str, Any]:
@@ -280,6 +351,20 @@ def _build_layered_genre_shadow_diagnostics(
                 eligible_set=eligible_set,
             ),
             **diagnostic,
+            **_layered_term_diagnostics(
+                seed_leaf=seed_leaf,
+                candidate_leaf=leaf[idx],
+                seed_family=seed_family,
+                candidate_family=family[idx],
+                seed_bridge=seed_bridge,
+                candidate_bridge=bridge[idx],
+                seed_facet=seed_facet,
+                candidate_facet=facet[idx],
+                genre_leaf_vocab=genre_leaf_vocab,
+                genre_family_vocab=genre_family_vocab,
+                genre_bridge_vocab=genre_bridge_vocab,
+                facet_vocab=facet_vocab,
+            ),
         }
         rows.append(row)
 
@@ -343,6 +428,10 @@ def _apply_layered_genre_admission(
     X_facet: np.ndarray,
     mode: str,
     track_ids: Optional[np.ndarray],
+    genre_leaf_vocab: Optional[Sequence[Any]],
+    genre_family_vocab: Optional[Sequence[Any]],
+    genre_bridge_vocab: Optional[Sequence[Any]],
+    facet_vocab: Optional[Sequence[Any]],
 ) -> tuple[list[int], dict[str, Any]]:
     leaf = np.asarray(X_genre_leaf_idf, dtype=float)
     family = np.asarray(X_genre_family, dtype=float)
@@ -381,6 +470,20 @@ def _apply_layered_genre_admission(
                 "index": int(idx),
                 "track_id": str(track_ids[idx]) if track_ids is not None else int(idx),
                 **layered_decision_to_diagnostics(decision),
+                **_layered_term_diagnostics(
+                    seed_leaf=seed_leaf,
+                    candidate_leaf=leaf[idx],
+                    seed_family=seed_family,
+                    candidate_family=family[idx],
+                    seed_bridge=seed_bridge,
+                    candidate_bridge=bridge[idx],
+                    seed_facet=seed_facet,
+                    candidate_facet=facet[idx],
+                    genre_leaf_vocab=genre_leaf_vocab,
+                    genre_family_vocab=genre_family_vocab,
+                    genre_bridge_vocab=genre_bridge_vocab,
+                    facet_vocab=facet_vocab,
+                ),
             }
             rejected_samples.append(row)
 
@@ -429,6 +532,10 @@ def build_candidate_pool(
     X_genre_family: Optional[np.ndarray] = None,
     X_genre_bridge: Optional[np.ndarray] = None,
     X_facet: Optional[np.ndarray] = None,
+    genre_leaf_vocab: Optional[Sequence[Any]] = None,
+    genre_family_vocab: Optional[Sequence[Any]] = None,
+    genre_bridge_vocab: Optional[Sequence[Any]] = None,
+    facet_vocab: Optional[Sequence[Any]] = None,
     layered_genre_diagnostics_limit: int = 25,
     genre_graph_source: str = "legacy",
 ) -> CandidatePoolResult:
@@ -815,6 +922,10 @@ def build_candidate_pool(
                 X_facet=np.asarray(X_facet, dtype=float),
                 mode=mode,
                 track_ids=track_ids,
+                genre_leaf_vocab=genre_leaf_vocab,
+                genre_family_vocab=genre_family_vocab,
+                genre_bridge_vocab=genre_bridge_vocab,
+                facet_vocab=facet_vocab,
             )
             logger.info(
                 "Layered genre admission applied: before=%d after=%d rejected=%d mode=%s",
@@ -963,6 +1074,10 @@ def build_candidate_pool(
             X_genre_family=X_genre_family,
             X_genre_bridge=X_genre_bridge,
             X_facet=X_facet,
+            genre_leaf_vocab=genre_leaf_vocab,
+            genre_family_vocab=genre_family_vocab,
+            genre_bridge_vocab=genre_bridge_vocab,
+            facet_vocab=facet_vocab,
             mode=mode,
             sample_limit=layered_genre_diagnostics_limit,
         )

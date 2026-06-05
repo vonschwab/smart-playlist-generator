@@ -396,6 +396,10 @@ def generate_playlist_ds(
             X_genre_family=getattr(bundle, "X_genre_family", None),
             X_genre_bridge=getattr(bundle, "X_genre_bridge", None),
             X_facet=getattr(bundle, "X_facet", None),
+            genre_leaf_vocab=getattr(bundle, "genre_leaf_vocab", None),
+            genre_family_vocab=getattr(bundle, "genre_family_vocab", None),
+            genre_bridge_vocab=getattr(bundle, "genre_bridge_vocab", None),
+            facet_vocab=getattr(bundle, "facet_vocab", None),
             genre_graph_source=genre_graph_source,
         )
 
