@@ -684,6 +684,12 @@ def build_candidate_pool(
     genre_graph_source = str(genre_graph_source or "legacy").strip().lower()
     if genre_graph_source not in {"legacy", "layered_shadow", "layered"}:
         genre_graph_source = "legacy"
+    legacy_flat_genre_gate_applied = genre_graph_source != "layered"
+    if not legacy_flat_genre_gate_applied:
+        X_genre_raw = None
+        X_genre_smoothed = None
+        X_genre_dense = None
+        min_genre_similarity = None
     layered_genre_admission_summary: Optional[dict[str, Any]] = None
 
     # Compute genre similarity if provided
@@ -927,6 +933,7 @@ def build_candidate_pool(
                 genre_bridge_vocab=genre_bridge_vocab,
                 facet_vocab=facet_vocab,
             )
+            layered_genre_admission_summary["legacy_flat_genre_gate_applied"] = False
             logger.info(
                 "Layered genre admission applied: before=%d after=%d rejected=%d mode=%s",
                 eligible_before_layered,
@@ -939,9 +946,10 @@ def build_candidate_pool(
                 "source": "layered",
                 "applied": False,
                 "reason": layered_reason,
+                "legacy_flat_genre_gate_applied": False,
             }
             logger.warning(
-                "Layered genre admission requested but unavailable: %s; using legacy candidate admission.",
+                "Layered genre admission requested but unavailable: %s; using non-genre candidate admission.",
                 layered_reason,
             )
     elif genre_graph_source == "layered_shadow":

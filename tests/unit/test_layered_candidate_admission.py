@@ -63,7 +63,7 @@ def _layered_vocabs():
     }
 
 
-def _run_pool(*, genre_graph_source: str, include_vocabs: bool = False):
+def _run_pool(*, genre_graph_source: str, include_vocabs: bool = False, mode: str = "strict", **extra):
     emb = np.array([[1.0, 0.0]] * 4, dtype=float)
     artist_keys = np.array(["seed", "leaf_match", "broad_only", "bridge"])
     track_ids = np.array(["seed-id", "leaf-id", "broad-id", "bridge-id"])
@@ -78,13 +78,14 @@ def _run_pool(*, genre_graph_source: str, include_vocabs: bool = False):
         track_ids=track_ids,
         cfg=_cfg(),
         random_seed=0,
-        mode="strict",
+        mode=mode,
         genre_graph_source=genre_graph_source,
         X_genre_leaf_idf=X_leaf,
         X_genre_family=X_family,
         X_genre_bridge=X_bridge,
         X_facet=X_facet,
         **kwargs,
+        **extra,
     )
 
 
@@ -152,7 +153,35 @@ def test_layered_rejected_samples_include_named_genre_graph_terms():
     ]
 
 
-def test_layered_source_without_complete_matrices_falls_back_to_legacy():
+def test_layered_mode_ignores_legacy_flat_genre_gate():
+    # Flat legacy vectors say the bridge candidate has no genre overlap with the seed.
+    # Layered graph evidence says it is an explained jangle-pop -> synth-pop bridge.
+    # In layered mode, the graph is the genre substrate; the flat gate must not
+    # remove graph-valid candidates before layered admission sees them.
+    flat = np.array(
+        [
+            [1.0, 0.0],
+            [1.0, 0.0],
+            [1.0, 0.0],
+            [0.0, 1.0],
+        ],
+        dtype=float,
+    )
+
+    result = _run_pool(
+        genre_graph_source="layered",
+        mode="narrow",
+        min_genre_similarity=0.95,
+        X_genre_raw=flat,
+        X_genre_smoothed=flat,
+        genre_vocab=["old-seed-genre", "old-bridge-genre"],
+    )
+
+    assert "bridge-id" in result.stats["layered_genre_admission"]["admitted_track_ids"]
+    assert result.stats["layered_genre_admission"]["legacy_flat_genre_gate_applied"] is False
+
+
+def test_layered_source_without_complete_matrices_reports_non_genre_fallback():
     emb = np.array([[1.0, 0.0]] * 2, dtype=float)
     artist_keys = np.array(["seed", "candidate"])
 
@@ -172,6 +201,7 @@ def test_layered_source_without_complete_matrices_falls_back_to_legacy():
         "source": "layered",
         "applied": False,
         "reason": "missing_layered_matrices",
+        "legacy_flat_genre_gate_applied": False,
     }
 
 

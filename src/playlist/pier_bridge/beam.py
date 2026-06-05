@@ -378,6 +378,15 @@ def _beam_search_segment(
         if bool(getattr(cfg, "layered_transition_scoring_enabled", False)) and layered_transition_weight > 0.0
         else None
     )
+    if layered_matrices is not None:
+        X_genre_norm = None
+        X_genre_norm_idf = None
+        X_genre_raw = None
+        X_genre_smoothed = None
+        X_genre_dense = None
+        genre_idf = None
+        penalty_strength = 0.0
+        genre_tie_break_band = None
 
     def _layered_transition_delta(a_idx: int, b_idx: int, edge_metric: dict[str, Any]) -> tuple[float, dict[str, Any]]:
         if layered_matrices is None:

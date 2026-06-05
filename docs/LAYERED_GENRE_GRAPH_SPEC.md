@@ -427,14 +427,15 @@ Facets should not act as genres. They should modify permission and transition qu
 
 ### `X_genre_legacy`
 
-Optional existing flat vector retained during migration.
+Optional existing flat vector retained for legacy mode and audit comparison.
 
 Use cases:
 
 - Backward compatibility.
 - A/B testing.
-- Config flag fallback.
-- Guardrail while layered scoring is tuned.
+- `layered_shadow` diagnostics.
+
+`X_genre_legacy` must not participate in candidate admission, segment pooling, bridge routing, genre tie-breaks, or soft genre penalties when `genre_graph.source` is `layered`. In layered mode, the graph layers are the genre substrate.
 
 ### Parent Propagation
 
@@ -759,7 +760,7 @@ Artifacts must include:
 
 ### `candidate_pool.py`
 
-Candidate admission should replace the single flat genre gate with layered components while preserving a config fallback to legacy behavior.
+Candidate admission should replace the single flat genre gate with layered components. Legacy behavior remains available only when `genre_graph.source` is `legacy`; it is not a fallback inside `layered`.
 
 Required changes:
 
@@ -769,6 +770,7 @@ Required changes:
 - Compute `bridge_permission`.
 - Apply `broad_only_penalty`.
 - Emit diagnostics for final admission decision.
+- Disable legacy flat genre gates, broad-filter overlap guards, genre compatibility penalties, and flat genre tie-breaks when `genre_graph.source` is `layered`.
 
 ### `pier_bridge_builder.py`
 
@@ -776,11 +778,12 @@ The pier-bridge beam search should use layered genre routing for transition and 
 
 Required changes:
 
-- Preserve existing multi-genre vector interpolation.
+- Replace existing flat multi-genre vector interpolation with layered bridge/family/leaf/facet transition scoring when `genre_graph.source` is `layered`.
 - Add bridge-aware transition bonuses.
 - Penalize unexplained family jumps.
 - Use facet continuity to validate cross-genre motion.
 - Keep "worst transition matters" diagnostics.
+- Disable legacy DJ genre routing, genre steering, flat waypoint targets, flat genre coverage bonuses, and flat soft genre penalties in layered mode.
 
 ### `segment_pool_builder.py`
 
@@ -898,7 +901,7 @@ Example JSON shape:
 
 ## 12. Migration Plan
 
-Migration should be phased. The goal is to add layered behavior without a giant rewrite and without losing the current flat-vector fallback.
+Migration should be phased. The goal is to keep `legacy` available as a separate runtime source while making `layered` an actual replacement for flat genre admission and routing.
 
 ### Phase 1: Taxonomy Schema And Registry
 
@@ -926,7 +929,7 @@ Deliverables:
 - Build `X_genre_family`.
 - Build `X_genre_bridge`.
 - Build `X_facet`.
-- Retain optional `X_genre_legacy`.
+- Retain optional `X_genre_legacy` only for `legacy` mode and `layered_shadow` comparison.
 - Artifact fingerprint includes taxonomy and sidecar graph versions.
 - Audit/report command for matrix coverage and sparsity.
 
@@ -940,7 +943,7 @@ Validation:
 
 Deliverables:
 
-- Candidate admission can use layered genre components behind a config flag.
+- Candidate admission uses layered genre components when `genre_graph.source` is `layered`.
 - Broad-only penalty.
 - Mode-specific thresholds.
 - Fix max-over-seeds behavior where needed so one broad match does not overpower a stronger niche mismatch.
@@ -952,12 +955,14 @@ Validation:
 - Specific tags retain IDF-like influence.
 - Dynamic/discover can admit validated bridge candidates.
 - Legacy mode remains available.
+- Layered mode does not run the flat genre gate before, after, or alongside layered admission.
 
 ### Phase 4: Pier-Bridge Beam Scoring
 
 Deliverables:
 
 - Pier-bridge beam scoring uses family, leaf, bridge, and facet layers.
+- Flat genre waypoint routing, dense genre steering, flat coverage bonuses, and flat soft genre penalties are disabled in layered mode.
 - Bridge/facet validation for cross-genre moves.
 - Explained and unexplained jump diagnostics.
 - Transition-quality thresholds integrated with bridge rules.
@@ -988,7 +993,8 @@ Validation:
 
 Concrete acceptance criteria:
 
-- Flat genre behavior remains available behind a config flag during migration.
+- Flat genre behavior remains available only as `legacy` mode during migration.
+- `layered` mode does not use flat genre vectors for admission, pooling, routing, tie-breaks, or soft penalties.
 - Existing tests still pass.
 - Taxonomy versioning exists and is included in derived assignments/artifacts.
 - Human rejects remain respected by enrichment, vector building, and generation.
@@ -1021,8 +1027,8 @@ Open questions for implementation planning:
 
 ## Appendix A: Implementation Guardrails
 
-- Do not replace the existing generator behavior in one step.
-- Do not remove legacy genre vectors until layered behavior has clear diagnostics and test coverage.
+- Keep `legacy` available until layered behavior has clear diagnostics and test coverage.
+- Do not implement `layered` as "flat genre plus graph bonus." Layered mode must use graph layers for genre behavior.
 - Do not let broad tags act as strong evidence in strict/narrow modes.
 - Do not promote AI-adjudicated unknown tags into canonical genres without review.
 - Do not treat facets as genre/style dimensions.
@@ -1116,4 +1122,3 @@ Bridge affordances:
 - `indie pop` <-> `synth-pop`
 - `krautrock` <-> `post-rock`
 - `lounge pop` <-> `art pop`
-

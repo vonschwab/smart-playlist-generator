@@ -105,3 +105,45 @@ def test_beam_layered_transition_scoring_default_off_preserves_legacy_tie_order(
 
     assert err is None
     assert path == [2]
+
+
+def test_beam_layered_transition_scoring_ignores_flat_genre_penalty():
+    Xn = _sonic_tie_matrix(4)
+    legacy_flat_genres = np.array(
+        [
+            [1.0, 0.0],
+            [0.0, 1.0],
+            [0.0, 1.0],
+            [0.0, 1.0],
+        ],
+        dtype=float,
+    )
+
+    path, hits, _edges, err = _beam_search_segment(
+        0,
+        3,
+        1,
+        [1],
+        Xn,
+        Xn,
+        None,
+        None,
+        None,
+        legacy_flat_genres,
+        PierBridgeConfig(
+            bridge_floor=-1.0,
+            transition_floor=-1.0,
+            progress_enabled=False,
+            genre_penalty_threshold=0.5,
+            genre_penalty_strength=0.75,
+            layered_transition_scoring_enabled=True,
+            layered_transition_weight=0.75,
+            layered_transition_mode="dynamic",
+        ),
+        5,
+        bundle=_layered_bundle(),
+    )
+
+    assert err is None
+    assert path == [1]
+    assert hits == 0

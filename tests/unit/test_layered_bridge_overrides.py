@@ -37,3 +37,25 @@ def test_layered_shadow_does_not_enable_layered_transition_scoring():
 
     assert cfg.layered_transition_scoring_enabled is False
     assert cfg.layered_transition_weight == 0.0
+
+
+def test_layered_source_disables_legacy_flat_genre_bridge_routing():
+    cfg = _apply(
+        {
+            "genre_graph": {"source": "layered"},
+            "pier_bridge": {
+                "genre_steering_enabled": True,
+                "weight_genre": 0.25,
+                "dj_bridging": {
+                    "enabled": True,
+                    "pooling": {"k_genre": 25},
+                },
+            },
+        }
+    )
+
+    assert cfg.layered_transition_scoring_enabled is True
+    assert cfg.genre_steering_enabled is False
+    assert cfg.weight_genre == 0.0
+    assert cfg.dj_bridging_enabled is False
+    assert cfg.dj_pooling_k_genre == 0

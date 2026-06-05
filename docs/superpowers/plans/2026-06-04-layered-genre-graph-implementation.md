@@ -28,7 +28,8 @@ Implementation must preserve the intent of that spec:
 ## Non-Goals
 
 - Do not attempt to create a perfect genre taxonomy in the first pass.
-- Do not replace all existing flat genre behavior in one release.
+- Do not remove the separate `legacy` runtime source during migration.
+- Do not implement `layered` as flat genre behavior plus graph bonuses. In `layered`, the graph is the genre substrate.
 - Do not write to `data/metadata.db`.
 - Do not make external APIs required for runtime playlist generation.
 - Do not use model prior as a final authority. It can propose evidence, but graph assignment needs source reliability, taxonomy, and review policy.
@@ -41,7 +42,7 @@ Use three runtime modes:
 | --- | --- | --- |
 | `legacy` | Existing flat genre vectors and scoring only | Yes |
 | `layered_shadow` | Build layered graph/vectors and diagnostics, but keep legacy decisions | No |
-| `layered` | Use layered admission/scoring decisions | No |
+| `layered` | Use graph-layer admission, pooling, and route scoring; do not use flat genre gates or flat genre routing | No |
 
 Recommended config shape:
 
@@ -547,7 +548,7 @@ pytest -q tests/unit/test_ai_genre_tag_classification.py tests/unit/test_layered
 
 ## Phase 5: Layered Artifact Support
 
-Purpose: emit graph-aware matrices without removing existing flat vectors.
+Purpose: emit graph-aware matrices while retaining existing flat vectors only for `legacy` and `layered_shadow`.
 
 ### Files
 
@@ -565,7 +566,7 @@ Modify:
 
 ### Artifact Keys
 
-Keep existing keys:
+Keep existing keys for legacy compatibility:
 
 - `X_genre_raw`
 - `X_genre_smoothed`
@@ -627,7 +628,7 @@ pytest -q tests/unit/test_layered_artifact_builder.py tests/unit/test_ai_genre_a
 - Legacy artifacts still build unchanged by default.
 - Layered artifact build emits all new keys when enabled.
 - Fingerprint changes when taxonomy or sidecar assignments change.
-- Missing graph assignments degrade gracefully to legacy vectors.
+- Missing graph assignments in `layered` produce clear non-genre/insufficient-graph diagnostics rather than silently falling back to flat genre vectors.
 
 ---
 
@@ -747,7 +748,8 @@ Create:
 - Add layered scoring only when `genre_graph.source` is `layered_shadow` or `layered`.
 - In `layered_shadow`, compute layered diagnostics but use existing admission decisions.
 - In `layered`, use `LayeredGenreDecision.admitted`.
-- Preserve current IDF and coverage behavior as part of leaf scoring.
+- Use `X_genre_leaf_idf`, `X_genre_family`, `X_genre_bridge`, and `X_facet` as the only genre inputs in `layered`.
+- Do not run flat `X_genre_raw`, `X_genre_smoothed`, or `X_genre_dense` gates, overlap guards, compatibility penalties, or genre tie-breaks in `layered`.
 - Fix max-over-seeds behavior where it lets one broad match dominate a multi-seed route.
 
 ### Broad-Only Policy
@@ -790,12 +792,13 @@ pytest -q tests/unit/test_layered_candidate_admission.py
 - Strict/narrow no longer admit broad-only generic matches.
 - Dynamic/discover can admit broader candidates when sonic/facet/bridge evidence explains the movement.
 - Audit output can explain each genre decision.
+- Layered candidate admission cannot reject a graph-valid candidate because old flat genre vectors disagree.
 
 ---
 
 ## Phase 8: Pier Bridge and Segment Pool Integration
 
-Purpose: make bridge routing use graph/facet evidence without losing current vector-mode strengths.
+Purpose: make bridge routing and segment pooling use graph/facet evidence as the genre substrate.
 
 ### Files
 
@@ -812,8 +815,9 @@ Create:
 
 ### Integration Rules
 
-- Keep current multi-genre vector interpolation.
-- Add layered transition scoring as an additional component when enabled.
+- In `legacy`, keep current flat multi-genre vector interpolation.
+- In `layered_shadow`, keep current decisions and emit layered comparison diagnostics.
+- In `layered`, replace flat multi-genre vector interpolation, DJ genre routing, genre steering, flat coverage bonuses, and flat soft genre penalties with layered transition/pooling logic.
 - Penalize unexplained family jumps.
 - Reward graph bridge edges only when:
   - graph edge exists or path is close enough,
@@ -861,6 +865,7 @@ pytest -q tests/unit/test_layered_bridge_scoring.py
 - Pier bridge still optimizes worst transition quality.
 - Layered scoring prevents hub-family collapse.
 - Cross-genre movement is explainable in diagnostics.
+- Segment genre pools in `layered` are sourced from leaf/family/bridge/facet graph layers, not flat genre vectors.
 
 ---
 
@@ -1205,6 +1210,7 @@ flowchart TD
 ## Acceptance Criteria
 
 - [ ] Flat genre behavior remains available behind a config flag during migration.
+- [ ] `layered` mode does not use flat genre vectors for candidate admission, segment pooling, bridge routing, tie-breaks, or soft penalties.
 - [ ] Existing tests still pass.
 - [ ] Taxonomy versioning exists.
 - [ ] All new graph data is sidecar-only.
@@ -1223,6 +1229,7 @@ flowchart TD
 ## Failure Modes to Watch
 
 - Broad family tags accidentally re-enter strict/narrow as strong evidence.
+- Flat genre gates or DJ genre routing accidentally run inside `layered` mode.
 - Last.fm novelty/noise tags become canonical genres because model prior guessed they were plausible.
 - Inferred parents are treated as observed evidence.
 - Human rejects are ignored during assignment rebuild.
@@ -1277,4 +1284,3 @@ If usage or time runs low, stop only at one of these states:
 5. **Opt-in generation:** layered mode works behind config and diagnostics explain decisions.
 
 Avoid stopping mid-phase with partially wired behavior that silently changes enrichment or generation.
-
