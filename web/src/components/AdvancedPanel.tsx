@@ -1,26 +1,38 @@
 import { useState } from "react";
+import type { PlaylistOut } from "../lib/types";
+import { DiagnosticsPanel } from "./DiagnosticsPanel";
 
-export function AdvancedPanel() {
-  const [tab, setTab] = useState<"advanced" | "review">("advanced");
+type Tab = "diagnostics" | "blacklist" | "review";
+
+export function AdvancedPanel({ playlist }: { playlist: PlaylistOut | null }) {
+  const [tab, setTab] = useState<Tab>("diagnostics");
+
+  const tabBtn = (t: Tab, label: string) => (
+    <button
+      key={t}
+      data-testid={`tab-${t}`}
+      onClick={() => setTab(t)}
+      className={`text-[11px] px-2.5 py-1.5 rounded-t ${tab === t ? "text-accent bg-bg" : "text-muted"}`}
+    >
+      {label}
+    </button>
+  );
+
   return (
     <div className="h-full flex flex-col">
       <div className="flex gap-1 px-2 pt-2 bg-panel2">
-        {(["advanced", "review"] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`text-[11px] px-2.5 py-1.5 rounded-t ${
-              tab === t ? "text-accent bg-bg" : "text-muted"
-            }`}
-          >
-            {t === "advanced" ? "Advanced" : "Genre Review"}
-          </button>
-        ))}
+        {tabBtn("diagnostics", "Diagnostics")}
+        {tabBtn("blacklist", "Blacklist")}
+        {tabBtn("review", "Genre Review")}
       </div>
-      <div className="p-3 text-xs text-muted">
-        {tab === "advanced"
-          ? "Advanced settings land in a later phase."
-          : "Genre review lands in a later phase."}
+      <div className="flex-1 overflow-hidden">
+        {tab === "diagnostics" && <DiagnosticsPanel playlist={playlist} />}
+        {tab === "blacklist" && (
+          <div className="p-3 text-xs text-muted" data-testid="blacklist-placeholder">Loading…</div>
+        )}
+        {tab === "review" && (
+          <div className="p-3 text-xs text-muted">Genre review lands in a later phase.</div>
+        )}
       </div>
     </div>
   );

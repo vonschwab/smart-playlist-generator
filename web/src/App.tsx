@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { Shell } from "./components/Shell";
 import { AdvancedPanel } from "./components/AdvancedPanel";
 import { GenerateControls } from "./components/GenerateControls";
+import { SeedTrackSection } from "./components/SeedTrackSection";
 import { TrackTable } from "./components/TrackTable";
 import { QualityStats } from "./components/QualityStats";
 import { LogPanel } from "./components/LogPanel";
@@ -10,7 +11,8 @@ import { PlayerProvider } from "./contexts/PlayerContext";
 import { MiniPlayer } from "./components/MiniPlayer";
 import { api } from "./lib/api";
 import { useWorkerEvents } from "./lib/ws";
-import type { CandidateOut, GenerateRequestBody, JobOut, PlaylistOut, TrackOut, WsEvent } from "./lib/types";
+import { useLocalStorage } from "./lib/useLocalStorage";
+import type { CandidateOut, GenerateRequestBody, JobOut, Mode, PlaylistOut, SeedTrack, TrackOut, WsEvent } from "./lib/types";
 import { TrackContextMenu, type MenuTarget } from "./components/TrackContextMenu";
 import { ReplaceDialog } from "./components/ReplaceDialog";
 import { EditGenresDialog } from "./components/EditGenresDialog";
@@ -18,6 +20,16 @@ import { ExportPlexDialog } from "./components/ExportPlexDialog";
 import { downloadM3U8 } from "./lib/m3u";
 
 export default function App() {
+  const [mode, setMode] = useLocalStorage<Mode>("pg_mode", "artist");
+  const [seedTracks, setSeedTracks] = useLocalStorage<SeedTrack[]>("pg_seed_tracks", []);
+  const addSeed = useCallback((t: SeedTrack) => {
+    setSeedTracks(seedTracks.some((s) => s.track_id === t.track_id) ? seedTracks : [...seedTracks, t]);
+  }, [seedTracks, setSeedTracks]);
+  const removeSeed = useCallback((id: string) => {
+    setSeedTracks(seedTracks.filter((t) => t.track_id !== id));
+  }, [seedTracks, setSeedTracks]);
+  const clearSeeds = useCallback(() => setSeedTracks([]), [setSeedTracks]);
+
   const [busy, setBusy] = useState(false);
   const [playlist, setPlaylist] = useState<PlaylistOut | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
@@ -149,7 +161,21 @@ export default function App() {
         jobs={<JobsPanel jobs={jobs} onSelect={(j) => setPlaylist(j.playlist ?? null)} />}
         center={
           <div className="h-full flex flex-col overflow-hidden">
-            <GenerateControls onSubmit={submit} busy={busy} />
+            <GenerateControls
+              mode={mode}
+              onModeChange={setMode}
+              seedTrackIds={seedTracks.map((t) => t.track_id)}
+              onSubmit={submit}
+              busy={busy}
+            />
+            {mode === "seeds" && (
+              <SeedTrackSection
+                tracks={seedTracks}
+                onAdd={addSeed}
+                onRemove={removeSeed}
+                onClear={clearSeeds}
+              />
+            )}
             <QualityStats
               metrics={playlist?.metrics}
               count={playlist?.track_count ?? 0}
@@ -166,7 +192,7 @@ export default function App() {
             </div>
           </div>
         }
-        right={<AdvancedPanel />}
+        right={<AdvancedPanel playlist={playlist} />}
         logs={<LogPanel lines={logs} />}
       />
       <MiniPlayer />
