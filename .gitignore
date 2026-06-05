@@ -104,3 +104,7 @@ docs/mode_audit_*.md
 
 # Brainstorming visual-companion scratch
 .superpowers/
+
+# Web frontend (Vite)
+web/node_modules/
+web/dist/
