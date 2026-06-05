@@ -469,6 +469,45 @@ Meaning:
 
 One later no-timeout summary helper, `C:\tmp\run_layered_ds_summary_smoke.py`, behaved inconsistently and was stopped. Do not treat it as a product failure; prefer the direct stack-probe pattern or build a proper test with small synthetic artifacts.
 
+## Update: Repo-Level Synthetic DS Smoke Test Added
+
+A proper synthetic regression test was added after the stack-probe success.
+
+File:
+
+```text
+tests\unit\test_layered_ds_pipeline_smoke.py
+```
+
+What it verifies:
+
+- `generate_playlist_ds(...)` can return a playlist with `genre_graph.source=layered`.
+- Layered admission is applied.
+- `legacy_flat_genre_gate_applied` is false.
+- Effective candidate-pool params preserve `genre_graph_source="layered"`.
+- Pier-bridge returns success.
+- Layered transition diagnostics are enabled and report expected edge count.
+
+The test uses a tiny synthetic artifact and `pace_mode="off"` so it does not depend on production metadata, BPM lookup, or the production sidecar.
+
+Verification:
+
+```cmd
+C:\Users\Dylan\AppData\Local\Programs\Python\Python313\python.exe -m pytest tests\unit\test_layered_ds_pipeline_smoke.py -q --basetemp=C:\tmp\pytest-layered-ds-smoke
+```
+
+Result:
+
+```text
+1 passed in 1.62s
+```
+
+Expanded focused layered suite including this test:
+
+```text
+61 passed in 11.62s
+```
+
 ## Recommended Next Steps
 
 ### Step 1: Preserve and Verify Current Uncommitted Fixes
