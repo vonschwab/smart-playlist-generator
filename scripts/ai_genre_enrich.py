@@ -44,6 +44,14 @@ DEFAULT_MODEL = "gpt-4o-mini"
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Windows consoles default to cp1252; release keys carry non-Latin text
+    # (e.g. Japanese city-pop titles). Force UTF-8 so progress prints never
+    # crash the run, replacing any truly unencodable char rather than raising.
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command == "discover":
