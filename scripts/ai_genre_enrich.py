@@ -997,6 +997,15 @@ def _print_release_result(
 
 
 def _run_releases(args: argparse.Namespace, releases: list[ReleasePayload]) -> int:
+    import os as _os
+    _api_key = getattr(args, "openai_api_key", None) or _os.environ.get("OPENAI_API_KEY")
+    if not _api_key:
+        try:
+            from src.config_loader import Config as _Config
+            _api_key = _Config().openai_api_key
+        except (FileNotFoundError, AttributeError, KeyError):
+            pass
+
     store = SidecarStore(args.sidecar_db)
     store.initialize()
     called = 0
@@ -1083,6 +1092,7 @@ def _run_releases(args: argparse.Namespace, releases: list[ReleasePayload]) -> i
             dry_run=args.dry_run,
             web_mode=effective_web_mode,
             allowed_web_domains=getattr(args, "allowed_web_domains", None),
+            api_key=_api_key,
         )
         result = client.enrich(payload, prompt, response_format_schema(), instructions=SYSTEM_INSTRUCTIONS)
         if result.status == "failed":

@@ -10,16 +10,20 @@ DecisionKind = Literal["accepted", "provisional", "rejected_noise", "needs_revie
 SOURCE_WEIGHTS: dict[str, float] = {
     "bandcamp_release": 0.95,
     "official_release": 0.95,
+    "ai_enriched_accepted": 0.90,  # genres accepted in enriched_genres table (graduated)
+    "ai_check_web": 0.88,          # run-one suggestions backed by authoritative/review web sources
     "discogs": 0.78,
     "musicbrainz": 0.76,
     "local_metadata": 0.70,
+    "ai_check_metadata": 0.70,     # run-one suggestions derived from local metadata only
     "model_prior": 0.68,
     "lastfm_tags": 0.25,
 }
 
 LASTFM_SOURCE_TYPES = {"lastfm_tags", "lastfm"}
-STRONG_SOURCE_TYPES = {"bandcamp_release", "official_release"}
-MEDIUM_SOURCE_TYPES = {"local_metadata", "discogs", "musicbrainz"}
+STRONG_SOURCE_TYPES = {"bandcamp_release", "official_release", "ai_check_web", "ai_enriched_accepted"}
+MEDIUM_SOURCE_TYPES = {"local_metadata", "discogs", "musicbrainz", "ai_check_metadata"}
+AI_CHECK_TYPES = {"ai_check_web", "ai_check_metadata", "ai_enriched_accepted"}
 REJECTED_NOISE_TERMS = {
     "indie": "Standalone indie is a scene/context marker, not a usable genre assignment.",
     "pop/rock": "Fake retail/store-section bucket; do not accept, infer, or split without independent evidence.",
@@ -58,6 +62,9 @@ class HybridGenreReport:
         return asdict(self)
 
 
+_WEB_CHECK_BASES = {"authoritative_source", "hybrid", "review_context"}
+
+
 def collect_hybrid_evidence(store: object, release_key: str) -> list[EvidenceTerm]:
     evidence: list[EvidenceTerm] = []
 
@@ -73,6 +80,34 @@ def collect_hybrid_evidence(store: object, release_key: str) -> list[EvidenceTer
             canonical_slug=row.get("canonical_slug") or row["term"],
             mapping_status=mapping,
             classifier=str(row.get("classifier") or "deterministic"),
+        ))
+
+    for row in store.accepted_enriched_genres_for_release(release_key):
+        genre = str(row["genre"]).strip().casefold()
+        if not genre:
+            continue
+        evidence.append(EvidenceTerm(
+            term=genre,
+            source_type="ai_enriched_accepted",
+            confidence=0.88,
+            canonical_slug=genre,
+            mapping_status="mapped",
+            classifier="enriched_genres",
+        ))
+
+    for row in store.latest_check_suggestions_for_release(release_key):
+        basis = str(row.get("recommendation_basis") or "")
+        source_type = "ai_check_web" if basis in _WEB_CHECK_BASES else "ai_check_metadata"
+        genre = str(row["genre"]).strip().casefold()
+        if not genre:
+            continue
+        evidence.append(EvidenceTerm(
+            term=genre,
+            source_type=source_type,
+            confidence=float(row.get("confidence") or 0.70),
+            canonical_slug=genre,
+            mapping_status="mapped",
+            classifier="ai_enrichment",
         ))
 
     for row in store.latest_model_prior_terms_for_release(release_key):
@@ -192,6 +227,16 @@ def fuse_hybrid_evidence(
                 basis="model_prior+taxonomy",
                 sources=sources,
                 reason="Confirmed release evidence exists; high-confidence model taxonomy signal is usable provisionally.",
+            ))
+            continue
+
+        if all(s in AI_CHECK_TYPES for s in sources) and score >= 0.75:
+            accepted.append(FusedGenreDecision(
+                term=term,
+                confidence=score,
+                basis=_basis(sources),
+                sources=sources,
+                reason="AI-enrichment evidence (metadata or accepted) supports this mapped genre.",
             ))
             continue
 

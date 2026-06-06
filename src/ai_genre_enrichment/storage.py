@@ -1894,6 +1894,38 @@ class SidecarStore:
             ).fetchall()
             return [dict(row) for row in rows]
 
+    def accepted_enriched_genres_for_release(self, release_key: str) -> list[dict[str, Any]]:
+        """Return accepted genres from the enriched_genres table."""
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT genre FROM enriched_genres WHERE release_key = ? AND status = 'accepted' ORDER BY genre",
+                (release_key,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def latest_check_suggestions_for_release(self, release_key: str) -> list[dict[str, Any]]:
+        """Return keep/add suggestions from the most recent complete AI enrichment check."""
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT s.genre, s.confidence, s.recommendation_basis
+                FROM ai_genre_suggestions s
+                JOIN ai_genre_release_checks c ON c.check_id = s.check_id
+                WHERE c.release_key = ?
+                  AND c.status = 'complete'
+                  AND s.suggestion_type IN ('keep', 'add')
+                  AND s.genre IS NOT NULL
+                  AND c.checked_at = (
+                      SELECT MAX(c2.checked_at)
+                      FROM ai_genre_release_checks c2
+                      WHERE c2.release_key = c.release_key AND c2.status = 'complete'
+                  )
+                ORDER BY s.suggestion_id
+                """,
+                (release_key,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
     def record_model_prior(
         self,
         *,
