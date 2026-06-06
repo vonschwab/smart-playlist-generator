@@ -218,6 +218,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     extract_lastfm.add_argument("--model", default=DEFAULT_MODEL)
     extract_lastfm.add_argument("--lastfm-api-key", help="Last.fm API key (overrides config.yaml/env)")
+    extract_lastfm.add_argument(
+        "--skip-existing",
+        action="store_true",
+        help="Skip releases that already have a Last.fm source page (resumable, no double effort).",
+    )
 
     extract_bandcamp = sub.add_parser("extract-bandcamp", help="Find Bandcamp URL via AI and ingest release tags")
     add_release_filters(extract_bandcamp)
@@ -722,45 +727,72 @@ def cmd_extract_lastfm(args: argparse.Namespace) -> int:
         print("No matching release found.")
         return 1
 
+    skipped_existing = 0
+    if getattr(args, "skip_existing", False):
+        already = store.release_keys_with_source_type("lastfm_tags")
+        before = len(releases)
+        releases = [r for r in releases if r.release_key not in already]
+        skipped_existing = before - len(releases)
+        print(
+            f"skip-existing: {skipped_existing} release(s) already have Last.fm tags; "
+            f"{len(releases)} remaining."
+        )
+        if not releases:
+            print("Nothing to do — all matching releases already scraped.")
+            return 0
+
     vocab = GenreVocabulary(library_db_path=args.metadata_db)
     set_vocabulary(vocab)
 
+    total = len(releases)
     extracted = 0
+    empty = 0
+    failed = 0
     try:
-        for release in releases:
-            album_name = release.normalized_album or None
-            tags = fetch_lastfm_tags(
-                artist=release.normalized_artist,
-                album=album_name,
-                api_key=api_key,
-                limit=20,
-            )
-            if not tags:
-                continue
+        for idx, release in enumerate(releases, start=1):
+            try:
+                album_name = release.normalized_album or None
+                tags = fetch_lastfm_tags(
+                    artist=release.normalized_artist,
+                    album=album_name,
+                    api_key=api_key,
+                    limit=20,
+                )
+                if not tags:
+                    empty += 1
+                    print(f"[{idx}/{total}] empty {release.release_key}")
+                    time.sleep(0.25)
+                    continue
 
-            album_segment = f"/album/{release.normalized_album}" if release.normalized_album else ""
-            page_id = store.upsert_source_page(
-                release_key=release.release_key,
-                normalized_artist=release.normalized_artist,
-                normalized_album=release.normalized_album,
-                album_id=release.album_id,
-                source_url=f"lastfm://artist/{release.normalized_artist}{album_segment}",
-                source_type="lastfm_tags",
-                identity_status="confirmed",
-                identity_confidence=0.9,
-                evidence_summary="Last.fm top tags via API.",
-            )
-            store.replace_source_tags(page_id, tags)
-            store.classify_source_tags(page_id, adjudicate=getattr(args, "adjudicate", False), model=args.model)
-            if not getattr(args, "no_rebuild_signatures", False):
-                store.rebuild_enriched_genres_for_release(release.release_key)
-            extracted += 1
-            print(f"extracted-lastfm {release.release_key} tags={len(tags)}")
+                album_segment = f"/album/{release.normalized_album}" if release.normalized_album else ""
+                page_id = store.upsert_source_page(
+                    release_key=release.release_key,
+                    normalized_artist=release.normalized_artist,
+                    normalized_album=release.normalized_album,
+                    album_id=release.album_id,
+                    source_url=f"lastfm://artist/{release.normalized_artist}{album_segment}",
+                    source_type="lastfm_tags",
+                    identity_status="confirmed",
+                    identity_confidence=0.9,
+                    evidence_summary="Last.fm top tags via API.",
+                )
+                store.replace_source_tags(page_id, tags)
+                store.classify_source_tags(page_id, adjudicate=getattr(args, "adjudicate", False), model=args.model)
+                if not getattr(args, "no_rebuild_signatures", False):
+                    store.rebuild_enriched_genres_for_release(release.release_key)
+                extracted += 1
+                print(f"[{idx}/{total}] ok {release.release_key} tags={len(tags)}")
+            except Exception as exc:  # network blip / API error — log and keep going
+                failed += 1
+                print(f"[{idx}/{total}] FAILED {release.release_key}: {type(exc).__name__}: {exc}")
             time.sleep(0.25)  # Last.fm rate limit: ~5 req/s, two calls per release
     finally:
         reset_vocabulary()
 
-    print(f"Extracted Last.fm tags for {extracted} release(s).")
+    print(
+        f"Last.fm collection done: extracted={extracted} empty={empty} "
+        f"failed={failed} skipped_existing={skipped_existing} considered={total}."
+    )
     return 0
 
 

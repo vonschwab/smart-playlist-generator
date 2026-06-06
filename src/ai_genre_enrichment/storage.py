@@ -971,6 +971,20 @@ class SidecarStore:
                 ),
             )
 
+    def release_keys_with_source_type(self, source_type: str) -> set[str]:
+        """Return release_keys that already have a source page of the given type.
+
+        Used by collection passes to skip releases already scraped from a given
+        source (e.g. ``lastfm_tags``) so repeated runs don't duplicate effort.
+        """
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT DISTINCT release_key FROM ai_genre_source_pages "
+                "WHERE source_type = ?",
+                (source_type,),
+            )
+            return {row[0] for row in rows}
+
     def upsert_source_page(
         self,
         *,
