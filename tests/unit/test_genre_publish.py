@@ -301,3 +301,69 @@ def test_build_resolved_applies_overrides(tmp_path):
     assert any("slowcore" in gid for gid in ids)
     assert "jangle pop" not in ids
     assert any(r["source"] == "user" for r in rows)
+
+
+def _full_fixture(tmp_path):
+    meta = _make_metadata(tmp_path)
+    side = _make_sidecar(tmp_path)
+    mconn = sqlite3.connect(meta)
+    mconn.execute("INSERT INTO albums VALUES ('ALB1', 'York Blvd', 'Acetone')")
+    mconn.execute("INSERT INTO albums VALUES ('ALB2', 'B', 'Y')")
+    mconn.execute("INSERT INTO album_genres VALUES ('ALB2', 'Slowcore', 'discogs_release')")
+    mconn.commit()
+    mconn.close()
+    _insert_graph_assignment(side, "acetone::york blvd", "acetone", "york blvd",
+                             "alternative_rock", "observed_leaf")
+    return meta, side
+
+
+def test_publish_end_to_end_and_stats(tmp_path):
+    meta, side = _full_fixture(tmp_path)
+    stats = genre_publish.publish(str(meta), str(side), dry_run=False)
+    assert stats.graph_albums == 1
+    assert stats.legacy_albums == 1
+    conn = sqlite3.connect(meta)
+    conn.row_factory = sqlite3.Row
+    src = {r["album_id"]: r["source"] for r in conn.execute(
+        "SELECT album_id, source FROM release_effective_genres GROUP BY album_id")}
+    assert src["ALB1"] == "graph"
+    assert src["ALB2"] == "legacy"
+
+
+def test_publish_is_idempotent(tmp_path):
+    meta, side = _full_fixture(tmp_path)
+    genre_publish.publish(str(meta), str(side), dry_run=False)
+    conn = sqlite3.connect(meta)
+    first = conn.execute(
+        "SELECT * FROM release_effective_genres ORDER BY album_id, genre_id, assignment_layer"
+    ).fetchall()
+    conn.close()
+    genre_publish.publish(str(meta), str(side), dry_run=False)
+    conn = sqlite3.connect(meta)
+    second = conn.execute(
+        "SELECT * FROM release_effective_genres ORDER BY album_id, genre_id, assignment_layer"
+    ).fetchall()
+    conn.close()
+    assert first == second
+
+
+def test_publish_dry_run_writes_nothing(tmp_path):
+    meta, side = _full_fixture(tmp_path)
+    genre_publish.publish(str(meta), str(side), dry_run=True)
+    conn = sqlite3.connect(meta)
+    names = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'")}
+    conn.close()
+    assert "release_effective_genres" not in names
+
+
+def test_unpublish_drops_published_only(tmp_path):
+    meta, side = _full_fixture(tmp_path)
+    genre_publish.publish(str(meta), str(side), dry_run=False)
+    conn = sqlite3.connect(meta)
+    genre_publish.unpublish(conn)
+    names = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'")}
+    conn.close()
+    assert "release_effective_genres" not in names
+    assert "albums" in names and "album_genres" in names

@@ -8,10 +8,11 @@ import hashlib
 import json
 import sqlite3
 from collections import defaultdict
-from dataclasses import dataclass, asdict  # noqa: F401 — used in Task 8: PublishStats
+from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 
 from src.ai_genre_enrichment.layered_assignment import classify_layered_term
+from src.ai_genre_enrichment.layered_taxonomy import load_default_layered_taxonomy
 from src.ai_genre_enrichment.normalization import (
     normalize_release_artist,
     normalize_release_name,
@@ -421,3 +422,79 @@ def build_resolved_table(conn, key_to_album: dict[str, str], taxonomy) -> None:
                 "VALUES (?,?,?,?,?,?)",
                 (album_id, release_key, genre_id, layer, conf, source),
             )
+
+
+@dataclass
+class PublishStats:
+    total_albums: int = 0
+    graph_albums: int = 0
+    legacy_albums: int = 0
+    unlinked_releases: int = 0
+    collisions: int = 0
+    overrides_applied: int = 0
+    dry_run: bool = False
+
+    def as_dict(self) -> dict:
+        return asdict(self)
+
+
+def unpublish(conn: sqlite3.Connection) -> None:
+    """Drop all published tables. Legacy tables untouched."""
+    for table in PUBLISHED_TABLES:
+        conn.execute(f"DROP TABLE IF EXISTS {table}")
+    conn.commit()
+
+
+def publish(metadata_db: str, sidecar_db: str, dry_run: bool = False) -> PublishStats:
+    """Publish authoritative genres from sidecar into metadata.db (one transaction)."""
+    taxonomy = load_default_layered_taxonomy()
+    conn = sqlite3.connect(metadata_db)
+    conn.row_factory = sqlite3.Row
+    # isolation_level=None = autocommit mode. Without this, Python's sqlite3
+    # auto-issues BEGIN statements that interfere with explicit ROLLBACK of DDL.
+    conn.isolation_level = None
+    try:
+        # ATTACH must precede BEGIN — SQLite forbids ATTACH inside a transaction.
+        conn.execute("ATTACH DATABASE ? AS side", (sidecar_db,))
+        conn.execute("BEGIN")
+        create_published_schema(conn)
+        copy_taxonomy(conn)
+        mapping, collisions = resolve_release_key_to_album_id(conn)
+        populate_authority(conn, mapping)
+        build_resolved_table(conn, mapping, taxonomy)
+
+        graph = {r[0] for r in conn.execute(
+            "SELECT DISTINCT album_id FROM release_effective_genres WHERE source='graph'"
+        )}
+        legacy = {r[0] for r in conn.execute(
+            "SELECT DISTINCT album_id FROM release_effective_genres WHERE source='legacy'"
+        )}
+        total = conn.execute(
+            "SELECT COUNT(*) FROM albums WHERE album_id IS NOT NULL AND album_id != ''"
+        ).fetchone()[0]
+        unlinked = conn.execute(
+            "SELECT COUNT(*) FROM genre_graph_release_genre_assignments WHERE album_id IS NULL"
+        ).fetchone()[0]
+        overrides_applied = conn.execute(
+            "SELECT COUNT(*) FROM release_effective_genres WHERE source='user'"
+        ).fetchone()[0]
+        stats = PublishStats(
+            total_albums=total,
+            graph_albums=len(graph),
+            legacy_albums=len(legacy),
+            unlinked_releases=unlinked,
+            collisions=collisions,
+            overrides_applied=overrides_applied,
+            dry_run=dry_run,
+        )
+        if dry_run:
+            conn.execute("ROLLBACK")
+        else:
+            conn.execute("COMMIT")
+        return stats
+    finally:
+        try:
+            conn.execute("DETACH DATABASE side")
+        except sqlite3.OperationalError:
+            pass
+        conn.close()
