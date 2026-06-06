@@ -1606,12 +1606,14 @@ def handle_build_artifacts(cmd_data: Dict[str, Any]) -> None:
         from scripts.build_beat3tower_artifacts import build_artifacts
 
         db_path = config.get('library', {}).get('database_path', 'data/metadata.db')
-        output_path = config.get('playlists', {}).get('ds_pipeline', {}).get(
+        ds_cfg = config.get('playlists', {}).get('ds_pipeline', {})
+        output_path = ds_cfg.get(
             'artifact_path', 'data/artifacts/beat3tower_32k/data_matrices_step1.npz'
         )
+        genre_source = _resolve_worker_artifact_genre_source(config)
 
         check_cancelled()
-        emit_progress("artifacts", 20, 100, "Building matrices")
+        emit_progress("artifacts", 20, 100, f"Building matrices ({genre_source})")
 
         # Create argparse-like namespace for build_artifacts
         from argparse import Namespace
@@ -1627,7 +1629,7 @@ def handle_build_artifacts(cmd_data: Dict[str, Any]) -> None:
             random_seed=42,
             no_genre_normalization=False,
             sidecar_db=SIDECAR_DB_PATH,
-            genre_source="legacy",
+            genre_source=genre_source,
             verbose=False
         )
         build_artifacts(args)
@@ -1666,6 +1668,27 @@ def handle_build_artifacts(cmd_data: Dict[str, Any]) -> None:
         tb = traceback.format_exc()
         emit_error(str(e), tb)
         emit_done("build_artifacts", False, str(e), summary="Artifact build failed")
+
+
+def _resolve_worker_artifact_genre_source(config: Dict[str, Any]) -> str:
+    """Resolve GUI artifact-build source from merged config.
+
+    Runtime layered graph mode requires artifacts with layered matrices. The
+    artifact builder emits those under the `layered_shadow` source, while
+    `genre_graph.source=layered` controls runtime admission/scoring behavior.
+    """
+    ds_cfg = config.get("playlists", {}).get("ds_pipeline", {})
+    graph_cfg = ds_cfg.get("genre_graph", {})
+    graph_source = ""
+    if isinstance(graph_cfg, dict):
+        graph_source = str(graph_cfg.get("source") or "").strip().lower()
+    if graph_source in {"layered", "layered_shadow"}:
+        return "layered_shadow"
+
+    raw_source = str(ds_cfg.get("genre_source") or "legacy").strip().lower()
+    if raw_source in {"legacy", "enriched", "hybrid_shadow", "layered_shadow"}:
+        return raw_source
+    return "legacy"
 
 
 def _write_merged_temp_config(base_path: str, overrides: Dict[str, Any]) -> Optional[Path]:

@@ -508,6 +508,42 @@ Expanded focused layered suite including this test:
 61 passed in 11.62s
 ```
 
+## Update: GUI Artifact Build Source Now Honors Layered Runtime
+
+The GUI worker artifact build path previously hardcoded:
+
+```text
+genre_source="legacy"
+```
+
+That would build artifacts without layered matrices even if runtime config requested:
+
+```yaml
+playlists:
+  ds_pipeline:
+    genre_graph:
+      source: layered
+```
+
+Fix added:
+
+- File: `src\playlist_gui\worker.py`
+- Helper: `_resolve_worker_artifact_genre_source(config)`
+- If `genre_graph.source` is `layered` or `layered_shadow`, GUI artifact build now uses `genre_source="layered_shadow"` so the artifact includes layered matrices.
+- Otherwise, it honors explicit `ds_pipeline.genre_source` values: `legacy`, `enriched`, `hybrid_shadow`, `layered_shadow`.
+- Invalid artifact source falls back to `legacy`.
+
+Tests added:
+
+- File: `tests\unit\test_worker_protocol.py`
+- Covers layered runtime, layered shadow runtime, explicit non-layered artifact source, and invalid fallback.
+
+Verification:
+
+```text
+35 passed in 1.45s
+```
+
 ## Recommended Next Steps
 
 ### Step 1: Preserve and Verify Current Uncommitted Fixes
