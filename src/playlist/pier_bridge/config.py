@@ -66,6 +66,12 @@ class PierBridgeConfig:
     # multiply the edge score by (1 - strength).
     genre_penalty_threshold: float = 0.20
     genre_penalty_strength: float = 0.10
+    # Layered genre graph transition scoring (opt-in; default OFF).
+    # Uses sidecar-derived leaf/family/bridge/facet matrices when present on
+    # the artifact bundle. This is separate from legacy flat genre steering.
+    layered_transition_scoring_enabled: bool = False
+    layered_transition_weight: float = 0.0
+    layered_transition_mode: str = "dynamic"
     # Genre edge safeguards & steering (opt-in; code default OFF).
     # When enabled, the beam scores genre on the dense embedding, rejects edges
     # below genre_arc_floor (absolute fallback), and adds weight_genre * genre_sim

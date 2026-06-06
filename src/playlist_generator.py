@@ -67,6 +67,8 @@ def build_ds_overrides(ds_cfg: Dict[str, Any]) -> Dict[str, Any]:
         "constraints": ds_cfg.get("constraints", {}),
         "candidate_pool": ds_cfg.get("candidate_pool", {}),
         "pier_bridge": ds_cfg.get("pier_bridge", {}),
+        "genre_graph": ds_cfg.get("genre_graph", {}),
+        "genre_source": ds_cfg.get("genre_source", "legacy"),
         "repair": ds_cfg.get("repair", {}),
         "tower_weights": ds_cfg.get("tower_weights"),
         "transition_weights": ds_cfg.get("transition_weights"),

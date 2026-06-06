@@ -44,6 +44,17 @@ class ArtifactBundle:
     # Optional: dense PMI-SVD genre embedding (from sidecar NPZ)
     X_genre_dense: Optional[np.ndarray] = None   # (N, dim) L2-normalized
     genre_emb: Optional[np.ndarray] = None       # (V, dim) vocabulary embedding
+    # Optional: layered genre graph shadow matrices (from layered_shadow artifacts)
+    X_genre_leaf_idf: Optional[np.ndarray] = None
+    X_genre_family: Optional[np.ndarray] = None
+    X_genre_bridge: Optional[np.ndarray] = None
+    X_facet: Optional[np.ndarray] = None
+    genre_leaf_vocab: Optional[np.ndarray] = None
+    genre_family_vocab: Optional[np.ndarray] = None
+    genre_bridge_vocab: Optional[np.ndarray] = None
+    facet_vocab: Optional[np.ndarray] = None
+    genre_graph_taxonomy_version: Optional[np.ndarray] = None
+    genre_graph_sidecar_fingerprint: Optional[np.ndarray] = None
 
 
 def _require_keys(npz: np.lib.npyio.NpzFile, required: Dict[str, str]) -> None:
@@ -102,6 +113,20 @@ def _load_artifact_bundle_cached(artifact_path: Path) -> ArtifactBundle:
     X_genre_raw = data["X_genre_raw"]
     X_genre_smoothed = data["X_genre_smoothed"]
     genre_vocab = data["genre_vocab"]
+    X_genre_leaf_idf = data["X_genre_leaf_idf"] if "X_genre_leaf_idf" in data else None
+    X_genre_family = data["X_genre_family"] if "X_genre_family" in data else None
+    X_genre_bridge = data["X_genre_bridge"] if "X_genre_bridge" in data else None
+    X_facet = data["X_facet"] if "X_facet" in data else None
+    genre_leaf_vocab = data["genre_leaf_vocab"] if "genre_leaf_vocab" in data else None
+    genre_family_vocab = data["genre_family_vocab"] if "genre_family_vocab" in data else None
+    genre_bridge_vocab = data["genre_bridge_vocab"] if "genre_bridge_vocab" in data else None
+    facet_vocab = data["facet_vocab"] if "facet_vocab" in data else None
+    genre_graph_taxonomy_version = (
+        data["genre_graph_taxonomy_version"] if "genre_graph_taxonomy_version" in data else None
+    )
+    genre_graph_sidecar_fingerprint = (
+        data["genre_graph_sidecar_fingerprint"] if "genre_graph_sidecar_fingerprint" in data else None
+    )
     sonic_feature_names = data["sonic_feature_names"] if "sonic_feature_names" in data else None
     sonic_feature_units = data["sonic_feature_units"] if "sonic_feature_units" in data else None
     durations_ms = data["durations_ms"] if "durations_ms" in data else None
@@ -180,6 +205,10 @@ def _load_artifact_bundle_cached(artifact_path: Path) -> ArtifactBundle:
         "X_sonic_end": X_sonic_end,
         "X_genre_raw": X_genre_raw,
         "X_genre_smoothed": X_genre_smoothed,
+        "X_genre_leaf_idf": X_genre_leaf_idf,
+        "X_genre_family": X_genre_family,
+        "X_genre_bridge": X_genre_bridge,
+        "X_facet": X_facet,
         "X_sonic_raw": X_sonic_raw,
     }
     for name, arr in aligned.items():
@@ -225,6 +254,16 @@ def _load_artifact_bundle_cached(artifact_path: Path) -> ArtifactBundle:
         tower_dims=tower_dims,
         X_genre_dense=X_genre_dense,
         genre_emb=genre_emb,
+        X_genre_leaf_idf=X_genre_leaf_idf,
+        X_genre_family=X_genre_family,
+        X_genre_bridge=X_genre_bridge,
+        X_facet=X_facet,
+        genre_leaf_vocab=genre_leaf_vocab,
+        genre_family_vocab=genre_family_vocab,
+        genre_bridge_vocab=genre_bridge_vocab,
+        facet_vocab=facet_vocab,
+        genre_graph_taxonomy_version=genre_graph_taxonomy_version,
+        genre_graph_sidecar_fingerprint=genre_graph_sidecar_fingerprint,
     )
 
 

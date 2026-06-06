@@ -497,6 +497,57 @@ class TestWorkerState:
         assert state.cancel_requested is False
 
 
+class TestWorkerArtifactGenreSource:
+    """Tests for GUI artifact-build genre source resolution."""
+
+    def test_layered_runtime_builds_layered_shadow_artifact(self):
+        from src.playlist_gui.worker import _resolve_worker_artifact_genre_source
+
+        assert _resolve_worker_artifact_genre_source(
+            {
+                "playlists": {
+                    "ds_pipeline": {
+                        "genre_graph": {"source": "layered"},
+                    }
+                }
+            }
+        ) == "layered_shadow"
+
+    def test_layered_shadow_runtime_builds_layered_shadow_artifact(self):
+        from src.playlist_gui.worker import _resolve_worker_artifact_genre_source
+
+        assert _resolve_worker_artifact_genre_source(
+            {
+                "playlists": {
+                    "ds_pipeline": {
+                        "genre_graph": {"source": "layered_shadow"},
+                    }
+                }
+            }
+        ) == "layered_shadow"
+
+    def test_non_layered_runtime_honors_explicit_genre_source(self):
+        from src.playlist_gui.worker import _resolve_worker_artifact_genre_source
+
+        assert _resolve_worker_artifact_genre_source(
+            {
+                "playlists": {
+                    "ds_pipeline": {
+                        "genre_source": "hybrid_shadow",
+                        "genre_graph": {"source": "legacy"},
+                    }
+                }
+            }
+        ) == "hybrid_shadow"
+
+    def test_invalid_artifact_genre_source_falls_back_to_legacy(self):
+        from src.playlist_gui.worker import _resolve_worker_artifact_genre_source
+
+        assert _resolve_worker_artifact_genre_source(
+            {"playlists": {"ds_pipeline": {"genre_source": "bad"}}}
+        ) == "legacy"
+
+
 class TestWorkerLogging:
     """Tests for worker log event filtering."""
 

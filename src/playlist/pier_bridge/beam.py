@@ -24,6 +24,7 @@ from src.playlist.artist_identity_resolver import (
     resolve_artist_identity_keys,
 )
 from src.playlist.pier_bridge.config import PierBridgeConfig, _compute_transition_score
+from src.playlist.layered_genre_scoring import score_layered_transition
 from src.playlist.title_quality import compute_title_artifact_penalty
 from src.playlist.pier_bridge.genre import (
     _compute_coverage,
@@ -65,6 +66,40 @@ def _local_sonic_penalty_value(
     if str(mode).strip().lower() == "scaled":
         return float(max(0.0, float(scale) * gap))
     return float(max(0.0, float(strength) * gap))
+
+
+def _layered_bundle_matrices(bundle: Optional[ArtifactBundle]) -> Optional[tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]:
+    if bundle is None:
+        return None
+    matrices = (
+        getattr(bundle, "X_genre_leaf_idf", None),
+        getattr(bundle, "X_genre_family", None),
+        getattr(bundle, "X_genre_bridge", None),
+        getattr(bundle, "X_facet", None),
+    )
+    if any(matrix is None for matrix in matrices):
+        return None
+    leaf = np.asarray(matrices[0], dtype=float)
+    family = np.asarray(matrices[1], dtype=float)
+    bridge = np.asarray(matrices[2], dtype=float)
+    facet = np.asarray(matrices[3], dtype=float)
+    if any(matrix.ndim != 2 for matrix in (leaf, family, bridge, facet)):
+        return None
+    if bridge.shape[1] != leaf.shape[1]:
+        return None
+    row_count = leaf.shape[0]
+    if any(matrix.shape[0] != row_count for matrix in (family, bridge, facet)):
+        return None
+    return leaf, family, bridge, facet
+
+
+def _coerce_edge_score(value: Any, *, fallback: Any, default: float) -> float:
+    raw = value if isinstance(value, (int, float)) else fallback
+    if not isinstance(raw, (int, float)):
+        return float(default)
+    if raw != raw:
+        return float(default)
+    return max(0.0, min(1.0, float(raw)))
 
 
 def _select_best_beam_state(states, *, objective: str = "total_score"):
@@ -332,6 +367,55 @@ def _beam_search_segment(
                 ),
             }
         )
+
+    layered_transition_weight = float(getattr(cfg, "layered_transition_weight", 0.0) or 0.0)
+    if not math.isfinite(layered_transition_weight):
+        layered_transition_weight = 0.0
+    layered_transition_weight = max(0.0, layered_transition_weight)
+    layered_transition_mode = str(getattr(cfg, "layered_transition_mode", "dynamic") or "dynamic").strip().lower()
+    layered_matrices = (
+        _layered_bundle_matrices(bundle)
+        if bool(getattr(cfg, "layered_transition_scoring_enabled", False)) and layered_transition_weight > 0.0
+        else None
+    )
+    if layered_matrices is not None:
+        X_genre_norm = None
+        X_genre_norm_idf = None
+        X_genre_raw = None
+        X_genre_smoothed = None
+        X_genre_dense = None
+        genre_idf = None
+        penalty_strength = 0.0
+        genre_tie_break_band = None
+
+    def _layered_transition_delta(a_idx: int, b_idx: int, edge_metric: dict[str, Any]) -> tuple[float, dict[str, Any]]:
+        if layered_matrices is None:
+            return 0.0, {}
+        leaf, family, bridge, facet = layered_matrices
+        if int(a_idx) >= leaf.shape[0] or int(b_idx) >= leaf.shape[0]:
+            return 0.0, {}
+        sonic_similarity = _coerce_edge_score(edge_metric.get("S"), fallback=edge_metric.get("T"), default=0.0)
+        transition_quality = _coerce_edge_score(edge_metric.get("T"), fallback=edge_metric.get("S"), default=0.0)
+        decision = score_layered_transition(
+            from_leaf=leaf[int(a_idx)],
+            to_leaf=leaf[int(b_idx)],
+            from_family=family[int(a_idx)],
+            to_family=family[int(b_idx)],
+            from_bridge=bridge[int(a_idx)],
+            to_bridge=bridge[int(b_idx)],
+            from_facet=facet[int(a_idx)],
+            to_facet=facet[int(b_idx)],
+            sonic_similarity=sonic_similarity,
+            transition_quality=transition_quality,
+            mode=layered_transition_mode,
+        )
+        delta = float(layered_transition_weight) * float(decision.score)
+        return delta, {
+            "layered_transition_delta": float(delta),
+            "layered_transition_score": float(decision.score),
+            "layered_transition_reason": str(decision.reason),
+            "layered_transition_explained": bool(decision.explained),
+        }
 
     waypoint_enabled = bool(cfg.dj_bridging_enabled) and X_genre_norm is not None
     waypoint_weight = float(cfg.dj_waypoint_weight)
@@ -904,7 +988,7 @@ def _beam_search_segment(
                 (genre_tie_break_band is not None and X_genre_norm is not None and penalty_strength > 0)
                 or (waypoint_enabled and waypoint_tie_break_band is not None)
             )
-            cand_entries: list[tuple[int, float, float, float, Optional[float], Optional[float], float, dict]] = []
+            cand_entries: list[tuple[int, float, float, float, Optional[float], Optional[float], float, dict, dict[str, Any]]] = []
             best_score = -float("inf")
 
             for cand in candidates:
@@ -1058,6 +1142,9 @@ def _beam_search_segment(
                     # Use IDF-weighted matrix when available to match target space
                     waypoint_sim = float(np.dot(X_genre_for_sim[cand], g_target))
 
+                layered_delta, layered_diag = _layered_transition_delta(int(current), int(cand), edge_metric)
+                combined_score += layered_delta
+
                 combined_score_after_sonic = _apply_local_sonic_edge_policy(
                     combined_score,
                     int(current),
@@ -1086,7 +1173,17 @@ def _beam_search_segment(
                 edges_scored += 1
 
                 if apply_tie_break:
-                    cand_entries.append((int(cand), float(cand_t), float(combined_score), float(dest_pull), genre_sim, waypoint_sim, float(trans_score), dict(edge_metric)))
+                    cand_entries.append((
+                        int(cand),
+                        float(cand_t),
+                        float(combined_score),
+                        float(dest_pull),
+                        genre_sim,
+                        waypoint_sim,
+                        float(trans_score),
+                        dict(edge_metric),
+                        dict(layered_diag),
+                    ))
                     if combined_score > best_score:
                         best_score = float(combined_score)
                 else:
@@ -1191,6 +1288,7 @@ def _beam_search_segment(
                         "genre_penalty_applied": _genre_pen_applied,
                         "below_transition_floor": False,
                         "title_artifact_penalty_applied": float(_title_artifact_pen),
+                        **layered_diag,
                     }
                     new_edge_components = list(state.edge_components) + [edge_component]
 
@@ -1204,7 +1302,7 @@ def _beam_search_segment(
                     ))
 
             if apply_tie_break and cand_entries:
-                for cand, cand_t, base_score, dest_pull, genre_sim, waypoint_sim, trans_score, edge_metric_tb in cand_entries:
+                for cand, cand_t, base_score, dest_pull, genre_sim, waypoint_sim, trans_score, edge_metric_tb, layered_diag_tb in cand_entries:
                     base_score_for_rank = float(base_score)
                     combined_score = float(base_score)
                     if (not _steering) and genre_sim is not None and math.isfinite(genre_sim):
@@ -1329,6 +1427,7 @@ def _beam_search_segment(
                         "genre_penalty_applied": _genre_pen_applied_tb,
                         "below_transition_floor": False,
                         "title_artifact_penalty_applied": float(_title_artifact_pen_tb),
+                        **layered_diag_tb,
                     }
                     new_edge_components_tb = list(state.edge_components) + [edge_component_tb]
 
@@ -1526,6 +1625,13 @@ def _beam_search_segment(
                     final_edge_score *= (1.0 - penalty_strength)
                     genre_penalty_hits += 1
 
+        final_layered_delta, final_layered_diag = _layered_transition_delta(
+            int(last),
+            int(pier_b),
+            final_edge_metric,
+        )
+        final_edge_score += final_layered_delta
+
         final_edge_score_after_sonic = _apply_local_sonic_edge_policy(
             final_edge_score,
             int(last),
@@ -1572,6 +1678,7 @@ def _beam_search_segment(
             "genre_penalty_applied": _final_genre_pen_applied,
             "below_transition_floor": False,
             "title_artifact_penalty_applied": 0.0,
+            **final_layered_diag,
         }
 
         # Create a new state with the final edge appended for selection purposes

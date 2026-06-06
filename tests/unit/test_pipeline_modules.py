@@ -45,6 +45,7 @@ def _make_bundle(
     track_titles: Optional[List[str]] = None,
     sonic_dim: int = 2,
     dense_dim: Optional[int] = None,
+    layered_dim: Optional[int] = None,
 ) -> ArtifactBundle:
     """Build a minimal in-memory ArtifactBundle for unit tests.
 
@@ -60,6 +61,19 @@ def _make_bundle(
         X_genre_dense = np.tile(
             np.arange(n, dtype=float).reshape(n, 1), (1, dense_dim)
         )
+    X_genre_leaf_idf = None
+    X_genre_family = None
+    X_genre_bridge = None
+    X_facet = None
+    if layered_dim is not None:
+        X_genre_leaf_idf = np.tile(
+            np.arange(n, dtype=float).reshape(n, 1), (1, layered_dim)
+        )
+        X_genre_family = np.arange(n, dtype=float).reshape(n, 1)
+        X_genre_bridge = np.tile(
+            np.arange(n, dtype=float).reshape(n, 1), (1, layered_dim)
+        )
+        X_facet = np.arange(n, dtype=float).reshape(n, 1)
     return ArtifactBundle(
         artifact_path=Path("test://bundle"),
         track_ids=np.array(track_ids),
@@ -73,6 +87,16 @@ def _make_bundle(
         X_genre_raw=np.zeros((n, 1), dtype=float),
         X_genre_smoothed=np.zeros((n, 1), dtype=float),
         X_genre_dense=X_genre_dense,
+        X_genre_leaf_idf=X_genre_leaf_idf,
+        X_genre_family=X_genre_family,
+        X_genre_bridge=X_genre_bridge,
+        X_facet=X_facet,
+        genre_leaf_vocab=np.array([f"leaf{i}" for i in range(layered_dim)], dtype=object) if layered_dim else None,
+        genre_family_vocab=np.array(["family"], dtype=object) if layered_dim else None,
+        genre_bridge_vocab=np.array([f"leaf{i}" for i in range(layered_dim)], dtype=object) if layered_dim else None,
+        facet_vocab=np.array(["facet"], dtype=object) if layered_dim else None,
+        genre_graph_taxonomy_version=np.array("test-taxonomy", dtype=object) if layered_dim else None,
+        genre_graph_sidecar_fingerprint=np.array("b" * 64, dtype=object) if layered_dim else None,
         genre_vocab=np.array(["g0"]),
         track_id_to_index={tid: i for i, tid in enumerate(track_ids)},
     )
@@ -205,6 +229,36 @@ class TestBundleRestrict:
             allowed_track_ids_set=None,
         )
         assert out_bundle.X_genre_dense is None
+
+    def test_restrict_carries_layered_shadow_matrices_and_realigns_rows(self):
+        bundle = _make_bundle(["t0", "t1", "t2", "t3"], layered_dim=2)
+        out_bundle, out_seed, _ = restrict_bundle(
+            bundle,
+            "t2",
+            seed_idx=2,
+            anchor_seed_ids=[],
+            allowed_track_ids=["t1", "t3"],
+            excluded_track_ids=None,
+            allowed_track_ids_set=None,
+        )
+
+        assert out_bundle.X_genre_leaf_idf is not None
+        assert out_bundle.X_genre_family is not None
+        assert out_bundle.X_genre_bridge is not None
+        assert out_bundle.X_facet is not None
+        assert out_bundle.X_genre_leaf_idf.shape == (3, 2)
+        for i, tid in enumerate(out_bundle.track_ids):
+            orig_idx = int(tid[1:])
+            assert np.allclose(out_bundle.X_genre_leaf_idf[i], float(orig_idx))
+            assert np.allclose(out_bundle.X_genre_family[i], float(orig_idx))
+            assert np.allclose(out_bundle.X_genre_bridge[i], float(orig_idx))
+            assert np.allclose(out_bundle.X_facet[i], float(orig_idx))
+        seed_orig = int(out_bundle.track_ids[out_seed][1:])
+        assert np.allclose(out_bundle.X_genre_leaf_idf[out_seed], float(seed_orig))
+        assert out_bundle.genre_leaf_vocab is not None
+        assert out_bundle.genre_leaf_vocab.tolist() == ["leaf0", "leaf1"]
+        assert out_bundle.genre_graph_sidecar_fingerprint is not None
+        assert out_bundle.genre_graph_sidecar_fingerprint.item() == "b" * 64
 
     def test_restrict_preserves_sonic_pre_scaled_and_tower_dims(self):
         """sonic_pre_scaled and tower_dims must survive bundle restriction.

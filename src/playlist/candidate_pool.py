@@ -3,12 +3,16 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Sequence, Tuple
 
 import numpy as np
 
 from .config import CandidatePoolConfig
 from .genre_compatibility import compute_raw_genre_compatibility
+from .layered_genre_scoring import (
+    layered_decision_to_diagnostics,
+    score_layered_candidate,
+)
 from src.playlist.title_quality import detect_title_artifacts
 
 logger = logging.getLogger(__name__)
@@ -169,6 +173,332 @@ def _first_rejection_reason(
     return "admitted" if idx in pool_set else "not_selected"
 
 
+def _coerce_vocab(vocab: Optional[Sequence[Any]], width: int) -> Optional[list[str]]:
+    if vocab is None:
+        return None
+    try:
+        values = [str(value) for value in np.asarray(vocab, dtype=object).reshape(-1).tolist()]
+    except Exception:
+        return None
+    if len(values) != int(width):
+        return None
+    return values
+
+
+def _active_terms(vector: np.ndarray, vocab: Optional[list[str]]) -> list[str]:
+    if vocab is None:
+        return []
+    values = np.asarray(vector, dtype=float).reshape(-1)
+    return [vocab[i] for i, value in enumerate(values) if i < len(vocab) and float(value) > 0.0]
+
+
+def _shared_terms(left: np.ndarray, right: np.ndarray, vocab: Optional[list[str]]) -> list[str]:
+    if vocab is None:
+        return []
+    left_values = np.asarray(left, dtype=float).reshape(-1)
+    right_values = np.asarray(right, dtype=float).reshape(-1)
+    width = min(len(vocab), left_values.shape[0], right_values.shape[0])
+    return [
+        vocab[i]
+        for i in range(width)
+        if float(left_values[i]) > 0.0 and float(right_values[i]) > 0.0
+    ]
+
+
+def _layered_term_diagnostics(
+    *,
+    seed_leaf: np.ndarray,
+    candidate_leaf: np.ndarray,
+    seed_family: np.ndarray,
+    candidate_family: np.ndarray,
+    seed_bridge: np.ndarray,
+    candidate_bridge: np.ndarray,
+    seed_facet: np.ndarray,
+    candidate_facet: np.ndarray,
+    genre_leaf_vocab: Optional[Sequence[Any]],
+    genre_family_vocab: Optional[Sequence[Any]],
+    genre_bridge_vocab: Optional[Sequence[Any]],
+    facet_vocab: Optional[Sequence[Any]],
+) -> dict[str, list[str]]:
+    leaf_vocab = _coerce_vocab(genre_leaf_vocab, np.asarray(seed_leaf).reshape(-1).shape[0])
+    family_vocab = _coerce_vocab(genre_family_vocab, np.asarray(seed_family).reshape(-1).shape[0])
+    bridge_vocab = _coerce_vocab(genre_bridge_vocab, np.asarray(seed_bridge).reshape(-1).shape[0])
+    facet_names = _coerce_vocab(facet_vocab, np.asarray(seed_facet).reshape(-1).shape[0])
+    return {
+        "seed_leaf_terms": _active_terms(seed_leaf, leaf_vocab),
+        "candidate_leaf_terms": _active_terms(candidate_leaf, leaf_vocab),
+        "shared_leaf_terms": _shared_terms(seed_leaf, candidate_leaf, leaf_vocab),
+        "seed_family_terms": _active_terms(seed_family, family_vocab),
+        "candidate_family_terms": _active_terms(candidate_family, family_vocab),
+        "shared_family_terms": _shared_terms(seed_family, candidate_family, family_vocab),
+        "seed_bridge_terms": _active_terms(seed_bridge, bridge_vocab),
+        "candidate_bridge_terms": _active_terms(candidate_bridge, bridge_vocab),
+        "shared_bridge_terms": _shared_terms(seed_bridge, candidate_bridge, bridge_vocab),
+        "seed_facet_terms": _active_terms(seed_facet, facet_names),
+        "candidate_facet_terms": _active_terms(candidate_facet, facet_names),
+        "shared_facet_terms": _shared_terms(seed_facet, candidate_facet, facet_names),
+    }
+
+
+def _build_layered_genre_shadow_diagnostics(
+    *,
+    seed_list: list[int],
+    seed_mask: np.ndarray,
+    pool_indices: list[int],
+    eligible: list[int],
+    seed_sim_all: np.ndarray,
+    similarity_floor: float,
+    sonic_seed_sim: Optional[np.ndarray],
+    sonic_floor: Optional[float],
+    genre_sim_all: Optional[np.ndarray],
+    effective_genre_floor: Optional[float],
+    genre_compatibility_result: Any,
+    track_ids: Optional[np.ndarray],
+    X_genre_leaf_idf: Optional[np.ndarray],
+    X_genre_family: Optional[np.ndarray],
+    X_genre_bridge: Optional[np.ndarray],
+    X_facet: Optional[np.ndarray],
+    genre_leaf_vocab: Optional[Sequence[Any]],
+    genre_family_vocab: Optional[Sequence[Any]],
+    genre_bridge_vocab: Optional[Sequence[Any]],
+    facet_vocab: Optional[Sequence[Any]],
+    mode: str,
+    sample_limit: int,
+) -> dict[str, Any]:
+    matrices = (X_genre_leaf_idf, X_genre_family, X_genre_bridge, X_facet)
+    if any(matrix is None for matrix in matrices):
+        return {
+            "enabled": False,
+            "reason": "missing_layered_matrices",
+        }
+
+    leaf = np.asarray(X_genre_leaf_idf, dtype=float)
+    family = np.asarray(X_genre_family, dtype=float)
+    bridge = np.asarray(X_genre_bridge, dtype=float)
+    facet = np.asarray(X_facet, dtype=float)
+    row_count = len(seed_mask)
+    if any(matrix.ndim != 2 or matrix.shape[0] != row_count for matrix in (leaf, family, bridge, facet)):
+        return {
+            "enabled": False,
+            "reason": "layered_matrix_shape_mismatch",
+        }
+    if bridge.shape[1] != leaf.shape[1]:
+        return {
+            "enabled": False,
+            "reason": "bridge_leaf_vocab_mismatch",
+        }
+
+    seed_leaf = np.max(leaf[seed_list], axis=0)
+    seed_family = np.max(family[seed_list], axis=0)
+    seed_bridge = np.max(bridge[seed_list], axis=0)
+    seed_facet = np.max(facet[seed_list], axis=0)
+    pool_set = set(int(i) for i in pool_indices)
+    eligible_set = set(int(i) for i in eligible)
+    sample_limit = max(0, int(sample_limit))
+
+    evaluated_count = 0
+    would_admit_count = 0
+    broad_only_reject_count = 0
+    bridge_supported_count = 0
+    unexplained_jump_reject_count = 0
+    legacy_disagreement_count = 0
+    rows: list[dict[str, Any]] = []
+
+    for idx in range(row_count):
+        if bool(seed_mask[idx]):
+            continue
+        evaluated_count += 1
+        decision = score_layered_candidate(
+            seed_leaf=seed_leaf,
+            candidate_leaf=leaf[idx],
+            seed_family=seed_family,
+            candidate_family=family[idx],
+            seed_bridge=seed_bridge,
+            candidate_bridge=bridge[idx],
+            seed_facet=seed_facet,
+            candidate_facet=facet[idx],
+            mode=mode,
+        )
+        diagnostic = layered_decision_to_diagnostics(decision)
+        legacy_admitted = idx in pool_set
+        if bool(decision.admitted):
+            would_admit_count += 1
+        if decision.reason == "broad_only_without_leaf_support":
+            broad_only_reject_count += 1
+        if decision.reason == "bridge_supported":
+            bridge_supported_count += 1
+        if decision.reason == "unexplained_family_jump":
+            unexplained_jump_reject_count += 1
+        if bool(decision.admitted) != legacy_admitted:
+            legacy_disagreement_count += 1
+
+        row = {
+            "index": int(idx),
+            "track_id": str(track_ids[idx]) if track_ids is not None else int(idx),
+            "legacy_admitted": bool(legacy_admitted),
+            "legacy_eligible": bool(idx in eligible_set),
+            "legacy_reason": _first_rejection_reason(
+                idx=idx,
+                seed_mask=seed_mask,
+                seed_sim_all=seed_sim_all,
+                similarity_floor=similarity_floor,
+                sonic_seed_sim=sonic_seed_sim,
+                sonic_floor=sonic_floor,
+                genre_sim_all=genre_sim_all,
+                min_genre_similarity=effective_genre_floor,
+                genre_compatibility_result=genre_compatibility_result,
+                pool_set=pool_set,
+                eligible_set=eligible_set,
+            ),
+            **diagnostic,
+            **_layered_term_diagnostics(
+                seed_leaf=seed_leaf,
+                candidate_leaf=leaf[idx],
+                seed_family=seed_family,
+                candidate_family=family[idx],
+                seed_bridge=seed_bridge,
+                candidate_bridge=bridge[idx],
+                seed_facet=seed_facet,
+                candidate_facet=facet[idx],
+                genre_leaf_vocab=genre_leaf_vocab,
+                genre_family_vocab=genre_family_vocab,
+                genre_bridge_vocab=genre_bridge_vocab,
+                facet_vocab=facet_vocab,
+            ),
+        }
+        rows.append(row)
+
+    rows.sort(
+        key=lambda row: (
+            bool(row["admitted"]) == bool(row["legacy_admitted"]),
+            0 if row["reason"] in {"broad_only_without_leaf_support", "unexplained_family_jump", "bridge_supported"} else 1,
+            -float(row["score"]),
+            int(row["index"]),
+        )
+    )
+    if sample_limit:
+        rows = rows[:sample_limit]
+    else:
+        rows = []
+
+    return {
+        "enabled": True,
+        "mode": mode,
+        "evaluated_count": int(evaluated_count),
+        "would_admit_count": int(would_admit_count),
+        "would_reject_count": int(evaluated_count - would_admit_count),
+        "legacy_disagreement_count": int(legacy_disagreement_count),
+        "broad_only_reject_count": int(broad_only_reject_count),
+        "bridge_supported_count": int(bridge_supported_count),
+        "unexplained_jump_reject_count": int(unexplained_jump_reject_count),
+        "sample_limit": int(sample_limit),
+        "samples": rows,
+    }
+
+
+def _validate_layered_matrices(
+    *,
+    row_count: int,
+    X_genre_leaf_idf: Optional[np.ndarray],
+    X_genre_family: Optional[np.ndarray],
+    X_genre_bridge: Optional[np.ndarray],
+    X_facet: Optional[np.ndarray],
+) -> tuple[bool, str]:
+    matrices = (X_genre_leaf_idf, X_genre_family, X_genre_bridge, X_facet)
+    if any(matrix is None for matrix in matrices):
+        return False, "missing_layered_matrices"
+    leaf = np.asarray(X_genre_leaf_idf)
+    family = np.asarray(X_genre_family)
+    bridge = np.asarray(X_genre_bridge)
+    facet = np.asarray(X_facet)
+    if any(matrix.ndim != 2 or matrix.shape[0] != row_count for matrix in (leaf, family, bridge, facet)):
+        return False, "layered_matrix_shape_mismatch"
+    if bridge.shape[1] != leaf.shape[1]:
+        return False, "bridge_leaf_vocab_mismatch"
+    return True, "ok"
+
+
+def _apply_layered_genre_admission(
+    *,
+    seed_list: list[int],
+    eligible: list[int],
+    X_genre_leaf_idf: np.ndarray,
+    X_genre_family: np.ndarray,
+    X_genre_bridge: np.ndarray,
+    X_facet: np.ndarray,
+    mode: str,
+    track_ids: Optional[np.ndarray],
+    genre_leaf_vocab: Optional[Sequence[Any]],
+    genre_family_vocab: Optional[Sequence[Any]],
+    genre_bridge_vocab: Optional[Sequence[Any]],
+    facet_vocab: Optional[Sequence[Any]],
+) -> tuple[list[int], dict[str, Any]]:
+    leaf = np.asarray(X_genre_leaf_idf, dtype=float)
+    family = np.asarray(X_genre_family, dtype=float)
+    bridge = np.asarray(X_genre_bridge, dtype=float)
+    facet = np.asarray(X_facet, dtype=float)
+
+    seed_leaf = np.max(leaf[seed_list], axis=0)
+    seed_family = np.max(family[seed_list], axis=0)
+    seed_bridge = np.max(bridge[seed_list], axis=0)
+    seed_facet = np.max(facet[seed_list], axis=0)
+
+    admitted: list[int] = []
+    rejection_reason_counts: dict[str, int] = {}
+    admitted_track_ids: list[str] = []
+    rejected_samples: list[dict[str, Any]] = []
+
+    for idx in eligible:
+        decision = score_layered_candidate(
+            seed_leaf=seed_leaf,
+            candidate_leaf=leaf[idx],
+            seed_family=seed_family,
+            candidate_family=family[idx],
+            seed_bridge=seed_bridge,
+            candidate_bridge=bridge[idx],
+            seed_facet=seed_facet,
+            candidate_facet=facet[idx],
+            mode=mode,
+        )
+        if decision.admitted:
+            admitted.append(int(idx))
+            admitted_track_ids.append(str(track_ids[idx]) if track_ids is not None else str(idx))
+            continue
+        rejection_reason_counts[decision.reason] = rejection_reason_counts.get(decision.reason, 0) + 1
+        if len(rejected_samples) < 25:
+            row = {
+                "index": int(idx),
+                "track_id": str(track_ids[idx]) if track_ids is not None else int(idx),
+                **layered_decision_to_diagnostics(decision),
+                **_layered_term_diagnostics(
+                    seed_leaf=seed_leaf,
+                    candidate_leaf=leaf[idx],
+                    seed_family=seed_family,
+                    candidate_family=family[idx],
+                    seed_bridge=seed_bridge,
+                    candidate_bridge=bridge[idx],
+                    seed_facet=seed_facet,
+                    candidate_facet=facet[idx],
+                    genre_leaf_vocab=genre_leaf_vocab,
+                    genre_family_vocab=genre_family_vocab,
+                    genre_bridge_vocab=genre_bridge_vocab,
+                    facet_vocab=facet_vocab,
+                ),
+            }
+            rejected_samples.append(row)
+
+    return admitted, {
+        "source": "layered",
+        "applied": True,
+        "input_eligible_count": int(len(eligible)),
+        "admitted_count": int(len(admitted)),
+        "rejected_count": int(len(eligible) - len(admitted)),
+        "rejection_reason_counts": rejection_reason_counts,
+        "admitted_track_ids": admitted_track_ids,
+        "rejected_samples": rejected_samples,
+    }
+
+
 def build_candidate_pool(
     *,
     seed_idx: int,
@@ -197,6 +527,17 @@ def build_candidate_pool(
     perceptual_bpm: Optional[np.ndarray] = None,
     tempo_stability: Optional[np.ndarray] = None,
     genre_admission_percentile: Optional[float] = None,
+    layered_genre_diagnostics: bool = False,
+    X_genre_leaf_idf: Optional[np.ndarray] = None,
+    X_genre_family: Optional[np.ndarray] = None,
+    X_genre_bridge: Optional[np.ndarray] = None,
+    X_facet: Optional[np.ndarray] = None,
+    genre_leaf_vocab: Optional[Sequence[Any]] = None,
+    genre_family_vocab: Optional[Sequence[Any]] = None,
+    genre_bridge_vocab: Optional[Sequence[Any]] = None,
+    facet_vocab: Optional[Sequence[Any]] = None,
+    layered_genre_diagnostics_limit: int = 25,
+    genre_graph_source: str = "legacy",
 ) -> CandidatePoolResult:
     """
     Implement current experiments behavior with optional genre gating:
@@ -340,6 +681,16 @@ def build_candidate_pool(
     genre_compatibility_penalty_applied = 0
     title_exclusion_rejected = 0
     rejected_sonic: list[tuple[int, float]] = []
+    genre_graph_source = str(genre_graph_source or "legacy").strip().lower()
+    if genre_graph_source not in {"legacy", "layered_shadow", "layered"}:
+        genre_graph_source = "legacy"
+    legacy_flat_genre_gate_applied = genre_graph_source != "layered"
+    if not legacy_flat_genre_gate_applied:
+        X_genre_raw = None
+        X_genre_smoothed = None
+        X_genre_dense = None
+        min_genre_similarity = None
+    layered_genre_admission_summary: Optional[dict[str, Any]] = None
 
     # Compute genre similarity if provided
     genre_sim_all = None
@@ -558,6 +909,56 @@ def build_candidate_pool(
             )
         # For "discover" mode, we compute genre_sim but don't exclude (soft penalty later if needed)
 
+    layered_ready, layered_reason = _validate_layered_matrices(
+        row_count=len(seed_sim_all),
+        X_genre_leaf_idf=X_genre_leaf_idf,
+        X_genre_family=X_genre_family,
+        X_genre_bridge=X_genre_bridge,
+        X_facet=X_facet,
+    )
+    if genre_graph_source == "layered":
+        if layered_ready:
+            eligible_before_layered = len(eligible)
+            eligible, layered_genre_admission_summary = _apply_layered_genre_admission(
+                seed_list=seed_list,
+                eligible=eligible,
+                X_genre_leaf_idf=np.asarray(X_genre_leaf_idf, dtype=float),
+                X_genre_family=np.asarray(X_genre_family, dtype=float),
+                X_genre_bridge=np.asarray(X_genre_bridge, dtype=float),
+                X_facet=np.asarray(X_facet, dtype=float),
+                mode=mode,
+                track_ids=track_ids,
+                genre_leaf_vocab=genre_leaf_vocab,
+                genre_family_vocab=genre_family_vocab,
+                genre_bridge_vocab=genre_bridge_vocab,
+                facet_vocab=facet_vocab,
+            )
+            layered_genre_admission_summary["legacy_flat_genre_gate_applied"] = False
+            logger.info(
+                "Layered genre admission applied: before=%d after=%d rejected=%d mode=%s",
+                eligible_before_layered,
+                len(eligible),
+                eligible_before_layered - len(eligible),
+                mode,
+            )
+        else:
+            layered_genre_admission_summary = {
+                "source": "layered",
+                "applied": False,
+                "reason": layered_reason,
+                "legacy_flat_genre_gate_applied": False,
+            }
+            logger.warning(
+                "Layered genre admission requested but unavailable: %s; using non-genre candidate admission.",
+                layered_reason,
+            )
+    elif genre_graph_source == "layered_shadow":
+        layered_genre_admission_summary = {
+            "source": "layered_shadow",
+            "applied": False,
+            "reason": "shadow_only",
+        }
+
     grouped: Dict[str, list[int]] = {}
     for idx in eligible:
         key = _normalize_artist_key(artist_keys[idx])
@@ -622,6 +1023,8 @@ def build_candidate_pool(
         params_effective["min_genre_similarity"] = min_genre_similarity
         if broad_filters:
             params_effective["broad_filters"] = list(broad_filters)
+    if genre_graph_source != "legacy":
+        params_effective["genre_graph_source"] = genre_graph_source
     if cfg.genre_compatibility_enabled:
         params_effective["genre_compatibility_enabled"] = True
         params_effective["genre_compatibility_penalty_strength"] = cfg.genre_compatibility_penalty_strength
@@ -652,6 +1055,8 @@ def build_candidate_pool(
     if duration_penalty_active:
         stats["duration_penalty_applied"] = duration_penalty_count
         stats["duration_cutoff_excluded"] = duration_cutoff_count
+    if layered_genre_admission_summary is not None:
+        stats["layered_genre_admission"] = layered_genre_admission_summary
     if sonic_sim_pool is not None:
         if track_ids is not None:
             stats["seed_sonic_sim_track_ids"] = {
@@ -659,6 +1064,31 @@ def build_candidate_pool(
                 for idx in pool_indices
             }
         stats["seed_sonic_sim"] = {int(idx): float(sonic_seed_sim[idx]) for idx in pool_indices}
+    if layered_genre_diagnostics or genre_graph_source in {"layered_shadow", "layered"}:
+        stats["layered_genre_shadow"] = _build_layered_genre_shadow_diagnostics(
+            seed_list=seed_list,
+            seed_mask=seed_mask,
+            pool_indices=pool_indices,
+            eligible=eligible,
+            seed_sim_all=seed_sim_all,
+            similarity_floor=cfg.similarity_floor,
+            sonic_seed_sim=sonic_seed_sim,
+            sonic_floor=sonic_floor,
+            genre_sim_all=genre_sim_all,
+            effective_genre_floor=effective_genre_floor,
+            genre_compatibility_result=genre_compatibility_result,
+            track_ids=track_ids,
+            X_genre_leaf_idf=X_genre_leaf_idf,
+            X_genre_family=X_genre_family,
+            X_genre_bridge=X_genre_bridge,
+            X_facet=X_facet,
+            genre_leaf_vocab=genre_leaf_vocab,
+            genre_family_vocab=genre_family_vocab,
+            genre_bridge_vocab=genre_bridge_vocab,
+            facet_vocab=facet_vocab,
+            mode=mode,
+            sample_limit=layered_genre_diagnostics_limit,
+        )
 
     watched_raw = os.environ.get("PLAYLIST_WATCHED_ARTISTS", "")
     watched_keys = {

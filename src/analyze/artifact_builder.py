@@ -235,6 +235,8 @@ def build_ds_artifacts(
     normalize_genres: bool = True,
     enriched_resolver=None,
     read_only_metadata: bool = False,
+    emit_layered_vectors: bool = False,
+    layered_sidecar_db: str | Path | None = None,
 ) -> ArtifactBuildResult:
     """
     Build DS pipeline artifacts from database.
@@ -286,6 +288,7 @@ def build_ds_artifacts(
     artist_keys: List[str] = []
     track_artists: List[str] = []
     track_titles: List[str] = []
+    track_release_keys: List[str] = []
     durations_ms: List[int] = []
     X_sonic: List[np.ndarray] = []
     X_sonic_start: List[np.ndarray] = []
@@ -350,6 +353,9 @@ def build_ds_artifacts(
         artist_keys.append(_normalize_artist_key(norm_artist, track_id))
         track_artists.append(artist)
         track_titles.append(title)
+        if emit_layered_vectors:
+            from src.ai_genre_enrichment.normalization import make_release_key
+            track_release_keys.append(make_release_key(artist, row["album"] or ""))
         durations_ms.append(row["duration_ms"] if row["duration_ms"] is not None else 0)
         X_sonic.append(base_vec)
         X_sonic_start.append(start_vec)
@@ -383,6 +389,8 @@ def build_ds_artifacts(
     artist_keys = [artist_keys[i] for i in filtered_indices]
     track_artists = [track_artists[i] for i in filtered_indices]
     track_titles = [track_titles[i] for i in filtered_indices]
+    if emit_layered_vectors:
+        track_release_keys = [track_release_keys[i] for i in filtered_indices]
     durations_ms = [durations_ms[i] for i in filtered_indices]
     X_sonic = [X_sonic[i] for i in filtered_indices]
     X_sonic_start = [X_sonic_start[i] for i in filtered_indices]
@@ -442,25 +450,55 @@ def build_ds_artifacts(
     layout = calc._sonic_feature_layout or {}
     names, units = _derive_schema(layout, X_sonic_arr.shape[1])
 
+    layered_payload: dict[str, Any] = {}
+    if emit_layered_vectors:
+        if layered_sidecar_db is None:
+            raise ValueError("emit_layered_vectors=True requires layered_sidecar_db")
+        from src.ai_genre_enrichment.layered_taxonomy import load_default_layered_taxonomy
+        from src.ai_genre_enrichment.layered_vectors import build_layered_genre_matrices
+        from src.ai_genre_enrichment.storage import SidecarStore
+
+        taxonomy = load_default_layered_taxonomy()
+        store = SidecarStore(layered_sidecar_db)
+        store.initialize()
+        matrices = build_layered_genre_matrices(
+            store,
+            track_release_keys=track_release_keys,
+            taxonomy=taxonomy,
+        )
+        layered_payload = {
+            "X_genre_leaf_idf": matrices.X_genre_leaf_idf,
+            "X_genre_family": matrices.X_genre_family,
+            "X_genre_bridge": matrices.X_genre_bridge,
+            "X_facet": matrices.X_facet,
+            "genre_leaf_vocab": np.array(matrices.genre_leaf_vocab, dtype=object),
+            "genre_family_vocab": np.array(matrices.genre_family_vocab, dtype=object),
+            "genre_bridge_vocab": np.array(matrices.genre_bridge_vocab, dtype=object),
+            "facet_vocab": np.array(matrices.facet_vocab, dtype=object),
+            "genre_graph_taxonomy_version": np.array(matrices.taxonomy_version, dtype=object),
+            "genre_graph_sidecar_fingerprint": np.array(matrices.graph_fingerprint, dtype=object),
+        }
+
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez(
-        out_path,
-        X_sonic=X_sonic_arr,
-        X_sonic_start=X_sonic_start_arr,
-        X_sonic_mid=X_sonic_mid_arr,
-        X_sonic_end=X_sonic_end_arr,
-        sonic_feature_names=np.array(names, dtype=object),
-        sonic_feature_units=np.array(units, dtype=object),
-        X_genre_raw=X_genre_raw,
-        X_genre_smoothed=X_genre_smoothed,
-        track_ids=np.array(track_ids),
-        track_artists=np.array(track_artists),
-        track_titles=np.array(track_titles),
-        artist_keys=np.array(artist_keys),
-        genre_vocab=np.array(vocab),
-        durations_ms=durations_ms_arr,
-    )
+    artifact_payload = {
+        "X_sonic": X_sonic_arr,
+        "X_sonic_start": X_sonic_start_arr,
+        "X_sonic_mid": X_sonic_mid_arr,
+        "X_sonic_end": X_sonic_end_arr,
+        "sonic_feature_names": np.array(names, dtype=object),
+        "sonic_feature_units": np.array(units, dtype=object),
+        "X_genre_raw": X_genre_raw,
+        "X_genre_smoothed": X_genre_smoothed,
+        "track_ids": np.array(track_ids),
+        "track_artists": np.array(track_artists),
+        "track_titles": np.array(track_titles),
+        "artist_keys": np.array(artist_keys),
+        "genre_vocab": np.array(vocab),
+        "durations_ms": durations_ms_arr,
+    }
+    artifact_payload.update(layered_payload)
+    np.savez(out_path, **artifact_payload)
 
     stats = {
         "tracks_kept": len(track_ids),
@@ -469,6 +507,7 @@ def build_ds_artifacts(
         "genre_normalization": normalize_genres and GENRE_NORMALIZATION_AVAILABLE,
         "raw_genres_processed": total_raw_genres,
         "normalized_tokens": total_normalized_tokens,
+        "layered_vectors": bool(emit_layered_vectors),
     }
     logger.info(
         "Saved DS artifact to %s tracks=%d genres=%d dims=%s",

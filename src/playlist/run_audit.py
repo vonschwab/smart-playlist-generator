@@ -137,6 +137,121 @@ def _safe_json(obj: Any) -> str:
         return json.dumps(str(obj), indent=2, ensure_ascii=False, sort_keys=True)
 
 
+def _fmt_terms(row: dict[str, Any], *keys: str) -> str:
+    terms: list[str] = []
+    for key in keys:
+        value = row.get(key)
+        if not isinstance(value, list):
+            continue
+        for term in value:
+            raw = str(term).strip()
+            if raw and raw not in terms:
+                terms.append(raw)
+    return ", ".join(terms).replace("|", "\\|")
+
+
+def _append_layered_candidate_sections(lines: list[str], pool_summary: Any) -> None:
+    if not isinstance(pool_summary, dict):
+        return
+    stats = pool_summary.get("candidate_pool_stats")
+    if not isinstance(stats, dict):
+        return
+
+    admission = stats.get("layered_genre_admission")
+    if isinstance(admission, dict):
+        lines.append("")
+        lines.append("### layered_genre_admission")
+        lines.append("```json")
+        lines.append(_safe_json(admission))
+        lines.append("```")
+
+    shadow = stats.get("layered_genre_shadow")
+    if isinstance(shadow, dict):
+        lines.append("")
+        lines.append("### layered_genre_shadow")
+        summary = {
+            key: value
+            for key, value in shadow.items()
+            if key != "samples"
+        }
+        lines.append("```json")
+        lines.append(_safe_json(summary))
+        lines.append("```")
+        samples = shadow.get("samples")
+        if isinstance(samples, list) and samples:
+            lines.append("")
+            lines.append(
+                "| track_id | legacy_admitted | layered_admitted | reason | score | family | leaf | facet | bridge | leaf_terms | family_terms | facet_terms | bridge_terms |"
+            )
+            lines.append("| --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- |")
+            for row in samples[:25]:
+                if not isinstance(row, dict):
+                    continue
+                lines.append(
+                    "| `{track_id}` | {legacy} | {admitted} | {reason} | {score} | {family} | {leaf} | {facet} | {bridge} | {leaf_terms} | {family_terms} | {facet_terms} | {bridge_terms} |".format(
+                        track_id=str(row.get("track_id", "")),
+                        legacy=str(row.get("legacy_admitted", "")),
+                        admitted=str(row.get("admitted", "")),
+                        reason=str(row.get("reason", "")).replace("|", "\\|"),
+                        score=str(row.get("score", "")),
+                        family=str(row.get("family_affinity", "")),
+                        leaf=str(row.get("niche_similarity", "")),
+                        facet=str(row.get("facet_alignment", "")),
+                        bridge=str(row.get("bridge_permission", "")),
+                        leaf_terms=_fmt_terms(row, "shared_leaf_terms", "candidate_leaf_terms"),
+                        family_terms=_fmt_terms(row, "shared_family_terms", "candidate_family_terms"),
+                        facet_terms=_fmt_terms(row, "shared_facet_terms", "candidate_facet_terms"),
+                        bridge_terms=_fmt_terms(row, "seed_bridge_terms", "candidate_bridge_terms", "shared_bridge_terms"),
+                    )
+                )
+
+
+def _append_layered_transition_section(lines: list[str], summary: Any) -> None:
+    if not isinstance(summary, dict):
+        return
+    diagnostics = summary.get("layered_transition_diagnostics")
+    if not isinstance(diagnostics, dict):
+        return
+    lines.append("")
+    lines.append("### layered_transition_diagnostics")
+    compact = {
+        key: value
+        for key, value in diagnostics.items()
+        if key != "samples"
+    }
+    lines.append("```json")
+    lines.append(_safe_json(compact))
+    lines.append("```")
+    samples = diagnostics.get("samples")
+    if isinstance(samples, list) and samples:
+        lines.append("")
+        lines.append(
+            "| edge | from | to | explained | reason | score | family | leaf | facet | bridge | from_leaf_terms | to_leaf_terms | facet_terms | bridge_terms |"
+        )
+        lines.append("| ---: | --- | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- |")
+        for row in samples[:25]:
+            if not isinstance(row, dict):
+                continue
+            lines.append(
+                "| {edge} | `{from_id}` | `{to_id}` | {explained} | {reason} | {score} | {family} | {leaf} | {facet} | {bridge} | {from_leaf_terms} | {to_leaf_terms} | {facet_terms} | {bridge_terms} |".format(
+                    edge=str(row.get("edge_index", "")),
+                    from_id=str(row.get("from_track_id", "")),
+                    to_id=str(row.get("to_track_id", "")),
+                    explained=str(row.get("explained", "")),
+                    reason=str(row.get("reason", "")).replace("|", "\\|"),
+                    score=str(row.get("score", "")),
+                    family=str(row.get("local_family_continuity", "")),
+                    leaf=str(row.get("local_leaf_continuity", "")),
+                    facet=str(row.get("facet_continuity", "")),
+                    bridge=str(row.get("bridge_edge_bonus", "")),
+                    from_leaf_terms=_fmt_terms(row, "from_leaf_terms"),
+                    to_leaf_terms=_fmt_terms(row, "to_leaf_terms"),
+                    facet_terms=_fmt_terms(row, "shared_facet_terms"),
+                    bridge_terms=_fmt_terms(row, "from_bridge_terms", "to_bridge_terms", "shared_bridge_terms"),
+                )
+            )
+
+
 def write_markdown_report(
     *,
     context: RunAuditContext,
@@ -192,6 +307,7 @@ def write_markdown_report(
         lines.append("```json")
         lines.append(_safe_json(pool_summary))
         lines.append("```")
+        _append_layered_candidate_sections(lines, pool_summary)
 
         recency = preflight.payload.get("recency", {})
         ds_inputs = preflight.payload.get("ds_inputs", {})
@@ -390,6 +506,7 @@ def write_markdown_report(
                 lines.append("```json")
                 lines.append(_safe_json(summary))
                 lines.append("```")
+                _append_layered_transition_section(lines, summary)
 
             if isinstance(pov, dict) or isinstance(pof, list):
                 lines.append("")

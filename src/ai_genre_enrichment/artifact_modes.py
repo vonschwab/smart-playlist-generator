@@ -17,6 +17,7 @@ class GenreArtifactSource(str, Enum):
     LEGACY = "legacy"
     ENRICHED = "enriched"
     HYBRID_SHADOW = "hybrid_shadow"
+    LAYERED_SHADOW = "layered_shadow"
 
     @classmethod
     def resolve(cls, value: str | None) -> "GenreArtifactSource":
@@ -24,7 +25,7 @@ class GenreArtifactSource(str, Enum):
 
 
 def make_resolver(mode: GenreArtifactSource, sidecar_db: str | Path) -> Any | None:
-    if mode is GenreArtifactSource.LEGACY:
+    if mode in {GenreArtifactSource.LEGACY, GenreArtifactSource.LAYERED_SHADOW}:
         return None
     from .genre_resolver import EnrichedGenreResolver
     return EnrichedGenreResolver(sidecar_db)
@@ -174,9 +175,10 @@ def shadow_output_paths(
     config_identity: str,
     genre_sim_identity: str,
     dense_config: dict[str, Any],
+    genre_source: str = GenreArtifactSource.HYBRID_SHADOW.value,
 ) -> ShadowOutputPaths:
     payload = {
-        "genre_source": GenreArtifactSource.HYBRID_SHADOW.value,
+        "genre_source": genre_source,
         "policy_version": policy_version,
         "signature_snapshot": signature_snapshot,
         "prior_snapshot": prior_snapshot,

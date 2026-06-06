@@ -12,6 +12,7 @@ from src.features.artifacts import load_artifact_bundle
 from src.playlist.candidate_pool import build_candidate_pool
 from src.playlist.config import DSPipelineConfig, default_ds_config
 from src.playlist.mode_presets import resolve_pace_mode
+from src.playlist.layered_bridge_diagnostics import build_layered_transition_diagnostics
 from src.playlist.constructor import PlaylistResult  # Type only, no longer calling construct_playlist
 from src.playlist.pier_bridge_builder import (
     PierBridgeConfig,
@@ -339,6 +340,19 @@ def generate_playlist_ds(
     genre_vocab = embedding.genre_vocab
     X_genre_raw = embedding.X_genre_raw
     X_genre_smoothed = embedding.X_genre_smoothed
+    layered_genre_shadow_available = all(
+        getattr(bundle, attr, None) is not None
+        for attr in ("X_genre_leaf_idf", "X_genre_family", "X_genre_bridge", "X_facet")
+    )
+    genre_graph_cfg = (overrides or {}).get("genre_graph", {}) if isinstance(overrides, dict) else {}
+    if not isinstance(genre_graph_cfg, dict):
+        genre_graph_cfg = {}
+    genre_graph_source = str(genre_graph_cfg.get("source") or "legacy").strip().lower()
+    if genre_graph_source == "legacy" and str((overrides or {}).get("genre_source") or "").strip().lower() == "layered_shadow":
+        genre_graph_source = "layered_shadow"
+    if genre_graph_source not in {"legacy", "layered_shadow", "layered"}:
+        logger.warning("Invalid genre_graph.source=%r; falling back to legacy", genre_graph_source)
+        genre_graph_source = "legacy"
 
     # Per-seed adaptive admission percentile (Task 4: genre-arc steering).
     # Check both the base key and the mode-specific key (e.g. genre_admission_percentile_narrow)
@@ -377,6 +391,16 @@ def generate_playlist_ds(
             perceptual_bpm=perceptual_bpm,
             tempo_stability=tempo_stability_bpm,
             genre_admission_percentile=_genre_admission_percentile,
+            layered_genre_diagnostics=layered_genre_shadow_available and genre_graph_source in {"layered_shadow", "layered"},
+            X_genre_leaf_idf=getattr(bundle, "X_genre_leaf_idf", None),
+            X_genre_family=getattr(bundle, "X_genre_family", None),
+            X_genre_bridge=getattr(bundle, "X_genre_bridge", None),
+            X_facet=getattr(bundle, "X_facet", None),
+            genre_leaf_vocab=getattr(bundle, "genre_leaf_vocab", None),
+            genre_family_vocab=getattr(bundle, "genre_family_vocab", None),
+            genre_bridge_vocab=getattr(bundle, "genre_bridge_vocab", None),
+            facet_vocab=getattr(bundle, "facet_vocab", None),
+            genre_graph_source=genre_graph_source,
         )
 
     pool = _build_pool(cfg.candidate, min_genre_similarity)
@@ -684,6 +708,13 @@ def generate_playlist_ds(
             )
             min_transition = float(min(t_vals)) if t_vals else None
             mean_transition = float(sum(t_vals) / len(t_vals)) if t_vals else None
+            layered_transition_diagnostics = build_layered_transition_diagnostics(
+                bundle=bundle,
+                track_indices=pb_track_indices.tolist(),
+                edge_scores=edge_scores_list,
+                mode=mode,
+                enabled=genre_graph_source in {"layered_shadow", "layered"},
+            )
 
             # Create minimal PlaylistResult
             playlist = PlaylistResult(
@@ -715,6 +746,7 @@ def generate_playlist_ds(
                     "one_each_candidate_relaxation": one_each_candidate_relaxation,
                     "beam_edge_components": (pb_result.stats or {}).get("beam_edge_components") or [],
                     "bpm_summary": (pb_result.stats or {}).get("bpm_summary"),
+                    "layered_transition_diagnostics": layered_transition_diagnostics,
                 },
                 params_requested={"strategy": "pier_bridge"},
                 params_effective={

@@ -113,6 +113,20 @@ def apply_pier_bridge_overrides(
     if isinstance(pb_overrides.get("pace_bridge_floor"), (int, float)):
         pb_cfg = replace(pb_cfg, pace_bridge_floor=float(pb_overrides.get("pace_bridge_floor")))
 
+    genre_graph_source = "legacy"
+    genre_graph_raw = (overrides or {}).get("genre_graph") if isinstance(overrides, dict) else None
+    if isinstance(genre_graph_raw, dict):
+        genre_graph_source = str(genre_graph_raw.get("source") or "legacy").strip().lower()
+        if genre_graph_source == "layered":
+            raw_weight = genre_graph_raw.get("transition_weight", 0.15)
+            transition_weight = float(raw_weight) if isinstance(raw_weight, (int, float)) else 0.15
+            pb_cfg = replace(
+                pb_cfg,
+                layered_transition_scoring_enabled=True,
+                layered_transition_weight=max(0.0, float(transition_weight)),
+                layered_transition_mode=str(cfg.mode),
+            )
+
     # Segment-local pier-bridge policy defaults (with optional overrides).
     # CRITICAL: For artist playlists, seed artist must ONLY appear as piers (design principle)
     if artist_playlist:
@@ -762,6 +776,20 @@ def apply_pier_bridge_overrides(
             dj_waypoint_squash_alpha=float(waypoint_squash_alpha),
             dj_coverage_presence_source=str(coverage_presence_source),
             dj_coverage_mode=str(coverage_mode),
+        )
+
+    if genre_graph_source == "layered":
+        raw_weight = genre_graph_raw.get("transition_weight", 0.15) if isinstance(genre_graph_raw, dict) else 0.15
+        transition_weight = float(raw_weight) if isinstance(raw_weight, (int, float)) else 0.15
+        pb_cfg = replace(
+            pb_cfg,
+            layered_transition_scoring_enabled=True,
+            layered_transition_weight=max(0.0, float(transition_weight)),
+            layered_transition_mode=str(cfg.mode),
+            genre_steering_enabled=False,
+            weight_genre=0.0,
+            dj_bridging_enabled=False,
+            dj_pooling_k_genre=0,
         )
 
     return pb_cfg, tuning, tuning_sources, transition_weights
