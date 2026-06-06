@@ -2162,6 +2162,36 @@ def _graph_fixture_failures(fixture: dict[str, object], diagnostics: dict[str, o
 
 def _fuse_hybrid_for_release(store: SidecarStore, release: ReleasePayload):
     evidence = collect_hybrid_evidence(store, release.release_key)
+
+    # Inject artist/album-level genres from metadata.db as evidence.
+    # Artist-level MusicBrainz tags are reliable genre signals but below "strong"
+    # threshold, so they land as provisional via the musicbrainz-only rule.
+    _SKIP_PREFIXES = ("artist:lastfm", "album:lastfm", "track:")
+    for source_key, genres in release.existing_genres_by_source.items():
+        if any(source_key.startswith(p) for p in _SKIP_PREFIXES):
+            continue
+        parts = source_key.split(":", 1)
+        if len(parts) != 2:
+            continue
+        src = parts[1]
+        if "musicbrainz" in src:
+            source_type, conf = "musicbrainz", 0.75
+        elif "discogs" in src:
+            source_type, conf = "discogs", 0.78
+        else:
+            continue
+        for genre in genres:
+            genre_norm = genre.strip().casefold()
+            if genre_norm:
+                evidence.append(EvidenceTerm(
+                    term=genre_norm,
+                    source_type=source_type,
+                    confidence=conf,
+                    canonical_slug=genre_norm,
+                    mapping_status="mapped",
+                    classifier="metadata_db",
+                ))
+
     return fuse_hybrid_evidence(
         release_key=release.release_key,
         evidence=evidence,

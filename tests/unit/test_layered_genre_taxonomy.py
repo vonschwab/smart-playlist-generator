@@ -32,7 +32,7 @@ def test_layered_taxonomy_loads_seed_aliases_parents_and_bridge_rules():
 
     taxonomy = load_default_layered_taxonomy()
 
-    assert taxonomy.version == "0.1.1-layered-seed-reviewed"
+    assert taxonomy.version == "0.2.0-expanded"
     assert taxonomy.genre_by_name("jangle pop").genre_id == "jangle_pop"
     assert taxonomy.facet_by_name("lo-fi").facet_type == "production"
 

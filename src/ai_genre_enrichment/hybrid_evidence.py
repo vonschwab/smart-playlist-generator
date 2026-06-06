@@ -240,6 +240,27 @@ def fuse_hybrid_evidence(
             ))
             continue
 
+        medium_sources = [s for s in sources if s in MEDIUM_SOURCE_TYPES]
+        if len(medium_sources) >= 2 and score >= 0.72:
+            provisional.append(FusedGenreDecision(
+                term=term,
+                confidence=score,
+                basis=_basis(sources),
+                sources=sources,
+                reason="Multiple independent metadata sources (MusicBrainz, Discogs, etc.) corroborate this genre.",
+            ))
+            continue
+
+        if sources == ["musicbrainz"] and score >= 0.70:
+            provisional.append(FusedGenreDecision(
+                term=term,
+                confidence=score,
+                basis=_basis(sources),
+                sources=sources,
+                reason="MusicBrainz artist-level genre signal; provisional pending corroboration.",
+            ))
+            continue
+
         review.append(FusedGenreDecision(
             term=term,
             confidence=score,

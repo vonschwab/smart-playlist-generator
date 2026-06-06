@@ -69,7 +69,7 @@ def test_graph_report_outputs_layered_taxonomy_counts(tmp_path, capsys):
 
     assert rc == 0
     report = json.loads(capsys.readouterr().out)
-    assert report["taxonomy_version"] == "0.1.1-layered-seed-reviewed"
+    assert report["taxonomy_version"] == "0.2.0-expanded"
     assert report["genre_counts_by_kind"]["family"] >= 14
     assert report["facet_counts_by_type"]["production"] >= 3
     assert report["alias_count"] >= 5

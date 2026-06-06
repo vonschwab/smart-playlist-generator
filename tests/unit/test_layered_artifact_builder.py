@@ -87,7 +87,7 @@ def test_build_layered_genre_matrices_from_sidecar_assignments(tmp_path):
     assert matrices.genre_family_vocab == ("indie/alternative", "pop", "rock")
     assert matrices.genre_bridge_vocab == matrices.genre_leaf_vocab
     assert matrices.facet_vocab == ("lo-fi",)
-    assert matrices.taxonomy_version == "0.1.1-layered-seed-reviewed"
+    assert matrices.taxonomy_version == "0.2.0-expanded"
     assert len(matrices.graph_fingerprint) == 64
 
     jangle_idx = matrices.genre_leaf_vocab.index("jangle pop")
@@ -215,7 +215,7 @@ def test_build_ds_artifacts_can_emit_layered_vectors_when_requested(tmp_path):
     assert artifact["genre_bridge_vocab"].tolist() == ["jangle pop"]
     assert artifact["genre_family_vocab"].tolist() == ["indie/alternative", "pop", "rock"]
     assert artifact["facet_vocab"].tolist() == ["lo-fi"]
-    assert artifact["genre_graph_taxonomy_version"].item() == "0.1.1-layered-seed-reviewed"
+    assert artifact["genre_graph_taxonomy_version"].item() == "0.2.0-expanded"
     assert len(str(artifact["genre_graph_sidecar_fingerprint"].item())) == 64
 
 

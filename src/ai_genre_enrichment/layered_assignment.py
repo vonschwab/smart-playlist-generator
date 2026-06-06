@@ -153,7 +153,7 @@ def materialize_layered_assignments(
         )
     ]
 
-    for decision in report.accepted_genres:
+    for decision in list(report.accepted_genres) + list(report.provisional_genres):
         classification = classify_layered_term(taxonomy, decision.term, context_terms=context_terms)
         if classification.term_kind == "reject":
             rejected_term_count += 1
