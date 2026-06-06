@@ -4,8 +4,8 @@ See docs/superpowers/specs/2026-06-06-unified-genre-store-design.md.
 """
 from __future__ import annotations
 
-import hashlib  # noqa: F401 — used in Task 2: _taxonomy_fingerprint
-import json  # noqa: F401 — used in Tasks 6, 7: override JSON parsing
+import hashlib
+import json
 import sqlite3
 from dataclasses import dataclass, asdict  # noqa: F401 — used in Task 8: PublishStats
 from datetime import datetime, timezone
@@ -137,3 +137,50 @@ def create_published_schema(conn: sqlite3.Connection) -> None:
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+_TAXONOMY_COPY_TABLES = [
+    "genre_graph_canonical_genres",
+    "genre_graph_canonical_facets",
+    "genre_graph_edges",
+    "genre_graph_aliases",
+    "genre_graph_bridge_rules",
+    "genre_graph_rejected_terms",
+]
+
+
+def _taxonomy_fingerprint(conn: sqlite3.Connection) -> str:
+    """Stable hash of the published taxonomy (genres + edges)."""
+    genres = conn.execute(
+        "SELECT genre_id, name, kind, specificity_score, status "
+        "FROM genre_graph_canonical_genres ORDER BY genre_id"
+    ).fetchall()
+    edges = conn.execute(
+        "SELECT source_genre_id, target_genre_id, edge_type, weight "
+        "FROM genre_graph_edges ORDER BY source_genre_id, target_genre_id, edge_type"
+    ).fetchall()
+    payload = json.dumps(
+        {"genres": [tuple(r) for r in genres], "edges": [tuple(r) for r in edges]},
+        sort_keys=True, separators=(",", ":"), default=str,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def copy_taxonomy(conn: sqlite3.Connection) -> None:
+    """Copy taxonomy tables from attached `side` DB; rewrite taxonomy_meta.
+
+    Requires the sidecar attached as schema `side`.
+    """
+    for table in _TAXONOMY_COPY_TABLES:
+        conn.execute(f"DELETE FROM {table}")
+        conn.execute(f"INSERT INTO {table} SELECT * FROM side.{table}")
+    version_row = conn.execute(
+        "SELECT taxonomy_version FROM genre_graph_canonical_genres LIMIT 1"
+    ).fetchone()
+    version = version_row[0] if version_row else "unknown"
+    conn.execute("DELETE FROM genre_graph_taxonomy_meta")
+    conn.execute(
+        "INSERT INTO genre_graph_taxonomy_meta (version, fingerprint, published_at) "
+        "VALUES (?, ?, ?)",
+        (version, _taxonomy_fingerprint(conn), _now_iso()),
+    )
