@@ -243,6 +243,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     extract_bandcamp.add_argument("--model", default=DEFAULT_MODEL)
     extract_bandcamp.add_argument("--openai-api-key", help="OpenAI API key (overrides env/config.yaml)")
+    extract_bandcamp.add_argument(
+        "--skip-existing",
+        action="store_true",
+        help="Skip releases already attempted (hit OR miss) so reruns never re-pay the LLM locator.",
+    )
+    extract_bandcamp.add_argument(
+        "--delay",
+        type=float,
+        default=0.5,
+        help="Seconds to sleep between releases (politeness / rate control). Default 0.5.",
+    )
 
     review_parser = sub.add_parser("review", help="Interactive CLI review of unclassified tags")
     review_parser.add_argument("--limit", type=int, default=20)
@@ -841,6 +852,8 @@ def cmd_extract_bandcamp(args: argparse.Namespace) -> int:
         )
         return 1
 
+    import time
+
     store = SidecarStore(args.sidecar_db)
     store.initialize()
     releases = _discover(args)
@@ -848,43 +861,75 @@ def cmd_extract_bandcamp(args: argparse.Namespace) -> int:
         print("No matching release found.")
         return 1
 
+    skipped_existing = 0
+    if getattr(args, "skip_existing", False):
+        attempted = store.release_keys_attempted("bandcamp")
+        before = len(releases)
+        releases = [r for r in releases if r.release_key not in attempted]
+        skipped_existing = before - len(releases)
+        print(
+            f"skip-existing: {skipped_existing} release(s) already attempted (hit or miss); "
+            f"{len(releases)} remaining."
+        )
+        if not releases:
+            print("Nothing to do — all matching releases already attempted.")
+            return 0
+
     vocab = GenreVocabulary(library_db_path=args.metadata_db)
     set_vocabulary(vocab)
 
-    extracted = 0
+    delay = getattr(args, "delay", 0.5)
+    total = len(releases)
+    hits = 0
+    misses = 0
+    failed = 0
     try:
-        for release in releases:
-            album_name = release.normalized_album or None
-            source_url, tags, locator_confidence = fetch_bandcamp_tags(
-                artist=release.normalized_artist,
-                album=album_name,
-                api_key=api_key,
-                model=args.model,
-            )
-            if not tags:
-                continue
+        for idx, release in enumerate(releases, start=1):
+            try:
+                album_name = release.normalized_album or None
+                source_url, tags, locator_confidence = fetch_bandcamp_tags(
+                    artist=release.normalized_artist,
+                    album=album_name,
+                    api_key=api_key,
+                    model=args.model,
+                )
+                if not tags:
+                    # Record the miss so reruns never re-pay the LLM locator.
+                    store.record_source_attempt(release.release_key, "bandcamp", "miss")
+                    misses += 1
+                    print(f"[{idx}/{total}] miss {release.release_key}")
+                    time.sleep(delay)
+                    continue
 
-            page_id = store.upsert_source_page(
-                release_key=release.release_key,
-                normalized_artist=release.normalized_artist,
-                normalized_album=release.normalized_album,
-                album_id=release.album_id,
-                source_url=source_url,
-                source_type="bandcamp_release",
-                identity_status="confirmed",
-                identity_confidence=locator_confidence,
-                evidence_summary="Bandcamp release tags via AI source locator.",
-            )
-            store.replace_source_tags(page_id, tags)
-            store.classify_source_tags(page_id, adjudicate=getattr(args, "adjudicate", False), model=args.model)
-            if not getattr(args, "no_rebuild_signatures", False):
-                store.rebuild_enriched_genres_for_release(release.release_key)
-            extracted += 1
-            print(f"extracted-bandcamp {release.release_key} tags={len(tags)}")
+                page_id = store.upsert_source_page(
+                    release_key=release.release_key,
+                    normalized_artist=release.normalized_artist,
+                    normalized_album=release.normalized_album,
+                    album_id=release.album_id,
+                    source_url=source_url,
+                    source_type="bandcamp_release",
+                    identity_status="confirmed",
+                    identity_confidence=locator_confidence,
+                    evidence_summary="Bandcamp release tags via AI source locator.",
+                )
+                store.replace_source_tags(page_id, tags)
+                store.classify_source_tags(page_id, adjudicate=getattr(args, "adjudicate", False), model=args.model)
+                if not getattr(args, "no_rebuild_signatures", False):
+                    store.rebuild_enriched_genres_for_release(release.release_key)
+                store.record_source_attempt(release.release_key, "bandcamp", "hit", source_url)
+                hits += 1
+                print(f"[{idx}/{total}] hit {release.release_key} tags={len(tags)} url={source_url}")
+            except Exception as exc:  # locator/network/HTML error — log, do NOT record (allow retry)
+                failed += 1
+                print(f"[{idx}/{total}] FAILED {release.release_key}: {type(exc).__name__}: {exc}")
+            time.sleep(delay)
     finally:
         reset_vocabulary()
 
-    print(f"Extracted Bandcamp tags for {extracted} release(s).")
+    print(
+        f"Bandcamp collection done: hits={hits} misses={misses} "
+        f"failed={failed} skipped_existing={skipped_existing} considered={total}."
+    )
     return 0
 
 

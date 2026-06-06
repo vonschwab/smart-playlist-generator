@@ -259,6 +259,15 @@ class SidecarStore:
                     UNIQUE (release_key, source_url)
                 );
 
+                CREATE TABLE IF NOT EXISTS ai_genre_source_attempts (
+                    release_key TEXT NOT NULL,
+                    source_type TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    detail TEXT,
+                    attempted_at TEXT NOT NULL,
+                    PRIMARY KEY (release_key, source_type)
+                );
+
                 CREATE TABLE IF NOT EXISTS ai_genre_source_tags (
                     source_tag_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     source_page_id INTEGER NOT NULL,
@@ -981,6 +990,42 @@ class SidecarStore:
             rows = conn.execute(
                 "SELECT DISTINCT release_key FROM ai_genre_source_pages "
                 "WHERE source_type = ?",
+                (source_type,),
+            )
+            return {row[0] for row in rows}
+
+    def record_source_attempt(
+        self, release_key: str, source_type: str, status: str, detail: str | None = None
+    ) -> None:
+        """Record that a collection attempt was made for a release/source.
+
+        Persists negative results too (``status='miss'``), so expensive passes
+        (e.g. the Bandcamp LLM locator) never re-pay for a release already tried.
+        Upserts on (release_key, source_type) so the latest attempt wins.
+        """
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO ai_genre_source_attempts
+                    (release_key, source_type, status, detail, attempted_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(release_key, source_type) DO UPDATE SET
+                    status = excluded.status,
+                    detail = excluded.detail,
+                    attempted_at = excluded.attempted_at
+                """,
+                (release_key, source_type, status, detail, _now_iso()),
+            )
+
+    def release_keys_attempted(self, source_type: str) -> set[str]:
+        """Return release_keys with a prior attempt of the given source_type.
+
+        Includes misses — that's the point: an attempted-but-not-found release
+        should be skipped on reruns, not retried.
+        """
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT release_key FROM ai_genre_source_attempts WHERE source_type = ?",
                 (source_type,),
             )
             return {row[0] for row in rows}

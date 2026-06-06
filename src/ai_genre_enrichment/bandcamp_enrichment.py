@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -71,27 +72,36 @@ def _pick_bandcamp_url(locator_response: dict[str, Any]) -> tuple[str | None, fl
 
 
 def _locate_bandcamp_url(
-    *, artist: str, album: str | None, model: str, api_key: str
+    *, artist: str, album: str | None, model: str, api_key: str, max_retries: int = 3
 ) -> dict[str, Any]:
-    """Call OpenAI source locator to find a Bandcamp URL for the release."""
+    """Call OpenAI source locator to find a Bandcamp URL for the release.
+
+    Retries transient failures with a short backoff. On *persistent* failure it
+    re-raises rather than returning empty: callers must distinguish "locator ran
+    and found nothing" (a genuine miss, safe to cache) from "the call failed"
+    (retryable, must NOT be cached as a miss — otherwise a bad key or outage
+    would poison the attempt ledger for the whole library).
+    """
     from .client import OpenAIEnrichmentClient, _extract_response_json
 
     client = OpenAIEnrichmentClient(model=model, api_key=api_key)
     prompt = f"artist: {artist}\nalbum: {album or ''}"
-    try:
-        # Use _call_openai directly — source locator schema differs from the
-        # classification schema that client.enrich() validates against.
-        raw = client._call_openai(
-            prompt,
-            source_locator_response_format(),
-            instructions=SOURCE_LOCATOR_INSTRUCTIONS,
-        )
-        return _extract_response_json(raw) or {"candidate_sources": [], "warnings": []}
-    except Exception as exc:
-        logger.warning(
-            "Source locator failed for %s / %s — %s",
-            artist,
-            album,
-            exc,
-        )
-        return {"candidate_sources": [], "warnings": []}
+    for attempt in range(1, max_retries + 1):
+        try:
+            # Use _call_openai directly — source locator schema differs from the
+            # classification schema that client.enrich() validates against.
+            raw = client._call_openai(
+                prompt,
+                source_locator_response_format(),
+                instructions=SOURCE_LOCATOR_INSTRUCTIONS,
+            )
+            return _extract_response_json(raw) or {"candidate_sources": [], "warnings": []}
+        except Exception as exc:
+            if attempt < max_retries:
+                time.sleep(0.5 * attempt)
+                continue
+            logger.warning(
+                "Source locator failed for %s / %s after %d attempts — %s",
+                artist, album, attempt, exc,
+            )
+            raise
