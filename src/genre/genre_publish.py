@@ -11,6 +11,7 @@ from collections import defaultdict
 from dataclasses import dataclass, asdict  # noqa: F401 — used in Task 8: PublishStats
 from datetime import datetime, timezone
 
+from src.ai_genre_enrichment.layered_assignment import classify_layered_term
 from src.ai_genre_enrichment.normalization import (
     normalize_release_artist,
     normalize_release_name,
@@ -325,3 +326,23 @@ def legacy_genres_by_album(conn: sqlite3.Connection) -> dict[str, list[tuple[str
         add(album_id, genre, _WEIGHT_ARTIST)
 
     return {aid: sorted(toks.items()) for aid, toks in acc.items() if toks}
+
+
+def _term_to_genre_id(taxonomy, term: str) -> str | None:
+    """Return a graph genre_id for a term, or None if unmappable/non-genre."""
+    classification = classify_layered_term(taxonomy, term)
+    if classification.term_kind in {"reject", "review", "facet", "alias"}:
+        if classification.term_kind == "alias" and classification.canonical_id:
+            if taxonomy.genre_by_id(classification.canonical_id) is not None:
+                return classification.canonical_id
+        return None
+    return classification.canonical_id
+
+
+def classify_override_terms(
+    taxonomy, add: list[str], remove: list[str]
+) -> tuple[list[str], list[str]]:
+    """Map override add/remove names to graph genre_ids (unmappable skipped)."""
+    add_ids = [gid for gid in (_term_to_genre_id(taxonomy, t) for t in add) if gid]
+    remove_ids = [gid for gid in (_term_to_genre_id(taxonomy, t) for t in remove) if gid]
+    return list(dict.fromkeys(add_ids)), list(dict.fromkeys(remove_ids))

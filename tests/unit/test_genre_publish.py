@@ -202,3 +202,22 @@ def test_legacy_genres_skip_empty_marker(tmp_path):
     conn.commit()
     result = genre_publish.legacy_genres_by_album(conn)
     assert "ALB1" not in result or result["ALB1"] == []
+
+
+def test_classify_override_terms_maps_names_to_ids():
+    taxonomy = load_default_layered_taxonomy()
+    add_ids, remove_ids = genre_publish.classify_override_terms(
+        taxonomy, add=["slowcore"], remove=["indie rock"]
+    )
+    # slowcore is a known leaf -> mapped to its genre_id
+    assert any("slowcore" in gid for gid in add_ids)
+    # indie rock maps to a known canonical genre id (e.g. indie_rock)
+    assert remove_ids  # non-empty
+
+
+def test_classify_override_terms_skips_unmappable():
+    taxonomy = load_default_layered_taxonomy()
+    add_ids, remove_ids = genre_publish.classify_override_terms(
+        taxonomy, add=["zzzz not a genre zzzz"], remove=[]
+    )
+    assert add_ids == []
