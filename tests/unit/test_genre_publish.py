@@ -90,3 +90,53 @@ def test_copy_taxonomy_is_idempotent(tmp_path):
     assert conn.execute(
         "SELECT COUNT(*) FROM genre_graph_taxonomy_meta"
     ).fetchone()[0] == 1
+
+
+def _make_metadata(tmp_path):
+    meta = tmp_path / "metadata.db"
+    conn = sqlite3.connect(meta)
+    conn.executescript(
+        """
+        CREATE TABLE albums (album_id TEXT PRIMARY KEY, title TEXT, artist TEXT);
+        CREATE TABLE tracks (track_id TEXT PRIMARY KEY, artist TEXT, album TEXT,
+                             album_id TEXT, norm_artist TEXT);
+        CREATE TABLE track_genres (track_id TEXT, genre TEXT, source TEXT, weight REAL);
+        CREATE TABLE album_genres (album_id TEXT, genre TEXT, source TEXT);
+        CREATE TABLE artist_genres (artist TEXT, genre TEXT, source TEXT);
+        """
+    )
+    conn.commit()
+    conn.close()
+    return meta
+
+
+def test_resolve_keys_uses_signature_then_albums(tmp_path):
+    meta = _make_metadata(tmp_path)
+    side = _make_sidecar(tmp_path)
+    # signature row maps a release_key to an album_id
+    sconn = sqlite3.connect(side)
+    sconn.execute(
+        "INSERT INTO enriched_genre_signatures "
+        "(release_key, normalized_artist, normalized_album, album_id, signature_json, updated_at) "
+        "VALUES (?,?,?,?,?,?)",
+        ("acetone::york blvd", "acetone", "york blvd", "ALB_SIG", "{}", "2026-01-01T00:00:00+00:00"),
+    )
+    sconn.commit()
+    sconn.close()
+    # albums table can recompute a different key via normalizers
+    mconn = sqlite3.connect(meta)
+    mconn.execute("INSERT INTO albums VALUES ('ALB_CALC', 'Rocket', '(Sandy) Alex G')")
+    mconn.commit()
+    mconn.close()
+
+    conn = sqlite3.connect(meta)
+    conn.row_factory = sqlite3.Row
+    _attach(conn, side)
+    mapping, collisions = genre_publish.resolve_release_key_to_album_id(conn)
+    assert mapping["acetone::york blvd"] == "ALB_SIG"      # signature path
+    # recomputed path: normalize_release_artist/name of the albums row
+    from src.ai_genre_enrichment.normalization import (
+        normalize_release_artist, normalize_release_name)
+    calc_key = f"{normalize_release_artist('(Sandy) Alex G')}::{normalize_release_name('Rocket')}"
+    assert mapping[calc_key] == "ALB_CALC"
+    assert collisions == 0

@@ -10,6 +10,11 @@ import sqlite3
 from dataclasses import dataclass, asdict  # noqa: F401 — used in Task 8: PublishStats
 from datetime import datetime, timezone
 
+from src.ai_genre_enrichment.normalization import (
+    normalize_release_artist,
+    normalize_release_name,
+)
+
 # Taxonomy + authority DDL mirrors src/ai_genre_enrichment/storage.py so the
 # published tables are schema-faithful copies. Authority tables add `album_id`.
 _PUBLISHED_DDL = """
@@ -184,3 +189,41 @@ def copy_taxonomy(conn: sqlite3.Connection) -> None:
         "VALUES (?, ?, ?)",
         (version, _taxonomy_fingerprint(conn), _now_iso()),
     )
+
+
+def resolve_release_key_to_album_id(
+    conn: sqlite3.Connection,
+) -> tuple[dict[str, str], int]:
+    """Build release_key -> album_id. Signatures win; albums recompute fills gaps.
+
+    Returns (mapping, collision_count). Requires sidecar attached as `side`.
+    """
+    mapping: dict[str, str] = {}
+
+    # 1) exact from signatures
+    for row in conn.execute(
+        "SELECT release_key, album_id FROM side.enriched_genre_signatures "
+        "WHERE album_id IS NOT NULL AND album_id != ''"
+    ):
+        mapping[row[0]] = row[1]
+
+    # 2) recompute from albums for keys not already mapped
+    collisions = 0
+    computed: dict[str, str] = {}
+    for album_id, title, artist in conn.execute(
+        "SELECT album_id, title, artist FROM albums "
+        "WHERE album_id IS NOT NULL AND album_id != ''"
+    ):
+        key = f"{normalize_release_artist(artist)}::{normalize_release_name(title)}"
+        if not key or key == "::":
+            continue
+        if key in computed and computed[key] != album_id:
+            collisions += 1
+            # deterministic: keep the lexicographically smaller album_id
+            computed[key] = min(computed[key], album_id)
+        else:
+            computed[key] = album_id
+    for key, album_id in computed.items():
+        mapping.setdefault(key, album_id)
+
+    return mapping, collisions
