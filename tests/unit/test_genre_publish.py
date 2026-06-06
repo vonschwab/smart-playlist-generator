@@ -173,3 +173,32 @@ def test_populate_authority_stamps_album_id(tmp_path):
     assert len(rows) == 1
     assert rows[0]["album_id"] == "ALB1"
     assert rows[0]["genre_id"] == "alternative_rock"
+
+
+def test_legacy_genres_by_album_aggregates_sources(tmp_path):
+    meta = _make_metadata(tmp_path)
+    conn = sqlite3.connect(meta)
+    conn.row_factory = sqlite3.Row
+    conn.execute("INSERT INTO albums VALUES ('ALB1', 'Some Album', 'Some Artist')")
+    conn.execute("INSERT INTO tracks VALUES ('T1', 'Some Artist', 'Some Album', 'ALB1', 'some artist')")
+    conn.execute("INSERT INTO track_genres VALUES ('T1', 'Slowcore', 'file', 1.0)")
+    conn.execute("INSERT INTO album_genres VALUES ('ALB1', 'Indie Rock', 'discogs_release')")
+    conn.execute("INSERT INTO artist_genres VALUES ('Some Artist', 'Rock', 'musicbrainz_artist')")
+    conn.commit()
+    result = genre_publish.legacy_genres_by_album(conn)
+    assert "ALB1" in result
+    genres = {g for g, _w in result["ALB1"]}
+    # normalized tokens from the three sources are all present
+    assert "slowcore" in genres
+    assert "rock" in genres
+
+
+def test_legacy_genres_skip_empty_marker(tmp_path):
+    meta = _make_metadata(tmp_path)
+    conn = sqlite3.connect(meta)
+    conn.row_factory = sqlite3.Row
+    conn.execute("INSERT INTO albums VALUES ('ALB1', 'A', 'X')")
+    conn.execute("INSERT INTO album_genres VALUES ('ALB1', '__EMPTY__', 'discogs_release')")
+    conn.commit()
+    result = genre_publish.legacy_genres_by_album(conn)
+    assert "ALB1" not in result or result["ALB1"] == []

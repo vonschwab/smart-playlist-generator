@@ -7,6 +7,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from collections import defaultdict
 from dataclasses import dataclass, asdict  # noqa: F401 — used in Task 8: PublishStats
 from datetime import datetime, timezone
 
@@ -14,6 +15,25 @@ from src.ai_genre_enrichment.normalization import (
     normalize_release_artist,
     normalize_release_name,
 )
+
+try:
+    from src.genre.normalize import normalize_and_split_genre
+    _NORMALIZE_AVAILABLE = True
+except Exception:  # pragma: no cover - normalization optional
+    _NORMALIZE_AVAILABLE = False
+
+_WEIGHT_TRACK = 1.0
+_WEIGHT_ALBUM = 0.8
+_WEIGHT_ARTIST = 0.5
+
+
+def _split(raw: str) -> list[str]:
+    if not raw or raw == "__EMPTY__":
+        return []
+    if _NORMALIZE_AVAILABLE:
+        return [t for t in normalize_and_split_genre(raw) if t]
+    token = raw.strip().casefold()
+    return [token] if token else []
 
 # Taxonomy + authority DDL mirrors src/ai_genre_enrichment/storage.py so the
 # published tables are schema-faithful copies. Authority tables add `album_id`.
@@ -263,3 +283,45 @@ def populate_authority(conn: sqlite3.Connection, key_to_album: dict[str, str]) -
             " provenance_json, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
             (row[0], album_id, row[1], row[2], row[3], row[4], row[5], row[6], row[7]),
         )
+
+
+def legacy_genres_by_album(conn: sqlite3.Connection) -> dict[str, list[tuple[str, float]]]:
+    """Album-grain legacy genres: track(1.0)+album(0.8)+artist(0.5), max weight/token.
+
+    Mirrors the weighting scheme from ``load_genres_for_tracks`` and normalises
+    raw genre strings via ``normalize_and_split_genre``.  Returns a mapping of
+    ``album_id`` → sorted list of ``(token, weight)`` pairs.  Albums whose only
+    genre data is the ``__EMPTY__`` sentinel are excluded from the result.
+    """
+    acc: dict[str, dict[str, float]] = defaultdict(dict)
+
+    def add(album_id: str, raw: str, base_weight: float) -> None:
+        tokens = _split(raw)
+        if not tokens:
+            return
+        per = base_weight / len(tokens)
+        for tok in tokens:
+            if per > acc[album_id].get(tok, 0.0):
+                acc[album_id][tok] = per
+
+    for album_id, genre in conn.execute(
+        "SELECT t.album_id, tg.genre FROM tracks t "
+        "JOIN track_genres tg ON tg.track_id = t.track_id "
+        "WHERE t.album_id IS NOT NULL AND t.album_id != ''"
+    ):
+        add(album_id, genre, _WEIGHT_TRACK)
+
+    for album_id, genre in conn.execute(
+        "SELECT album_id, genre FROM album_genres "
+        "WHERE album_id IS NOT NULL AND album_id != '' AND genre != '__EMPTY__'"
+    ):
+        add(album_id, genre, _WEIGHT_ALBUM)
+
+    for album_id, genre in conn.execute(
+        "SELECT a.album_id, ag.genre FROM albums a "
+        "JOIN artist_genres ag ON ag.artist = a.artist "
+        "WHERE a.album_id IS NOT NULL AND a.album_id != '' AND ag.genre != '__EMPTY__'"
+    ):
+        add(album_id, genre, _WEIGHT_ARTIST)
+
+    return {aid: sorted(toks.items()) for aid, toks in acc.items() if toks}
