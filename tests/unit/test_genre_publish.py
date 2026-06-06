@@ -1,6 +1,4 @@
-import json
 import sqlite3
-import pytest
 from src.genre import genre_publish
 
 
@@ -28,7 +26,7 @@ def test_create_published_schema_creates_all_tables():
         "genre_graph_release_facet_assignments",
         "release_effective_genres",
     }
-    assert expected <= names
+    assert expected == names
 
 
 def test_create_published_schema_is_idempotent():

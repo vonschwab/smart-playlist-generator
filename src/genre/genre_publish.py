@@ -4,10 +4,10 @@ See docs/superpowers/specs/2026-06-06-unified-genre-store-design.md.
 """
 from __future__ import annotations
 
-import hashlib
-import json
+import hashlib  # noqa: F401 — used in Task 2: _taxonomy_fingerprint
+import json  # noqa: F401 — used in Tasks 6, 7: override JSON parsing
 import sqlite3
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict  # noqa: F401 — used in Task 8: PublishStats
 from datetime import datetime, timezone
 
 # Taxonomy + authority DDL mirrors src/ai_genre_enrichment/storage.py so the
@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS genre_graph_rejected_terms (
     reason TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS genre_graph_taxonomy_meta (
+    id INTEGER PRIMARY KEY DEFAULT 1 CHECK(id = 1),
     version TEXT NOT NULL,
     fingerprint TEXT NOT NULL,
     published_at TEXT NOT NULL
@@ -105,6 +106,8 @@ CREATE INDEX IF NOT EXISTS idx_release_effective_genres_album
 
 # Tables this sub-project owns. Order matters for DROP (children first is N/A
 # since FKs are not enforced, but keep a stable list for unpublish()).
+# Note: idx_release_effective_genres_album is intentionally absent — SQLite
+# drops indexes automatically when their parent table is dropped.
 PUBLISHED_TABLES = [
     "release_effective_genres",
     "genre_graph_release_genre_assignments",
