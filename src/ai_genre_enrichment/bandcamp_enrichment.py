@@ -40,8 +40,11 @@ def fetch_bandcamp_tags(
         return None, [], None
     try:
         tags = fetch_bandcamp_release_tags(url, fetch_html=fetch_html)
-    except OSError:
-        logger.exception("Bandcamp HTML fetch failed for %s", url)
+    except OSError as exc:
+        # Located URL didn't resolve (often a hallucinated/stale URL → 404).
+        # Handled: return no tags so the caller records a miss. One-line log,
+        # no traceback — this is expected, not exceptional.
+        logger.warning("Bandcamp HTML fetch failed for %s — %s", url, exc)
         return url, [], confidence
 
     seen: set[str] = set()

@@ -65,3 +65,35 @@ def test_locate_empty_result_is_returned_not_raised(monkeypatch):
         artist="a", album="b", model="m", api_key="k"
     )
     assert result == {"candidate_sources": [], "warnings": []}
+
+
+def test_fetch_bandcamp_tags_handles_html_404_as_empty(monkeypatch):
+    """A located-but-unresolvable URL (e.g. hallucinated → 404) yields empty
+    tags without raising, so the caller records a miss rather than crashing."""
+    import urllib.error
+
+    monkeypatch.setattr(
+        bandcamp_enrichment, "_locate_bandcamp_url",
+        lambda **_kw: {
+            "candidate_sources": [{
+                "source_url": "https://caribou.bandcamp.com/album/mixtape-2020",
+                "source_type": "bandcamp_release",
+                "source_name": "Bandcamp",
+                "identity_status": "confirmed",
+                "identity_confidence": 0.9,
+                "release_specific": True,
+                "reason": "x",
+            }],
+            "warnings": [],
+        },
+    )
+
+    def boom(url):
+        raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+
+    url, tags, confidence = bandcamp_enrichment.fetch_bandcamp_tags(
+        artist="caribou", album="mixtape 2020", api_key="k", fetch_html=boom,
+    )
+    assert url == "https://caribou.bandcamp.com/album/mixtape-2020"
+    assert tags == []
+    assert confidence == 0.9
