@@ -346,3 +346,78 @@ def classify_override_terms(
     add_ids = [gid for gid in (_term_to_genre_id(taxonomy, t) for t in add) if gid]
     remove_ids = [gid for gid in (_term_to_genre_id(taxonomy, t) for t in remove) if gid]
     return list(dict.fromkeys(add_ids)), list(dict.fromkeys(remove_ids))
+
+
+def _overrides_by_album(conn, key_to_album, taxonomy):
+    """album_id -> (add_genre_ids, remove_match) from ai_genre_user_overrides.
+
+    remove_match covers BOTH vocab spaces: graph genre_ids (to drop graph rows)
+    AND normalized free-text tokens (to drop legacy rows).
+    """
+    out: dict[str, tuple[list[str], set[str]]] = {}
+    for release_key, add_json, remove_json in conn.execute(
+        "SELECT release_key, genres_add_json, genres_remove_json FROM side.ai_genre_user_overrides"
+    ):
+        album_id = key_to_album.get(release_key)
+        if not album_id:
+            continue
+        add = json.loads(add_json or "[]")
+        remove = json.loads(remove_json or "[]")
+        add_ids, remove_ids = classify_override_terms(taxonomy, add, remove)
+        remove_tokens: set[str] = set()
+        for name in remove:
+            remove_tokens.update(_split(name))
+        out[album_id] = (add_ids, set(remove_ids) | remove_tokens)
+    return out
+
+
+def build_resolved_table(conn, key_to_album: dict[str, str], taxonomy) -> None:
+    """Build release_effective_genres: graph-where-present else legacy, + overrides."""
+    conn.execute("DELETE FROM release_effective_genres")
+
+    album_to_key: dict[str, str] = {}
+    for key, aid in key_to_album.items():
+        album_to_key.setdefault(aid, key)
+
+    graph_album_ids = {
+        r[0] for r in conn.execute(
+            "SELECT DISTINCT album_id FROM genre_graph_release_genre_assignments "
+            "WHERE album_id IS NOT NULL"
+        )
+    }
+    legacy = legacy_genres_by_album(conn)
+    overrides = _overrides_by_album(conn, key_to_album, taxonomy)
+
+    all_album_ids = [
+        r[0] for r in conn.execute(
+            "SELECT album_id FROM albums WHERE album_id IS NOT NULL AND album_id != ''"
+        )
+    ]
+
+    for album_id in all_album_ids:
+        rows: dict[tuple[str, str], tuple[float, str]] = {}
+        if album_id in graph_album_ids:
+            for genre_id, layer, conf in conn.execute(
+                "SELECT genre_id, assignment_layer, confidence "
+                "FROM genre_graph_release_genre_assignments WHERE album_id = ?",
+                (album_id,),
+            ):
+                rows[(genre_id, layer)] = (conf, "graph")
+        elif album_id in legacy:
+            for genre_id, weight in legacy[album_id]:
+                rows[(genre_id, "legacy")] = (weight, "legacy")
+
+        if album_id in overrides:
+            add_ids, remove_match = overrides[album_id]
+            rows = {k: v for k, v in rows.items() if k[0] not in remove_match}
+            for gid in add_ids:
+                rows[(gid, "observed_leaf")] = (1.0, "user")
+
+        release_key = album_to_key.get(album_id)
+        for (genre_id, layer), (conf, source) in rows.items():
+            conn.execute(
+                "INSERT OR REPLACE INTO release_effective_genres "
+                "(album_id, release_key, genre_id, assignment_layer, confidence, source) "
+                "VALUES (?,?,?,?,?,?)",
+                (album_id, release_key, genre_id, layer, conf, source),
+            )

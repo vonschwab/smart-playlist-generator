@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from src.genre import genre_publish
 from src.ai_genre_enrichment.storage import SidecarStore
@@ -221,3 +222,82 @@ def test_classify_override_terms_skips_unmappable():
         taxonomy, add=["zzzz not a genre zzzz"], remove=[]
     )
     assert add_ids == []
+
+
+def _insert_override(side_path, release_key, artist, album, add, remove):
+    sconn = sqlite3.connect(side_path)
+    sconn.execute(
+        "INSERT INTO ai_genre_user_overrides "
+        "(release_key, normalized_artist, normalized_album, genres_add_json, "
+        " genres_remove_json, updated_at) VALUES (?,?,?,?,?,?)",
+        (release_key, artist, album, json.dumps(add), json.dumps(remove), "t"),
+    )
+    sconn.commit()
+    sconn.close()
+
+
+def test_build_resolved_graph_album_uses_graph_rows(tmp_path):
+    meta = _make_metadata(tmp_path)
+    side = _make_sidecar(tmp_path)
+    conn = sqlite3.connect(meta)
+    conn.row_factory = sqlite3.Row
+    conn.execute("INSERT INTO albums VALUES ('ALB1', 'York Blvd', 'Acetone')")
+    conn.commit()
+    genre_publish.create_published_schema(conn)
+    _attach(conn, side)
+    genre_publish.copy_taxonomy(conn)
+    # graph authority for ALB1
+    conn.execute(
+        "INSERT INTO genre_graph_release_genre_assignments "
+        "(release_id, album_id, artist, album, genre_id, assignment_layer, confidence, "
+        " source_reliability, evidence_count, rejected_by_user, provenance_json, updated_at) "
+        "VALUES ('acetone::york blvd','ALB1','acetone','york blvd','alternative_rock',"
+        " 'observed_leaf',0.9,0.7,2,0,'{}','t')"
+    )
+    taxonomy = load_default_layered_taxonomy()
+    genre_publish.build_resolved_table(conn, key_to_album={"acetone::york blvd": "ALB1"},
+                                       taxonomy=taxonomy)
+    rows = conn.execute("SELECT genre_id, source FROM release_effective_genres "
+                        "WHERE album_id='ALB1'").fetchall()
+    assert ("alternative_rock", "graph") in [(r["genre_id"], r["source"]) for r in rows]
+
+
+def test_build_resolved_legacy_album_uses_legacy_rows(tmp_path):
+    meta = _make_metadata(tmp_path)
+    side = _make_sidecar(tmp_path)
+    conn = sqlite3.connect(meta)
+    conn.row_factory = sqlite3.Row
+    conn.execute("INSERT INTO albums VALUES ('ALB2', 'B', 'Y')")
+    conn.execute("INSERT INTO album_genres VALUES ('ALB2', 'Slowcore', 'discogs_release')")
+    conn.commit()
+    genre_publish.create_published_schema(conn)
+    _attach(conn, side)
+    genre_publish.copy_taxonomy(conn)
+    taxonomy = load_default_layered_taxonomy()
+    genre_publish.build_resolved_table(conn, key_to_album={}, taxonomy=taxonomy)
+    rows = conn.execute("SELECT genre_id, source FROM release_effective_genres "
+                        "WHERE album_id='ALB2'").fetchall()
+    assert rows and all(r["source"] == "legacy" for r in rows)
+    assert "slowcore" in {r["genre_id"] for r in rows}
+
+
+def test_build_resolved_applies_overrides(tmp_path):
+    meta = _make_metadata(tmp_path)
+    side = _make_sidecar(tmp_path)
+    _insert_override(side, "y::b", "y", "b", add=["slowcore"], remove=["jangle pop"])
+    conn = sqlite3.connect(meta)
+    conn.row_factory = sqlite3.Row
+    conn.execute("INSERT INTO albums VALUES ('ALB3', 'B', 'Y')")
+    conn.execute("INSERT INTO album_genres VALUES ('ALB3', 'Jangle Pop', 'discogs_release')")
+    conn.commit()
+    genre_publish.create_published_schema(conn)
+    _attach(conn, side)
+    genre_publish.copy_taxonomy(conn)
+    taxonomy = load_default_layered_taxonomy()
+    genre_publish.build_resolved_table(conn, key_to_album={"y::b": "ALB3"}, taxonomy=taxonomy)
+    rows = conn.execute("SELECT genre_id, source FROM release_effective_genres "
+                        "WHERE album_id='ALB3'").fetchall()
+    ids = {r["genre_id"] for r in rows}
+    assert any("slowcore" in gid for gid in ids)
+    assert "jangle pop" not in ids
+    assert any(r["source"] == "user" for r in rows)
