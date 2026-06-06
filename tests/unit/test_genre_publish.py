@@ -367,3 +367,14 @@ def test_unpublish_drops_published_only(tmp_path):
     conn.close()
     assert "release_effective_genres" not in names
     assert "albums" in names and "album_genres" in names
+
+
+def test_cli_main_runs_dry_run(tmp_path, capsys):
+    meta, side = _full_fixture(tmp_path)
+    from scripts import publish_genres
+    rc = publish_genres.main([
+        "--metadata-db", str(meta), "--sidecar-db", str(side), "--dry-run",
+    ])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "graph_albums" in out
