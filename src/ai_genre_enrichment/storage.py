@@ -163,6 +163,10 @@ class SidecarStore:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
+        # Wait up to 30s for a lock instead of failing instantly, so concurrent
+        # collection passes (e.g. Last.fm + Bandcamp in separate terminals)
+        # don't error on write contention.
+        conn.execute("PRAGMA busy_timeout = 30000")
         return conn
 
     def initialize(self) -> None:
