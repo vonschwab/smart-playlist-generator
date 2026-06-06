@@ -7,6 +7,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from .routing import WebMode
 from .source_extraction import fetch_bandcamp_release_tags, is_bandcamp_release_url
 from .source_locator import SOURCE_LOCATOR_INSTRUCTIONS, source_locator_response_format
 
@@ -21,19 +22,20 @@ def fetch_bandcamp_tags(
     album: str | None,
     api_key: str,
     model: str = "gpt-4o-mini",
+    web_mode: WebMode | str = WebMode.REQUIRED,
     fetch_html: Callable[[str], str] | None = None,
 ) -> tuple[str | None, list[str], float | None]:
     """Fetch Bandcamp tags for a release.
 
-    Uses the AI source locator to find a confirmed Bandcamp release URL,
-    then scrapes the tag list from the page.
+    Uses the AI source locator (with live web search, by default) to find a
+    confirmed Bandcamp release URL, then scrapes the tag list from the page.
 
     Returns:
         Selected Bandcamp release URL, deduplicated raw tags, and locator
         confidence. The URL is None if no confirmed release URL was found.
     """
     locator_response = _locate_bandcamp_url(
-        artist=artist, album=album, model=model, api_key=api_key
+        artist=artist, album=album, model=model, api_key=api_key, web_mode=web_mode
     )
     url, confidence = _pick_bandcamp_url(locator_response)
     if not url:
@@ -75,9 +77,18 @@ def _pick_bandcamp_url(locator_response: dict[str, Any]) -> tuple[str | None, fl
 
 
 def _locate_bandcamp_url(
-    *, artist: str, album: str | None, model: str, api_key: str, max_retries: int = 3
+    *,
+    artist: str,
+    album: str | None,
+    model: str,
+    api_key: str,
+    web_mode: WebMode | str = WebMode.REQUIRED,
+    max_retries: int = 3,
 ) -> dict[str, Any]:
     """Call OpenAI source locator to find a Bandcamp URL for the release.
+
+    Runs with live web search by default (``web_mode=REQUIRED``) — without it
+    the model fabricates plausible-but-nonexistent URLs from memory, which 404.
 
     Retries transient failures with a short backoff. On *persistent* failure it
     re-raises rather than returning empty: callers must distinguish "locator ran
@@ -87,7 +98,7 @@ def _locate_bandcamp_url(
     """
     from .client import OpenAIEnrichmentClient, _extract_response_json
 
-    client = OpenAIEnrichmentClient(model=model, api_key=api_key)
+    client = OpenAIEnrichmentClient(model=model, api_key=api_key, web_mode=web_mode)
     prompt = f"artist: {artist}\nalbum: {album or ''}"
     for attempt in range(1, max_retries + 1):
         try:

@@ -13,11 +13,31 @@ import pytest
 
 from src.ai_genre_enrichment import bandcamp_enrichment
 from src.ai_genre_enrichment.client import OpenAIEnrichmentClient
+from src.ai_genre_enrichment.routing import WebMode
 
 
 class _Resp:
     def __init__(self, payload):
         self.output_text = json.dumps(payload)
+
+
+def test_locator_enables_web_search_by_default(monkeypatch):
+    """Regression: the locator MUST run with web search, or it hallucinates
+    URLs from memory that 404 (the original full-library failure)."""
+    import src.ai_genre_enrichment.client as client_mod
+
+    captured = {}
+
+    class _FakeClient:
+        def __init__(self, *, model, api_key, web_mode):
+            captured["web_mode"] = web_mode
+
+        def _call_openai(self, prompt, response_format, *, instructions):
+            return _Resp({"candidate_sources": [], "warnings": []})
+
+    monkeypatch.setattr(client_mod, "OpenAIEnrichmentClient", _FakeClient)
+    bandcamp_enrichment._locate_bandcamp_url(artist="a", album="b", model="m", api_key="k")
+    assert captured["web_mode"] == WebMode.REQUIRED
 
 
 def test_locate_retries_transient_then_succeeds(monkeypatch):

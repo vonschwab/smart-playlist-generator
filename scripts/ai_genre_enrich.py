@@ -254,6 +254,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.5,
         help="Seconds to sleep between releases (politeness / rate control). Default 0.5.",
     )
+    extract_bandcamp.add_argument(
+        "--web-mode",
+        choices=["off", "auto", "required"],
+        default="required",
+        help="Web search for the URL locator. 'required' (default) forces a live "
+             "search; 'off' makes the model guess from memory (URLs will 404).",
+    )
 
     review_parser = sub.add_parser("review", help="Interactive CLI review of unclassified tags")
     review_parser.add_argument("--limit", type=int, default=20)
@@ -892,6 +899,7 @@ def cmd_extract_bandcamp(args: argparse.Namespace) -> int:
                     album=album_name,
                     api_key=api_key,
                     model=args.model,
+                    web_mode=getattr(args, "web_mode", "required"),
                 )
                 if not tags:
                     # Record the miss so reruns never re-pay the LLM locator.

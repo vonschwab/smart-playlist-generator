@@ -4033,7 +4033,7 @@ def test_fetch_bandcamp_tags_uses_source_locator_and_extractor(monkeypatch):
         "warnings": [],
     }
 
-    def fake_locate(*, artist, album, model, api_key):
+    def fake_locate(*, artist, album, model, api_key, web_mode=None):
         assert artist == "Duster"
         assert album == "Stratosphere"
         return fake_locator_response
@@ -4061,7 +4061,7 @@ def test_fetch_bandcamp_tags_uses_source_locator_and_extractor(monkeypatch):
 def test_fetch_bandcamp_tags_returns_empty_when_no_confirmed_url(monkeypatch):
     from src.ai_genre_enrichment import bandcamp_enrichment
 
-    def fake_locate(*, artist, album, model, api_key):
+    def fake_locate(*, artist, album, model, api_key, web_mode=None):
         return {
             "candidate_sources": [
                 {
@@ -4098,7 +4098,7 @@ def test_extract_bandcamp_command_calls_fetcher_and_stores_tags(monkeypatch, tmp
     sidecar_db = tmp_path / "sidecar.db"
     reset_vocabulary()
 
-    def fake_fetch(*, artist, album, api_key, model, fetch_html=None):
+    def fake_fetch(*, artist, album, api_key, model, web_mode=None, fetch_html=None):
         return (
             "https://slowdive.bandcamp.com/album/souvlaki",
             ["slowcore", "space rock", "shoegaze"],
