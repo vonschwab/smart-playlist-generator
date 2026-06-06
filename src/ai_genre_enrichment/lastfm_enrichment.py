@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 import requests
@@ -10,6 +11,9 @@ import requests
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://ws.audioscrobbler.com/2.0/"
+
+# Last.fm occasionally returns 5xx / rate-limits; these are worth a quick retry.
+_TRANSIENT_STATUS = {429, 500, 502, 503, 504}
 
 LASTFM_NOISE_TAGS = {
     "seen live", "favorite", "favorites", "favourites", "albums i own",
@@ -34,6 +38,11 @@ def fetch_lastfm_tags(
         List of tag name strings, filtered and deduplicated.
     """
     from src.genre.normalize_unified import DROP_TOKENS, META_TAGS
+
+    # Skip junk artist names (e.g. "@", pure punctuation) that can never resolve.
+    # Keep non-Latin names (Japanese/Cyrillic, etc.) — str.isalnum() accepts them.
+    if not artist or not any(ch.isalnum() for ch in artist):
+        return []
 
     noise = LASTFM_NOISE_TAGS | META_TAGS | DROP_TOKENS
     all_tags: list[str] = []
@@ -60,9 +69,14 @@ def fetch_lastfm_tags(
 
 
 def _fetch_toptags(
-    method: str, api_key: str, *, limit: int = 20, **params: str
+    method: str, api_key: str, *, limit: int = 20, max_retries: int = 3, **params: str
 ) -> list[str]:
-    """Call a Last.fm gettoptags endpoint and return raw tag names."""
+    """Call a Last.fm gettoptags endpoint and return raw tag names.
+
+    Retries transient failures (5xx / rate-limit / network) with a short
+    backoff. On permanent failure logs a one-line warning (no traceback, since
+    the caller handles an empty result) and returns an empty list.
+    """
     request_params: dict[str, Any] = {
         "method": method,
         "api_key": api_key,
@@ -71,12 +85,33 @@ def _fetch_toptags(
         **params,
     }
 
-    try:
-        response = requests.get(BASE_URL, params=request_params, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-    except Exception:
-        logger.exception("Last.fm API request failed for %s", method)
+    data: dict[str, Any] | None = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            response = requests.get(BASE_URL, params=request_params, timeout=15)
+            if response.status_code in _TRANSIENT_STATUS:
+                if attempt < max_retries:
+                    time.sleep(0.5 * attempt)
+                    continue
+                logger.warning(
+                    "Last.fm %s: HTTP %d after %d attempts (giving up)",
+                    method, response.status_code, attempt,
+                )
+                return []
+            response.raise_for_status()
+            data = response.json()
+            break
+        except requests.RequestException as exc:
+            if attempt < max_retries:
+                time.sleep(0.5 * attempt)
+                continue
+            logger.warning("Last.fm %s failed after %d attempts: %s", method, attempt, exc)
+            return []
+        except ValueError as exc:  # malformed JSON body
+            logger.warning("Last.fm %s returned invalid JSON: %s", method, exc)
+            return []
+
+    if data is None:
         return []
 
     toptags = data.get("toptags", {})
