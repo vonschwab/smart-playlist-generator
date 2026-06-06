@@ -140,3 +140,36 @@ def test_resolve_keys_uses_signature_then_albums(tmp_path):
     calc_key = f"{normalize_release_artist('(Sandy) Alex G')}::{normalize_release_name('Rocket')}"
     assert mapping[calc_key] == "ALB_CALC"
     assert collisions == 0
+
+
+def _insert_graph_assignment(side_path, release_id, artist, album, genre_id, layer):
+    sconn = sqlite3.connect(side_path)
+    sconn.execute(
+        "INSERT INTO genre_graph_release_genre_assignments "
+        "(release_id, artist, album, genre_id, assignment_layer, confidence, "
+        " source_reliability, evidence_count, rejected_by_user, provenance_json, updated_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (release_id, artist, album, genre_id, layer, 0.9, 0.7, 2, 0, "{}", "t"),
+    )
+    sconn.commit()
+    sconn.close()
+
+
+def test_populate_authority_stamps_album_id(tmp_path):
+    meta = _make_metadata(tmp_path)
+    side = _make_sidecar(tmp_path)
+    _insert_graph_assignment(side, "acetone::york blvd", "acetone", "york blvd",
+                             "alternative_rock", "observed_leaf")
+    conn = sqlite3.connect(meta)
+    conn.row_factory = sqlite3.Row
+    genre_publish.create_published_schema(conn)
+    _attach(conn, side)
+    genre_publish.copy_taxonomy(conn)
+    mapping = {"acetone::york blvd": "ALB1"}
+    genre_publish.populate_authority(conn, mapping)
+    rows = conn.execute(
+        "SELECT album_id, genre_id FROM genre_graph_release_genre_assignments"
+    ).fetchall()
+    assert len(rows) == 1
+    assert rows[0]["album_id"] == "ALB1"
+    assert rows[0]["genre_id"] == "alternative_rock"

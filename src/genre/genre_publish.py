@@ -227,3 +227,39 @@ def resolve_release_key_to_album_id(
         mapping.setdefault(key, album_id)
 
     return mapping, collisions
+
+
+def populate_authority(conn: sqlite3.Connection, key_to_album: dict[str, str]) -> None:
+    """Copy graph genre + facet assignments into metadata.db, stamping album_id.
+
+    Requires sidecar attached as `side`. Pure graph (no overrides here).
+    """
+    conn.execute("DELETE FROM genre_graph_release_genre_assignments")
+    conn.execute("DELETE FROM genre_graph_release_facet_assignments")
+
+    for row in conn.execute(
+        "SELECT release_id, artist, album, genre_id, assignment_layer, confidence, "
+        "source_reliability, evidence_count, rejected_by_user, provenance_json, updated_at "
+        "FROM side.genre_graph_release_genre_assignments"
+    ).fetchall():
+        album_id = key_to_album.get(row[0])
+        conn.execute(
+            "INSERT INTO genre_graph_release_genre_assignments "
+            "(release_id, album_id, artist, album, genre_id, assignment_layer, confidence, "
+            " source_reliability, evidence_count, rejected_by_user, provenance_json, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (row[0], album_id, row[1], row[2], row[3], row[4], row[5],
+             row[6], row[7], row[8], row[9], row[10]),
+        )
+
+    for row in conn.execute(
+        "SELECT release_id, artist, album, facet_id, confidence, source, "
+        "provenance_json, updated_at FROM side.genre_graph_release_facet_assignments"
+    ).fetchall():
+        album_id = key_to_album.get(row[0])
+        conn.execute(
+            "INSERT INTO genre_graph_release_facet_assignments "
+            "(release_id, album_id, artist, album, facet_id, confidence, source, "
+            " provenance_json, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+            (row[0], album_id, row[1], row[2], row[3], row[4], row[5], row[6], row[7]),
+        )
