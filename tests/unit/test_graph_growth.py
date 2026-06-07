@@ -139,3 +139,48 @@ def test_proposal_file_round_trip(tmp_path):
     assert e.decision == "pending"           # default decision
     assert e.proposal.name == "vaporwave"
     assert e.proposal.parent_edges[0]["target"] == "electronic"
+
+
+def _valid_proposal(name="brand new genre", parent="electronic"):
+    return graph_growth.GrowthProposal(
+        name=name, kind="subgenre", status="active", specificity_score=0.7,
+        parent_edges=[{"target": parent, "edge_type": "family_context",
+                       "weight": 0.55, "confidence": 0.8}],
+        similar_to=[], alias_variants=[], term_kind_confirm="genre", rationale="x",
+    )
+
+
+def test_validate_proposal_accepts_valid():
+    taxonomy = load_default_layered_taxonomy()
+    assert graph_growth.validate_proposal(taxonomy, _valid_proposal()) == []
+
+
+def test_validate_proposal_rejects_dangling_parent():
+    taxonomy = load_default_layered_taxonomy()
+    errs = graph_growth.validate_proposal(
+        taxonomy, _valid_proposal(parent="no such family zzz"))
+    assert any("parent" in e.lower() for e in errs)
+
+
+def test_validate_proposal_rejects_duplicate_name():
+    taxonomy = load_default_layered_taxonomy()
+    existing = taxonomy.genres[0].name  # already in the taxonomy
+    errs = graph_growth.validate_proposal(taxonomy, _valid_proposal(name=existing))
+    assert any("exist" in e.lower() for e in errs)
+
+
+def test_validate_proposal_rejects_non_genre_and_bad_specificity():
+    taxonomy = load_default_layered_taxonomy()
+    p = _valid_proposal()
+    p.term_kind_confirm = "noise"
+    assert any("genre" in e.lower() for e in graph_growth.validate_proposal(taxonomy, p))
+    p2 = _valid_proposal()
+    p2.specificity_score = 1.5
+    assert any("specificity" in e.lower() for e in graph_growth.validate_proposal(taxonomy, p2))
+
+
+def test_validate_proposal_requires_a_parent():
+    taxonomy = load_default_layered_taxonomy()
+    p = _valid_proposal()
+    p.parent_edges = []
+    assert any("parent" in e.lower() for e in graph_growth.validate_proposal(taxonomy, p))

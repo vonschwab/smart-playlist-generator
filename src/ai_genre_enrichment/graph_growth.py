@@ -14,7 +14,7 @@ from typing import Any
 import yaml
 
 from .layered_assignment import classify_layered_term
-from .layered_taxonomy import FAMILY_KIND, LayeredTaxonomy, normalize_taxonomy_name
+from .layered_taxonomy import FAMILY_KIND, LayeredTaxonomy, _record_id, normalize_taxonomy_name
 from .routing import WebMode
 
 
@@ -303,3 +303,41 @@ def read_proposals(path) -> list[ProposalEntry]:
             ),
         ))
     return entries
+
+
+def _name_exists(taxonomy: LayeredTaxonomy, name: str) -> bool:
+    norm = normalize_taxonomy_name(name)
+    if taxonomy.genre_by_name(norm) is not None:
+        return True
+    if taxonomy.facet_by_name(norm) is not None:
+        return True
+    return taxonomy.genre_by_id(_record_id(name)) is not None
+
+
+def validate_proposal(taxonomy: LayeredTaxonomy, proposal: GrowthProposal) -> list[str]:
+    """Return a list of structural errors ([] means the proposal is safe to add)."""
+    errors: list[str] = []
+    name = (proposal.name or "").strip()
+    if not name:
+        errors.append("Proposal has an empty name.")
+        return errors
+    if proposal.term_kind_confirm != "genre":
+        errors.append(f"Not a genre (term_kind_confirm={proposal.term_kind_confirm}); skip.")
+    if proposal.kind not in {"genre", "subgenre"}:
+        errors.append(f"Unsupported kind: {proposal.kind}")
+    if not (0.0 <= float(proposal.specificity_score) <= 1.0):
+        errors.append(f"specificity_score out of range: {proposal.specificity_score}")
+    if _name_exists(taxonomy, name):
+        errors.append(f"A taxonomy record named/sluged like '{name}' already exists.")
+    if not proposal.parent_edges:
+        errors.append("A new leaf genre needs at least one parent edge.")
+    for edge in proposal.parent_edges:
+        target = str(edge.get("target") or "").strip()
+        norm = normalize_taxonomy_name(target)
+        if taxonomy.genre_by_name(norm) is None and taxonomy.facet_by_name(norm) is None:
+            errors.append(f"parent edge target does not exist: '{target}'")
+    for target in proposal.similar_to:
+        norm = normalize_taxonomy_name(target)
+        if taxonomy.genre_by_name(norm) is None and taxonomy.facet_by_name(norm) is None:
+            errors.append(f"similar_to target does not exist: '{target}'")
+    return errors
