@@ -116,3 +116,26 @@ def test_propose_placement_returns_structured_proposal():
     # the candidate's evidence reached the model
     assert "vaporwave" in client.calls[0]
     assert "chillwave" in client.calls[0]
+
+
+def test_proposal_file_round_trip(tmp_path):
+    cand = graph_growth.GrowthCandidate(
+        term="vaporwave", album_frequency=14,
+        cooccurring_tags=["chillwave"], examples=["a — b"], variants=["vapor wave"],
+    )
+    proposal = graph_growth.GrowthProposal(
+        name="vaporwave", kind="subgenre", status="active", specificity_score=0.8,
+        parent_edges=[{"target": "electronic", "edge_type": "family_context",
+                       "weight": 0.55, "confidence": 0.8}],
+        similar_to=["ambient"], alias_variants=["vapor wave"],
+        term_kind_confirm="genre", rationale="x",
+    )
+    path = tmp_path / "proposals.yaml"
+    graph_growth.write_proposals(path, [(cand, proposal)])
+    entries = graph_growth.read_proposals(path)
+    assert len(entries) == 1
+    e = entries[0]
+    assert e.term == "vaporwave"
+    assert e.decision == "pending"           # default decision
+    assert e.proposal.name == "vaporwave"
+    assert e.proposal.parent_edges[0]["target"] == "electronic"

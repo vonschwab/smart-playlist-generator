@@ -7,8 +7,11 @@ from __future__ import annotations
 import json
 from collections import Counter, defaultdict
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any
+
+import yaml
 
 from .layered_assignment import classify_layered_term
 from .layered_taxonomy import FAMILY_KIND, LayeredTaxonomy, normalize_taxonomy_name
@@ -245,3 +248,58 @@ def propose_placement(
         term_kind_confirm=str(data.get("term_kind_confirm") or "genre"),
         rationale=str(data.get("rationale") or ""),
     )
+
+
+@dataclass
+class ProposalEntry:
+    term: str
+    album_frequency: int
+    cooccurring_tags: list[str]
+    examples: list[str]
+    decision: str
+    proposal: GrowthProposal
+
+
+def write_proposals(path, items: list[tuple[GrowthCandidate, GrowthProposal]]) -> None:
+    """Write candidate+proposal pairs to an editable review YAML."""
+    entries = []
+    for cand, proposal in items:
+        entries.append({
+            "term": cand.term,
+            "album_frequency": cand.album_frequency,
+            "cooccurring_tags": list(cand.cooccurring_tags),
+            "examples": list(cand.examples),
+            "decision": "pending",
+            "proposal": asdict(proposal),
+        })
+    Path(path).write_text(
+        yaml.safe_dump(entries, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+
+
+def read_proposals(path) -> list[ProposalEntry]:
+    """Read a (possibly user-edited) proposal YAML back into entries."""
+    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or []
+    entries: list[ProposalEntry] = []
+    for row in raw:
+        p = row.get("proposal") or {}
+        entries.append(ProposalEntry(
+            term=str(row.get("term") or ""),
+            album_frequency=int(row.get("album_frequency") or 0),
+            cooccurring_tags=list(row.get("cooccurring_tags") or []),
+            examples=list(row.get("examples") or []),
+            decision=str(row.get("decision") or "pending"),
+            proposal=GrowthProposal(
+                name=str(p.get("name") or row.get("term") or ""),
+                kind=str(p.get("kind") or "subgenre"),
+                status=str(p.get("status") or "active"),
+                specificity_score=float(p.get("specificity_score") or 0.5),
+                parent_edges=list(p.get("parent_edges") or []),
+                similar_to=list(p.get("similar_to") or []),
+                alias_variants=list(p.get("alias_variants") or []),
+                term_kind_confirm=str(p.get("term_kind_confirm") or "genre"),
+                rationale=str(p.get("rationale") or ""),
+            ),
+        ))
+    return entries
