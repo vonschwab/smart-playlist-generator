@@ -246,3 +246,76 @@ def test_cli_propose_growth_writes_file(tmp_path, monkeypatch):
     assert rc == 0
     entries = gg.read_proposals(out)
     assert any(e.term == "vaporwave" for e in entries)
+
+
+def test_cli_ingest_growth_appends_kept_only(tmp_path):
+    import shutil, sqlite3
+    from src.ai_genre_enrichment.layered_taxonomy import (
+        DEFAULT_TAXONOMY_PATH, load_layered_taxonomy)
+    from scripts import ai_genre_enrich as cli
+
+    tax_path = tmp_path / "taxonomy.yaml"
+    shutil.copy(DEFAULT_TAXONOMY_PATH, tax_path)
+    side = tmp_path / "sidecar.db"; SidecarStore(side).initialize()
+
+    # one keep, one reject
+    proposals_path = tmp_path / "proposals.yaml"
+    keep = gg.GrowthProposal(
+        name="vaporwave", kind="subgenre", status="active", specificity_score=0.8,
+        parent_edges=[{"target": "electronic", "edge_type": "family_context",
+                       "weight": 0.55, "confidence": 0.8}],
+        similar_to=[], alias_variants=[], term_kind_confirm="genre", rationale="x")
+    rej = gg.GrowthProposal(
+        name="aaron", kind="subgenre", status="active", specificity_score=0.5,
+        parent_edges=[{"target": "electronic", "edge_type": "family_context",
+                       "weight": 0.5, "confidence": 0.5}],
+        similar_to=[], alias_variants=[], term_kind_confirm="genre", rationale="noise")
+    gg.write_proposals(proposals_path, [
+        (gg.GrowthCandidate(term="vaporwave", album_frequency=9), keep),
+        (gg.GrowthCandidate(term="aaron", album_frequency=4), rej),
+    ])
+    # user edits: keep vaporwave, reject aaron
+    import yaml
+    rows = yaml.safe_load(proposals_path.read_text(encoding="utf-8"))
+    rows[0]["decision"] = "keep"
+    rows[1]["decision"] = "reject"
+    proposals_path.write_text(yaml.safe_dump(rows, sort_keys=False), encoding="utf-8")
+
+    rc = cli.main([
+        "--sidecar-db", str(side),
+        "graph-ingest-growth", "--proposals", str(proposals_path),
+        "--taxonomy-path", str(tax_path), "--new-version", "0.3.0-grown-test",
+    ])
+    assert rc == 0
+    grown = load_layered_taxonomy(tax_path)
+    assert grown.genre_by_id(gg._record_id("vaporwave")) is not None
+    assert grown.genre_by_id(gg._record_id("aaron")) is None   # rejected
+
+
+def test_cli_ingest_growth_dry_run_writes_nothing(tmp_path):
+    import shutil
+    from src.ai_genre_enrichment.layered_taxonomy import DEFAULT_TAXONOMY_PATH
+    from scripts import ai_genre_enrich as cli
+    tax_path = tmp_path / "taxonomy.yaml"
+    shutil.copy(DEFAULT_TAXONOMY_PATH, tax_path)
+    before = tax_path.read_text(encoding="utf-8")
+    side = tmp_path / "sidecar.db"; SidecarStore(side).initialize()
+    proposals_path = tmp_path / "proposals.yaml"
+    keep = gg.GrowthProposal(
+        name="vaporwave", kind="subgenre", status="active", specificity_score=0.8,
+        parent_edges=[{"target": "electronic", "edge_type": "family_context",
+                       "weight": 0.55, "confidence": 0.8}],
+        similar_to=[], alias_variants=[], term_kind_confirm="genre", rationale="x")
+    gg.write_proposals(proposals_path, [(gg.GrowthCandidate(term="vaporwave", album_frequency=9), keep)])
+    import yaml
+    rows = yaml.safe_load(proposals_path.read_text(encoding="utf-8"))
+    rows[0]["decision"] = "keep"
+    proposals_path.write_text(yaml.safe_dump(rows, sort_keys=False), encoding="utf-8")
+
+    rc = cli.main([
+        "--sidecar-db", str(side),
+        "graph-ingest-growth", "--proposals", str(proposals_path),
+        "--taxonomy-path", str(tax_path), "--new-version", "0.3.0-x", "--dry-run",
+    ])
+    assert rc == 0
+    assert tax_path.read_text(encoding="utf-8") == before   # unchanged

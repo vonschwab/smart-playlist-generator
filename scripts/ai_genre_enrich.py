@@ -111,6 +111,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_graph_fixture_report(args)
     if args.command == "graph-propose-growth":
         return cmd_graph_propose_growth(args)
+    if args.command == "graph-ingest-growth":
+        return cmd_graph_ingest_growth(args)
     parser.print_help()
     return 2
 
@@ -389,6 +391,16 @@ def build_parser() -> argparse.ArgumentParser:
                                 default="off")
     propose_growth.add_argument("--model", default=DEFAULT_MODEL)
     propose_growth.add_argument("--openai-api-key")
+
+    ingest_growth = sub.add_parser(
+        "graph-ingest-growth",
+        help="Validate + append decision:keep proposals into the taxonomy YAML")
+    ingest_growth.add_argument("--proposals", required=True)
+    ingest_growth.add_argument("--taxonomy-path", default=None,
+                               help="Taxonomy YAML to grow (default: the packaged one)")
+    ingest_growth.add_argument("--new-version", required=True,
+                               help="taxonomy_version to stamp after growth")
+    ingest_growth.add_argument("--dry-run", action="store_true")
 
     return parser
 
@@ -2309,6 +2321,47 @@ def cmd_graph_propose_growth(args: argparse.Namespace) -> int:
             print(f"[{idx}/{total}] FAILED {cand.term}: {type(exc).__name__}: {exc}")
     graph_growth.write_proposals(args.out, items)
     print(f"Wrote {len(items)} proposal(s) to {args.out}. Review then run graph-ingest-growth.")
+    return 0
+
+
+def cmd_graph_ingest_growth(args: argparse.Namespace) -> int:
+    from src.ai_genre_enrichment import graph_growth
+    from src.ai_genre_enrichment.layered_taxonomy import (
+        DEFAULT_TAXONOMY_PATH, load_layered_taxonomy)
+
+    tax_path = args.taxonomy_path or str(DEFAULT_TAXONOMY_PATH)
+    taxonomy = load_layered_taxonomy(tax_path)
+    entries = graph_growth.read_proposals(args.proposals)
+    kept = [e for e in entries if e.decision == "keep"]
+    if not kept:
+        print("No proposals marked decision: keep.")
+        return 0
+
+    approved = []
+    skipped = []
+    for e in kept:
+        errs = graph_growth.validate_proposal(taxonomy, e.proposal)
+        if errs:
+            skipped.append((e.proposal.name, "; ".join(errs)))
+        else:
+            approved.append(e.proposal)
+
+    for name, reason in skipped:
+        print(f"SKIP {name}: {reason}")
+
+    if args.dry_run:
+        print(f"[dry-run] would append {len(approved)} record(s); "
+              f"{len(skipped)} skipped. No write.")
+        return 0
+
+    result = graph_growth.append_approved_to_taxonomy(
+        tax_path, approved, new_version=args.new_version)
+    # Re-import the grown taxonomy into the sidecar graph tables.
+    store = SidecarStore(args.sidecar_db)
+    store.initialize()
+    store.upsert_layered_taxonomy(load_layered_taxonomy(tax_path))
+    print(f"Appended {result.appended} genre(s); skipped {len(skipped)}. "
+          f"Taxonomy now {args.new_version}.")
     return 0
 
 
