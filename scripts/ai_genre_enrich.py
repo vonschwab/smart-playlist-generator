@@ -2349,6 +2349,10 @@ def cmd_graph_ingest_growth(args: argparse.Namespace) -> int:
     for name, reason in skipped:
         print(f"SKIP {name}: {reason}")
 
+    if not approved:
+        print("All kept proposals failed validation; nothing to append.")
+        return 1
+
     if args.dry_run:
         print(f"[dry-run] would append {len(approved)} record(s); "
               f"{len(skipped)} skipped. No write.")

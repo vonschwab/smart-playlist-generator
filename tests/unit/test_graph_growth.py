@@ -319,3 +319,35 @@ def test_cli_ingest_growth_dry_run_writes_nothing(tmp_path):
     ])
     assert rc == 0
     assert tax_path.read_text(encoding="utf-8") == before   # unchanged
+
+
+def test_cli_ingest_growth_all_invalid_writes_nothing(tmp_path, capsys):
+    import shutil
+    from src.ai_genre_enrichment.layered_taxonomy import DEFAULT_TAXONOMY_PATH
+    from scripts import ai_genre_enrich as cli
+    tax_path = tmp_path / "taxonomy.yaml"
+    shutil.copy(DEFAULT_TAXONOMY_PATH, tax_path)
+    before = tax_path.read_text(encoding="utf-8")
+    side = tmp_path / "sidecar.db"; SidecarStore(side).initialize()
+    proposals_path = tmp_path / "proposals.yaml"
+    keep = gg.GrowthProposal(
+        name="vaporwave", kind="subgenre", status="active", specificity_score=0.8,
+        parent_edges=[{"target": "this_genre_does_not_exist_xyz", "edge_type": "family_context",
+                       "weight": 0.55, "confidence": 0.8}],
+        similar_to=[], alias_variants=[], term_kind_confirm="genre", rationale="x")
+    gg.write_proposals(proposals_path, [(gg.GrowthCandidate(term="vaporwave", album_frequency=9), keep)])
+    import yaml
+    rows = yaml.safe_load(proposals_path.read_text(encoding="utf-8"))
+    rows[0]["decision"] = "keep"
+    proposals_path.write_text(yaml.safe_dump(rows, sort_keys=False), encoding="utf-8")
+
+    rc = cli.main([
+        "--sidecar-db", str(side),
+        "graph-ingest-growth", "--proposals", str(proposals_path),
+        "--taxonomy-path", str(tax_path), "--new-version", "0.3.0-x",
+    ])
+    assert rc == 1
+    assert tax_path.read_text(encoding="utf-8") == before   # unchanged
+    out = capsys.readouterr().out
+    assert "SKIP vaporwave" in out
+    assert "nothing to append" in out
