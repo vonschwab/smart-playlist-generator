@@ -4,11 +4,15 @@ See docs/superpowers/specs/2026-06-06-sp3a-graph-growth-design.md.
 """
 from __future__ import annotations
 
+import json
 from collections import Counter, defaultdict
+from copy import deepcopy
 from dataclasses import dataclass, field
+from typing import Any
 
 from .layered_assignment import classify_layered_term
-from .layered_taxonomy import LayeredTaxonomy
+from .layered_taxonomy import FAMILY_KIND, LayeredTaxonomy, normalize_taxonomy_name
+from .routing import WebMode
 
 
 @dataclass
@@ -115,3 +119,129 @@ def collapse_variants(candidates: list[GrowthCandidate]) -> list[GrowthCandidate
         ))
     merged.sort(key=lambda c: (-c.album_frequency, c.term))
     return merged
+
+
+GROWTH_PROPOSAL_INSTRUCTIONS = """
+You place a new music genre into an existing hierarchical genre taxonomy.
+Given a candidate genre term, its evidence (how often it appears and which
+genres co-occur with it), and the relevant existing taxonomy names, propose
+where it belongs.
+
+Rules:
+- Only propose a placement if the term is a real GENRE/subgenre. If it is a
+  descriptor/facet (mood, instrument, era, region, format) set term_kind_confirm
+  to "facet"; if it is noise/non-music set it to "noise".
+- parent_edges must reference EXISTING taxonomy names exactly as given. Choose
+  1-2 parents (a family via "family_context", or a broader genre via "is_a").
+- specificity_score: ~0.05 for broad families, ~0.5 for mid genres, ~0.8-0.9 for
+  narrow microgenres.
+- Do not invent edges to names not in the provided context.
+""".strip()
+
+
+_GROWTH_PROPOSAL_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["name", "kind", "status", "specificity_score", "parent_edges",
+                 "similar_to", "alias_variants", "term_kind_confirm", "rationale"],
+    "properties": {
+        "name": {"type": "string"},
+        "kind": {"type": "string", "enum": ["genre", "subgenre"]},
+        "status": {"type": "string", "enum": ["active", "review"]},
+        "specificity_score": {"type": "number", "minimum": 0, "maximum": 1},
+        "parent_edges": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["target", "edge_type", "weight", "confidence"],
+                "properties": {
+                    "target": {"type": "string"},
+                    "edge_type": {"type": "string",
+                                  "enum": ["is_a", "family_context"]},
+                    "weight": {"type": "number", "minimum": 0, "maximum": 1},
+                    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                },
+            },
+        },
+        "similar_to": {"type": "array", "items": {"type": "string"}},
+        "alias_variants": {"type": "array", "items": {"type": "string"}},
+        "term_kind_confirm": {"type": "string",
+                              "enum": ["genre", "facet", "noise"]},
+        "rationale": {"type": "string"},
+    },
+}
+
+
+def growth_proposal_response_format() -> dict[str, Any]:
+    return {
+        "type": "json_schema",
+        "name": "graph_growth_proposal",
+        "schema": deepcopy(_GROWTH_PROPOSAL_SCHEMA),
+        "strict": True,
+    }
+
+
+@dataclass
+class GrowthProposal:
+    name: str
+    kind: str
+    status: str
+    specificity_score: float
+    parent_edges: list[dict] = field(default_factory=list)
+    similar_to: list[str] = field(default_factory=list)
+    alias_variants: list[str] = field(default_factory=list)
+    term_kind_confirm: str = "genre"
+    rationale: str = ""
+
+
+def _build_taxonomy_context(taxonomy: LayeredTaxonomy, candidate: GrowthCandidate) -> list[str]:
+    """Bounded context: all families/umbrellas + genres sharing a token with the
+    candidate or its co-occurring tags. Keeps the prompt small but relevant."""
+    tokens = set(normalize_taxonomy_name(candidate.term).split())
+    for t in candidate.cooccurring_tags:
+        tokens.update(normalize_taxonomy_name(t).split())
+    names: list[str] = []
+    for genre in taxonomy.genres:
+        if genre.kind in {FAMILY_KIND, "umbrella"}:
+            names.append(genre.name)
+        elif tokens & set(normalize_taxonomy_name(genre.name).split()):
+            names.append(genre.name)
+    return sorted(dict.fromkeys(names))
+
+
+def propose_placement(
+    candidate: GrowthCandidate,
+    taxonomy: LayeredTaxonomy,
+    *,
+    client,
+    web_mode: WebMode | str = WebMode.OFF,
+) -> GrowthProposal:
+    """Ask the model to place one candidate. `client` exposes `_call_openai`."""
+    from .client import _extract_response_json
+
+    context_names = _build_taxonomy_context(taxonomy, candidate)
+    prompt = json.dumps({
+        "candidate_term": candidate.term,
+        "album_frequency": candidate.album_frequency,
+        "cooccurring_tags": candidate.cooccurring_tags,
+        "spelling_variants": candidate.variants,
+        "examples": candidate.examples,
+        "existing_taxonomy_names": context_names,
+    }, ensure_ascii=False, sort_keys=True)
+    raw = client._call_openai(
+        prompt, growth_proposal_response_format(),
+        instructions=GROWTH_PROPOSAL_INSTRUCTIONS,
+    )
+    data = _extract_response_json(raw)
+    return GrowthProposal(
+        name=str(data["name"]),
+        kind=str(data["kind"]),
+        status=str(data.get("status") or "active"),
+        specificity_score=float(data["specificity_score"]),
+        parent_edges=list(data.get("parent_edges") or []),
+        similar_to=list(data.get("similar_to") or []),
+        alias_variants=list(data.get("alias_variants") or candidate.variants),
+        term_kind_confirm=str(data.get("term_kind_confirm") or "genre"),
+        rationale=str(data.get("rationale") or ""),
+    )
