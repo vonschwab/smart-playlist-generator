@@ -1,4 +1,6 @@
 from src.ai_genre_enrichment.storage import SidecarStore
+from src.ai_genre_enrichment import graph_growth
+from src.ai_genre_enrichment.layered_taxonomy import load_default_layered_taxonomy
 
 
 def _page_with_tags(store, release_key, artist, album, source_type, tags):
@@ -24,3 +26,32 @@ def test_all_collected_tags_returns_release_scoped_rows(tmp_path):
     sample = next(r for r in rows if r["normalized_tag"] == "slowcore")
     assert sample["normalized_artist"] == "acetone"
     assert sample["normalized_album"] == "york blvd"
+
+
+def test_gather_candidates_keeps_unmapped_genres_above_threshold(tmp_path):
+    store = SidecarStore(tmp_path / "sidecar.db")
+    store.initialize()
+    taxonomy = load_default_layered_taxonomy()
+    # "vaporwave" is (assume) unmapped; appears on 3 releases -> candidate.
+    for i in range(3):
+        _page_with_tags(store, f"a{i}::alb{i}", f"a{i}", f"alb{i}",
+                        "lastfm_tags", ["vaporwave", "ambient"])
+    # "rock" is a known family -> dropped. "vaporwave" on 3 albums -> kept.
+    cands = graph_growth.gather_growth_candidates(store, taxonomy, min_album_freq=3)
+    terms = {c.term for c in cands}
+    assert "vaporwave" in terms
+    vw = next(c for c in cands if c.term == "vaporwave")
+    assert vw.album_frequency == 3
+    assert "ambient" in vw.cooccurring_tags          # co-occurring evidence
+    assert len(vw.examples) >= 1                       # example "artist — album"
+
+
+def test_gather_candidates_drops_below_threshold_and_mapped(tmp_path):
+    store = SidecarStore(tmp_path / "sidecar.db")
+    store.initialize()
+    taxonomy = load_default_layered_taxonomy()
+    _page_with_tags(store, "x::y", "x", "y", "lastfm_tags", ["vaporwave", "rock"])
+    cands = graph_growth.gather_growth_candidates(store, taxonomy, min_album_freq=3)
+    terms = {c.term for c in cands}
+    assert "vaporwave" not in terms   # only 1 album < 3
+    assert "rock" not in terms        # mapped family, never a candidate
