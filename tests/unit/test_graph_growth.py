@@ -3,6 +3,7 @@ import shutil
 
 from src.ai_genre_enrichment.storage import SidecarStore
 from src.ai_genre_enrichment import graph_growth
+from src.ai_genre_enrichment import graph_growth as gg
 from src.ai_genre_enrichment.layered_taxonomy import (
     DEFAULT_TAXONOMY_PATH, load_default_layered_taxonomy, load_layered_taxonomy)
 
@@ -210,3 +211,38 @@ def test_append_approved_adds_genre_and_reloads(tmp_path):
     assert grown.genres  # still valid taxonomy (loader _validate_taxonomy passed)
     # alias variant registered
     assert grown.exact_alias_target_for_name("vapor wave") is not None
+
+
+def test_cli_propose_growth_writes_file(tmp_path, monkeypatch):
+    # sidecar with one unmapped term on >=3 albums
+    side = tmp_path / "sidecar.db"
+    store = SidecarStore(side)
+    store.initialize()
+    for i in range(3):
+        _page_with_tags(store, f"a{i}::b{i}", f"a{i}", f"b{i}",
+                        "lastfm_tags", ["vaporwave", "ambient"])
+    meta = tmp_path / "metadata.db"   # discovery uses metadata; not needed here
+    import sqlite3
+    sqlite3.connect(meta).close()
+
+    # Stub the AI proposal so no network is hit.
+    def fake_propose(candidate, taxonomy, *, client, web_mode="off"):
+        return gg.GrowthProposal(
+            name=candidate.term, kind="subgenre", status="active",
+            specificity_score=0.8,
+            parent_edges=[{"target": "electronic", "edge_type": "family_context",
+                           "weight": 0.55, "confidence": 0.8}],
+            similar_to=[], alias_variants=candidate.variants,
+            term_kind_confirm="genre", rationale="x")
+    monkeypatch.setattr(gg, "propose_placement", fake_propose)
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    out = tmp_path / "proposals.yaml"
+    from scripts import ai_genre_enrich as cli
+    rc = cli.main([
+        "--sidecar-db", str(side), "--metadata-db", str(meta),
+        "graph-propose-growth", "--out", str(out), "--min-album-freq", "3",
+    ])
+    assert rc == 0
+    entries = gg.read_proposals(out)
+    assert any(e.term == "vaporwave" for e in entries)

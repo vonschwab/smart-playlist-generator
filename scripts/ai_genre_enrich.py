@@ -109,6 +109,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_graph_show_release(args)
     if args.command == "graph-fixture-report":
         return cmd_graph_fixture_report(args)
+    if args.command == "graph-propose-growth":
+        return cmd_graph_propose_growth(args)
     parser.print_help()
     return 2
 
@@ -374,6 +376,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Refresh the no-web LLM prior before fusing evidence.",
     )
     hybrid_one.add_argument("--model", default=DEFAULT_MODEL)
+
+    propose_growth = sub.add_parser(
+        "graph-propose-growth",
+        help="Gather unmapped-genre candidates and AI-propose taxonomy placements")
+    propose_growth.add_argument("--out", required=True,
+                                help="Path to write the editable proposal YAML")
+    propose_growth.add_argument("--min-album-freq", type=int, default=3)
+    propose_growth.add_argument("--limit", type=int, default=None,
+                                help="Cap number of candidates proposed (cost control)")
+    propose_growth.add_argument("--web-mode", choices=["off", "auto", "required"],
+                                default="off")
+    propose_growth.add_argument("--model", default=DEFAULT_MODEL)
+    propose_growth.add_argument("--openai-api-key")
 
     return parser
 
@@ -2251,6 +2266,50 @@ def _graph_fixture_failures(fixture: dict[str, object], diagnostics: dict[str, o
     if fixture.get("fail_zero_assignments_when_evidence_exists") and diagnostics["evidence_status"] == "evidence_present_no_assignments":
         failures.append("zero_assignments_with_evidence")
     return failures
+
+
+def cmd_graph_propose_growth(args: argparse.Namespace) -> int:
+    import os
+    from src.ai_genre_enrichment import graph_growth
+    from src.ai_genre_enrichment.client import OpenAIEnrichmentClient
+
+    store = SidecarStore(args.sidecar_db)
+    store.initialize()
+    taxonomy = load_default_layered_taxonomy()
+    candidates = graph_growth.collapse_variants(
+        graph_growth.gather_growth_candidates(
+            store, taxonomy, min_album_freq=args.min_album_freq))
+    if args.limit is not None:
+        candidates = candidates[: args.limit]
+    if not candidates:
+        print("No growth candidates found.")
+        graph_growth.write_proposals(args.out, [])
+        return 0
+
+    api_key = getattr(args, "openai_api_key", None) or os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        try:
+            from src.config_loader import Config
+            api_key = Config().openai_api_key
+        except (FileNotFoundError, AttributeError):
+            api_key = None
+    client = OpenAIEnrichmentClient(model=args.model, api_key=api_key,
+                                    web_mode=args.web_mode)
+
+    items = []
+    total = len(candidates)
+    for idx, cand in enumerate(candidates, start=1):
+        try:
+            proposal = graph_growth.propose_placement(
+                cand, taxonomy, client=client, web_mode=args.web_mode)
+            items.append((cand, proposal))
+            print(f"[{idx}/{total}] proposed {cand.term} -> {proposal.name} "
+                  f"(kind={proposal.kind}, parents={[e.get('target') for e in proposal.parent_edges]})")
+        except Exception as exc:  # one bad proposal shouldn't lose the batch
+            print(f"[{idx}/{total}] FAILED {cand.term}: {type(exc).__name__}: {exc}")
+    graph_growth.write_proposals(args.out, items)
+    print(f"Wrote {len(items)} proposal(s) to {args.out}. Review then run graph-ingest-growth.")
+    return 0
 
 
 def _fuse_hybrid_for_release(store: SidecarStore, release: ReleasePayload):
