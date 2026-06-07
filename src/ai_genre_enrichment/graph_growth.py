@@ -341,3 +341,87 @@ def validate_proposal(taxonomy: LayeredTaxonomy, proposal: GrowthProposal) -> li
         if taxonomy.genre_by_name(norm) is None and taxonomy.facet_by_name(norm) is None:
             errors.append(f"similar_to target does not exist: '{target}'")
     return errors
+
+
+@dataclass
+class AppendResult:
+    appended: int
+    skipped: list[tuple[str, str]] = field(default_factory=list)
+
+
+def _genre_record(proposal: GrowthProposal) -> dict:
+    parent_edges = [
+        {
+            "target": e["target"],
+            "edge_type": e.get("edge_type", "family_context"),
+            "weight": float(e.get("weight", 0.55)),
+            "confidence": float(e.get("confidence", 0.8)),
+            "notes": None,
+        }
+        for e in proposal.parent_edges
+    ]
+    # similar_to becomes bridge_to edges in the same parent_edges channel the
+    # loader reads (it resolves any parent_edges target by name).
+    for target in proposal.similar_to:
+        parent_edges.append({
+            "target": target, "edge_type": "bridge_to",
+            "weight": 0.4, "confidence": 0.6, "notes": "similar_to (growth)",
+        })
+    return {
+        "name": proposal.name,
+        "kind": proposal.kind,
+        "role": "leaf",
+        "status": proposal.status or "active",
+        "facet_type": None,
+        "specificity_score": float(proposal.specificity_score),
+        "canonical_target": None,
+        "parent_edges": parent_edges,
+        "secondary_roles": [],
+        "reject_reason": None,
+        "alias_policy": None,
+        "source_policy": "growth",
+        "possible_context_target": None,
+        "notes": proposal.rationale or "Added via SP3a graph growth.",
+    }
+
+
+def _alias_record(variant: str, canonical_name: str) -> dict:
+    return {
+        "name": variant,
+        "kind": "alias",
+        "role": "alias",
+        "status": "alias_only",
+        "facet_type": None,
+        "specificity_score": None,
+        "canonical_target": canonical_name,
+        "parent_edges": [],
+        "secondary_roles": [],
+        "reject_reason": None,
+        "alias_policy": {"type": "plain"},
+        "source_policy": None,
+        "possible_context_target": None,
+        "notes": "Spelling variant (growth).",
+    }
+
+
+def append_approved_to_taxonomy(taxonomy_path, approved: list[GrowthProposal],
+                                *, new_version: str) -> AppendResult:
+    """Append approved proposals as records to the taxonomy YAML and bump version.
+
+    Caller is responsible for having validated each proposal first. New genre
+    records are appended before their alias records so name targets resolve.
+    """
+    path = Path(taxonomy_path)
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    records = data.setdefault("records", [])
+    appended = 0
+    for proposal in approved:
+        records.append(_genre_record(proposal))
+        for variant in proposal.alias_variants:
+            if variant and normalize_taxonomy_name(variant) != normalize_taxonomy_name(proposal.name):
+                records.append(_alias_record(variant, proposal.name))
+        appended += 1
+    data["taxonomy_version"] = new_version
+    path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True),
+                    encoding="utf-8")
+    return AppendResult(appended=appended)

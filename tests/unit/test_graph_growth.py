@@ -1,8 +1,10 @@
 import json
+import shutil
 
 from src.ai_genre_enrichment.storage import SidecarStore
 from src.ai_genre_enrichment import graph_growth
-from src.ai_genre_enrichment.layered_taxonomy import load_default_layered_taxonomy
+from src.ai_genre_enrichment.layered_taxonomy import (
+    DEFAULT_TAXONOMY_PATH, load_default_layered_taxonomy, load_layered_taxonomy)
 
 
 def _page_with_tags(store, release_key, artist, album, source_type, tags):
@@ -184,3 +186,27 @@ def test_validate_proposal_requires_a_parent():
     p = _valid_proposal()
     p.parent_edges = []
     assert any("parent" in e.lower() for e in graph_growth.validate_proposal(taxonomy, p))
+
+
+def test_append_approved_adds_genre_and_reloads(tmp_path):
+    tax_path = tmp_path / "taxonomy.yaml"
+    shutil.copy(DEFAULT_TAXONOMY_PATH, tax_path)
+    taxonomy = load_layered_taxonomy(tax_path)
+    proposal = graph_growth.GrowthProposal(
+        name="vaporwave", kind="subgenre", status="active", specificity_score=0.8,
+        parent_edges=[{"target": "electronic", "edge_type": "family_context",
+                       "weight": 0.55, "confidence": 0.8}],
+        similar_to=[], alias_variants=["vapor wave"],
+        term_kind_confirm="genre", rationale="microgenre",
+    )
+    result = graph_growth.append_approved_to_taxonomy(
+        tax_path, [proposal], new_version="0.3.0-grown-test")
+    assert result.appended == 1
+    # Re-load: the new genre is present and resolves a parent family.
+    grown = load_layered_taxonomy(tax_path)
+    assert grown.version == "0.3.0-grown-test"
+    gid = graph_growth._record_id("vaporwave")
+    assert grown.genre_by_id(gid) is not None
+    assert grown.genres  # still valid taxonomy (loader _validate_taxonomy passed)
+    # alias variant registered
+    assert grown.exact_alias_target_for_name("vapor wave") is not None
