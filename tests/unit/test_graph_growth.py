@@ -55,3 +55,20 @@ def test_gather_candidates_drops_below_threshold_and_mapped(tmp_path):
     terms = {c.term for c in cands}
     assert "vaporwave" not in terms   # only 1 album < 3
     assert "rock" not in terms        # mapped family, never a candidate
+
+
+def test_collapse_variants_merges_spacing_variants():
+    cands = [
+        graph_growth.GrowthCandidate(term="synthwave", album_frequency=10),
+        graph_growth.GrowthCandidate(term="synth wave", album_frequency=4),
+        graph_growth.GrowthCandidate(term="vaporwave", album_frequency=6),
+    ]
+    merged = graph_growth.collapse_variants(cands)
+    by_term = {c.term: c for c in merged}
+    # "synthwave"/"synth wave" collapse to the higher-frequency representative
+    assert "synthwave" in by_term
+    assert "synth wave" not in by_term
+    assert "synth wave" in by_term["synthwave"].variants
+    # frequencies combine; vaporwave untouched
+    assert by_term["synthwave"].album_frequency == 14
+    assert "vaporwave" in by_term

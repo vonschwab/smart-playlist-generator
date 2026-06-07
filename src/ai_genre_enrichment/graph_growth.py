@@ -73,3 +73,45 @@ def gather_growth_candidates(
 
     candidates.sort(key=lambda c: (-c.album_frequency, c.term))
     return candidates
+
+
+def _variant_key(term: str) -> str:
+    """Spacing/separator-insensitive key: 'synth wave' and 'synthwave' match."""
+    return "".join(ch for ch in term.casefold() if ch.isalnum())
+
+
+def collapse_variants(candidates: list[GrowthCandidate]) -> list[GrowthCandidate]:
+    """Merge spacing/separator variants into the highest-frequency representative.
+
+    The representative keeps its term + the union of examples/co-occurring tags;
+    the merged-away spellings are recorded in `variants` (alias suggestions).
+    Combined album_frequency is summed (upper bound; exact de-dup of overlapping
+    releases is unnecessary for ranking).
+    """
+    groups: dict[str, list[GrowthCandidate]] = defaultdict(list)
+    for cand in candidates:
+        groups[_variant_key(cand.term)].append(cand)
+
+    merged: list[GrowthCandidate] = []
+    for members in groups.values():
+        members.sort(key=lambda c: (-c.album_frequency, c.term))
+        rep = members[0]
+        variants = [m.term for m in members[1:]]
+        cooccur: list[str] = list(rep.cooccurring_tags)
+        examples: list[str] = list(rep.examples)
+        for m in members[1:]:
+            for t in m.cooccurring_tags:
+                if t not in cooccur:
+                    cooccur.append(t)
+            for e in m.examples:
+                if e not in examples:
+                    examples.append(e)
+        merged.append(GrowthCandidate(
+            term=rep.term,
+            album_frequency=sum(m.album_frequency for m in members),
+            cooccurring_tags=cooccur,
+            examples=examples,
+            variants=variants,
+        ))
+    merged.sort(key=lambda c: (-c.album_frequency, c.term))
+    return merged
