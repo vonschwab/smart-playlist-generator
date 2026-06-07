@@ -16,8 +16,10 @@ library-wide.
 ### Decisions locked during brainstorming
 
 - **Tiered enrichment.** Deterministic graph fusion for every album first (free,
-  fast, reproducible); reserve an AI set-level reasoning pass for the
-  weak/sparse/ambiguous minority where it changes the answer.
+  fast, reproducible); an AI set-level reasoning pass runs **by default** for the
+  weak/sparse/ambiguous minority where it changes the answer. AI-weak is on by
+  default (the goal is to fully enrich the library); `--no-ai-weak` gives a
+  deterministic-only run for inspection, and `--max-ai N` caps the AI spend.
 - **Re-publish via SP1.** Reuse the SP1 `publish_genres` pipeline to materialize
   `release_effective_genres`; no new publish logic. The live `metadata.db` write
   is the same gated, backed-up, second-confirmation step as SP1's live run.
@@ -65,7 +67,7 @@ try/except (one bad release never kills the run), UTF-8 output, final summary.
 Idempotent, so resumable by re-running (each release's assignments are
 overwritten). Records per-release outcome (assignment count, whether escalated).
 
-### 2. Weak detection + AI tier — same command, `--ai-weak` (tier 2)
+### 2. Weak detection + AI tier — same command (tier 2, default on)
 A release is escalated to the AI tier when **either**:
 - `route_release` returns `AUTHORITATIVE_SOURCE_ENRICHMENT` (pre-fusion signal), **or**
 - the deterministic fusion result is **below an accepted-genre floor**
@@ -75,9 +77,9 @@ A release is escalated to the AI tier when **either**:
 
 For escalated releases, run the existing AI web-enrichment pass (cached via
 `ai_genre_release_checks`, so reruns skip completed AI work — resumable, no
-re-spend), then re-fuse + re-materialize. The AI tier is **opt-in via `--ai-weak`
-with a `--max-ai N` cap** so the spend is bounded and observable; tier 1 alone is
-always safe to run first and inspect the escalation count before paying.
+re-spend), then re-fuse + re-materialize. **AI-weak runs by default**; `--max-ai
+N` bounds the spend, and `--no-ai-weak` produces a deterministic-only run so you
+can inspect the escalation count first if you want a cost preview before paying.
 
 ### 3. Re-publish — SP1 `publish_genres` (gated live write)
 After assignments are materialized, run `publish_genres` to rebuild
@@ -91,15 +93,15 @@ moment**. Not part of automated execution.
 | Signal | Tier |
 |--------|------|
 | `route_release` = `SKIP_WELL_TAGGED` or `NO_WEB_ADJUDICATION`, fusion ≥ floor | deterministic only |
-| `route_release` = `AUTHORITATIVE_SOURCE_ENRICHMENT` | AI tier (if `--ai-weak`) |
-| fusion accepted leaves < `min_accepted_leaves` (default 2) | AI tier (if `--ai-weak`) |
+| `route_release` = `AUTHORITATIVE_SOURCE_ENRICHMENT` | AI tier (default; skipped under `--no-ai-weak`) |
+| fusion accepted leaves < `min_accepted_leaves` (default 2) | AI tier (default; skipped under `--no-ai-weak`) |
 
 ## Scale, cost, resumability
 
 - **Tier 1** is local fusion: free, fast, fully reproducible; re-runnable.
-- **Tier 2** is AI web search per *weak* album only, capped by `--max-ai`, cached
-  by `ai_genre_release_checks` (resumable, no double-spend). Inspect the
-  escalation count from a tier-1 dry run before committing spend.
+- **Tier 2** is AI web search per *weak* album only (on by default), bounded by
+  `--max-ai`, cached by `ai_genre_release_checks` (resumable, no double-spend).
+  For a cost preview, `--no-ai-weak` reports the escalation count without paying.
 - **Re-publish** is seconds on this dataset.
 
 ## Safety & reversibility
@@ -118,8 +120,9 @@ moment**. Not part of automated execution.
 - **Tiering:** well-tagged album → deterministic only; no-genre / generic-only /
   conflicting / thin album → escalated; album with fusion below the leaf floor →
   escalated even if `route_release` said skip.
-- **`--max-ai` cap** halts escalation after N albums; remaining weak albums stay
-  on their deterministic result.
+- **AI-weak default-on:** a plain run escalates weak albums; `--no-ai-weak`
+  yields a deterministic-only run (no AI calls). **`--max-ai N`** halts escalation
+  after N albums; remaining weak albums stay on their deterministic result.
 - **Full-library orchestration:** progress/summary counts; one failing release
   doesn't abort the run; re-run is idempotent (same materialized rows).
 - **Re-publish (against a copy):** after enrichment, `release_effective_genres`
