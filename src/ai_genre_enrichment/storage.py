@@ -998,6 +998,23 @@ class SidecarStore:
             )
             return {row[0] for row in rows}
 
+    def all_collected_tags(self) -> list[sqlite3.Row]:
+        """Every collected source tag joined to its release, for growth analysis.
+
+        Returns rows with: release_key, normalized_artist, normalized_album,
+        normalized_tag. One row per (page, tag); callers aggregate.
+        """
+        with self.connect() as conn:
+            return list(conn.execute(
+                """
+                SELECT p.release_key, p.normalized_artist, p.normalized_album,
+                       t.normalized_tag
+                FROM ai_genre_source_tags t
+                JOIN ai_genre_source_pages p ON p.source_page_id = t.source_page_id
+                WHERE t.normalized_tag IS NOT NULL AND t.normalized_tag != ''
+                """
+            ).fetchall())
+
     def record_source_attempt(
         self, release_key: str, source_type: str, status: str, detail: str | None = None
     ) -> None:
