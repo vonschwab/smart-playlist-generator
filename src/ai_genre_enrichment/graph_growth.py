@@ -314,6 +314,34 @@ def _name_exists(taxonomy: LayeredTaxonomy, name: str) -> bool:
     return taxonomy.genre_by_id(_record_id(name)) is not None
 
 
+def _parent_target_error(taxonomy: LayeredTaxonomy, target: str) -> str | None:
+    """Return an error message if `target` cannot serve as a parent-edge target.
+
+    The loader (`layered_taxonomy._structured_taxonomy_from_data`) resolves
+    `parent_edges[].target` strings against a canonical-genre-name-only dict:
+    aliases are not in that dict (so an alias name resolves to nothing, which
+    either silently drops the edge or raises `ValueError` on load), and facet
+    matches are explicitly skipped (`continue`) rather than turned into edges.
+    `genre_by_name` resolves aliases, so it is too permissive for this check —
+    we need to confirm the target IS a genre's own canonical name.
+    """
+    norm = normalize_taxonomy_name(target)
+    genre = taxonomy.genre_by_name(norm)
+    if genre is not None:
+        if normalize_taxonomy_name(genre.name) != norm:
+            return (
+                f"parent target '{target}' is an alias, not a canonical genre "
+                f"name — use '{genre.name}' instead"
+            )
+        return None
+    if taxonomy.facet_by_name(norm) is not None:
+        return (
+            f"parent target '{target}' is a facet, not a genre — facets cannot "
+            "be parent-edge targets"
+        )
+    return f"parent edge target does not exist: '{target}'"
+
+
 def validate_proposal(taxonomy: LayeredTaxonomy, proposal: GrowthProposal) -> list[str]:
     """Return a list of structural errors ([] means the proposal is safe to add)."""
     errors: list[str] = []
@@ -333,13 +361,16 @@ def validate_proposal(taxonomy: LayeredTaxonomy, proposal: GrowthProposal) -> li
         errors.append("A new leaf genre needs at least one parent edge.")
     for edge in proposal.parent_edges:
         target = str(edge.get("target") or "").strip()
-        norm = normalize_taxonomy_name(target)
-        if taxonomy.genre_by_name(norm) is None and taxonomy.facet_by_name(norm) is None:
-            errors.append(f"parent edge target does not exist: '{target}'")
+        err = _parent_target_error(taxonomy, target)
+        if err is not None:
+            errors.append(err)
+    # similar_to entries become bridge_to parent_edges in `_genre_record`, so
+    # they are subject to the same loader-side canonical-name-only resolution.
     for target in proposal.similar_to:
-        norm = normalize_taxonomy_name(target)
-        if taxonomy.genre_by_name(norm) is None and taxonomy.facet_by_name(norm) is None:
-            errors.append(f"similar_to target does not exist: '{target}'")
+        err = _parent_target_error(taxonomy, str(target).strip())
+        if err is not None:
+            errors.append(err.replace("parent target", "similar_to target")
+                          .replace("parent edge target", "similar_to target"))
     return errors
 
 

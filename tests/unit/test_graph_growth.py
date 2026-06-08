@@ -189,6 +189,26 @@ def test_validate_proposal_requires_a_parent():
     assert any("parent" in e.lower() for e in graph_growth.validate_proposal(taxonomy, p))
 
 
+def test_validate_proposal_rejects_alias_parent_target():
+    # "rnb" is a `kind: alias` record whose canonical_target is "r&b/soul" in
+    # the default taxonomy — genre_by_name resolves it, but the loader's
+    # parent-edge resolution dict is keyed by canonical name only (and the
+    # alias's normalized form differs from the canonical name's), so an
+    # alias-named parent target would silently fail to resolve on reload.
+    taxonomy = load_default_layered_taxonomy()
+    errs = graph_growth.validate_proposal(taxonomy, _valid_proposal(parent="rnb"))
+    assert any("alias" in e.lower() for e in errs)
+
+
+def test_validate_proposal_rejects_facet_parent_target():
+    # "lo-fi" is a `kind: facet` record in the default taxonomy — it passes
+    # the existence check in validate_proposal, but the loader silently drops
+    # facet-target parent edges, leaving the new genre with zero parents.
+    taxonomy = load_default_layered_taxonomy()
+    errs = graph_growth.validate_proposal(taxonomy, _valid_proposal(parent="lo-fi"))
+    assert any("facet" in e.lower() for e in errs)
+
+
 def test_append_approved_adds_genre_and_reloads(tmp_path):
     tax_path = tmp_path / "taxonomy.yaml"
     shutil.copy(DEFAULT_TAXONOMY_PATH, tax_path)
