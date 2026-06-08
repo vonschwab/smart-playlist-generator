@@ -20,6 +20,11 @@ def main(argv=None) -> int:
     p.add_argument("--top", type=int, default=40)
     args = p.parse_args(argv)
 
+    db_path = Path(args.sidecar_db)
+    if not db_path.exists():
+        print(f"sidecar DB not found: {db_path}", file=sys.stderr)
+        return 2
+
     store = SidecarStore(args.sidecar_db)
     store.initialize()
     taxonomy = load_default_layered_taxonomy()
