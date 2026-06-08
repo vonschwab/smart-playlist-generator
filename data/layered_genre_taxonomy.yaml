@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.3.0-group2-grown
+taxonomy_version: 0.3.1-rnb-edge-upgrade
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -5935,6 +5935,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: alternative r&b
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -6605,6 +6610,11 @@ records:
     confidence: 0.64
     notes: null
   - target: neo-soul
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: contemporary r&b
     edge_type: bridge_to
     weight: 0.4
     confidence: 0.6
