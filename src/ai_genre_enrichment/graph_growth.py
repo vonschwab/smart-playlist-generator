@@ -196,6 +196,8 @@ class GrowthProposal:
     alias_variants: list[str] = field(default_factory=list)
     term_kind_confirm: str = "genre"
     rationale: str = ""
+    facet_type: str | None = None
+    canonical_target: str | None = None
 
 
 def _build_taxonomy_context(taxonomy: LayeredTaxonomy, candidate: GrowthCandidate) -> list[str]:
@@ -300,6 +302,8 @@ def read_proposals(path) -> list[ProposalEntry]:
                 alias_variants=list(p.get("alias_variants") or []),
                 term_kind_confirm=str(p.get("term_kind_confirm") or "genre"),
                 rationale=str(p.get("rationale") or ""),
+                facet_type=(str(p["facet_type"]) if p.get("facet_type") else None),
+                canonical_target=(str(p["canonical_target"]) if p.get("canonical_target") else None),
             ),
         ))
     return entries
@@ -342,6 +346,49 @@ def _parent_target_error(taxonomy: LayeredTaxonomy, target: str) -> str | None:
     return f"parent edge target does not exist: '{target}'"
 
 
+def _alias_target_error(taxonomy: LayeredTaxonomy, target: str) -> str | None:
+    """Return an error message if `target` cannot serve as an alias `canonical_target`.
+
+    Unlike parent-edge targets, alias targets MAY be facets or umbrellas (the
+    loader's alias resolution covers `genre_by_name`'s full dict, which includes
+    facets/umbrellas — confirmed against `_structured_taxonomy_from_data`). The
+    one thing an alias must never point at is *another alias* — that produces a
+    chain the loader doesn't follow, silently orphaning the new alias.
+    """
+    norm = normalize_taxonomy_name(target)
+    genre = taxonomy.genre_by_name(norm)
+    if genre is not None:
+        if normalize_taxonomy_name(genre.name) != norm:
+            return (
+                f"alias target '{target}' is itself an alias — point directly "
+                f"at '{genre.name}' instead"
+            )
+        return None
+    if taxonomy.facet_by_name(norm) is not None:
+        return None
+    return f"alias target does not exist: '{target}'"
+
+
+# Kinds the growth pipeline can append as canonical records. `genre`/`subgenre`
+# are leaves (need >=1 resolvable parent edge); `umbrella` is broad context
+# (parent edges optional, mirrors e.g. `world music` having none); `facet` is
+# a descriptor/modifier (no parent edges — facets are never genre-hierarchy
+# nodes; see `lo-fi`/`female vocals` in the taxonomy); `alias` is a plain
+# spelling/naming variant pointing at an EXISTING canonical record (for new
+# canonical records, use `alias_variants` on the genre/umbrella/facet proposal
+# instead — that's the batch-safe path; see `append_approved_to_taxonomy`).
+_LEAF_KINDS = {"genre", "subgenre"}
+_GROWTH_PROPOSABLE_KINDS = _LEAF_KINDS | {"umbrella", "facet", "alias"}
+
+# Mirrors `enums.facet_type` in `data/layered_genre_taxonomy.yaml` (excluding
+# the `None` sentinel, which only applies to non-facet records). Kept here
+# because `LayeredTaxonomy` doesn't carry the raw enum table at runtime.
+_VALID_FACET_TYPES = {
+    "mood", "texture", "instrumentation", "production", "era", "region",
+    "function", "vocal", "scene", "format", "rhythm",
+}
+
+
 def validate_proposal(taxonomy: LayeredTaxonomy, proposal: GrowthProposal) -> list[str]:
     """Return a list of structural errors ([] means the proposal is safe to add)."""
     errors: list[str] = []
@@ -349,22 +396,58 @@ def validate_proposal(taxonomy: LayeredTaxonomy, proposal: GrowthProposal) -> li
     if not name:
         errors.append("Proposal has an empty name.")
         return errors
-    if proposal.term_kind_confirm != "genre":
-        errors.append(f"Not a genre (term_kind_confirm={proposal.term_kind_confirm}); skip.")
-    if proposal.kind not in {"genre", "subgenre"}:
+    # `term_kind_confirm` is an AI-proposal sanity field with a closed schema
+    # enum (genre/facet/noise — no "alias" entry); plain alias proposals are
+    # human-authored (no AI placement step), so "genre" is the expected value.
+    expected_confirm = "facet" if proposal.kind == "facet" else "genre"
+    if proposal.term_kind_confirm != expected_confirm:
+        errors.append(
+            f"term_kind_confirm mismatch: expected '{expected_confirm}' for "
+            f"kind={proposal.kind}, got '{proposal.term_kind_confirm}'."
+        )
+    if proposal.kind not in _GROWTH_PROPOSABLE_KINDS:
         errors.append(f"Unsupported kind: {proposal.kind}")
     if not (0.0 <= float(proposal.specificity_score) <= 1.0):
         errors.append(f"specificity_score out of range: {proposal.specificity_score}")
     if _name_exists(taxonomy, name):
         errors.append(f"A taxonomy record named/sluged like '{name}' already exists.")
-    if not proposal.parent_edges:
+
+    if proposal.kind == "alias":
+        target = (proposal.canonical_target or "").strip()
+        if not target:
+            errors.append("An alias proposal needs a canonical_target.")
+        else:
+            err = _alias_target_error(taxonomy, target)
+            if err is not None:
+                errors.append(err)
+        if proposal.parent_edges:
+            errors.append("Alias proposals cannot have parent_edges (aliases are pure name redirects).")
+        if proposal.similar_to:
+            errors.append("Alias proposals cannot have similar_to (no bridge edges for aliases).")
+        if proposal.alias_variants:
+            errors.append("Alias proposals cannot have alias_variants (an alias cannot itself have aliases).")
+        return errors
+
+    if proposal.kind == "facet":
+        facet_type = (proposal.facet_type or "").strip()
+        if not facet_type:
+            errors.append("A facet proposal needs a facet_type.")
+        elif facet_type not in _VALID_FACET_TYPES:
+            errors.append(f"Unsupported facet_type: {facet_type}")
+        if proposal.parent_edges:
+            errors.append("Facet proposals cannot have parent_edges (facets are modifiers, not hierarchy nodes).")
+        if proposal.similar_to:
+            errors.append("Facet proposals cannot have similar_to (no bridge edges for modifiers).")
+        return errors
+
+    if proposal.kind in _LEAF_KINDS and not proposal.parent_edges:
         errors.append("A new leaf genre needs at least one parent edge.")
     for edge in proposal.parent_edges:
         target = str(edge.get("target") or "").strip()
         err = _parent_target_error(taxonomy, target)
         if err is not None:
             errors.append(err)
-    # similar_to entries become bridge_to parent_edges in `_genre_record`, so
+    # similar_to entries become bridge_to parent_edges in `_proposal_record`, so
     # they are subject to the same loader-side canonical-name-only resolution.
     for target in proposal.similar_to:
         err = _parent_target_error(taxonomy, str(target).strip())
@@ -380,7 +463,38 @@ class AppendResult:
     skipped: list[tuple[str, str]] = field(default_factory=list)
 
 
-def _genre_record(proposal: GrowthProposal) -> dict:
+def _proposal_record(proposal: GrowthProposal) -> dict:
+    """Build the taxonomy record dict for an approved proposal of any growable kind.
+
+    `genre`/`subgenre` -> leaf (parent edges define identity); `umbrella` ->
+    context (parent edges optional, mirrors e.g. `world music`/`avant-garde`);
+    `facet` -> modifier (no parent edges — descriptors sit outside the genre
+    hierarchy, mirrors `lo-fi`/`female vocals`); `alias` -> pure name redirect
+    to an existing canonical record (built via the same `_alias_record` helper
+    `alias_variants` uses, just targeting an existing name instead of a sibling
+    record created in this batch).
+    """
+    if proposal.kind == "alias":
+        return _alias_record(proposal.name, proposal.canonical_target)
+
+    if proposal.kind == "facet":
+        return {
+            "name": proposal.name,
+            "kind": "facet",
+            "role": "modifier",
+            "status": proposal.status or "active",
+            "facet_type": proposal.facet_type,
+            "specificity_score": float(proposal.specificity_score),
+            "canonical_target": None,
+            "parent_edges": [],
+            "secondary_roles": [],
+            "reject_reason": None,
+            "alias_policy": None,
+            "source_policy": "growth",
+            "possible_context_target": None,
+            "notes": proposal.rationale or "Added via SP3a graph growth.",
+        }
+
     parent_edges = [
         {
             "target": e["target"],
@@ -398,10 +512,11 @@ def _genre_record(proposal: GrowthProposal) -> dict:
             "target": target, "edge_type": "bridge_to",
             "weight": 0.4, "confidence": 0.6, "notes": "similar_to (growth)",
         })
+    role = "context" if proposal.kind == "umbrella" else "leaf"
     return {
         "name": proposal.name,
         "kind": proposal.kind,
-        "role": "leaf",
+        "role": role,
         "status": proposal.status or "active",
         "facet_type": None,
         "specificity_score": float(proposal.specificity_score),
@@ -447,7 +562,7 @@ def append_approved_to_taxonomy(taxonomy_path, approved: list[GrowthProposal],
     records = data.setdefault("records", [])
     appended = 0
     for proposal in approved:
-        records.append(_genre_record(proposal))
+        records.append(_proposal_record(proposal))
         for variant in proposal.alias_variants:
             if variant and normalize_taxonomy_name(variant) != normalize_taxonomy_name(proposal.name):
                 records.append(_alias_record(variant, proposal.name))

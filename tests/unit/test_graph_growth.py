@@ -5,7 +5,8 @@ from src.ai_genre_enrichment.storage import SidecarStore
 from src.ai_genre_enrichment import graph_growth
 from src.ai_genre_enrichment import graph_growth as gg
 from src.ai_genre_enrichment.layered_taxonomy import (
-    DEFAULT_TAXONOMY_PATH, load_default_layered_taxonomy, load_layered_taxonomy)
+    DEFAULT_TAXONOMY_PATH, load_default_layered_taxonomy, load_layered_taxonomy,
+    normalize_taxonomy_name)
 
 
 def _page_with_tags(store, release_key, artist, album, source_type, tags):
@@ -144,6 +145,30 @@ def test_proposal_file_round_trip(tmp_path):
     assert e.proposal.parent_edges[0]["target"] == "electronic"
 
 
+def test_proposal_file_round_trip_preserves_facet_and_alias_fields(tmp_path):
+    # `read_proposals` must carry `facet_type`/`canonical_target` through, or a
+    # facet/alias proposal silently loses them on the write->edit->read cycle
+    # that `graph-ingest-growth` relies on (the YAML is the human review surface).
+    facet = graph_growth.GrowthProposal(
+        name="brand new descriptor", kind="facet", status="active",
+        specificity_score=0.3, term_kind_confirm="facet", facet_type="texture",
+        rationale="x",
+    )
+    alias = graph_growth.GrowthProposal(
+        name="orchestra", kind="alias", status="alias_only", specificity_score=0.0,
+        term_kind_confirm="genre", canonical_target="orchestral", rationale="x",
+    )
+    path = tmp_path / "proposals.yaml"
+    graph_growth.write_proposals(path, [
+        (graph_growth.GrowthCandidate(term="brand new descriptor", album_frequency=0), facet),
+        (graph_growth.GrowthCandidate(term="orchestra", album_frequency=0), alias),
+    ])
+    entries = graph_growth.read_proposals(path)
+    by_term = {e.term: e.proposal for e in entries}
+    assert by_term["brand new descriptor"].facet_type == "texture"
+    assert by_term["orchestra"].canonical_target == "orchestral"
+
+
 def _valid_proposal(name="brand new genre", parent="electronic"):
     return graph_growth.GrowthProposal(
         name=name, kind="subgenre", status="active", specificity_score=0.7,
@@ -209,6 +234,124 @@ def test_validate_proposal_rejects_facet_parent_target():
     assert any("facet" in e.lower() for e in errs)
 
 
+def _valid_umbrella_proposal(name="brand new umbrella bucket"):
+    return graph_growth.GrowthProposal(
+        name=name, kind="umbrella", status="active", specificity_score=0.3,
+        parent_edges=[], similar_to=[], alias_variants=[],
+        term_kind_confirm="genre", rationale="x",
+    )
+
+
+def _valid_facet_proposal(name="brand new facet descriptor", facet_type="texture"):
+    return graph_growth.GrowthProposal(
+        name=name, kind="facet", status="active", specificity_score=0.4,
+        parent_edges=[], similar_to=[], alias_variants=[],
+        term_kind_confirm="facet", facet_type=facet_type, rationale="x",
+    )
+
+
+def test_validate_proposal_accepts_umbrella_without_parent_edges():
+    # Umbrellas are context buckets (e.g. "world music" has zero parent edges) —
+    # the leaf "needs >=1 parent edge" rule must not apply to them.
+    taxonomy = load_default_layered_taxonomy()
+    assert graph_growth.validate_proposal(taxonomy, _valid_umbrella_proposal()) == []
+
+
+def test_validate_proposal_accepts_umbrella_with_parent_edges():
+    taxonomy = load_default_layered_taxonomy()
+    p = _valid_umbrella_proposal()
+    p.parent_edges = [{"target": "electronic", "edge_type": "family_context",
+                       "weight": 0.4, "confidence": 0.8}]
+    assert graph_growth.validate_proposal(taxonomy, p) == []
+
+
+def test_validate_proposal_accepts_facet_with_valid_facet_type():
+    taxonomy = load_default_layered_taxonomy()
+    assert graph_growth.validate_proposal(taxonomy, _valid_facet_proposal()) == []
+
+
+def test_validate_proposal_rejects_facet_missing_facet_type():
+    taxonomy = load_default_layered_taxonomy()
+    p = _valid_facet_proposal(facet_type=None)
+    assert any("facet_type" in e.lower() for e in graph_growth.validate_proposal(taxonomy, p))
+
+
+def test_validate_proposal_rejects_facet_with_invalid_facet_type():
+    taxonomy = load_default_layered_taxonomy()
+    p = _valid_facet_proposal(facet_type="theme")  # not in the closed enum
+    assert any("facet_type" in e.lower() for e in graph_growth.validate_proposal(taxonomy, p))
+
+
+def test_validate_proposal_rejects_facet_with_parent_edges_or_similar_to():
+    taxonomy = load_default_layered_taxonomy()
+    p = _valid_facet_proposal()
+    p.parent_edges = [{"target": "electronic", "edge_type": "family_context",
+                       "weight": 0.4, "confidence": 0.8}]
+    p.similar_to = ["ambient"]
+    errs = graph_growth.validate_proposal(taxonomy, p)
+    assert any("parent_edges" in e for e in errs)
+    assert any("similar_to" in e for e in errs)
+
+
+def _valid_alias_proposal(name="orchestra redirect term", target="orchestral"):
+    return graph_growth.GrowthProposal(
+        name=name, kind="alias", status="alias_only", specificity_score=0.0,
+        parent_edges=[], similar_to=[], alias_variants=[],
+        term_kind_confirm="genre", canonical_target=target, rationale="x",
+    )
+
+
+def test_validate_proposal_accepts_alias_to_existing_facet():
+    # "orchestral" is a `kind: facet` canonical record — alias-to-facet is a
+    # loader-supported resolution path (unlike alias-to-facet *parent edges*).
+    taxonomy = load_default_layered_taxonomy()
+    assert graph_growth.validate_proposal(taxonomy, _valid_alias_proposal()) == []
+
+
+def test_validate_proposal_accepts_alias_to_existing_genre():
+    taxonomy = load_default_layered_taxonomy()
+    p = _valid_alias_proposal(name="electro music redirect", target="electronic")
+    assert graph_growth.validate_proposal(taxonomy, p) == []
+
+
+def test_validate_proposal_rejects_alias_target_that_is_itself_an_alias():
+    # "rnb" is itself a `kind: alias` pointing at "r&b/soul" — chaining aliases
+    # orphans the new one on load.
+    taxonomy = load_default_layered_taxonomy()
+    p = _valid_alias_proposal(name="rnb redirect term", target="rnb")
+    errs = graph_growth.validate_proposal(taxonomy, p)
+    assert any("alias" in e.lower() for e in errs)
+
+
+def test_validate_proposal_rejects_alias_missing_canonical_target():
+    taxonomy = load_default_layered_taxonomy()
+    p = _valid_alias_proposal(target=None)
+    assert any("canonical_target" in e for e in graph_growth.validate_proposal(taxonomy, p))
+
+
+def test_validate_proposal_rejects_alias_with_dangling_target():
+    taxonomy = load_default_layered_taxonomy()
+    p = _valid_alias_proposal(target="no such canonical record zzz")
+    assert any("does not exist" in e for e in graph_growth.validate_proposal(taxonomy, p))
+
+
+def test_append_approved_adds_alias_to_existing_facet(tmp_path):
+    tax_path = tmp_path / "taxonomy.yaml"
+    shutil.copy(DEFAULT_TAXONOMY_PATH, tax_path)
+    proposal = graph_growth.GrowthProposal(
+        name="orchestra", kind="alias", status="alias_only", specificity_score=0.0,
+        parent_edges=[], similar_to=[], alias_variants=[],
+        term_kind_confirm="genre", canonical_target="orchestral", rationale="x",
+    )
+    result = graph_growth.append_approved_to_taxonomy(
+        tax_path, [proposal], new_version="0.3.0-grown-test")
+    assert result.appended == 1
+    grown = load_layered_taxonomy(tax_path)
+    target = grown.exact_alias_target_for_name("orchestra")
+    assert target is not None
+    assert normalize_taxonomy_name(target.name) == normalize_taxonomy_name("orchestral")
+
+
 def test_append_approved_adds_genre_and_reloads(tmp_path):
     tax_path = tmp_path / "taxonomy.yaml"
     shutil.copy(DEFAULT_TAXONOMY_PATH, tax_path)
@@ -231,6 +374,44 @@ def test_append_approved_adds_genre_and_reloads(tmp_path):
     assert grown.genres  # still valid taxonomy (loader _validate_taxonomy passed)
     # alias variant registered
     assert grown.exact_alias_target_for_name("vapor wave") is not None
+
+
+def test_append_approved_adds_umbrella_record(tmp_path):
+    tax_path = tmp_path / "taxonomy.yaml"
+    shutil.copy(DEFAULT_TAXONOMY_PATH, tax_path)
+    proposal = graph_growth.GrowthProposal(
+        name="dream haze", kind="umbrella", status="active", specificity_score=0.32,
+        parent_edges=[], similar_to=[], alias_variants=["dreamhaze"],
+        term_kind_confirm="genre", rationale="broad context bucket",
+    )
+    result = graph_growth.append_approved_to_taxonomy(
+        tax_path, [proposal], new_version="0.3.0-grown-test")
+    assert result.appended == 1
+    grown = load_layered_taxonomy(tax_path)
+    gid = graph_growth._record_id("dream haze")
+    rec = grown.genre_by_id(gid)
+    assert rec is not None
+    assert rec.kind == "umbrella"
+    assert rec.role == "context"
+    assert grown.exact_alias_target_for_name("dreamhaze") is not None
+
+
+def test_append_approved_adds_facet_record(tmp_path):
+    tax_path = tmp_path / "taxonomy.yaml"
+    shutil.copy(DEFAULT_TAXONOMY_PATH, tax_path)
+    proposal = graph_growth.GrowthProposal(
+        name="brand new descriptor", kind="facet", status="active",
+        specificity_score=0.4, parent_edges=[], similar_to=[], alias_variants=[],
+        term_kind_confirm="facet", facet_type="texture", rationale="modifier",
+    )
+    result = graph_growth.append_approved_to_taxonomy(
+        tax_path, [proposal], new_version="0.3.0-grown-test")
+    assert result.appended == 1
+    grown = load_layered_taxonomy(tax_path)
+    fid = graph_growth._record_id("brand new descriptor")
+    rec = grown.facet_by_id(fid)
+    assert rec is not None
+    assert rec.facet_type == "texture"
 
 
 def test_cli_propose_growth_writes_file(tmp_path, monkeypatch):
