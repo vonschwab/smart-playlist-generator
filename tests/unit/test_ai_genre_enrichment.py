@@ -3324,18 +3324,18 @@ def test_graduate_reviewed_writes_to_yaml(tmp_path: Path) -> None:
         identity_confidence=1.0,
         evidence_summary="Test.",
     )
-    store.replace_source_tags(page_id, ["dark ambient"])
+    store.replace_source_tags(page_id, ["xyzzy unknown genre"])
     store.classify_source_tags(page_id)
 
     queue = store.get_review_queue()
     assert len(queue) >= 1
-    item = [q for q in queue if q["normalized_tag"] == "dark ambient"][0]
+    item = [q for q in queue if q["normalized_tag"] == "xyzzy unknown genre"][0]
 
     store.record_review_decision(
         source_tag_id=item["source_tag_id"],
         release_key="test::album",
-        raw_tag="dark ambient",
-        normalized_tag="dark ambient",
+        raw_tag="xyzzy unknown genre",
+        normalized_tag="xyzzy unknown genre",
         original_classification="review_only",
         reviewed_classification="genre_style",
     )
@@ -3349,7 +3349,7 @@ def test_graduate_reviewed_writes_to_yaml(tmp_path: Path) -> None:
 
     import yaml
     data = yaml.safe_load(vocab_yaml.read_text(encoding="utf-8"))
-    assert "dark ambient" in data["genre_style"]
+    assert "xyzzy unknown genre" in data["genre_style"]
 
 
 def test_adjudication_cache_stores_and_retrieves(tmp_path):
