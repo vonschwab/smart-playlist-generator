@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.4.2-deferred-queue-edge-upgrade
+taxonomy_version: 0.5.0-group1-pass2-grown
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -8783,6 +8783,2018 @@ records:
   facet_type: null
   specificity_score: null
   canonical_target: jazz piano
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: sound collage
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.6
+  canonical_target: null
+  parent_edges:
+  - target: experimental/avant-garde
+    edge_type: family_context
+    weight: 0.65
+    confidence: 0.85
+    notes: null
+  - target: experimental
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: electronic
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: hip hop
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.7
+    notes: null
+  - target: musique concrète
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: abstract hip hop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: electroacoustic
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Real collage/sample/edit-based experimental style, useful across musique
+    concrète, experimental electronic, plunderphonic, and abstract hip-hop contexts.
+    Unblocks the deferred musique concrète ↔ sound collage edge from PASS 5.
+- name: rockabilly
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.62
+  canonical_target: null
+  parent_edges:
+  - target: rock and roll
+    edge_type: is_a
+    weight: 0.75
+    confidence: 0.85
+    notes: null
+  - target: country/roots
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.85
+    notes: null
+  - target: blues
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: garage rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: rhythm and blues
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Foundational rock-and-roll/country/blues hybrid; useful for rootsy early-rock
+    and garage-adjacent material. Unblocks the deferred rock and roll ↔ rockabilly
+    edge.
+- name: broken beat
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: electronic
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: nu jazz
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: house
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: jazz fusion
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: breakbeat
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: electro
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Important UK electronic/jazz/funk-derived rhythm style, useful as a bridge
+    between nu jazz, house, breakbeat, and future club-related terms. (PASS-1 trim:
+    `acid jazz` removed from similar_to — not yet placed in the taxonomy; queued for
+    a future edge-upgrade when acid jazz lands.)'
+- name: free improvisation
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: experimental/avant-garde
+    edge_type: family_context
+    weight: 0.65
+    confidence: 0.85
+    notes: null
+  - target: avant-garde jazz
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: jazz
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: free jazz
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: avant-garde
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Broader practice/genre space than free jazz alone; useful for improvised
+    experimental, jazz, and avant-garde recordings. Unblocks the deferred free jazz
+    ↔ free improvisation edge.
+- name: free improv
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: free improvisation
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: ambient folk
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: ambient
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  - target: folk
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: indie folk
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: ambient americana
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: dream folk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: folktronica
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Useful ambient/folk hybrid category for pastoral, instrumental, drone-folk,
+    and quiet acoustic-ambient material. Unblocks the deferred folktronica ↔ ambient
+    folk edge. Not collapsed into ambient americana — ambient folk is broader and
+    less country/americana-specific.
+- name: berlin school
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.72
+  canonical_target: null
+  parent_edges:
+  - target: progressive electronic
+    edge_type: is_a
+    weight: 0.75
+    confidence: 0.85
+    notes: null
+  - target: electronic
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: kosmische musik
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: ambient
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: new age
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: ambient techno
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Distinct sequencer-driven progressive electronic lineage, useful for Tangerine
+    Dream/Klaus Schulze-adjacent material. Unblocks the deferred progressive electronic
+    ↔ berlin school edge.
+- name: stoner metal
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.76
+  canonical_target: null
+  parent_edges:
+  - target: metal
+    edge_type: family_context
+    weight: 0.65
+    confidence: 0.85
+    notes: null
+  - target: doom metal
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: stoner rock
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: psychedelic rock
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.75
+    notes: null
+  - target: sludge metal
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Clear stoner rock / doom metal / heavy psych metal overlap, useful for routing
+    fuzz-heavy slow/heavy records. Unblocks deferred stoner metal ↔ doom metal and
+    stoner metal ↔ stoner rock edges.
+- name: darkwave
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.72
+  canonical_target: null
+  parent_edges:
+  - target: post-punk
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: new wave
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: synth-pop
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: ethereal wave
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Dark post-punk/new-wave/synth lineage; useful for connecting ethereal wave,
+    gothic rock, coldwave, and moody synth/post-punk material. Unblocks ethereal wave
+    ↔ darkwave deferred edge. (PASS-1 trim: `gothic rock` same-batch — restored in
+    PASS 6.)'
+- name: dark wave
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: darkwave
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: gothic rock
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: post-punk
+    edge_type: family_context
+    weight: 0.65
+    confidence: 0.85
+    notes: null
+  - target: rock
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: new wave
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: ethereal wave
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Core post-punk-derived rock style, important for darkwave/ethereal wave/goth
+    routing. Unblocks ethereal wave ↔ gothic rock deferred edge. (PASS-1 trim: `darkwave`
+    same-batch — restored in PASS 6.)'
+- name: goth rock
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: gothic rock
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: gothic
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: gothic rock
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: gangsta rap
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.68
+  canonical_target: null
+  parent_edges:
+  - target: hip hop
+    edge_type: family_context
+    weight: 0.75
+    confidence: 0.85
+    notes: null
+  - target: west coast hip hop
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Major hip-hop subgenre; often west-coast-associated but not strictly limited
+    to west coast hip hop. Unblocks west coast hip hop ↔ gangsta rap deferred edge.
+    (PASS-1 trim: `g-funk` same-batch — restored in PASS 6.)'
+- name: gangster rap
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: gangsta rap
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: g-funk
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.76
+  canonical_target: null
+  parent_edges:
+  - target: west coast hip hop
+    edge_type: is_a
+    weight: 0.75
+    confidence: 0.85
+    notes: null
+  - target: hip hop
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: funk
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Distinct West Coast hip-hop/funk subgenre, high-value for 90s rap routing.
+    Unblocks west coast hip hop ↔ g-funk deferred edge. (PASS-1 trim: `gangsta rap`
+    same-batch — restored in PASS 6.)'
+- name: dirty south
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: southern hip hop
+    edge_type: is_a
+    weight: 0.8
+    confidence: 0.85
+    notes: null
+  - target: hip hop
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: trap
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Region/scene-specific Southern hip-hop branch, distinct enough to preserve
+    but tightly tied to southern hip hop. Unblocks the deferred southern hip hop ↔
+    dirty south edge.
+- name: dirty south rap
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: dirty south
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: standards
+  kind: facet
+  role: modifier
+  status: active
+  facet_type: format
+  specificity_score: 0.34
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Repertoire/form descriptor rather than a genre. Useful for vocal jazz, traditional
+    pop, and jazz repertoire routing without creating a false genre leaf. If facet-to-genre
+    secondary roles are supported in the future, connect to vocal jazz.
+- name: jazz standards
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: standards
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: pop standards
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: standards
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: uk garage
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: electronic
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  - target: dance
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: r&b/soul
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: grime
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Distinct UK electronic/dance genre, separate from garage rock. Must NOT
+    be collapsed into the `garage → garage rock` alias from G1P1. (PASS-1 trim: `dubstep`
+    removed from similar_to — not yet placed; queued for a future edge-upgrade when
+    dubstep lands.)'
+- name: UKG
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: uk garage
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: ukg
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: uk garage
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: folk pop
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.62
+  canonical_target: null
+  parent_edges:
+  - target: folk
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: pop
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: singer-songwriter
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: indie folk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: chamber pop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: soft rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Useful folk/pop crossover category, distinct from indie folk and singer-songwriter.
+    Keep moderate specificity; do not over-weight pop.
+- name: breakcore
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.78
+  canonical_target: null
+  parent_edges:
+  - target: electronic
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: drum and bass
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: jungle
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: idm
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: drill and bass
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Hyper-fractured electronic breakbeat style, useful near drill and bass /
+    IDM / jungle. Could later connect to hardcore techno if placed.
+- name: experimental hip hop
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: hip hop
+    edge_type: family_context
+    weight: 0.65
+    confidence: 0.85
+    notes: null
+  - target: experimental/avant-garde
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: experimental electronic
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: abstract hip hop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: alternative hip hop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Broad but useful hip-hop experimentalism tag; distinct from abstract hip
+    hop and alternative hip hop. (PASS-1 trim: `sound collage` same-batch — restored
+    in PASS 6.)'
+- name: industrial
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.58
+  canonical_target: null
+  parent_edges:
+  - target: experimental/avant-garde
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: electronic
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: noise
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.8
+    notes: null
+  - target: post-punk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: no wave
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Major experimental/electronic/noise-adjacent genre family, needed for later
+    industrial rock, industrial metal, EBM, electro-industrial, and industrial techno
+    terms. Consider whether industrial should eventually become an umbrella if many
+    child styles are added.
+- name: glam rock
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.6
+  canonical_target: null
+  parent_edges:
+  - target: rock
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  - target: art rock
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: pop rock
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: classic rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: hard rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Distinct 1970s rock/pop/art-rock style context; useful for Bowie/T. Rex/Roxy-adjacent
+    routing. Not merely classic rock — has specific art/pop/theatrical style signal.
+- name: highlife
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.65
+    confidence: 0.85
+    notes: null
+  - target: afrobeat
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: jazz
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: afro-funk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Major West African popular music style, useful near afrobeat, afro-funk,
+    and juju. (PASS-1 trim: `juju` same-batch — restored in PASS 6.)'
+- name: synth punk
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.72
+  canonical_target: null
+  parent_edges:
+  - target: punk rock
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: post-punk
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: electronic
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: synth-pop
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: garage punk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: new wave
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Distinct punk/synth/post-punk intersection; useful for egg-punk/minimal-wave/coldwave-adjacent
+    routing later. Do not collapse into synth-pop; punk/post-punk identity is central.
+- name: synthpunk
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: synth punk
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: jazz rock
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.58
+  canonical_target: null
+  parent_edges:
+  - target: jazz fusion
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  - target: rock
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: progressive rock
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: blues rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Useful jazz/rock crossover term, close to jazz fusion but rock-facing enough
+    to preserve as a routing cue. Not aliased to jazz fusion — source tags distinguish
+    rock-facing records.
+- name: motown
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.62
+  canonical_target: null
+  parent_edges:
+  - target: soul
+    edge_type: family_context
+    weight: 0.65
+    confidence: 0.85
+    notes: null
+  - target: rhythm and blues
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: pop
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: classic soul
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Label-originated but musically meaningful soul/R&B/pop style context, useful
+    for 1960s soul and pop-soul routing. (PASS-1 trim: `northern soul` removed from
+    similar_to — not yet placed; queued for a future edge-upgrade when northern soul
+    lands.)'
+- name: motown sound
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: motown
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: leftfield
+  kind: umbrella
+  role: context
+  status: review
+  facet_type: null
+  specificity_score: 0.32
+  canonical_target: null
+  parent_edges:
+  - target: electronic
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.75
+    notes: null
+  - target: experimental
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.75
+    notes: null
+  - target: electronica
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.7
+    notes: null
+  - target: experimental electronic
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Broad electronic/experimental context tag; useful but vague, so keep low-specificity
+    and review status. Consider rejecting later if it proves too broad/noisy in scoring.
+- name: trance
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.58
+  canonical_target: null
+  parent_edges:
+  - target: electronic
+    edge_type: family_context
+    weight: 0.65
+    confidence: 0.85
+    notes: null
+  - target: dance
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: techno
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: progressive electronic
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Major electronic dance genre, needed for later progressive trance / psytrance
+    placement. Keep distinct from ambient/progressive electronic even when source
+    co-occurs.
+- name: juju
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.65
+    confidence: 0.85
+    notes: null
+  - target: afrobeat
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: afro-funk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Nigerian popular music style, useful near highlife, afrobeat, and west African
+    funk contexts. (PASS-1 trim: `highlife` parent edge removed — same-batch forward
+    ref; restored in PASS 6 as family_context 0.35/0.75.)'
+- name: britpop
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: alternative rock
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  - target: indie rock
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: pop rock
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: classic rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: jangle pop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 1990s UK alternative/indie/pop-rock scene/style; useful for distinguishing
+    British alt-pop-rock lineage.
+- name: british invasion
+  kind: umbrella
+  role: context
+  status: active
+  facet_type: null
+  specificity_score: 0.42
+  canonical_target: null
+  parent_edges:
+  - target: rock
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: pop
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: rock and roll
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.8
+    notes: null
+  - target: classic rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: psychedelic rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: garage rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Historically specific rock/pop context, broad but useful for 1960s British
+    rock/pop routing. Treat as low-specificity context, not as a tight leaf genre.
+- name: chamber folk
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.68
+  canonical_target: null
+  parent_edges:
+  - target: folk
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  - target: indie folk
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: chamber pop
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: avant-folk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: dream folk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Useful arranged/acoustic folk style, adjacent to chamber pop and indie folk.
+    Keep separate from chamber pop because folk/acoustic instrumentation is the defining
+    axis.
+- name: bubblegum bass
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.78
+  canonical_target: null
+  parent_edges:
+  - target: electropop
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: pop
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: electronic
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Distinct maximal synthetic pop/electronic style, important for hyperpop/PC
+    Music adjacency. (PASS-1 trim: `hyperpop` and `pc music` same-batch — restored
+    in PASS 6.)'
+- name: tech house
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: house
+    edge_type: is_a
+    weight: 0.7
+    confidence: 0.85
+    notes: null
+  - target: techno
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: electronic
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.85
+    notes: null
+  - target: deep house
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'House/techno hybrid subgenre, useful for club-electronic routing. (PASS-1
+    trim: `progressive house` same-batch — restored in PASS 6.)'
+- name: smooth soul
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.58
+  canonical_target: null
+  parent_edges:
+  - target: soul
+    edge_type: family_context
+    weight: 0.65
+    confidence: 0.85
+    notes: null
+  - target: r&b/soul
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: rhythm and blues
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: classic soul
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: deep soul
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Smooth/pop-facing soul category, useful for softer R&B/soul routing. Could
+    later connect to quiet storm if placed.
+- name: pop punk
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: punk rock
+    edge_type: family_context
+    weight: 0.65
+    confidence: 0.85
+    notes: null
+  - target: pop
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: power pop
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: garage punk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Major punk/pop hybrid style with clear routing value.
+- name: minimal techno
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: techno
+    edge_type: is_a
+    weight: 0.75
+    confidence: 0.85
+    notes: null
+  - target: electronic
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.85
+    notes: null
+  - target: ambient techno
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Major techno subgenre; useful for minimal/ambient/dub techno adjacency without
+    using the `minimal` facet as a genre. (PASS-1 trim: `dub techno` same-batch —
+    restored in PASS 6.)'
+- name: dub techno
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.74
+  canonical_target: null
+  parent_edges:
+  - target: techno
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  - target: dub
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.85
+    notes: null
+  - target: ambient
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.8
+    notes: null
+  - target: electronic
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.8
+    notes: null
+  - target: ambient techno
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Distinct techno/dub/ambient hybrid with strong routing value. (PASS-1 trim:
+    `minimal techno` same-batch — restored in PASS 6.)'
+- name: heavy metal
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.56
+  canonical_target: null
+  parent_edges:
+  - target: metal
+    edge_type: family_context
+    weight: 0.75
+    confidence: 0.85
+    notes: null
+  - target: hard rock
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: rock
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: doom metal
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: thrash metal
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: stoner rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Core metal genre/root style, useful for routing classic metal and heavy hard-rock-adjacent
+    records. Broad genre; keep moderate specificity so more precise metal subgenres
+    dominate when present.
+- name: electroclash
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.72
+  canonical_target: null
+  parent_edges:
+  - target: electronic
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: electropop
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: dance
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: post-punk
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: new wave
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Early-2000s electronic/electropop/post-punk club style; useful for blog-house/electropop/dance-punk
+    adjacency. (PASS-1 trim: `synth punk` same-batch — restored in PASS 6.)'
+- name: progressive pop
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.6
+  canonical_target: null
+  parent_edges:
+  - target: pop
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: art pop
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: progressive rock
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: experimental pop
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: baroque pop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: chamber pop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Pop-facing progressive/art-pop style, useful for ambitious pop records without
+    forcing them into rock. Keep separate from art pop — progressive pop emphasizes
+    compositional ambition and pop form.
+- name: pc music
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.82
+  canonical_target: null
+  parent_edges:
+  - target: electropop
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.8
+    notes: null
+  - target: experimental pop
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: electronic
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Label/scene-derived but genre-tagged often enough to be useful for hyperpop/bubblegum
+    bass routing. Could be modeled as a scene facet, but current use as a genre-like
+    tag supports subgenre status. (PASS-1 trim: `hyperpop` and `bubblegum bass` same-batch
+    — restored in PASS 6.)'
+- name: hyperpop
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.78
+  canonical_target: null
+  parent_edges:
+  - target: pop
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: electropop
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: electronic
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.8
+    notes: null
+  - target: experimental pop
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Major modern maximalist internet-pop/electronic-pop subgenre. (PASS-1 trim:
+    `bubblegum bass` and `pc music` same-batch — restored in PASS 6.)'
+- name: hardcore hip hop
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: hip hop
+    edge_type: family_context
+    weight: 0.75
+    confidence: 0.85
+    notes: null
+  - target: underground hip-hop
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.7
+    notes: null
+  - target: boom bap
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Aggressive/hard-edged hip-hop category, useful across underground, boom-bap,
+    and gangsta rap contexts. (PASS-1 trim: `gangsta rap` same-batch — restored in
+    PASS 6.)'
+- name: contemporary folk
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.48
+  canonical_target: null
+  parent_edges:
+  - target: folk
+    edge_type: family_context
+    weight: 0.65
+    confidence: 0.85
+    notes: null
+  - target: singer-songwriter
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: indie folk
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Broad modern folk context useful when source tags indicate contemporary
+    folk without a narrower substyle. Keep low-moderate specificity; avoid letting
+    it overpower more precise folk styles. (PASS-1 trim: `folk pop` same-batch — restored
+    in PASS 6.)'
+- name: ambient jazz
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: ambient
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: jazz
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: contemporary jazz
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.75
+    notes: null
+  - target: nu jazz
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: spiritual jazz
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Ambient/jazz crossover context, useful for ECM-like, spacious, instrumental,
+    and electroacoustic-adjacent jazz.
+- name: west african funk
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: funk
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  - target: world music
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: afrobeat
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: afro-funk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Regional funk style bucket useful for afrobeat/highlife/afro-funk-adjacent
+    records. (PASS-1 trim: `highlife` same-batch — restored in PASS 6.)'
+- name: ska
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.6
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: reggae
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: rhythm and blues
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: roots reggae
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: dub
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Core Jamaican genre lineage; important for later rocksteady / skinhead reggae
+    placement. Historically ska predates reggae, so family_context rather than is_a
+    reggae.
+- name: proto-punk
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.58
+  canonical_target: null
+  parent_edges:
+  - target: rock
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: garage rock
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: art rock
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: punk rock
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: post-punk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: no wave
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Historical pre-punk rock context; useful for Stooges/Velvets/garage/art-rock-adjacent
+    material. Low-moderate specificity because it is retrospective and contextual.
+- name: progressive house
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: house
+    edge_type: is_a
+    weight: 0.7
+    confidence: 0.85
+    notes: null
+  - target: electronic
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.85
+    notes: null
+  - target: dance
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.8
+    notes: null
+  - target: deep house
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Major house subgenre; useful for connecting house, trance, and tech-house
+    branches. (PASS-1 trim: `tech house` and `trance` same-batch — restored in PASS
+    6.)'
+- name: glo-fi
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: chillwave
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: surf
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: surf rock
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: ambient country
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: ambient americana
   parent_edges: []
   secondary_roles: []
   reject_reason: null
