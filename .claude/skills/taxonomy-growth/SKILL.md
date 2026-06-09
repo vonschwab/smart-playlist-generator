@@ -161,6 +161,8 @@ When GPT's `kind`/placement is wrong, or you're placing directly, apply these (e
 | Adding a term breaks a "goes-to-review" test | `test_graduate_reviewed_writes_to_yaml`-style failure | `classify_source_tags` now resolves the term directly. Use `"xyzzy unknown genre"` as the genuinely-unknown source tag. |
 | Trusting `test_ai_genre_hybrid_cli.py` | 2 failures even on unmodified taxonomy | Pre-existing, not your regression. Deselect; don't "fix" by loosening. |
 | Facet with parent_edges / similar_to | validator rejects | Facets are modifiers — no edges. Put relationships on the genre side. |
+| `write_proposals` YAML is a bare list, not a dict | `TypeError: list indices must be integers or slices, not str` when doing `data["proposals"]` | `write_proposals` writes a top-level **list** of `{term, album_frequency, cooccurring_tags, examples, decision, proposal}` dicts. Patch with `for row in data:`, not `for row in data["proposals"]:`. |
+| `LayeredTaxonomy` has no `._genres` | `AttributeError: 'LayeredTaxonomy' object has no attribute '_genres'` | Use the public API: iterate via `taxonomy.genres` or look up by name with `taxonomy.genre_by_name(normalize_taxonomy_name(name))`. Never access private `_genres`. |
 
 ## Validation & safety checklist
 

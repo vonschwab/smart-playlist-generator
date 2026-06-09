@@ -38,15 +38,15 @@ def test_gather_candidates_keeps_unmapped_genres_above_threshold(tmp_path):
     store = SidecarStore(tmp_path / "sidecar.db")
     store.initialize()
     taxonomy = load_default_layered_taxonomy()
-    # "vaporwave" is (assume) unmapped; appears on 3 releases -> candidate.
+    # "xyzzy-growth-test" is unmapped; appears on 3 releases -> candidate.
     for i in range(3):
         _page_with_tags(store, f"a{i}::alb{i}", f"a{i}", f"alb{i}",
-                        "lastfm_tags", ["vaporwave", "ambient"])
-    # "rock" is a known family -> dropped. "vaporwave" on 3 albums -> kept.
+                        "lastfm_tags", ["xyzzy-growth-test", "ambient"])
+    # "rock" is a known family -> dropped. "xyzzy-growth-test" on 3 albums -> kept.
     cands = graph_growth.gather_growth_candidates(store, taxonomy, min_album_freq=3)
     terms = {c.term for c in cands}
-    assert "vaporwave" in terms
-    vw = next(c for c in cands if c.term == "vaporwave")
+    assert "xyzzy-growth-test" in terms
+    vw = next(c for c in cands if c.term == "xyzzy-growth-test")
     assert vw.album_frequency == 3
     assert "ambient" in vw.cooccurring_tags          # co-occurring evidence
     assert len(vw.examples) >= 1                       # example "artist — album"
@@ -357,10 +357,10 @@ def test_append_approved_adds_genre_and_reloads(tmp_path):
     shutil.copy(DEFAULT_TAXONOMY_PATH, tax_path)
     taxonomy = load_layered_taxonomy(tax_path)
     proposal = graph_growth.GrowthProposal(
-        name="vaporwave", kind="subgenre", status="active", specificity_score=0.8,
+        name="xyzzy-growth-test", kind="subgenre", status="active", specificity_score=0.8,
         parent_edges=[{"target": "electronic", "edge_type": "family_context",
                        "weight": 0.55, "confidence": 0.8}],
-        similar_to=[], alias_variants=["vapor wave"],
+        similar_to=[], alias_variants=["xyzzy-gt"],
         term_kind_confirm="genre", rationale="microgenre",
     )
     result = graph_growth.append_approved_to_taxonomy(
@@ -369,11 +369,11 @@ def test_append_approved_adds_genre_and_reloads(tmp_path):
     # Re-load: the new genre is present and resolves a parent family.
     grown = load_layered_taxonomy(tax_path)
     assert grown.version == "0.3.0-grown-test"
-    gid = graph_growth._record_id("vaporwave")
+    gid = graph_growth._record_id("xyzzy-growth-test")
     assert grown.genre_by_id(gid) is not None
     assert grown.genres  # still valid taxonomy (loader _validate_taxonomy passed)
     # alias variant registered
-    assert grown.exact_alias_target_for_name("vapor wave") is not None
+    assert grown.exact_alias_target_for_name("xyzzy-gt") is not None
 
 
 def test_append_approved_adds_umbrella_record(tmp_path):
@@ -421,7 +421,7 @@ def test_cli_propose_growth_writes_file(tmp_path, monkeypatch):
     store.initialize()
     for i in range(3):
         _page_with_tags(store, f"a{i}::b{i}", f"a{i}", f"b{i}",
-                        "lastfm_tags", ["vaporwave", "ambient"])
+                        "lastfm_tags", ["xyzzy-growth-test", "ambient"])
     meta = tmp_path / "metadata.db"   # discovery uses metadata; not needed here
     import sqlite3
     sqlite3.connect(meta).close()
@@ -446,7 +446,7 @@ def test_cli_propose_growth_writes_file(tmp_path, monkeypatch):
     ])
     assert rc == 0
     entries = gg.read_proposals(out)
-    assert any(e.term == "vaporwave" for e in entries)
+    assert any(e.term == "xyzzy-growth-test" for e in entries)
 
 
 def test_cli_ingest_growth_appends_kept_only(tmp_path):
@@ -462,7 +462,7 @@ def test_cli_ingest_growth_appends_kept_only(tmp_path):
     # one keep, one reject
     proposals_path = tmp_path / "proposals.yaml"
     keep = gg.GrowthProposal(
-        name="vaporwave", kind="subgenre", status="active", specificity_score=0.8,
+        name="xyzzy-growth-test", kind="subgenre", status="active", specificity_score=0.8,
         parent_edges=[{"target": "electronic", "edge_type": "family_context",
                        "weight": 0.55, "confidence": 0.8}],
         similar_to=[], alias_variants=[], term_kind_confirm="genre", rationale="x")
@@ -472,10 +472,10 @@ def test_cli_ingest_growth_appends_kept_only(tmp_path):
                        "weight": 0.5, "confidence": 0.5}],
         similar_to=[], alias_variants=[], term_kind_confirm="genre", rationale="noise")
     gg.write_proposals(proposals_path, [
-        (gg.GrowthCandidate(term="vaporwave", album_frequency=9), keep),
+        (gg.GrowthCandidate(term="xyzzy-growth-test", album_frequency=9), keep),
         (gg.GrowthCandidate(term="aaron", album_frequency=4), rej),
     ])
-    # user edits: keep vaporwave, reject aaron
+    # user edits: keep xyzzy-growth-test, reject aaron
     import yaml
     rows = yaml.safe_load(proposals_path.read_text(encoding="utf-8"))
     rows[0]["decision"] = "keep"
@@ -489,7 +489,7 @@ def test_cli_ingest_growth_appends_kept_only(tmp_path):
     ])
     assert rc == 0
     grown = load_layered_taxonomy(tax_path)
-    assert grown.genre_by_id(gg._record_id("vaporwave")) is not None
+    assert grown.genre_by_id(gg._record_id("xyzzy-growth-test")) is not None
     assert grown.genre_by_id(gg._record_id("aaron")) is None   # rejected
 
 
@@ -503,11 +503,11 @@ def test_cli_ingest_growth_dry_run_writes_nothing(tmp_path):
     side = tmp_path / "sidecar.db"; SidecarStore(side).initialize()
     proposals_path = tmp_path / "proposals.yaml"
     keep = gg.GrowthProposal(
-        name="vaporwave", kind="subgenre", status="active", specificity_score=0.8,
+        name="xyzzy-growth-test", kind="subgenre", status="active", specificity_score=0.8,
         parent_edges=[{"target": "electronic", "edge_type": "family_context",
                        "weight": 0.55, "confidence": 0.8}],
         similar_to=[], alias_variants=[], term_kind_confirm="genre", rationale="x")
-    gg.write_proposals(proposals_path, [(gg.GrowthCandidate(term="vaporwave", album_frequency=9), keep)])
+    gg.write_proposals(proposals_path, [(gg.GrowthCandidate(term="xyzzy-growth-test", album_frequency=9), keep)])
     import yaml
     rows = yaml.safe_load(proposals_path.read_text(encoding="utf-8"))
     rows[0]["decision"] = "keep"
