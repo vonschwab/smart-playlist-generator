@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.7.1-group1-pass4-edge-upgrade
+taxonomy_version: 0.7.2-group1-pass4-deferred-drain
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -11267,6 +11267,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: slow jams
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -11879,6 +11884,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: boogie
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -12463,6 +12473,16 @@ records:
     weight: 0.3
     confidence: 0.75
     notes: null
+  - target: glitch hop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: future beats
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -12587,6 +12607,11 @@ records:
     confidence: 0.75
     notes: null
   - target: vocal jazz
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: big band
     edge_type: bridge_to
     weight: 0.4
     confidence: 0.6
