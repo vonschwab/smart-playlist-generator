@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.7.2-group1-pass4-deferred-drain
+taxonomy_version: 0.8.0-group1-pass5-grown
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -14753,6 +14753,1584 @@ records:
   possible_context_target: null
   notes: Too ambiguous across roots reggae, world, Americana. No stable canonical
     usage.
+- name: calypso
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.6
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  - target: soca
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: reggae
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Foundational Caribbean popular genre; important parent/context node for
+    soca and Caribbean/world routing. TRIMMED: salsa (same-batch), cumbia (same-batch)
+    → PASS-8.'
+- name: african jazz
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.58
+  canonical_target: null
+  parent_edges:
+  - target: jazz
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: afro-jazz
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: afrobeat
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: world music
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: highlife
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: soukous
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Broad African-locales/jazz lineage context; distinct from afro-jazz. african
+    is a facet — not used as parent. TRIMMED: free funk (same-batch → PASS-8).'
+- name: adult contemporary
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.5
+  canonical_target: null
+  parent_edges:
+  - target: pop
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.8
+    notes: null
+  - target: soft rock
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: easy listening
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: r&b/soul
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  - target: yacht rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: smooth soul
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Radio-format genre for smooth pop/soft rock/R&B-adjacent material. NOTE:
+    smooth pop → adult contemporary alias deferred to G1P6 (same-batch alias target
+    in this pass).'
+- name: beat music
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.56
+  canonical_target: null
+  parent_edges:
+  - target: british invasion
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: rock and roll
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: pop
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: rock
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: mod
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '1960s British beat/Merseybeat pop-rock style. TRIMMED: garage pop (same-batch
+    → PASS-8).'
+- name: merseybeat
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: beat music
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: mod revival
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: mod
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  - target: post-punk
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: indie rock
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: new wave
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: power pop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '1970s/80s neo-mod scene; follows from mod umbrella placed in G1P4. TRIMMED:
+    beat music (same-batch), minimal wave (same-batch) → PASS-8.'
+- name: minimal wave
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: minimal synth
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: new wave
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: post-punk
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.8
+    notes: null
+  - target: electronic
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: darkwave
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: synth punk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Minimal synth/new-wave/post-punk cassette-culture style; distinct from minimal
+    synth in harder punk edge. TRIMMED: coldwave (same-batch → PASS-8).'
+- name: free funk
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.68
+  canonical_target: null
+  parent_edges:
+  - target: funk
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: jazz
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: avant-garde jazz
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: jazz fusion
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Avant-jazz/funk hybrid. DROPPED: jazz-funk (conditional alias name, not
+    a canonical target). DROPPED: avant-garde jazz (already in parent_edges). TRIMMED:
+    african jazz (same-batch → PASS-8).'
+- name: salsa
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.62
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: latin jazz
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: jazz
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  - target: bossa nova
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Major Afro-Caribbean/Latin popular dance genre. TRIMMED: calypso (same-batch),
+    cumbia (same-batch) → PASS-8.'
+- name: shitgaze
+  kind: microgenre
+  role: leaf
+  status: review
+  facet_type: null
+  specificity_score: 0.82
+  canonical_target: null
+  parent_edges:
+  - target: noise rock
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: garage punk
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: lo-fi rock
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: punk rock
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Narrow lo-fi garage/noise-punk microgenre. TRIMMED: egg punk (same-batch),
+    garage rock revival (same-batch) → PASS-8.'
+- name: plunderfolk
+  kind: microgenre
+  role: leaf
+  status: review
+  facet_type: null
+  specificity_score: 0.82
+  canonical_target: null
+  parent_edges:
+  - target: hypnagogic pop
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.75
+    notes: null
+  - target: folk
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: plunderphonics
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: dream pop
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  - target: bedroom pop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Niche sample/folk/hypnagogic-pop crossover; corpus-visible but very narrow.
+- name: garage rock revival
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: garage rock
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  - target: indie rock
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: alternative rock
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: post-punk revival
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '2000s/modern garage-rock revival; useful for indie/alternative garage routing.
+    TRIMMED: garage pop (same-batch), shitgaze (same-batch) → PASS-8.'
+- name: west coast jazz
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.64
+  canonical_target: null
+  parent_edges:
+  - target: jazz
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: cool jazz
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.8
+    notes: null
+  - target: bebop
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: latin jazz
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: hard bop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Recognized cool-jazz-adjacent West Coast jazz style/scene.
+- name: k-pop
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.58
+  canonical_target: null
+  parent_edges:
+  - target: pop
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  - target: dance-pop
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: electropop
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: r&b/soul
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  - target: j-pop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Major pop genre/industry style; broad but musically meaningful. TRIMMED:
+    shibuya-kei (same-batch → PASS-8).'
+- name: kpop
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: k-pop
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: korean pop
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: k-pop
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: jazz pop
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.54
+  canonical_target: null
+  parent_edges:
+  - target: jazz
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: pop
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: vocal jazz
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: bossa nova
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  - target: sophisti-pop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: easy listening
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Broad jazz/pop crossover tag; low specificity but routing-useful.
+- name: post-classical
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: contemporary classical
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: neoclassical
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: ambient
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: minimalist composition
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Contemporary classical/neoclassical/ambient-classical style. FIXED: ''minimalism''
+    → ''minimalist composition'' (was alias, not canonical). TRIMMED: post-minimalism
+    (same-batch → PASS-8). DROPPED: contemporary piano from similar_to (facet, cannot
+    be bridge_to target).'
+- name: nu metal
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: metal
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: heavy metal
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: alternative rock
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: hip hop
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  - target: rapcore
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: industrial rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Late-90s/2000s metal/alternative/rap-rock style.
+- name: death metal
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: metal
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  - target: heavy metal
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: doom metal
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: thrash metal
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: sludge metal
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Major metal subgenre; anchor for death-doom variants.
+- name: cumbia
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.62
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: dance
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Major Latin American dance/popular genre; parent for cumbia peruana/chicha.
+    TRIMMED: salsa parent edge (same-batch → PASS-8 family_context 0.25/0.70). TRIMMED:
+    calypso (same-batch), tropicalia (same-batch) → PASS-8.'
+- name: shibuya-kei
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: j-pop
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: pop
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: electronic
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: indie pop
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: sophisti-pop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: lounge
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Japanese eclectic pop/electronic/lounge/indie style; distinct from generic
+    J-pop. TRIMMED: k-pop (same-batch → PASS-8).'
+- name: psych hop
+  kind: subgenre
+  role: leaf
+  status: review
+  facet_type: null
+  specificity_score: 0.72
+  canonical_target: null
+  parent_edges:
+  - target: alternative hip hop
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: abstract hip hop
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: psychedelic
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: experimental hip hop
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: plunderphonics
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Psychedelic/abstract/experimental hip-hop context; review status (blog-noisy).
+    DROPPED: abstract — already exists as facet kind; cannot be bridge_to target.'
+- name: psychedelic hip hop
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: psych hop
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: egg punk
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.72
+  canonical_target: null
+  parent_edges:
+  - target: garage punk
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: synth punk
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: punk rock
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.8
+    notes: null
+  - target: garage rock
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Current garage/synth/weirdo punk subgenre. TRIMMED: shitgaze (same-batch),
+    queercore (same-batch) → PASS-8.'
+- name: tropicalia
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.62
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: psychedelic rock
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: bossa nova
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: world music
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: mpb
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Major Brazilian psych/pop/MPB movement; important for Brazilian/world/psych
+    routing. TRIMMED: cumbia (same-batch → PASS-8).'
+- name: tropicália
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: tropicalia
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: riot grrrl
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: punk rock
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: indie rock
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: post-punk
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: garage punk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Punk/indie-punk movement and style. TRIMMED: queercore (same-batch → PASS-8).'
+- name: riot grrrls
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: riot grrrl
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: queercore
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: punk rock
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: hardcore punk
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: garage punk
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: indie rock
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Punk/DIY subgenre with routing value near punk, hardcore, garage punk, indie
+    punk. TRIMMED: riot grrrl (same-batch), egg punk (same-batch) → PASS-8.'
+- name: ebm
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.68
+  canonical_target: null
+  parent_edges:
+  - target: industrial
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: electronic
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: dance
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: electro
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: industrial rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Industrial/electronic dance subgenre; important for industrial/electro/coldwave
+    routing. TRIMMED: coldwave (same-batch → PASS-8).'
+- name: electronic body music
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: ebm
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: coldwave
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: post-punk
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.85
+    notes: null
+  - target: new wave
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: electronic
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: darkwave
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: minimal synth
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Post-punk/new-wave/minimal-synth adjacent style. TRIMMED: minimal wave parent
+    edge (same-batch → PASS-8 family_context 0.40/0.80). TRIMMED: ebm from similar_to
+    (same-batch → PASS-8).'
+- name: cold wave
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: coldwave
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: indie emo
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: emo
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: indie rock
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: midwest emo
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: post-rock
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  - target: emocore
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Indie-rock-facing emo context; distinct from hardcore-derived emocore.
+- name: avant-jazz
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: avant-garde jazz
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: garage pop
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.64
+  canonical_target: null
+  parent_edges:
+  - target: garage rock
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: indie pop
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: power pop
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: twee pop
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Garage/indie-pop/power-pop intersection. TRIMMED: garage rock revival (same-batch),
+    beat music (same-batch) → PASS-8.'
+- name: post-disco
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: disco
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: boogie
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: r&b/soul
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: pop
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  - target: sophisti-pop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: synth funk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: nu-disco
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Disco aftermath/boogie/R&B/dance-pop context; useful near boogie and synth
+    funk.
+- name: cosmic american music
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.58
+  canonical_target: null
+  parent_edges:
+  - target: country/roots
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: country rock
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: psychedelic rock
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: folk rock
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: americana
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: ambient americana
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Country/roots/psych/country-rock tradition (Gram Parsons et al). Canonical
+    form is 'cosmic american music'; 'cosmic american' is alias_variant.
+- name: cosmic american
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: cosmic american music
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: folk punk
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.64
+  canonical_target: null
+  parent_edges:
+  - target: folk
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: punk rock
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: indie rock
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: alternative rock
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Folk/punk crossover; useful for DIY/acoustic punk and indie folk-punk. DEFERRED:
+    anti-folk (missing external → queue). DEFERRED: cowpunk (missing external → queue).'
+- name: post-minimalism
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: minimalist composition
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: contemporary classical
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: ambient
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  - target: neoclassical
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Real contemporary classical/post-minimalist subgenre. FIXED: ''minimalism''
+    → ''minimalist composition'' (was alias, not canonical). TRIMMED: post-classical
+    (same-batch → PASS-8).'
+- name: cumbia peruana
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Real Peruvian cumbia/chicha-related subgenre. TRIMMED: cumbia is_a parent
+    edge (same-batch → PASS-8 is_a 0.75/0.85). DEFERRED: chicha (missing external
+    → queue).'
+- name: peruvian cumbia
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: cumbia peruana
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: instrumental rock
+  kind: facet
+  role: modifier
+  status: review
+  facet_type: instrumentation
+  specificity_score: 0.28
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Describes absence of vocals in rock; not a stable style by itself.
+- name: jazz guitar
+  kind: facet
+  role: modifier
+  status: active
+  facet_type: instrumentation
+  specificity_score: 0.3
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Instrument-led jazz descriptor; keep as instrumentation facet per guardrail.
+- name: guitar jazz
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: jazz guitar
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: piano ambient
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: contemporary piano
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: ambient piano
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: contemporary piano
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: new age jazz
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: ambient jazz
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: classic jazz
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: jazz
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: oldies
+  kind: reject
+  role: leaf
+  status: rejected
+  facet_type: null
+  specificity_score: 0.5
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: retail_bucket
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Era/retail/library bucket; not a stable genre/style node.
+- name: girl groups
+  kind: reject
+  role: leaf
+  status: rejected
+  facet_type: null
+  specificity_score: 0.5
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: label
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Social/performer-format category rather than genre/style node.
+- name: edm
+  kind: reject
+  role: leaf
+  status: rejected
+  facet_type: null
+  specificity_score: 0.5
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Overbroad commercial/source label for mainstream electronic dance; use specific
+    styles.
 bridge_rules:
 - source: indie pop
   target: synth-pop
