@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.4.1-group1-pass1-edge-upgrade
+taxonomy_version: 0.4.2-deferred-queue-edge-upgrade
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -5643,6 +5643,11 @@ records:
     weight: 0.55
     confidence: 0.82
     notes: null
+  - target: afrobeat
+    edge_type: scene_adjacent
+    weight: 0.45
+    confidence: 0.85
+    notes: null
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -5688,6 +5693,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: reggae
+    edge_type: is_a
+    weight: 0.75
+    confidence: 0.85
+    notes: null
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -6706,6 +6716,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: reggae
+    edge_type: family_context
+    weight: 0.65
+    confidence: 0.85
+    notes: null
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -6921,6 +6936,11 @@ records:
     weight: 0.4
     confidence: 0.78
     notes: null
+  - target: electroacoustic
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -7228,6 +7248,11 @@ records:
     confidence: 0.6
     notes: similar_to (growth)
   - target: progressive rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: hard rock
     edge_type: bridge_to
     weight: 0.4
     confidence: 0.6
@@ -7953,6 +7978,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: hypnagogic pop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -7984,6 +8014,11 @@ records:
     confidence: 0.75
     notes: null
   - target: neo-psychedelia
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: chillwave
     edge_type: bridge_to
     weight: 0.4
     confidence: 0.6
@@ -8542,6 +8577,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: hard rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -8572,6 +8612,11 @@ records:
     weight: 0.25
     confidence: 0.7
     notes: null
+  - target: nu jazz
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
