@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.4.0-group1-pass1-grown
+taxonomy_version: 0.4.1-group1-pass1-edge-upgrade
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -8278,6 +8278,16 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: electropop
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: disco
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -8422,6 +8432,11 @@ records:
     edge_type: family_context
     weight: 0.45
     confidence: 0.8
+    notes: null
+  - target: noise
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.75
     notes: null
   secondary_roles: []
   reject_reason: null
