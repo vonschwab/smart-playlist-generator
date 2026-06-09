@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.6.0-group1-pass3-grown
+taxonomy_version: 0.6.1-group1-pass3-edge-upgrade
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -11128,6 +11128,16 @@ records:
     weight: 0.25
     confidence: 0.7
     notes: null
+  - target: future garage
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: dubstep
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -11237,6 +11247,11 @@ records:
     weight: 0.25
     confidence: 0.7
     notes: null
+  - target: new jack swing
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -11392,6 +11407,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: quiet storm
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -11486,6 +11506,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: bleep techno
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -11526,6 +11551,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: acid breaks
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -11557,6 +11587,11 @@ records:
     confidence: 0.7
     notes: null
   - target: jazz rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: psychedelic soul
     edge_type: bridge_to
     weight: 0.4
     confidence: 0.6
@@ -12268,6 +12303,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: synthwave
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -12303,6 +12343,16 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: 2-step
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: dubstep
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -12612,6 +12662,11 @@ records:
     confidence: 0.65
     notes: null
   - target: synth-pop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: minimal synth
     edge_type: bridge_to
     weight: 0.4
     confidence: 0.6
