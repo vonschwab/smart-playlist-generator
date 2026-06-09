@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.5.0-group1-pass2-grown
+taxonomy_version: 0.5.1-group1-pass2-edge-upgrade
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -9148,6 +9148,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: gothic rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -9196,6 +9201,11 @@ records:
     confidence: 0.7
     notes: null
   - target: ethereal wave
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: darkwave
     edge_type: bridge_to
     weight: 0.4
     confidence: 0.6
@@ -9256,6 +9266,11 @@ records:
     weight: 0.35
     confidence: 0.75
     notes: null
+  - target: g-funk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -9302,6 +9317,11 @@ records:
     weight: 0.45
     confidence: 0.85
     notes: null
+  - target: gangsta rap
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -9587,6 +9607,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: sound collage
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -9701,6 +9726,11 @@ records:
     confidence: 0.7
     notes: null
   - target: afro-funk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: juju
     edge_type: bridge_to
     weight: 0.4
     confidence: 0.6
@@ -9954,6 +9984,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: highlife
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -10111,6 +10146,16 @@ records:
     weight: 0.4
     confidence: 0.8
     notes: null
+  - target: hyperpop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: pc music
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -10143,6 +10188,11 @@ records:
     confidence: 0.85
     notes: null
   - target: deep house
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: progressive house
     edge_type: bridge_to
     weight: 0.4
     confidence: 0.6
@@ -10251,6 +10301,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: dub techno
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -10288,6 +10343,11 @@ records:
     confidence: 0.8
     notes: null
   - target: ambient techno
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: minimal techno
     edge_type: bridge_to
     weight: 0.4
     confidence: 0.6
@@ -10378,6 +10438,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: synth punk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -10454,6 +10519,16 @@ records:
     weight: 0.35
     confidence: 0.75
     notes: null
+  - target: hyperpop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: bubblegum bass
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -10491,6 +10566,16 @@ records:
     weight: 0.3
     confidence: 0.75
     notes: null
+  - target: bubblegum bass
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: pc music
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -10517,6 +10602,11 @@ records:
     confidence: 0.7
     notes: null
   - target: boom bap
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: gangsta rap
     edge_type: bridge_to
     weight: 0.4
     confidence: 0.6
@@ -10552,6 +10642,11 @@ records:
     weight: 0.3
     confidence: 0.75
     notes: null
+  - target: folk pop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -10625,6 +10720,11 @@ records:
     confidence: 0.8
     notes: null
   - target: afro-funk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: highlife
     edge_type: bridge_to
     weight: 0.4
     confidence: 0.6
@@ -10746,6 +10846,16 @@ records:
     confidence: 0.8
     notes: null
   - target: deep house
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: tech house
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: trance
     edge_type: bridge_to
     weight: 0.4
     confidence: 0.6
