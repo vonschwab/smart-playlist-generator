@@ -145,6 +145,7 @@ def build_graph_similarity(
 
     off_diag = S[~np.eye(len(out_vocab), dtype=bool)] if len(out_vocab) > 1 else np.zeros(0)
     stats = {
+        "source": "graph",
         "taxonomy_version": adapter.taxonomy_version,
         "genres_kept": len(out_vocab),
         "path_nodes": n,
@@ -167,6 +168,25 @@ def build_graph_similarity(
         len(out_vocab), n, edges_used, 100.0 * stats["nonzero_offdiag_fraction"],
     )
     return GraphSimilarityResult(genre_vocab=list(out_vocab), S=S, stats=stats)
+
+
+def npz_similarity_source(path: str | Path) -> Optional[str]:
+    """Read which generator produced a genre-similarity NPZ.
+
+    Returns "graph" for graph-derived matrices, "cooccurrence" for matrices
+    without a source stamp (the legacy Jaccard builder), or None when the file
+    does not exist or cannot be read.
+    """
+    path = Path(path)
+    if not path.exists():
+        return None
+    try:
+        data = np.load(path, allow_pickle=True)
+        stats = data["stats"].item() if "stats" in data.files else {}
+    except Exception:
+        logger.warning("Could not read similarity provenance from %s", path, exc_info=True)
+        return None
+    return str(stats.get("source") or "cooccurrence")
 
 
 def save_graph_similarity_npz(result: GraphSimilarityResult, out_path: str | Path) -> Path:

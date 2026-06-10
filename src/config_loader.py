@@ -122,6 +122,18 @@ class Config:
         """Get artifact-build genre source. Legacy is the backward-compatible default."""
         return self._get_ds_pipeline("genre_source", default="legacy")
 
+    def get_ds_genre_similarity_source(self) -> str:
+        """Which generator produces the genre-similarity smoothing matrix at
+        artifact-build time. cooccurrence (legacy Jaccard) is the default;
+        graph derives it from the layered genre taxonomy."""
+        raw = str(
+            self._get_ds_pipeline("genre_similarity", "source", default="cooccurrence")
+            or "cooccurrence"
+        ).strip().lower()
+        if raw not in {"cooccurrence", "graph"}:
+            return "cooccurrence"
+        return raw
+
     def get_ds_genre_graph_source(self) -> str:
         """Get runtime genre graph source. Legacy is the backward-compatible default."""
         raw = self._get_ds_pipeline("genre_graph", "source", default=None)
@@ -453,6 +465,9 @@ class Config:
             },
             'genre_graph': {
                 'source': self.get_ds_genre_graph_source(),
+            },
+            'genre_similarity': {
+                'source': self.get_ds_genre_similarity_source(),
             },
             'genre_source': self.get_ds_genre_source(),
             'scoring': {

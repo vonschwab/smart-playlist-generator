@@ -100,6 +100,13 @@ playlists:
     artifact_path: data/artifacts/beat3tower_32k/data_matrices_step1.npz
     # Artifact builds remain backward-compatible unless explicitly opted in.
     genre_source: legacy  # legacy | enriched | hybrid_shadow
+    # Genre-similarity matrix used to smooth X_genre_raw at artifact-build time.
+    #   cooccurrence (default): Jaccard from library tag co-occurrence
+    #   graph: derived from the curated layered genre taxonomy
+    #           (data/layered_genre_taxonomy.yaml via scripts/build_graph_genre_similarity.py)
+    # Flipping this forces a similarity-matrix rebuild on the next analyze/artifact run.
+    genre_similarity:
+      source: cooccurrence  # cooccurrence | graph
     random_seed: 0
     enable_logging: true
 

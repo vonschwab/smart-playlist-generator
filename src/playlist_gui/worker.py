@@ -1614,6 +1614,7 @@ def handle_build_artifacts(cmd_data: Dict[str, Any]) -> None:
             'artifact_path', 'data/artifacts/beat3tower_32k/data_matrices_step1.npz'
         )
         genre_source = _resolve_worker_artifact_genre_source(config)
+        genre_sim_path = _resolve_worker_genre_sim_path(config, output_path)
 
         check_cancelled()
         emit_progress("artifacts", 20, 100, f"Building matrices ({genre_source})")
@@ -1624,7 +1625,7 @@ def handle_build_artifacts(cmd_data: Dict[str, Any]) -> None:
             db_path=db_path,
             config=base_path,
             output=output_path,
-            genre_sim_path=None,
+            genre_sim_path=genre_sim_path,
             max_tracks=0,
             no_pca=False,
             pca_variance=0.95,
@@ -1671,6 +1672,37 @@ def handle_build_artifacts(cmd_data: Dict[str, Any]) -> None:
         tb = traceback.format_exc()
         emit_error(str(e), tb)
         emit_done("build_artifacts", False, str(e), summary="Artifact build failed")
+
+
+def _resolve_worker_genre_sim_path(config: Dict[str, Any], artifact_output_path: str) -> Optional[str]:
+    """Resolve the genre-similarity smoothing matrix for GUI artifact rebuilds.
+
+    Default (cooccurrence) returns None — the GUI flow has never applied
+    smoothing, and that behavior is preserved. With
+    playlists.ds_pipeline.genre_similarity.source: graph, the taxonomy-derived
+    matrix is (re)built next to the artifact and passed to the builder so GUI
+    rebuilds match the CLI analyze flow.
+    """
+    ds_cfg = config.get("playlists", {}).get("ds_pipeline", {})
+    sim_cfg = ds_cfg.get("genre_similarity", {})
+    source = ""
+    if isinstance(sim_cfg, dict):
+        source = str(sim_cfg.get("source") or "").strip().lower()
+    if source != "graph":
+        return None
+
+    from src.genre.graph_adapter import load_graph_adapter
+    from src.genre.graph_similarity import (
+        build_graph_similarity,
+        npz_similarity_source,
+        save_graph_similarity_npz,
+    )
+
+    sim_path = Path(artifact_output_path).parent / "genre_similarity_matrix.npz"
+    if npz_similarity_source(sim_path) != "graph":
+        sim_path.parent.mkdir(parents=True, exist_ok=True)
+        save_graph_similarity_npz(build_graph_similarity(load_graph_adapter()), sim_path)
+    return str(sim_path)
 
 
 def _resolve_worker_artifact_genre_source(config: Dict[str, Any]) -> str:

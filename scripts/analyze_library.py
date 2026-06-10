@@ -1086,12 +1086,41 @@ def stage_sonic(ctx: Dict) -> Dict:
 def stage_genre_sim(ctx: Dict) -> Dict:
     out_dir = ctx["out_dir"]
     out_path = out_dir / "genre_similarity_matrix.npz"
-    force_rebuild = ctx["args"].force or bool(ctx.get("genres_dirty")) or bool(ctx.get("force_stage"))
+
+    from src.config_loader import Config as _Config
+    from src.genre.graph_similarity import npz_similarity_source
+    sim_source = _Config(ctx["config_path"]).get_ds_genre_similarity_source()
+    existing_source = npz_similarity_source(out_path)
+    source_mismatch = existing_source is not None and existing_source != sim_source
+
+    force_rebuild = (
+        ctx["args"].force
+        or bool(ctx.get("genres_dirty"))
+        or bool(ctx.get("force_stage"))
+        or source_mismatch
+    )
     if out_path.exists() and not force_rebuild:
         logger.info("Skipping genre-sim stage (exists: %s; use --force to rebuild)", out_path)
         return {"path": str(out_path), "skipped": True}
-    if out_path.exists() and force_rebuild and not ctx["args"].force:
+    if source_mismatch:
+        logger.info(
+            "Rebuilding genre-sim (existing matrix source=%s, config wants %s)",
+            existing_source, sim_source,
+        )
+    elif out_path.exists() and force_rebuild and not ctx["args"].force:
         logger.info("Rebuilding genre-sim (new genres detected since last build)")
+
+    if sim_source == "graph":
+        try:
+            from src.genre.graph_adapter import load_graph_adapter
+            from src.genre.graph_similarity import build_graph_similarity, save_graph_similarity_npz
+            graph_result = build_graph_similarity(load_graph_adapter())
+            save_graph_similarity_npz(graph_result, out_path)
+        except (RuntimeError, ValueError, FileNotFoundError) as exc:
+            logger.warning("Skipping genre-sim stage (graph source failed): %s", exc)
+            return {"path": str(out_path), "skipped": True, "reason": str(exc)}
+        return {"path": str(out_path), "skipped": False, "stats": graph_result.stats}
+
     try:
         result = build_genre_similarity_matrix(
             db_path=ctx["db_path"],
