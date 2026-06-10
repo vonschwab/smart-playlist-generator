@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.9.0-group1-pass6-grown
+taxonomy_version: 0.9.1-group1-pass6-edge-upgrade
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -16266,6 +16266,16 @@ records:
     weight: 0.2
     confidence: 0.65
     notes: null
+  - target: anti-folk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: cowpunk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -16332,6 +16342,11 @@ records:
     weight: 0.75
     confidence: 0.85
     notes: null
+  - target: chicha
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -16554,6 +16569,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: cowpunk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -16610,6 +16630,11 @@ records:
     confidence: 0.6
     notes: similar_to (growth)
   - target: rockabilly
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: anti-folk
     edge_type: bridge_to
     weight: 0.4
     confidence: 0.6
@@ -16703,6 +16728,11 @@ records:
     confidence: 0.7
     notes: null
   - target: latin jazz
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: afrobeats
     edge_type: bridge_to
     weight: 0.4
     confidence: 0.6
@@ -16831,6 +16861,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: reggaeton
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -16911,6 +16946,16 @@ records:
     weight: 0.2
     confidence: 0.65
     notes: null
+  - target: screamo
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: deathcore
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -16961,6 +17006,11 @@ records:
     confidence: 0.65
     notes: null
   - target: midwest emo
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: metalcore
     edge_type: bridge_to
     weight: 0.4
     confidence: 0.6
@@ -17044,6 +17094,16 @@ records:
     weight: 0.25
     confidence: 0.7
     notes: null
+  - target: metalcore
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: grindcore
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -17099,6 +17159,16 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: emo rap
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: phonk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -17134,6 +17204,16 @@ records:
     weight: 0.3
     confidence: 0.75
     notes: null
+  - target: cloud rap
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: phonk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -17168,6 +17248,16 @@ records:
     weight: 0.2
     confidence: 0.65
     notes: null
+  - target: cloud rap
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: emo rap
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -17341,6 +17431,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: post-metal
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -17395,6 +17490,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: cloud rap
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -17430,6 +17530,21 @@ records:
     weight: 0.25
     confidence: 0.7
     notes: null
+  - target: metalcore
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: phonk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: emo rap
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -17466,6 +17581,11 @@ records:
     confidence: 0.7
     notes: null
   - target: space rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: progressive metal
     edge_type: bridge_to
     weight: 0.4
     confidence: 0.6
