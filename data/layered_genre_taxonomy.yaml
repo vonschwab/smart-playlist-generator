@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.9.1-group1-pass6-edge-upgrade
+taxonomy_version: 0.10.0-group1-pass7-grown
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -17735,6 +17735,1231 @@ records:
   source_policy: null
   possible_context_target: null
   notes: Spelling variant (growth).
+- name: bitpop
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: chiptune
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: synth-pop
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: indie pop
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: electronic
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: video game music
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Chiptune-adjacent pop-song style using 8-bit/game sounds. Distinct from chiptune
+    (hardware/timbre-focused). Unblocks chiptune -> bitpop deferred edge.
+- name: bit pop
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: bitpop
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: powerviolence
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.74
+  canonical_target: null
+  parent_edges:
+  - target: hardcore punk
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: grindcore
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: noise
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: punk rock
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Ultra-fast hardcore punk adjacent to grindcore but punk-rooted. Unblocks
+    grindcore -> powerviolence deferred edge. PASS-N: powerviolence -> crust punk.'
+- name: power violence
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: powerviolence
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: mbalax
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.64
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: afrobeats
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: highlife
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  - target: afrobeat
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Senegalese percussion-driven popular music. Useful African/world-pop routing
+    node.
+- name: baile funk
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.62
+  canonical_target: null
+  parent_edges:
+  - target: electronic
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: hip hop
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: funk
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: reggaeton
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Brazilian funk carioca/Rio bass-dance genre. PASS-N: baile funk <-> jersey
+    club.'
+- name: funk carioca
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: baile funk
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: favela funk
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: baile funk
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: kuduro
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.62
+  canonical_target: null
+  parent_edges:
+  - target: electronic
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: world music
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: afrobeats
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: dance
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Angolan electronic dance music. PASS-N: kuduro <-> gqom, kuduro <-> kizomba.'
+- name: gqom
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.64
+  canonical_target: null
+  parent_edges:
+  - target: electronic
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: afrobeats
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: dance
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: world music
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'South African bass-heavy club genre. Distinct from amapiano. PASS-N: gqom
+    <-> amapiano, gqom <-> kuduro.'
+- name: amapiano
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.64
+  canonical_target: null
+  parent_edges:
+  - target: electronic
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: afrobeats
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: jazz
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: dance
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: deep house
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'South African log-drum/jazz-house hybrid. Distinct from gqom. PASS-N: amapiano
+    <-> gqom.'
+- name: drill
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.68
+  canonical_target: null
+  parent_edges:
+  - target: trap
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: hip hop
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: alternative hip hop
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: gangsta rap
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Dark trap-influenced hip-hop with Chicago/UK/NY lineages. PASS-N: drill
+    <-> crunk.'
+- name: crunk
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: hip hop
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: trap
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: electronic
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'High-energy Southern hip-hop. PASS-N: crunk <-> drill, crunk <-> jersey
+    club.'
+- name: jersey club
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.68
+  canonical_target: null
+  parent_edges:
+  - target: electronic
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: hip hop
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: house
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  - target: dance
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'NJ club/dance style with hip-hop/electronic routing. PASS-N: jersey club
+    <-> juke, <-> baile funk, <-> crunk.'
+- name: jersey club music
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: jersey club
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: crust punk
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: hardcore punk
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: punk rock
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: metal
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: grindcore
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Heavy anarcho/hardcore punk-metal subgenre. PASS-N: crust punk -> anarcho-punk
+    (parent), <-> d-beat, <-> powerviolence.'
+- name: crust
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: crust punk
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: street punk
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: punk rock
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: hardcore punk
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Working-class UK/oi-adjacent punk. PASS-N: street punk -> oi (parent), <->
+    anarcho-punk, <-> ska punk.'
+- name: streetpunk
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: street punk
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: anarcho-punk
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.68
+  canonical_target: null
+  parent_edges:
+  - target: punk rock
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: post-punk
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: hardcore punk
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'UK political/DIY punk lineage. PASS-N: anarcho-punk <-> crust punk, <->
+    street punk.'
+- name: d-beat
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.72
+  canonical_target: null
+  parent_edges:
+  - target: hardcore punk
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: punk rock
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: grindcore
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Discharge-derived fast punk rhythm/style. PASS-N: d-beat -> crust punk (parent).'
+- name: dbeat
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: d-beat
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: honky tonk
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.58
+  canonical_target: null
+  parent_edges:
+  - target: country/roots
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: country rock
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  - target: rockabilly
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Classic country tavern/bar style. PASS-N: honky tonk <-> outlaw country.'
+- name: bluegrass
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.6
+  canonical_target: null
+  parent_edges:
+  - target: country/roots
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: folk
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: americana
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Acoustic string-band country/folk. PASS-N: bluegrass <-> western swing.
+    Deferred: bluegrass -> old-time (missing).'
+- name: outlaw country
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.64
+  canonical_target: null
+  parent_edges:
+  - target: country/roots
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: country rock
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: americana
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: cowpunk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '1970s anti-Nashville country movement. PASS-N: outlaw country <-> honky
+    tonk.'
+- name: western swing
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.64
+  canonical_target: null
+  parent_edges:
+  - target: country/roots
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.85
+    notes: null
+  - target: swing
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: jazz
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Country/swing-jazz hybrid. PASS-N: western swing <-> bluegrass, <-> dixieland.'
+- name: melodic death metal
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.74
+  canonical_target: null
+  parent_edges:
+  - target: death metal
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  - target: heavy metal
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: metal
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: metalcore
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Melodic-lead death metal subgenre. PASS-N: melodic death metal <-> power
+    metal.'
+- name: melodeath
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: melodic death metal
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: melodic death
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: melodic death metal
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: power metal
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: heavy metal
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: metal
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: progressive metal
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Epic/fast clean-vocal metal. PASS-N: power metal <-> symphonic metal, <->
+    melodic death metal.'
+- name: symphonic metal
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: heavy metal
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: metal
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: progressive metal
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: classical/modern composition
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Orchestral/operatic metal. PASS-N: symphonic metal <-> power metal, <->
+    folk metal.'
+- name: juke
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.62
+  canonical_target: null
+  parent_edges:
+  - target: electronic
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: house
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: hip hop
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Chicago fast club style related to footwork. PASS-N: juke <-> ghetto house,
+    <-> jersey club. Deferred: juke -> footwork (missing).'
+- name: ghetto house
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: house
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: electronic
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: hip hop
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Chicago minimal house subgenre. PASS-N: ghetto house <-> juke. Deferred:
+    ghetto house -> footwork (missing).'
+- name: dark folk
+  kind: subgenre
+  role: leaf
+  status: review
+  facet_type: null
+  specificity_score: 0.64
+  canonical_target: null
+  parent_edges:
+  - target: neofolk
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: folk
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: experimental folk
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: post-punk
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Dark/post-industrial folk adjacent to neofolk. Status review: can be mood-descriptive.
+    No similar_to (folk horror is a facet).'
+- name: darkfolk
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: dark folk
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: ska punk
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: ska
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: punk rock
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: hardcore punk
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Ska/punk crossover. PASS-N: ska punk <-> street punk, <-> oi.'
+- name: folk metal
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.68
+  canonical_target: null
+  parent_edges:
+  - target: metal
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: folk
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: heavy metal
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Folk-instrument/melody metal subgenre. PASS-N: folk metal <-> symphonic
+    metal.'
+- name: oi
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: punk rock
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: hardcore punk
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'UK working-class punk/skinhead subgenre. Style node only. PASS-N: oi ->
+    street punk (parent), <-> ska punk.'
+- name: oi!
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: oi
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: glam metal
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: heavy metal
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: glam rock
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: hard rock
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: metal
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '1980s glam/hard-rock/heavy-metal subgenre. hair metal alias created via
+    alias_variants. PASS-N: glam metal -> power metal.'
+- name: hair metal
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: glam metal
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: blue-eyed soul
+  kind: subgenre
+  role: leaf
+  status: review
+  facet_type: null
+  specificity_score: 0.62
+  canonical_target: null
+  parent_edges:
+  - target: soul
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.75
+    notes: null
+  - target: r&b/soul
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: pop soul
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: soft rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'White-artist soul/R&B style. Status review: partly performer-contextual
+    but has routing value.'
+- name: dixieland
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.62
+  canonical_target: null
+  parent_edges:
+  - target: jazz
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: blues
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: swing
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Early New Orleans/traditional jazz style. PASS-N: dixieland <-> western
+    swing.'
+- name: dixie jazz
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: dixieland
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: kizomba
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.62
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: dance
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: r&b/soul
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: electronic
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Angolan/Cape Verdean romantic dance music. Distinct from kuduro. PASS-N:
+    kizomba <-> kuduro.'
 bridge_rules:
 - source: indie pop
   target: synth-pop
