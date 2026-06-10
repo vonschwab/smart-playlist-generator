@@ -15,7 +15,6 @@ openai:
   model: gpt-4o-mini
 playlists:
   artist_window_size: 5
-  cache_expiry_days: 30
   cohesion_mode: dynamic
   count: 8
   ds_pipeline:
@@ -320,7 +319,6 @@ playlists:
     min_genre_similarity_narrow: 0.55
     similarity_file: data/genre_similarity.yaml
     sonic_weight: 0.6
-    use_artist_tags: true
     weight: 0.5
   history_days: 14
   limits:
@@ -346,7 +344,6 @@ playlists:
     min_playcount_threshold: 0
   seed_count: 5
   similar_artists:
-    boost: 0.05
     enabled: true
   similar_per_seed: 20
   similarity:

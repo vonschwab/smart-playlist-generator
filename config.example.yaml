@@ -79,7 +79,6 @@ playlists:
   max_age_days: 14
   export_m3u: true
   m3u_export_path: /path/to/playlists
-  cache_expiry_days: 30
   name_format: artists
   recently_played_filter:
     enabled: true
@@ -584,7 +583,6 @@ playlists:
     min_genre_similarity_narrow: 0.60
     method: ensemble
     similarity_file: data/genre_similarity.yaml
-    use_artist_tags: true
     broad_filters:
     - 50s
     - 60s

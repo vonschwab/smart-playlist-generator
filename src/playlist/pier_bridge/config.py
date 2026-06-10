@@ -294,6 +294,12 @@ def resolve_pier_bridge_tuning(
         "genre_arc_floor_percentile": float(tuning.genre_arc_floor_percentile),
         "genre_admission_percentile": float(tuning.genre_admission_percentile),
         "dj_route_shape": str(tuning.dj_route_shape),
+        "initial_beam_width": int(getattr(tuning, "initial_beam_width", 20)),
+        "max_beam_width": int(getattr(tuning, "max_beam_width", 100)),
+        "initial_neighbors_m": int(getattr(tuning, "initial_neighbors_m", 100)),
+        "max_neighbors_m": int(getattr(tuning, "max_neighbors_m", 400)),
+        "initial_bridge_helpers": int(getattr(tuning, "initial_bridge_helpers", 50)),
+        "max_bridge_helpers": int(getattr(tuning, "max_bridge_helpers", 200)),
     }
 
 

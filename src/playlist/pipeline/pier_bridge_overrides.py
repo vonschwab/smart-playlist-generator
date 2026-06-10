@@ -111,6 +111,12 @@ def apply_pier_bridge_overrides(
         genre_arc_floor=float(tuning.genre_arc_floor),
         genre_arc_floor_percentile=float(tuning.genre_arc_floor_percentile),
         genre_admission_percentile=float(tuning.genre_admission_percentile),
+        initial_beam_width=int(getattr(tuning, "initial_beam_width", 20)),
+        max_beam_width=int(getattr(tuning, "max_beam_width", 100)),
+        initial_neighbors_m=int(getattr(tuning, "initial_neighbors_m", 100)),
+        max_neighbors_m=int(getattr(tuning, "max_neighbors_m", 400)),
+        initial_bridge_helpers=int(getattr(tuning, "initial_bridge_helpers", 50)),
+        max_bridge_helpers=int(getattr(tuning, "max_bridge_helpers", 200)),
     )
     if isinstance(pb_overrides.get("pace_bridge_floor"), (int, float)):
         pb_cfg = replace(pb_cfg, pace_bridge_floor=float(pb_overrides.get("pace_bridge_floor")))

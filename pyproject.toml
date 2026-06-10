@@ -120,7 +120,6 @@ ignore_errors = true
 [[tool.mypy.overrides]]
 module = [
     "src.cancellation",
-    "src.performance_tracker",
     "src.genre_cache",
 ]
 ignore_errors = false

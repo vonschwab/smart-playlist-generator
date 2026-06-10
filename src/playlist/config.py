@@ -120,6 +120,14 @@ class PierBridgeTuning:
     genre_admission_percentile: float = 0.0
     segment_pool_genre_weight: float = 0.0
     dj_route_shape: str = "linear"
+    # Beam search-width knobs. Defaults MUST mirror PierBridgeConfig — when the
+    # YAML keys are absent, resolution stays byte-identical to the dataclass.
+    initial_beam_width: int = 20
+    max_beam_width: int = 100
+    initial_neighbors_m: int = 100
+    max_neighbors_m: int = 400
+    initial_bridge_helpers: int = 50
+    max_bridge_helpers: int = 200
 
 
 def _resolve_mode_number_with_source(
@@ -347,6 +355,27 @@ def resolve_pier_bridge_tuning(
     dj_route_shape = str(dj_route_shape_raw).strip().lower() if dj_route_shape_raw else "linear"
     sources["dj_route_shape"] = "pier_bridge.dj_route_shape" if "dj_route_shape" in pier_raw else "default"
 
+    # Beam search-width knobs (initial/max beam width, kNN neighbors, bridge
+    # helpers). Unwired until 2026-06-10 — every run silently used the
+    # dataclass defaults regardless of config.yaml.
+    _search_width_defaults = {
+        "initial_beam_width": 20,
+        "max_beam_width": 100,
+        "initial_neighbors_m": 100,
+        "max_neighbors_m": 400,
+        "initial_bridge_helpers": 50,
+        "max_bridge_helpers": 200,
+    }
+    search_widths: dict[str, int] = {}
+    for _sw_key, _sw_default in _search_width_defaults.items():
+        _sw_raw = pier_raw.get(_sw_key, _sw_default)
+        if isinstance(_sw_raw, bool) or not isinstance(_sw_raw, (int, float)):
+            _sw_val = _sw_default
+        else:
+            _sw_val = int(_sw_raw)
+        search_widths[_sw_key] = max(1, _sw_val)
+        sources[_sw_key] = f"pier_bridge.{_sw_key}" if _sw_key in pier_raw else "default"
+
     # When steering is active, genre is a co-equal edge weight: renormalize the
     # (bridge, transition, genre) triple to sum to 1 so the score stays in range.
     if genre_steering_enabled and float(weight_genre) > 0.0:
@@ -372,6 +401,7 @@ def resolve_pier_bridge_tuning(
         genre_admission_percentile=float(genre_admission_percentile),
         segment_pool_genre_weight=float(segment_pool_genre_weight),
         dj_route_shape=str(dj_route_shape),
+        **search_widths,
     )
     return tuning, sources
 

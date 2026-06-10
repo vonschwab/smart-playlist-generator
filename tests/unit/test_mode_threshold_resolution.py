@@ -281,5 +281,75 @@ class TestGenreIdfEnabledPresets:
         assert pool_dynamic["genre_idf_enabled"] is True
 
 
+class TestSearchWidthPlumbing:
+    """The six beam search-width keys must flow config.yaml -> tuning -> PierBridgeConfig.
+
+    Regression for the 2026-06-10 audit finding: these keys were silently never
+    read, so every generation ran at dataclass-default (half) search width.
+    """
+
+    OVERRIDES = {
+        "pier_bridge": {
+            "initial_beam_width": 40,
+            "max_beam_width": 200,
+            "initial_neighbors_m": 200,
+            "max_neighbors_m": 800,
+            "initial_bridge_helpers": 100,
+            "max_bridge_helpers": 400,
+        }
+    }
+    FIELDS = (
+        "initial_beam_width",
+        "max_beam_width",
+        "initial_neighbors_m",
+        "max_neighbors_m",
+        "initial_bridge_helpers",
+        "max_bridge_helpers",
+    )
+
+    def test_search_width_keys_resolve_from_config(self):
+        tuning, sources = resolve_pier_bridge_tuning(
+            mode="dynamic", similarity_floor=0.2, overrides=self.OVERRIDES
+        )
+        assert tuning.initial_beam_width == 40
+        assert tuning.max_beam_width == 200
+        assert tuning.initial_neighbors_m == 200
+        assert tuning.max_neighbors_m == 800
+        assert tuning.initial_bridge_helpers == 100
+        assert tuning.max_bridge_helpers == 400
+        assert sources["initial_beam_width"] == "pier_bridge.initial_beam_width"
+
+    def test_search_width_defaults_match_pier_bridge_config(self):
+        from src.playlist.pier_bridge.config import PierBridgeConfig
+
+        tuning, sources = resolve_pier_bridge_tuning(mode="dynamic", similarity_floor=0.2)
+        cfg = PierBridgeConfig()
+        for f in self.FIELDS:
+            assert getattr(tuning, f) == getattr(cfg, f), f
+            assert sources[f] == "default", f
+
+    def test_search_width_flows_into_pier_bridge_config(self):
+        from src.playlist.config import default_ds_config
+        from src.playlist.pipeline.pier_bridge_overrides import apply_pier_bridge_overrides
+        from src.playlist.run_audit import parse_run_audit_config
+
+        pb_cfg, _tuning, _sources, _tw = apply_pier_bridge_overrides(
+            pier_bridge_config=None,
+            cfg=default_ds_config("dynamic", playlist_len=30),
+            overrides=self.OVERRIDES,
+            pb_overrides=self.OVERRIDES["pier_bridge"],
+            artist_playlist=False,
+            dry_run=False,
+            audit_cfg=parse_run_audit_config(None),
+            resolved_variant="raw",
+        )
+        assert pb_cfg.initial_beam_width == 40
+        assert pb_cfg.max_beam_width == 200
+        assert pb_cfg.initial_neighbors_m == 200
+        assert pb_cfg.max_neighbors_m == 800
+        assert pb_cfg.initial_bridge_helpers == 100
+        assert pb_cfg.max_bridge_helpers == 400
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
