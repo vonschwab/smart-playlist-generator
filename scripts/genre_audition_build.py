@@ -164,7 +164,7 @@ def union_cards(
         else:
             key, display = "raw:" + normalize(tok), tok
         c = _card(key, display)
-        c["spaces"]["cooccurrence"] = {"rank": rank, "sim": sim}
+        c["spaces"].setdefault("cooccurrence", {"rank": rank, "sim": sim})
 
     for name in decoys:
         c = _card(normalize(name), name)
@@ -213,7 +213,7 @@ def build_seed_manifest(
     cards = union_cards(graph_n, cooc_n, decoys, canonicalize, normalize)
 
     # Blind shuffle (deterministic per seed)
-    srng = np.random.default_rng((rng_seed or 0) ^ (abs(hash(seed)) % (2**32)))
+    srng = np.random.default_rng((rng_seed if rng_seed is not None else 0) ^ (abs(hash(seed)) % (2**32)))
     srng.shuffle(cards)
 
     neighbors = []
