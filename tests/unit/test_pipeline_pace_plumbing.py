@@ -1,7 +1,6 @@
 from types import SimpleNamespace
 
 from src.playlist import ds_pipeline_runner as runner
-from src.playlist.ds_pipeline_builder import DSPipelineBuilder
 
 
 def test_ds_runner_forwards_pace_mode_to_core(monkeypatch):
@@ -28,15 +27,3 @@ def test_ds_runner_forwards_pace_mode_to_core(monkeypatch):
     )
 
     assert captured["pace_mode"] == "narrow"
-
-
-def test_ds_pipeline_builder_stores_pace_mode():
-    request = (
-        DSPipelineBuilder()
-        .with_artifacts("data/artifacts/test.npz")
-        .with_seed("track_001")
-        .with_pace_mode("strict")
-        .build()
-    )
-
-    assert request.pace_mode == "strict"

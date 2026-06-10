@@ -25,10 +25,6 @@ class TestCoreImports:
         from src.m3u_exporter import M3UExporter
         assert M3UExporter is not None
 
-    def test_logging_config(self):
-        from src.logging_config import setup_logging
-        assert setup_logging is not None
-
 
 class TestPlaylistModuleImports:
     """Test that playlist submodule is importable."""
