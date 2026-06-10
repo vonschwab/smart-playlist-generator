@@ -16,7 +16,6 @@ import json
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Dict, List
 from urllib.parse import unquote
 
 import yaml
@@ -124,13 +123,20 @@ class AuditionHandler(BaseHTTPRequestHandler):
             self.send_error(404)
             return
         length = int(self.headers.get("Content-Length", 0))
-        body = json.loads(self.rfile.read(length))
+        try:
+            body = json.loads(self.rfile.read(length))
+        except (json.JSONDecodeError, ValueError):
+            self._json({"ok": False, "error": "invalid JSON"}, 400)
+            return
         seed = body.get("seed", "")
         name = body.get("name", "")
         if not seed or not name:
             self._json({"ok": False, "error": "missing seed or name"}, 400)
             return
-        m = self.server.manifests.get(seed, {})
+        if seed not in self.server.manifests:
+            self._json({"ok": False, "error": "unknown seed"}, 400)
+            return
+        m = self.server.manifests[seed]
         spaces = m.get("space_data", {}).get(name, {})
         entry = {
             "name": name,
