@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.10.1-group1-pass7-edge-upgrade
+taxonomy_version: 0.11.0-group1-pass8-grown
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -19185,6 +19185,1372 @@ records:
   possible_context_target: null
   notes: 'Angolan/Cape Verdean romantic dance music. Distinct from kuduro. PASS-N:
     kizomba <-> kuduro.'
+- name: old-time
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.58
+  canonical_target: null
+  parent_edges:
+  - target: folk
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: americana
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: country/roots
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: bluegrass
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: bluegrass
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Traditional American string-band folk predating bluegrass. Unblocks bluegrass
+    -> old-time deferred edge. PASS-N: old-time <-> appalachian folk.'
+- name: old time music
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: old-time
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: footwork
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: juke
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: electronic
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: house
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: hip hop
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  - target: juke
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: ghetto house
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: jersey club
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Chicago ultra-fast club/dance style closely related to juke/ghetto house.
+    Unblocks juke->footwork and ghetto house->footwork deferred edges.
+- name: chicago footwork
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: footwork
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: zydeco
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.6
+  canonical_target: null
+  parent_edges:
+  - target: blues
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: r&b/soul
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: folk
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: country/roots
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Louisiana Creole/African-American folk-blues-R&B dance genre. PASS-N: zydeco
+    <-> cajun.'
+- name: cajun
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.58
+  canonical_target: null
+  parent_edges:
+  - target: folk
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: country/roots
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: world music
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Louisiana French-Creole folk/dance tradition. Distinct from zydeco. PASS-N:
+    cajun <-> zydeco.'
+- name: cajun music
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: cajun
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: sea shanties
+  kind: subgenre
+  role: leaf
+  status: review
+  facet_type: null
+  specificity_score: 0.62
+  canonical_target: null
+  parent_edges:
+  - target: folk
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.8
+    notes: null
+  - target: world music
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Maritime work-song tradition. Status review: source usage can be revival/trend-noisy.'
+- name: sea shanty
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: sea shanties
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: shanty
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: sea shanties
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: shanties
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: sea shanties
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: appalachian folk
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.64
+  canonical_target: null
+  parent_edges:
+  - target: folk
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: americana
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: country/roots
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: bluegrass
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Southern Appalachian traditional mountain music. PASS-N: appalachian folk
+    -> old-time (parent), <-> old-time (bridge).'
+- name: appalachian music
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: appalachian folk
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: newgrass
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: bluegrass
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  - target: folk
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: americana
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: progressive folk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Progressive/electric bluegrass (New Grass Revival, Bela Fleck). Bridges bluegrass
+    into progressive/acoustic fusion territory.
+- name: new grass
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: newgrass
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: gypsy jazz
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: jazz
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: swing
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: folk
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Django Reinhardt / Manouche acoustic swing-jazz style. PASS-N: gypsy jazz
+    <-> stride.'
+- name: jazz manouche
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: gypsy jazz
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: manouche jazz
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: gypsy jazz
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: chamber jazz
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.64
+  canonical_target: null
+  parent_edges:
+  - target: jazz
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: contemporary classical
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: third stream
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: experimental jazz
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Small-ensemble acoustic/contemporary jazz. PASS-N: chamber jazz -> chamber
+    music (parent).'
+- name: stride
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: jazz
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: blues
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: swing
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '1920s New York piano jazz style (Fats Waller). PASS-N: stride <-> gypsy
+    jazz.'
+- name: stride piano
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: stride
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: fado
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.6
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: folk
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Portuguese urban folk/lyrical tradition. PASS-N: fado <-> flamenco.'
+- name: flamenco
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.6
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: folk
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Spanish Andalusian folk/art music. PASS-N: flamenco <-> fado.'
+- name: tango
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.6
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.7
+    notes: null
+  - target: jazz
+    edge_type: family_context
+    weight: 0.15
+    confidence: 0.6
+    notes: null
+  - target: salsa
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Argentine dance/song tradition. Salsa connection kept low/contextual.
+- name: latin pop
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.56
+  canonical_target: null
+  parent_edges:
+  - target: pop
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: dance-pop
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: reggaeton
+    edge_type: family_context
+    weight: 0.15
+    confidence: 0.6
+    notes: null
+  - target: salsa
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: afrobeats
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Mainstream Latin pop. Uses `brazilian/latin` rather than bare `latin`.
+- name: merengue
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.6
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.7
+    notes: null
+  - target: dance
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  - target: salsa
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Dominican fast-tempo dance music. PASS-N: merengue <-> bachata.'
+- name: bachata
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.6
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.7
+    notes: null
+  - target: r&b/soul
+    edge_type: family_context
+    weight: 0.15
+    confidence: 0.6
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Dominican romantic guitar/vocal dance genre. PASS-N: bachata <-> merengue.'
+- name: baroque
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.6
+  canonical_target: null
+  parent_edges:
+  - target: classical/modern composition
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '1600-1750 Western classical period/style. PASS-N: baroque -> chamber music
+    (parent), baroque <-> romantic era.'
+- name: baroque era
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: baroque
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: baroque period
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: baroque
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: chamber music
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.54
+  canonical_target: null
+  parent_edges:
+  - target: classical/modern composition
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  - target: contemporary classical
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: contemporary classical
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Small-ensemble classical form spanning periods. Broad routing node. PASS-N:
+    chamber music -> baroque (bridge).'
+- name: opera
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.54
+  canonical_target: null
+  parent_edges:
+  - target: classical/modern composition
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Classical vocal/theatrical form. vocal parent dropped (facet). PASS-N: opera
+    -> romantic era (bridge).'
+- name: southern rock
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.62
+  canonical_target: null
+  parent_edges:
+  - target: rock
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: blues rock
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: country rock
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: outlaw country
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'American Southern blues/country/hard-rock style. PASS-N: southern rock <->
+    heartland rock.'
+- name: heartland rock
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.62
+  canonical_target: null
+  parent_edges:
+  - target: rock
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: country rock
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: alternative rock
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: adult contemporary
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'American anthemic roots/mainstream rock. PASS-N: heartland rock <-> southern
+    rock.'
+- name: drone music
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.58
+  canonical_target: null
+  parent_edges:
+  - target: ambient
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: experimental/avant-garde
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: minimalist composition
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: metal
+    edge_type: family_context
+    weight: 0.15
+    confidence: 0.6
+    notes: null
+  - target: dark ambient
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: post-metal
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Sustained-tone minimalist/experimental music. Canonical is 'drone music'
+    because 'drone' is already a facet. Light metal context for drone doom adjacency.
+- name: industrial techno
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.68
+  canonical_target: null
+  parent_edges:
+  - target: techno
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: industrial
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: electronic
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Industrial-influenced dark techno. PASS-N: industrial techno <-> dark techno.'
+- name: dark techno
+  kind: subgenre
+  role: leaf
+  status: review
+  facet_type: null
+  specificity_score: 0.64
+  canonical_target: null
+  parent_edges:
+  - target: techno
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.8
+    notes: null
+  - target: electronic
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: dark ambient
+    edge_type: family_context
+    weight: 0.15
+    confidence: 0.6
+    notes: null
+  - target: deep techno
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Broad dark/hypnotic techno category. Status review: somewhat umbrella-like.
+    PASS-N: dark techno <-> industrial techno.'
+- name: micro house
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.68
+  canonical_target: null
+  parent_edges:
+  - target: house
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: minimal techno
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: electronic
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: tech house
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: glitch
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Minimal/glitchy house microgenre (Perlon label aesthetic).
+- name: microhouse
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: micro house
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: trap soul
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: trap
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: r&b/soul
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: contemporary r&b
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: hip hop
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  - target: emo rap
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Trap production + R&B vocal style. PASS-N: trap soul <-> pluggnb.'
+- name: murder ballads
+  kind: subgenre
+  role: leaf
+  status: review
+  facet_type: null
+  specificity_score: 0.62
+  canonical_target: null
+  parent_edges:
+  - target: folk
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.75
+    notes: null
+  - target: country/roots
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  - target: dark folk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Traditional narrative folk ballads with murder theme. Status review: thematic
+    component. PASS-N: murder ballads -> appalachian folk (parent).'
+- name: murder ballad
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: murder ballads
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: uk drill
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.72
+  canonical_target: null
+  parent_edges:
+  - target: drill
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  - target: hip hop
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: grime
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: trap
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  - target: drill
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: London/UK drill variant with distinct production and grime adjacency. More
+    useful as subgenre than alias.
+- name: british drill
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: uk drill
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: afrotech
+  kind: subgenre
+  role: leaf
+  status: review
+  facet_type: null
+  specificity_score: 0.68
+  canonical_target: null
+  parent_edges:
+  - target: afrobeats
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.75
+    notes: null
+  - target: electronic
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: techno
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.65
+    notes: null
+  - target: world music
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  - target: amapiano
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: gqom
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Emerging Afrobeats/electronic club fusion. Status review: niche/emerging
+    usage.'
+- name: afro tech
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: afrotech
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: afro-tech
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: afrotech
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: romantic era
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.6
+  canonical_target: null
+  parent_edges:
+  - target: classical/modern composition
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '19th-century Western classical period. Canonicalized as ''romantic era''
+    to avoid mood ambiguity. PASS-N: romantic era -> chamber music (parent), romantic
+    era <-> baroque.'
+- name: romantic period
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: romantic era
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: romantic classical
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: romantic era
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: pluggnb
+  kind: subgenre
+  role: leaf
+  status: review
+  facet_type: null
+  specificity_score: 0.76
+  canonical_target: null
+  parent_edges:
+  - target: trap
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.75
+    notes: null
+  - target: hip hop
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.7
+    notes: null
+  - target: r&b/soul
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: cloud rap
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  - target: emo rap
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Very specific internet/trap/R&B micro-style. Status review: niche but useful
+    for modern trap/R&B routing. PASS-N: pluggnb <-> trap soul.'
+- name: plug n b
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: pluggnb
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: plug-n-b
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: pluggnb
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
 bridge_rules:
 - source: indie pop
   target: synth-pop
