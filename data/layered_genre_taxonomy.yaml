@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.10.0-group1-pass7-grown
+taxonomy_version: 0.10.1-group1-pass7-edge-upgrade
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -16771,6 +16771,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: bitpop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -17065,6 +17070,11 @@ records:
     confidence: 0.7
     notes: null
   - target: death metal
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: powerviolence
     edge_type: bridge_to
     weight: 0.4
     confidence: 0.6
@@ -17818,6 +17828,11 @@ records:
     weight: 0.2
     confidence: 0.65
     notes: null
+  - target: crust punk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -17908,6 +17923,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: jersey club
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -17973,6 +17993,16 @@ records:
     weight: 0.25
     confidence: 0.7
     notes: null
+  - target: gqom
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: kizomba
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -18007,6 +18037,16 @@ records:
     weight: 0.25
     confidence: 0.7
     notes: null
+  - target: kuduro
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: amapiano
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -18047,6 +18087,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: gqom
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -18082,6 +18127,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: crunk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -18112,6 +18162,16 @@ records:
     weight: 0.2
     confidence: 0.65
     notes: null
+  - target: drill
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: jersey club
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -18147,6 +18207,21 @@ records:
     weight: 0.25
     confidence: 0.7
     notes: null
+  - target: baile funk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: crunk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: juke
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -18197,6 +18272,21 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: d-beat
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: powerviolence
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: anarcho-punk
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -18237,6 +18327,21 @@ records:
     weight: 0.2
     confidence: 0.65
     notes: null
+  - target: oi
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: anarcho-punk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: ska punk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -18282,6 +18387,16 @@ records:
     weight: 0.25
     confidence: 0.7
     notes: null
+  - target: street punk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: crust punk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -18312,6 +18427,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: crust punk
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -18356,6 +18476,11 @@ records:
     weight: 0.2
     confidence: 0.65
     notes: null
+  - target: outlaw country
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -18385,6 +18510,11 @@ records:
     weight: 0.3
     confidence: 0.75
     notes: null
+  - target: western swing
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -18420,6 +18550,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: honky tonk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -18450,6 +18585,16 @@ records:
     weight: 0.3
     confidence: 0.75
     notes: null
+  - target: bluegrass
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: dixieland
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -18480,6 +18625,11 @@ records:
     confidence: 0.7
     notes: null
   - target: metalcore
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: power metal
     edge_type: bridge_to
     weight: 0.4
     confidence: 0.6
@@ -18544,6 +18694,16 @@ records:
     weight: 0.25
     confidence: 0.7
     notes: null
+  - target: melodic death metal
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: symphonic metal
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -18579,6 +18739,16 @@ records:
     weight: 0.2
     confidence: 0.65
     notes: null
+  - target: power metal
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: folk metal
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -18609,6 +18779,16 @@ records:
     weight: 0.2
     confidence: 0.65
     notes: null
+  - target: jersey club
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: ghetto house
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -18639,6 +18819,11 @@ records:
     weight: 0.2
     confidence: 0.65
     notes: null
+  - target: juke
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -18719,6 +18904,16 @@ records:
     weight: 0.2
     confidence: 0.65
     notes: null
+  - target: street punk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: oi
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -18748,6 +18943,11 @@ records:
     weight: 0.3
     confidence: 0.75
     notes: null
+  - target: symphonic metal
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -18773,6 +18973,16 @@ records:
     weight: 0.2
     confidence: 0.65
     notes: null
+  - target: street punk
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: ska punk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -18823,6 +19033,11 @@ records:
     weight: 0.25
     confidence: 0.7
     notes: null
+  - target: power metal
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -18903,6 +19118,11 @@ records:
     weight: 0.2
     confidence: 0.65
     notes: null
+  - target: western swing
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -18953,6 +19173,11 @@ records:
     weight: 0.2
     confidence: 0.65
     notes: null
+  - target: kuduro
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
