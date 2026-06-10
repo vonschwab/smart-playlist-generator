@@ -365,6 +365,36 @@ def build_pier_bridge_playlist(
     X_full_norm = _l2_normalize_rows(X_full_variant)
     logger.debug("Pier+Bridge sonic sim space: variant=%s dim=%d", sonic_variant, int(X_full_norm.shape[1]))
 
+    # Rhythm axis for the beam's pace gate (cfg.pace_bridge_floor). The gate in
+    # _beam_search_segment silently no-ops when rhythm_matrix is None — a
+    # configured gate must either receive its data or warn loudly.
+    rhythm_matrix: Optional[np.ndarray] = None
+    if float(getattr(cfg, "pace_bridge_floor", 0.0)) > 0.0:
+        _td = getattr(bundle, "tower_dims", None)
+        _td_tuple = tuple(int(v) for v in _td) if _td is not None else None
+        if (
+            _td_tuple is not None
+            and len(_td_tuple) == 3
+            and sum(_td_tuple) == int(X_full_raw.shape[1])
+        ):
+            from src.playlist.sonic_axes import extract_axis_vectors
+
+            rhythm_matrix = extract_axis_vectors(X_full_raw, tower_pca_dims=_td_tuple)["rhythm"]
+            logger.info(
+                "Pace bridge gate active: floor=%.2f rhythm_dims=%d",
+                float(cfg.pace_bridge_floor),
+                int(rhythm_matrix.shape[1]),
+            )
+        else:
+            logger.warning(
+                "Pace bridge gate INACTIVE: pace_bridge_floor=%.2f is set but the "
+                "artifact bundle has no usable tower_dims (got %r for blend dim %d); "
+                "rhythm gating will not run",
+                float(cfg.pace_bridge_floor),
+                _td,
+                int(X_full_raw.shape[1]),
+            )
+
     # Transition space (optional tower weights + optional mean-centering)
     from src.similarity.sonic_variant import apply_transition_weights
 
@@ -1183,6 +1213,7 @@ def build_pier_bridge_playlist(
                         transition_metric_context=transition_metric_context,
                         perceptual_bpm=perceptual_bpm,
                         tempo_stability=tempo_stability_arr,
+                        rhythm_matrix=rhythm_matrix,
                     )
                     last_failure_reason = beam_failure_reason
                     if segment_path is not None:
