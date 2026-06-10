@@ -527,6 +527,7 @@ def build_candidate_pool(
     perceptual_bpm: Optional[np.ndarray] = None,
     tempo_stability: Optional[np.ndarray] = None,
     genre_admission_percentile: Optional[float] = None,
+    genre_admission_aggregate: str = "centroid",
     layered_genre_diagnostics: bool = False,
     X_genre_leaf_idf: Optional[np.ndarray] = None,
     X_genre_family: Optional[np.ndarray] = None,
@@ -716,32 +717,69 @@ def build_candidate_pool(
         min_genre_similarity is not None or genre_admission_percentile is not None
     )
     if _use_dense:
-        # X_genre_dense rows are already L2-normalized; seed vec = average of seed rows
-        seed_dense = X_genre_dense[seed_list].mean(axis=0)
-        seed_dense_norm = np.linalg.norm(seed_dense)
-        if seed_dense_norm > 1e-12:
-            seed_dense = seed_dense / seed_dense_norm
-        genre_sim_all = (X_genre_dense @ seed_dense).astype(np.float64)
-        # Do NOT clip to [0,1]. The mean-centered dense embedding produces negative cosine
-        # similarities for genuinely dissimilar genres — clipping collapses them all to 0.000
-        # and destroys the rank ordering, making the percentile floor non-functional for
-        # niche artists (jazz, hyperpop) where most of the library is negative-sim.
-        genre_sim_all[seed_idx] = 1.0
-        # Per-seed adaptive admission floor: derive from THIS seed's dense-sim distribution.
-        # When genre_admission_percentile is set, the percentile IS the floor — do not override
-        # with the fixed min_genre_similarity, which was calibrated for the old anisotropic
-        # embedding (p50≈0.24) and is far too tight at the new mean-centered scale (p50≈-0.14).
-        if genre_admission_percentile is not None:
+        _agg = str(genre_admission_aggregate or "centroid").strip().lower()
+        if _agg not in {"centroid", "per_seed"}:
+            _agg = "centroid"
+
+        if _agg == "per_seed":
+            # Union-of-neighborhoods: each seed contributes its own genre floor.
+            # A track is admitted if it passes ANY seed's floor (union semantics).
+            # genre_sim_all is set to the max-over-seeds cosine for downstream use
+            # (artist ranking, overlap guard).  The effective_genre_floor is the
+            # minimum per-seed floor; combined with max-over-seeds, this approximates
+            # true union semantics (can only over-admit by one edge case, never under).
             from src.playlist.pier_bridge.percentiles import floor_at_percentile
-            _dist = genre_sim_all.copy()
-            _dist[seed_idx] = np.nan
-            effective_genre_floor = floor_at_percentile(_dist[~np.isnan(_dist)], genre_admission_percentile)
+            seed_mat = X_genre_dense[seed_list]  # (S, dim)
+            sims_per_seed = (X_genre_dense @ seed_mat.T).astype(np.float64)  # (N, S)
+            # Seeds are always admitted — force their rows to 1.0 so they don't
+            # distort the floor calculation when used as non-seed members.
+            seed_set = set(seed_list)
+            non_seed_mask = np.array(
+                [i not in seed_set for i in range(sims_per_seed.shape[0])], dtype=bool
+            )
+            if genre_admission_percentile is not None:
+                per_seed_floors = np.array([
+                    floor_at_percentile(
+                        sims_per_seed[non_seed_mask, si],
+                        genre_admission_percentile,
+                    )
+                    for si in range(len(seed_list))
+                ])
+                effective_genre_floor = float(np.min(per_seed_floors))
+            else:
+                effective_genre_floor = min_genre_similarity
+            genre_sim_all = np.max(sims_per_seed, axis=1)
+            genre_sim_all[seed_idx] = 1.0
         else:
-            effective_genre_floor = min_genre_similarity
+            # Centroid path (legacy default): average all seed vectors into one centroid.
+            # X_genre_dense rows are already L2-normalized; seed vec = average of seed rows.
+            seed_dense = X_genre_dense[seed_list].mean(axis=0)
+            seed_dense_norm = np.linalg.norm(seed_dense)
+            if seed_dense_norm > 1e-12:
+                seed_dense = seed_dense / seed_dense_norm
+            genre_sim_all = (X_genre_dense @ seed_dense).astype(np.float64)
+            # Do NOT clip to [0,1]. The mean-centered dense embedding produces negative cosine
+            # similarities for genuinely dissimilar genres — clipping collapses them all to 0.000
+            # and destroys the rank ordering, making the percentile floor non-functional for
+            # niche artists (jazz, hyperpop) where most of the library is negative-sim.
+            genre_sim_all[seed_idx] = 1.0
+            # Per-seed adaptive admission floor: derive from THIS seed's dense-sim distribution.
+            # When genre_admission_percentile is set, the percentile IS the floor — do not override
+            # with the fixed min_genre_similarity, which was calibrated for the old anisotropic
+            # embedding (p50≈0.24) and is far too tight at the new mean-centered scale (p50≈-0.14).
+            if genre_admission_percentile is not None:
+                from src.playlist.pier_bridge.percentiles import floor_at_percentile
+                _dist = genre_sim_all.copy()
+                _dist[seed_idx] = np.nan
+                effective_genre_floor = floor_at_percentile(_dist[~np.isnan(_dist)], genre_admission_percentile)
+            else:
+                effective_genre_floor = min_genre_similarity
+
         logger.info(
             "Candidate pool genre gating: method=dense (PMI-SVD), dim=%d, "
-            "admission_percentile=%s, effective_floor=%.3f, mode=%s",
+            "aggregate=%s, admission_percentile=%s, effective_floor=%.3f, mode=%s",
             X_genre_dense.shape[1],
+            _agg,
             genre_admission_percentile,
             float(effective_genre_floor) if effective_genre_floor is not None else float("nan"),
             mode,

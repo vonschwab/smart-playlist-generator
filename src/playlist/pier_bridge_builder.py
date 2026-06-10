@@ -968,6 +968,8 @@ def build_pier_bridge_playlist(
                         pool_verbose=bool(cfg.dj_diagnostics_pool_verbose),  # Phase 3 fix
                         genre_pool_transition_blend=float(cfg.dj_genre_pool_transition_blend),  # Task D
                         collapse_by_artist=bool(cfg.collapse_segment_pool_by_artist),
+                        X_genre_dense=getattr(bundle, "X_genre_dense", None),
+                        genre_bridge_weight=float(getattr(cfg, "segment_pool_genre_weight", 0.0)),
                     )
                     try:
                         cand_artist_keys = dict(cand_artist_keys)
@@ -1029,6 +1031,8 @@ def build_pier_bridge_playlist(
                             pool_verbose=bool(cfg.dj_diagnostics_pool_verbose),  # Phase 3 fix
                             genre_pool_transition_blend=float(cfg.dj_genre_pool_transition_blend),  # Task D
                             collapse_by_artist=bool(cfg.collapse_segment_pool_by_artist),
+                            X_genre_dense=getattr(bundle, "X_genre_dense", None),
+                            genre_bridge_weight=float(getattr(cfg, "segment_pool_genre_weight", 0.0)),
                         )
                         if len(relaxed_candidates) > len(segment_candidates):
                             segment_candidates = relaxed_candidates
@@ -1101,6 +1105,8 @@ def build_pier_bridge_playlist(
                             pool_verbose=bool(cfg.dj_diagnostics_pool_verbose),  # Phase 3 fix
                             genre_pool_transition_blend=float(cfg.dj_genre_pool_transition_blend),  # Task D
                             collapse_by_artist=bool(cfg.collapse_segment_pool_by_artist),
+                            X_genre_dense=getattr(bundle, "X_genre_dense", None),
+                            genre_bridge_weight=float(getattr(cfg, "segment_pool_genre_weight", 0.0)),
                         )
                         if segment_pool_cache is not None:
                             segment_pool_cache["dj_baseline_pool"] = set(
@@ -1394,14 +1400,62 @@ def build_pier_bridge_playlist(
                 if scarcity is not None and float(scarcity) < float(cfg.dj_far_threshold_connector_scarcity):
                     segment_is_far = True
 
-        # Genre-arc steering: when enabled, build dense (linear/ladder) g_targets routed
-        # in the dense genre space. These feed ONLY the beam's first-class arc vote
-        # (via g_targets_override, which scores against the 64-dim X_genre_dense). They
-        # are kept in a SEPARATE variable from segment_g_targets, which the dj-bridging
-        # vector-mode pooling consumes against the 893-dim X_genre_norm. Overwriting
-        # segment_g_targets with the 64-dim dense vectors crashes the pooling's genre
-        # scoring when dj_bridging and genre_steering are both enabled.
-        if bool(cfg.genre_steering_enabled) and getattr(bundle, "X_genre_dense", None) is not None:
+        # Genre-arc steering: build per-step g_targets that feed the beam's first-class
+        # arc vote (via g_targets_override). Two sources, selected by genre_steering_source:
+        #   - "taxonomy": route the arc through the SP3a taxonomy graph (hub-damped);
+        #     targets live in the genre-vocab space (beam scores against X_genre_norm).
+        #   - "dense" (legacy): interpolate the 64-dim dense PMI-SVD vectors (beam scores
+        #     against X_genre_dense). Kept SEPARATE from segment_g_targets (dj-bridging
+        #     pooling) to avoid dimension clashes.
+        _steering_source = str(getattr(cfg, "genre_steering_source", "dense"))
+        if (
+            bool(cfg.genre_steering_enabled)
+            and _steering_source == "taxonomy"
+            and getattr(bundle, "X_genre_raw", None) is not None
+            and getattr(bundle, "genre_vocab", None) is not None
+        ):
+            from src.playlist.pier_bridge.taxonomy_steering import (
+                build_taxonomy_genre_targets,
+                get_taxonomy_steering,
+            )
+            _tax_diag: dict[str, Any] = {}
+            segment_g_targets_dense = build_taxonomy_genre_targets(
+                pier_a=pier_a,
+                pier_b=pier_b,
+                interior_length=interior_len,
+                X_genre_raw=bundle.X_genre_raw,
+                genre_vocab=bundle.genre_vocab,
+                steering=get_taxonomy_steering(),
+                top_labels=int(cfg.dj_ladder_top_labels),
+                min_label_weight=float(cfg.dj_ladder_min_label_weight),
+                smooth_top_k=int(cfg.dj_ladder_smooth_top_k),
+                smooth_min_sim=float(cfg.dj_ladder_smooth_min_sim),
+                max_steps=int(cfg.dj_ladder_max_steps),
+                ladder_diag=_tax_diag,
+            )
+            if segment_g_targets_dense is not None and _tax_diag.get("taxonomy_waypoint_labels"):
+                segment_ladder_diag.update(_tax_diag)
+                logger.info(
+                    "Genre steering [taxonomy]: %s -> %s via %s",
+                    bundle.track_ids[pier_a],
+                    bundle.track_ids[pier_b],
+                    _tax_diag.get("taxonomy_waypoint_labels"),
+                )
+            elif segment_g_targets_dense is None:
+                logger.info(
+                    "Genre steering [taxonomy]: no taxonomy path for segment %s -> %s "
+                    "(uncovered genres); genre arc inactive this segment",
+                    bundle.track_ids[pier_a],
+                    bundle.track_ids[pier_b],
+                )
+
+        # Dense steering (legacy). Skipped entirely in taxonomy mode so the beam's
+        # genre-vocab arc vote never receives 64-dim dense targets.
+        if (
+            _steering_source != "taxonomy"
+            and bool(cfg.genre_steering_enabled)
+            and getattr(bundle, "X_genre_dense", None) is not None
+        ):
             labels_a = _select_top_genre_labels(
                 bundle.X_genre_raw[pier_a], bundle.genre_vocab,
                 top_n=int(cfg.dj_ladder_top_labels), min_weight=float(cfg.dj_ladder_min_label_weight),

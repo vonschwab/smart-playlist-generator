@@ -238,6 +238,22 @@ playlists:
       # genre_arc_floor_percentile / genre_admission_percentile use distribution-relative
       # floors: Task 8 calibrates the values below.
       genre_steering_enabled: true
+      # Steering space (opt-in; default "dense" preserves legacy behavior):
+      #   dense    — interpolate the 64-dim PMI-SVD genre embedding (corpus co-occurrence).
+      #   taxonomy — route the arc through the SP3a taxonomy graph (twee pop -> jangle pop
+      #              -> indie pop -> synth-pop) and score with the hub-damped taxonomy
+      #              similarity, so broad genres connect the arc without collapsing it.
+      #              Needs no per-track taxonomy assignments. Uncovered piers fall back to
+      #              no genre arc for that segment (sonic-only).
+      genre_steering_source: dense    # dense | taxonomy
+      # genre_admission_aggregate: centroid | per_seed (default: centroid)
+      #   centroid: one mean-of-seeds centroid for the global admission gate (legacy)
+      #   per_seed: union of per-seed neighborhoods — admits tracks near ANY seed, not
+      #             just the average. Fixes starvation for diverse seed sets.
+      genre_admission_aggregate: centroid
+      # segment_pool_genre_weight: 0.0..1.0 (default: 0.0 = pure sonic)
+      #   Blends genre hmean into segment pool re-ranking (no new hard gate).
+      segment_pool_genre_weight: 0.0
       dj_route_shape: ladder          # ladder | linear
       weight_genre_strict: 0.30
       weight_genre_narrow: 0.20

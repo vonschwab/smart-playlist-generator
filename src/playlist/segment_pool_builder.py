@@ -151,6 +151,15 @@ class SegmentPoolConfig:
     setting this False gives the beam more material to navigate the projection
     curve (useful for long narrow-style segments)."""
 
+    X_genre_dense: Optional[np.ndarray] = None
+    """(N, dim) L2-normalised dense genre embedding (PMI-SVD sidecar). When set and
+    genre_bridge_weight > 0, the bridge score is blended with a genre harmonic-mean
+    score computed from pier-pair cosines in this space. No new hard gate."""
+
+    genre_bridge_weight: float = 0.0
+    """Weight for genre harmonic-mean in bridge re-ranking (0 = pure sonic, default).
+    score = (1-w)*sonic_hmean + w*genre_hmean. Values in [0.0, 1.0]."""
+
 
 @dataclass
 class SegmentPoolResult:
@@ -513,6 +522,13 @@ class SegmentCandidatePoolBuilder:
         sim_to_a = np.dot(config.X_full_norm, config.X_full_norm[config.pier_a])
         sim_to_b = np.dot(config.X_full_norm, config.X_full_norm[config.pier_b])
 
+        genre_w = max(0.0, min(1.0, float(config.genre_bridge_weight)))
+        genre_to_a: Optional[np.ndarray] = None
+        genre_to_b: Optional[np.ndarray] = None
+        if genre_w > 0.0 and config.X_genre_dense is not None:
+            genre_to_a = config.X_genre_dense @ config.X_genre_dense[config.pier_a]
+            genre_to_b = config.X_genre_dense @ config.X_genre_dense[config.pier_b]
+
         below_bridge_floor = 0
         passing: List[int] = []
         bridge_sim: Dict[int, float] = {}
@@ -526,7 +542,14 @@ class SegmentCandidatePoolBuilder:
                 below_bridge_floor += 1
                 continue
 
-            bridge_sim[i] = self._compute_bridge_score(sim_a, sim_b, config)
+            score = self._compute_bridge_score(sim_a, sim_b, config)
+            if genre_to_a is not None and genre_to_b is not None:
+                g_a_i = max(0.0, float(genre_to_a[i]))
+                g_b_i = max(0.0, float(genre_to_b[i]))
+                denom = g_a_i + g_b_i
+                genre_hmean = 0.0 if denom <= 1e-9 else (2.0 * g_a_i * g_b_i) / denom
+                score = (1.0 - genre_w) * score + genre_w * genre_hmean
+            bridge_sim[i] = score
             passing.append(i)
 
         # Sort by bridge score (descending), then by index (ascending)
@@ -536,9 +559,10 @@ class SegmentCandidatePoolBuilder:
 
         diagnostics["below_bridge_floor"] = int(below_bridge_floor)
         diagnostics["pass_bridge_floor"] = int(len(passing))
+        diagnostics["genre_bridge_weight"] = float(genre_w)
         diagnostics["bridge_score_mode"] = (
-            "experimental"
-            if config.experiment_bridge_scoring_enabled
+            "genre_blend" if genre_w > 0.0 and genre_to_a is not None
+            else "experimental" if config.experiment_bridge_scoring_enabled
             else "hmean"
         )
         if config.experiment_bridge_scoring_enabled:

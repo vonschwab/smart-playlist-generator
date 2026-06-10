@@ -365,6 +365,11 @@ def generate_playlist_ds(
         except (TypeError, ValueError):
             pass
 
+    # Genre admission aggregate mode: "centroid" (default) | "per_seed".
+    _genre_admission_aggregate = str(pb_overrides.get("genre_admission_aggregate", "centroid")).strip().lower()
+    if _genre_admission_aggregate not in {"centroid", "per_seed"}:
+        _genre_admission_aggregate = "centroid"
+
     def _build_pool(candidate_cfg: Any, genre_gate: Optional[float]):
         return build_candidate_pool(
             seed_idx=seed_idx,
@@ -391,6 +396,7 @@ def generate_playlist_ds(
             perceptual_bpm=perceptual_bpm,
             tempo_stability=tempo_stability_bpm,
             genre_admission_percentile=_genre_admission_percentile,
+            genre_admission_aggregate=_genre_admission_aggregate,
             layered_genre_diagnostics=layered_genre_shadow_available and genre_graph_source in {"layered_shadow", "layered"},
             X_genre_leaf_idf=getattr(bundle, "X_genre_leaf_idf", None),
             X_genre_family=getattr(bundle, "X_genre_family", None),

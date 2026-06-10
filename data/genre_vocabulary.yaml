@@ -1,144 +1,367 @@
 version: 1
 genre_style:
+  - 4ad
+  - acid breaks
+  - acid jazz
+  - acid techno
+  - all
   - alt-country
   - alternative
+  - alternative dance
+  - alternative hip hop
+  - alternative hip-hop
+  - alternative pop
+  - alternative rap
   - alternative rock
+  - alternative-indie rock
   - ambient
+  - ambient country
+  - ambient folk
   - ambient jazz
+  - ambient pop
+  - ambient techno
+  - american primitivism
+  - anti-
   - art pop
+  - art punk
   - avant-folk
   - avant-garde
+  - avant-garde pop
+  - b evans
   - balearic
+  - baroque pop
+  - beach
+  - bebop
   - bedroom pop
+  - big band
+  - black metal
+  - bleep techno
+  - blues rock
   - bossa nova
+  - boston indie
+  - braindance
+  - breakbeat
+  - breakcore
+  - breaks
+  - bubblegum bass
+  - c86
   - chamber pop
+  - chillwave
   - city pop
+  - classical
+  - close harmony
+  - club
+  - cocktail nation
+  - coldwave
+  - college rock
+  - conscious
+  - conscious hip hop
+  - contemporary classical
+  - contemporary folk
   - contemporary jazz
+  - cool jazz
+  - country rock
+  - countrygaze
+  - crank wave
   - creative music
+  - dance-pop
+  - dank haze
+  - dark ambient
+  - death rock
+  - deconstructed club
+  - deep house
   - devotional
   - disco
+  - domino
+  - downbeat
   - downtempo
+  - dream
   - dream pop
+  - drill and bass
   - drone
+  - drone rock
+  - drum n bass
   - dub
   - dub techno
+  - edm
+  - electro
+  - electro house
   - electroacoustic
+  - electroclash
   - electronic
   - electronic jazz
   - electronica
   - electronica dance
+  - electronicnic
+  - electropop
   - emo
+  - emocore
+  - europop
   - experimental
+  - experimental electronic
+  - experimental hip hop
   - experimental jazz
   - experimental pop
+  - experimental rock
   - field recordings
   - folk
+  - folk pop
+  - folk rock
   - folk-pop
+  - folktronica
   - fourth world
+  - freak folk
   - free improvisation
+  - free jazz
   - funk
   - funk / soul
+  - fusion
+  - garage
+  - garage punk
   - garage rock
+  - garage rock revival
+  - glam rock
+  - glitch
+  - goth
+  - gothic rock
+  - graveface
+  - grunge
   - hard bop
+  - hardcore
+  - hardcore hip hop
+  - hardcore hip-hop
+  - hardcore punk
   - hip hop
+  - hip-hop
   - house
+  - hyperpop
+  - hypnagogic pop
   - idm
   - indie
   - indie folk
   - indie pop
   - indie rock
+  - indietronica
+  - industrial
+  - industrial rock
+  - instrumental hip hop
   - italo
   - jangle pop
   - jazz
   - jazz and improvised music
+  - jazz fusion
+  - jazz hop
+  - jazz piano
+  - jazz trio
+  - jazz-funk
+  - jazzy hip-hop
+  - jungle
+  - kawaii
+  - kranky
   - krautrock
+  - krauty
   - library music
+  - liquid goth
   - lo-fi
   - lo-fi bedroom pop
+  - lo-fi indie
+  - lofi
   - math rock
   - metal
   - minimal
+  - minimal techno
+  - minimalism
+  - mod
+  - modal
+  - modal jazz
+  - modern classical
+  - motown
+  - neo-classical
   - neoclassical
   - new age
+  - new rave
   - new wave
+  - noise
+  - noise pop
   - noise rock
   - noise-pop
+  - nu jazz
+  - pc music
+  - pfabtrax
+  - piano jazz
+  - pianomania
+  - pillowcore
+  - pleasantville
+  - political hip hop
   - pop
+  - pop lament
+  - pop rap
+  - pop rock
+  - pop soul
+  - post bop
+  - post-bop
+  - post-folk
+  - post-grunge
   - post-hardcore
   - post-punk
   - post-rock
   - power pop
+  - progressive electronic
+  - progressive pop
+  - proto-punk
   - psychedelic
+  - psychedelic folk
   - punk
   - r&b
+  - rap
+  - real post-hardcore
+  - redneck
   - rock
+  - scandinavian
   - shoegaze
+  - singer songwriter
   - singer-songwriter
+  - singer/songwriter
   - slacker rock
   - slowcore
+  - smooth pop
+  - smooth soul
+  - soft rock
+  - soft rock revival
+  - sophisti-pop
   - soul
+  - soul jazz
+  - sound collage
   - space ambient
   - space music
   - space rock
+  - space rock revival
   - spiritual jazz
+  - stoner rock
+  - swing
+  - synth pop
   - synthpop
+  - tape music
+  - techno
+  - the smiths
+  - third stream
+  - tops
+  - totec radio
   - twee
   - uk dubstep
+  - underground hip-hop
+  - vocal jazz
+  - warp
+  - western ambient
   - world
+  - world music
+  - yacht rock
+  - yes
 descriptor:
+  - 2025
+  - 3-5
+  - a campire and a tent and a flashlight and some matches and a tree and that river and my glasses and a spaceship and a really really big bear but the bear is really really far away
   - abstract
   - acid
   - acoustic
   - aor
   - art
+  - atmospheric
+  - bandcamp gems
   - bass
   - beats
-  - boogie
+  - bill evans
   - billboard top 40
+  - bleak
+  - boogie
+  - brainfeeder
   - brazilian
+  - breakup
+  - cathartic
+  - cerebral
+  - christmas
+  - complex
   - cosmic
+  - dark
+  - digital
+  - driving
+  - drunk tank singalong tune
+  - ethereal
   - eurorack
   - experimental rock
+  - female vocals
   - folk, world, & country
   - fuzz
+  - gilbert
+  - heartbreaking
+  - icelandic
   - instrumental
   - jazz rap
+  - laetitia sadier
+  - late night
+  - literate
   - living room music
+  - masterpiece
+  - melodic
   - modular synthesizer
+  - mostly purple
   - natural
+  - nighttime
+  - nocturnal
   - orchestral
+  - portastudio
+  - powerful
+  - purple album covers
+  - sharp
+  - slow
   - songs
   - soundscapes
   - space
-  - christmas
   - stage & screen
+  - stylish
   - syntheziser
+  - underrated
+  - whimsical
+  - wishlist
 instrument:
   - 7 string guitar
+  - clarinet
   - drums
   - guitar
   - jazz vibraphone
+  - laptop
   - marimba
   - percussion
   - piano
   - saxophone
+  - synth
   - synthesizer
+  - synths
   - vibes
+  - vocal
 place:
+  - anacortes
   - athens
   - atlanta
   - baltimore
   - belgium
+  - boston
   - brooklyn
   - california
+  - canada
   - chicago
+  - connecticut
+  - constellation records
+  - idaho
   - indianapolis
   - japan
   - leeds
   - lisbon
   - london
   - los angeles
+  - massachusetts
   - melbourne
+  - memphis
   - mexico
   - montreal
   - new york
@@ -147,29 +370,54 @@ place:
   - pittsburgh
   - portland
   - richmond
+  - rough trade
+  - run for cover records
   - san francisco
+  - savonlinna
+  - sweden
   - tokyo
   - united kingdom
   - united states
   - utrecht
+  - vancouver
   - washington
   - washington d.c.
+  - welsh
 format:
+  - albums i own on vinyl
+  - cassette
   - compilation
   - demo
   - ep
   - live
+  - live album
+  - own on vinyl
   - remastered
   - single
   - soundtrack
+  - spotify
   - video
   - vidwo
+  - vinyl
 mood_function:
+  - chill
   - chillout
+  - death
+  - depressive
+  - eerie
+  - fun to skateboard to
+  - i love singing along
+  - lonely
   - meditation
+  - melancholic
+  - music for sitting alone outside late at night as you let your mind drift off to oblivion
+  - reflective
   - relaxation
   - sleep
   - study
+  - summer
+  - tugs at me heart strings
+  - warm
 label_or_org:
   - american football
   - cap'n jazz

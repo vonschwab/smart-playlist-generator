@@ -775,7 +775,11 @@ def _beam_search_segment(
     # Genre-steering: prefer the dense PMI-SVD embedding when enabled + available.
     genre_present = None
     _steering = bool(cfg.genre_steering_enabled)
-    if _steering and X_genre_dense is not None:
+    # Steering space: dense PMI-SVD embedding (legacy) vs taxonomy genre-vocab.
+    # In taxonomy mode the arc targets are genre-vocab vectors, so the arc vote must
+    # score in the SAME genre-vocab space (X_genre_norm), not the 64-dim dense space.
+    _steering_source = str(getattr(cfg, "genre_steering_source", "dense"))
+    if _steering and _steering_source != "taxonomy" and X_genre_dense is not None:
         X_genre_for_sim = X_genre_dense  # rows already L2-normalized
         genre_present = np.linalg.norm(X_genre_dense, axis=1) > 1e-9
     else:
@@ -806,6 +810,10 @@ def _beam_search_segment(
         else:
             # Smoothed mode (default): use IDF-weighted if available, else normalized
             X_genre_for_sim = X_genre_norm_idf if X_genre_norm_idf is not None else X_genre_norm
+        # Taxonomy steering scores in genre-vocab space: exempt genreless tracks from
+        # the on-arc floor (mirrors the dense branch's genre_present).
+        if _steering and _steering_source == "taxonomy" and X_genre_for_sim is not None:
+            genre_present = np.linalg.norm(X_genre_for_sim, axis=1) > 1e-9
 
     def _get_genre_sim(a_idx: int, b_idx: int) -> Optional[float]:
         nonlocal genre_cache_hits, genre_cache_misses

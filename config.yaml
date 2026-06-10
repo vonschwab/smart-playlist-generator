@@ -148,6 +148,9 @@ playlists:
       emit_selected_edge_audit: true
       genre_tiebreak_weight: 0.05
       genre_steering_enabled: true
+      genre_steering_source: taxonomy   # dense | taxonomy
+      genre_admission_aggregate: per_seed  # centroid (default) | per_seed
+      segment_pool_genre_weight: 0.25  # 0.0 = pure sonic (default), >0 blends genre hmean
       dj_route_shape: ladder
       weight_genre_strict: 0.30
       weight_genre_narrow: 0.20
@@ -217,6 +220,8 @@ playlists:
       weight_bridge_narrow: 0.7
       weight_transition_dynamic: 0.4
       weight_transition_narrow: 0.3
+    genre_similarity:
+      source: graph  # cooccurrence | graph
     random_seed: 0
     repair:
       enabled: true
