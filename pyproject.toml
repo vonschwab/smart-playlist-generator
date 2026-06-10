@@ -30,12 +30,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# DEPRECATED: legacy PySide6 desktop GUI. The browser GUI (`pip install -e .[web]`,
-# `python tools/serve_web.py`) is the maintained surface. Kept for fallback only.
-gui = [
-    "PySide6>=6.5.0",
-    "pytest-qt>=4.4",
-]
 ai = [
     "openai>=1.68.0",
 ]
@@ -138,7 +132,6 @@ markers = [
     "smoke: minimal end-to-end check, fast and broadly covering",
     "integration: exercises multiple modules with real data fixtures",
     "golden: compares against checked-in golden output files",
-    "gui: requires a Qt application context (use the qtbot fixture)",
     "slow: takes more than a few seconds; skip in fast feedback loops",
 ]
 filterwarnings = [

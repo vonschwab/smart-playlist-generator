@@ -65,10 +65,6 @@ def synthetic_artifact(tmp_path):
     return path, bundle
 
 
-# Note: the `qtbot` fixture is provided by the `pytest-qt` plugin (declared in
-# the `dev` extras of pyproject.toml). It auto-creates a QApplication and
-# exposes real GUI assertions (waitSignal, mouseClick, etc.). Earlier versions
-# of this conftest defined a no-op _DummyQtBot stub here so tests could run
-# without pytest-qt installed; that meant assertions silently no-opped, which
-# the audit (T#1) flagged as the single biggest test-quality issue. The stub
-# was removed and pytest-qt is now a hard dev dependency.
+# Note: the PySide6 desktop GUI and its tests were removed 2026-06-10
+# (docs/DEAD_CODE_AUDIT_2026-06-10.md). No Qt fixtures remain; the browser
+# GUI under src/playlist_web is the maintained front-end.

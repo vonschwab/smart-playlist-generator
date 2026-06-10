@@ -1,8 +1,10 @@
-"""
-Playlist Generator GUI Package
+"""Worker-process package (NDJSON protocol over stdin/stdout) plus the
+policy layer shared with the web GUI.
 
-Native Windows desktop GUI for the playlist generator using PySide6/Qt Widgets.
-Architecture: Two-process model with GUI process and worker process communicating
-via NDJSON protocol over stdin/stdout.
+The PySide6 desktop GUI that used to live here was removed 2026-06-10
+(see docs/DEAD_CODE_AUDIT_2026-06-10.md); the browser GUI under
+src/playlist_web + web/ is the maintained front-end. Survivors: worker.py
+(spawned by the web bridge), policy.py + ui_state.py (imported by the web
+app), utils/redaction.py.
 """
 __version__ = "4.0.0"

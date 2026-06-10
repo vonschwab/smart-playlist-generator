@@ -43,7 +43,6 @@ Right-click any track in the playlist table → **Blacklist this artist** or **B
 # 1. Install (Python 3.11+ required)
 pip install -e .[web]        # browser GUI + generation (recommended)
 pip install -e .[web,dev]    # contributors: + pytest, ruff, mypy, pre-commit
-# Legacy PySide6 desktop GUI (deprecated): pip install -e .[gui]
 
 # 2. Configure
 cp config.example.yaml config.yaml
@@ -77,7 +76,6 @@ python main_app.py --genre "shoegaze" --tracks 30
 
 # 10. Launch the browser GUI (http://127.0.0.1:8770)
 python tools/serve_web.py
-# Legacy PySide6 desktop GUI (deprecated): python -m playlist_gui.app
 ```
 
 See [docs/GOLDEN_COMMANDS.md](docs/GOLDEN_COMMANDS.md) for the full command reference.
@@ -188,10 +186,7 @@ See [docs/DJ_BRIDGE_ARCHITECTURE.md](docs/DJ_BRIDGE_ARCHITECTURE.md) for the ful
 │   ├── features/                # Audio feature extraction
 │   ├── similarity/              # Sonic variant computation (tower_pca)
 │   ├── metadata_client.py       # Track DB + scoped blacklisting
-│   └── playlist_gui/            # PySide6 GUI
-│       └── widgets/
-│           ├── mode_sliders.py  # Genre / Sonic / Pace sliders
-│           └── track_table.py   # Playlist table + context-menu blacklisting
+│   └── playlist_gui/            # Generation worker (NDJSON) + policy layer shared with the web app
 ├── scripts/                     # Library scan, feature extraction, artifact build
 ├── tools/
 │   └── doctor.py                # Environment validator

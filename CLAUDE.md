@@ -5,11 +5,11 @@ For the listener-facing feature catalog, see `README.md`. Newest, most authorita
 ## Environment
 
 - **Python 3.11+** required (pinned in `pyproject.toml`; README's "3.8+" is stale).
-- **Install:** `pip install -e .[web]` (users) or `pip install -e .[web,dev]` (contributors — adds pytest, ruff, mypy, pre-commit). The legacy PySide6 GUI needs `pip install -e .[gui]`.
-- **Test:** `pytest`. Markers: `smoke`, `integration`, `golden`, `gui`, `slow`. Use `-m "not slow"` for fast feedback.
+- **Install:** `pip install -e .[web]` (users) or `pip install -e .[web,dev]` (contributors — adds pytest, ruff, mypy, pre-commit).
+- **Test:** `pytest`. Markers: `smoke`, `integration`, `golden`, `slow`. Use `-m "not slow"` for fast feedback.
 - **Lint / types:** `ruff check` (E, F rules) and `mypy`. The `extend-ignore` list and `[[tool.mypy.overrides]]` modules are intentional — each entry has a comment. Don't relax without flagging.
 - **CLI:** `python main_app.py --artist "..." --tracks 30`. Full reference: `docs/GOLDEN_COMMANDS.md`.
-- **GUI:** `python tools/serve_web.py` (browser GUI, default port 8770) — the maintained front-end. The legacy PySide6 app (`python -m playlist_gui.app`, install `pip install -e .[gui]`) is deprecated.
+- **GUI:** `python tools/serve_web.py` (browser GUI, default port 8770) — the only front-end. The PySide6 desktop GUI was removed 2026-06-10 (`docs/DEAD_CODE_AUDIT_2026-06-10.md`); `src/playlist_gui/` now holds only the worker process + the policy layer the web app shares.
 - **Doctor:** `python tools/doctor.py`.
 
 ## Key paths
@@ -82,8 +82,7 @@ Oversized monoliths from earlier phases. Read carefully before editing; prefer e
 | `src/playlist/pier_bridge_builder.py` | ~5.3k LOC | DJ Bridge beam search + pool union |
 | `src/playlist_generator.py` | ~4.1k LOC | Top-level orchestrator |
 | `src/playlist/pipeline.py` | ~1.9k LOC | Single-seed DS pipeline (treated as load-bearing) |
-| `src/playlist_gui/main_window.py` | ~2k LOC | GUI front-end |
-| `src/playlist_gui/worker.py` | ~1.4k LOC | GUI IPC worker |
+| `src/playlist_gui/worker.py` | ~2.5k LOC | NDJSON IPC worker (spawned by the web bridge) |
 
 GUI/backend coupling is already clean (audit `[A#5]`). The architecture problem is god-classes within layers, not coupling between them.
 
@@ -91,7 +90,7 @@ GUI/backend coupling is already clean (audit `[A#5]`). The architecture problem 
 
 - **`data/metadata.db` is irreplaceable — treat it like production.** A full re-analysis takes days. Never write to, migrate, or alter the database without explicit user instruction followed by a second confirmation. Before any write operation, back up the file (`metadata.db.bak` with a timestamp). When in doubt, stop and ask.
 - **Music library files are permanently read-only.** The audio files on disk are never written, moved, renamed, or deleted — ever. Read access only, no exceptions.
-- **`qtbot` is a no-op stub** (`tests/conftest.py:60-70`, audit `[T#1]`). GUI tests using `qtbot.mouseClick`, `qtbot.waitSignal`, etc. silently pass. Don't trust GUI test results as evidence the GUI works — exercise the feature.
+- **A configured knob that can't act is a startup error, not a silent no-op.** This codebase's recurring failure mode is config that looks wired but isn't (2026-06-10 audit: beam widths ran at half config for months; the pace gate was dead in the live path; the web policy silently disabled dj_bridging). When adding a gate or knob, make the missing-data path warn loudly or raise — never fall back silently. See `docs/DEAD_CODE_AUDIT_2026-06-10.md`.
 - **Don't re-introduce post-order recency filtering.** Recency lives pre-order, in pool construction. The v3.4 fix exists for a reason — seed tracks at pier positions may be recently played but are explicitly requested.
 - **Don't change `transition_weights` without also changing `tower_weights` (or vice versa).** The two weight sets must stay aligned. See `docs/PLAYLIST_ORDERING_TUNING.md` "Knob 0" for the empirical evidence. To diagnose suspected divergence, enable `pier_bridge.emit_selected_edge_audit: true` and compare `T` vs `trans_beam` per row.
 - **The 0.20/0.50/0.30 tower weighting is baked into the `tower_weighted` artifact at build time.** The current production artifact uses **2DFTM harmony** (key-invariant 96-dim 2D Fourier Transform Magnitude, validated 2026-06-03) — blend is 162-dim (rhythm 9 + timbre 57 + harmony 96). If you ever re-run the full library analysis from scratch, re-fold via `scripts/fold_2dftm_into_artifact.py` (which also re-runs `scripts/extract_harmony_2dftm_sidecar.py` first). The older `scripts/rebuild_sonic_tower_weighted.py` only re-bakes weights, not features — don't use it alone after a fresh re-analysis.
@@ -101,7 +100,7 @@ GUI/backend coupling is already clean (audit `[A#5]`). The architecture problem 
 - **`[[tool.mypy.overrides]]` is for clean modules that should stay clean.** Don't add new modules there to silence errors — type the code instead.
 - **`cohesion_mode` drives the beam; the other three slider axes drive pool composition.** All four axes (`cohesion_mode`, `genre_mode`, `sonic_mode`, `pace_mode`) live at `playlists.<axis>` in `config.yaml`. The pier-bridge per-mode knobs (`bridge_floor_<mode>`, `weight_bridge_<mode>`, `soft_genre_penalty_*_<mode>`) are keyed by `cohesion_mode`. The old `playlists.ds_pipeline.mode` key is gone — use `cohesion_mode` instead.
 - **`sonic_only` mode no longer exists.** The closest equivalent is `genre_mode: off` (disables genre pool gating) combined with `cohesion_mode: discover` (relaxed beam).
-- **Genre mode is CLI-only in the current GUI** (commit `2e0000b`). Restoration is roadmap item Tier-2.4. Don't claim parity until it lands.
+- **Genre mode in the GUI:** the web GUI sends `genre_mode` through the API (`GenerateRequestBody`); the old "CLI-only" limitation applied to the removed PySide6 GUI.
 
 ---
 
