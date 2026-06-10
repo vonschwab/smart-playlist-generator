@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.12.0-group1-pass9-grown
+taxonomy_version: 0.12.1-group1-pass9-edge-upgrade
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -20714,6 +20714,11 @@ records:
     weight: 0.3
     confidence: 0.75
     notes: null
+  - target: atmospheric black metal
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -20759,6 +20764,11 @@ records:
     weight: 0.2
     confidence: 0.65
     notes: null
+  - target: blackgaze
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -20920,6 +20930,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: celtic folk
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -21020,6 +21035,11 @@ records:
     weight: 0.25
     confidence: 0.7
     notes: null
+  - target: latin trap
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -21112,6 +21132,11 @@ records:
     confidence: 0.65
     notes: null
   - target: trap soul
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: dembow
     edge_type: bridge_to
     weight: 0.4
     confidence: 0.6
@@ -21247,6 +21272,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: ghettotech
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -21313,6 +21343,11 @@ records:
     confidence: 0.65
     notes: null
   - target: juke
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: baltimore club
     edge_type: bridge_to
     weight: 0.4
     confidence: 0.6
@@ -21463,6 +21498,11 @@ records:
     confidence: 0.65
     notes: null
   - target: kizomba
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: zouk
     edge_type: bridge_to
     weight: 0.4
     confidence: 0.6
