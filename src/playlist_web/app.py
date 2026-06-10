@@ -1,11 +1,12 @@
 # src/playlist_web/app.py
 from __future__ import annotations
 
+import logging
 import sqlite3
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
@@ -37,8 +38,43 @@ DEFAULT_CONFIG = str(ROOT / "config.yaml")
 DB_PATH = ROOT / "data" / "metadata.db"
 WEB_DIST = ROOT / "web" / "dist"
 
+logger = logging.getLogger(__name__)
 
-def create_app(worker_cmd: Optional[list[str]] = None, config_path: str = DEFAULT_CONFIG) -> FastAPI:
+
+def _resolve_seed_artist_keys(track_ids: list[str]) -> list[str]:
+    """Resolve seed track IDs to artist keys for policy evaluation (read-only).
+
+    Policy gates DJ bridging on >= 2 unique seed artists; without this lookup
+    it conservatively force-disables DJ bridging on every web request.
+    """
+    if not track_ids:
+        return []
+    try:
+        conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
+        try:
+            placeholders = ",".join("?" for _ in track_ids)
+            rows = conn.execute(
+                "SELECT track_id, COALESCE(NULLIF(artist_key, ''), artist) "
+                f"FROM tracks WHERE track_id IN ({placeholders})",
+                [str(t) for t in track_ids],
+            ).fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        logger.warning(
+            "Seed artist resolution failed; policy will keep DJ bridging disabled",
+            exc_info=True,
+        )
+        return []
+    by_id = {str(r[0]): str(r[1] or "") for r in rows}
+    return [by_id.get(str(t), "") for t in track_ids]
+
+
+def create_app(
+    worker_cmd: Optional[list[str]] = None,
+    config_path: str = DEFAULT_CONFIG,
+    seed_artist_resolver: Optional[Callable[[list[str]], list[str]]] = None,
+) -> FastAPI:
     registry = JobRegistry()
     hub = WsHub()
 
@@ -76,6 +112,7 @@ def create_app(worker_cmd: Optional[list[str]] = None, config_path: str = DEFAUL
             sonic_mode=body.sonic_mode or "dynamic",  # type: ignore[arg-type]
             pace_mode=body.pace_mode or "dynamic",  # type: ignore[arg-type]
             track_count=body.tracks,
+            seed_track_ids=list(body.seed_track_ids),
             recency_enabled=body.recency_enabled,
             recency_days=body.recency_days,
             recency_plays_threshold=body.recency_plays_threshold,
@@ -85,7 +122,16 @@ def create_app(worker_cmd: Optional[list[str]] = None, config_path: str = DEFAUL
             artist_presence=body.artist_presence,  # type: ignore[arg-type]
             artist_variety=body.artist_variety,  # type: ignore[arg-type]
         )
-        overrides = derive_runtime_config(ui).overrides
+        # Resolve seed artists so the policy can evaluate DJ-bridging
+        # eligibility (it conservatively disables when keys are missing).
+        seed_artist_keys: Optional[list[str]] = None
+        if body.mode == "seeds" and body.seed_track_ids:
+            resolver = seed_artist_resolver or _resolve_seed_artist_keys
+            seed_artist_keys = [k for k in resolver(list(body.seed_track_ids)) if k] or None
+        policy = derive_runtime_config(ui, seed_artist_keys=seed_artist_keys)
+        for note in policy.notes:
+            logger.info("Policy: %s", note)
+        overrides = policy.overrides
         try:
             await bridge.submit({
                 "cmd": "generate_playlist",
