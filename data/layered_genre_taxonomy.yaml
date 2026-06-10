@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.11.0-group1-pass8-grown
+taxonomy_version: 0.11.1-group1-pass8-edge-upgrade
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -18515,6 +18515,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: old-time
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -18789,6 +18794,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: footwork
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -18820,6 +18830,11 @@ records:
     confidence: 0.65
     notes: null
   - target: juke
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: footwork
     edge_type: bridge_to
     weight: 0.4
     confidence: 0.6
@@ -19218,6 +19233,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: appalachian folk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -19333,6 +19353,11 @@ records:
     weight: 0.25
     confidence: 0.7
     notes: null
+  - target: cajun
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -19363,6 +19388,11 @@ records:
     weight: 0.25
     confidence: 0.7
     notes: null
+  - target: zydeco
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -19482,6 +19512,16 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: old-time
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: old-time
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -19577,6 +19617,11 @@ records:
     weight: 0.2
     confidence: 0.65
     notes: null
+  - target: stride
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -19642,6 +19687,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: chamber music
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -19672,6 +19722,11 @@ records:
     weight: 0.25
     confidence: 0.7
     notes: null
+  - target: gypsy jazz
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -19712,6 +19767,11 @@ records:
     weight: 0.35
     confidence: 0.75
     notes: null
+  - target: flamenco
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -19736,6 +19796,11 @@ records:
     weight: 0.35
     confidence: 0.75
     notes: null
+  - target: fado
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -19848,6 +19913,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: bachata
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -19877,6 +19947,11 @@ records:
     weight: 0.15
     confidence: 0.6
     notes: null
+  - target: merengue
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -19896,6 +19971,16 @@ records:
     weight: 0.6
     confidence: 0.85
     notes: null
+  - target: chamber music
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
+  - target: romantic era
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -19956,6 +20041,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: baroque
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -19976,6 +20066,11 @@ records:
     weight: 0.6
     confidence: 0.85
     notes: null
+  - target: romantic era
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -20011,6 +20106,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: heartland rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -20042,6 +20142,11 @@ records:
     confidence: 0.7
     notes: null
   - target: adult contemporary
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: southern rock
     edge_type: bridge_to
     weight: 0.4
     confidence: 0.6
@@ -20121,6 +20226,11 @@ records:
     weight: 0.3
     confidence: 0.75
     notes: null
+  - target: dark techno
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -20151,6 +20261,11 @@ records:
     confidence: 0.6
     notes: null
   - target: deep techno
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: industrial techno
     edge_type: bridge_to
     weight: 0.4
     confidence: 0.6
@@ -20249,6 +20364,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: pluggnb
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -20278,6 +20398,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: appalachian folk
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.7
+    notes: null
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -20443,6 +20568,16 @@ records:
     weight: 0.6
     confidence: 0.85
     notes: null
+  - target: baroque
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: chamber music
+    edge_type: family_context
+    weight: 0.2
+    confidence: 0.65
+    notes: null
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -20510,6 +20645,11 @@ records:
     confidence: 0.65
     notes: null
   - target: emo rap
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: trap soul
     edge_type: bridge_to
     weight: 0.4
     confidence: 0.6
