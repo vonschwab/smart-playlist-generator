@@ -36,6 +36,7 @@ def load_captures(data_dir: Path) -> List[dict]:
         data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
         seed = p.stem.replace("_capture", "")
         for e in data.get("entries", []):
+            e = dict(e)
             e.setdefault("seed", seed)
             entries.append(e)
     return entries
@@ -94,6 +95,9 @@ def main() -> None:
         return
 
     rated = [e for e in entries if e.get("verdict")]
+    if not rated:
+        print(f"No rated entries yet in {data_dir}. Rate some candidates first.")
+        return
     by_prov = aggregate_by_provenance(entries)
     means = mean_score_by_provenance(entries)
     corr_rows = sim_verdict_rows(entries)
