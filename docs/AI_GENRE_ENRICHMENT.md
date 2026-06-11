@@ -232,6 +232,26 @@ Never auto-apply broad parent genres, descriptors, disputed microgenres, country
 
 Prunes remain review-only unless a tag is malformed, duplicated, or clearly descriptor-only.
 
+## LLM provider
+
+The enrichment pipeline calls its LLM through a provider factory
+(`src/ai_genre_enrichment/provider.py`), configured in `config.yaml`:
+
+```yaml
+ai_genre:
+  provider: claude_code   # default — local Claude Code (Agent SDK, subscription auth)
+  claude_model: haiku     # 'haiku' | 'sonnet' | 'opus'
+```
+
+- `claude_code` (default): requires Claude Code installed and authenticated
+  (`claude` login) plus `pip install -e .[ai]`. No API key; usage draws on the
+  Claude subscription's rate windows. No web search support.
+- `openai` (legacy): requires `OPENAI_API_KEY`; still used by the unwired
+  `extract-bandcamp` subcommand.
+- `PG_AI_PROVIDER` env var overrides the config (used by tests).
+- Costs: claude_code calls report token usage only (`estimated_cost_usd` is
+  null — subscription usage is not billable per token).
+
 ## Commands
 
 ```bash

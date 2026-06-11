@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import sqlite3
 from pathlib import Path
-from typing import Iterable
 
 from .normalization import make_release_key as _make_release_key
 from .tag_classification import normalize_source_tag
