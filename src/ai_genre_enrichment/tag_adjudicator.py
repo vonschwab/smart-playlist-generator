@@ -2,18 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import os
 from copy import deepcopy
 from typing import Any
 
 logger = logging.getLogger(__name__)
-
-try:
-    from openai import OpenAI
-except ImportError:
-    OpenAI = None  # type: ignore[assignment,misc]
 
 
 TAG_ADJUDICATOR_INSTRUCTIONS = """
@@ -84,79 +77,62 @@ def tag_adjudicator_response_format() -> dict[str, Any]:
 def adjudicate_tags(
     tags: list[tuple[str, str]],
     *,
-    model: str = "gpt-4o-mini",
+    model: str | None = None,
     dry_run: bool = False,
+    client: Any | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Call AI to classify a batch of unknown tags.
 
     Args:
         tags: List of (raw_tag, normalized_tag) pairs to classify.
-        model: OpenAI model to use.
-        dry_run: If True, return empty results without calling API.
+        model: Model override; None uses the active provider's default.
+        dry_run: If True, return empty results without calling the backend.
+        client: Injected enrichment client (tests); None builds one via the factory.
 
     Returns:
-        Dict keyed by normalized_tag → {"classification", "confidence", "reason"}.
+        Dict keyed by normalized_tag -> {"classification", "confidence", "reason"}.
+
+    Raises:
+        RuntimeError/ValueError: backend unavailable or call failed after retries.
+        An explicitly requested adjudication that cannot run is an error, not a
+        silent no-op.
 
     Note: No hard batch-size limit is enforced here. At scale, callers should
-    chunk large batches to avoid token-limit failures (TODO when needed).
+    chunk large batches to avoid token-limit failures (the analyze 'enrich'
+    stage uses call_structured_batch for that).
     """
     if not tags or dry_run:
         return {}
 
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        try:
-            from src.config_loader import Config
-            api_key = Config().openai_api_key
-        except (FileNotFoundError, AttributeError):
-            pass
-    if not api_key:
-        logger.warning("OPENAI_API_KEY not set — skipping AI adjudication")
-        return {}
+    if client is None:
+        from .provider import create_enrichment_client
+
+        client = create_enrichment_client(model=model)
 
     tag_list = "\n".join(f"- raw: {raw!r}, normalized: {norm!r}" for raw, norm in tags)
     prompt = f"Classify the following source tags:\n\n{tag_list}"
 
-    try:
-        if OpenAI is None:
-            logger.warning("OpenAI SDK not installed — skipping AI adjudication")
-            return {}
+    data = client.call_structured(
+        prompt,
+        tag_adjudicator_response_format(),
+        instructions=TAG_ADJUDICATOR_INSTRUCTIONS,
+    )
 
-        client = OpenAI(api_key=api_key)
-        response = client.responses.create(
-            model=model,
-            instructions=TAG_ADJUDICATOR_INSTRUCTIONS,
-            input=[{"role": "user", "content": prompt}],
-            text={"format": tag_adjudicator_response_format()},
-        )
+    results: dict[str, dict[str, Any]] = {}
+    for item in data.get("tag_classifications", []):
+        norm = item.get("normalized_tag", "").strip().casefold()
+        if norm:
+            results[norm] = {
+                "classification": item["classification"],
+                "confidence": item["confidence"],
+                "reason": item.get("reason", ""),
+            }
 
-        output_text = getattr(response, "output_text", None)
-        if not output_text:
-            logger.warning("AI adjudicator returned no output")
-            return {}
-
-        data = json.loads(output_text)
-        results: dict[str, dict[str, Any]] = {}
-        for item in data.get("tag_classifications", []):
-            norm = item.get("normalized_tag", "").strip().casefold()
-            if norm:
-                results[norm] = {
-                    "classification": item["classification"],
-                    "confidence": item["confidence"],
-                    "reason": item.get("reason", ""),
-                }
-
-        usage = getattr(response, "usage", None)
-        if usage:
-            input_t = getattr(usage, "input_tokens", 0) or 0
-            output_t = getattr(usage, "output_tokens", 0) or 0
-            logger.info(
-                "AI adjudication: %d tags, %d input + %d output tokens",
-                len(tags), input_t, output_t,
-            )
-
-        return results
-
-    except Exception:
-        logger.exception("AI adjudication failed")
-        return {}
+    usage = getattr(client, "last_token_usage", None) or {}
+    logger.info(
+        "AI adjudication: %d tags, %d input + %d output tokens",
+        len(tags),
+        usage.get("input_tokens", 0),
+        usage.get("output_tokens", 0),
+    )
+    return results

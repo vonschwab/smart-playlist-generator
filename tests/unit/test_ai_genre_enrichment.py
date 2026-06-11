@@ -3438,7 +3438,7 @@ def test_get_ai_graduated_terms_filters_by_times_seen(tmp_path):
     assert "rejected tag" not in terms.get("rejected", set())
 
 
-def test_adjudicate_tags_returns_classifications(monkeypatch):
+def test_adjudicate_tags_returns_classifications():
     from src.ai_genre_enrichment.tag_adjudicator import adjudicate_tags
 
     fake_response = {
@@ -3461,29 +3461,33 @@ def test_adjudicate_tags_returns_classifications(monkeypatch):
         "warnings": [],
     }
 
-    class FakeResponse:
-        output_text = json.dumps(fake_response)
-        usage = None
+    class FakeClient:
+        last_token_usage = {"input_tokens": 5, "output_tokens": 5}
 
-    class FakeResponses:
-        def create(self, **kwargs):
-            return FakeResponse()
-
-    class FakeOpenAI:
-        def __init__(self, **kwargs):
-            self.responses = FakeResponses()
-
-    monkeypatch.setattr("src.ai_genre_enrichment.tag_adjudicator.OpenAI", FakeOpenAI)
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+        def call_structured(self, prompt, response_format, *, instructions):
+            assert "ambient pop" in prompt
+            assert "Classify source-provided release tags" in instructions
+            return fake_response
 
     results = adjudicate_tags(
         [("ambient pop", "ambient pop"), ("stage & screen", "stage & screen")],
-        model="gpt-4o-mini",
+        client=FakeClient(),
     )
 
     assert len(results) == 2
     assert results["ambient pop"]["classification"] == "genre_style"
     assert results["stage & screen"]["classification"] == "review_only"
+
+
+def test_adjudicate_tags_propagates_backend_failure():
+    from src.ai_genre_enrichment.tag_adjudicator import adjudicate_tags
+
+    class DeadClient:
+        def call_structured(self, prompt, response_format, *, instructions):
+            raise RuntimeError("Claude Code request failed after retries: boom")
+
+    with pytest.raises(RuntimeError, match="failed after retries"):
+        adjudicate_tags([("tag", "tag")], client=DeadClient())
 
 
 def test_classify_source_tags_uses_adjudication_cache(tmp_path):
@@ -3567,20 +3571,16 @@ def test_classify_source_tags_calls_ai_adjudicator_on_unknown(tmp_path, monkeypa
         "warnings": [],
     }
 
-    class FakeResponse:
-        output_text = json.dumps(fake_response)
-        usage = None
+    class FakeClient:
+        last_token_usage = {"input_tokens": 5, "output_tokens": 5}
 
-    class FakeResponses:
-        def create(self, **kwargs):
-            return FakeResponse()
+        def call_structured(self, prompt, response_format, *, instructions):
+            return fake_response
 
-    class FakeOpenAI:
-        def __init__(self, **kwargs):
-            self.responses = FakeResponses()
-
-    monkeypatch.setattr("src.ai_genre_enrichment.tag_adjudicator.OpenAI", FakeOpenAI)
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "src.ai_genre_enrichment.provider.create_enrichment_client",
+        lambda **kwargs: FakeClient(),
+    )
 
     page_id = store.upsert_source_page(
         release_key="test::album",

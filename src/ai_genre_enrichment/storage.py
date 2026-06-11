@@ -1194,7 +1194,7 @@ class SidecarStore:
         source_page_id: int,
         *,
         adjudicate: bool = False,
-        model: str = "gpt-4o-mini",
+        model: str | None = None,
     ) -> bool:
         """Run deterministic source-tag classification for one source page.
 
