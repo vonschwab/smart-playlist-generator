@@ -14,9 +14,11 @@ import numpy as np
 import pytest
 
 from src.playlist.pier_bridge.taxonomy_steering import (
+    GenrePairSimProvider,
     TaxonomySteering,
     _filter_path_by_mass,
     build_taxonomy_genre_targets,
+    build_taxonomy_pair_provider,
     get_taxonomy_steering,
 )
 
@@ -268,3 +270,90 @@ def test_build_targets_filters_low_mass_intermediates():
     assert len(filtered) <= 2, (
         f"expected ≤2 waypoints after zeroing all counts; got {filtered}"
     )
+
+
+# --- GenrePairSimProvider (pairwise genre-edge floor scoring) ------------------
+#
+# Calibration 2026-06-10 (C:\tmp\calib_pair_floor*.py): the graph-smoothed
+# vector cosine CANNOT separate bad edges from good (Sharp Pins->Springsteen
+# 0.693 vs YYY->StVincent 0.677). Tag-level taxonomy max-sim separates the
+# genre-import class cleanly (Hyldon->indie 0.000, Prince->Loving 0.052 vs
+# legit connectors >= 0.131). The provider scores track pairs at tag level.
+
+
+def test_pair_provider_max_over_tag_pairs():
+    S = np.array([
+        [1.0, 0.3, 0.0],
+        [0.3, 1.0, 0.6],
+        [0.0, 0.6, 1.0],
+    ], dtype=np.float32)
+    tags = {0: np.array([0]), 1: np.array([1, 2]), 2: np.array([2])}
+    prov = GenrePairSimProvider(S, tags.get)
+    assert prov.sim(0, 1) == pytest.approx(0.3)   # max(S[0,1], S[0,2]) = 0.3
+    assert prov.sim(1, 2) == pytest.approx(1.0)   # tag 2 shared -> S[2,2]=1.0
+    assert prov.sim(0, 2) == pytest.approx(0.0)
+
+
+def test_pair_provider_exempts_tagless_tracks():
+    S = np.eye(2, dtype=np.float32)
+    tags = {0: np.array([0]), 1: None, 2: np.array([], dtype=int)}
+    prov = GenrePairSimProvider(S, tags.get)
+    assert prov.sim(0, 1) is None
+    assert prov.sim(0, 2) is None
+
+
+def test_build_taxonomy_pair_provider_live_separation():
+    """The live provider must reproduce the calibration separation: funk vs
+    art-pop tracks score ~0 (gated); same-cluster tracks score high (pass)."""
+    steering = get_taxonomy_steering()
+    vocab = np.array(["funk", "art rock", "baroque pop", "dream pop", "shoegaze"], dtype=object)
+    X = np.zeros((3, 5), dtype=np.float32)
+    X[0, 0] = 1.0                  # track 0: funk (the Hyldon profile)
+    X[1, 1] = 0.8   # track 1: art rock + baroque pop (St Vincent)
+    X[1, 2] = 0.6
+    X[2, 3] = 0.9   # track 2: dream pop + shoegaze
+    X[2, 4] = 0.7
+    prov = build_taxonomy_pair_provider(steering, X, vocab)
+    s_bad = prov.sim(0, 1)
+    assert s_bad is not None and s_bad < 0.10, f"funk~art-pop must gate, got {s_bad}"
+    # dream pop ~ shoegaze cluster is internally compatible with itself
+    assert prov.sim(2, 2) == pytest.approx(1.0)
+
+
+def test_build_taxonomy_pair_provider_specific_tags_shadow_broad():
+    """A track tagged with both a broad umbrella ('rock', high weight) and a
+    specific genre must be scored by the SPECIFIC tag — otherwise two tracks
+    sharing only the literal 'rock' tag would score 1.0 and defeat the gate."""
+    steering = get_taxonomy_steering()
+    vocab = np.array(["rock", "shoegaze", "funk"], dtype=object)
+    X = np.zeros((2, 3), dtype=np.float32)
+    X[0, 0] = 1.0   # broad rock dominant + specific shoegaze
+    X[0, 1] = 0.4
+    X[1, 0] = 1.0   # broad rock dominant + specific funk
+    X[1, 2] = 0.4
+    prov = build_taxonomy_pair_provider(steering, X, vocab)
+    s = prov.sim(0, 1)
+    # shoegaze ~ funk, NOT rock ~ rock (which would be 1.0)
+    assert s is not None and s < 0.5, f"broad tag must not dominate, got {s}"
+
+
+def test_build_taxonomy_pair_provider_broad_fallback():
+    """A track with ONLY broad tags still gets scored (via the broad tag),
+    not exempted — 'rock'-only tracks pair fine within the rock cluster."""
+    steering = get_taxonomy_steering()
+    vocab = np.array(["rock", "shoegaze"], dtype=object)
+    X = np.zeros((2, 2), dtype=np.float32)
+    X[0, 0] = 1.0   # rock only (broad)
+    X[1, 0] = 1.0   # rock only (broad)
+    prov = build_taxonomy_pair_provider(steering, X, vocab)
+    assert prov.sim(0, 1) == pytest.approx(1.0)
+
+
+def test_build_taxonomy_pair_provider_uncovered_is_exempt():
+    steering = get_taxonomy_steering()
+    vocab = np.array(["xyzzy not real", "shoegaze"], dtype=object)
+    X = np.zeros((2, 2), dtype=np.float32)
+    X[0, 0] = 1.0   # uncovered tag only -> exempt
+    X[1, 1] = 1.0
+    prov = build_taxonomy_pair_provider(steering, X, vocab)
+    assert prov.sim(0, 1) is None

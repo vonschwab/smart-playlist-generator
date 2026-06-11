@@ -240,6 +240,7 @@ def _beam_search_segment(
     rhythm_matrix: Optional[np.ndarray] = None,
     perceptual_bpm: Optional[np.ndarray] = None,
     tempo_stability: Optional[np.ndarray] = None,
+    pair_sim_provider: Optional[Any] = None,
 ) -> Tuple[Optional[List[int]], int, int, Optional[str]]:
     """
     Constrained beam search to find path from pier_a to pier_b.
@@ -775,6 +776,25 @@ def _beam_search_segment(
     # Genre-steering: prefer the dense PMI-SVD embedding when enabled + available.
     genre_present = None
     _steering = bool(cfg.genre_steering_enabled)
+    # Pairwise genre-edge floor (deterministic bad-edge gate, see PierBridgeConfig).
+    _pair_floor = float(getattr(cfg, "genre_pair_floor", 0.0)) if _steering else 0.0
+    pair_floor_rejections = 0
+
+    def _pair_edge_sim(a_idx: int, b_idx: int) -> Optional[float]:
+        """Pair-floor similarity, None = exempt. Tag-level taxonomy provider
+        when supplied (the only space that separates bad edges from good — see
+        GenrePairSimProvider), else the steering-space vector cosine with
+        genreless endpoints exempt."""
+        if pair_sim_provider is not None:
+            return pair_sim_provider.sim(int(a_idx), int(b_idx))
+        if X_genre_for_sim is None:
+            return None
+        if genre_present is not None and not (
+            bool(genre_present[int(a_idx)]) and bool(genre_present[int(b_idx)])
+        ):
+            return None
+        return _get_genre_sim(int(a_idx), int(b_idx))
+
     # Steering space: dense PMI-SVD embedding (legacy) vs taxonomy genre-vocab.
     # In taxonomy mode the arc targets are genre-vocab vectors, so the arc vote must
     # score in the SAME genre-vocab space (X_genre_norm), not the 64-dim dense space.
@@ -1126,10 +1146,21 @@ def _beam_search_segment(
                 if X_genre_for_sim is not None and not _steering:
                     genre_sim = _get_genre_sim(int(current), int(cand))
                 if _steering:
+                    cand_present = (genre_present is None) or bool(genre_present[int(cand)])
+                    # Pairwise genre-edge floor: the candidate vs the track it is
+                    # actually placed after (the arc vote below never sees this).
+                    if _pair_floor > 0.0:
+                        _pair_sim = _pair_edge_sim(int(current), int(cand))
+                        if (
+                            _pair_sim is not None
+                            and math.isfinite(_pair_sim)
+                            and _pair_sim < _pair_floor
+                        ):
+                            pair_floor_rejections += 1
+                            continue
                     # Genre ARC vote (first-class): closeness to this step's g_target,
                     # NOT similarity to the previous track. Plus the per-segment on-arc
                     # percentile floor (precomputed above into arc_step_floor).
-                    cand_present = (genre_present is None) or bool(genre_present[int(cand)])
                     if arc_target is not None and X_genre_for_sim is not None and cand_present:
                         arc_sim = float(step_arc_sims.get(int(cand), float(np.dot(X_genre_for_sim[int(cand)], arc_target))))
                         # Per-segment on-arc floor: drop below-floor candidates.
@@ -1451,7 +1482,12 @@ def _beam_search_segment(
         if not next_beam:
             _record_genre_cache_stats()
             _record_local_sonic_stats()
-            return None, genre_penalty_hits, edges_scored, f"no valid continuations at step={step}"
+            _pf_note = (
+                f" (genre_pair_floor={_pair_floor:.2f} rejected {pair_floor_rejections} edges)"
+                if pair_floor_rejections > 0
+                else ""
+            )
+            return None, genre_penalty_hits, edges_scored, f"no valid continuations at step={step}{_pf_note}"
 
         # Keep top beam_width states
         next_beam.sort(key=lambda s: s.score, reverse=True)
@@ -1606,6 +1642,17 @@ def _beam_search_segment(
         final_edge_score = final_trans
         edges_scored += 1
         if _steering:
+            # Pairwise genre-edge floor on the pier-adjacent edge (last -> pier_b):
+            # the highest-stakes edge in the segment. Genreless endpoints exempt.
+            if _pair_floor > 0.0:
+                _pair_sim_final = _pair_edge_sim(int(last), int(pier_b))
+                if (
+                    _pair_sim_final is not None
+                    and math.isfinite(_pair_sim_final)
+                    and _pair_sim_final < _pair_floor
+                ):
+                    pair_floor_rejections += 1
+                    continue
             # Genre ARC vote at the final connection: closeness of the last interior
             # track to the final target g_targets[-1] (NOT prev-track similarity to
             # pier_b). Same per-segment on-arc floor applies (computed from the final
@@ -1704,7 +1751,12 @@ def _beam_search_segment(
     if not final_candidates:
         _record_genre_cache_stats()
         _record_local_sonic_stats()
-        return None, genre_penalty_hits, edges_scored, "no valid final connection to destination"
+        _pf_note = (
+            f" (genre_pair_floor={_pair_floor:.2f} rejected {pair_floor_rejections} edges)"
+            if pair_floor_rejections > 0
+            else ""
+        )
+        return None, genre_penalty_hits, edges_scored, f"no valid final connection to destination{_pf_note}"
 
     best_final = _select_best_beam_state(
         final_candidates,
@@ -1767,4 +1819,11 @@ def _beam_search_segment(
     # Return interior tracks (exclude pier_a which is path[0])
     _record_genre_cache_stats()
     _record_local_sonic_stats()
+    if pair_floor_rejections > 0:
+        logger.info(
+            "Pairwise genre-edge floor active: floor=%.2f rejected %d of %d scored edges",
+            _pair_floor,
+            pair_floor_rejections,
+            edges_scored + pair_floor_rejections,
+        )
     return best_final.path[1:], genre_penalty_hits, edges_scored, None

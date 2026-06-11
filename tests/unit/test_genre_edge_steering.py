@@ -1,5 +1,4 @@
 import numpy as np
-import pytest
 
 from src.playlist.config import resolve_pier_bridge_tuning
 from src.playlist.pier_bridge.beam import _beam_search_segment
@@ -223,3 +222,187 @@ def test_arc_knobs_resolve():
     assert t.genre_steering_enabled is True
     assert abs(t.genre_arc_floor_percentile - 0.85) < 1e-9
     assert abs(t.genre_admission_percentile - 0.90) < 1e-9
+
+
+# --- pairwise genre-edge floor (deterministic bad-edge gate) -------------------
+#
+# The arc vote scores candidates against the smoothed WAYPOINT target, never
+# against the track they're actually placed next to. A candidate can be on-arc
+# yet genre-incompatible with its neighbor (Sharp Pins -> Springsteen: T=0.657
+# approved, taxonomy pair sim ~0). genre_pair_floor gates the EDGE pairwise.
+
+
+def _pair5_taxonomy():
+    """5 tracks under taxonomy steering. Sonic identical (never decides).
+
+    Genre (L2 rows over a 3-dim vocab):
+      0 pierA  [1,0,0]
+      1 candA  [1,0,0]        pair sim to pierA = 1.0
+      2 candB  [0,1,0]        pair sim to pierA = 0.0 (genre-far)
+      3 pierB  [1,0,0]
+      4 candC  [.707,.707,0]  pair sim .707 to everything in-cluster
+    """
+    Xn = np.ones((5, 3), dtype=float)
+    Xn = Xn / np.linalg.norm(Xn, axis=1, keepdims=True)
+    g = np.array([
+        [1.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.70710678, 0.70710678, 0.0],
+    ], dtype=float)
+    return Xn, g
+
+
+def _tax_cfg(**kw):
+    base = dict(
+        bridge_floor=-1.0, transition_floor=-1.0, progress_enabled=False,
+        genre_steering_enabled=True, genre_steering_source="taxonomy",
+        weight_genre=0.4, genre_arc_floor=0.0, genre_arc_floor_percentile=0.0,
+        weight_bridge=0.4, weight_transition=0.2,
+    )
+    base.update(kw)
+    return PierBridgeConfig(**base)
+
+
+def test_pair_floor_rejects_genre_far_interior_edge():
+    """candB is arc-FAVORED but pairwise genre-far from pierA; the pair floor
+    must reject the pierA->candB edge so candA wins."""
+    Xn, g = _pair5_taxonomy()
+    # Arc target favors candB (sim 1.0) over candA (sim 0.0): without the pair
+    # floor candB wins on the arc vote. With it, candB's edge is illegal.
+    g_targets = [np.array([0.0, 1.0, 0.0])]
+    cfg = _tax_cfg(genre_pair_floor=0.5)
+    path, _h, _e, err = _beam_search_segment(
+        0, 3, 1, [1, 2], Xn, Xn, None, None, None, g, cfg, 5,
+        g_targets_override=g_targets,
+    )
+    assert err is None
+    assert path == [1], f"pair floor must reject genre-far candB; got {path}"
+
+
+def test_pair_floor_zero_is_noop():
+    """floor 0.0 (default): the genre-far candidate stays legal."""
+    Xn, g = _pair5_taxonomy()
+    g_targets = [np.array([0.0, 1.0, 0.0])]
+    cfg = _tax_cfg(genre_pair_floor=0.0)
+    path, _h, _e, err = _beam_search_segment(
+        0, 3, 1, [2], Xn, Xn, None, None, None, g, cfg, 5,
+        g_targets_override=g_targets,
+    )
+    assert err is None
+    assert path == [2]
+
+
+def test_pair_floor_gates_final_pier_connection():
+    """candB passes the interior edge via candC-like geometry but its FINAL edge
+    to pierB is genre-far: the final-connection gate must reject it.
+
+    Here: pierA [0,1,0], candB [0,1,0] (interior edge sim 1.0), pierB [1,0,0]
+    (final edge sim 0.0). candC [.707,.707,0] passes both (.707). Arc favors
+    candB, so without the final gate candB wins."""
+    Xn, _ = _pair5_taxonomy()
+    g = np.array([
+        [0.0, 1.0, 0.0],            # pierA
+        [0.70710678, 0.70710678, 0.0],  # candC: interior .707, final .707
+        [0.0, 1.0, 0.0],            # candB: interior 1.0, final 0.0
+        [1.0, 0.0, 0.0],            # pierB
+        [0.0, 0.0, 1.0],            # unused
+    ], dtype=float)
+    g_targets = [np.array([0.0, 1.0, 0.0])]  # arc favors candB
+    cfg = _tax_cfg(genre_pair_floor=0.5)
+    path, _h, _e, err = _beam_search_segment(
+        0, 3, 1, [1, 2], Xn, Xn, None, None, None, g, cfg, 5,
+        g_targets_override=g_targets,
+    )
+    assert err is None
+    assert path == [1], f"final-connection pair floor must reject candB; got {path}"
+
+
+def test_pair_floor_genreless_endpoint_exempt():
+    """A genreless candidate (zero genre vector) is exempt from the pair floor
+    on both its interior and final edges."""
+    Xn, g = _pair5_taxonomy()
+    g = g.copy()
+    g[2] = 0.0  # candB genreless
+    cfg = _tax_cfg(genre_pair_floor=0.9, weight_genre=0.0)
+    path, _h, _e, err = _beam_search_segment(
+        0, 3, 1, [2], Xn, Xn, None, None, None, g, cfg, 5,
+    )
+    assert err is None
+    assert path == [2]
+
+
+def test_pair_floor_infeasible_error_names_the_gate():
+    """When the pair floor rejects every final connection, the error message
+    must say so (loud failure, not a generic 'no valid continuations')."""
+    Xn, _ = _pair5_taxonomy()
+    g = np.array([
+        [0.0, 1.0, 0.0],   # pierA
+        [0.0, 1.0, 0.0],   # only cand: interior 1.0, final 0.0
+        [0.0, 0.0, 1.0],   # unused
+        [1.0, 0.0, 0.0],   # pierB genre-far from everything offered
+        [0.0, 0.0, 1.0],   # unused
+    ], dtype=float)
+    cfg = _tax_cfg(genre_pair_floor=0.5, weight_genre=0.0)
+    path, _h, _e, err = _beam_search_segment(
+        0, 3, 1, [1], Xn, Xn, None, None, None, g, cfg, 5,
+    )
+    assert path is None
+    assert err is not None and "genre_pair_floor" in err, f"err={err!r}"
+
+
+def test_pair_floor_uses_injected_provider_over_vector_cosine():
+    """When a pair_sim_provider is supplied (taxonomy tag-level scoring), the
+    gate must score with IT, not the genre-vector cosine. Here the vectors say
+    candB is genre-close (cosine 1.0 to pierA) but the provider says 0.0 —
+    the provider verdict must win and candB must be rejected."""
+    Xn, g = _pair5_taxonomy()
+    g = g.copy()
+    g[2] = [1.0, 0.0, 0.0]  # candB's VECTOR now matches pierA exactly
+
+    class _Prov:
+        def sim(self, a, b):
+            # candB (idx 2) is genre-far from everything; all else compatible
+            return 0.0 if 2 in (a, b) else 1.0
+
+    g_targets = [np.array([1.0, 0.0, 0.0])]
+    cfg = _tax_cfg(genre_pair_floor=0.5)
+    path, _h, _e, err = _beam_search_segment(
+        0, 3, 1, [1, 2], Xn, Xn, None, None, None, g, cfg, 5,
+        g_targets_override=g_targets, pair_sim_provider=_Prov(),
+    )
+    assert err is None
+    assert path == [1], f"provider verdict must override vector cosine; got {path}"
+
+
+def test_pair_floor_provider_none_is_exempt():
+    """Provider returning None (uncovered track) exempts the edge."""
+    Xn, g = _pair5_taxonomy()
+
+    class _Prov:
+        def sim(self, a, b):
+            return None
+
+    cfg = _tax_cfg(genre_pair_floor=0.9, weight_genre=0.0)
+    path, _h, _e, err = _beam_search_segment(
+        0, 3, 1, [2], Xn, Xn, None, None, None, g, cfg, 5,
+        pair_sim_provider=_Prov(),
+    )
+    assert err is None
+    assert path == [2]
+
+
+def test_pair_floor_knob_resolves_per_mode():
+    overrides = {"pier_bridge": {
+        "genre_steering_enabled": True,
+        "genre_pair_floor_narrow": 0.15,
+        "genre_pair_floor_discover": 0.05,
+    }}
+    t, _ = resolve_pier_bridge_tuning(mode="narrow", similarity_floor=0.35, overrides=overrides)
+    assert abs(t.genre_pair_floor - 0.15) < 1e-9
+    t2, _ = resolve_pier_bridge_tuning(mode="discover", similarity_floor=0.35, overrides=overrides)
+    assert abs(t2.genre_pair_floor - 0.05) < 1e-9
+    # default off
+    t3, _ = resolve_pier_bridge_tuning(mode="narrow", similarity_floor=0.35, overrides=None)
+    assert t3.genre_pair_floor == 0.0

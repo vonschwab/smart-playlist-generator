@@ -477,6 +477,37 @@ def build_pier_bridge_playlist(
             for j in range(len(_genre_vocab_list))
         }
 
+    # Pairwise genre-edge floor: under taxonomy steering the gate MUST score at
+    # tag level (calibration 2026-06-10: the smoothed-vector cosine cannot
+    # separate bad edges from good — Sharp Pins->Springsteen 0.693 vs the
+    # praised YYY->StVincent 0.677). Without the provider the beam falls back
+    # to that cosine, so its absence here is a loud misconfiguration.
+    pair_sim_provider = None
+    if (
+        bool(cfg.genre_steering_enabled)
+        and str(getattr(cfg, "genre_steering_source", "dense")) == "taxonomy"
+        and float(getattr(cfg, "genre_pair_floor", 0.0)) > 0.0
+    ):
+        if X_genre_raw is not None and _genre_vocab_list:
+            from src.playlist.pier_bridge.taxonomy_steering import (
+                build_taxonomy_pair_provider,
+                get_taxonomy_steering,
+            )
+            pair_sim_provider = build_taxonomy_pair_provider(
+                get_taxonomy_steering(), X_genre_raw, bundle.genre_vocab
+            )
+            logger.info(
+                "Pairwise genre-edge floor active: floor=%.2f (tag-level taxonomy provider)",
+                float(cfg.genre_pair_floor),
+            )
+        else:
+            logger.warning(
+                "Pairwise genre-edge floor DEGRADED: genre_pair_floor=%.2f is set but "
+                "X_genre_raw/genre_vocab unavailable — the beam will gate on the "
+                "smoothed-vector cosine, which does NOT separate bad edges from good",
+                float(cfg.genre_pair_floor),
+            )
+
     # Genre similarity for soft edge penalty / tiebreak (cosine on smoothed genre vectors)
     X_genre_use = X_genre_smoothed if X_genre_smoothed is not None else None
     X_genre_norm = None
@@ -1223,6 +1254,7 @@ def build_pier_bridge_playlist(
                         perceptual_bpm=perceptual_bpm,
                         tempo_stability=tempo_stability_arr,
                         rhythm_matrix=rhythm_matrix,
+                        pair_sim_provider=pair_sim_provider,
                     )
                     last_failure_reason = beam_failure_reason
                     if segment_path is not None:

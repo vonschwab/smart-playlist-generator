@@ -118,6 +118,7 @@ class PierBridgeTuning:
     genre_arc_floor: float = 0.0
     genre_arc_floor_percentile: float = 0.0
     genre_admission_percentile: float = 0.0
+    genre_pair_floor: float = 0.0
     segment_pool_genre_weight: float = 0.0
     dj_route_shape: str = "linear"
     # Beam search-width knobs. Defaults MUST mirror PierBridgeConfig — when the
@@ -347,6 +348,10 @@ def resolve_pier_bridge_tuning(
         pier_raw, "genre_admission_percentile", mode_s, 0.0, source_prefix="pier_bridge"
     )
     sources["genre_admission_percentile"] = src
+    genre_pair_floor, src = _resolve_mode_number_with_source(
+        pier_raw, "genre_pair_floor", mode_s, 0.0, source_prefix="pier_bridge"
+    )
+    sources["genre_pair_floor"] = src
     segment_pool_genre_weight_raw = pier_raw.get("segment_pool_genre_weight", 0.0)
     segment_pool_genre_weight = float(segment_pool_genre_weight_raw) if isinstance(segment_pool_genre_weight_raw, (int, float)) else 0.0
     segment_pool_genre_weight = max(0.0, min(1.0, segment_pool_genre_weight))
@@ -399,6 +404,7 @@ def resolve_pier_bridge_tuning(
         genre_arc_floor=float(genre_arc_floor),
         genre_arc_floor_percentile=float(genre_arc_floor_percentile),
         genre_admission_percentile=float(genre_admission_percentile),
+        genre_pair_floor=float(genre_pair_floor),
         segment_pool_genre_weight=float(segment_pool_genre_weight),
         dj_route_shape=str(dj_route_shape),
         **search_widths,

@@ -163,6 +163,87 @@ def _canonical_pier_labels(
     return specific + broad
 
 
+class GenrePairSimProvider:
+    """Track-pair genre similarity for the pairwise genre-edge floor.
+
+    Scores a pair as the MAX hub-damped taxonomy similarity over the two
+    tracks' selected tag indices (rows/cols of S). Returns None when either
+    track has no usable tags — the beam exempts such edges from the floor.
+
+    Calibration note (2026-06-10): the graph-smoothed genre-vector cosine
+    cannot separate bad edges from good ones (shared rock-family mass blurs
+    everything to ~0.6-0.7); tag-level max-sim separates the genre-import
+    failure class cleanly (funk-vs-indie 0.000 vs legit connectors >= 0.131).
+    """
+
+    def __init__(self, S: np.ndarray, tags_for_track) -> None:
+        self._S = np.asarray(S, dtype=np.float32)
+        self._tags_for_track = tags_for_track  # callable: int -> Optional[np.ndarray]
+        self._cache: dict[tuple[int, int], Optional[float]] = {}
+
+    def sim(self, a: int, b: int) -> Optional[float]:
+        key = (int(a), int(b)) if a <= b else (int(b), int(a))
+        if key in self._cache:
+            return self._cache[key]
+        ta = self._tags_for_track(int(a))
+        tb = self._tags_for_track(int(b))
+        if ta is None or tb is None or len(ta) == 0 or len(tb) == 0:
+            self._cache[key] = None
+            return None
+        val = float(self._S[np.ix_(np.asarray(ta, dtype=int), np.asarray(tb, dtype=int))].max())
+        self._cache[key] = val
+        return val
+
+
+def build_taxonomy_pair_provider(
+    steering: TaxonomySteering,
+    X_genre_raw: np.ndarray,
+    genre_vocab: np.ndarray,
+    *,
+    top_n_specific: int = 3,
+    top_n_broad: int = 2,
+    min_tag_weight: float = 0.05,
+) -> GenrePairSimProvider:
+    """Pair provider over the artifact's raw genre matrix.
+
+    Per track (computed lazily, cached): take raw tags by descending weight,
+    canonicalize via the taxonomy, and keep the top specific genres — broad
+    umbrellas (rock, pop) are used only as a FALLBACK when a track has no
+    specific tags, so two tracks sharing a literal 'rock' tag don't score 1.0
+    and defeat the gate. Uncovered/tagless tracks resolve to None (exempt).
+    """
+    vocab_arr = np.asarray(genre_vocab, dtype=object)
+    tag_cache: dict[int, Optional[np.ndarray]] = {}
+
+    def _tags(i: int) -> Optional[np.ndarray]:
+        if i in tag_cache:
+            return tag_cache[i]
+        row = X_genre_raw[i]
+        nz = np.nonzero(row > float(min_tag_weight))[0]
+        result: Optional[np.ndarray] = None
+        if len(nz) > 0:
+            order = nz[np.argsort(-row[nz])]
+            specific: list[int] = []
+            broad: list[int] = []
+            seen: set[int] = set()
+            for j in order[:10]:
+                canon = steering.canonical_label(str(vocab_arr[int(j)]))
+                if canon is None:
+                    continue
+                idx = steering._index.get(canon)
+                if idx is None or idx in seen:
+                    continue
+                seen.add(idx)
+                (broad if steering.is_broad(canon) else specific).append(idx)
+            chosen = specific[:top_n_specific] if specific else broad[:top_n_broad]
+            if chosen:
+                result = np.asarray(chosen, dtype=int)
+        tag_cache[i] = result
+        return result
+
+    return GenrePairSimProvider(steering._S, _tags)
+
+
 def _filter_path_by_mass(
     path: list[str],
     track_counts: Optional[dict[str, int]],
