@@ -1,7 +1,9 @@
 import type {
+  AnalyzeToolRequest,
   BlacklistFetchResponse,
   BlacklistRequest,
   EditGenresRequest,
+  EnrichToolRequest,
   GenerateRequestBody,
   JobOut,
   PlexExportRequest,
@@ -73,6 +75,20 @@ export const api = {
   },
   async exportPlex(req: PlexExportRequest): Promise<{ ok: boolean; playlist_key: string }> {
     return jsonOrThrow(await fetch("/api/export/plex", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+    }));
+  },
+  async analyzeLibrary(req: AnalyzeToolRequest): Promise<{ job_id: string }> {
+    return jsonOrThrow(await fetch("/api/tools/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+    }));
+  },
+  async enrich(req: EnrichToolRequest): Promise<{ job_id: string }> {
+    return jsonOrThrow(await fetch("/api/tools/enrich", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(req),

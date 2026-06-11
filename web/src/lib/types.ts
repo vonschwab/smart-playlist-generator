@@ -69,6 +69,7 @@ export interface JobOut {
   stage: string;
   error?: string | null;
   playlist?: PlaylistOut | null;
+  tool_result?: Record<string, unknown> | null;
   created_at?: number | null;
   request_params?: Record<string, unknown> | null;
 }
@@ -125,4 +126,16 @@ export interface BlacklistFetchResponse {
   albums: BlacklistEntry[];
   tracks: BlacklistEntry[];
   total: number;
+}
+
+export interface AnalyzeToolRequest {
+  stages?: string[];
+  force?: boolean;
+  dry_run?: boolean;
+}
+
+export interface EnrichToolRequest {
+  scope: "all_unenriched" | "artist" | "release";
+  artist?: string;
+  album?: string;
 }
