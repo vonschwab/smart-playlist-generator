@@ -115,3 +115,79 @@ def test_call_structured_exhausted_retries_raises():
     )
     with pytest.raises(RuntimeError, match="failed after retries"):
         client.call_structured("p", {"schema": {}}, instructions="i")
+
+
+def test_enrich_dry_run_matches_openai_shape():
+    client = ClaudeCodeEnrichmentClient(model="haiku", dry_run=True)
+    result = client.enrich({"artist": "A"}, "prompt text", {"schema": {}})
+    assert result.status == "skipped"
+    assert result.response_json["dry_run"] is True
+    assert result.response_json["model"] == "haiku"
+    assert result.token_usage["estimated_prompt_tokens"] >= 1
+    assert result.estimated_cost_usd is None  # subscription usage, not billable
+
+
+def test_enrich_retries_validation_then_succeeds(monkeypatch):
+    import src.ai_genre_enrichment.claude_client as cc
+
+    seen = {"n": 0}
+
+    def fake_validate(data):
+        seen["n"] += 1
+        if seen["n"] == 1:
+            raise ValueError("bad provenance")
+
+    monkeypatch.setattr(cc, "validate_ai_response", fake_validate)
+    runner = _runner_returning('{"first": true}', '{"second": true}')
+    client = ClaudeCodeEnrichmentClient(model="haiku", single_runner=runner)
+    result = client.enrich({}, "p", {"schema": {}}, instructions="base instructions")
+    assert result.status == "complete"
+    assert result.response_json == {"second": True}
+    assert result.token_usage["input_tokens"] == 20  # combined across both attempts
+    # second attempt carries the validation error back to the model
+    assert "bad provenance" in runner.calls[1][1]
+
+
+def test_enrich_returns_failed_after_validation_exhausted(monkeypatch):
+    import src.ai_genre_enrichment.claude_client as cc
+
+    def always_invalid(data):
+        raise ValueError("never valid")
+
+    monkeypatch.setattr(cc, "validate_ai_response", always_invalid)
+    runner = _runner_returning('{"a": 1}', '{"a": 2}')
+    client = ClaudeCodeEnrichmentClient(model="haiku", single_runner=runner)
+    result = client.enrich({}, "p", {"schema": {}})
+    assert result.status == "failed"
+    assert "never valid" in (result.error_message or "")
+
+
+def test_request_structured_applies_validator():
+    runner = _runner_returning('{"genres": ["slowcore"]}')
+    client = ClaudeCodeEnrichmentClient(model="haiku", single_runner=runner)
+
+    def validator(data):
+        assert data["genres"] == ["slowcore"]
+        return data
+
+    result = client.request_structured(
+        payload={}, prompt="p", response_format={"schema": {}},
+        validator=validator, instructions="i", estimated_output_tokens=300,
+    )
+    assert result.status == "complete"
+    assert result.response_json == {"genres": ["slowcore"]}
+
+
+def test_request_structured_failed_on_validator_error():
+    runner = _runner_returning('{"genres": []}')
+    client = ClaudeCodeEnrichmentClient(model="haiku", single_runner=runner)
+
+    def validator(data):
+        raise ValueError("empty genres")
+
+    result = client.request_structured(
+        payload={}, prompt="p", response_format={"schema": {}},
+        validator=validator, instructions="i", estimated_output_tokens=300,
+    )
+    assert result.status == "failed"
+    assert "empty genres" in (result.error_message or "")

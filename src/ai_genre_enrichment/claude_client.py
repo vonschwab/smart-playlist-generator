@@ -146,6 +146,101 @@ class ClaudeCodeEnrichmentClient:
                 time.sleep(self.retry_sleep_seconds * (attempt + 1))
         raise RuntimeError(f"Claude Code request failed after retries: {last_exc}") from last_exc
 
+    def enrich(
+        self,
+        payload: dict[str, Any],
+        prompt: str,
+        response_format: dict[str, Any],
+        *,
+        instructions: str = SYSTEM_INSTRUCTIONS,
+    ) -> EnrichmentResult:
+        if self.dry_run:
+            return self._dry_run_result(payload, prompt, estimated_output_tokens=900)
+        try:
+            token_usage: dict[str, int] = {}
+            response_json: dict[str, Any] | None = None
+            validation_error: Exception | None = None
+            for attempt in range(2):
+                retry_instructions = instructions
+                if attempt and validation_error is not None:
+                    retry_instructions = _retry_instructions(instructions, validation_error)
+                response_json = self.call_structured(
+                    prompt, response_format, instructions=retry_instructions
+                )
+                token_usage = _combine_token_usage(token_usage, self.last_token_usage)
+                try:
+                    validate_ai_response(response_json)
+                    validation_error = None
+                    break
+                except ValueError as exc:
+                    validation_error = exc
+            if validation_error is not None:
+                raise validation_error
+            assert response_json is not None
+            return EnrichmentResult(
+                status="complete",
+                response_json=response_json,
+                token_usage=token_usage,
+                estimated_cost_usd=None,
+            )
+        except Exception as exc:
+            return EnrichmentResult(
+                status="failed", response_json={}, token_usage={}, error_message=str(exc)
+            )
+
+    def request_structured(
+        self,
+        *,
+        payload: dict[str, Any],
+        prompt: str,
+        response_format: dict[str, Any],
+        validator: Callable[[dict[str, Any]], dict[str, Any]],
+        instructions: str,
+        estimated_output_tokens: int,
+    ) -> EnrichmentResult:
+        if self.dry_run:
+            return self._dry_run_result(
+                payload, prompt, estimated_output_tokens=estimated_output_tokens
+            )
+        try:
+            response_json = validator(
+                self.call_structured(prompt, response_format, instructions=instructions)
+            )
+            return EnrichmentResult(
+                status="complete",
+                response_json=response_json,
+                token_usage=dict(self.last_token_usage),
+                estimated_cost_usd=None,
+            )
+        except Exception as exc:
+            return EnrichmentResult(
+                status="failed", response_json={}, token_usage={}, error_message=str(exc)
+            )
+
+    def _dry_run_result(
+        self, payload: dict[str, Any], prompt: str, *, estimated_output_tokens: int
+    ) -> EnrichmentResult:
+        estimated_chars = len(prompt)
+        estimated_prompt_tokens = max(1, estimated_chars // 4)
+        return EnrichmentResult(
+            status="skipped",
+            response_json={
+                "dry_run": True,
+                "model": self.model,
+                "payload": payload,
+                "web_mode": "off",
+                "estimated_prompt_chars": estimated_chars,
+                "estimated_prompt_tokens": estimated_prompt_tokens,
+                "estimated_output_tokens": estimated_output_tokens,
+            },
+            token_usage={
+                "estimated_prompt_chars": estimated_chars,
+                "estimated_prompt_tokens": estimated_prompt_tokens,
+                "estimated_output_tokens": estimated_output_tokens,
+            },
+            estimated_cost_usd=None,
+        )
+
     # ── helpers ───────────────────────────────────────────────────────────
 
     @staticmethod
