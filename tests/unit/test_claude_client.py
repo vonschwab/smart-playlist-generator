@@ -10,6 +10,11 @@ from src.ai_genre_enrichment.claude_client import (
     ClaudeCodeEnrichmentClient,
     _parse_json_text,
 )
+from src.ai_genre_enrichment.provider import (
+    create_enrichment_client,
+    get_enrichment_provider,
+    resolve_enrichment_model,
+)
 from src.config_loader import Config
 
 
@@ -325,3 +330,40 @@ def test_openai_client_call_structured_returns_parsed_json(monkeypatch):
     assert data == {"name": "boom bap"}
     assert client.provider == "openai"
     assert client.last_token_usage == {"input_tokens": 7, "output_tokens": 3, "total_tokens": 10}
+
+
+def test_factory_explicit_provider_openai():
+    client = create_enrichment_client(provider="openai", model=None)
+    assert client.provider == "openai"
+    assert client.model == "gpt-4o-mini"
+
+
+def test_factory_env_override_wins(monkeypatch, tmp_path):
+    monkeypatch.setenv("PG_AI_PROVIDER", "openai")
+    cfg = _write_config(tmp_path, "ai_genre:\n  provider: claude_code\n")
+    assert get_enrichment_provider(config_path=cfg) == "openai"
+
+
+def test_factory_claude_default_model_from_config(monkeypatch, tmp_path):
+    monkeypatch.delenv("PG_AI_PROVIDER", raising=False)
+    cfg = _write_config(tmp_path, "ai_genre:\n  provider: claude_code\n  claude_model: sonnet\n")
+    assert resolve_enrichment_model(None, config_path=cfg) == "sonnet"
+    assert resolve_enrichment_model("haiku", config_path=cfg) == "haiku"  # explicit wins
+
+
+def test_factory_claude_rejects_web_mode(monkeypatch):
+    monkeypatch.delenv("PG_AI_PROVIDER", raising=False)
+    with pytest.raises(ValueError, match="web"):
+        create_enrichment_client(provider="claude_code", web_mode="required")
+
+
+def test_factory_unknown_provider_raises():
+    with pytest.raises(ValueError, match="Unknown"):
+        create_enrichment_client(provider="copilot")
+
+
+def test_factory_claude_client_construction(monkeypatch):
+    # SDK may not be installed in CI; dry_run skips the construction guard.
+    client = create_enrichment_client(provider="claude_code", model="sonnet", dry_run=True)
+    assert client.provider == "claude_code"
+    assert client.model == "sonnet"
