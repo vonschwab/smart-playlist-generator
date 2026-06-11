@@ -322,5 +322,47 @@ def _rejected_noise_reason(term: str) -> str | None:
     return REJECTED_NOISE_TERMS.get(term.casefold())
 
 
+def fuse_release_evidence(store: object, release: object) -> HybridGenreReport:
+    """Fuse sidecar evidence + metadata.db artist/album genres for one release.
+
+    Shared by the CLI commands and the analyze ``enrich`` stage. ``release``
+    exposes ``release_key``, ``normalized_artist``, ``normalized_album``,
+    ``album_id``, and ``existing_genres_by_source``.
+    """
+    evidence = collect_hybrid_evidence(store, release.release_key)
+
+    _skip_prefixes = ("artist:lastfm", "album:lastfm", "track:")
+    for source_key, genres in release.existing_genres_by_source.items():
+        if any(source_key.startswith(p) for p in _skip_prefixes):
+            continue
+        parts = source_key.split(":", 1)
+        if len(parts) != 2:
+            continue
+        src = parts[1]
+        if "musicbrainz" in src:
+            source_type, conf = "musicbrainz", 0.75
+        elif "discogs" in src:
+            source_type, conf = "discogs", 0.78
+        else:
+            continue
+        for genre in genres:
+            genre_norm = genre.strip().casefold()
+            if genre_norm:
+                evidence.append(EvidenceTerm(
+                    term=genre_norm,
+                    source_type=source_type,
+                    confidence=conf,
+                    canonical_slug=genre_norm,
+                    mapping_status="mapped",
+                    classifier="metadata_db",
+                ))
+
+    return fuse_hybrid_evidence(
+        release_key=release.release_key,
+        evidence=evidence,
+        sparse_release=not release.existing_genres_by_source,
+    )
+
+
 def _is_ai_adjudicated(item: EvidenceTerm) -> bool:
     return item.classifier in {"ai", "cached_ai"}

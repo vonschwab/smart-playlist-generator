@@ -270,3 +270,24 @@ def test_collect_hybrid_evidence_excludes_human_rejected_source_tags(tmp_path: P
     evidence = collect_hybrid_evidence(store, "ada lea::one hand on the steering wheel the other sewing a garden")
 
     assert [item.term for item in evidence] == []
+
+
+def test_fuse_release_evidence_injects_metadata_genres(tmp_path):
+    """fuse_release_evidence pulls artist/album metadata.db genres in as evidence."""
+    from types import SimpleNamespace
+    from src.ai_genre_enrichment.hybrid_evidence import fuse_release_evidence
+    from src.ai_genre_enrichment.storage import SidecarStore
+
+    store = SidecarStore(str(tmp_path / "side.db"))
+    store.initialize()
+    release = SimpleNamespace(
+        release_key="slowdive::souvlaki",
+        normalized_artist="slowdive",
+        normalized_album="souvlaki",
+        album_id="alb1",
+        existing_genres_by_source={"artist:musicbrainz_artist": ["shoegaze", "dream pop"]},
+    )
+    report = fuse_release_evidence(store, release)
+    accepted = {d.term for d in report.accepted_genres}
+    provisional = {d.term for d in report.provisional_genres}
+    assert "shoegaze" in (accepted | provisional)

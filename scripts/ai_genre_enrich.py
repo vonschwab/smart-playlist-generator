@@ -19,7 +19,12 @@ from src.ai_genre_enrichment.provider import (
     resolve_enrichment_model,
 )
 from src.ai_genre_enrichment.genre_vocabulary import GenreVocabulary
-from src.ai_genre_enrichment.hybrid_evidence import EvidenceTerm, collect_hybrid_evidence, fuse_hybrid_evidence
+from src.ai_genre_enrichment.hybrid_evidence import (
+    EvidenceTerm,
+    collect_hybrid_evidence,
+    fuse_hybrid_evidence,
+    fuse_release_evidence,
+)
 from src.ai_genre_enrichment.layered_assignment import build_layered_release_diagnostics, materialize_layered_assignments
 from src.ai_genre_enrichment.layered_taxonomy import load_default_layered_taxonomy
 from src.ai_genre_enrichment.model_prior import (
@@ -2377,42 +2382,7 @@ def cmd_graph_ingest_growth(args: argparse.Namespace) -> int:
 
 
 def _fuse_hybrid_for_release(store: SidecarStore, release: ReleasePayload):
-    evidence = collect_hybrid_evidence(store, release.release_key)
-
-    # Inject artist/album-level genres from metadata.db as evidence.
-    # Artist-level MusicBrainz tags are reliable genre signals but below "strong"
-    # threshold, so they land as provisional via the musicbrainz-only rule.
-    _SKIP_PREFIXES = ("artist:lastfm", "album:lastfm", "track:")
-    for source_key, genres in release.existing_genres_by_source.items():
-        if any(source_key.startswith(p) for p in _SKIP_PREFIXES):
-            continue
-        parts = source_key.split(":", 1)
-        if len(parts) != 2:
-            continue
-        src = parts[1]
-        if "musicbrainz" in src:
-            source_type, conf = "musicbrainz", 0.75
-        elif "discogs" in src:
-            source_type, conf = "discogs", 0.78
-        else:
-            continue
-        for genre in genres:
-            genre_norm = genre.strip().casefold()
-            if genre_norm:
-                evidence.append(EvidenceTerm(
-                    term=genre_norm,
-                    source_type=source_type,
-                    confidence=conf,
-                    canonical_slug=genre_norm,
-                    mapping_status="mapped",
-                    classifier="metadata_db",
-                ))
-
-    return fuse_hybrid_evidence(
-        release_key=release.release_key,
-        evidence=evidence,
-        sparse_release=not release.existing_genres_by_source,
-    )
+    return fuse_release_evidence(store, release)
 
 
 def cmd_hybrid_enrich_one(args: argparse.Namespace) -> int:
