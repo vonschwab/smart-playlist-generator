@@ -222,9 +222,7 @@ def propose_placement(
     client,
     web_mode: WebMode | str = WebMode.OFF,
 ) -> GrowthProposal:
-    """Ask the model to place one candidate. `client` exposes `_call_openai`."""
-    from .client import _extract_response_json
-
+    """Ask the model to place one candidate. `client` exposes `call_structured`."""
     context_names = _build_taxonomy_context(taxonomy, candidate)
     prompt = json.dumps({
         "candidate_term": candidate.term,
@@ -234,11 +232,10 @@ def propose_placement(
         "examples": candidate.examples,
         "existing_taxonomy_names": context_names,
     }, ensure_ascii=False, sort_keys=True)
-    raw = client._call_openai(
+    data = client.call_structured(
         prompt, growth_proposal_response_format(),
         instructions=GROWTH_PROPOSAL_INSTRUCTIONS,
     )
-    data = _extract_response_json(raw)
     return GrowthProposal(
         name=str(data["name"]),
         kind=str(data["kind"]),

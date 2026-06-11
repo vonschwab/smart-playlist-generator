@@ -27,6 +27,8 @@ class EnrichmentResult:
 class OpenAIEnrichmentClient:
     """Small synchronous OpenAI wrapper with a dry-run path and retry behavior."""
 
+    provider = "openai"
+
     def __init__(
         self,
         *,
@@ -45,6 +47,15 @@ class OpenAIEnrichmentClient:
         self.max_retries = max_retries
         self.retry_sleep_seconds = retry_sleep_seconds
         self._api_key = api_key
+        self.last_token_usage: dict[str, int] = {}
+
+    def call_structured(
+        self, prompt: str, response_format: dict[str, Any], *, instructions: str
+    ) -> dict[str, Any]:
+        """Provider-neutral structured call: returns parsed JSON, records usage."""
+        response = self._call_openai(prompt, response_format, instructions=instructions)
+        self.last_token_usage = _extract_token_usage(response)
+        return _extract_response_json(response)
 
     def enrich(
         self,

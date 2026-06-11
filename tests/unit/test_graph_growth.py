@@ -1,4 +1,3 @@
-import json
 import shutil
 
 from src.ai_genre_enrichment.storage import SidecarStore
@@ -80,19 +79,14 @@ def test_collapse_variants_merges_spacing_variants():
     assert "vaporwave" in by_term
 
 
-class _FakeResp:
-    def __init__(self, payload):
-        self.output_text = json.dumps(payload)
-
-
 class _FakeClient:
     def __init__(self, payload):
         self._payload = payload
         self.calls = []
 
-    def _call_openai(self, prompt, response_format, *, instructions):
+    def call_structured(self, prompt, response_format, *, instructions):
         self.calls.append(prompt)
-        return _FakeResp(self._payload)
+        return self._payload
 
 
 def test_propose_placement_returns_structured_proposal():

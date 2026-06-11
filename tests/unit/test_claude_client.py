@@ -310,3 +310,18 @@ def test_batch_accumulates_usage():
         items, item_schema={"schema": {}}, instructions="i", chunk_size=2
     )
     assert client.last_token_usage["input_tokens"] == 200  # 100 per chunk x 2 chunks
+
+
+def test_openai_client_call_structured_returns_parsed_json(monkeypatch):
+    from src.ai_genre_enrichment.client import OpenAIEnrichmentClient
+
+    class FakeResp:
+        output_text = '{"name": "boom bap"}'
+        usage = {"input_tokens": 7, "output_tokens": 3}
+
+    client = OpenAIEnrichmentClient(model="gpt-4o-mini", web_mode="off")
+    monkeypatch.setattr(client, "_call_openai", lambda *a, **k: FakeResp())
+    data = client.call_structured("p", {"schema": {}}, instructions="i")
+    assert data == {"name": "boom bap"}
+    assert client.provider == "openai"
+    assert client.last_token_usage == {"input_tokens": 7, "output_tokens": 3, "total_tokens": 10}
