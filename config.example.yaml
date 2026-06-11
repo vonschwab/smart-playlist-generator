@@ -762,3 +762,15 @@ experimental:
 
   # Phase 5.3: Sonic variant caching
   use_variant_cache: false
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Artifact-level settings (top-level section, default absent)
+# ─────────────────────────────────────────────────────────────────────────────
+# sonic_variant_override: A/B switch for the sonic similarity space. When set,
+# it WINS over the variant the artifact declares via its X_sonic_variant key
+# (e.g. flip between tower_weighted and mert without re-folding the artifact).
+# The named variant's X_sonic_<variant> key must exist in the artifact —
+# otherwise generation fails at startup (a configured knob that cannot act is
+# an error, never a silent no-op). Leave commented for normal use.
+# artifacts:
+#   sonic_variant_override: mert

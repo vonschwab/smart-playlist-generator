@@ -14,6 +14,7 @@ class Config:
         self.config = self._load_config()
         self._apply_mode_presets()  # Resolve genre_mode/sonic_mode to settings
         self._validate_config()
+        self._publish_artifact_settings()
 
     def _load_config(self) -> dict:
         """Load configuration from YAML file"""
@@ -58,6 +59,27 @@ class Config:
             value = self.config[section][field]
             if not value or str(value).startswith('YOUR_'):
                 raise ValueError(f"Please set {section}.{field} in {self.config_path}")
+
+    def _publish_artifact_settings(self):
+        """Publish artifacts.* config to the artifact loader (process-wide).
+
+        ``artifacts.sonic_variant_override`` must win over the variant the
+        artifact declares; if the override names a variant the artifact lacks,
+        the artifact load raises (configured-knob-must-act rule).
+        """
+        from src.features.artifacts import set_sonic_variant_override
+
+        set_sonic_variant_override(self.sonic_variant_override)
+
+    @property
+    def sonic_variant_override(self):
+        """artifacts.sonic_variant_override — A/B switch for the sonic space.
+
+        When set (e.g. 'mert' or 'tower_weighted'), it wins over the
+        artifact-declared X_sonic_variant. Default absent (None): the artifact
+        decides.
+        """
+        return (self.config.get('artifacts') or {}).get('sonic_variant_override')
 
     def get(self, section: str, key: str, default: Any = None) -> Any:
         """

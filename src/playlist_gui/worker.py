@@ -419,6 +419,14 @@ def load_config_with_overrides(base_path: str, overrides: Dict[str, Any]) -> Dic
     # Apply mode presets (genre_mode/sonic_mode) to resolve weights and thresholds
     _apply_mode_presets(merged)
 
+    # Publish artifacts.* settings to the artifact loader (process-wide).
+    # artifacts.sonic_variant_override wins over the artifact-declared sonic
+    # variant; a missing variant key raises at artifact load (configured-knob-
+    # must-act rule), never a silent fallback.
+    from src.features.artifacts import set_sonic_variant_override
+
+    set_sonic_variant_override((merged.get("artifacts") or {}).get("sonic_variant_override"))
+
     return merged
 
 

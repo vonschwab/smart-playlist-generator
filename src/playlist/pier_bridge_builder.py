@@ -385,10 +385,30 @@ def build_pier_bridge_playlist(
                 float(cfg.pace_bridge_floor),
                 int(rhythm_matrix.shape[1]),
             )
+        elif perceptual_bpm is not None:
+            # No rhythm axis (no-tower variant, e.g. mert): fall back to the
+            # perceptual-BPM bridge gate so the configured floor still acts.
+            from src.playlist.pier_bridge.pace_gate import bpm_fallback_max_log_distance
+
+            _bpm_cap = float(getattr(cfg, "bpm_bridge_max_log_distance", float("inf")))
+            if not np.isfinite(_bpm_cap):
+                _bpm_cap = bpm_fallback_max_log_distance(float(cfg.pace_bridge_floor))
+                cfg = replace(cfg, bpm_bridge_max_log_distance=_bpm_cap)
+            logger.warning(
+                "Pace bridge gate FALLBACK: pace_bridge_floor=%.2f is set but the "
+                "artifact bundle has no usable tower_dims (got %r for blend dim %d); "
+                "rhythm-axis gating is unavailable — pace gating falls back to the "
+                "perceptual-BPM gate (bpm_bridge_max_log_distance=%.2f)",
+                float(cfg.pace_bridge_floor),
+                _td,
+                int(X_full_raw.shape[1]),
+                _bpm_cap,
+            )
         else:
             logger.warning(
                 "Pace bridge gate INACTIVE: pace_bridge_floor=%.2f is set but the "
-                "artifact bundle has no usable tower_dims (got %r for blend dim %d); "
+                "artifact bundle has no usable tower_dims (got %r for blend dim %d) "
+                "and no perceptual-BPM data is available; "
                 "rhythm gating will not run",
                 float(cfg.pace_bridge_floor),
                 _td,

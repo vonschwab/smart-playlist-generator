@@ -60,6 +60,33 @@ def compute_step_log_bpm_target(
     return interpolate_log_bpm(float(bpm_a), float(bpm_b), t=t)
 
 
+def bpm_fallback_max_log_distance(pace_bridge_floor: float) -> float:
+    """Map a rhythm-cosine bridge floor onto a perceptual-BPM log-distance cap.
+
+    Used when a no-tower sonic variant (e.g. mert) leaves ``pace_bridge_floor``
+    with no rhythm axis to act on: pace gating falls back to the perceptual-BPM
+    gate, and this ladder picks the BPM cap matching the configured tightness.
+    The ladder mirrors PACE_MODE_PRESETS (bridge_floor → bpm_bridge_max_log_distance)
+    so the fallback stays consistent with the pace_mode presets.
+    """
+    from src.playlist.mode_presets import PACE_MODE_PRESETS
+
+    ladder = sorted(
+        (
+            (float(p["bridge_floor"]), float(p["bpm_bridge_max_log_distance"]))
+            for p in PACE_MODE_PRESETS.values()
+            if float(p.get("bridge_floor", 0.0)) > 0.0
+            and np.isfinite(float(p.get("bpm_bridge_max_log_distance", float("inf"))))
+        ),
+        reverse=True,
+    )
+    for floor, distance in ladder:
+        if float(pace_bridge_floor) >= floor:
+            return distance
+    # Below the loosest preset floor: use the loosest finite cap.
+    return ladder[-1][1] if ladder else 0.85
+
+
 def filter_candidates_by_bpm_target(
     *,
     candidate_indices,

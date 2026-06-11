@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional, Set
 
 import numpy as np
 
-from src.features.artifacts import load_artifact_bundle
+from src.features.artifacts import load_artifact_bundle, validate_tower_knobs
 from src.playlist.candidate_pool import build_candidate_pool
 from src.playlist.config import DSPipelineConfig, default_ds_config
 from src.playlist.mode_presets import resolve_pace_mode
@@ -470,6 +470,17 @@ def generate_playlist_ds(
                 pace_bridge_floor=float(cfg.candidate.pace_bridge_floor),
                 bpm_bridge_max_log_distance=float(pace_settings.get("bpm_bridge_max_log_distance", float("inf"))),
                 bpm_stability_min=float(cfg.candidate.bpm_stability_min),
+            )
+
+            # Tower-knob guard: tower-style transition_weights cannot act on a
+            # no-tower sonic variant (e.g. mert). Non-default weights raise
+            # (configured-knob-must-act rule); otherwise an INFO log records
+            # that the knobs are inert for this variant.
+            validate_tower_knobs(
+                bundle,
+                transition_weights
+                if transition_weights is not None
+                else getattr(pb_cfg, "transition_weights", None),
             )
 
             logger.info(

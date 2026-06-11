@@ -1,15 +1,15 @@
 """
-Dense genre embedding integration tests (Phase 3+4).
+Dense genre embedding integration tests (sidecar integrity + pool routing).
 
-Tests are organized by scope:
-  - Fast synthetic tests (no real artifact needed): sidecar loading, pool routing
-  - Slow real-data tests (require live artifact + sidecar): pool expansion,
-    genre coherence, and playlist generation
+Scope: sidecar loading/rejection invariants (synthetic + live artifact) and
+dense-vs-sparse pool-routing on a synthetic bundle.
 
-Run the fast subset only:
-    pytest tests/integration/test_dense_genre_integration.py -m "not slow"
+The real-data calibration tests (pool-size thresholds, sim-distribution
+percentiles) and the slow full-pipeline generation tests were removed
+2026-06-10: they encoded the PMI-SVD dense-only design's numeric snapshots,
+which the ensemble genre_method + layered-taxonomy-graph direction superseded.
+See docs/DEAD_CODE_AUDIT_2026-06-10.md.
 
-Run everything:
     pytest tests/integration/test_dense_genre_integration.py -m "integration"
 """
 
@@ -25,7 +25,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from src.features.artifacts import ArtifactBundle, load_artifact_bundle
+from src.features.artifacts import load_artifact_bundle
 from src.genre.artifact_identity import (
     DENSE_SIDECAR_SCHEMA_VERSION,
     dense_sidecar_mismatch_reason_from_paths,
@@ -36,38 +36,6 @@ from src.playlist.candidate_pool import build_candidate_pool, CandidatePoolConfi
 
 ARTIFACT_PATH = ROOT / "data" / "artifacts" / "beat3tower_32k" / "data_matrices_step1.npz"
 SIDECAR_PATH = ROOT / "data" / "artifacts" / "beat3tower_32k" / "data_matrices_step1_genre_emb_dim64.npz"
-
-# Reference cases — track IDs and expected genre groups
-REFERENCE_CASES = {
-    "charli_xcx": {
-        "track_id": "065933d8e2e0db664ec57af1511b662b",
-        "niche_genres": {"bubblegum bass", "pc music", "hyperpop", "deconstructed club"},
-        "description": "dense-niche enriched — known failure case",
-    },
-    "acetone": {
-        "track_id": "6d5696a29b57a765f945ed1be2d6dfee",
-        "niche_genres": {"slowcore", "dreampop", "neo-psychedelia"},
-        "description": "narrow-niche raw — baseline OK case",
-    },
-    "pharoah_sanders": {
-        "track_id": "a3bb6db554f1d2bae1a8b998ebf53925",
-        "niche_genres": {"spiritual jazz", "free jazz", "avant-garde jazz", "soul jazz"},
-        "description": "rich-mixed jazz",
-    },
-    "beach_boys": {
-        "track_id": "fc302980e8359e5bab53e7a2f45fc61b",
-        "niche_genres": {"sunshine pop", "surf rock", "surf"},
-        "description": "sparse pop",
-    },
-}
-
-# Minimum pool sizes that confirm the dense method is working
-DENSE_POOL_MINIMUMS = {
-    "charli_xcx": 200,  # was 31 with sparse; 625 with dense
-    "acetone": 500,     # was 154 with sparse; hits cap with dense
-    "pharoah_sanders": 300,
-    "beach_boys": 200,
-}
 
 
 # ---------------------------------------------------------------------------
@@ -450,269 +418,3 @@ def test_dense_gate_expands_pool_for_tight_cluster(mini_bundle_with_sidecar):
     )
     assert len(result_dense.pool_indices) >= len(result_sparse.pool_indices), \
         f"Dense ({len(result_dense.pool_indices)}) should be ≥ sparse ({len(result_sparse.pool_indices)})"
-
-
-# ---------------------------------------------------------------------------
-# 3. Real-data pool expansion tests (slow)
-# ---------------------------------------------------------------------------
-
-@pytest.mark.integration
-@pytest.mark.slow
-@_requires_live_artifact
-@pytest.mark.parametrize("name", list(REFERENCE_CASES.keys()))
-def test_dense_pool_meets_minimum(live_bundle, name):
-    """Dense pool size for each reference case exceeds minimum threshold."""
-    case = REFERENCE_CASES[name]
-    seed_idx = live_bundle.track_id_to_index[case["track_id"]]
-    cfg = _make_pool_cfg()
-
-    result = build_candidate_pool(
-        seed_idx=seed_idx,
-        embedding=live_bundle.X_sonic,
-        artist_keys=live_bundle.artist_keys,
-        track_ids=live_bundle.track_ids,
-        track_titles=live_bundle.track_titles,
-        track_artists=live_bundle.track_artists,
-        durations_ms=live_bundle.durations_ms,
-        cfg=cfg, random_seed=42,
-        X_genre_raw=live_bundle.X_genre_raw,
-        X_genre_smoothed=live_bundle.X_genre_smoothed,
-        X_genre_dense=live_bundle.X_genre_dense,
-        min_genre_similarity=0.30,  # live config value
-    )
-
-    minimum = DENSE_POOL_MINIMUMS[name]
-    assert len(result.pool_indices) >= minimum, (
-        f"{name}: dense pool {len(result.pool_indices)} < minimum {minimum}. "
-        f"Dense path may not be active or sidecar is stale."
-    )
-
-
-@pytest.mark.integration
-@pytest.mark.slow
-@_requires_live_artifact
-@pytest.mark.parametrize("name", list(REFERENCE_CASES.keys()))
-def test_dense_pool_exceeds_sparse_pool(live_bundle, name):
-    """Dense pool must be strictly larger than sparse pool for every reference case."""
-    case = REFERENCE_CASES[name]
-    seed_idx = live_bundle.track_id_to_index[case["track_id"]]
-    cfg = _make_pool_cfg()
-    common = dict(
-        seed_idx=seed_idx, embedding=live_bundle.X_sonic, artist_keys=live_bundle.artist_keys,
-        track_ids=live_bundle.track_ids, track_titles=live_bundle.track_titles,
-        track_artists=live_bundle.track_artists, durations_ms=live_bundle.durations_ms,
-        cfg=cfg, random_seed=42, X_genre_raw=live_bundle.X_genre_raw,
-        X_genre_smoothed=live_bundle.X_genre_smoothed, min_genre_similarity=0.30,
-    )
-    dense = build_candidate_pool(**common, X_genre_dense=live_bundle.X_genre_dense)
-    sparse = build_candidate_pool(**common, X_genre_dense=None)
-
-    assert len(dense.pool_indices) > len(sparse.pool_indices), (
-        f"{name}: dense pool {len(dense.pool_indices)} not > sparse pool {len(sparse.pool_indices)}"
-    )
-
-
-# ---------------------------------------------------------------------------
-# 4. Genre coherence tests (slow, real data)
-# ---------------------------------------------------------------------------
-
-@pytest.mark.integration
-@pytest.mark.slow
-@_requires_live_artifact
-def test_charli_xcx_dense_sim_distribution(live_bundle):
-    """
-    In dense space, Charli XCX p50 similarity should be above the p50 from
-    the sparse baseline (which was 0.0 — most tracks had zero sparse similarity).
-    """
-    seed_tid = REFERENCE_CASES["charli_xcx"]["track_id"]
-    seed_idx = live_bundle.track_id_to_index[seed_tid]
-
-    X_dense = live_bundle.X_genre_dense
-    seed_vec = X_dense[seed_idx]
-    sims = (X_dense @ seed_vec).copy()
-    sims[seed_idx] = 0.0
-
-    p50_dense = float(np.percentile(sims, 50))
-    # Sparse baseline p50 was 0.0 (more than half the corpus has zero genre overlap)
-    assert p50_dense > 0.0, (
-        f"Dense p50 similarity for Charli XCX is {p50_dense:.4f}; "
-        "should be > 0 (sparse baseline was 0.0)"
-    )
-
-
-@pytest.mark.integration
-@pytest.mark.slow
-@_requires_live_artifact
-def test_dense_sim_niche_artists_higher_than_sparse(live_bundle):
-    """
-    Charli XCX dense p90 similarity should be higher than the sparse p90 baseline (0.19).
-    This confirms the embedding compresses niche genre distances properly.
-    """
-    seed_tid = REFERENCE_CASES["charli_xcx"]["track_id"]
-    seed_idx = live_bundle.track_id_to_index[seed_tid]
-
-    X_dense = live_bundle.X_genre_dense
-    seed_vec = X_dense[seed_idx]
-    sims = (X_dense @ seed_vec).copy()
-    sims[seed_idx] = 0.0
-
-    p90_dense = float(np.percentile(sims, 90))
-    p90_sparse_baseline = 0.19  # from baseline_metrics.json
-    assert p90_dense > p90_sparse_baseline, (
-        f"Dense p90 {p90_dense:.3f} should exceed sparse baseline {p90_sparse_baseline}"
-    )
-
-
-# ---------------------------------------------------------------------------
-# 5. Full pipeline smoke test (slow, real data)
-# ---------------------------------------------------------------------------
-
-@pytest.mark.integration
-@pytest.mark.slow
-@_requires_live_artifact
-@pytest.mark.parametrize("name,mode,length", [
-    # acetone and pharoah work in dynamic mode (sonic-coherent pool)
-    ("acetone", "dynamic", 20),
-    ("pharoah_sanders", "dynamic", 20),
-    # charli_xcx and beach_boys fail in dynamic mode due to a pre-existing
-    # transition_floor=0.35 issue (sparse-pool sonic chains too tight).
-    # They succeed in discover mode where the genre gate is off.
-    # This documents the known limitation, NOT a regression from dense changes.
-    ("charli_xcx", "discover", 20),
-    ("beach_boys", "discover", 20),
-])
-def test_full_pipeline_generates_playlist(name, mode, length):
-    """End-to-end playlist generation completes without error and has correct length."""
-    from src.playlist.ds_pipeline_runner import generate_playlist_ds
-
-    case = REFERENCE_CASES[name]
-    load_artifact_bundle.cache_clear()
-
-    result = generate_playlist_ds(
-        artifact_path=str(ARTIFACT_PATH),
-        seed_track_id=case["track_id"],
-        mode=mode,
-        length=length,
-        random_seed=42,
-    )
-
-    assert len(result.track_ids) == length, \
-        f"{name} [{mode}]: expected {length} tracks, got {len(result.track_ids)}"
-    assert result.track_ids[0] == case["track_id"], \
-        f"{name} [{mode}]: first track should be seed"
-    assert len(set(result.track_ids)) == length, \
-        f"{name} [{mode}]: playlist has duplicate tracks"
-
-
-@pytest.mark.integration
-@pytest.mark.slow
-@_requires_live_artifact
-def test_charli_xcx_playlist_genre_coherence():
-    """
-    Charli XCX playlist (discover mode — avoids pre-existing dynamic transition_floor issue):
-    playlist tracks should have meaningful dense genre similarity with seed.
-    """
-    from src.playlist.ds_pipeline_runner import generate_playlist_ds
-
-    case = REFERENCE_CASES["charli_xcx"]
-    load_artifact_bundle.cache_clear()
-
-    result = generate_playlist_ds(
-        artifact_path=str(ARTIFACT_PATH),
-        seed_track_id=case["track_id"],
-        mode="discover",  # discover: no genre gate, so we test genre coherence post-hoc
-        length=20,
-        random_seed=42,
-    )
-
-    bundle = load_artifact_bundle(ARTIFACT_PATH)
-    seed_idx = bundle.track_id_to_index[case["track_id"]]
-    X_dense = bundle.X_genre_dense
-    seed_vec = X_dense[seed_idx]
-
-    playlist_dense_sims = []
-    for tid in result.track_ids[1:]:  # Skip seed itself
-        idx = bundle.track_id_to_index.get(str(tid))
-        if idx is not None:
-            sim = float(np.dot(X_dense[idx], seed_vec))
-            playlist_dense_sims.append(sim)
-
-    assert len(playlist_dense_sims) > 0
-    median_sim = float(np.median(playlist_dense_sims))
-    # Even without the genre gate, dense sim should be above zero
-    # (sonic-similar tracks tend to be genre-similar in dense space too)
-    assert median_sim > 0.05, (
-        f"Charli XCX playlist (discover) median dense genre sim = {median_sim:.3f}; "
-        "expected > 0.05."
-    )
-
-
-@pytest.mark.integration
-@pytest.mark.slow
-@_requires_live_artifact
-def test_dynamic_mode_failure_is_not_caused_by_dense_embedding():
-    """
-    Document that Charli XCX dynamic-mode failure is pre-existing when infeasible_handling
-    is disabled (the default): it should fail regardless of whether X_genre_dense is present.
-    This is a regression guard — the failure is expected with no infeasible_handling config.
-    """
-    from src.playlist.ds_pipeline_runner import generate_playlist_ds
-
-    case = REFERENCE_CASES["charli_xcx"]
-
-    # With dense sidecar loaded (our new behavior), no infeasible_handling overrides
-    load_artifact_bundle.cache_clear()
-    with pytest.raises(Exception, match="infeasible"):
-        generate_playlist_ds(
-            artifact_path=str(ARTIFACT_PATH),
-            seed_track_id=case["track_id"],
-            mode="dynamic",
-            length=20,
-            random_seed=42,
-        )
-
-
-@pytest.mark.integration
-@pytest.mark.slow
-@_requires_live_artifact
-def test_dynamic_mode_succeeds_with_infeasible_handling_relaxation():
-    """
-    Charli XCX dynamic mode succeeds when infeasible_handling is enabled with
-    transition_floor relaxation.  Without relaxation the beam hard-gates ~95% of
-    edges at transition_floor=0.35; with relaxation we step down to min_transition_floor
-    (0.20) and find a valid path.
-    """
-    from src.playlist.ds_pipeline_runner import generate_playlist_ds
-
-    case = REFERENCE_CASES["charli_xcx"]
-
-    overrides = {
-        "pier_bridge": {
-            "infeasible_handling": {
-                "enabled": True,
-                "min_bridge_floor": 0.0,
-                "widen_search_on_backoff": True,
-                "extra_neighbors_m": 400,
-                "extra_bridge_helpers": 200,
-                "extra_beam_width": 100,
-                "extra_expansion_attempts": 2,
-                "transition_floor_relaxation_enabled": True,
-                "min_transition_floor": 0.20,
-            }
-        }
-    }
-
-    load_artifact_bundle.cache_clear()
-    result = generate_playlist_ds(
-        artifact_path=str(ARTIFACT_PATH),
-        seed_track_id=case["track_id"],
-        mode="dynamic",
-        length=20,
-        random_seed=42,
-        overrides=overrides,
-    )
-
-    assert result is not None
-    assert len(result.track_ids) >= 15, (
-        f"Expected ≥15 tracks in relaxed dynamic playlist, got {len(result.track_ids)}"
-    )
