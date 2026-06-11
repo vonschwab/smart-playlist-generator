@@ -252,6 +252,10 @@ ai_genre:
 - Costs: claude_code calls report token usage only (`estimated_cost_usd` is
   null — subscription usage is not billable per token).
 
+The analyze pipeline runs enrichment automatically: the `enrich` stage of
+`scripts/analyze_library.py` adjudicates unknown tags and materializes graph
+genres; the `publish` stage writes `release_effective_genres`.
+
 ## Commands
 
 ```bash

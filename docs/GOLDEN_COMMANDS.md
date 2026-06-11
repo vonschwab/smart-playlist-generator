@@ -122,7 +122,7 @@ python scripts/build_beat3tower_artifacts.py \
 
 ## E. Full Analysis Pipeline
 
-Run all steps (scan, genres, sonic, artifacts) in sequence.
+Run all steps in sequence.
 
 ```bash
 # Full pipeline
@@ -133,9 +133,20 @@ python scripts/analyze_library.py --limit 100
 
 # Skip stages
 python scripts/analyze_library.py --skip scan --skip discogs
+
+# Run a subset of stages
+python scripts/analyze_library.py --stages lastfm,enrich,publish
+
+# Dry-run publish (compute + roll back — no metadata.db writes)
+python scripts/analyze_library.py --stages publish --dry-run
 ```
 
-**Stages:** scan → genres → discogs → sonic → genre-sim → artifacts → verify
+**Default stage order:** scan → genres → discogs → lastfm → sonic → enrich → publish → genre-sim → artifacts → genre-embedding → verify
+
+**New stages (Phase 2):**
+- `lastfm` — fetch Last.fm top tags into the enrichment sidecar (`LASTFM_API_KEY` or config; no LLM).
+- `enrich` — adjudicate unknown tags via Claude (provider factory; de-duped library-wide, chunked) and materialize layered graph genres into `ai_genre_enrichment.db`.
+- `publish` — resolve graph-where-present-else-legacy into `release_effective_genres` in `metadata.db`. First publish backs up `metadata.db` (timestamped); idempotent thereafter.
 
 ---
 
