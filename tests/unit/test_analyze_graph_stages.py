@@ -176,3 +176,66 @@ def test_stage_enrich_propagates_adjudication_failure(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="failed after retries"):
         al.stage_enrich(ctx)
     ctx["conn"].close()
+
+
+def _published_table_exists(db_path: str) -> bool:
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name='release_effective_genres'"
+        ).fetchone()
+        return row is not None
+    finally:
+        conn.close()
+
+
+def test_stage_publish_first_run_backs_up_and_publishes(tmp_path, monkeypatch):
+    db_path = _metadata_db(tmp_path)
+    sidecar = str(tmp_path / "side.db")
+    monkeypatch.setattr(al, "ENRICHMENT_DB_PATH", Path(sidecar))
+    SidecarStore(sidecar).initialize()
+
+    ctx = _ctx(tmp_path, db_path)
+    result = al.stage_publish(ctx)
+    ctx["conn"].close()
+
+    assert result["skipped"] is False
+    assert result["backed_up"] is True
+    # a timestamped backup was created next to metadata.db
+    backups = list(Path(db_path).parent.glob("metadata.db.bak.*"))
+    assert backups, "expected a first-publish backup"
+    # release_effective_genres now exists
+    assert _published_table_exists(db_path)
+    assert result["validation_ok"] is True
+
+
+def test_stage_publish_second_run_no_backup(tmp_path, monkeypatch):
+    db_path = _metadata_db(tmp_path)
+    sidecar = str(tmp_path / "side.db")
+    monkeypatch.setattr(al, "ENRICHMENT_DB_PATH", Path(sidecar))
+    SidecarStore(sidecar).initialize()
+
+    al.stage_publish(_ctx(tmp_path, db_path))  # first publish (backs up)
+    before = set(Path(db_path).parent.glob("metadata.db.bak.*"))
+    ctx2 = _ctx(tmp_path, db_path)
+    result = al.stage_publish(ctx2)
+    ctx2["conn"].close()
+    after = set(Path(db_path).parent.glob("metadata.db.bak.*"))
+
+    assert result["backed_up"] is False
+    assert before == after, "second publish must not create a new backup"
+
+
+def test_stage_publish_dry_run_rolls_back(tmp_path, monkeypatch):
+    db_path = _metadata_db(tmp_path)
+    sidecar = str(tmp_path / "side.db")
+    monkeypatch.setattr(al, "ENRICHMENT_DB_PATH", Path(sidecar))
+    SidecarStore(sidecar).initialize()
+
+    ctx = _ctx(tmp_path, db_path, dry_run=True)
+    result = al.stage_publish(ctx)
+    ctx["conn"].close()
+    assert result["dry_run"] is True
+    # dry-run rolls back the publish transaction → no published table persists
+    assert not _published_table_exists(db_path)

@@ -45,7 +45,7 @@ from src.ai_genre_enrichment.provider import resolve_enrichment_model
 
 DEFAULT_OUT_DIR = ROOT_DIR / "data" / "artifacts" / "beat3tower_32k"
 ENRICHMENT_DB_PATH = ROOT_DIR / "data" / "ai_genre_enrichment.db"
-STAGE_ORDER_DEFAULT = ["scan", "genres", "discogs", "lastfm", "sonic", "enrich", "genre-sim", "artifacts", "genre-embedding", "verify"]
+STAGE_ORDER_DEFAULT = ["scan", "genres", "discogs", "lastfm", "sonic", "enrich", "publish", "genre-sim", "artifacts", "genre-embedding", "verify"]
 
 logger = logging.getLogger("analyze_library")
 
@@ -288,6 +288,14 @@ def compute_stage_fingerprint(ctx: Dict, stage: str) -> str:
                "signatures": signatures, "assignments": assignments}
         return _hash_obj(key)
 
+    if stage == "publish":
+        side_assignments = _sidecar_count(
+            "SELECT COUNT(*) FROM genre_graph_release_genre_assignments")
+        published_rows = _safe_count(conn, "SELECT COUNT(*) FROM release_effective_genres")
+        key = {"stage": stage, "side_assignments": side_assignments,
+               "published_rows": published_rows}
+        return _hash_obj(key)
+
     if stage == "genre-sim":
         genre_rows = _safe_count(conn, "SELECT COUNT(*) FROM track_genres WHERE genre != '__EMPTY__'")
         artist_rows = _safe_count(conn, "SELECT COUNT(*) FROM artist_genres WHERE genre != '__EMPTY__'")
@@ -421,6 +429,10 @@ def estimate_stage_units(ctx: Dict, stage: str) -> Tuple[Optional[int], Optional
             source_pages = _sidecar_count("SELECT COUNT(DISTINCT release_key) "
                                           "FROM ai_genre_source_pages")
             return source_pages, "releases with source pages to enrich"
+        if stage == "publish":
+            total_albums = _safe_count(conn, "SELECT COUNT(*) FROM albums "
+                                            "WHERE album_id IS NOT NULL AND album_id != ''")
+            return total_albums, "albums to resolve into release_effective_genres"
         if stage == "sonic":
             pending = _safe_count(
                 conn,
@@ -1326,6 +1338,74 @@ def stage_enrich(ctx: Dict) -> Dict:
             "genre_assignments": assignments, "total": enriched}
 
 
+def _release_effective_genres_exists(db_path: str) -> bool:
+    """True if metadata.db already has the published release_effective_genres table."""
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            row = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name='release_effective_genres'"
+            ).fetchone()
+            return row is not None
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return False
+
+
+def stage_publish(ctx: Dict) -> Dict:
+    """Publish authoritative genres into metadata.db (release_effective_genres).
+
+    First publish (table absent) takes a timestamped metadata.db backup; later
+    runs write directly (publish is atomic + idempotent and scoped to derived
+    genre tables — it never touches tracks/sonic/track_genres). Dry-run rolls back.
+    """
+    import shutil
+    from src.genre.genre_publish import publish as publish_genres
+    from scripts.validate_published_genres import validate as validate_published
+
+    args = ctx["args"]
+    db_path = ctx["db_path"]
+    sidecar = str(ENRICHMENT_DB_PATH)
+    if not ENRICHMENT_DB_PATH.exists():
+        logger.info("Skipping publish stage (no enrichment sidecar at %s)", sidecar)
+        return {"skipped": True, "reason": "no_sidecar"}
+
+    dry_run = bool(getattr(args, "dry_run", False))
+    backed_up = False
+    if not dry_run and not _release_effective_genres_exists(db_path):
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        backup_path = f"{db_path}.bak.{ts}"
+        shutil.copy2(db_path, backup_path)
+        backed_up = True
+        logger.info("First publish — backed up metadata.db to %s", backup_path)
+
+    stats = publish_genres(db_path, sidecar, dry_run=dry_run)
+    stats_dict = stats.as_dict()
+
+    validation_ok = True
+    if not dry_run:
+        rc = validate_published(db_path)
+        validation_ok = (rc == 0)
+        if not validation_ok:
+            logger.warning("publish stage: validation reported problems (rc=%d)", rc)
+
+    logger.info(
+        "publish stage: graph_albums=%d legacy_albums=%d total=%d backed_up=%s dry_run=%s",
+        stats_dict.get("graph_albums", 0), stats_dict.get("legacy_albums", 0),
+        stats_dict.get("total_albums", 0), backed_up, dry_run,
+    )
+    # SP4 follow-up: when the artifact builder consumes the graph (genre_source
+    # != "legacy"), set ctx["genres_dirty"] = True here so genre-sim/artifacts
+    # rebuild after a publish. In Phase 2 artifacts read legacy genres, which
+    # publish does not change, so we deliberately do not trigger a rebuild.
+    return {"skipped": False, "backed_up": backed_up, "dry_run": dry_run,
+            "validation_ok": validation_ok, "stats": stats_dict,
+            "total": stats_dict.get("total_albums", 0),
+            "errors": 0 if validation_ok else 1}
+
+
 def stage_sonic(ctx: Dict) -> Dict:
     args = ctx["args"]
     force = args.force
@@ -1615,6 +1695,7 @@ STAGE_FUNCS = {
     "discogs": stage_discogs,
     "lastfm": stage_lastfm,
     "enrich": stage_enrich,
+    "publish": stage_publish,
     "sonic": stage_sonic,
     "genre-sim": stage_genre_sim,
     "artifacts": stage_artifacts,
