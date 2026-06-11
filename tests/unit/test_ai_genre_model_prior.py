@@ -7,6 +7,12 @@ from pathlib import Path
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _pin_openai_provider(monkeypatch):
+    """These tests stub the OpenAI client class; pin the factory to it."""
+    monkeypatch.setenv("PG_AI_PROVIDER", "openai")
+
+
 def test_request_structured_uses_supplied_validator(monkeypatch):
     from src.ai_genre_enrichment.client import OpenAIEnrichmentClient
 

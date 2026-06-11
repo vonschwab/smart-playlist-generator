@@ -4,6 +4,14 @@ import json
 import sqlite3
 from pathlib import Path
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _pin_openai_provider(monkeypatch):
+    """These tests stub the OpenAI client class; pin the factory to it."""
+    monkeypatch.setenv("PG_AI_PROVIDER", "openai")
+
 
 def test_hybrid_enrich_one_dry_run_fuses_existing_sidecar_without_api(monkeypatch, tmp_path: Path, capsys):
     from scripts import ai_genre_enrich

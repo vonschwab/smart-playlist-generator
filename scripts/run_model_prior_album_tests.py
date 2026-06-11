@@ -8,7 +8,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.ai_genre_enrichment.client import OpenAIEnrichmentClient
+from src.ai_genre_enrichment.provider import create_enrichment_client
 from src.ai_genre_enrichment.genre_vocabulary import GenreVocabulary
 from src.ai_genre_enrichment.model_prior import (
     MODEL_PRIOR_INSTRUCTIONS,
@@ -58,7 +58,7 @@ ALBUMS = [
 
 
 def main() -> int:
-    client = OpenAIEnrichmentClient(model="gpt-4o-mini", web_mode="off")
+    client = create_enrichment_client(web_mode="off")
     vocabulary = GenreVocabulary()
     results: list[dict[str, Any]] = []
     for release in ALBUMS:

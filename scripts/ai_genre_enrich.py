@@ -12,8 +12,12 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.ai_genre_enrichment.client import OpenAIEnrichmentClient
 from src.ai_genre_enrichment.discovery import ReleasePayload, compute_input_hash, discover_releases
+from src.ai_genre_enrichment.provider import (
+    create_enrichment_client,
+    get_enrichment_provider,
+    resolve_enrichment_model,
+)
 from src.ai_genre_enrichment.genre_vocabulary import GenreVocabulary
 from src.ai_genre_enrichment.hybrid_evidence import EvidenceTerm, collect_hybrid_evidence, fuse_hybrid_evidence
 from src.ai_genre_enrichment.layered_assignment import build_layered_release_diagnostics, materialize_layered_assignments
@@ -54,6 +58,10 @@ def main(argv: list[str] | None = None) -> int:
             pass
     parser = build_parser()
     args = parser.parse_args(argv)
+    # Resolve --model once: explicit flag wins, else the active provider's
+    # default. Downstream store records and cache lookups need a concrete name.
+    if hasattr(args, "model") and args.model is None:
+        args.model = resolve_enrichment_model(None)
     if args.command == "discover":
         return cmd_discover(args)
     if args.command == "run-one":
@@ -121,7 +129,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="AI-assisted album-level genre enrichment")
     parser.add_argument("--metadata-db", type=Path, default=DEFAULT_METADATA_DB)
     parser.add_argument("--sidecar-db", type=Path, default=DEFAULT_SIDECAR_DB)
-    parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument("--model", default=None)
 
     sub = parser.add_subparsers(dest="command", required=True)
     discover = sub.add_parser("discover", help="Discover canonical artist+album releases")
@@ -197,7 +205,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_release_filters(classify)
     classify.add_argument("--dry-run", action="store_true")
     classify.add_argument("--adjudicate", action="store_true", help="Send unknown tags to AI for adjudication")
-    classify.add_argument("--model", default=DEFAULT_MODEL)
+    classify.add_argument("--model", default=None)
 
     build = sub.add_parser("build-enriched", help="Build enriched_genres from classified source tags")
     add_release_filters(build)
@@ -217,7 +225,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Ingest and classify source tags without rebuilding final enriched signatures.",
     )
-    ingest_local.add_argument("--model", default=DEFAULT_MODEL)
+    ingest_local.add_argument("--model", default=None)
 
     extract_lastfm = sub.add_parser("extract-lastfm", help="Fetch Last.fm top tags via API and ingest as a source page")
     add_release_filters(extract_lastfm)
@@ -228,7 +236,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Ingest and classify source tags without rebuilding final enriched signatures.",
     )
-    extract_lastfm.add_argument("--model", default=DEFAULT_MODEL)
+    extract_lastfm.add_argument("--model", default=None)
     extract_lastfm.add_argument("--lastfm-api-key", help="Last.fm API key (overrides config.yaml/env)")
     extract_lastfm.add_argument(
         "--skip-existing",
@@ -334,14 +342,14 @@ def build_parser() -> argparse.ArgumentParser:
     add_release_filters(model_prior_one)
     model_prior_one.add_argument("--dry-run", action="store_true")
     model_prior_one.add_argument("--force", action="store_true")
-    model_prior_one.add_argument("--model", default=DEFAULT_MODEL)
+    model_prior_one.add_argument("--model", default=None)
 
     model_prior = sub.add_parser("model-prior", help="Generate no-web album model priors in a bounded batch")
     add_release_filters(model_prior)
     model_prior.add_argument("--dry-run", action="store_true")
     model_prior.add_argument("--missing-only", action="store_true")
     model_prior.add_argument("--force", action="store_true")
-    model_prior.add_argument("--model", default=DEFAULT_MODEL)
+    model_prior.add_argument("--model", default=None)
 
     sub.add_parser("model-prior-report", help="Report album model-prior coverage and mapping status")
     sub.add_parser("graph-init", help="Initialize or refresh layered genre graph taxonomy tables")
@@ -377,7 +385,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Refresh the no-web LLM prior before fusing evidence.",
     )
-    hybrid_one.add_argument("--model", default=DEFAULT_MODEL)
+    hybrid_one.add_argument("--model", default=None)
 
     propose_growth = sub.add_parser(
         "graph-propose-growth",
@@ -389,7 +397,7 @@ def build_parser() -> argparse.ArgumentParser:
                                 help="Cap number of candidates proposed (cost control)")
     propose_growth.add_argument("--web-mode", choices=["off", "auto", "required"],
                                 default="off")
-    propose_growth.add_argument("--model", default=DEFAULT_MODEL)
+    propose_growth.add_argument("--model", default=None)
     propose_growth.add_argument("--openai-api-key")
 
     ingest_growth = sub.add_parser(
@@ -578,7 +586,7 @@ def cmd_classify_tags(args: argparse.Namespace) -> int:
     store = SidecarStore(args.sidecar_db)
     store.initialize()
     adjudicate = getattr(args, "adjudicate", False)
-    model = getattr(args, "model", DEFAULT_MODEL)
+    model = getattr(args, "model", None) or resolve_enrichment_model(None)
     limit: int | None = args.limit
     # Discover without limit; when adjudicating, cached releases don't count toward limit.
     releases = discover_releases(
@@ -721,7 +729,7 @@ def cmd_ingest_local(args: argparse.Namespace) -> int:
         store.classify_source_tags(
             page_id,
             adjudicate=getattr(args, "adjudicate", False),
-            model=getattr(args, "model", DEFAULT_MODEL),
+            model=getattr(args, "model", None) or resolve_enrichment_model(None),
         )
         if not getattr(args, "no_rebuild_signatures", False):
             store.rebuild_enriched_genres_for_release(release.release_key)
@@ -1207,7 +1215,7 @@ def _run_releases(args: argparse.Namespace, releases: list[ReleasePayload]) -> i
                 response_schema_version=RESPONSE_SCHEMA_VERSION,
             )
 
-        client = OpenAIEnrichmentClient(
+        client = create_enrichment_client(
             model=args.model,
             dry_run=args.dry_run,
             web_mode=effective_web_mode,
@@ -1872,7 +1880,7 @@ def _run_model_prior_release(args: argparse.Namespace, release: ReleasePayload) 
         store = SidecarStore(args.sidecar_db)
         store.initialize()
         cached = store.find_model_prior(
-            release_key=release.release_key, provider="openai", model=args.model,
+            release_key=release.release_key, provider=get_enrichment_provider(), model=args.model,
             prompt_version=MODEL_PRIOR_PROMPT_VERSION, taxonomy_version=MODEL_PRIOR_TAXONOMY_VERSION,
             schema_version=MODEL_PRIOR_SCHEMA_VERSION, enrichment_policy_version=STABILIZED_POLICY_VERSION,
             input_hash=input_hash,
@@ -1884,7 +1892,7 @@ def _run_model_prior_release(args: argparse.Namespace, release: ReleasePayload) 
             print(f"cached-model-prior {release.release_key}")
             return 0
 
-    client = OpenAIEnrichmentClient(model=args.model, dry_run=args.dry_run, web_mode="off")
+    client = create_enrichment_client(model=args.model, dry_run=args.dry_run, web_mode="off")
     result = client.request_structured(
         payload=payload,
         prompt=build_model_prior_prompt(payload),
@@ -1905,7 +1913,7 @@ def _run_model_prior_release(args: argparse.Namespace, release: ReleasePayload) 
     store.record_model_prior(
         release_key=release.release_key, normalized_artist=release.normalized_artist,
         normalized_album=release.normalized_album, album_id=release.album_id,
-        provider="openai", model=args.model, prompt_version=MODEL_PRIOR_PROMPT_VERSION,
+        provider=get_enrichment_provider(), model=args.model, prompt_version=MODEL_PRIOR_PROMPT_VERSION,
         taxonomy_version=MODEL_PRIOR_TAXONOMY_VERSION, schema_version=MODEL_PRIOR_SCHEMA_VERSION,
         enrichment_policy_version=STABILIZED_POLICY_VERSION, input_hash=input_hash,
         status=result.status, response_json=result.response_json or None,
@@ -1925,10 +1933,10 @@ def _ensure_model_prior_for_hybrid(
 ) -> tuple[str, list[EvidenceTerm], str | None]:
     payload = build_model_prior_payload(release)
     input_hash = stable_input_hash(payload)
-    model = getattr(args, "model", DEFAULT_MODEL)
+    model = getattr(args, "model", None) or resolve_enrichment_model(None)
     cached = store.find_model_prior(
         release_key=release.release_key,
-        provider="openai",
+        provider=get_enrichment_provider(),
         model=model,
         prompt_version=MODEL_PRIOR_PROMPT_VERSION,
         taxonomy_version=MODEL_PRIOR_TAXONOMY_VERSION,
@@ -1939,7 +1947,7 @@ def _ensure_model_prior_for_hybrid(
     if cached and cached["status"] == "complete" and not getattr(args, "force_model_prior", False):
         return "cached", [], None
 
-    client = OpenAIEnrichmentClient(model=model, dry_run=False, web_mode="off")
+    client = create_enrichment_client(model=model, dry_run=False, web_mode="off")
     result = client.request_structured(
         payload=payload,
         prompt=build_model_prior_prompt(payload),
@@ -1959,7 +1967,7 @@ def _ensure_model_prior_for_hybrid(
             normalized_artist=release.normalized_artist,
             normalized_album=release.normalized_album,
             album_id=release.album_id,
-            provider="openai",
+            provider=get_enrichment_provider(),
             model=model,
             prompt_version=MODEL_PRIOR_PROMPT_VERSION,
             taxonomy_version=MODEL_PRIOR_TAXONOMY_VERSION,
@@ -2283,7 +2291,6 @@ def _graph_fixture_failures(fixture: dict[str, object], diagnostics: dict[str, o
 def cmd_graph_propose_growth(args: argparse.Namespace) -> int:
     import os
     from src.ai_genre_enrichment import graph_growth
-    from src.ai_genre_enrichment.client import OpenAIEnrichmentClient
 
     store = SidecarStore(args.sidecar_db)
     store.initialize()
@@ -2305,8 +2312,8 @@ def cmd_graph_propose_growth(args: argparse.Namespace) -> int:
             api_key = Config().openai_api_key
         except (FileNotFoundError, AttributeError):
             api_key = None
-    client = OpenAIEnrichmentClient(model=args.model, api_key=api_key,
-                                    web_mode=args.web_mode)
+    client = create_enrichment_client(model=args.model, api_key=api_key,
+                                     web_mode=args.web_mode)
 
     items = []
     total = len(candidates)

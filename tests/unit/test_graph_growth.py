@@ -1,11 +1,19 @@
 import shutil
 
+import pytest
+
 from src.ai_genre_enrichment.storage import SidecarStore
 from src.ai_genre_enrichment import graph_growth
 from src.ai_genre_enrichment import graph_growth as gg
 from src.ai_genre_enrichment.layered_taxonomy import (
     DEFAULT_TAXONOMY_PATH, load_default_layered_taxonomy, load_layered_taxonomy,
     normalize_taxonomy_name)
+
+
+@pytest.fixture(autouse=True)
+def _pin_openai_provider(monkeypatch):
+    """These tests stub the OpenAI client class; pin the factory to it."""
+    monkeypatch.setenv("PG_AI_PROVIDER", "openai")
 
 
 def _page_with_tags(store, release_key, artist, album, source_type, tags):
