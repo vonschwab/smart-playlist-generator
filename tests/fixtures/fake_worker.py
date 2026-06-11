@@ -77,6 +77,39 @@ def main():
                   "artist": cmd.get("artist"), "album": cmd.get("album"),
                   "genres": sorted(genres), "added": sorted(genres), "removed": []})
             emit({"type": "done", "cmd": name, "ok": True, "detail": "ok", "request_id": rid, "job_id": jid})
+        elif name == "analyze_library":
+            stages = cmd.get("stages") or [
+                "scan", "genres", "discogs", "lastfm", "sonic",
+                "enrich", "publish", "genre-sim", "artifacts",
+                "genre-embedding", "verify",
+            ]
+            emit({"type": "log", "level": "INFO", "msg": "fake: analyze starting",
+                  "request_id": rid, "job_id": jid})
+            emit({"type": "progress", "stage": "analyze_library", "current": 50, "total": 100,
+                  "detail": "scanning", "request_id": rid, "job_id": jid})
+            emit({"type": "result", "result_type": "analyze_library",
+                  "request_id": rid, "job_id": jid,
+                  "summary": "Analyze complete (fake)",
+                  "stages": [
+                      {"name": s, "decision": "ran", "duration_ms": 10, "errors": 0}
+                      for s in stages
+                  ],
+                  "out_dir": "/tmp"})
+            emit({"type": "done", "cmd": "analyze_library", "ok": True,
+                  "detail": f"Done ({len(stages)} stages)",
+                  "request_id": rid, "job_id": jid})
+        elif name == "enrich_genres":
+            scope = cmd.get("scope", "all_unenriched")
+            emit({"type": "log", "level": "INFO", "msg": "fake: enrich starting",
+                  "request_id": rid, "job_id": jid})
+            emit({"type": "progress", "stage": "enrich_genres", "current": 50, "total": 100,
+                  "detail": "enriching", "request_id": rid, "job_id": jid})
+            emit({"type": "result", "result_type": "enrich_genres",
+                  "request_id": rid, "job_id": jid,
+                  "ok": True, "scope": scope, "releases": 5, "genres_applied": 12})
+            emit({"type": "done", "cmd": "enrich_genres", "ok": True,
+                  "detail": "Enriched 5 releases",
+                  "request_id": rid, "job_id": jid})
         else:
             emit({"type": "error", "message": f"unknown cmd {name}", "request_id": rid, "job_id": jid})
             emit({"type": "done", "cmd": name or "?", "ok": False, "request_id": rid, "job_id": jid})
