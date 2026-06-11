@@ -93,3 +93,86 @@ def test_stage_lastfm_missing_key_raises(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="Last.fm API key"):
         al.stage_lastfm(ctx)
     ctx["conn"].close()
+
+
+def _seed_sidecar_with_pages(sidecar: str):
+    """One release with a lastfm source page carrying a known + an unknown tag."""
+    store = SidecarStore(sidecar)
+    store.initialize()
+    page_id = store.upsert_source_page(
+        release_key="slowdive::souvlaki",
+        normalized_artist="slowdive",
+        normalized_album="souvlaki",
+        album_id="alb1",
+        source_url="lastfm://artist/slowdive/album/souvlaki",
+        source_type="lastfm_tags",
+        identity_status="confirmed",
+        identity_confidence=0.9,
+        evidence_summary="seed",
+    )
+    # 'shoegaze' classifies deterministically; 'zzz unknown thing' is review_only.
+    store.replace_source_tags(page_id, ["shoegaze", "zzz unknown thing"])
+    return store
+
+
+class _RecordingAdjudicator:
+    """Stand-in for adjudicate_tags: records calls, returns canned classifications."""
+    def __init__(self):
+        self.calls = []
+
+    def __call__(self, tags, *, model=None, dry_run=False, client=None):
+        self.calls.append([norm for _, norm in tags])
+        return {
+            norm: {"classification": "genre_style", "confidence": 0.8, "reason": "ok"}
+            for _, norm in tags
+        }
+
+
+def test_stage_enrich_dedupes_adjudicates_and_materializes(tmp_path, monkeypatch):
+    db_path = _metadata_db(tmp_path)
+    sidecar = str(tmp_path / "side.db")
+    monkeypatch.setattr(al, "ENRICHMENT_DB_PATH", Path(sidecar))
+    _seed_sidecar_with_pages(sidecar)
+
+    rec = _RecordingAdjudicator()
+    monkeypatch.setattr(al, "adjudicate_tags", rec)
+
+    ctx = _ctx(tmp_path, db_path)
+    result = al.stage_enrich(ctx)
+    ctx["conn"].close()
+
+    assert result["skipped"] is False
+    assert result["releases_enriched"] == 1
+    # exactly one distinct unknown tag adjudicated, in a single chunk
+    assert rec.calls == [["zzz unknown thing"]]
+    assert result["tags_adjudicated"] == 1
+
+
+def test_stage_enrich_no_pending_skips(tmp_path, monkeypatch):
+    db_path = _metadata_db(tmp_path)
+    sidecar = str(tmp_path / "side.db")
+    monkeypatch.setattr(al, "ENRICHMENT_DB_PATH", Path(sidecar))
+    SidecarStore(sidecar).initialize()  # empty sidecar, no source pages
+    monkeypatch.setattr(al, "adjudicate_tags", _RecordingAdjudicator())
+
+    ctx = _ctx(tmp_path, db_path)
+    result = al.stage_enrich(ctx)
+    ctx["conn"].close()
+    assert result["skipped"] is True
+    assert result.get("releases_enriched", 0) == 0
+
+
+def test_stage_enrich_propagates_adjudication_failure(tmp_path, monkeypatch):
+    db_path = _metadata_db(tmp_path)
+    sidecar = str(tmp_path / "side.db")
+    monkeypatch.setattr(al, "ENRICHMENT_DB_PATH", Path(sidecar))
+    _seed_sidecar_with_pages(sidecar)
+
+    def boom(tags, *, model=None, dry_run=False, client=None):
+        raise RuntimeError("Claude Code request failed after retries: rate window")
+
+    monkeypatch.setattr(al, "adjudicate_tags", boom)
+    ctx = _ctx(tmp_path, db_path)
+    with pytest.raises(RuntimeError, match="failed after retries"):
+        al.stage_enrich(ctx)
+    ctx["conn"].close()

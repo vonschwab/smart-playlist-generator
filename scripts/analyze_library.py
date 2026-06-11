@@ -40,10 +40,12 @@ from src.logging_utils import ProgressLogger
 from src.ai_genre_enrichment.storage import SidecarStore
 from src.ai_genre_enrichment.discovery import discover_releases
 from src.ai_genre_enrichment.lastfm_enrichment import fetch_lastfm_tags
+from src.ai_genre_enrichment.tag_adjudicator import adjudicate_tags
+from src.ai_genre_enrichment.provider import resolve_enrichment_model
 
 DEFAULT_OUT_DIR = ROOT_DIR / "data" / "artifacts" / "beat3tower_32k"
 ENRICHMENT_DB_PATH = ROOT_DIR / "data" / "ai_genre_enrichment.db"
-STAGE_ORDER_DEFAULT = ["scan", "genres", "discogs", "lastfm", "sonic", "genre-sim", "artifacts", "genre-embedding", "verify"]
+STAGE_ORDER_DEFAULT = ["scan", "genres", "discogs", "lastfm", "sonic", "enrich", "genre-sim", "artifacts", "genre-embedding", "verify"]
 
 logger = logging.getLogger("analyze_library")
 
@@ -277,6 +279,15 @@ def compute_stage_fingerprint(ctx: Dict, stage: str) -> str:
         }
         return _hash_obj(key)
 
+    if stage == "enrich":
+        source_pages = _sidecar_count("SELECT COUNT(*) FROM ai_genre_source_pages")
+        signatures = _sidecar_count("SELECT COUNT(*) FROM enriched_genre_signatures")
+        assignments = _sidecar_count(
+            "SELECT COUNT(*) FROM genre_graph_release_genre_assignments")
+        key = {"stage": stage, "source_pages": source_pages,
+               "signatures": signatures, "assignments": assignments}
+        return _hash_obj(key)
+
     if stage == "genre-sim":
         genre_rows = _safe_count(conn, "SELECT COUNT(*) FROM track_genres WHERE genre != '__EMPTY__'")
         artist_rows = _safe_count(conn, "SELECT COUNT(*) FROM artist_genres WHERE genre != '__EMPTY__'")
@@ -406,6 +417,10 @@ def estimate_stage_units(ctx: Dict, stage: str) -> Tuple[Optional[int], Optional
             scraped = _sidecar_count(
                 "SELECT COUNT(*) FROM ai_genre_source_pages WHERE source_type='lastfm_tags'")
             return max(0, total_albums - scraped), "releases needing Last.fm tags"
+        if stage == "enrich":
+            source_pages = _sidecar_count("SELECT COUNT(DISTINCT release_key) "
+                                          "FROM ai_genre_source_pages")
+            return source_pages, "releases with source pages to enrich"
         if stage == "sonic":
             pending = _safe_count(
                 conn,
@@ -1162,6 +1177,155 @@ def stage_lastfm(ctx: Dict) -> Dict:
             "total": len(pending), "errors": failed}
 
 
+def _pending_pages_for_releases(store: SidecarStore, release_keys: list[str]) -> List[Tuple[str, int]]:
+    """[(release_key, source_page_id)] for all source pages of the given releases."""
+    if not release_keys:
+        return []
+    pairs: List[Tuple[str, int]] = []
+    with store.connect() as conn:
+        placeholders = ",".join("?" for _ in release_keys)
+        rows = conn.execute(
+            f"SELECT release_key, source_page_id FROM ai_genre_source_pages "
+            f"WHERE release_key IN ({placeholders}) ORDER BY source_page_id",
+            release_keys,
+        ).fetchall()
+    for row in rows:
+        pairs.append((row[0], int(row[1])))
+    return pairs
+
+
+def _uncached_review_only_tags(store: SidecarStore, page_ids: List[int]) -> List[Tuple[str, str]]:
+    """Distinct (raw_tag, normalized_tag) review_only tags not yet in the adjudication cache.
+
+    Re-derives classification from the raw tag via the canonical classifier (the
+    same classify_source_tag that classify_source_tags uses), so this depends
+    only on ai_genre_source_tags (columns: source_tag_id, raw_tag, source_page_id).
+    """
+    from src.ai_genre_enrichment.tag_classification import classify_source_tag
+
+    if not page_ids:
+        return []
+    seen: dict[str, str] = {}
+    with store.connect() as conn:
+        placeholders = ",".join("?" for _ in page_ids)
+        rows = conn.execute(
+            f"SELECT raw_tag FROM ai_genre_source_tags "
+            f"WHERE source_page_id IN ({placeholders})",
+            page_ids,
+        ).fetchall()
+    for (raw_tag,) in rows:
+        c = classify_source_tag(raw_tag)
+        norm = c.normalized_tag
+        if (
+            c.classification == "review_only"
+            and norm
+            and norm not in seen
+            and store.lookup_cached_adjudication(norm) is None
+        ):
+            seen[norm] = raw_tag
+    return [(raw, norm) for norm, raw in seen.items()]
+
+
+def stage_enrich(ctx: Dict) -> Dict:
+    """Adjudicate unknown tags (chunked Claude calls) and materialize graph genres.
+
+    Writes only to the enrichment sidecar. De-duplicates unknown tags library-wide:
+    a tag is sent to Claude once, cached, then reused across every release.
+    Raises if the LLM backend fails (explicitly-requested work that cannot run is
+    an error, not a silent skip).
+    """
+    args = ctx["args"]
+    store = SidecarStore(str(ENRICHMENT_DB_PATH))
+    store.initialize()
+
+    limit = args.limit if args.limit and args.limit > 0 else None
+    releases = discover_releases(ctx["db_path"], limit=limit)
+    by_key = {r.release_key: r for r in releases}
+    page_pairs = _pending_pages_for_releases(store, list(by_key.keys()))
+    if not page_pairs:
+        logger.info("Skipping enrich stage (no source pages to enrich)")
+        return {"skipped": True, "reason": "no_source_pages", "releases_enriched": 0}
+
+    page_ids = [pid for _, pid in page_pairs]
+    pending_keys = sorted({rk for rk, _ in page_pairs})
+
+    # Pre-pass: deterministic classification populates known tags + cache hits.
+    for _, page_id in page_pairs:
+        store.classify_source_tags(page_id, adjudicate=False, model=None)
+
+    # Collect distinct uncached review_only tags across ALL pending pages, adjudicate
+    # in chunks, and cache definitive results so per-release classification is cache-only.
+    unknown = _uncached_review_only_tags(store, page_ids)
+    model = getattr(args, "model", None) or resolve_enrichment_model(None)
+    chunk_size = max(1, int(getattr(args, "enrich_chunk_size", 50)))
+    injected_client = getattr(args, "enrich_client", None)
+    tags_adjudicated = 0
+    chunks_used = 0
+    for i in range(0, len(unknown), chunk_size):
+        chunk = unknown[i:i + chunk_size]
+        results = adjudicate_tags(chunk, model=model, client=injected_client)
+        chunks_used += 1
+        for norm, decision in results.items():
+            classification = decision.get("classification")
+            if classification and classification != "review_only":
+                store.cache_adjudication(
+                    normalized_tag=norm,
+                    classification=classification,
+                    confidence=float(decision.get("confidence", 0.0)),
+                    classifier="ai",
+                )
+                tags_adjudicated += 1
+
+    # Per-release: re-classify (cache hits now), rebuild signatures, fuse, materialize.
+    from src.ai_genre_enrichment.layered_taxonomy import load_default_layered_taxonomy
+    from src.ai_genre_enrichment.layered_assignment import materialize_layered_assignments
+    from src.ai_genre_enrichment.hybrid_evidence import fuse_release_evidence
+
+    taxonomy = load_default_layered_taxonomy()
+    store.upsert_layered_taxonomy(taxonomy)
+
+    pages_by_release: dict[str, List[int]] = {}
+    for rk, pid in page_pairs:
+        pages_by_release.setdefault(rk, []).append(pid)
+
+    prog = (
+        ProgressLogger(
+            logger, total=len(pending_keys), label="enrich", unit="releases",
+            interval_s=getattr(args, "progress_interval", 15.0),
+            every_n=getattr(args, "progress_every", 500),
+            verbose_each=bool(getattr(args, "verbose", False)),
+        )
+        if getattr(args, "progress", True) else None
+    )
+
+    enriched = 0
+    assignments = 0
+    for rk in pending_keys:
+        release = by_key.get(rk)
+        if release is None:
+            continue
+        if prog:
+            prog.update(detail=rk)
+        for pid in pages_by_release.get(rk, []):
+            store.classify_source_tags(pid, adjudicate=False, model=None)
+        store.rebuild_enriched_genres_for_release(rk)
+        fused = fuse_release_evidence(store, release)
+        summary = materialize_layered_assignments(
+            store, release_id=rk, artist=release.normalized_artist,
+            album=release.normalized_album, report=fused, taxonomy=taxonomy,
+        )
+        assignments += summary.genre_assignment_count
+        enriched += 1
+
+    if prog:
+        prog.finish(detail=f"enriched {enriched:,} releases")
+    logger.info("enrich stage: releases=%d tags_adjudicated=%d chunks=%d assignments=%d",
+                enriched, tags_adjudicated, chunks_used, assignments)
+    return {"skipped": False, "releases_enriched": enriched,
+            "tags_adjudicated": tags_adjudicated, "chunks_used": chunks_used,
+            "genre_assignments": assignments, "total": enriched}
+
+
 def stage_sonic(ctx: Dict) -> Dict:
     args = ctx["args"]
     force = args.force
@@ -1450,6 +1614,7 @@ STAGE_FUNCS = {
     "genres": stage_genres,
     "discogs": stage_discogs,
     "lastfm": stage_lastfm,
+    "enrich": stage_enrich,
     "sonic": stage_sonic,
     "genre-sim": stage_genre_sim,
     "artifacts": stage_artifacts,
