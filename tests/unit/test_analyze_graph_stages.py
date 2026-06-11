@@ -216,7 +216,9 @@ def test_stage_publish_second_run_no_backup(tmp_path, monkeypatch):
     monkeypatch.setattr(al, "ENRICHMENT_DB_PATH", Path(sidecar))
     SidecarStore(sidecar).initialize()
 
-    al.stage_publish(_ctx(tmp_path, db_path))  # first publish (backs up)
+    ctx1 = _ctx(tmp_path, db_path)
+    al.stage_publish(ctx1)
+    ctx1["conn"].close()  # first publish (backs up)
     before = set(Path(db_path).parent.glob("metadata.db.bak.*"))
     ctx2 = _ctx(tmp_path, db_path)
     result = al.stage_publish(ctx2)
