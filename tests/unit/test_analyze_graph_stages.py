@@ -241,3 +241,89 @@ def test_stage_publish_dry_run_rolls_back(tmp_path, monkeypatch):
     assert result["dry_run"] is True
     # dry-run rolls back the publish transaction → no published table persists
     assert not _published_table_exists(db_path)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Integration tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_default_stage_order_has_new_stages_positioned():
+    order = al.STAGE_ORDER_DEFAULT
+    for name in ("lastfm", "enrich", "publish"):
+        assert name in order, f"{name} missing from STAGE_ORDER_DEFAULT"
+        assert name in al.STAGE_FUNCS
+    # lastfm after discogs; enrich after sonic; publish after enrich
+    assert order.index("lastfm") > order.index("discogs")
+    assert order.index("enrich") > order.index("sonic")
+    assert order.index("publish") == order.index("enrich") + 1
+    # publish precedes genre-sim/artifacts
+    assert order.index("publish") < order.index("genre-sim")
+
+
+def _write_minimal_config(tmp_path: Path, db_path: str) -> str:
+    """Write a minimal config.yaml that satisfies Config._validate_config."""
+    import yaml
+    cfg = {"library": {"database_path": db_path, "music_directory": str(tmp_path)}}
+    config_path = str(tmp_path / "config.yaml")
+    Path(config_path).write_text(yaml.dump(cfg), encoding="utf-8")
+    return config_path
+
+
+def test_run_pipeline_runs_new_stages_then_skips_on_rerun(tmp_path, monkeypatch):
+    import json
+    db_path = _metadata_db(tmp_path)
+    sidecar = str(tmp_path / "side.db")
+    monkeypatch.setattr(al, "ENRICHMENT_DB_PATH", Path(sidecar))
+    monkeypatch.setattr(al, "fetch_lastfm_tags",
+                        lambda artist, album, api_key, limit=20: ["shoegaze", "zzz unknown thing"])
+    monkeypatch.setattr(al, "adjudicate_tags", _RecordingAdjudicator())
+
+    config_path = _write_minimal_config(tmp_path, db_path)
+    out_dir = str(tmp_path / "artifacts")
+
+    # Build args Namespace — every attribute read by run_pipeline.
+    args = Namespace(
+        config=config_path,
+        db_path=db_path,
+        out_dir=out_dir,
+        stages="lastfm,enrich,publish",
+        lastfm_api_key="FAKEKEY",
+        model=None,
+        enrich_chunk_size=50,
+        dry_run=False,
+        beat_sync=False,
+        force=False,
+        limit=None,
+        max_tracks=0,
+        workers="auto",
+        progress=False,
+        progress_interval=15.0,
+        progress_every=500,
+        verbose=False,
+        # resolve_log_level reads these via getattr with defaults
+        debug=False,
+        quiet=False,
+        log_level="INFO",
+    )
+
+    # First run: all three stages should execute (no prior fingerprint).
+    rc = al.run_pipeline(args, console_logging=False)
+    assert rc == 0
+    assert _published_table_exists(db_path)
+
+    report_path = Path(out_dir) / "analyze_run_report.json"
+    assert report_path.exists(), "run_pipeline must write analyze_run_report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    for stage in ("lastfm", "enrich", "publish"):
+        decision = report["stages"][stage]["decision"]
+        assert decision == "ran", f"Expected stage {stage!r} to run on first pass, got {decision!r}"
+
+    # Re-run: inputs unchanged → all three stages skip via fingerprint.
+    rc2 = al.run_pipeline(args, console_logging=False)
+    assert rc2 == 0
+    report2 = json.loads(report_path.read_text(encoding="utf-8"))
+    for stage in ("lastfm", "enrich", "publish"):
+        decision = report2["stages"][stage]["decision"]
+        assert decision == "skipped", (
+            f"Expected stage {stage!r} to be skipped on rerun (fingerprint unchanged), got {decision!r}"
+        )
