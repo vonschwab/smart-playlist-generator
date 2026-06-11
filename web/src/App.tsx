@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Shell } from "./components/Shell";
 import { AdvancedPanel } from "./components/AdvancedPanel";
 import { GenerateControls } from "./components/GenerateControls";
@@ -7,6 +7,7 @@ import { TrackTable } from "./components/TrackTable";
 import { QualityStats } from "./components/QualityStats";
 import { LogPanel } from "./components/LogPanel";
 import { JobsPanel } from "./components/JobsPanel";
+import { ToolsPanel } from "./components/ToolsPanel";
 import { PlayerProvider } from "./contexts/PlayerContext";
 import { MiniPlayer } from "./components/MiniPlayer";
 import { api } from "./lib/api";
@@ -30,11 +31,18 @@ export default function App() {
   }, [seedTracks, setSeedTracks]);
   const clearSeeds = useCallback(() => setSeedTracks([]), [setSeedTracks]);
 
+  const [tab, setTab] = useState<"generate" | "tools">("generate");
   const [busy, setBusy] = useState(false);
   const [rerunValues, setRerunValues] = useState<GenerateRequestBody | null>(null);
   const [playlist, setPlaylist] = useState<PlaylistOut | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
-  const [jobs, setJobs] = useState<JobOut[]>([]);
+  const [jobs, setJobs] = useState<JobOut[]>(() => {
+    try {
+      const raw = localStorage.getItem("pg_jobs_history");
+      if (!raw) return [];
+      return (JSON.parse(raw) as Array<Omit<JobOut, "playlist">>).map((j) => ({ ...j, playlist: null }));
+    } catch { return []; }
+  });
   const [error, setError] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuTarget, setMenuTarget] = useState<MenuTarget | null>(null);
@@ -47,7 +55,26 @@ export default function App() {
   const [editTarget, setEditTarget] = useState<{ artist: string; album: string; genres: string[] }>({ artist: "", album: "", genres: [] });
   const [plexOpen, setPlexOpen] = useState(false);
 
-  const refreshJobs = useCallback(() => { api.jobs().then(setJobs).catch(() => {}); }, []);
+  // Persist slim job history (no playlist payload) across server restarts.
+  useEffect(() => {
+    try {
+      const slim = jobs.map(({ playlist: _, ...j }) => j);
+      localStorage.setItem("pg_jobs_history", JSON.stringify(slim.slice(0, 30)));
+    } catch {}
+  }, [jobs]);
+
+  // Merge server jobs into local history; server wins for the same job_id.
+  const refreshJobs = useCallback(() => {
+    api.jobs().then((serverJobs) => {
+      setJobs((prev) => {
+        const byId = new Map(prev.map((j) => [j.job_id, j]));
+        for (const sj of serverJobs) byId.set(sj.job_id, sj);
+        return [...byId.values()]
+          .sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))
+          .slice(0, 30);
+      });
+    }).catch(() => {});
+  }, []);
 
   const handleCancel = useCallback(async (j: JobOut) => {
     try { await api.cancelJob(j.job_id); refreshJobs(); }
@@ -153,6 +180,21 @@ export default function App() {
     setError(null); setBusy(true); setLogs([]); setPlaylist(null);
     try {
       const { job_id } = await api.generate(body);
+      setJobs((prev) => {
+        const pending: JobOut = {
+          job_id,
+          status: "pending",
+          stage: "queued",
+          created_at: Date.now() / 1000,
+          request_params: body as unknown as Record<string, unknown>,
+          playlist: null,
+        };
+        const byId = new Map(prev.map((j) => [j.job_id, j]));
+        byId.set(job_id, pending);
+        return [...byId.values()]
+          .sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))
+          .slice(0, 30);
+      });
       setJobId(job_id);
       refreshJobs();
     } catch (err) {
@@ -166,43 +208,64 @@ export default function App() {
         topBar={
           <>
             <div className="font-bold text-sm"><span className="text-accent">◆</span> Playlist Generator</div>
-            {error && <div className="text-danger text-xs">{error}</div>}
+            <div className="flex items-center gap-1 ml-4">
+              {(["generate", "tools"] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setTab(t)}
+                  className={[
+                    "px-3 py-1 text-[11px] rounded transition-colors capitalize",
+                    tab === t
+                      ? "bg-[#23262d] text-[#c9d1d9]"
+                      : "text-[#5b6470] hover:text-[#8b939d]",
+                  ].join(" ")}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+            {error && <div className="text-danger text-xs ml-auto">{error}</div>}
           </>
         }
         jobs={<JobsPanel jobs={jobs} onSelect={(j) => setPlaylist(j.playlist ?? null)} onCancel={handleCancel} onRerun={handleRerun} />}
         center={
-          <div className="h-full flex flex-col overflow-hidden">
-            <GenerateControls
-              mode={mode}
-              onModeChange={setMode}
-              seedTrackIds={seedTracks.map((t) => t.track_id)}
-              onSubmit={submit}
-              busy={busy}
-              initialValues={rerunValues ?? undefined}
-            />
-            {mode === "seeds" && (
-              <SeedTrackSection
-                tracks={seedTracks}
-                onAdd={addSeed}
-                onRemove={removeSeed}
-                onClear={clearSeeds}
+          tab === "tools" ? (
+            <ToolsPanel externalBusy={busy} refreshJobs={refreshJobs} />
+          ) : (
+            <div className="h-full flex flex-col overflow-hidden">
+              <GenerateControls
+                mode={mode}
+                onModeChange={setMode}
+                seedTrackIds={seedTracks.map((t) => t.track_id)}
+                seedDisplays={seedTracks.map((t) => `${t.title} - ${t.artist}`)}
+                onSubmit={submit}
+                busy={busy}
+                initialValues={rerunValues ?? undefined}
               />
-            )}
-            <QualityStats
-              metrics={playlist?.metrics}
-              count={playlist?.track_count ?? 0}
-              tracks={playlist?.tracks ?? []}
-              onExportM3U8={() => playlist && downloadM3U8(playlist.tracks)}
-              onExportPlex={() => setPlexOpen(true)}
-            />
-            <div className="flex-1 overflow-auto">
-              <TrackTable
+              {mode === "seeds" && (
+                <SeedTrackSection
+                  tracks={seedTracks}
+                  onAdd={addSeed}
+                  onRemove={removeSeed}
+                  onClear={clearSeeds}
+                />
+              )}
+              <QualityStats
+                metrics={playlist?.metrics}
+                count={playlist?.track_count ?? 0}
                 tracks={playlist?.tracks ?? []}
-                blacklisted={blacklisted}
-                onContextAction={openMenu}
+                onExportM3U8={() => playlist && downloadM3U8(playlist.tracks)}
+                onExportPlex={() => setPlexOpen(true)}
               />
+              <div className="flex-1 overflow-auto">
+                <TrackTable
+                  tracks={playlist?.tracks ?? []}
+                  blacklisted={blacklisted}
+                  onContextAction={openMenu}
+                />
+              </div>
             </div>
-          </div>
+          )
         }
         right={<AdvancedPanel playlist={playlist} />}
         logs={<LogPanel lines={logs} />}
