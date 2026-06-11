@@ -93,6 +93,16 @@ class Config:
         return os.getenv('OPENAI_API_KEY') or self.config['openai']['api_key']
 
     @property
+    def ai_genre_provider(self) -> str:
+        """LLM provider for the genre enrichment pipeline ('claude_code' or 'openai')."""
+        return (self.config.get('ai_genre') or {}).get('provider', 'claude_code')
+
+    @property
+    def ai_genre_claude_model(self) -> str:
+        """Claude model alias for the claude_code provider (e.g. 'haiku', 'sonnet')."""
+        return (self.config.get('ai_genre') or {}).get('claude_model', 'haiku')
+
+    @property
     def lastfm_api_key(self) -> str:
         """Get Last.FM API key (with environment variable override)"""
         if 'lastfm' not in self.config or 'api_key' not in self.config.get('lastfm', {}):

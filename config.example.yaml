@@ -15,6 +15,13 @@ plex:
   verify_ssl: true
   replace_existing: true
   path_map: []
+ai_genre:
+  # AI genre enrichment LLM backend.
+  # provider: claude_code  -> uses the locally installed, authenticated Claude Code
+  #                           (Agent SDK; runs on your Claude subscription, no API key)
+  # provider: openai       -> legacy; requires OPENAI_API_KEY or openai.api_key
+  provider: claude_code
+  claude_model: haiku    # model alias for claude_code calls ('haiku' | 'sonnet' | 'opus')
 playlists:
   count: 8
   tracks_per_playlist: 30
