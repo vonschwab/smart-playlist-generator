@@ -37,10 +37,13 @@ from scripts.update_sonic import SonicFeaturePipeline
 from scripts.scan_library import LibraryScanner
 from scripts.update_discogs_genres import DiscogsClient, iter_albums, upsert_album_genres, best_match, fetch_genres, normalize_tag, discogs_status, load_config_token
 from src.logging_utils import ProgressLogger
+from src.ai_genre_enrichment.storage import SidecarStore
+from src.ai_genre_enrichment.discovery import discover_releases
+from src.ai_genre_enrichment.lastfm_enrichment import fetch_lastfm_tags
 
 DEFAULT_OUT_DIR = ROOT_DIR / "data" / "artifacts" / "beat3tower_32k"
 ENRICHMENT_DB_PATH = ROOT_DIR / "data" / "ai_genre_enrichment.db"
-STAGE_ORDER_DEFAULT = ["scan", "genres", "discogs", "sonic", "genre-sim", "artifacts", "genre-embedding", "verify"]
+STAGE_ORDER_DEFAULT = ["scan", "genres", "discogs", "lastfm", "sonic", "genre-sim", "artifacts", "genre-embedding", "verify"]
 
 logger = logging.getLogger("analyze_library")
 
@@ -64,6 +67,21 @@ def _safe_count(conn: sqlite3.Connection, query: str, params: tuple = ()) -> int
             return int(row[0])
         except Exception:
             return int(row["c"])
+    except Exception:
+        return 0
+
+
+def _sidecar_count(query: str, params: tuple = ()) -> int:
+    """COUNT(*) against the enrichment sidecar, 0 if absent/unreadable."""
+    try:
+        if not ENRICHMENT_DB_PATH.exists():
+            return 0
+        conn = sqlite3.connect(f"file:{ENRICHMENT_DB_PATH}?mode=ro", uri=True)
+        try:
+            row = conn.execute(query, params).fetchone()
+            return int(row[0]) if row else 0
+        finally:
+            conn.close()
     except Exception:
         return 0
 
@@ -234,6 +252,14 @@ def compute_stage_fingerprint(ctx: Dict, stage: str) -> str:
         }
         return _hash_obj(key)
 
+    if stage == "lastfm":
+        total_albums = _safe_count(conn, "SELECT COUNT(DISTINCT album_id) FROM albums "
+                                         "WHERE album_id IS NOT NULL AND album_id != ''")
+        lastfm_pages = _sidecar_count(
+            "SELECT COUNT(*) FROM ai_genre_source_pages WHERE source_type='lastfm_tags'")
+        key = {"stage": stage, "total_albums": total_albums, "lastfm_pages": lastfm_pages}
+        return _hash_obj(key)
+
     if stage == "sonic":
         pending = _safe_count(
             conn,
@@ -374,6 +400,12 @@ def estimate_stage_units(ctx: Dict, stage: str) -> Tuple[Optional[int], Optional
                 """,
             )
             return pending, "albums needing Discogs genres"
+        if stage == "lastfm":
+            total_albums = _safe_count(conn, "SELECT COUNT(DISTINCT album_id) FROM albums "
+                                            "WHERE album_id IS NOT NULL AND album_id != ''")
+            scraped = _sidecar_count(
+                "SELECT COUNT(*) FROM ai_genre_source_pages WHERE source_type='lastfm_tags'")
+            return max(0, total_albums - scraped), "releases needing Last.fm tags"
         if stage == "sonic":
             pending = _safe_count(
                 conn,
@@ -1031,6 +1063,105 @@ def stage_discogs(ctx: Dict) -> Dict:
     }
 
 
+def _resolve_lastfm_api_key(ctx: Dict) -> Optional[str]:
+    """Resolve the Last.fm API key from args, env, or config (in that order)."""
+    args = ctx["args"]
+    key = getattr(args, "lastfm_api_key", None) or os.environ.get("LASTFM_API_KEY")
+    if key:
+        return key
+    try:
+        return Config(ctx["config_path"]).lastfm_api_key or None
+    except Exception:
+        return None
+
+
+def stage_lastfm(ctx: Dict) -> Dict:
+    """Fetch Last.fm top tags into the sidecar for releases that lack them.
+
+    No LLM. Deterministic classification only (adjudicate=False); the `enrich`
+    stage owns AI adjudication. Missing API key raises (production-required,
+    like the discogs stage).
+    """
+    import time
+
+    args = ctx["args"]
+    api_key = _resolve_lastfm_api_key(ctx)
+    if not api_key:
+        raise RuntimeError(
+            "Last.fm API key required for the lastfm stage. Set LASTFM_API_KEY, "
+            "pass --lastfm-api-key, or add lastfm.api_key to config.yaml."
+        )
+
+    store = SidecarStore(str(ENRICHMENT_DB_PATH))
+    store.initialize()
+
+    limit = args.limit if args.limit and args.limit > 0 else None
+    releases = discover_releases(ctx["db_path"], limit=limit)
+    if not releases:
+        return {"skipped": True, "reason": "no_releases", "extracted": 0}
+
+    already = store.release_keys_with_source_type("lastfm_tags")
+    pending = [r for r in releases if args.force or r.release_key not in already]
+    skipped_existing = len(releases) - len(pending)
+    if not pending:
+        logger.info("Skipping lastfm stage (all %d releases already scraped)", len(releases))
+        return {"skipped": True, "reason": "all_scraped", "extracted": 0,
+                "skipped_existing": skipped_existing}
+
+    prog = (
+        ProgressLogger(
+            logger, total=len(pending), label="lastfm", unit="releases",
+            interval_s=getattr(args, "progress_interval", 15.0),
+            every_n=getattr(args, "progress_every", 500),
+            verbose_each=bool(getattr(args, "verbose", False)),
+        )
+        if getattr(args, "progress", True) else None
+    )
+
+    extracted = empty = failed = 0
+    for release in pending:
+        if prog:
+            prog.update(detail=release.release_key)
+        try:
+            tags = fetch_lastfm_tags(
+                artist=release.normalized_artist,
+                album=release.normalized_album or None,
+                api_key=api_key,
+                limit=20,
+            )
+            if not tags:
+                empty += 1
+                time.sleep(0.25)
+                continue
+            album_segment = f"/album/{release.normalized_album}" if release.normalized_album else ""
+            page_id = store.upsert_source_page(
+                release_key=release.release_key,
+                normalized_artist=release.normalized_artist,
+                normalized_album=release.normalized_album,
+                album_id=release.album_id,
+                source_url=f"lastfm://artist/{release.normalized_artist}{album_segment}",
+                source_type="lastfm_tags",
+                identity_status="confirmed",
+                identity_confidence=0.9,
+                evidence_summary="Last.fm top tags via API.",
+            )
+            store.replace_source_tags(page_id, tags)
+            store.classify_source_tags(page_id, adjudicate=False, model=None)
+            extracted += 1
+        except Exception as exc:  # network blip / API error — log and continue
+            failed += 1
+            logger.debug("Last.fm failed for %s: %s", release.release_key, exc)
+        time.sleep(0.25)  # ~5 req/s courtesy limit
+
+    if prog:
+        prog.finish(detail=f"lastfm extracted {extracted:,} of {len(pending):,}")
+    logger.info("lastfm stage: extracted=%d empty=%d failed=%d skipped_existing=%d",
+                extracted, empty, failed, skipped_existing)
+    return {"skipped": False, "extracted": extracted, "empty": empty,
+            "failed": failed, "skipped_existing": skipped_existing,
+            "total": len(pending), "errors": failed}
+
+
 def stage_sonic(ctx: Dict) -> Dict:
     args = ctx["args"]
     force = args.force
@@ -1318,6 +1449,7 @@ STAGE_FUNCS = {
     "mbid": stage_mbid,
     "genres": stage_genres,
     "discogs": stage_discogs,
+    "lastfm": stage_lastfm,
     "sonic": stage_sonic,
     "genre-sim": stage_genre_sim,
     "artifacts": stage_artifacts,
@@ -1361,6 +1493,12 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--progress-every", type=int, default=500,
                         help="Items between progress updates (default: 500)")
     parser.add_argument("--verbose", action="store_true", help="Verbose per-item progress (DEBUG)")
+    parser.add_argument("--lastfm-api-key", default=None,
+                        help="Last.fm API key for the lastfm stage (else env LASTFM_API_KEY / config)")
+    parser.add_argument("--model", default=None,
+                        help="LLM model override for the enrich stage (default: provider default)")
+    parser.add_argument("--enrich-chunk-size", type=int, default=50,
+                        help="Tags per adjudication chunk in the enrich stage (default: 50)")
     add_logging_args(parser)
     return parser.parse_args(argv)
 
