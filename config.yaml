@@ -153,7 +153,13 @@ playlists:
       dj_route_shape: ladder
       weight_genre_strict: 0.30
       weight_genre_narrow: 0.20
-      weight_genre_dynamic: 0.12
+      # 2026-06-10 sonic-priority tuning (dynamic): genre is GATING + STEERING only,
+      # not an edge-ranking term. 0 here pulls the genre arc vote out of the edge
+      # score so sonic (bridge+transition) drives transition selection; genre still
+      # gates via admission + arc percentile floor + the pair penalty, and still
+      # steers via the taxonomy arc routing. Validated: G-min held/improved
+      # (0.402->0.603) while T-mean rose (0.603->0.625). See [[project_graph_similarity_integration]].
+      weight_genre_dynamic: 0.0
       weight_genre_discover: 0.06
       genre_arc_floor_strict: 0.50
       genre_arc_floor_narrow: 0.40
@@ -178,7 +184,11 @@ playlists:
       genre_admission_percentile_discover: 0.70
       genre_arc_floor_percentile_strict: 0.90
       genre_arc_floor_percentile_narrow: 0.85
-      genre_arc_floor_percentile_dynamic: 0.70
+      # 2026-06-10 (dynamic): 0.70 -> 0.80 for smoother genre traversal. With genre
+      # out of edge ranking, this per-step floor is how the arc steers — tighter
+      # floor = candidates hug the waypoint = smaller genre steps between adjacent
+      # tracks. Drove G-min 0.402->0.603 and distinct artists 47->48.
+      genre_arc_floor_percentile_dynamic: 0.80
       genre_arc_floor_percentile_discover: 0.50
       infeasible_handling:
         backoff_steps:
@@ -206,8 +216,12 @@ playlists:
       initial_neighbors_m: 200
       local_sonic_edge_floor: null
       local_sonic_edge_penalty_enabled: true
-      local_sonic_edge_penalty_strength: 0.3
-      local_sonic_edge_penalty_threshold: 0.1
+      # 2026-06-10 seam-gel tuning (global, all cohesion modes): penalize edges whose
+      # immediate-neighbor sonic cosine is weak. threshold 0.1->0.2 (catch more thin
+      # seams), strength 0.3->0.5 (demote them harder). Targets the "doesn't gel"
+      # transitions directly. Paired with the dynamic bridge/transition rebalance below.
+      local_sonic_edge_penalty_strength: 0.5
+      local_sonic_edge_penalty_threshold: 0.2
       max_beam_width: 200
       max_bridge_helpers: 400
       max_neighbors_m: 800
@@ -228,9 +242,13 @@ playlists:
       soft_genre_penalty_threshold_narrow: 0.7
       soft_genre_penalty_threshold_off: 0.2
       soft_genre_penalty_threshold_strict: 0.82
-      weight_bridge_dynamic: 0.6
+      # 2026-06-10 sonic-priority rebalance (dynamic): prioritize the BOUNDARY
+      # (transition = end-of-A vs start-of-B, the gel you hear) over the DESTINATION
+      # (bridge = whole-track fit toward the next pier). 0.6/0.4 -> 0.4/0.6. With
+      # weight_genre_dynamic=0 these are the full edge score. (narrow left at 0.7/0.3.)
+      weight_bridge_dynamic: 0.40
       weight_bridge_narrow: 0.7
-      weight_transition_dynamic: 0.4
+      weight_transition_dynamic: 0.60
       weight_transition_narrow: 0.3
     genre_similarity:
       source: graph  # cooccurrence | graph
