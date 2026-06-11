@@ -87,13 +87,21 @@ class TaxonomySteering:
         return float(self._S[ia, ib])
 
     def arc_adjacency(
-        self, *, min_sim: float = 0.05, top_k: int = 12
+        self, *, min_sim: float = 0.05, top_k: int = 0
     ) -> dict[str, list[tuple[str, float]]]:
-        """Canonical-name adjacency for ladder routing (cached)."""
+        """Canonical-name adjacency for ladder routing (cached).
+
+        top_k=0 (default) means no cap — include every neighbor above min_sim.
+        The hub-damped S matrix already assigns low similarity to broad genres,
+        so Dijkstra avoids them via cost naturally.  Truncating at top_k also
+        removes backbone edges (e.g. new_wave→rock at sim=0.178) when 12 tight
+        cluster neighbors rank above them, causing scenic routing.
+        """
         if self._adjacency is not None:
             return self._adjacency
         adj: dict[str, list[tuple[str, float]]] = {}
         S = self._S
+        _top_k = int(top_k)
         for i, g in enumerate(self._vocab):
             row = S[i]
             order = np.argsort(-row)
@@ -106,7 +114,7 @@ class TaxonomySteering:
                 if w < float(min_sim):
                     break
                 nbrs.append((self._vocab[jj], w))
-                if len(nbrs) >= int(top_k):
+                if _top_k > 0 and len(nbrs) >= _top_k:
                     break
             adj[g] = nbrs
         self._adjacency = adj
@@ -155,6 +163,22 @@ def _canonical_pier_labels(
     return specific + broad
 
 
+def _filter_path_by_mass(
+    path: list[str],
+    track_counts: Optional[dict[str, int]],
+    min_mass: int,
+) -> list[str]:
+    """Keep endpoints always; strip intermediate nodes with fewer than min_mass tracks."""
+    if track_counts is None or min_mass <= 0 or len(path) <= 2:
+        return path
+    filtered = [path[0]]
+    for node in path[1:-1]:
+        if track_counts.get(node, 0) >= min_mass:
+            filtered.append(node)
+    filtered.append(path[-1])
+    return filtered
+
+
 def build_taxonomy_genre_targets(
     *,
     pier_a: int,
@@ -168,6 +192,8 @@ def build_taxonomy_genre_targets(
     smooth_top_k: int = 10,
     smooth_min_sim: float = 0.2,
     max_steps: int = 6,
+    genre_track_counts: Optional[dict[str, int]] = None,
+    min_waypoint_mass: int = 0,
     ladder_diag: Optional[dict] = None,
 ) -> Optional[list[np.ndarray]]:
     """Per-step genre-arc targets routed through the taxonomy graph.
@@ -206,6 +232,8 @@ def build_taxonomy_genre_targets(
     if not path:
         # No taxonomy path between the piers' genres: use a direct two-rung ladder.
         path = [canon_a[0], canon_b[0]]
+
+    path = _filter_path_by_mass(path, genre_track_counts, min_waypoint_mass)
 
     vocab_map = _genre_vocab_map(vocab_arr)
     waypoint_vecs: list[np.ndarray] = []

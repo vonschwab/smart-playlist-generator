@@ -468,6 +468,15 @@ def build_pier_bridge_playlist(
     if X_genre_smoothed is None:
         X_genre_smoothed = getattr(bundle, "X_genre_smoothed", None)
 
+    # Per-genre track counts for taxonomy waypoint mass filter (routing fix)
+    _genre_vocab_list = list(np.asarray(bundle.genre_vocab, dtype=object)) if getattr(bundle, "genre_vocab", None) is not None else []
+    genre_track_counts: Optional[dict[str, int]] = None
+    if X_genre_raw is not None and _genre_vocab_list:
+        genre_track_counts = {
+            str(_genre_vocab_list[j]): int((X_genre_raw[:, j] > 0).sum())
+            for j in range(len(_genre_vocab_list))
+        }
+
     # Genre similarity for soft edge penalty / tiebreak (cosine on smoothed genre vectors)
     X_genre_use = X_genre_smoothed if X_genre_smoothed is not None else None
     X_genre_norm = None
@@ -1462,6 +1471,8 @@ def build_pier_bridge_playlist(
                 smooth_top_k=int(cfg.dj_ladder_smooth_top_k),
                 smooth_min_sim=float(cfg.dj_ladder_smooth_min_sim),
                 max_steps=int(cfg.dj_ladder_max_steps),
+                genre_track_counts=genre_track_counts,
+                min_waypoint_mass=int(getattr(cfg, "taxonomy_waypoint_min_library_mass", 0)),
                 ladder_diag=_tax_diag,
             )
             if segment_g_targets_dense is not None and _tax_diag.get("taxonomy_waypoint_labels"):

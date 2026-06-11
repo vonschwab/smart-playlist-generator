@@ -11,7 +11,11 @@ from __future__ import annotations
 
 import numpy as np
 
+import pytest
+
 from src.playlist.pier_bridge.taxonomy_steering import (
+    TaxonomySteering,
+    _filter_path_by_mass,
     build_taxonomy_genre_targets,
     get_taxonomy_steering,
 )
@@ -137,3 +141,130 @@ def test_build_targets_returns_none_when_no_canonical_genres():
         steering=steering,
     )
     assert targets is None  # caller falls back to dense steering
+
+
+# --- routing graph truncation bug fix ----------------------------------------
+
+
+def _build_synthetic_steering() -> TaxonomySteering:
+    """17-genre synthetic S matrix that reproduces the new_wave→rock truncation bug.
+
+    new_wave has 12 "decoy" neighbors at sim=0.20.  The backbone hub edge
+    new_wave→rock sits at sim=0.15, which ranks 14th — outside the old top_k=12
+    window.  Dijkstra must route synth-pop→city_pop→j_rock→rock (cost 1.48) when
+    the backbone is invisible, but synth-pop→new_wave→rock (cost 1.15) when it
+    isn't.
+    """
+    genres = ["synth-pop", "new_wave", "city_pop", "j_rock", "rock"] + [
+        f"d{i:02d}" for i in range(12)
+    ]
+    idx = {g: i for i, g in enumerate(genres)}
+    N = len(genres)
+    S = np.eye(N, dtype=np.float32)
+
+    def _s(a: str, b: str, v: float) -> None:
+        S[idx[a], idx[b]] = v
+        S[idx[b], idx[a]] = v
+
+    _s("synth-pop", "new_wave", 0.70)
+    _s("synth-pop", "city_pop", 0.50)
+    _s("city_pop", "j_rock", 0.42)
+    _s("j_rock", "rock", 0.60)
+    _s("new_wave", "rock", 0.15)  # backbone hub edge; hub-damped
+    for i in range(12):
+        _s("new_wave", f"d{i:02d}", 0.20)  # fills new_wave's top-12, displacing rock
+
+    return TaxonomySteering(genres, S, adapter=None)
+
+
+def test_arc_adjacency_backbone_edge_not_truncated():
+    """Default arc_adjacency() must preserve hub backbone edges.
+
+    12 decoy neighbors at sim=0.20 push the backbone new_wave→rock edge (sim=0.15)
+    to rank 14, outside the old top_k=12 window.  Dijkstra then routes via city_pop
+    (cost 1.48) instead of the cheaper new_wave path (cost 1.15).
+
+    Fix: remove the top_k cap so min_sim alone gates the graph.
+    """
+    from src.playlist.pier_bridge.genre import _shortest_genre_path
+
+    steering = _build_synthetic_steering()
+    adj = steering.arc_adjacency()  # default — must include the backbone edge
+
+    new_wave_nbr_names = {n for n, _ in adj.get("new_wave", [])}
+    assert "rock" in new_wave_nbr_names, (
+        "backbone edge new_wave→rock must survive; raise/remove the top_k cap"
+    )
+
+    path = _shortest_genre_path(adj, "synth-pop", "rock", max_steps=6)
+    assert path is not None
+    assert "new_wave" in path, "cheaper 2-hop path via new_wave must be chosen"
+    assert "city_pop" not in path, "scenic route via city_pop must not be chosen"
+
+
+# --- library-mass waypoint filter ---------------------------------------------
+
+
+def test_filter_path_by_mass_removes_low_mass_intermediates():
+    path = ["synth-pop", "new_wave", "city_pop", "rock"]
+    counts: dict[str, int] = {"synth-pop": 2000, "new_wave": 50, "city_pop": 20, "rock": 20000}
+    result = _filter_path_by_mass(path, counts, min_mass=100)
+    assert result == ["synth-pop", "rock"]
+
+
+def test_filter_path_by_mass_keeps_endpoints_even_if_below_threshold():
+    path = ["a", "b", "c"]
+    counts: dict[str, int] = {"a": 0, "b": 999, "c": 0}
+    result = _filter_path_by_mass(path, counts, min_mass=100)
+    assert result[0] == "a"
+    assert result[-1] == "c"
+    assert "b" in result
+
+
+def test_filter_path_by_mass_two_node_path_unchanged():
+    path = ["a", "b"]
+    result = _filter_path_by_mass(path, {}, min_mass=100)
+    assert result == ["a", "b"]
+
+
+def test_filter_path_by_mass_none_counts_returns_original():
+    path = ["a", "b", "c"]
+    result = _filter_path_by_mass(path, None, min_mass=100)
+    assert result == ["a", "b", "c"]
+
+
+def test_build_targets_filters_low_mass_intermediates():
+    """genre_track_counts + min_waypoint_mass prune sparse waypoints from the arc path."""
+    steering = get_taxonomy_steering()
+    X, vocab = _vocab_fixture()
+
+    # Baseline path (no mass filter)
+    diag_base: dict = {}
+    build_taxonomy_genre_targets(
+        pier_a=0, pier_b=1, interior_length=5,
+        X_genre_raw=X, genre_vocab=vocab, steering=steering,
+        ladder_diag=diag_base,
+    )
+    baseline = diag_base.get("taxonomy_waypoint_labels", [])
+
+    if len(baseline) <= 2:
+        pytest.skip("no intermediate waypoints in baseline path to filter")
+
+    # Zero every taxonomy genre's count — all intermediates must be stripped
+    zero_counts: dict[str, int] = {g: 0 for g in steering.vocab}
+
+    diag_filt: dict = {}
+    targets_filt = build_taxonomy_genre_targets(
+        pier_a=0, pier_b=1, interior_length=5,
+        X_genre_raw=X, genre_vocab=vocab, steering=steering,
+        genre_track_counts=zero_counts,
+        min_waypoint_mass=1,
+        ladder_diag=diag_filt,
+    )
+    assert targets_filt is not None  # falls back to 2-rung; still produces targets
+
+    filtered = diag_filt.get("taxonomy_waypoint_labels", [])
+    # No intermediate waypoints survive a min_mass=1 filter when all counts are 0
+    assert len(filtered) <= 2, (
+        f"expected ≤2 waypoints after zeroing all counts; got {filtered}"
+    )

@@ -31,6 +31,7 @@
   "dj_genre_use_idf": false,
   "dj_genre_vector_source": "smoothed",
   "dj_ladder_max_steps": 6,
+  "taxonomy_waypoint_min_library_mass": 0,
   "dj_ladder_min_label_weight": 0.05,
   "dj_ladder_min_similarity": 0.2,
   "dj_ladder_smooth_min_sim": 0.2,

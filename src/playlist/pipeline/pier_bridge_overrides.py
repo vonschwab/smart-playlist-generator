@@ -494,6 +494,7 @@ def apply_pier_bridge_overrides(
         ladder_min_label_weight = pb_cfg.dj_ladder_min_label_weight
         ladder_min_similarity = pb_cfg.dj_ladder_min_similarity
         ladder_max_steps = pb_cfg.dj_ladder_max_steps
+        taxonomy_waypoint_min_library_mass = pb_cfg.taxonomy_waypoint_min_library_mass
         ladder_use_smoothed = pb_cfg.dj_ladder_use_smoothed_waypoint_vectors
         ladder_smooth_top_k = pb_cfg.dj_ladder_smooth_top_k
         ladder_smooth_min_sim = pb_cfg.dj_ladder_smooth_min_sim
@@ -751,6 +752,7 @@ def apply_pier_bridge_overrides(
             dj_ladder_min_label_weight=float(ladder_min_label_weight),
             dj_ladder_min_similarity=float(ladder_min_similarity),
             dj_ladder_max_steps=int(ladder_max_steps),
+            taxonomy_waypoint_min_library_mass=int(taxonomy_waypoint_min_library_mass),
             dj_ladder_use_smoothed_waypoint_vectors=bool(ladder_use_smoothed),
             dj_ladder_smooth_top_k=int(ladder_smooth_top_k),
             dj_ladder_smooth_min_sim=float(ladder_smooth_min_sim),

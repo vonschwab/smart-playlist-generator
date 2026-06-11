@@ -177,6 +177,7 @@ class PierBridgeConfig:
     dj_ladder_min_label_weight: float = 0.05
     dj_ladder_min_similarity: float = 0.20
     dj_ladder_max_steps: int = 6
+    taxonomy_waypoint_min_library_mass: int = 0
     dj_ladder_use_smoothed_waypoint_vectors: bool = False
     dj_ladder_smooth_top_k: int = 10
     dj_ladder_smooth_min_sim: float = 0.20
