@@ -269,13 +269,18 @@ playlists:
       genre_arc_floor_narrow: 0.40
       genre_arc_floor_dynamic: 0.25
       genre_arc_floor_discover: 0.10
-      # Pairwise genre-edge floor: rejects an edge when the two adjacent tracks'
-      # tag-level taxonomy similarity falls below the floor (taxonomy steering
-      # only; genreless/uncovered tracks exempt). 0.0 = off.
+      # Pairwise genre-edge soft penalty: when the two adjacent tracks' tag-level
+      # taxonomy similarity falls below the floor (taxonomy steering only; genreless/
+      # uncovered tracks exempt), the edge score is demoted by genre_pair_penalty
+      # rather than rejected. A hard gate detonates the relaxation cascade on broad-
+      # genre segments (hub damping pushes legit candidates below floor) and blows
+      # the time budget. floor 0.0 = off.
       genre_pair_floor_strict: 0.15
       genre_pair_floor_narrow: 0.10
       genre_pair_floor_dynamic: 0.10
       genre_pair_floor_discover: 0.05
+      # Score subtracted from a below-floor edge (global, not per-mode).
+      genre_pair_penalty: 0.5
       genre_admission_percentile_strict: 0.92
       genre_admission_percentile_narrow: 0.90
       genre_admission_percentile_dynamic: 0.85

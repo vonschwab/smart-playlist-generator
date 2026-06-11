@@ -112,6 +112,7 @@ def apply_pier_bridge_overrides(
         genre_arc_floor_percentile=float(tuning.genre_arc_floor_percentile),
         genre_admission_percentile=float(tuning.genre_admission_percentile),
         genre_pair_floor=float(getattr(tuning, "genre_pair_floor", 0.0)),
+        genre_pair_penalty=float(getattr(tuning, "genre_pair_penalty", 0.5)),
         initial_beam_width=int(getattr(tuning, "initial_beam_width", 20)),
         max_beam_width=int(getattr(tuning, "max_beam_width", 100)),
         initial_neighbors_m=int(getattr(tuning, "initial_neighbors_m", 100)),

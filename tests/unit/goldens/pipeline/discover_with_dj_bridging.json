@@ -85,6 +85,7 @@
   "experiment_bridge_scoring_enabled": false,
   "genre_admission_percentile": 0.0,
   "genre_pair_floor": 0.0,
+  "genre_pair_penalty": 0.5,
   "genre_arc_floor": 0.0,
   "genre_arc_floor_percentile": 0.0,
   "genre_penalty_strength": 0.1,

@@ -224,12 +224,16 @@ def test_arc_knobs_resolve():
     assert abs(t.genre_admission_percentile - 0.90) < 1e-9
 
 
-# --- pairwise genre-edge floor (deterministic bad-edge gate) -------------------
+# --- pairwise genre-edge soft penalty -----------------------------------------
 #
 # The arc vote scores candidates against the smoothed WAYPOINT target, never
 # against the track they're actually placed next to. A candidate can be on-arc
 # yet genre-incompatible with its neighbor (Sharp Pins -> Springsteen: T=0.657
-# approved, taxonomy pair sim ~0). genre_pair_floor gates the EDGE pairwise.
+# approved, taxonomy pair sim ~0). When an edge's tag-level similarity is below
+# genre_pair_floor, its score is DEMOTED by genre_pair_penalty (not rejected — a
+# hard gate detonates the relaxation cascade on broad-genre segments). With the
+# penalty strong enough to overcome the arc-vote advantage, the genre-far
+# candidate loses; but it is never made infeasible.
 
 
 def _pair5_taxonomy():
@@ -260,14 +264,17 @@ def _tax_cfg(**kw):
         genre_steering_enabled=True, genre_steering_source="taxonomy",
         weight_genre=0.4, genre_arc_floor=0.0, genre_arc_floor_percentile=0.0,
         weight_bridge=0.4, weight_transition=0.2,
+        # Penalty > the weight_genre arc lead (0.4) so a genre-far but arc-favored
+        # candidate is demoted below the in-genre one.
+        genre_pair_penalty=0.5,
     )
     base.update(kw)
     return PierBridgeConfig(**base)
 
 
-def test_pair_floor_rejects_genre_far_interior_edge():
-    """candB is arc-FAVORED but pairwise genre-far from pierA; the pair floor
-    must reject the pierA->candB edge so candA wins."""
+def test_pair_floor_demotes_genre_far_interior_edge():
+    """candB is arc-FAVORED but pairwise genre-far from pierA; the pair penalty
+    must demote the pierA->candB edge below candA so candA wins."""
     Xn, g = _pair5_taxonomy()
     # Arc target favors candB (sim 1.0) over candA (sim 0.0): without the pair
     # floor candB wins on the arc vote. With it, candB's edge is illegal.
@@ -278,11 +285,11 @@ def test_pair_floor_rejects_genre_far_interior_edge():
         g_targets_override=g_targets,
     )
     assert err is None
-    assert path == [1], f"pair floor must reject genre-far candB; got {path}"
+    assert path == [1], f"pair penalty must demote genre-far candB; got {path}"
 
 
 def test_pair_floor_zero_is_noop():
-    """floor 0.0 (default): the genre-far candidate stays legal."""
+    """floor 0.0 (default): no penalty, the genre-far candidate stays unmodified."""
     Xn, g = _pair5_taxonomy()
     g_targets = [np.array([0.0, 1.0, 0.0])]
     cfg = _tax_cfg(genre_pair_floor=0.0)
@@ -294,13 +301,13 @@ def test_pair_floor_zero_is_noop():
     assert path == [2]
 
 
-def test_pair_floor_gates_final_pier_connection():
+def test_pair_floor_penalizes_final_pier_connection():
     """candB passes the interior edge via candC-like geometry but its FINAL edge
-    to pierB is genre-far: the final-connection gate must reject it.
+    to pierB is genre-far: the final-connection penalty must demote it.
 
     Here: pierA [0,1,0], candB [0,1,0] (interior edge sim 1.0), pierB [1,0,0]
     (final edge sim 0.0). candC [.707,.707,0] passes both (.707). Arc favors
-    candB, so without the final gate candB wins."""
+    candB, so without the final penalty candB wins."""
     Xn, _ = _pair5_taxonomy()
     g = np.array([
         [0.0, 1.0, 0.0],            # pierA
@@ -316,7 +323,7 @@ def test_pair_floor_gates_final_pier_connection():
         g_targets_override=g_targets,
     )
     assert err is None
-    assert path == [1], f"final-connection pair floor must reject candB; got {path}"
+    assert path == [1], f"final-connection pair penalty must demote candB; got {path}"
 
 
 def test_pair_floor_genreless_endpoint_exempt():
@@ -333,23 +340,25 @@ def test_pair_floor_genreless_endpoint_exempt():
     assert path == [2]
 
 
-def test_pair_floor_infeasible_error_names_the_gate():
-    """When the pair floor rejects every final connection, the error message
-    must say so (loud failure, not a generic 'no valid continuations')."""
+def test_pair_floor_never_causes_infeasibility():
+    """The penalty demotes but never rejects: even when the ONLY available edge is
+    below the floor, the segment still builds. A hard gate here would return
+    infeasible and detonate the relaxation/expansion cascade (the multi-minute
+    hang that motivated the soft-penalty design)."""
     Xn, _ = _pair5_taxonomy()
     g = np.array([
         [0.0, 1.0, 0.0],   # pierA
-        [0.0, 1.0, 0.0],   # only cand: interior 1.0, final 0.0
+        [0.0, 1.0, 0.0],   # only cand: interior 1.0, final 0.0 (genre-far from pierB)
         [0.0, 0.0, 1.0],   # unused
-        [1.0, 0.0, 0.0],   # pierB genre-far from everything offered
+        [1.0, 0.0, 0.0],   # pierB genre-far from the only candidate
         [0.0, 0.0, 1.0],   # unused
     ], dtype=float)
     cfg = _tax_cfg(genre_pair_floor=0.5, weight_genre=0.0)
     path, _h, _e, err = _beam_search_segment(
         0, 3, 1, [1], Xn, Xn, None, None, None, g, cfg, 5,
     )
-    assert path is None
-    assert err is not None and "genre_pair_floor" in err, f"err={err!r}"
+    assert err is None, f"pair penalty must not cause infeasibility; err={err!r}"
+    assert path == [1], f"the only candidate must still be placed; got {path}"
 
 
 def test_pair_floor_uses_injected_provider_over_vector_cosine():
@@ -373,7 +382,7 @@ def test_pair_floor_uses_injected_provider_over_vector_cosine():
         g_targets_override=g_targets, pair_sim_provider=_Prov(),
     )
     assert err is None
-    assert path == [1], f"provider verdict must override vector cosine; got {path}"
+    assert path == [1], f"provider verdict must drive the penalty; got {path}"
 
 
 def test_pair_floor_provider_none_is_exempt():

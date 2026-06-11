@@ -159,6 +159,19 @@ playlists:
       genre_arc_floor_narrow: 0.40
       genre_arc_floor_dynamic: 0.25
       genre_arc_floor_discover: 0.10
+      # Pairwise genre-edge soft penalty (tag-level taxonomy similarity between
+      # ADJACENT tracks). When an edge's similarity is below the per-mode floor, its
+      # score is demoted by genre_pair_penalty (NOT rejected — a hard gate detonates
+      # the relaxation/expansion cascade on broad-genre segments and blows past the
+      # generation time budget). Calibrated 2026-06-10: bad edges (Hyldon->indie
+      # 0.000, Prince->Loving 0.052) vs legit connectors (>= 0.131).
+      genre_pair_floor_strict: 0.15
+      genre_pair_floor_narrow: 0.10
+      genre_pair_floor_dynamic: 0.10
+      genre_pair_floor_discover: 0.05
+      # Score subtracted from a below-floor edge (global, not per-mode). Strong
+      # enough to demote a sonically-dominant bad edge below in-genre alternatives.
+      genre_pair_penalty: 0.5
       genre_admission_percentile_strict: 0.92
       genre_admission_percentile_narrow: 0.90
       genre_admission_percentile_dynamic: 0.85

@@ -12,6 +12,7 @@ is dead and is rejected (in favor of the sonically-weaker dream pop candidate)
 when the gate is live: shoegaze~dream pop = 0.69, shoegaze~funk ~ 0.0.
 """
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 
@@ -98,10 +99,32 @@ def test_off_genre_candidate_wins_when_pair_floor_disabled():
     assert result.track_ids == ["t0", "t2", "t3"]
 
 
-def test_pair_floor_rejects_off_genre_candidate_in_live_builder_path():
+def test_pair_floor_demotes_off_genre_candidate_in_live_builder_path():
     """With genre_pair_floor set, the builder must build + pass the taxonomy
-    pair provider so the beam rejects funk (shoegaze~funk ~ 0) and selects the
-    sonically-weaker dream pop track (shoegaze~dream pop = 0.69)."""
+    pair provider so the beam demotes funk (shoegaze~funk ~ 0) below the
+    sonically-weaker dream pop track (shoegaze~dream pop = 0.69), which then wins."""
     result = _build(genre_pair_floor=0.3)
     assert result.success
     assert result.track_ids == ["t0", "t1", "t3"]
+
+
+def test_pair_floor_does_not_brick_when_every_edge_is_below_floor():
+    """A zero-sim provider penalizes every candidate edge equally, so the floor
+    can never make the segment infeasible — generation still succeeds and sonic
+    decides. (A hard gate here would return infeasible and detonate the
+    relaxation cascade: the multi-minute hang the soft penalty replaced.)
+
+    t2 (funk) is sonically identical to the piers, so with all edges demoted by
+    the same amount it wins on sonic."""
+    class _ZeroSimProvider:
+        def sim(self, a: int, b: int):
+            return 0.0
+
+    with patch(
+        "src.playlist.pier_bridge.taxonomy_steering.build_taxonomy_pair_provider",
+        return_value=_ZeroSimProvider(),
+    ):
+        result = _build(genre_pair_floor=0.3)
+
+    assert result.success, "pair penalty must never make a segment infeasible"
+    assert result.track_ids == ["t0", "t2", "t3"]

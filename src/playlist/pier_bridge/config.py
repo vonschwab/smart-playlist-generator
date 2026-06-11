@@ -87,12 +87,15 @@ class PierBridgeConfig:
     genre_arc_floor: float = 0.0
     genre_arc_floor_percentile: float = 0.0
     genre_admission_percentile: float = 0.0
-    # Pairwise genre-edge floor: rejects an edge when the two ADJACENT tracks'
-    # genre-vector cosine falls below the floor, regardless of arc-waypoint fit.
-    # The arc vote scores candidates vs the smoothed waypoint target, never vs
-    # the actual neighbor; this is the deterministic bad-edge gate. Genreless
-    # endpoints are exempt. 0.0 = off (default).
+    # Pairwise genre-edge soft penalty: when the two ADJACENT tracks' tag-level
+    # taxonomy similarity falls below genre_pair_floor, the edge's score is demoted
+    # by subtracting genre_pair_penalty (NOT rejected — a hard gate detonates the
+    # infeasibility/expansion machinery on broad-genre segments). The arc vote scores
+    # candidates vs the smoothed waypoint target, never vs the actual neighbor; this
+    # penalty steers away from bad edges while keeping the beam feasible. Genreless
+    # endpoints are exempt. floor 0.0 = off (default); penalty only applies above it.
     genre_pair_floor: float = 0.0
+    genre_pair_penalty: float = 0.5
     # Local sonic edge penalty (does not gate by default): demote candidates
     # whose immediate predecessor/successor sonic cosine falls below threshold.
     # Use local_sonic_edge_floor only for explicit hard-gate experiments.
@@ -301,6 +304,7 @@ def resolve_pier_bridge_tuning(
         "genre_arc_floor_percentile": float(tuning.genre_arc_floor_percentile),
         "genre_admission_percentile": float(tuning.genre_admission_percentile),
         "genre_pair_floor": float(getattr(tuning, "genre_pair_floor", 0.0)),
+        "genre_pair_penalty": float(getattr(tuning, "genre_pair_penalty", 0.5)),
         "dj_route_shape": str(tuning.dj_route_shape),
         "initial_beam_width": int(getattr(tuning, "initial_beam_width", 20)),
         "max_beam_width": int(getattr(tuning, "max_beam_width", 100)),
