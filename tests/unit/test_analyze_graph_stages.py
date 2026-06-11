@@ -33,7 +33,7 @@ def _metadata_db(tmp_path: Path) -> str:
     return str(db)
 
 
-def _ctx(tmp_path: Path, db_path: str, sidecar: str, **arg_overrides):
+def _ctx(tmp_path: Path, db_path: str, **arg_overrides):
     """Build a minimal stage ctx with a live metadata.db connection."""
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -71,7 +71,7 @@ def test_stage_lastfm_fetches_stores_and_classifies(tmp_path, monkeypatch):
 
     monkeypatch.setattr(al, "fetch_lastfm_tags", fake_fetch)
 
-    ctx = _ctx(tmp_path, db_path, sidecar)
+    ctx = _ctx(tmp_path, db_path)
     result = al.stage_lastfm(ctx)
     ctx["conn"].close()
 
@@ -87,7 +87,7 @@ def test_stage_lastfm_missing_key_raises(tmp_path, monkeypatch):
     sidecar = str(tmp_path / "side.db")
     monkeypatch.setattr(al, "ENRICHMENT_DB_PATH", Path(sidecar))
     monkeypatch.delenv("LASTFM_API_KEY", raising=False)
-    ctx = _ctx(tmp_path, db_path, sidecar, lastfm_api_key=None)
+    ctx = _ctx(tmp_path, db_path, lastfm_api_key=None)
     # also ensure config lookup can't supply a key
     monkeypatch.setattr(al, "_resolve_lastfm_api_key", lambda ctx: None)
     with pytest.raises(RuntimeError, match="Last.fm API key"):

@@ -1150,7 +1150,7 @@ def stage_lastfm(ctx: Dict) -> Dict:
             extracted += 1
         except Exception as exc:  # network blip / API error — log and continue
             failed += 1
-            logger.debug("Last.fm failed for %s: %s", release.release_key, exc)
+            logger.warning("Last.fm failed for %s: %s", release.release_key, exc)
         time.sleep(0.25)  # ~5 req/s courtesy limit
 
     if prog:
