@@ -241,6 +241,79 @@ class ClaudeCodeEnrichmentClient:
             estimated_cost_usd=None,
         )
 
+    def call_structured_batch(
+        self,
+        items: list[tuple[str, str]],
+        *,
+        item_schema: dict[str, Any],
+        instructions: str,
+        validator: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+        chunk_size: int = 30,
+    ) -> dict[str, BatchItemResult]:
+        """Classify many items in chunked calls; per-item validation + fallback.
+
+        Returns a dict keyed by item_id. A chunk-level backend failure raises
+        (the run aborts; completed work is the caller's to persist/resume).
+        """
+        if self.dry_run:
+            return {
+                item_id: BatchItemResult(item_id, "dry_run", None, None)
+                for item_id, _ in items
+            }
+        schema_text = json.dumps(item_schema.get("schema", item_schema), sort_keys=True)
+        chunks = [items[i : i + chunk_size] for i in range(0, len(items), chunk_size)]
+        prompts = [self._render_chunk_prompt(chunk, schema_text) for chunk in chunks]
+        responses = self._batch_runner(prompts, instructions)
+
+        total_usage: dict[str, int] = {}
+        results: dict[str, BatchItemResult] = {}
+        fallbacks: list[tuple[str, str]] = []
+        for chunk, (text, usage) in zip(chunks, responses):
+            total_usage = _combine_token_usage(total_usage, _normalize_usage(usage))
+            try:
+                by_id = {
+                    str(entry.get("item_id")): entry.get("output")
+                    for entry in _parse_json_text(text).get("results", [])
+                }
+            except ValueError:
+                by_id = {}
+            for item_id, item_prompt in chunk:
+                output = by_id.get(item_id)
+                if isinstance(output, dict):
+                    try:
+                        validated = validator(output) if validator else output
+                        results[item_id] = BatchItemResult(item_id, "ok", validated, None)
+                        continue
+                    except ValueError:
+                        pass
+                fallbacks.append((item_id, item_prompt))
+
+        for item_id, item_prompt in fallbacks:
+            try:
+                output = self.call_structured(item_prompt, item_schema, instructions=instructions)
+                total_usage = _combine_token_usage(total_usage, self.last_token_usage)
+                validated = validator(output) if validator else output
+                results[item_id] = BatchItemResult(item_id, "ok", validated, None)
+            except Exception as exc:
+                results[item_id] = BatchItemResult(item_id, "failed", None, str(exc))
+
+        self.last_token_usage = total_usage
+        return results
+
+    @staticmethod
+    def _render_chunk_prompt(items: list[tuple[str, str]], item_schema_text: str) -> str:
+        blocks = "\n\n".join(
+            f"### item_id: {item_id}\n{item_prompt}" for item_id, item_prompt in items
+        )
+        return (
+            "Process each item below independently.\n\n"
+            + blocks
+            + "\n\nRespond with ONLY one JSON object (no prose, no code fences) of the form "
+            '{"results": [{"item_id": "<id>", "output": <item_output>}, ...]} '
+            "with exactly one entry per item_id above, where each <item_output> matches "
+            "this JSON schema:\n" + item_schema_text
+        )
+
     # ── helpers ───────────────────────────────────────────────────────────
 
     @staticmethod

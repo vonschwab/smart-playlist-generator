@@ -191,3 +191,122 @@ def test_request_structured_failed_on_validator_error():
     )
     assert result.status == "failed"
     assert "empty genres" in (result.error_message or "")
+
+
+def _batch_runner_returning(*texts):
+    queue = list(texts)
+    calls: list[tuple[list[str], str]] = []
+
+    def runner(prompts: list[str], instructions: str):
+        calls.append((list(prompts), instructions))
+        return [
+            (queue.pop(0), {"input_tokens": 100, "output_tokens": 50})
+            for _ in prompts
+        ]
+
+    runner.calls = calls  # type: ignore[attr-defined]
+    return runner
+
+
+def _batch_text(results: list[dict]) -> str:
+    return json.dumps({"results": results})
+
+
+def test_batch_chunks_and_returns_ok_items():
+    items = [("r1", "classify r1"), ("r2", "classify r2"), ("r3", "classify r3")]
+    runner = _batch_runner_returning(
+        _batch_text([
+            {"item_id": "r1", "output": {"genre": "slowcore"}},
+            {"item_id": "r2", "output": {"genre": "dream pop"}},
+        ]),
+        _batch_text([{"item_id": "r3", "output": {"genre": "shoegaze"}}]),
+    )
+    client = ClaudeCodeEnrichmentClient(model="haiku", batch_runner=runner)
+    results = client.call_structured_batch(
+        items, item_schema={"schema": {"type": "object"}}, instructions="classify", chunk_size=2
+    )
+    # 3 items / chunk_size 2 -> one runner invocation with 2 chunk prompts
+    assert len(runner.calls) == 1
+    assert len(runner.calls[0][0]) == 2
+    assert results["r1"].status == "ok" and results["r1"].output == {"genre": "slowcore"}
+    assert results["r3"].status == "ok" and results["r3"].output == {"genre": "shoegaze"}
+    # chunk prompts embed item ids and the per-item schema contract
+    chunk1 = runner.calls[0][0][0]
+    assert "item_id: r1" in chunk1 and "classify r1" in chunk1
+    assert '"results"' in chunk1
+
+
+def test_batch_missing_item_falls_back_to_single_call():
+    items = [("r1", "classify r1"), ("r2", "classify r2")]
+    batch = _batch_runner_returning(
+        _batch_text([{"item_id": "r1", "output": {"genre": "slowcore"}}])  # r2 missing
+    )
+    single = _runner_returning('{"genre": "post-rock"}')
+    client = ClaudeCodeEnrichmentClient(model="haiku", batch_runner=batch, single_runner=single)
+    results = client.call_structured_batch(
+        items, item_schema={"schema": {}}, instructions="classify", chunk_size=10
+    )
+    assert results["r1"].status == "ok"
+    assert results["r2"].status == "ok" and results["r2"].output == {"genre": "post-rock"}
+    assert "classify r2" in single.calls[0][0]  # fallback used the item prompt
+
+
+def test_batch_validator_rejects_item_then_fallback_fails():
+    items = [("r1", "classify r1")]
+    batch = _batch_runner_returning(
+        _batch_text([{"item_id": "r1", "output": {"genre": ""}}])
+    )
+
+    def failing_single(prompt, instructions):
+        raise RuntimeError("rate window exhausted")
+
+    def validator(output):
+        if not output.get("genre"):
+            raise ValueError("empty genre")
+        return output
+
+    client = ClaudeCodeEnrichmentClient(
+        model="haiku", batch_runner=batch, single_runner=failing_single,
+        max_retries=0, retry_sleep_seconds=0.0,
+    )
+    results = client.call_structured_batch(
+        items, item_schema={"schema": {}}, instructions="classify",
+        validator=validator, chunk_size=10,
+    )
+    assert results["r1"].status == "failed"
+    assert "rate window" in (results["r1"].error or "")
+
+
+def test_batch_runner_exception_propagates():
+    def dead_runner(prompts, instructions):
+        raise RuntimeError("session died")
+
+    client = ClaudeCodeEnrichmentClient(model="haiku", batch_runner=dead_runner)
+    with pytest.raises(RuntimeError, match="session died"):
+        client.call_structured_batch(
+            [("r1", "p")], item_schema={"schema": {}}, instructions="i"
+        )
+
+
+def test_batch_dry_run_returns_dry_run_items():
+    client = ClaudeCodeEnrichmentClient(model="haiku", dry_run=True)
+    results = client.call_structured_batch(
+        [("r1", "p1"), ("r2", "p2")], item_schema={"schema": {}}, instructions="i"
+    )
+    assert all(r.status == "dry_run" for r in results.values())
+
+
+def test_batch_accumulates_usage():
+    items = [("r1", "p1"), ("r2", "p2"), ("r3", "p3")]
+    runner = _batch_runner_returning(
+        _batch_text([
+            {"item_id": "r1", "output": {"g": 1}},
+            {"item_id": "r2", "output": {"g": 2}},
+        ]),
+        _batch_text([{"item_id": "r3", "output": {"g": 3}}]),
+    )
+    client = ClaudeCodeEnrichmentClient(model="haiku", batch_runner=runner)
+    client.call_structured_batch(
+        items, item_schema={"schema": {}}, instructions="i", chunk_size=2
+    )
+    assert client.last_token_usage["input_tokens"] == 200  # 100 per chunk x 2 chunks
