@@ -19,10 +19,12 @@ from .audio import stream_audio
 from .jobs import JobRegistry
 from .plex_export import PlexNotConfigured, run_plex_export
 from .schemas import (
+    AnalyzeToolRequest,
     BlacklistArtistRequest,
     BlacklistFetchResponse,
     BlacklistRequest,
     EditGenresRequest,
+    EnrichToolRequest,
     GenerateRequestBody,
     JobOut,
     PlexExportRequest,
@@ -168,6 +170,38 @@ def create_app(
             raise HTTPException(status_code=409, detail="Job is not running")
         await bridge.cancel()
         return {"ok": True}
+
+    @app.post("/api/tools/analyze")
+    async def tools_analyze(body: AnalyzeToolRequest) -> dict:
+        job_id = registry.create(request_params=body.model_dump())
+        try:
+            await bridge.submit({
+                "cmd": "analyze_library",
+                "job_id": job_id,
+                "base_config_path": config_path,
+                "overrides": {},
+                "stages": body.stages or None,
+                "force": body.force,
+                "dry_run": body.dry_run,
+            })
+        except BridgeBusy:
+            raise HTTPException(status_code=409, detail="A job is already running.")
+        return {"job_id": job_id}
+
+    @app.post("/api/tools/enrich")
+    async def tools_enrich(body: EnrichToolRequest) -> dict:
+        job_id = registry.create(request_params=body.model_dump())
+        try:
+            await bridge.submit({
+                "cmd": "enrich_genres",
+                "job_id": job_id,
+                "scope": body.scope,
+                "artist": body.artist,
+                "album": body.album,
+            })
+        except BridgeBusy:
+            raise HTTPException(status_code=409, detail="A job is already running.")
+        return {"job_id": job_id}
 
     @app.get("/api/tracks/search")
     async def track_search(q: str = "", limit: int = 15) -> list[dict]:

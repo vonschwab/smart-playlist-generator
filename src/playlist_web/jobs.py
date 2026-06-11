@@ -19,6 +19,7 @@ class _JobState:
         self.stage = ""
         self.error: Optional[str] = None
         self.playlist: Optional[PlaylistOut] = None
+        self.tool_result: Optional[dict] = None
         self.logs: deque[str] = deque(maxlen=max_log_lines)
         self.created_at: float = time.time()
         self.request_params: dict = request_params or {}
@@ -63,6 +64,8 @@ class JobRegistry:
             job.stage = event.get("detail") or event.get("stage") or job.stage
         elif etype == "result" and event.get("result_type") == "playlist":
             job.playlist = PlaylistOut.from_worker(event.get("playlist", {}))
+        elif etype == "result":
+            job.tool_result = dict(event)
         elif etype == "error":
             job.error = event.get("message", "Unknown error")
         elif etype == "done":
@@ -83,6 +86,7 @@ class JobRegistry:
             stage=job.stage,
             error=job.error,
             playlist=job.playlist,
+            tool_result=job.tool_result,
             created_at=job.created_at,
             request_params=job.request_params,
         )

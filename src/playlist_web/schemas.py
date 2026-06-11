@@ -133,6 +133,7 @@ class JobOut(BaseModel):
     stage: str = ""
     error: Optional[str] = None
     playlist: Optional[PlaylistOut] = None
+    tool_result: Optional[dict] = None
     created_at: Optional[float] = None
     request_params: Optional[dict] = None
 
@@ -244,3 +245,15 @@ class BlacklistFetchResponse(BaseModel):
 
 class BlacklistArtistRequest(BaseModel):
     artist: str
+
+
+class AnalyzeToolRequest(BaseModel):
+    stages: list[str] = Field(default_factory=list)
+    force: bool = False
+    dry_run: bool = False
+
+
+class EnrichToolRequest(BaseModel):
+    scope: str = "all_unenriched"
+    artist: Optional[str] = None
+    album: Optional[str] = None
