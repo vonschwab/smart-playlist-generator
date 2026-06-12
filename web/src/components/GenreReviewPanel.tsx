@@ -240,13 +240,21 @@ export function GenreReviewPanel() {
                 {r.pending.length > 1 && (
                   <div className="flex gap-1.5 mt-0.5">
                     <button
-                      onClick={() => r.pending.slice().forEach((t) => decide(r, t, "accept"))}
+                      onClick={async () => {
+                        for (const t of r.pending.slice()) {
+                          await decide(r, t, "accept");
+                        }
+                      }}
                       className="text-[10px] px-2 py-0.5 rounded border border-border text-muted hover:text-text"
                     >
                       Accept all
                     </button>
                     <button
-                      onClick={() => r.pending.slice().forEach((t) => decide(r, t, "reject"))}
+                      onClick={async () => {
+                        for (const t of r.pending.slice()) {
+                          await decide(r, t, "reject");
+                        }
+                      }}
                       className="text-[10px] px-2 py-0.5 rounded border border-border text-muted hover:text-text"
                     >
                       Reject all
