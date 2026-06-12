@@ -170,6 +170,27 @@ class TestMergeShards:
         with pytest.raises(FileNotFoundError):
             merge_shards(tmp_path / "nothing", tmp_path / "merged.npz")
 
+    def test_merge_backs_up_existing_sidecar(self, tmp_path):
+        # The sidecar is irreplaceable; re-merging over an existing one must
+        # leave a timestamped backup of the prior contents before overwriting.
+        store = _store(tmp_path, shard_size=10)
+        store.add("t1", _fake_emb(1), _fake_emb(1), _fake_emb(1))
+        store.flush()
+        out = tmp_path / "mert_sidecar.npz"
+        merge_shards(tmp_path / "shards", out)  # first write: no prior file, no backup
+        assert not list(tmp_path.glob("mert_sidecar.npz.bak.*"))
+
+        first_bytes = out.read_bytes()
+        store.add("t2", _fake_emb(2), _fake_emb(2), _fake_emb(2))
+        store.flush()
+        merge_shards(tmp_path / "shards", out)  # second write: prior file backed up
+
+        backups = list(tmp_path.glob("mert_sidecar.npz.bak.*"))
+        assert len(backups) == 1
+        assert backups[0].read_bytes() == first_bytes  # backup holds the pre-overwrite copy
+        z = np.load(out, allow_pickle=True)
+        assert sorted(str(t) for t in z["track_ids"]) == ["t1", "t2"]  # new sidecar is current
+
 
 class TestRunExtraction:
     @staticmethod

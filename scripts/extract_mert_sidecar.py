@@ -26,9 +26,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sqlite3
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
@@ -191,6 +193,16 @@ def merge_shards(shard_dir: Path, out_path: Path) -> dict:
             if tid not in rows:
                 order.append(tid)
             rows[tid] = (z["emb_start"][i], z["emb_mid"][i], z["emb_end"][i])
+
+    # The sidecar is irreplaceable (regenerable from shards, but only while the
+    # shards survive). Back up any existing sidecar with a timestamp before the
+    # atomic replace below — same backup discipline the publish stage applies to
+    # metadata.db. The atomic replace prevents corruption; this guards against a
+    # bad merge silently clobbering a good sidecar.
+    out_path = Path(out_path)
+    if out_path.exists():
+        bak = out_path.with_name(f"{out_path.name}.bak.{datetime.now():%Y%m%d_%H%M%S}")
+        shutil.copy2(out_path, bak)
 
     emb_dim = int(manifest["emb_dim"])
     tmp = out_path.with_name(out_path.stem + ".tmp.npz")
