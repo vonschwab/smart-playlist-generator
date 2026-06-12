@@ -121,6 +121,14 @@ class TestWorkerArtifactGenreSource:
             {"playlists": {"ds_pipeline": {"genre_source": "bad"}}}
         ) == "legacy"
 
+    def test_graph_artifact_genre_source_accepted(self):
+        """genre_source=graph must reach the builder, not silently fall back."""
+        from src.playlist_gui.worker import _resolve_worker_artifact_genre_source
+
+        assert _resolve_worker_artifact_genre_source(
+            {"playlists": {"ds_pipeline": {"genre_source": "graph"}}}
+        ) == "graph"
+
 
 class TestWorkerLogging:
     """Tests for worker log event filtering."""

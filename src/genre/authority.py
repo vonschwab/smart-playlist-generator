@@ -38,6 +38,30 @@ def resolved_genres_for_track(conn: sqlite3.Connection, track_id: str) -> list[G
     return resolved_genres_for_album(conn, row[0])
 
 
+def resolved_genres_by_album(conn: sqlite3.Connection) -> dict[str, list[GenreRow]]:
+    """All published genres, batched per album (one query, no N+1)."""
+    by_album: dict[str, list[GenreRow]] = {}
+    rows = conn.execute(
+        "SELECT album_id, genre_id, assignment_layer, confidence, source "
+        "FROM release_effective_genres "
+        "ORDER BY album_id, assignment_layer, genre_id"
+    ).fetchall()
+    for album_id, genre_id, layer, confidence, source in rows:
+        by_album.setdefault(album_id, []).append(
+            GenreRow(genre_id, layer, confidence, source)
+        )
+    return by_album
+
+
+def canonical_genre_names(conn: sqlite3.Connection) -> dict[str, str]:
+    """genre_id -> display name from the published taxonomy copy."""
+    return dict(
+        conn.execute(
+            "SELECT genre_id, name FROM genre_graph_canonical_genres"
+        ).fetchall()
+    )
+
+
 def genre_source_for_album(conn: sqlite3.Connection, album_id: str) -> str:
     base = conn.execute(
         "SELECT source FROM release_effective_genres "

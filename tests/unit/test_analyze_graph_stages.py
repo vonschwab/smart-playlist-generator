@@ -243,6 +243,81 @@ def test_stage_publish_dry_run_rolls_back(tmp_path, monkeypatch):
     assert not _published_table_exists(db_path)
 
 
+def _write_graph_config(tmp_path: Path) -> None:
+    (tmp_path / "config.yaml").write_text(
+        "playlists:\n  ds_pipeline:\n    genre_source: graph\n", encoding="utf-8"
+    )
+
+
+def test_stage_publish_marks_genres_dirty_when_graph_source(tmp_path, monkeypatch):
+    """SP4: when artifacts consume the graph, a publish must trigger a rebuild."""
+    db_path = _metadata_db(tmp_path)
+    sidecar = str(tmp_path / "side.db")
+    monkeypatch.setattr(al, "ENRICHMENT_DB_PATH", Path(sidecar))
+    SidecarStore(sidecar).initialize()
+    _write_graph_config(tmp_path)
+
+    ctx = _ctx(tmp_path, db_path)
+    al.stage_publish(ctx)
+    ctx["conn"].close()
+    assert ctx["genres_dirty"] is True
+
+
+def test_stage_publish_keeps_genres_clean_for_legacy_source(tmp_path, monkeypatch):
+    """Legacy artifacts don't read published genres — no forced rebuild."""
+    db_path = _metadata_db(tmp_path)
+    sidecar = str(tmp_path / "side.db")
+    monkeypatch.setattr(al, "ENRICHMENT_DB_PATH", Path(sidecar))
+    SidecarStore(sidecar).initialize()
+    # no config file → genre_source defaults to legacy
+
+    ctx = _ctx(tmp_path, db_path)
+    al.stage_publish(ctx)
+    ctx["conn"].close()
+    assert ctx["genres_dirty"] is False
+
+
+def test_stage_publish_dry_run_does_not_mark_dirty(tmp_path, monkeypatch):
+    db_path = _metadata_db(tmp_path)
+    sidecar = str(tmp_path / "side.db")
+    monkeypatch.setattr(al, "ENRICHMENT_DB_PATH", Path(sidecar))
+    SidecarStore(sidecar).initialize()
+    _write_graph_config(tmp_path)
+
+    ctx = _ctx(tmp_path, db_path, dry_run=True)
+    al.stage_publish(ctx)
+    ctx["conn"].close()
+    assert ctx["genres_dirty"] is False
+
+
+def test_artifacts_fingerprint_tracks_published_genres_in_graph_mode(tmp_path, monkeypatch):
+    """A re-publish must change the artifacts fingerprint when source=graph."""
+    db_path = _metadata_db(tmp_path)
+    _write_graph_config(tmp_path)
+    conn = sqlite3.connect(db_path)
+    conn.executescript(
+        """
+        CREATE TABLE release_effective_genres (
+            album_id TEXT, genre_id TEXT, assignment_layer TEXT,
+            confidence REAL, source TEXT,
+            PRIMARY KEY (album_id, genre_id, assignment_layer)
+        );
+        INSERT INTO release_effective_genres VALUES ('alb1','shoegaze','observed_leaf',1.0,'graph');
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    ctx = _ctx(tmp_path, db_path)
+    fp_before = al.compute_stage_fingerprint(ctx, "artifacts")
+    ctx["conn"].execute(
+        "INSERT INTO release_effective_genres VALUES ('alb1','dream_pop','observed_leaf',0.9,'graph')"
+    )
+    fp_after = al.compute_stage_fingerprint(ctx, "artifacts")
+    ctx["conn"].close()
+    assert fp_before != fp_after
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Integration tests
 # ─────────────────────────────────────────────────────────────────────────────

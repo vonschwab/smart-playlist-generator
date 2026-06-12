@@ -19,6 +19,15 @@ playlists:
   count: 8
   ds_pipeline:
     artifact_path: data/artifacts/beat3tower_32k/data_matrices_step1.npz
+    # Artifact genre source: legacy | enriched | graph | hybrid_shadow.
+    # graph = published authority (release_effective_genres in metadata.db,
+    # maintained by the publish stage) REPLACES raw track/album/artist genres
+    # for covered albums; uncovered tracks keep legacy lookups. genre_ids map
+    # to canonical taxonomy names so the vocab aligns with the graph similarity
+    # matrix. Honored by both the analyze pipeline's artifacts stage and the
+    # GUI Build Artifacts button. Changing this requires an artifact rebuild +
+    # dense-sidecar rebuild (the analyze pipeline does both).
+    genre_source: graph
     artist_style:
       bridge_floor:
         dynamic: 0.02

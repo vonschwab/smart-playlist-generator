@@ -16,6 +16,7 @@ from typing import Any
 class GenreArtifactSource(str, Enum):
     LEGACY = "legacy"
     ENRICHED = "enriched"
+    GRAPH = "graph"
     HYBRID_SHADOW = "hybrid_shadow"
     LAYERED_SHADOW = "layered_shadow"
 
@@ -25,7 +26,14 @@ class GenreArtifactSource(str, Enum):
 
 
 def make_resolver(mode: GenreArtifactSource, sidecar_db: str | Path) -> Any | None:
-    if mode in {GenreArtifactSource.LEGACY, GenreArtifactSource.LAYERED_SHADOW}:
+    # GRAPH reads the published authority tables in metadata.db directly
+    # (release_effective_genres + genre_graph_canonical_genres) — no sidecar
+    # resolver involved.
+    if mode in {
+        GenreArtifactSource.LEGACY,
+        GenreArtifactSource.GRAPH,
+        GenreArtifactSource.LAYERED_SHADOW,
+    }:
         return None
     from .genre_resolver import EnrichedGenreResolver
     return EnrichedGenreResolver(sidecar_db)

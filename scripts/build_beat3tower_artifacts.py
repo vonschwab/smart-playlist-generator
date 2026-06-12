@@ -129,9 +129,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--genre-source",
-        choices=["legacy", "enriched", "hybrid_shadow"],
+        choices=["legacy", "enriched", "graph", "hybrid_shadow"],
         default=None,
-        help="Genre source for artifact matrices. Defaults to config, then legacy.",
+        help="Genre source for artifact matrices. Defaults to config, then legacy. "
+             "graph = published authority tables in metadata.db (release_effective_genres).",
     )
     return parser.parse_args()
 
@@ -298,6 +299,7 @@ def load_genres_for_tracks(
     normalize_genres: bool = True,
     tracks_metadata: Optional[List[Dict[str, Any]]] = None,
     enriched_resolver: Optional[Any] = None,
+    use_graph_genres: bool = False,
 ) -> Tuple[List[List[Tuple[str, float]]], List[str], Dict[str, int]]:
     """
     Load weighted genres for tracks from database, including artist and album genres.
@@ -311,12 +313,22 @@ def load_genres_for_tracks(
     signature as the authoritative source (replacement, not supplement). Only
     unenriched releases fall back to the raw DB lookups.
 
+    When ``use_graph_genres`` is True, albums present in the published authority
+    table (``release_effective_genres``, maintained by the publish stage) use
+    those graph genres as the authoritative source — same replacement semantics.
+    genre_ids are mapped to canonical display names via the published taxonomy
+    copy so the vocabulary aligns with the graph similarity matrix. Weights are
+    ``confidence x layer`` (observed_leaf 1.0, inferred_family 0.5 — families
+    are hubs, kept for structure but damped per the rare>common principle).
+    Tracks without a covered album fall back to the raw lookups.
+
     Args:
         db_path: Path to database
         track_ids: List of track IDs to load genres for
         normalize_genres: Apply Genre Taxonomy v1 normalization (default True)
         tracks_metadata: Optional list of track metadata dicts with 'artist' and 'album' keys
         enriched_resolver: Optional EnrichedGenreResolver for sidecar-aware genre lookups
+        use_graph_genres: Source genres from the published graph authority tables
 
     Returns:
         Tuple of (weighted_genre_lists per track, vocabulary, stats dict)
@@ -405,9 +417,88 @@ def load_genres_for_tracks(
                     total_normalized_tokens += 1
                 track_genres[tid][raw_genre] = weight
 
+    def add_canonical(tid: str, token: str, weight: float) -> None:
+        """Add an already-canonical graph token, bypassing legacy normalization.
+
+        Graph display names are final vocabulary ('indie/alternative' is one
+        token); running them through normalize_and_split_genre would split or
+        alias-fold them away from the graph similarity matrix vocab.
+        """
+        nonlocal total_raw_genres, total_normalized_tokens
+        if not token:
+            return
+        total_raw_genres += 1
+        current = track_genres[tid].get(token, 0)
+        if weight > current:
+            if current == 0:
+                vocab_counts[token] = vocab_counts.get(token, 0) + 1
+                total_normalized_tokens += 1
+            track_genres[tid][token] = weight
+
     # Per-track override deltas for override-only releases (no signature).
     # Applied after raw tiers load (step 4). Maps tid -> (add_list, remove_list).
     track_override_delta: Dict[str, Tuple[List[str], List[str]]] = {}
+
+    # Tracks covered by the published graph authority — raw lookups skip these.
+    graph_tids: set = set()
+    graph_album_ids: set = set()
+
+    # 0a. Published graph genres (release_effective_genres) — authoritative for
+    #     covered albums, same replacement semantics as enriched signatures.
+    #     User overrides are already baked in by the publish stage.
+    if use_graph_genres:
+        required = {"release_effective_genres", "genre_graph_canonical_genres"}
+        missing = required - existing_tables
+        if missing:
+            raise RuntimeError(
+                f"genre_source=graph but {sorted(missing)} missing from {db_path}; "
+                "run the publish stage first (analyze_library --stages publish)"
+            )
+        from src.genre.authority import canonical_genre_names, resolved_genres_by_album
+
+        by_album = resolved_genres_by_album(conn)
+        id_to_name = canonical_genre_names(conn)
+        layer_weights = {"observed_leaf": 1.0, "inferred_family": 0.5}
+        unmapped_ids: set = set()
+
+        # track_id -> album_id (tracks table; publish keys the authority by it)
+        album_of: Dict[str, str] = {}
+        for i in range(0, len(track_ids), 800):
+            batch = track_ids[i : i + 800]
+            placeholders = ",".join(["?"] * len(batch))
+            cursor.execute(
+                f"SELECT track_id, album_id FROM tracks WHERE track_id IN ({placeholders})",
+                batch,
+            )
+            for row in cursor.fetchall():
+                if row["album_id"]:
+                    album_of[row["track_id"]] = row["album_id"]
+
+        for tid in track_ids:
+            album_id = album_of.get(tid)
+            rows = by_album.get(album_id) if album_id else None
+            if not rows:
+                continue
+            graph_tids.add(tid)
+            graph_album_ids.add(album_id)
+            for grow in rows:
+                name = id_to_name.get(grow.genre_id)
+                if name is None:
+                    if grow.genre_id not in unmapped_ids:
+                        unmapped_ids.add(grow.genre_id)
+                        logger.warning(
+                            "graph genre_id %r has no canonical name in "
+                            "genre_graph_canonical_genres; keeping raw id as token",
+                            grow.genre_id,
+                        )
+                    name = grow.genre_id
+                weight = grow.confidence * layer_weights.get(grow.assignment_layer, 0.5)
+                add_canonical(tid, name, weight)
+        if graph_tids:
+            logger.info(
+                f"Using published graph genres for {len(graph_tids)} tracks "
+                f"across {len(graph_album_ids)} albums (raw lookups skipped for these)"
+            )
 
     # 0. Apply enriched signatures first — these are authoritative, raw lookups skip them.
     #    User overrides are applied here too: signature releases get the
@@ -463,7 +554,7 @@ def load_genres_for_tracks(
                 batch,
             )
             for row in cursor.fetchall():
-                if row['track_id'] in enriched_tids:
+                if row['track_id'] in enriched_tids or row['track_id'] in graph_tids:
                     continue
                 add_genre(row['track_id'], row['genre'], WEIGHT_TRACK)
 
@@ -472,7 +563,7 @@ def load_genres_for_tracks(
         # Build album_id -> [track_ids] mapping
         album_to_tracks: Dict[str, List[str]] = {}
         for tid in track_ids:
-            if tid in enriched_tids:
+            if tid in enriched_tids or tid in graph_tids:
                 continue
             artist, album = track_info.get(tid, ('', ''))
             if artist and album:
@@ -500,7 +591,7 @@ def load_genres_for_tracks(
         # Build artist -> [track_ids] mapping
         artist_to_tracks: Dict[str, List[str]] = {}
         for tid in track_ids:
-            if tid in enriched_tids:
+            if tid in enriched_tids or tid in graph_tids:
                 continue
             artist, _ = track_info.get(tid, ('', ''))
             if artist:
@@ -553,9 +644,12 @@ def load_genres_for_tracks(
             "album_genres": has_album_genres,
             "artist_genres": has_artist_genres,
             "enriched_signatures": bool(enriched_resolver is not None and enriched_tids),
+            "graph_authority": bool(graph_tids),
         },
         "enriched_tracks": len(enriched_tids),
         "enriched_releases": enriched_release_count,
+        "graph_tracks": len(graph_tids),
+        "graph_albums": len(graph_album_ids),
     }
     return genre_lists, vocab, stats
 
@@ -728,6 +822,7 @@ def build_artifacts(args: argparse.Namespace, enriched_resolver: Optional[Any] =
     genre_lists, vocab, genre_stats = load_genres_for_tracks(
         args.db_path, track_ids, normalize_genres=normalize_genres,
         tracks_metadata=tracks, enriched_resolver=enriched_resolver,
+        use_graph_genres=(genre_source is GenreArtifactSource.GRAPH),
     )
     X_genre_raw, X_genre_smoothed = build_genre_matrices(
         genre_lists, vocab, args.genre_sim_path

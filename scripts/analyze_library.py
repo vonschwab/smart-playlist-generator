@@ -73,6 +73,23 @@ def _safe_count(conn: sqlite3.Connection, query: str, params: tuple = ()) -> int
         return 0
 
 
+def _configured_genre_source(ctx: Dict) -> str:
+    """playlists.ds_pipeline.genre_source from config ('legacy' default).
+
+    Reads the YAML directly rather than via Config — Config validates whole
+    required sections, which is irrelevant (and fragile) for reading one key.
+    """
+    import yaml
+
+    try:
+        with open(ctx["config_path"], "r", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+    except Exception:
+        return "legacy"
+    value = ((cfg.get("playlists") or {}).get("ds_pipeline") or {}).get("genre_source")
+    return str(value or "legacy").strip().lower()
+
+
 def _sidecar_count(query: str, params: tuple = ()) -> int:
     """COUNT(*) against the enrichment sidecar, 0 if absent/unreadable."""
     try:
@@ -316,6 +333,13 @@ def compute_stage_fingerprint(ctx: Dict, stage: str) -> str:
     if stage == "artifacts":
         tracks_with_features = _safe_count(conn, "SELECT COUNT(*) FROM tracks WHERE sonic_features IS NOT NULL")
         genre_rows = _safe_count(conn, "SELECT COUNT(*) FROM track_genres WHERE genre != '__EMPTY__'")
+        # When artifacts consume the published graph genres, a re-publish must
+        # change this fingerprint (legacy artifacts never read that table).
+        effective_genre_rows = None
+        if _configured_genre_source(ctx) == "graph":
+            effective_genre_rows = _safe_count(
+                conn, "SELECT COUNT(*) FROM release_effective_genres"
+            )
         out_path = Path(ctx["out_dir"]) / "data_matrices_step1.npz"
         manifest_path = Path(ctx["out_dir"]) / "artifact_manifest.json"
         out_mtime = int(out_path.stat().st_mtime) if out_path.exists() else 0
@@ -324,6 +348,7 @@ def compute_stage_fingerprint(ctx: Dict, stage: str) -> str:
             "stage": stage,
             "tracks_with_features": tracks_with_features,
             "track_genres": genre_rows,
+            "effective_genre_rows": effective_genre_rows,
             "config": cfg_hash,
             "artifact_exists": out_path.exists(),
             "artifact_mtime": out_mtime,
@@ -1396,10 +1421,12 @@ def stage_publish(ctx: Dict) -> Dict:
         stats_dict.get("graph_albums", 0), stats_dict.get("legacy_albums", 0),
         stats_dict.get("total_albums", 0), backed_up, dry_run,
     )
-    # SP4 follow-up: when the artifact builder consumes the graph (genre_source
-    # != "legacy"), set ctx["genres_dirty"] = True here so genre-sim/artifacts
-    # rebuild after a publish. In Phase 2 artifacts read legacy genres, which
-    # publish does not change, so we deliberately do not trigger a rebuild.
+    # SP4: when the artifact builder consumes the published graph genres
+    # (genre_source=graph), a real publish dirties the genre inputs so the
+    # artifacts stage rebuilds this run. Legacy artifacts read raw tables that
+    # publish does not touch, so they deliberately stay clean.
+    if not dry_run and _configured_genre_source(ctx) == "graph":
+        ctx["genres_dirty"] = True
     return {"skipped": False, "backed_up": backed_up, "dry_run": dry_run,
             "validation_ok": validation_ok, "stats": stats_dict,
             "total": stats_dict.get("total_albums", 0),
@@ -1541,8 +1568,10 @@ def stage_artifacts(ctx: Dict) -> Dict:
     if out_path.exists() and force_rebuild and not ctx["args"].force:
         logger.info("Rebuilding artifacts (new genres or sonic updates detected since last build)")
     # Unified on the same beat3tower builder the GUI "Build Artifacts" button uses.
-    # Normal analysis remains legacy-compatible; enriched artifact modes are explicit
-    # CLI opt-ins for evaluation.
+    # genre_source=None defers to playlists.ds_pipeline.genre_source in config
+    # (resolved inside build_artifacts) so the analyze pipeline and the GUI button
+    # honor the same knob. A hardcoded "legacy" here previously made the config
+    # key a silent no-op for analyze runs.
     from argparse import Namespace
     from scripts.build_beat3tower_artifacts import build_artifacts as build_beat3tower_artifacts
     args_ns = Namespace(
@@ -1557,7 +1586,7 @@ def stage_artifacts(ctx: Dict) -> Dict:
         random_seed=42,
         no_genre_normalization=False,
         sidecar_db=str(ENRICHMENT_DB_PATH),
-        genre_source="legacy",
+        genre_source=None,
         verbose=bool(getattr(ctx["args"], "verbose", False)),
     )
     try:
