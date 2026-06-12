@@ -626,6 +626,25 @@ def _resolve_track_genres(
     return list(fallback() or [])
 
 
+def _resolve_display_genres(
+    track: Dict[str, Any],
+    *,
+    sidecar_db_path: str,
+    fallback,
+) -> List[str]:
+    """Display genres for a track: resolved (enriched -> fallback), then
+    canonicalized through the taxonomy and ordered most-specific first.
+
+    order_genres_for_display applies the raw-tags safety fallback and never
+    raises (degrades to raw tags if the taxonomy is unavailable).
+    """
+    from src.genre.granularity import order_genres_for_display
+
+    return order_genres_for_display(
+        _resolve_track_genres(track, sidecar_db_path=sidecar_db_path, fallback=fallback)
+    )
+
+
 def _reset_last_generation_cache() -> None:
     global _LAST_GENERATION_CACHE
     _LAST_GENERATION_CACHE = _LastGenerationCache()
@@ -1320,7 +1339,7 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                             return []
                     return []
 
-                genres = _resolve_track_genres(
+                genres = _resolve_display_genres(
                     track,
                     sidecar_db_path=SIDECAR_DB_PATH,
                     fallback=_raw_genres,
