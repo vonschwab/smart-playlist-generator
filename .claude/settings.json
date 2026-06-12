@@ -1,0 +1,36 @@
+{
+  "worktree": {
+    "baseRef": "head",
+    "symlinkDirectories": ["data", "web/node_modules"]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": [".claude/hooks/pytest_pipe_guard.py"],
+            "timeout": 15,
+            "statusMessage": "Checking pytest pipe discipline"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": [".claude/hooks/stale_state_reminder.py"],
+            "timeout": 15,
+            "statusMessage": "Checking for stale dist/worker state"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -16,8 +16,25 @@ For the listener-facing feature catalog, see `README.md`. Newest, most authorita
 
 - `data/metadata.db` — SQLite track database
 - `data/artifacts/beat3tower_32k/data_matrices_step1.npz` — pre-computed sonic + genre matrices
+- `data/artifacts/beat3tower_32k/mert_shards/` — MERT embedding shards + `manifest.json` (**irreplaceable** — ~55h CPU to regenerate; never delete or overwrite)
+- `data/artifacts/beat3tower_32k/mert_sidecar.npz` — merged MERT embeddings (**irreplaceable** — regenerated from shards via `--merge-only`, but shards are the ground truth)
+- `data/artifacts/beat3tower_32k/mert_transform_calibration.npz` — fitted transform params (re-fittable from sidecar, but keep)
 - `data/genre_similarity.yaml` — genre taxonomy overrides
 - `config.yaml` — gitignored; copy from `config.example.yaml`
+
+## Session discipline
+
+Distilled from recurring session friction (insights review 2026-06-12). Short rules — the deep how-to lives in the `playlist-testing` and `web-gui` skills.
+
+- **Check process state before debugging "broken" behavior.** Most "the fix didn't work" reports are stale state, not logic bugs: `serve_web.py` not restarted after a worker edit, `web/dist` not rebuilt after a front-end edit, `@lru_cache` holding an old artifact. Walk the `web-gui` skill's trap catalog before reading code.
+- **Pytest: never pipe through `tail`/`head`, always bound the run.** Piped pytest output has hung sessions. Run `python -m pytest -q -m "not slow"` directly and use the tool's timeout parameter, not a shell pipe.
+- **Don't claim "failures are isolated to X" until the full suite has run.** A green subset is not a green suite. Quote real pass/fail counts from output you actually saw.
+- **Generation tests must mirror production.** Multi-pier seeds through the `gui_fidelity` harness — never hand-built overrides, never single-seed topology. The `playlist-testing` skill is mandatory reading before writing one.
+- **After a fix, exercise the real path before declaring success.** Restart the worker, run the feature end-to-end, and look for regressions adjacent to the change — a past scan-crash fix shipped with a `job_id` leak that cost a second debugging round.
+- **Project concepts: search before answering.** Asked what something project-specific does, grep code/docs first — never infer from the name.
+- **Scope check before long work.** Before committing to a long execution path, restate the intended deliverable in one sentence and confirm any genuinely ambiguous boundary (e.g., web-enriched vs offline-only). One question, not five.
+- **Git stays goal-focused.** Shortest safe path to the user's actual goal; if a push/merge is blocked, one fix attempt, then ask before going deeper.
+- **Assume concurrent sessions on this checkout.** Other Claude sessions often work master at the same time. Prefer an isolated worktree for multi-file work (EnterWorktree; `worktree.symlinkDirectories` links `data/` and `web/node_modules` in, but copy `config.yaml` yourself — it's a gitignored file). On the shared checkout: stage explicit paths only (never `git add -A`/`-u`), re-check `git status` immediately before committing, and treat unexpected modified files as another session's in-flight work — leave them out and leave them alone.
 
 ---
 
@@ -89,6 +106,7 @@ GUI/backend coupling is already clean (audit `[A#5]`). The architecture problem 
 ## Project-specific gotchas
 
 - **`data/metadata.db` is irreplaceable — treat it like production.** A full re-analysis takes days. Never write to, migrate, or alter the database without explicit user instruction followed by a second confirmation. Before any write operation, back up the file (`metadata.db.bak` with a timestamp). When in doubt, stop and ask.
+- **`data/artifacts/beat3tower_32k/mert_shards/` and `mert_sidecar.npz` are irreplaceable — ~55h CPU to regenerate.** Never delete, overwrite, or move these files without explicit instruction and a second confirmation. The shards are the ground truth; the sidecar is derived from them via `--merge-only`. Any script that writes to the artifact directory must back up existing MERT files with a timestamp before touching them. The fold script (Phase 4) must follow the same backup discipline as the 2DFTM fold script.
 - **Music library files are permanently read-only.** The audio files on disk are never written, moved, renamed, or deleted — ever. Read access only, no exceptions.
 - **A configured knob that can't act is a startup error, not a silent no-op.** This codebase's recurring failure mode is config that looks wired but isn't (2026-06-10 audit: beam widths ran at half config for months; the pace gate was dead in the live path; the web policy silently disabled dj_bridging). When adding a gate or knob, make the missing-data path warn loudly or raise — never fall back silently. See `docs/DEAD_CODE_AUDIT_2026-06-10.md`.
 - **Don't re-introduce post-order recency filtering.** Recency lives pre-order, in pool construction. The v3.4 fix exists for a reason — seed tracks at pier positions may be recently played but are explicitly requested.
