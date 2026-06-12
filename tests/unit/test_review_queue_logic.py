@@ -1,7 +1,5 @@
 # tests/unit/test_review_queue_logic.py
 """Tests for review-queue scan and decision logic."""
-import json
-
 import pytest
 
 from src.ai_genre_enrichment.review_queue import (
