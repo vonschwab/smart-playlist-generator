@@ -127,6 +127,6 @@ def apply_review_decision(
         genres_add=sorted(add),
         genres_remove=sorted(remove),
     )
-    store.rebuild_enriched_genres_for_release(release_key)
     store.set_review_queue_status(release_key=release_key, term=term, status=status)
+    store.rebuild_enriched_genres_for_release(release_key)
     return {"release_key": release_key, "term": term, "decision": decision, "status": status}
