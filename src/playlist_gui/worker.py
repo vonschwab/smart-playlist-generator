@@ -49,6 +49,7 @@ import numpy as np
 import yaml
 
 from src.playlist.analyze_library_results import (
+    parse_analyze_library_paused,
     parse_analyze_library_report,
     parse_analyze_library_stage_progress,
 )
@@ -162,6 +163,11 @@ _worker_state = WorkerState()
 _current_cancellation_token: Optional[CancellationToken] = None
 _token_lock = threading.Lock()
 
+# Serializes stdout writes: tracked commands run on a worker thread while the
+# reader thread dispatches untracked commands (cancel) inline, so two threads can
+# emit NDJSON concurrently. Without this lock their lines could interleave.
+_stdout_lock = threading.Lock()
+
 
 @dataclass
 class _LastGenerationCache:
@@ -235,13 +241,15 @@ def emit_event(event: Dict[str, Any]) -> None:
 
     try:
         line = json.dumps(event, default=str)
-        print(line, flush=True)
+        with _stdout_lock:
+            print(line, flush=True)
     except Exception as e:
         # Fallback for serialization errors
         fallback = {"type": "error", "message": f"Serialization error: {e}"}
         if request_id:
             fallback["request_id"] = request_id
-        print(json.dumps(fallback), flush=True)
+        with _stdout_lock:
+            print(json.dumps(fallback), flush=True)
 
 
 def emit_log(level: str, msg: str, request_id: Optional[str] = None) -> None:
@@ -1834,6 +1842,27 @@ def handle_analyze_library(cmd_data: Dict[str, Any]) -> None:
                     summary=summary,
                 )
                 return
+            paused = parse_analyze_library_paused(report_path)
+            if paused is not None:
+                paused_stage, pause_reason = paused
+                emit_result(
+                    "analyze_library",
+                    {
+                        "summary": f"Paused at {paused_stage} (resumable)",
+                        "paused": True,
+                        "paused_stage": paused_stage,
+                        "pause_reason": pause_reason,
+                        "out_dir": str(out_dir),
+                    },
+                )
+                emit_progress("analyze_library", 100, 100, f"Paused at {paused_stage} (resumable)")
+                emit_done(
+                    "analyze_library",
+                    True,
+                    f"Paused at {paused_stage}: {pause_reason} — re-run to resume from cache",
+                    summary=f"Analyze Library paused at {paused_stage} (resumable)",
+                )
+                return
             result_data = parse_analyze_library_report(report_path)
             emit_result("analyze_library", result_data)
             emit_progress("analyze_library", 100, 100, "Complete")
@@ -2338,6 +2367,77 @@ def handle_edit_genres(cmd_data: Dict[str, Any]) -> None:
         emit_done("edit_genres", False, str(e))
 
 
+def handle_scan_genre_review(cmd_data: Dict[str, Any]) -> None:
+    """Scan all releases for hybrid review terms and persist the queue."""
+    try:
+        from src.ai_genre_enrichment.layered_taxonomy import load_default_layered_taxonomy
+        from src.ai_genre_enrichment.review_queue import scan_review_queue
+        from src.ai_genre_enrichment.storage import SidecarStore
+
+        store = SidecarStore(SIDECAR_DB_PATH)
+        store.initialize()
+        emit_log("INFO", "Loading layered taxonomy for review scan...")
+        taxonomy = load_default_layered_taxonomy()
+
+        def progress(current: int, total: int, detail: str) -> None:
+            emit_progress("scan_genre_review", current, total, detail)
+
+        summary = scan_review_queue(
+            store, taxonomy=taxonomy, progress_cb=progress, cancel_cb=check_cancelled,
+        )
+        emit_result("scan_genre_review", summary)
+        emit_done(
+            "scan_genre_review", True,
+            f"Scanned {summary['releases_scanned']} releases",
+            summary=f"{summary['pending_terms']} terms pending review",
+        )
+    except CancellationError:
+        emit_done("scan_genre_review", False, "Cancelled", cancelled=True)
+    except Exception as e:
+        emit_error(str(e), traceback.format_exc())
+        emit_done("scan_genre_review", False, str(e))
+
+
+def handle_get_genre_review_queue(cmd_data: Dict[str, Any]) -> None:
+    """Return the persisted review queue page (quick read)."""
+    try:
+        from src.ai_genre_enrichment.storage import SidecarStore
+
+        store = SidecarStore(SIDECAR_DB_PATH)
+        store.initialize()
+        page = store.get_review_queue_page(
+            search=(cmd_data.get("search") or "").strip() or None,
+            limit=int(cmd_data.get("limit") or 50),
+            offset=int(cmd_data.get("offset") or 0),
+        )
+        emit_result("genre_review_queue", page)
+        emit_done("get_genre_review_queue", True, f"{page['pending_terms']} pending")
+    except Exception as e:
+        emit_error(str(e), traceback.format_exc())
+        emit_done("get_genre_review_queue", False, str(e))
+
+
+def handle_apply_genre_review_decision(cmd_data: Dict[str, Any]) -> None:
+    """Apply accept/reject/revert for one review-queue row (quick write)."""
+    try:
+        from src.ai_genre_enrichment.review_queue import apply_review_decision
+        from src.ai_genre_enrichment.storage import SidecarStore
+
+        store = SidecarStore(SIDECAR_DB_PATH)
+        store.initialize()
+        result = apply_review_decision(
+            store,
+            release_key=str(cmd_data.get("release_key") or ""),
+            term=str(cmd_data.get("term") or ""),
+            decision=str(cmd_data.get("decision") or ""),
+        )
+        emit_result("genre_review_decision", result)
+        emit_done("apply_genre_review_decision", True, f"{result['term']}: {result['status']}")
+    except Exception as e:
+        emit_error(str(e), traceback.format_exc())
+        emit_done("apply_genre_review_decision", False, str(e))
+
+
 def handle_enrich_artist_cmd(cmd_data: Dict[str, Any]) -> None:
     """Command handler wrapper for enrich_artist — called from the dispatch table."""
     artist = cmd_data.get("artist", "")
@@ -2392,6 +2492,9 @@ TRACKED_COMMAND_HANDLERS = {
     "enrich_artist": handle_enrich_artist_cmd,
     "enrich_genres": handle_enrich_genres_cmd,
     "edit_genres": handle_edit_genres,
+    "scan_genre_review": handle_scan_genre_review,
+    "get_genre_review_queue": handle_get_genre_review_queue,
+    "apply_genre_review_decision": handle_apply_genre_review_decision,
 }
 
 # Commands that don't have their own request context
@@ -2487,19 +2590,52 @@ def process_command(line: str) -> None:
             _worker_state.end_request()
 
 
+def _peek_cmd(line: str) -> Optional[str]:
+    """Return the `cmd` field of an NDJSON line without raising on bad input."""
+    try:
+        return json.loads(line).get("cmd")
+    except (json.JSONDecodeError, AttributeError):
+        return None
+
+
 def main():
-    """Main worker loop - read commands from stdin, emit events to stdout."""
+    """Main worker loop - read commands from stdin, emit events to stdout.
+
+    Tracked (long-running) commands execute on a single worker thread so the
+    reader stays free to dispatch untracked commands — chiefly ``cancel`` — the
+    instant they arrive. This is what makes cancellation work: the running
+    command polls the cancellation flag at its own safe checkpoints and unwinds.
+    The web bridge enforces single-flight, so at most one tracked command runs at
+    a time; we still join any in-flight command before starting the next.
+    """
     setup_worker_logging()
     emit_log("INFO", "Worker started, ready for commands")
 
+    worker_thread: Optional[threading.Thread] = None
     try:
         for line in sys.stdin:
-            process_command(line)
+            if not line.strip():
+                continue
+            if _peek_cmd(line) in UNTRACKED_COMMAND_HANDLERS:
+                # cancel / set_logging_level: run inline, immediately, even while
+                # a tracked command is mid-flight on the worker thread.
+                process_command(line)
+            else:
+                if worker_thread is not None and worker_thread.is_alive():
+                    worker_thread.join()
+                worker_thread = threading.Thread(
+                    target=process_command, args=(line,),
+                    name="worker-command", daemon=True,
+                )
+                worker_thread.start()
     except KeyboardInterrupt:
         emit_log("INFO", "Worker interrupted")
     except Exception as e:
         emit_error(f"Worker fatal error: {e}", traceback.format_exc())
         sys.exit(1)
+    finally:
+        if worker_thread is not None and worker_thread.is_alive():
+            worker_thread.join()
 
     emit_log("INFO", "Worker shutdown")
 
