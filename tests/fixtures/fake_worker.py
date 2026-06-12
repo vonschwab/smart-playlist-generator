@@ -79,7 +79,7 @@ def main():
             emit({"type": "done", "cmd": name, "ok": True, "detail": "ok", "request_id": rid, "job_id": jid})
         elif name == "analyze_library":
             stages = cmd.get("stages") or [
-                "scan", "genres", "discogs", "lastfm", "sonic",
+                "scan", "genres", "discogs", "lastfm", "sonic", "mert",
                 "enrich", "publish", "genre-sim", "artifacts",
                 "genre-embedding", "verify",
             ]
@@ -110,6 +110,45 @@ def main():
             emit({"type": "done", "cmd": "enrich_genres", "ok": True,
                   "detail": "Enriched 5 releases",
                   "request_id": rid, "job_id": jid})
+        elif name == "scan_genre_review":
+            emit({"type": "progress", "stage": "scan_genre_review", "current": 1, "total": 2,
+                  "detail": "acetone – cindy", "request_id": rid, "job_id": jid})
+            emit({"type": "result", "result_type": "scan_genre_review",
+                  "request_id": rid, "job_id": jid,
+                  "releases_scanned": 2, "new_terms": 3, "pruned_terms": 0, "pending_terms": 3})
+            emit({"type": "done", "cmd": name, "ok": True, "detail": "Scanned 2 releases",
+                  "request_id": rid, "job_id": jid})
+        elif name == "get_genre_review_queue":
+            emit({"type": "result", "result_type": "genre_review_queue",
+                  "request_id": rid, "job_id": jid,
+                  "releases": [{
+                      "release_key": "acetone::cindy", "artist": "acetone", "album": "cindy",
+                      "pending": [
+                          {"term": "slowcore", "confidence": 0.4, "basis": "hybrid_fusion",
+                           "sources": ["lastfm_tags"], "reason": "uncertain", "status": "pending"},
+                          {"term": "sadcore", "confidence": 0.3, "basis": "layered_taxonomy",
+                           "sources": ["discogs"], "reason": "Unknown layered taxonomy term.",
+                           "status": "pending"},
+                      ],
+                      "decided": [],
+                  }],
+                  "pending_releases": 1, "pending_terms": 2})
+            emit({"type": "done", "cmd": name, "ok": True, "detail": "2 pending",
+                  "request_id": rid, "job_id": jid})
+        elif name == "apply_genre_review_decision":
+            decision = cmd.get("decision", "accept")
+            status = {"accept": "accepted", "reject": "rejected", "revert": "pending"}.get(decision)
+            if status is None:
+                emit({"type": "error", "message": f"invalid decision: {decision}",
+                      "request_id": rid, "job_id": jid})
+                emit({"type": "done", "cmd": name, "ok": False, "request_id": rid, "job_id": jid})
+            else:
+                emit({"type": "result", "result_type": "genre_review_decision",
+                      "request_id": rid, "job_id": jid,
+                      "release_key": cmd.get("release_key"), "term": cmd.get("term"),
+                      "decision": decision, "status": status})
+                emit({"type": "done", "cmd": name, "ok": True, "detail": status,
+                      "request_id": rid, "job_id": jid})
         else:
             emit({"type": "error", "message": f"unknown cmd {name}", "request_id": rid, "job_id": jid})
             emit({"type": "done", "cmd": name or "?", "ok": False, "request_id": rid, "job_id": jid})
