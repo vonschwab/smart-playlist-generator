@@ -1756,7 +1756,7 @@ def _resolve_worker_artifact_genre_source(config: Dict[str, Any]) -> str:
         return "layered_shadow"
 
     raw_source = str(ds_cfg.get("genre_source") or "legacy").strip().lower()
-    if raw_source in {"legacy", "enriched", "hybrid_shadow", "layered_shadow"}:
+    if raw_source in {"legacy", "enriched", "graph", "hybrid_shadow", "layered_shadow"}:
         return raw_source
     return "legacy"
 
@@ -2418,7 +2418,14 @@ def handle_scan_genre_review(cmd_data: Dict[str, Any]) -> None:
 
 
 def handle_get_genre_review_queue(cmd_data: Dict[str, Any]) -> None:
-    """Return the persisted review queue page (quick read)."""
+    """Return the persisted review queue page.
+
+    Registered in UNTRACKED_COMMAND_HANDLERS so the main loop handles it inline
+    without joining the worker thread — safe to call while a scan is running.
+    Uses explicit request_id from cmd_data because _worker_state holds the
+    scan's request_id when running inline.
+    """
+    rid = cmd_data.get("request_id")
     try:
         from src.ai_genre_enrichment.storage import SidecarStore
 
@@ -2429,15 +2436,23 @@ def handle_get_genre_review_queue(cmd_data: Dict[str, Any]) -> None:
             limit=int(cmd_data.get("limit") or 50),
             offset=int(cmd_data.get("offset") or 0),
         )
-        emit_result("genre_review_queue", page)
-        emit_done("get_genre_review_queue", True, f"{page['pending_terms']} pending")
+        emit_event({"type": "result", "result_type": "genre_review_queue",
+                    "request_id": rid, **page})
+        emit_event({"type": "done", "cmd": "get_genre_review_queue", "ok": True,
+                    "detail": f"{page['pending_terms']} pending", "request_id": rid})
     except Exception as e:
-        emit_error(str(e), traceback.format_exc())
-        emit_done("get_genre_review_queue", False, str(e))
+        emit_event({"type": "error", "message": str(e), "request_id": rid})
+        emit_event({"type": "done", "cmd": "get_genre_review_queue", "ok": False,
+                    "detail": str(e), "request_id": rid})
 
 
 def handle_apply_genre_review_decision(cmd_data: Dict[str, Any]) -> None:
-    """Apply accept/reject/revert for one review-queue row (quick write)."""
+    """Apply accept/reject/revert for one review-queue row.
+
+    Registered in UNTRACKED_COMMAND_HANDLERS — see handle_get_genre_review_queue
+    docstring for rationale.
+    """
+    rid = cmd_data.get("request_id")
     try:
         from src.ai_genre_enrichment.review_queue import apply_review_decision
         from src.ai_genre_enrichment.storage import SidecarStore
@@ -2450,11 +2465,14 @@ def handle_apply_genre_review_decision(cmd_data: Dict[str, Any]) -> None:
             term=str(cmd_data.get("term") or ""),
             decision=str(cmd_data.get("decision") or ""),
         )
-        emit_result("genre_review_decision", result)
-        emit_done("apply_genre_review_decision", True, f"{result['term']}: {result['status']}")
+        emit_event({"type": "result", "result_type": "genre_review_decision",
+                    "request_id": rid, **result})
+        emit_event({"type": "done", "cmd": "apply_genre_review_decision", "ok": True,
+                    "detail": f"{result['term']}: {result['status']}", "request_id": rid})
     except Exception as e:
-        emit_error(str(e), traceback.format_exc())
-        emit_done("apply_genre_review_decision", False, str(e))
+        emit_event({"type": "error", "message": str(e), "request_id": rid})
+        emit_event({"type": "done", "cmd": "apply_genre_review_decision", "ok": False,
+                    "detail": str(e), "request_id": rid})
 
 
 def handle_enrich_artist_cmd(cmd_data: Dict[str, Any]) -> None:
@@ -2512,8 +2530,6 @@ TRACKED_COMMAND_HANDLERS = {
     "enrich_genres": handle_enrich_genres_cmd,
     "edit_genres": handle_edit_genres,
     "scan_genre_review": handle_scan_genre_review,
-    "get_genre_review_queue": handle_get_genre_review_queue,
-    "apply_genre_review_decision": handle_apply_genre_review_decision,
 }
 
 # Commands that don't have their own request context
@@ -2541,6 +2557,10 @@ def handle_set_logging_level(cmd_data: Dict[str, Any]) -> None:
 UNTRACKED_COMMAND_HANDLERS = {
     "cancel": handle_cancel,
     "set_logging_level": handle_set_logging_level,
+    # Quick DB reads/writes: run inline on the reader thread so they're
+    # not blocked by a long-running tracked command (e.g. scan_genre_review).
+    "get_genre_review_queue": handle_get_genre_review_queue,
+    "apply_genre_review_decision": handle_apply_genre_review_decision,
 }
 
 
