@@ -8,6 +8,8 @@ import type {
   JobOut,
   PlexExportRequest,
   ReplaceSuggestionsResponse,
+  ReviewDecisionRequest,
+  ReviewQueueResponse,
   SeedTrack,
 } from "./types";
 
@@ -89,6 +91,20 @@ export const api = {
   },
   async enrich(req: EnrichToolRequest): Promise<{ job_id: string }> {
     return jsonOrThrow(await fetch("/api/tools/enrich", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+    }));
+  },
+  async reviewScan(): Promise<{ job_id: string }> {
+    return jsonOrThrow(await fetch("/api/review/scan", { method: "POST" }));
+  },
+  async reviewQueue(search = "", limit = 50, offset = 0): Promise<ReviewQueueResponse> {
+    const params = new URLSearchParams({ search, limit: String(limit), offset: String(offset) });
+    return jsonOrThrow(await fetch(`/api/review/queue?${params}`));
+  },
+  async reviewDecision(req: ReviewDecisionRequest): Promise<{ ok: boolean; status: string }> {
+    return jsonOrThrow(await fetch("/api/review/decision", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(req),

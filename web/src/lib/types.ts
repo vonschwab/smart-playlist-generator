@@ -139,3 +139,32 @@ export interface EnrichToolRequest {
   artist?: string;
   album?: string;
 }
+
+export interface ReviewTermOut {
+  term: string;
+  confidence: number | null;
+  basis: string;
+  sources: string[];
+  reason: string;
+  status: "pending" | "accepted" | "rejected";
+}
+
+export interface ReviewReleaseOut {
+  release_key: string;
+  artist: string;
+  album: string;
+  pending: ReviewTermOut[];
+  decided: ReviewTermOut[];
+}
+
+export interface ReviewQueueResponse {
+  releases: ReviewReleaseOut[];
+  pending_releases: number;
+  pending_terms: number;
+}
+
+export interface ReviewDecisionRequest {
+  release_key: string;
+  term: string;
+  decision: "accept" | "reject" | "revert";
+}
