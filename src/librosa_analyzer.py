@@ -306,16 +306,17 @@ class LibrosaAnalyzer:
             # Get total duration
             total_duration = librosa.get_duration(path=file_path)
 
-            # Load full audio once
-            y, sr = librosa.load(file_path, sr=self.sample_rate, duration=None)
-
-            # PHASE 3 ROUTING: Use beat3tower if enabled (highest priority)
+            # PHASE 3 ROUTING: Use beat3tower if enabled (highest priority).
+            # Beat3tower reads the file itself — skip the full load entirely.
             if self.use_beat3tower:
                 logger.debug(f"Extracting beat3tower features from {Path(file_path).name}")
                 return self._extract_beat3tower_features(file_path)
 
+            # Load full audio once (not needed for beat3tower path above)
+            y, sr = librosa.load(file_path, sr=self.sample_rate, duration=None)
+
             # PHASE 2 ROUTING: Use beat-sync if enabled
-            elif self.use_beat_sync:
+            if self.use_beat_sync:
                 logger.debug(f"Extracting beat-sync features from {Path(file_path).name}")
                 # Use beat-sync method for all segments
                 beat_sync_features = self._extract_beat_sync_features(y, sr)

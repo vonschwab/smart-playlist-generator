@@ -454,7 +454,7 @@ class SonicFeaturePipeline:
 
         Args:
             limit: Maximum number of tracks to analyze (None = all)
-            workers: Number of parallel workers (None = CPU count - 1)
+            workers: Number of parallel workers (None = auto: min(8, CPU count - 2))
             force: If True, re-analyze all tracks (even those already analyzed)
             rescan_inconsistent: If True, re-analyze tracks with inconsistent sonic dimensions
         """
@@ -477,8 +477,10 @@ class SonicFeaturePipeline:
 
         # Determine number of workers
         if workers is None:
-            # Use more cores for CPU-intensive work, but leave some headroom
-            workers = max(4, min(16, multiprocessing.cpu_count() - 2))
+            # Cap at 8: beat3tower reads each file from disk, so beyond ~8 the
+            # bottleneck is HDD read/write contention, not CPU. Pass --workers N
+            # explicitly to override (e.g. higher on an SSD).
+            workers = max(4, min(8, multiprocessing.cpu_count() - 2))
 
         logger.info(f"Found {total} tracks to analyze")
         logger.info(f"Using {workers} parallel workers")
@@ -681,7 +683,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description='Analyze sonic features for tracks')
     parser.add_argument('--limit', type=int, help='Maximum number of tracks to analyze')
-    parser.add_argument('--workers', type=int, help='Number of parallel workers (default: CPU count - 2)')
+    parser.add_argument('--workers', type=int, help='Number of parallel workers (default: auto, min(8, CPU count - 2))')
     parser.add_argument('--stats', action='store_true', help='Show statistics only')
     parser.add_argument('--force', action='store_true', help='Re-analyze ALL tracks (converts old format to multi-segment)')
     parser.add_argument('--rescan-inconsistent', action='store_true', help='Re-analyze tracks with inconsistent sonic dimensions')
