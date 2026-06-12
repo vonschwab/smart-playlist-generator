@@ -16,8 +16,8 @@ export function GenreChips({
   const rest = genres.slice(cap);
   return (
     <>
-      {shown.map((g) => (
-        <span key={g} className={chipClass}>
+      {shown.map((g, i) => (
+        <span key={`${g}-${i}`} className={chipClass}>
           {g}
         </span>
       ))}
