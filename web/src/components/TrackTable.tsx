@@ -9,6 +9,7 @@ import {
 import { useState } from "react";
 import type { TrackOut } from "../lib/types";
 import { usePlayer } from "../contexts/PlayerContext";
+import { GenreChips } from "./GenreChips";
 
 const fmt = (n?: number | null) => (n == null ? "—" : n.toFixed(2));
 
@@ -71,11 +72,10 @@ export function TrackTable({ tracks, blacklisted, onContextAction }: TrackTableP
                   blacklisted
                 </span>
               )}
-              {c.row.original.genres.slice(0, 2).map((g) => (
-                <span key={g} className="ml-1.5 bg-chip text-chipText text-[9px] px-1.5 py-0.5 rounded-full">
-                  {g}
-                </span>
-              ))}
+              <GenreChips
+                genres={c.row.original.genres}
+                chipClass="ml-1.5 bg-chip text-chipText text-[9px] px-1.5 py-0.5 rounded-full"
+              />
             </div>
             <div className="text-muted text-[10px]">{c.row.original.artist}</div>
           </div>

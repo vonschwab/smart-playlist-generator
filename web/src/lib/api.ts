@@ -41,6 +41,13 @@ export const api = {
   async searchTracks(q: string, limit = 15): Promise<SeedTrack[]> {
     return jsonOrThrow(await fetch(`/api/tracks/search?q=${encodeURIComponent(q)}&limit=${limit}`));
   },
+  async trackGenres(trackIds: string[]): Promise<Record<string, string[]>> {
+    return jsonOrThrow(await fetch("/api/tracks/genres", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ track_ids: trackIds }),
+    }));
+  },
   async replaceSuggestions(jobId: string, position: number, topK = 10): Promise<ReplaceSuggestionsResponse> {
     return jsonOrThrow(await fetch("/api/replace_suggestions", {
       method: "POST",
