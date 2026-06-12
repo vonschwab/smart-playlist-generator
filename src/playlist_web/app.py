@@ -31,6 +31,7 @@ from .schemas import (
     ReplaceSuggestionsRequest,
     ReplaceSuggestionsResponse,
     ReviewDecisionRequest,
+    TrackGenresRequest,
 )
 from .worker_bridge import BridgeBusy, WorkerBridge, WorkerCommandError
 from .ws import WsHub
@@ -39,6 +40,7 @@ ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_WORKER_CMD = [sys.executable, "-m", "src.playlist_gui.worker"]
 DEFAULT_CONFIG = str(ROOT / "config.yaml")
 DB_PATH = ROOT / "data" / "metadata.db"
+SIDECAR_DB_PATH = ROOT / "data" / "ai_genre_enrichment.db"
 WEB_DIST = ROOT / "web" / "dist"
 
 logger = logging.getLogger(__name__)
@@ -290,6 +292,51 @@ def create_app(
                 conn.close()
         except Exception:
             return []
+
+    @app.post("/api/tracks/genres")
+    async def track_genres(body: TrackGenresRequest) -> dict[str, list[str]]:
+        """Display genres for staged seed tracks: enriched -> metadata fallback,
+        canonicalized through the taxonomy, ordered most-specific first.
+
+        Called when the staged seed set changes (NOT per keystroke). Unknown
+        track ids are omitted from the response.
+        """
+        ids = [str(t) for t in body.track_ids if str(t).strip()]
+        if not ids or not DB_PATH.exists():
+            return {}
+        from src.ai_genre_enrichment.genre_resolver import EnrichedGenreResolver
+        from src.genre.granularity import order_genres_for_display
+
+        resolver = EnrichedGenreResolver(SIDECAR_DB_PATH)
+        out: dict[str, list[str]] = {}
+        try:
+            conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
+            try:
+                placeholders = ",".join("?" for _ in ids)
+                rows = conn.execute(
+                    f"SELECT track_id, artist, album FROM tracks WHERE track_id IN ({placeholders})",
+                    ids,
+                ).fetchall()
+                for track_id, artist, album in rows:
+                    tid = str(track_id)
+                    raw = resolver.get_enriched_genres(artist=artist or "", album=album) or []
+                    if not raw:
+                        raw = [g[0] for g in conn.execute(
+                            "SELECT genre FROM track_effective_genres WHERE track_id = ? ORDER BY priority",
+                            (tid,),
+                        ).fetchall()]
+                    if not raw:
+                        raw = [g[0] for g in conn.execute(
+                            "SELECT genre FROM track_genres WHERE track_id = ? ORDER BY weight DESC",
+                            (tid,),
+                        ).fetchall()]
+                    out[tid] = order_genres_for_display(raw)
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            logger.warning("track_genres lookup failed", exc_info=True)
+            return {}
+        return out
 
     @app.get("/api/autocomplete")
     async def autocomplete(q: str = "") -> list[str]:

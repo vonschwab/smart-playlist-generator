@@ -263,3 +263,9 @@ class ReviewDecisionRequest(BaseModel):
     release_key: str
     term: str
     decision: str  # accept | reject | revert — validated by the worker
+
+
+class TrackGenresRequest(BaseModel):
+    """Batch lookup of display genres for staged seed tracks."""
+
+    track_ids: list[str] = Field(default_factory=list)
