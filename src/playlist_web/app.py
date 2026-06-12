@@ -30,6 +30,7 @@ from .schemas import (
     PlexExportRequest,
     ReplaceSuggestionsRequest,
     ReplaceSuggestionsResponse,
+    ReviewDecisionRequest,
 )
 from .worker_bridge import BridgeBusy, WorkerBridge, WorkerCommandError
 from .ws import WsHub
@@ -202,6 +203,47 @@ def create_app(
         except BridgeBusy:
             raise HTTPException(status_code=409, detail="A job is already running.")
         return {"job_id": job_id}
+
+    @app.post("/api/review/scan")
+    async def review_scan() -> dict:
+        job_id = registry.create(request_params={"tool": "scan_genre_review"})
+        try:
+            await bridge.submit({"cmd": "scan_genre_review", "job_id": job_id})
+        except BridgeBusy:
+            raise HTTPException(status_code=409, detail="A job is already running.")
+        return {"job_id": job_id}
+
+    @app.get("/api/review/queue")
+    async def review_queue(search: str = "", limit: int = 50, offset: int = 0) -> dict:
+        try:
+            result = await bridge.command({
+                "cmd": "get_genre_review_queue",
+                "search": search,
+                "limit": limit,
+                "offset": offset,
+            })
+        except BridgeBusy:
+            raise HTTPException(status_code=409, detail="Worker is busy — try again when the current job finishes.")
+        except WorkerCommandError as exc:
+            raise HTTPException(status_code=502, detail=str(exc))
+        return result
+
+    @app.post("/api/review/decision")
+    async def review_decision(body: ReviewDecisionRequest) -> dict:
+        if not body.release_key.strip() or not body.term.strip():
+            raise HTTPException(status_code=422, detail="release_key and term are required")
+        try:
+            result = await bridge.command({
+                "cmd": "apply_genre_review_decision",
+                "release_key": body.release_key,
+                "term": body.term,
+                "decision": body.decision,
+            })
+        except BridgeBusy:
+            raise HTTPException(status_code=409, detail="Worker is busy — try again when the current job finishes.")
+        except WorkerCommandError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        return {"ok": True, **result}
 
     @app.get("/api/tracks/search")
     async def track_search(q: str = "", limit: int = 15) -> list[dict]:

@@ -257,3 +257,9 @@ class EnrichToolRequest(BaseModel):
     scope: str = "all_unenriched"
     artist: Optional[str] = None
     album: Optional[str] = None
+
+
+class ReviewDecisionRequest(BaseModel):
+    release_key: str
+    term: str
+    decision: str  # accept | reject | revert — validated by the worker
