@@ -115,6 +115,7 @@ def test_adapter_load_failure_degrades_to_raw(monkeypatch):
         raise FileNotFoundError("taxonomy missing")
 
     monkeypatch.setattr(granularity, "load_graph_adapter", _boom)
+    monkeypatch.setattr(granularity, "_ADAPTER_WARNED", False)
     raw = ["shoegaze", "rock"]
     assert granularity.order_genres_by_granularity(raw) == raw
     assert granularity.order_genres_for_display(raw) == raw
