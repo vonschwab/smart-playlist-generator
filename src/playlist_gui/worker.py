@@ -2422,8 +2422,14 @@ def handle_get_genre_review_queue(cmd_data: Dict[str, Any]) -> None:
 
     Registered in UNTRACKED_COMMAND_HANDLERS so the main loop handles it inline
     without joining the worker thread — safe to call while a scan is running.
-    Uses explicit request_id from cmd_data because _worker_state holds the
-    scan's request_id when running inline.
+
+    These events set request_id (from cmd_data) and job_id (always None)
+    explicitly. The bridge routes this command's reply by request_id, and these
+    handlers are not jobs. If we let emit_event fill either field from
+    _worker_state, an inline run during a scan would inherit the *scan's*
+    request_id/job_id and corrupt the scan job (overwrite tool_result, mark it
+    done early). Setting job_id=None makes JobRegistry.apply_event a no-op for
+    these events.
     """
     rid = cmd_data.get("request_id")
     try:
@@ -2437,20 +2443,21 @@ def handle_get_genre_review_queue(cmd_data: Dict[str, Any]) -> None:
             offset=int(cmd_data.get("offset") or 0),
         )
         emit_event({"type": "result", "result_type": "genre_review_queue",
-                    "request_id": rid, **page})
+                    "request_id": rid, "job_id": None, **page})
         emit_event({"type": "done", "cmd": "get_genre_review_queue", "ok": True,
-                    "detail": f"{page['pending_terms']} pending", "request_id": rid})
+                    "detail": f"{page['pending_terms']} pending",
+                    "request_id": rid, "job_id": None})
     except Exception as e:
-        emit_event({"type": "error", "message": str(e), "request_id": rid})
+        emit_event({"type": "error", "message": str(e), "request_id": rid, "job_id": None})
         emit_event({"type": "done", "cmd": "get_genre_review_queue", "ok": False,
-                    "detail": str(e), "request_id": rid})
+                    "detail": str(e), "request_id": rid, "job_id": None})
 
 
 def handle_apply_genre_review_decision(cmd_data: Dict[str, Any]) -> None:
     """Apply accept/reject/revert for one review-queue row.
 
     Registered in UNTRACKED_COMMAND_HANDLERS — see handle_get_genre_review_queue
-    docstring for rationale.
+    docstring for rationale (including why request_id/job_id are set explicitly).
     """
     rid = cmd_data.get("request_id")
     try:
@@ -2466,13 +2473,14 @@ def handle_apply_genre_review_decision(cmd_data: Dict[str, Any]) -> None:
             decision=str(cmd_data.get("decision") or ""),
         )
         emit_event({"type": "result", "result_type": "genre_review_decision",
-                    "request_id": rid, **result})
+                    "request_id": rid, "job_id": None, **result})
         emit_event({"type": "done", "cmd": "apply_genre_review_decision", "ok": True,
-                    "detail": f"{result['term']}: {result['status']}", "request_id": rid})
+                    "detail": f"{result['term']}: {result['status']}",
+                    "request_id": rid, "job_id": None})
     except Exception as e:
-        emit_event({"type": "error", "message": str(e), "request_id": rid})
+        emit_event({"type": "error", "message": str(e), "request_id": rid, "job_id": None})
         emit_event({"type": "done", "cmd": "apply_genre_review_decision", "ok": False,
-                    "detail": str(e), "request_id": rid})
+                    "detail": str(e), "request_id": rid, "job_id": None})
 
 
 def handle_enrich_artist_cmd(cmd_data: Dict[str, Any]) -> None:

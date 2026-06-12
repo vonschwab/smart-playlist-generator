@@ -4,6 +4,7 @@ import json
 
 from src.ai_genre_enrichment.storage import SidecarStore
 from src.playlist_gui.worker import (
+    _worker_state,
     handle_apply_genre_review_decision,
     handle_get_genre_review_queue,
 )
@@ -63,3 +64,29 @@ def test_apply_decision_bad_input_emits_failed_done(tmp_path, monkeypatch, capsy
     events = _events(capsys)
     done = next(e for e in events if e["type"] == "done")
     assert done["ok"] is False
+
+
+def test_inline_handlers_do_not_inherit_active_job_id(tmp_path, monkeypatch, capsys):
+    """When these untracked handlers run inline while a scan job is active,
+    their events must NOT carry the scan's job_id — otherwise JobRegistry would
+    overwrite the scan job's tool_result and mark it done early.
+    """
+    _seed(tmp_path, monkeypatch)
+    # Simulate a scan running on the worker thread: _worker_state holds its id.
+    _worker_state.start_request("scan-req", "scan_genre_review", "scan-job-123")
+    try:
+        handle_get_genre_review_queue({"cmd": "get_genre_review_queue", "request_id": "q1"})
+        handle_apply_genre_review_decision({
+            "cmd": "apply_genre_review_decision", "request_id": "q2",
+            "release_key": "acetone::cindy", "term": "slowcore", "decision": "accept",
+        })
+        events = _events(capsys)
+    finally:
+        _worker_state.end_request()
+
+    # Every emitted event addresses the quick command's own request_id and
+    # explicitly nulls job_id — never the scan's job_id.
+    assert events, "handlers emitted no events"
+    assert {e.get("request_id") for e in events} <= {"q1", "q2"}
+    for e in events:
+        assert e.get("job_id") is None, f"leaked job_id on {e}"
