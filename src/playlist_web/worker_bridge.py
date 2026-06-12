@@ -82,16 +82,24 @@ class WorkerBridge:
         await self._proc.stdin.drain()
         return request_id
 
-    async def command(self, cmd: dict, timeout: float = 60.0) -> dict:
+    async def command(self, cmd: dict, timeout: float = 60.0, *, untracked: bool = False) -> dict:
         """Submit a worker command and await its done event.
 
         Returns the captured `result` event payload. Raises BridgeBusy if the
         worker is already handling a request, or WorkerCommandError if the
         command completes with ok=false.
+
+        Set ``untracked=True`` for fast inline commands that the worker handles
+        without joining its command thread (the review queue read and decision
+        apply). These must run even while a long tracked job holds the bridge, so
+        they skip the busy gate and do NOT touch ``_active_request_id`` — the
+        reply is correlated by request_id regardless. Without this, the worker's
+        UNTRACKED_COMMAND_HANDLERS design is defeated at the bridge layer and a
+        long scan blocks the review panel entirely.
         """
         if not self.running:
             raise RuntimeError("Worker not running")
-        if self.busy:
+        if not untracked and self.busy:
             raise BridgeBusy("Worker is busy with another request")
         request_id = str(uuid.uuid4())
         cmd = dict(cmd)
@@ -99,7 +107,8 @@ class WorkerBridge:
         cmd["protocol_version"] = PROTOCOL_VERSION
         fut: asyncio.Future = asyncio.get_running_loop().create_future()
         self._pending[request_id] = fut
-        self._active_request_id = request_id
+        if not untracked:
+            self._active_request_id = request_id
         line = (json.dumps(cmd) + "\n").encode("utf-8")
         self._proc.stdin.write(line)
         await self._proc.stdin.drain()

@@ -37,7 +37,18 @@ def main() -> None:
         threading.Thread(target=_open, daemon=True).start()
 
     print(f"Playlist Generator (web) → {url}")
-    uvicorn.run(create_app(worker_cmd=worker_cmd), host=args.host, port=args.port, log_level="info")
+    # timeout_graceful_shutdown bounds how long uvicorn waits for open connections
+    # on Ctrl+C. The browser holds a persistent /ws WebSocket open; without a bound,
+    # uvicorn waits indefinitely for it to close, so the lifespan shutdown (which
+    # stops the worker) never runs and the worker subprocess orphans. See the
+    # worker-orphan incident (2026-06-12).
+    uvicorn.run(
+        create_app(worker_cmd=worker_cmd),
+        host=args.host,
+        port=args.port,
+        log_level="info",
+        timeout_graceful_shutdown=5,
+    )
 
 
 if __name__ == "__main__":

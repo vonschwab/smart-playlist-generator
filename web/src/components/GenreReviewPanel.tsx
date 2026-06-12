@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
+import { useJobReconcile } from "../lib/useJobReconcile";
 import { useWorkerEvents } from "../lib/ws";
 import type {
   ReviewQueueResponse,
@@ -103,6 +104,17 @@ export function GenreReviewPanel() {
     )
   );
 
+  // Backstop: if the scan's `done` event raced ahead of setScanJobId (fast scans),
+  // the WS handler above misses it. Poll the registry so the button re-enables.
+  useJobReconcile(
+    scanJobId,
+    useCallback(() => {
+      setScanJobId(null);
+      setScanProgress("");
+      load(search);
+    }, [load, search])
+  );
+
   async function startScan() {
     setError(null);
     try {
@@ -172,7 +184,7 @@ export function GenreReviewPanel() {
   }
 
   return (
-    <div className="h-full flex flex-col p-3 gap-2 outline-none" tabIndex={0} onKeyDown={onKeyDown}>
+    <div data-testid="review-panel" className="h-full flex flex-col p-3 gap-2 outline-none" tabIndex={0} onKeyDown={onKeyDown}>
       {/* Header */}
       <div className="flex items-center gap-2">
         <div className="text-muted text-xs flex-1">

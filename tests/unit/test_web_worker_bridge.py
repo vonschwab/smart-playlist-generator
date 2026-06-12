@@ -78,3 +78,22 @@ async def test_command_rejects_when_busy():
     finally:
         bridge._active_request_id = None
         await bridge.stop()
+
+
+async def test_command_untracked_bypasses_busy():
+    """Untracked commands (review queue/decision) run while a tracked job is busy.
+
+    The worker handles these inline (UNTRACKED_COMMAND_HANDLERS) so they must not
+    be gated by the bridge, and must not disturb the in-flight request's id.
+    """
+    bridge = WorkerBridge(FAKE, on_event=_noop)
+    await bridge.start()
+    try:
+        bridge._active_request_id = "scan-in-flight"  # a long tracked job holds the bridge
+        result = await bridge.command({"cmd": "ping"}, untracked=True)
+        assert result["result_type"] == "pong"
+        # The tracked job's active id is untouched.
+        assert bridge._active_request_id == "scan-in-flight"
+    finally:
+        bridge._active_request_id = None
+        await bridge.stop()

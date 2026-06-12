@@ -15,6 +15,12 @@ const serverScript = `${repoRoot}/tools/serve_web.py`;
 export default defineConfig({
   testDir: "./tests",
   timeout: 30000,
+  // Serialize: every spec shares ONE backend (single fake-worker process + global
+  // job registry). Parallel workers cause CPU contention (timeout flakes) and
+  // cross-test state bleed (a generate in one spec leaves a playlist the next
+  // spec sees). One worker makes the suite deterministic against the shared server.
+  workers: 1,
+  fullyParallel: false,
   use: { baseURL: "http://127.0.0.1:8771" },
   webServer: {
     // npm --prefix runs the build from the web/ directory; python serves from repo root

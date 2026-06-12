@@ -59,3 +59,28 @@ def test_decision_invalid_decision_is_422():
             "release_key": "acetone::cindy", "term": "slowcore", "decision": "maybe",
         })
         assert resp.status_code == 422
+
+
+def test_queue_and_decision_work_while_a_tracked_job_is_busy():
+    """A long scan/enrich holding the bridge must not block the review panel.
+
+    Simulate an in-flight tracked job by pinning the bridge's active request id;
+    the queue read and decision apply are untracked and must still succeed.
+    """
+    app = create_app(worker_cmd=FAKE)
+    with TestClient(app) as client:
+        app.state.bridge._active_request_id = "scan-in-flight"
+
+        q = client.get("/api/review/queue")
+        assert q.status_code == 200
+        assert q.json()["pending_terms"] == 2
+
+        d = client.post("/api/review/decision", json={
+            "release_key": "acetone::cindy", "term": "slowcore", "decision": "accept",
+        })
+        assert d.status_code == 200
+        assert d.json()["status"] == "accepted"
+
+        # The tracked job's id is untouched by the untracked traffic.
+        assert app.state.bridge._active_request_id == "scan-in-flight"
+        app.state.bridge._active_request_id = None
