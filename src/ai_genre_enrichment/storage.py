@@ -336,6 +336,26 @@ class SidecarStore:
                     updated_at TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS ai_genre_review_queue (
+                    release_key       TEXT NOT NULL,
+                    normalized_artist TEXT NOT NULL,
+                    normalized_album  TEXT NOT NULL,
+                    term              TEXT NOT NULL,
+                    confidence        REAL,
+                    basis             TEXT NOT NULL DEFAULT 'hybrid_fusion',
+                    sources_json      TEXT NOT NULL DEFAULT '[]',
+                    reason            TEXT NOT NULL DEFAULT '',
+                    status            TEXT NOT NULL DEFAULT 'pending' CHECK (
+                        status IN ('pending', 'accepted', 'rejected')
+                    ),
+                    scanned_at        TEXT NOT NULL,
+                    decided_at        TEXT,
+                    PRIMARY KEY (release_key, term)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_review_queue_status
+                    ON ai_genre_review_queue (status, release_key);
+
                 CREATE TABLE IF NOT EXISTS ai_genre_review_decisions (
                     decision_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     source_tag_id INTEGER,
@@ -2698,6 +2718,172 @@ class SidecarStore:
                 "DELETE FROM ai_genre_user_overrides WHERE release_key = ?",
                 (release_key,),
             )
+            conn.commit()
+
+    def list_review_scan_releases(self) -> list[dict[str, Any]]:
+        """Distinct releases known to the evidence layer, for the review scan."""
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT release_key,
+                       MIN(normalized_artist) AS normalized_artist,
+                       MIN(normalized_album) AS normalized_album
+                FROM ai_genre_source_pages
+                GROUP BY release_key
+                ORDER BY release_key
+                """
+            )
+            return [dict(row) for row in rows]
+
+    def sync_review_queue_for_release(
+        self,
+        *,
+        release_key: str,
+        normalized_artist: str,
+        normalized_album: str,
+        terms: list[dict[str, Any]],
+    ) -> dict[str, int]:
+        """Reconcile pending queue rows for one release against a fresh scan.
+
+        Inserts new terms, refreshes still-pending ones, prunes pending rows
+        whose term no longer appears. Rows with a decided status are never
+        touched, so rescans cannot resurrect settled questions.
+        """
+        now = _now_iso()
+        term_names = {t["term"] for t in terms}
+        inserted = updated = pruned = 0
+        with self.connect() as conn:
+            existing = {
+                row["term"]: row["status"]
+                for row in conn.execute(
+                    "SELECT term, status FROM ai_genre_review_queue WHERE release_key = ?",
+                    (release_key,),
+                )
+            }
+            for term, status in existing.items():
+                if status == "pending" and term not in term_names:
+                    conn.execute(
+                        "DELETE FROM ai_genre_review_queue WHERE release_key = ? AND term = ?",
+                        (release_key, term),
+                    )
+                    pruned += 1
+            for t in terms:
+                status = existing.get(t["term"])
+                if status is None:
+                    conn.execute(
+                        """
+                        INSERT INTO ai_genre_review_queue (
+                            release_key, normalized_artist, normalized_album, term,
+                            confidence, basis, sources_json, reason, status, scanned_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+                        """,
+                        (
+                            release_key, normalized_artist, normalized_album, t["term"],
+                            t.get("confidence"), t.get("basis") or "hybrid_fusion",
+                            json.dumps(list(t.get("sources") or [])),
+                            t.get("reason") or "", now,
+                        ),
+                    )
+                    inserted += 1
+                elif status == "pending":
+                    conn.execute(
+                        """
+                        UPDATE ai_genre_review_queue
+                        SET confidence = ?, basis = ?, sources_json = ?, reason = ?, scanned_at = ?
+                        WHERE release_key = ? AND term = ? AND status = 'pending'
+                        """,
+                        (
+                            t.get("confidence"), t.get("basis") or "hybrid_fusion",
+                            json.dumps(list(t.get("sources") or [])),
+                            t.get("reason") or "", now, release_key, t["term"],
+                        ),
+                    )
+                    updated += 1
+            conn.commit()
+        return {"inserted": inserted, "updated": updated, "pruned": pruned}
+
+    def get_review_queue_page(
+        self,
+        *,
+        search: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        """Releases with pending review terms, most-pending first.
+
+        Header counts (pending_releases / pending_terms) always describe the
+        whole queue, not the filtered page.
+        """
+        with self.connect() as conn:
+            counts = conn.execute(
+                "SELECT COUNT(DISTINCT release_key) AS pr, COUNT(*) AS pt "
+                "FROM ai_genre_review_queue WHERE status = 'pending'"
+            ).fetchone()
+            where = ""
+            params: list[Any] = []
+            if search:
+                where = "WHERE (normalized_artist LIKE ? OR normalized_album LIKE ?)"
+                pattern = f"%{search.strip().casefold()}%"
+                params = [pattern, pattern]
+            release_rows = list(conn.execute(
+                f"""
+                SELECT release_key, normalized_artist, normalized_album,
+                       SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending_count
+                FROM ai_genre_review_queue
+                {where}
+                GROUP BY release_key, normalized_artist, normalized_album
+                HAVING pending_count > 0
+                ORDER BY pending_count DESC, release_key
+                LIMIT ? OFFSET ?
+                """,
+                (*params, limit, offset),
+            ))
+            releases = []
+            for rel in release_rows:
+                terms = [
+                    {
+                        "term": row["term"],
+                        "confidence": row["confidence"],
+                        "basis": row["basis"],
+                        "sources": json.loads(row["sources_json"]),
+                        "reason": row["reason"],
+                        "status": row["status"],
+                    }
+                    for row in conn.execute(
+                        "SELECT term, confidence, basis, sources_json, reason, status "
+                        "FROM ai_genre_review_queue WHERE release_key = ? "
+                        "ORDER BY confidence DESC, term",
+                        (rel["release_key"],),
+                    )
+                ]
+                releases.append({
+                    "release_key": rel["release_key"],
+                    "artist": rel["normalized_artist"],
+                    "album": rel["normalized_album"],
+                    "pending": [t for t in terms if t["status"] == "pending"],
+                    "decided": [t for t in terms if t["status"] != "pending"],
+                })
+        return {
+            "releases": releases,
+            "pending_releases": int(counts["pr"]),
+            "pending_terms": int(counts["pt"]),
+        }
+
+    def set_review_queue_status(
+        self, *, release_key: str, term: str, status: str
+    ) -> None:
+        """Set a queue row's status. 'pending' clears decided_at (revert)."""
+        if status not in {"pending", "accepted", "rejected"}:
+            raise ValueError(f"invalid review queue status: {status}")
+        decided_at = None if status == "pending" else _now_iso()
+        with self.connect() as conn:
+            cur = conn.execute(
+                "UPDATE ai_genre_review_queue SET status = ?, decided_at = ? "
+                "WHERE release_key = ? AND term = ?",
+                (status, decided_at, release_key, term),
+            )
+            if cur.rowcount == 0:
+                raise ValueError(f"no review queue row for {release_key!r} / {term!r}")
             conn.commit()
 
 
