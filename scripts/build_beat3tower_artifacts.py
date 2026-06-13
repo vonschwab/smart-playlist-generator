@@ -442,6 +442,8 @@ def load_genres_for_tracks(
     # Tracks covered by the published graph authority — raw lookups skip these.
     graph_tids: set = set()
     graph_album_ids: set = set()
+    inferred_only_albums: set = set()
+    inferred_rows_dropped = 0
 
     # 0a. Published graph genres (release_effective_genres) — authoritative for
     #     covered albums, same replacement semantics as enriched signatures.
@@ -458,7 +460,16 @@ def load_genres_for_tracks(
 
         by_album = resolved_genres_by_album(conn)
         id_to_name = canonical_genre_names(conn)
-        layer_weights = {"observed_leaf": 1.0, "inferred_family": 0.5}
+        # Similarity vectors use OBSERVED layers only. Inferred taxonomy
+        # ancestors put rock/pop/indie-alternative mass on nearly every release
+        # and saturate genre cosine (2026-06-12 diagnosis: random-pair p50 of
+        # X_genre_smoothed hit 0.414). They stay in the authority for display;
+        # related-genre mass re-enters X_genre_smoothed via the similarity
+        # matrix, which is the controlled mechanism. `legacy` rows are absorbed
+        # raw tags of un-enriched albums — observations, full weight.
+        solid_layer_weights = {"observed_leaf": 1.0, "legacy": 1.0}
+        inferred_layers = {"inferred_family", "inferred_parent"}
+        inferred_fallback_weight = 0.5
         unmapped_ids: set = set()
 
         # track_id -> album_id (tracks table; publish keys the authority by it)
@@ -474,30 +485,66 @@ def load_genres_for_tracks(
                 if row["album_id"]:
                     album_of[row["track_id"]] = row["album_id"]
 
+        def _resolve_name(genre_id: str) -> str:
+            name = id_to_name.get(genre_id)
+            if name is None:
+                if genre_id not in unmapped_ids:
+                    unmapped_ids.add(genre_id)
+                    logger.warning(
+                        "graph genre_id %r has no canonical name in "
+                        "genre_graph_canonical_genres; keeping raw id as token",
+                        genre_id,
+                    )
+                name = genre_id
+            return name
+
         for tid in track_ids:
             album_id = album_of.get(tid)
             rows = by_album.get(album_id) if album_id else None
             if not rows:
                 continue
+            unknown_layers = (
+                {r.assignment_layer for r in rows}
+                - set(solid_layer_weights)
+                - inferred_layers
+            )
+            if unknown_layers:
+                raise RuntimeError(
+                    f"release_effective_genres has assignment_layer(s) "
+                    f"{sorted(unknown_layers)} (album_id={album_id}) that this "
+                    "builder does not recognize; the publish schema moved — "
+                    "update solid_layer_weights/inferred_layers in "
+                    "load_genres_for_tracks instead of silently weighting them"
+                )
+            first_seen = album_id not in graph_album_ids
             graph_tids.add(tid)
             graph_album_ids.add(album_id)
-            for grow in rows:
-                name = id_to_name.get(grow.genre_id)
-                if name is None:
-                    if grow.genre_id not in unmapped_ids:
-                        unmapped_ids.add(grow.genre_id)
-                        logger.warning(
-                            "graph genre_id %r has no canonical name in "
-                            "genre_graph_canonical_genres; keeping raw id as token",
-                            grow.genre_id,
-                        )
-                    name = grow.genre_id
-                weight = grow.confidence * layer_weights.get(grow.assignment_layer, 0.5)
-                add_canonical(tid, name, weight)
+            solid = [r for r in rows if r.assignment_layer in solid_layer_weights]
+            if solid:
+                if first_seen:
+                    inferred_rows_dropped += len(rows) - len(solid)
+                for grow in solid:
+                    weight = grow.confidence * solid_layer_weights[grow.assignment_layer]
+                    add_canonical(tid, _resolve_name(grow.genre_id), weight)
+            else:
+                # Inferred-only album: keep damped ancestors so the release
+                # retains a usable genre vector instead of silently zeroing
+                # out of every genre gate.
+                inferred_only_albums.add(album_id)
+                for grow in rows:
+                    weight = grow.confidence * inferred_fallback_weight
+                    add_canonical(tid, _resolve_name(grow.genre_id), weight)
         if graph_tids:
             logger.info(
-                f"Using published graph genres for {len(graph_tids)} tracks "
-                f"across {len(graph_album_ids)} albums (raw lookups skipped for these)"
+                "Using published graph genres for %d tracks across %d albums "
+                "(observed/legacy layers only; %d inferred rows excluded; "
+                "%d inferred-only albums kept at %.1fx damped fallback; "
+                "raw lookups skipped for these)",
+                len(graph_tids),
+                len(graph_album_ids),
+                inferred_rows_dropped,
+                len(inferred_only_albums),
+                inferred_fallback_weight,
             )
 
     # 0. Apply enriched signatures first — these are authoritative, raw lookups skip them.
@@ -650,6 +697,8 @@ def load_genres_for_tracks(
         "enriched_releases": enriched_release_count,
         "graph_tracks": len(graph_tids),
         "graph_albums": len(graph_album_ids),
+        "graph_inferred_only_albums": len(inferred_only_albums),
+        "graph_inferred_rows_dropped": inferred_rows_dropped,
     }
     return genre_lists, vocab, stats
 
