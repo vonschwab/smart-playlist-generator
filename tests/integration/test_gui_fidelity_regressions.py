@@ -54,3 +54,41 @@ def test_strong_artist_gap_enforced_across_segments():
     artists = artist_at_positions(bundle, res.track_ids)
     violations = find_min_gap_violations(artists, min_gap=9)
     assert not violations, f"cross-segment min_gap=9 violated: {violations}"
+
+
+# Green-House track IDs from the failing run (beatless/ambient artist).
+GH_SEEDS = [
+    "dc7a45bf0c0dbf6ebd574343df4e0159",  # Produce Aisle
+    "1d73b404fc6e0de8e4628e64ae9dc982",  # Dragline Silk
+    "1e86f3e9cae613f43ece846b71c9f7d5",  # Sanibel
+    "981e59a511d15e23109f5a3bcf8f4f8c",  # Hinterland I
+    "37dc61f3c8f6ba0c3742979deef6af96",  # Farewell, Little Island
+]
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@_requires_artifact
+def test_pace_narrow_feasible_for_ambient_piers():
+    """Regression: pace_mode=narrow threw 'Segment infeasible under bridge_floor
+    backoff' for Green-House (beatless) because the rhythm-cosine hard gate was
+    unsatisfiable (random-pair rhythm cosine p50 ≈ -0.01; narrow floor was 0.45).
+    After the BPM+onset band retune, the hard rhythm-cosine gate is removed and
+    replaced by BPM/onset bands + a soft penalty that gracefully handles beatless
+    artists. Fixing commit: pace-gate-retune (2026-06-12).
+    """
+    load_artifact_bundle.cache_clear()
+    bundle = load_artifact_bundle(str(ART))
+    ti = bundle.track_id_to_index
+    seeds = [t for t in GH_SEEDS if t in ti]
+    if len(seeds) < 4:
+        pytest.skip("Green-House piers not in this artifact build")
+
+    res = generate_like_gui(
+        seeds=seeds,
+        cohesion_mode="dynamic", genre_mode="narrow",
+        sonic_mode="narrow", pace_mode="narrow",
+        length=30, random_seed=0,
+    )
+    assert res is not None
+    assert len(res.track_ids) == 30, f"expected 30 tracks, got {len(res.track_ids)}"
