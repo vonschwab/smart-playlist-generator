@@ -130,15 +130,15 @@ def classify_layered_term(
     )
 
 
-def materialize_layered_assignments(
-    store: Any,
-    *,
-    release_id: str,
-    artist: str,
-    album: str,
-    report: HybridGenreReport,
-    taxonomy: LayeredTaxonomy,
-) -> LayeredAssignmentSummary:
+def compute_layered_assignment_rows(
+    report: HybridGenreReport, taxonomy: LayeredTaxonomy
+) -> dict[str, Any]:
+    """Pure: turn a fused report into the genre/facet rows the materializer writes.
+
+    Extracted so callers can preview the exact assignment a re-materialization
+    would produce (e.g. the delta-migration dry-run) without touching the
+    sidecar. ``materialize_layered_assignments`` is this plus the write.
+    """
     genre_rows: dict[tuple[str, str], dict[str, Any]] = {}
     facet_rows: dict[tuple[str, str], dict[str, Any]] = {}
     rejected_term_count = len(report.rejected_noise)
@@ -184,19 +184,37 @@ def materialize_layered_assignments(
         for family in taxonomy.families_for_genre(genre.genre_id):
             _put_genre_row(genre_rows, family, "inferred_family", decision)
 
+    return {
+        "genre_rows": list(genre_rows.values()),
+        "facet_rows": list(facet_rows.values()),
+        "rejected_term_count": rejected_term_count,
+        "review_term_count": review_term_count,
+    }
+
+
+def materialize_layered_assignments(
+    store: Any,
+    *,
+    release_id: str,
+    artist: str,
+    album: str,
+    report: HybridGenreReport,
+    taxonomy: LayeredTaxonomy,
+) -> LayeredAssignmentSummary:
+    computed = compute_layered_assignment_rows(report, taxonomy)
     counts = store.replace_layered_assignments_for_release(
         release_id=release_id,
         artist=artist,
         album=album,
-        genre_assignments=list(genre_rows.values()),
-        facet_assignments=list(facet_rows.values()),
+        genre_assignments=computed["genre_rows"],
+        facet_assignments=computed["facet_rows"],
     )
     return LayeredAssignmentSummary(
         release_id=release_id,
         genre_assignment_count=counts["genre_assignment_count"],
         facet_assignment_count=counts["facet_assignment_count"],
-        rejected_term_count=rejected_term_count,
-        review_term_count=review_term_count,
+        rejected_term_count=computed["rejected_term_count"],
+        review_term_count=computed["review_term_count"],
     )
 
 
