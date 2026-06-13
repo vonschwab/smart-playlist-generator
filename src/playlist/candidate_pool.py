@@ -526,6 +526,7 @@ def build_candidate_pool(
     uncap_pool: bool = False,  # seeded mode: skip max_pool_size; per-artist cap still applies
     perceptual_bpm: Optional[np.ndarray] = None,
     tempo_stability: Optional[np.ndarray] = None,
+    onset_rate: Optional[np.ndarray] = None,
     genre_admission_percentile: Optional[float] = None,
     genre_admission_aggregate: str = "centroid",
     layered_genre_diagnostics: bool = False,
@@ -628,19 +629,6 @@ def build_candidate_pool(
         sonic_seed_sim = np.max(sonic_seed_sim_matrix, axis=1)
         sonic_seed_sim[seed_mask] = -1.0
 
-    rhythm_seed_sim = None
-    below_pace_floor = 0
-    if (
-        float(getattr(cfg, "pace_admission_floor", 0.0)) > 0.0
-        and X_sonic is not None
-        and tower_pca_dims is not None
-    ):
-        from src.playlist.sonic_axes import axis_cosine_similarity, extract_axis_vectors
-
-        rhythm = extract_axis_vectors(X_sonic, tower_pca_dims=tower_pca_dims)["rhythm"]
-        rhythm_seed_sim = np.max(axis_cosine_similarity(rhythm, rhythm[seed_list]), axis=1)
-        rhythm_seed_sim[seed_mask] = -1.0
-
     # ── BPM admission gate (Tier 1) ──────────────────────────────────────────
     bpm_seed_min_dist: Optional[np.ndarray] = None
     below_bpm_floor = 0
@@ -672,6 +660,30 @@ def build_candidate_pool(
         logger.info(
             "BPM admission gate: max_log_distance=%.2f rejected=%d",
             max_log, count_bpm_rejected,
+        )
+
+    # ── Onset-rate admission band ────────────────────────────────────────────
+    if (
+        not np.isinf(float(getattr(cfg, "onset_admission_max_log_distance", float("inf"))))
+        and onset_rate is not None
+    ):
+        from src.playlist.bpm_axis import bpm_log_distance as _onset_log_distance
+
+        max_log_onset = float(cfg.onset_admission_max_log_distance)
+        seed_onset_vals = onset_rate[seed_list]
+        onset_dist_cols = np.stack(
+            [_onset_log_distance(onset_rate, float(so)) for so in seed_onset_vals], axis=1
+        )
+        onset_seed_min_dist = np.min(onset_dist_cols, axis=1)
+
+        onset_bypass = np.isnan(onset_rate)  # NaN bypass only; no stability bypass
+        onset_fail = ~onset_bypass & (onset_seed_min_dist > max_log_onset)
+        onset_fail[seed_list] = False  # seeds never self-rejected
+
+        seed_sim_all[onset_fail] = -2.0
+        logger.info(
+            "Onset admission band: max_log_distance=%.2f rejected=%d",
+            max_log_onset, int(np.sum(onset_fail)),
         )
 
     # Track exclusion reasons for instrumentation
@@ -869,17 +881,7 @@ def build_candidate_pool(
             if logger.isEnabledFor(logging.DEBUG):
                 rejected_sonic.append((i, float(sonic_seed_sim[i])))
             continue
-        if rhythm_seed_sim is not None and rhythm_seed_sim[i] < float(cfg.pace_admission_floor):
-            below_pace_floor += 1
-            continue
         eligible.append(i)
-
-    if rhythm_seed_sim is not None:
-        logger.info(
-            "Pace admission floor applied: floor=%.2f rejected=%d",
-            float(cfg.pace_admission_floor),
-            int(below_pace_floor),
-        )
 
     if sonic_seed_sim is not None and sonic_floor is not None:
         try:
@@ -1085,7 +1087,6 @@ def build_candidate_pool(
         "genre_compatibility_penalty_applied": genre_compatibility_penalty_applied,
         "title_exclusion_rejected": title_exclusion_rejected,
         "below_sonic_similarity": below_sonic_floor,
-        "below_pace_floor": below_pace_floor,
         "below_bpm_floor": below_bpm_floor,
         "artist_cap_excluded": max(0, artist_cap_excluded),
         "eligible_count": len(eligible),
