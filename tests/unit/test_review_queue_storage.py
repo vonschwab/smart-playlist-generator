@@ -111,6 +111,82 @@ def test_page_search_and_ordering(tmp_path):
     assert page["pending_terms"] == 4
 
 
+def test_pending_page_includes_global_decided_totals(tmp_path):
+    store = _store(tmp_path)
+    store.sync_review_queue_for_release(
+        release_key="a::b", normalized_artist="a", normalized_album="b",
+        terms=[_term("x"), _term("y")],
+    )
+    store.set_review_queue_status(release_key="a::b", term="x", status="accepted")
+    page = store.get_review_queue_page()
+    assert page["pending_terms"] == 1
+    assert page["decided_releases"] == 1
+    assert page["decided_terms"] == 1
+
+
+def test_completed_page_lists_decided_releases_recent_first(tmp_path):
+    store = _store(tmp_path)
+    store.sync_review_queue_for_release(
+        release_key="a::b", normalized_artist="a", normalized_album="b",
+        terms=[_term("x"), _term("y")],
+    )
+    store.sync_review_queue_for_release(
+        release_key="c::d", normalized_artist="c", normalized_album="d",
+        terms=[_term("p")],
+    )
+    store.set_review_queue_status(release_key="a::b", term="x", status="accepted")
+    store.set_review_queue_status(release_key="c::d", term="p", status="rejected")
+    # _now_iso() is second-resolution, so pin distinct decided_at to assert that
+    # the page orders by most-recent decision (c::d decided after a::b).
+    with store.connect() as conn:
+        conn.execute("UPDATE ai_genre_review_queue SET decided_at=? WHERE release_key=? AND term=?",
+                     ("2026-06-13T00:00:01+00:00", "a::b", "x"))
+        conn.execute("UPDATE ai_genre_review_queue SET decided_at=? WHERE release_key=? AND term=?",
+                     ("2026-06-13T00:00:09+00:00", "c::d", "p"))
+        conn.commit()
+    page = store.get_completed_review_page()
+    assert page["decided_releases"] == 2
+    assert page["decided_terms"] == 2
+    # Most-recently-decided first, so the user's latest work is on top.
+    assert [r["release_key"] for r in page["releases"]] == ["c::d", "a::b"]
+    ab = next(r for r in page["releases"] if r["release_key"] == "a::b")
+    assert {t["term"] for t in ab["decided"]} == {"x"}
+    assert ab["decided"][0]["status"] == "accepted"
+    # A partially-decided release still surfaces its remaining pending term.
+    assert {t["term"] for t in ab["pending"]} == {"y"}
+
+
+def test_completed_page_excludes_fully_pending_releases(tmp_path):
+    store = _store(tmp_path)
+    store.sync_review_queue_for_release(
+        release_key="a::b", normalized_artist="a", normalized_album="b",
+        terms=[_term("x")],
+    )  # never decided
+    page = store.get_completed_review_page()
+    assert page["releases"] == []
+    assert page["decided_releases"] == 0
+    assert page["decided_terms"] == 0
+
+
+def test_completed_page_search_filters_but_counts_are_global(tmp_path):
+    store = _store(tmp_path)
+    store.sync_review_queue_for_release(
+        release_key="acetone::cindy", normalized_artist="acetone",
+        normalized_album="cindy", terms=[_term("x")],
+    )
+    store.sync_review_queue_for_release(
+        release_key="low::hey", normalized_artist="low",
+        normalized_album="hey", terms=[_term("y")],
+    )
+    store.set_review_queue_status(release_key="acetone::cindy", term="x", status="accepted")
+    store.set_review_queue_status(release_key="low::hey", term="y", status="rejected")
+    page = store.get_completed_review_page(search="acet")
+    assert [r["release_key"] for r in page["releases"]] == ["acetone::cindy"]
+    # Header counts describe the whole queue, not the filtered page.
+    assert page["decided_releases"] == 2
+    assert page["decided_terms"] == 2
+
+
 def test_list_review_scan_releases(tmp_path):
     store = _store(tmp_path)
     store.upsert_source_page(

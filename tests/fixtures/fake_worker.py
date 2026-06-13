@@ -135,6 +135,21 @@ def main():
                   "pending_releases": 1, "pending_terms": 2})
             emit({"type": "done", "cmd": name, "ok": True, "detail": "2 pending",
                   "request_id": rid, "job_id": jid})
+        elif name == "get_genre_review_completed":
+            emit({"type": "result", "result_type": "genre_review_completed",
+                  "request_id": rid, "job_id": jid,
+                  "releases": [{
+                      "release_key": "acetone::cindy", "artist": "acetone", "album": "cindy",
+                      "pending": [],
+                      "decided": [
+                          {"term": "slowcore", "confidence": 0.4, "basis": "hybrid_fusion",
+                           "sources": ["lastfm_tags"], "reason": "uncertain",
+                           "status": "accepted"},
+                      ],
+                  }],
+                  "decided_releases": 1, "decided_terms": 1})
+            emit({"type": "done", "cmd": name, "ok": True, "detail": "1 decided",
+                  "request_id": rid, "job_id": jid})
         elif name == "apply_genre_review_decision":
             decision = cmd.get("decision", "accept")
             status = {"accept": "accepted", "reject": "rejected", "revert": "pending"}.get(decision)

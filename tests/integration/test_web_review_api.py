@@ -42,6 +42,17 @@ def test_queue_returns_releases_and_counts():
         assert len(data["releases"][0]["pending"]) == 2
 
 
+def test_completed_endpoint_returns_decided_releases():
+    app = create_app(worker_cmd=FAKE)
+    with TestClient(app) as client:
+        resp = client.get("/api/review/completed")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["decided_terms"] == 1
+        assert data["releases"][0]["release_key"] == "acetone::cindy"
+        assert data["releases"][0]["decided"][0]["status"] == "accepted"
+
+
 def test_decision_round_trip():
     app = create_app(worker_cmd=FAKE)
     with TestClient(app) as client:
@@ -84,3 +95,32 @@ def test_queue_and_decision_work_while_a_tracked_job_is_busy():
         # The tracked job's id is untouched by the untracked traffic.
         assert app.state.bridge._active_request_id == "scan-in-flight"
         app.state.bridge._active_request_id = None
+
+
+# ── Graceful degradation: worker stall/death must not be a bare 500 ──────────
+# (2026-06-12) The review_queue endpoint let asyncio.TimeoutError and the
+# "worker not running" RuntimeError propagate uncaught -> HTTP 500 with a scary
+# uvicorn traceback and no signal. They must map to clean 5xx with a message.
+from src.playlist_web.worker_bridge import WorkerTimeout, WorkerUnavailable
+
+
+def test_review_queue_worker_timeout_is_504_not_500(monkeypatch):
+    app = create_app(worker_cmd=FAKE)
+    with TestClient(app) as client:
+        async def _timeout(*a, **k):
+            raise WorkerTimeout("Worker did not respond within 60s")
+        monkeypatch.setattr(app.state.bridge, "command", _timeout)
+        resp = client.get("/api/review/queue")
+        assert resp.status_code == 504
+        assert "detail" in resp.json()
+
+
+def test_review_queue_worker_unavailable_is_503(monkeypatch):
+    app = create_app(worker_cmd=FAKE)
+    with TestClient(app) as client:
+        async def _down(*a, **k):
+            raise WorkerUnavailable("Worker not running")
+        monkeypatch.setattr(app.state.bridge, "command", _down)
+        resp = client.get("/api/review/queue")
+        assert resp.status_code == 503
+        assert "detail" in resp.json()

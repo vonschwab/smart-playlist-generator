@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.playlist_gui.policy import derive_runtime_config
@@ -33,7 +33,13 @@ from .schemas import (
     ReviewDecisionRequest,
     TrackGenresRequest,
 )
-from .worker_bridge import BridgeBusy, WorkerBridge, WorkerCommandError
+from .worker_bridge import (
+    BridgeBusy,
+    WorkerBridge,
+    WorkerCommandError,
+    WorkerTimeout,
+    WorkerUnavailable,
+)
 from .ws import WsHub
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -98,6 +104,18 @@ def create_app(
     app = FastAPI(title="Playlist Generator Web", lifespan=lifespan)
     app.state.bridge = bridge
     app.state.registry = registry
+
+    # Worker stall/death must degrade to a clean 5xx with a message, never a bare
+    # 500 traceback. Covers every bridge.command/submit caller in one place
+    # (WorkerTimeout is a WorkerUnavailable subclass; register the specific one
+    # first so it maps to 504 rather than 503).
+    @app.exception_handler(WorkerTimeout)
+    async def _on_worker_timeout(request: Request, exc: WorkerTimeout) -> JSONResponse:
+        return JSONResponse(status_code=504, content={"detail": str(exc)})
+
+    @app.exception_handler(WorkerUnavailable)
+    async def _on_worker_unavailable(request: Request, exc: WorkerUnavailable) -> JSONResponse:
+        return JSONResponse(status_code=503, content={"detail": str(exc)})
 
     @app.get("/api/health")
     async def health() -> dict:
@@ -223,7 +241,22 @@ def create_app(
                 "search": search,
                 "limit": limit,
                 "offset": offset,
-            })
+            }, untracked=True)
+        except BridgeBusy:
+            raise HTTPException(status_code=409, detail="Worker is busy — try again when the current job finishes.")
+        except WorkerCommandError as exc:
+            raise HTTPException(status_code=502, detail=str(exc))
+        return result
+
+    @app.get("/api/review/completed")
+    async def review_completed(search: str = "", limit: int = 50, offset: int = 0) -> dict:
+        try:
+            result = await bridge.command({
+                "cmd": "get_genre_review_completed",
+                "search": search,
+                "limit": limit,
+                "offset": offset,
+            }, untracked=True)
         except BridgeBusy:
             raise HTTPException(status_code=409, detail="Worker is busy — try again when the current job finishes.")
         except WorkerCommandError as exc:
@@ -240,7 +273,7 @@ def create_app(
                 "release_key": body.release_key,
                 "term": body.term,
                 "decision": body.decision,
-            })
+            }, untracked=True)
         except BridgeBusy:
             raise HTTPException(status_code=409, detail="Worker is busy — try again when the current job finishes.")
         except WorkerCommandError as exc:
