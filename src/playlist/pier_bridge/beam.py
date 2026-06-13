@@ -1033,19 +1033,20 @@ def _beam_search_segment(
             for cand in candidates:
                 if cand in state.used:
                     continue
-                if float(getattr(cfg, "pace_bridge_floor", 0.0)) > 0.0 and rhythm_matrix is not None:
+                pace_sim_for_penalty = None
+                if rhythm_matrix is not None:
                     from src.playlist.pier_bridge.pace_gate import compute_step_rhythm_target
                     from src.playlist.sonic_axes import axis_cosine_similarity
 
-                    target = compute_step_rhythm_target(
+                    _pace_target = compute_step_rhythm_target(
                         rhythm_matrix[int(pier_a)],
                         rhythm_matrix[int(pier_b)],
                         step=step,
                         segment_length=interior_length,
                     )
-                    pace_sim = float(axis_cosine_similarity(rhythm_matrix[int(cand)], target).reshape(-1)[0])
-                    if pace_sim < float(cfg.pace_bridge_floor):
-                        continue
+                    pace_sim_for_penalty = float(
+                        axis_cosine_similarity(rhythm_matrix[int(cand)], _pace_target).reshape(-1)[0]
+                    )
 
                 # BPM bridge gate
                 if (
@@ -1074,6 +1075,25 @@ def _beam_search_segment(
                         and _cand_stab >= _stab_min
                     ):
                         if float(_bld(_cand_bpm, _bpm_target)) > float(cfg.bpm_bridge_max_log_distance):
+                            continue
+
+                # Onset-rate bridge band (hard; embedding-independent)
+                if (
+                    float(getattr(cfg, "onset_bridge_max_log_distance", float("inf"))) < float("inf")
+                    and onset_rate is not None
+                ):
+                    from src.playlist.pier_bridge.pace_gate import compute_step_log_onset_target
+                    from src.playlist.bpm_axis import bpm_log_distance as _old_dist
+
+                    _onset_target = compute_step_log_onset_target(
+                        float(onset_rate[int(pier_a)]),
+                        float(onset_rate[int(pier_b)]),
+                        step=step,
+                        segment_length=interior_length,
+                    )
+                    _cand_onset = float(onset_rate[int(cand)])
+                    if not np.isnan(_cand_onset):
+                        if float(_old_dist(_cand_onset, _onset_target)) > float(cfg.onset_bridge_max_log_distance):
                             continue
 
                 # Artist diversity: check if candidate artist already used
@@ -1152,6 +1172,13 @@ def _beam_search_segment(
                     if step_jump > float(progress_arc_max_step):
                         if progress_arc_max_step_mode == "penalty" and progress_arc_max_step_penalty > 0:
                             combined_score -= progress_arc_max_step_penalty * (step_jump - float(progress_arc_max_step))
+
+                if (
+                    pace_sim_for_penalty is not None
+                    and float(getattr(cfg, "rhythm_soft_penalty_strength", 0.0)) > 0.0
+                    and pace_sim_for_penalty < float(cfg.rhythm_soft_penalty_threshold)
+                ):
+                    combined_score *= (1.0 - float(cfg.rhythm_soft_penalty_strength))
 
                 genre_sim = None
                 if X_genre_for_sim is not None and not _steering:
