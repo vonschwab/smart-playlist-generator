@@ -87,6 +87,49 @@ def bpm_fallback_max_log_distance(pace_bridge_floor: float) -> float:
     return ladder[-1][1] if ladder else 0.85
 
 
+def compute_step_log_onset_target(
+    onset_a: float,
+    onset_b: float,
+    *,
+    step: int,
+    segment_length: int,
+) -> float:
+    """Log-space interpolated onset-rate target at beam step `step`.
+
+    Onset rate is a positive event-density rate, so it interpolates in
+    log-space exactly like BPM (geometric mean at the midpoint).
+    """
+    if int(segment_length) <= 0:
+        return float(onset_a)
+    t = max(0.0, min(1.0, float(step) / float(segment_length)))
+    return interpolate_log_bpm(float(onset_a), float(onset_b), t=t)
+
+
+def filter_candidates_by_onset_target(
+    *,
+    candidate_indices,
+    onset_rate: np.ndarray,
+    target_onset: float,
+    max_log_distance: float,
+) -> list:
+    """Drop candidates whose onset-rate log-distance to target exceeds the cap.
+
+    Candidates with NaN onset_rate bypass the gate (graceful coverage gap).
+    No tempo-stability bypass: onset density is meaningful regardless of tempo
+    tracking stability (unlike BPM).
+    """
+    if not np.isfinite(float(max_log_distance)):
+        return list(candidate_indices)
+    indices = list(candidate_indices)
+    if not indices:
+        return []
+    cand_onset = onset_rate[indices]
+    bypass = np.isnan(cand_onset)
+    distances = _bpm_log_distance(cand_onset, float(target_onset))
+    pass_mask = bypass | (distances <= float(max_log_distance))
+    return [idx for idx, ok in zip(indices, pass_mask) if bool(ok)]
+
+
 def filter_candidates_by_bpm_target(
     *,
     candidate_indices,
