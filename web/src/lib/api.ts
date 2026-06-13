@@ -7,6 +7,7 @@ import type {
   GenerateRequestBody,
   JobOut,
   PlexExportRequest,
+  CompletedReviewResponse,
   ReplaceSuggestionsResponse,
   ReviewDecisionRequest,
   ReviewQueueResponse,
@@ -109,6 +110,10 @@ export const api = {
   async reviewQueue(search = "", limit = 50, offset = 0): Promise<ReviewQueueResponse> {
     const params = new URLSearchParams({ search, limit: String(limit), offset: String(offset) });
     return jsonOrThrow(await fetch(`/api/review/queue?${params}`));
+  },
+  async reviewCompleted(search = "", limit = 50, offset = 0): Promise<CompletedReviewResponse> {
+    const params = new URLSearchParams({ search, limit: String(limit), offset: String(offset) });
+    return jsonOrThrow(await fetch(`/api/review/completed?${params}`));
   },
   async reviewDecision(req: ReviewDecisionRequest): Promise<{ ok: boolean; status: string }> {
     return jsonOrThrow(await fetch("/api/review/decision", {

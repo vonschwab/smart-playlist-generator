@@ -161,6 +161,16 @@ export interface ReviewQueueResponse {
   releases: ReviewReleaseOut[];
   pending_releases: number;
   pending_terms: number;
+  // Global totals of already-decided work (surfaced so the header can show that
+  // progress is being saved even while the user is in the Pending view).
+  decided_releases?: number;
+  decided_terms?: number;
+}
+
+export interface CompletedReviewResponse {
+  releases: ReviewReleaseOut[];
+  decided_releases: number;
+  decided_terms: number;
 }
 
 export interface ReviewDecisionRequest {
