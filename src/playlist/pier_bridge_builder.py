@@ -285,6 +285,7 @@ def build_pier_bridge_playlist(
     artist_identity_cfg: Optional[ArtistIdentityConfig] = None,
     perceptual_bpm: Optional[np.ndarray] = None,
     tempo_stability_arr: Optional[np.ndarray] = None,
+    onset_rate: Optional[np.ndarray] = None,
     min_gap: int = 1,
 ) -> PierBridgeResult:
     """
@@ -1273,6 +1274,7 @@ def build_pier_bridge_playlist(
                         transition_metric_context=transition_metric_context,
                         perceptual_bpm=perceptual_bpm,
                         tempo_stability=tempo_stability_arr,
+                        onset_rate=onset_rate,
                         rhythm_matrix=rhythm_matrix,
                         pair_sim_provider=pair_sim_provider,
                     )

@@ -277,12 +277,15 @@ def generate_playlist_ds(
         float(pace_settings["bridge_floor"]),
     )
 
-    # Load BPM arrays from DB when BPM gates are active (pace_mode != dynamic)
+    # Load BPM + onset arrays from DB when pace gates are active
     perceptual_bpm: Optional[np.ndarray] = None
     tempo_stability_bpm: Optional[np.ndarray] = None
+    onset_rate_arr: Optional[np.ndarray] = None
     _bpm_adm = float(pace_settings.get("bpm_admission_max_log_distance", float("inf")))
     _bpm_brd = float(pace_settings.get("bpm_bridge_max_log_distance", float("inf")))
-    if not (np.isinf(_bpm_adm) and np.isinf(_bpm_brd)):
+    _onset_adm = float(pace_settings.get("onset_admission_max_log_distance", float("inf")))
+    _onset_brd = float(pace_settings.get("onset_bridge_max_log_distance", float("inf")))
+    if not (np.isinf(_bpm_adm) and np.isinf(_bpm_brd) and np.isinf(_onset_adm) and np.isinf(_onset_brd)):
         try:
             from src.playlist.bpm_loader import load_bpm_arrays
             _db_path = str(
@@ -292,6 +295,7 @@ def generate_playlist_ds(
             _bpm_arrays = load_bpm_arrays(bundle.track_ids, db_path=_db_path)
             perceptual_bpm = _bpm_arrays["perceptual_bpm"]
             tempo_stability_bpm = _bpm_arrays["tempo_stability"]
+            onset_rate_arr = _bpm_arrays["onset_rate"]
             logger.info(
                 "BPM loaded: %d/%d tracks have data",
                 int(np.sum(~np.isnan(perceptual_bpm))),
@@ -395,6 +399,7 @@ def generate_playlist_ds(
             uncap_pool=not artist_playlist,
             perceptual_bpm=perceptual_bpm,
             tempo_stability=tempo_stability_bpm,
+            onset_rate=onset_rate_arr,
             genre_admission_percentile=_genre_admission_percentile,
             genre_admission_aggregate=_genre_admission_aggregate,
             layered_genre_diagnostics=layered_genre_shadow_available and genre_graph_source in {"layered_shadow", "layered"},
@@ -470,6 +475,9 @@ def generate_playlist_ds(
                 pace_bridge_floor=float(cfg.candidate.pace_bridge_floor),
                 bpm_bridge_max_log_distance=float(pace_settings.get("bpm_bridge_max_log_distance", float("inf"))),
                 bpm_stability_min=float(cfg.candidate.bpm_stability_min),
+                onset_bridge_max_log_distance=float(pace_settings.get("onset_bridge_max_log_distance", float("inf"))),
+                rhythm_soft_penalty_threshold=float(pace_settings.get("rhythm_soft_penalty_threshold", 0.0)),
+                rhythm_soft_penalty_strength=float(pace_settings.get("rhythm_soft_penalty_strength", 0.0)),
             )
 
             # Tower-knob guard: tower-style transition_weights cannot act on a
@@ -615,6 +623,7 @@ def generate_playlist_ds(
                     artist_identity_cfg=artist_identity_cfg,
                     perceptual_bpm=perceptual_bpm,
                     tempo_stability_arr=tempo_stability_bpm,
+                    onset_rate=onset_rate_arr,
                     min_gap=int(getattr(cfg.construct, "min_gap", 1) or 1),
                 )
 

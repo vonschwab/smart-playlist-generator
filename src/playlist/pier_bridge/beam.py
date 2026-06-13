@@ -240,6 +240,7 @@ def _beam_search_segment(
     rhythm_matrix: Optional[np.ndarray] = None,
     perceptual_bpm: Optional[np.ndarray] = None,
     tempo_stability: Optional[np.ndarray] = None,
+    onset_rate: Optional[np.ndarray] = None,
     pair_sim_provider: Optional[Any] = None,
 ) -> Tuple[Optional[List[int]], int, int, Optional[str]]:
     """
