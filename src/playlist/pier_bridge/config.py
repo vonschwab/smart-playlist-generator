@@ -43,6 +43,9 @@ class PierBridgeConfig:
     pace_bridge_floor: float = 0.0  # rhythm-axis moving-target floor; 0 disables
     bpm_bridge_max_log_distance: float = float("inf")  # inf = disabled
     bpm_stability_min: float = 0.5
+    onset_bridge_max_log_distance: float = float("inf")  # inf = disabled
+    rhythm_soft_penalty_threshold: float = 0.0  # below this rhythm cosine, demote
+    rhythm_soft_penalty_strength: float = 0.0   # multiplicative penalty (0 = off)
     center_transitions: bool = False  # if True, mean-center transition mats and rescale sims to [0,1]
     transition_weights: Optional[tuple[float, float, float]] = None  # (rhythm, timbre, harmony)
     sonic_variant: Optional[str] = None  # sonic sim space for bridge gating/endpoint sims

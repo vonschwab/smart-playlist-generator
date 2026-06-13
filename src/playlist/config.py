@@ -62,6 +62,7 @@ class CandidatePoolConfig:
     pace_bridge_floor: float = 0.0
     bpm_admission_max_log_distance: float = float("inf")  # inf = disabled
     bpm_stability_min: float = 0.5  # tracks below this skip BPM gate
+    onset_admission_max_log_distance: float = float("inf")  # inf = disabled
 
 
 @dataclass(frozen=True)
@@ -592,6 +593,12 @@ def default_ds_config(
             )
         ),
         bpm_stability_min=float(candidate_pool.get("bpm_stability_min", 0.5)),
+        onset_admission_max_log_distance=float(
+            candidate_pool.get(
+                "onset_admission_max_log_distance",
+                pace_settings["onset_admission_max_log_distance"],
+            )
+        ),
     )
 
     # Construction config with config.yaml overrides
