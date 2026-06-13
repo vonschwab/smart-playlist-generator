@@ -876,7 +876,22 @@ def build_pier_bridge_playlist(
                 and floor_attempt_idx > 0
             )
             widened_search_used = widened_search_used or widened
-            cfg_attempt = replace(cfg, bridge_floor=float(bridge_floor))
+            _widen = 1.5 ** floor_attempt_idx
+
+            def _widened_cap(cap: float) -> float:
+                cap = float(cap)
+                return cap if not np.isfinite(cap) else cap * _widen
+
+            cfg_attempt = replace(
+                cfg,
+                bridge_floor=float(bridge_floor),
+                onset_bridge_max_log_distance=_widened_cap(
+                    getattr(cfg, "onset_bridge_max_log_distance", float("inf"))
+                ),
+                bpm_bridge_max_log_distance=_widened_cap(
+                    getattr(cfg, "bpm_bridge_max_log_distance", float("inf"))
+                ),
+            )
 
             segment_pool_max = int(cfg.segment_pool_max)
             beam_width = cfg.initial_beam_width
