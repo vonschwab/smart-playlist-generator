@@ -43,6 +43,7 @@ def load_bpm_arrays(
     stability = np.full(n, np.nan, dtype=float)
     half_flags = np.zeros(n, dtype=bool)
     double_flags = np.zeros(n, dtype=bool)
+    onset = np.full(n, np.nan, dtype=float)
 
     id_to_pos = {str(tid): i for i, tid in enumerate(track_ids)}
     if not id_to_pos:
@@ -52,6 +53,7 @@ def load_bpm_arrays(
             "tempo_stability": stability,
             "half_tempo_likely": half_flags,
             "double_tempo_likely": double_flags,
+            "onset_rate": onset,
         }
 
     conn = sqlite3.connect(db_path)
@@ -66,7 +68,8 @@ def load_bpm_arrays(
                        json_extract(sonic_features, '$.full.bpm_info.primary_bpm') AS primary_bpm,
                        json_extract(sonic_features, '$.full.bpm_info.half_tempo_likely') AS half_t,
                        json_extract(sonic_features, '$.full.bpm_info.double_tempo_likely') AS double_t,
-                       json_extract(sonic_features, '$.full.bpm_info.tempo_stability') AS stability
+                       json_extract(sonic_features, '$.full.bpm_info.tempo_stability') AS stability,
+                       json_extract(sonic_features, '$.full.rhythm.onset_rate') AS onset_rate
                 FROM tracks
                 WHERE track_id IN ({placeholders})
                 """,
@@ -86,6 +89,7 @@ def load_bpm_arrays(
                 half_flags[pos] = half
                 double_flags[pos] = dbl
                 stability[pos] = stab
+                onset[pos] = float(row["onset_rate"]) if row["onset_rate"] is not None else np.nan
                 perceptual[pos] = resolve_perceptual_bpm(
                     float(bpm), half_tempo_likely=half, double_tempo_likely=dbl
                 )
@@ -106,4 +110,5 @@ def load_bpm_arrays(
         "tempo_stability": stability,
         "half_tempo_likely": half_flags,
         "double_tempo_likely": double_flags,
+        "onset_rate": onset,
     }
