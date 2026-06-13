@@ -262,19 +262,35 @@ def generate_playlist_ds(
     # Pass config.yaml overrides to default_ds_config for initial config creation
     cfg = default_ds_config(mode, playlist_len=playlist_len, overrides=overrides)
     pace_settings = resolve_pace_mode(pace_mode)
+    # default_ds_config resolves admission caps from `overrides`, which does NOT
+    # carry pace_mode (it flows as a separate parameter) — so resolve_thresholds
+    # falls back to the "dynamic" caps. Patch the BPM + onset admission caps from
+    # the real pace_settings here, mirroring how the bridge caps are patched into
+    # pb_cfg downstream. Without this, narrow/strict admission silently ran at the
+    # dynamic caps (0.75) instead of their calibrated values (CLAUDE.md: a
+    # configured knob that acts at the wrong value is a wiring bug).
     cfg = replace(
         cfg,
         candidate=replace(
             cfg.candidate,
             pace_admission_floor=float(pace_settings["admission_floor"]),
             pace_bridge_floor=float(pace_settings["bridge_floor"]),
+            bpm_admission_max_log_distance=float(
+                pace_settings["bpm_admission_max_log_distance"]
+            ),
+            onset_admission_max_log_distance=float(
+                pace_settings["onset_admission_max_log_distance"]
+            ),
         ),
     )
     logger.info(
-        "Pace mode: %s (admission_floor=%.2f, bridge_floor=%.2f)",
+        "Pace mode: %s (admission_floor=%.2f, bridge_floor=%.2f, "
+        "bpm_adm=%.2f, onset_adm=%.2f)",
         pace_mode,
         float(pace_settings["admission_floor"]),
         float(pace_settings["bridge_floor"]),
+        float(pace_settings["bpm_admission_max_log_distance"]),
+        float(pace_settings["onset_admission_max_log_distance"]),
     )
 
     # Load BPM + onset arrays from DB when pace gates are active

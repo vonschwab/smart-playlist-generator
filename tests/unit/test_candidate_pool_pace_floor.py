@@ -23,7 +23,11 @@ def _make_cfg(**overrides):
     return CandidatePoolConfig(**base)
 
 
-def test_pace_floor_rejects_opposite_rhythm_candidate():
+def test_pace_admission_floor_is_no_longer_a_hard_gate():
+    # The rhythm-cosine hard admission gate was removed in the pace-gate retune
+    # (2026-06-12). Setting pace_admission_floor no longer rejects candidates.
+    # Onset-rate and BPM bands are now the hard admission gates; rhythm-cosine
+    # is a soft bridge penalty only.
     N = 8
     embedding = np.ones((N, 4), dtype=float)
     X_sonic = np.zeros((N, 32), dtype=float)
@@ -41,8 +45,10 @@ def test_pace_floor_rejects_opposite_rhythm_candidate():
         tower_pca_dims=(8, 16, 8),
     )
 
-    assert 5 not in set(result.pool_indices)
-    assert result.stats["below_pace_floor"] >= 1
+    # Track 5 is now admitted (rhythm-cosine gate removed)
+    assert 5 in set(result.pool_indices)
+    # below_pace_floor stat key removed along with the gate
+    assert "below_pace_floor" not in result.stats
 
 
 def test_pace_floor_uses_max_over_seeds():

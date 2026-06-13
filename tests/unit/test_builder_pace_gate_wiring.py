@@ -1,13 +1,14 @@
-"""The live builder must thread rhythm_matrix into the beam's pace gate.
+"""The live builder must thread rhythm_matrix into the beam's soft pace penalty.
 
-Regression test for the silent no-op found 2026-06-10: `_beam_search_segment`
-implements a rhythm-cosine gate (`pace_bridge_floor`), but the production call
-site in `pier_bridge_builder.py` never passed `rhythm_matrix`, so the gate was
-inert in every real generation (only the dead `assemble.py` wired it).
+Regression test: `_beam_search_segment` computes `pace_sim_for_penalty` when
+`rhythm_matrix is not None`, but `pier_bridge_builder.py` historically never
+extracted rhythm_matrix unless `pace_bridge_floor > 0` (the old hard gate).
+After the 2026-06-12 retune the hard gate is gone; rhythm_matrix must now also
+be extracted when `rhythm_soft_penalty_strength > 0`.
 
 Fixture: 6-dim sonic space with tower_dims (2, 2, 2) → rhythm = dims [0:2].
 The off-rhythm candidate is engineered to win on full-vector similarity, so it
-is chosen when the gate is dead and rejected when the gate is live.
+is chosen when no penalty is active and demoted when the soft penalty is live.
 """
 from pathlib import Path
 
@@ -51,12 +52,17 @@ _X = np.array(
 )
 
 
-def _build(pace_bridge_floor: float):
+def _build(
+    rhythm_soft_penalty_threshold: float = 0.0,
+    rhythm_soft_penalty_strength: float = 0.0,
+):
     bundle = _bundle(_X, tower_dims=(2, 2, 2))
     cfg = PierBridgeConfig(
         transition_floor=-1.0,
         bridge_floor=-1.0,
-        pace_bridge_floor=pace_bridge_floor,
+        pace_bridge_floor=0.0,
+        rhythm_soft_penalty_threshold=rhythm_soft_penalty_threshold,
+        rhythm_soft_penalty_strength=rhythm_soft_penalty_strength,
         progress_enabled=False,
         center_transitions=False,
         collapse_segment_pool_by_artist=False,
@@ -72,17 +78,17 @@ def _build(pace_bridge_floor: float):
     )
 
 
-def test_off_rhythm_candidate_wins_when_gate_disabled():
-    """Sanity baseline: with the gate off, t2 wins on full-vector similarity."""
-    result = _build(pace_bridge_floor=0.0)
+def test_off_rhythm_candidate_wins_when_penalty_disabled():
+    """Sanity baseline: with no soft penalty, t2 wins on full-vector similarity."""
+    result = _build()
     assert result.success
     assert result.track_ids == ["t0", "t2", "t3"]
 
 
-def test_pace_gate_rejects_off_rhythm_candidate_in_live_builder_path():
-    """With pace_bridge_floor set, the builder must supply rhythm vectors so the
-    beam rejects t2 (rhythm cosine 0.0 to the pier rhythm target) and falls back
-    to the on-rhythm t1 — despite t2's higher full-vector similarity."""
-    result = _build(pace_bridge_floor=0.5)
+def test_soft_penalty_demotes_off_rhythm_candidate_in_live_builder_path():
+    """Builder must extract rhythm_matrix when rhythm_soft_penalty_strength > 0
+    so the beam's soft penalty fires. t2 rhythm cosine = 0.0 < threshold 0.5,
+    so its score is zeroed; on-rhythm t1 wins despite weaker full-vector sim."""
+    result = _build(rhythm_soft_penalty_threshold=0.5, rhythm_soft_penalty_strength=1.0)
     assert result.success
     assert result.track_ids == ["t0", "t1", "t3"]

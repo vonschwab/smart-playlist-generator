@@ -366,11 +366,14 @@ def build_pier_bridge_playlist(
     X_full_norm = _l2_normalize_rows(X_full_variant)
     logger.debug("Pier+Bridge sonic sim space: variant=%s dim=%d", sonic_variant, int(X_full_norm.shape[1]))
 
-    # Rhythm axis for the beam's pace gate (cfg.pace_bridge_floor). The gate in
-    # _beam_search_segment silently no-ops when rhythm_matrix is None — a
-    # configured gate must either receive its data or warn loudly.
+    # Rhythm axis for the beam's pace gate and soft penalty. Both mechanisms
+    # silently no-op when rhythm_matrix is None — extract whenever either is active.
     rhythm_matrix: Optional[np.ndarray] = None
-    if float(getattr(cfg, "pace_bridge_floor", 0.0)) > 0.0:
+    _needs_rhythm = (
+        float(getattr(cfg, "pace_bridge_floor", 0.0)) > 0.0
+        or float(getattr(cfg, "rhythm_soft_penalty_strength", 0.0)) > 0.0
+    )
+    if _needs_rhythm:
         _td = getattr(bundle, "tower_dims", None)
         _td_tuple = tuple(int(v) for v in _td) if _td is not None else None
         if (

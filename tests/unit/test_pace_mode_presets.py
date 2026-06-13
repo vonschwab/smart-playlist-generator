@@ -19,8 +19,11 @@ def test_off_disables_all_gates():
 
 def test_dynamic_is_middle_ground_not_disabled():
     settings = resolve_pace_mode("dynamic")
-    assert settings["admission_floor"] > 0.0
-    assert settings["bridge_floor"] > 0.0
+    # rhythm-cosine hard floors removed (now soft penalty); onset bands carry the gate
+    assert settings["admission_floor"] == 0.0
+    assert settings["bridge_floor"] == 0.0
+    assert settings["onset_admission_max_log_distance"] < float("inf")
+    assert settings["onset_bridge_max_log_distance"] < float("inf")
     assert settings["bpm_admission_max_log_distance"] < float("inf")
     assert settings["bpm_bridge_max_log_distance"] < float("inf")
 

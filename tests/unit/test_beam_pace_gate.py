@@ -4,14 +4,17 @@ from src.playlist.pier_bridge.beam import _beam_search_segment
 from src.playlist.pier_bridge.config import PierBridgeConfig
 
 
-def test_beam_filters_candidates_failing_pace_gate():
+def test_beam_soft_penalty_demotes_off_rhythm_candidate():
+    # rhythm-cosine hard gate removed (2026-06-12 pace-gate retune); the
+    # equivalent is rhythm_soft_penalty_strength=1.0 which zeros the score of
+    # any candidate whose rhythm cosine falls below the threshold.
     X = np.ones((4, 4), dtype=float)
     X_norm = X / np.linalg.norm(X, axis=1, keepdims=True)
     rhythm = np.array(
         [
             [1.0, 0.0],  # pier A
             [1.0, 0.0],  # aligned candidate
-            [0.0, 1.0],  # orthogonal candidate
+            [0.0, 1.0],  # orthogonal candidate (pace_sim=0.0 < threshold)
             [1.0, 0.0],  # pier B
         ],
         dtype=float,
@@ -31,7 +34,9 @@ def test_beam_filters_candidates_failing_pace_gate():
         PierBridgeConfig(
             bridge_floor=-1.0,
             transition_floor=-1.0,
-            pace_bridge_floor=0.50,
+            pace_bridge_floor=0.0,
+            rhythm_soft_penalty_threshold=0.5,
+            rhythm_soft_penalty_strength=1.0,
             progress_enabled=False,
         ),
         5,
