@@ -2,28 +2,44 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass
 from typing import Literal
 
 DecisionKind = Literal["accepted", "provisional", "rejected_noise", "needs_review"]
 
+# Trust model (rebalanced 2026-06-12 after the VV Torso/LPVV incident):
+#   - Bandcamp is self-reported ONLY when the artist runs the page
+#     (bandcamp_artist). Label storefronts tag whole catalogs with store
+#     sections ("indie rock, pop") — they must never auto-accept.
+#   - ai_enriched_accepted is an echo of a past acceptance (usually of the
+#     same bandcamp page) — corroborating-only, never establishes acceptance.
+#   - local_metadata is the user's hand-curated file tags; for niche releases
+#     it is often the only correct source. Raised above discogs, and protected
+#     by the never-drop rule in fuse_hybrid_evidence.
 SOURCE_WEIGHTS: dict[str, float] = {
-    "bandcamp_release": 0.95,
+    "bandcamp_artist": 0.95,       # artist-run page: self-reported
     "official_release": 0.95,
-    "ai_enriched_accepted": 0.90,  # genres accepted in enriched_genres table (graduated)
     "ai_check_web": 0.88,          # run-one suggestions backed by authoritative/review web sources
+    "local_metadata": 0.80,        # user-curated file tags
     "discogs": 0.78,
     "musicbrainz": 0.76,
-    "local_metadata": 0.70,
+    "bandcamp_release": 0.70,      # legacy unclassified bandcamp page
+    "bandcamp_unknown": 0.70,      # single-artist domain, name mismatch (operator unknown)
     "ai_check_metadata": 0.70,     # run-one suggestions derived from local metadata only
     "model_prior": 0.68,
+    "bandcamp_label": 0.60,        # multi-artist storefront: catalog-level tags
+    "ai_enriched_accepted": 0.60,  # echo of past acceptance — corroborating only
     "lastfm_tags": 0.25,
 }
 
 LASTFM_SOURCE_TYPES = {"lastfm_tags", "lastfm"}
-STRONG_SOURCE_TYPES = {"bandcamp_release", "official_release", "ai_check_web", "ai_enriched_accepted"}
-MEDIUM_SOURCE_TYPES = {"local_metadata", "discogs", "musicbrainz", "ai_check_metadata"}
-AI_CHECK_TYPES = {"ai_check_web", "ai_check_metadata", "ai_enriched_accepted"}
+STRONG_SOURCE_TYPES = {"bandcamp_artist", "official_release", "ai_check_web"}
+MEDIUM_SOURCE_TYPES = {
+    "local_metadata", "discogs", "musicbrainz", "ai_check_metadata",
+    "bandcamp_release", "bandcamp_unknown", "bandcamp_label",
+}
+AI_CHECK_TYPES = {"ai_check_web", "ai_check_metadata"}
 REJECTED_NOISE_TERMS = {
     "indie": "Standalone indie is a scene/context marker, not a usable genre assignment.",
     "pop/rock": "Fake retail/store-section bucket; do not accept, infer, or split without independent evidence.",
@@ -65,17 +81,58 @@ class HybridGenreReport:
 _WEB_CHECK_BASES = {"authoritative_source", "hybrid", "review_context"}
 
 
+def _slug(value: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (value or "").casefold())
+
+
+def classify_bandcamp_source(
+    domain: str, release_artist: str, *, domain_artist_count: int = 1
+) -> str:
+    """Classify a bandcamp page as artist-run, label storefront, or unknown.
+
+    Artist-run (subdomain matches the artist) is self-reported — top-tier
+    evidence. A domain hosting multiple distinct artists in our store is a
+    label storefront whose tags describe the catalog, not the release. A
+    mismatched single-artist domain could be either (renamed artist page or a
+    label we sampled once) — treated as unknown: usable, never auto-accepted.
+    """
+    sub = _slug((domain or "").split(".", 1)[0])
+    artist = _slug(release_artist)
+    if artist and sub and (
+        sub == artist
+        or (len(artist) >= 4 and artist in sub)
+        or (len(sub) >= 4 and sub in artist)
+    ):
+        return "bandcamp_artist"
+    if int(domain_artist_count) > 1:
+        return "bandcamp_label"
+    return "bandcamp_unknown"
+
+
 def collect_hybrid_evidence(store: object, release_key: str) -> list[EvidenceTerm]:
     evidence: list[EvidenceTerm] = []
+
+    release_artist = release_key.split("::", 1)[0]
+    domain_counts: dict[str, int] = {}
+    if hasattr(store, "bandcamp_domain_artist_counts"):
+        domain_counts = store.bandcamp_domain_artist_counts()
 
     for row in store.hybrid_source_terms_for_release(release_key):
         mapping = str(row.get("mapping_status") or "")
         if mapping == "genre_style":
             mapping = "mapped"
         confidence = float(row.get("confidence") or row.get("identity_confidence") or 0.50)
+        source_type = str(row["source_type"])
+        if source_type == "bandcamp_release":
+            domain = str(row.get("source_domain") or "")
+            source_type = classify_bandcamp_source(
+                domain,
+                str(row.get("normalized_artist") or release_artist),
+                domain_artist_count=int(domain_counts.get(domain, 1)),
+            )
         evidence.append(EvidenceTerm(
             term=str(row["term"]),
-            source_type=str(row["source_type"]),
+            source_type=source_type,
             confidence=confidence,
             canonical_slug=row.get("canonical_slug") or row["term"],
             mapping_status=mapping,
@@ -162,22 +219,18 @@ def fuse_hybrid_evidence(
             continue
 
         if all(source in LASTFM_SOURCE_TYPES for source in sources):
-            if has_non_lastfm_release_evidence and score >= 0.90:
-                provisional.append(FusedGenreDecision(
-                    term=term,
-                    confidence=score,
-                    basis="lastfm_tags+taxonomy",
-                    sources=sources,
-                    reason="Specific high-confidence Last.fm signal is usable provisionally when release evidence exists.",
-                ))
-            else:
-                review.append(FusedGenreDecision(
-                    term=term,
-                    confidence=score,
-                    basis="lastfm_only",
-                    sources=sources,
-                    reason="Last.fm-only mapped signal needs review unless corroborated by release evidence.",
-                ))
+            # 2026-06-12: lastfm-only is review-only at ANY confidence. The old
+            # >=0.90-with-release-evidence provisional branch published
+            # 'baroque' on Debussy and 'trip-hop' on afrobeat at scale once
+            # this lane became the materializer. Corroborated lastfm terms
+            # still flow through the multi-source rules below.
+            review.append(FusedGenreDecision(
+                term=term,
+                confidence=score,
+                basis="lastfm_only",
+                sources=sources,
+                reason="Last.fm-only mapped signal needs review unless corroborated by release evidence.",
+            ))
             continue
 
         if any(source in STRONG_SOURCE_TYPES for source in sources):
@@ -207,6 +260,28 @@ def fuse_hybrid_evidence(
                 basis=_basis(sources),
                 sources=sources,
                 reason="Local metadata and Last.fm corroborate this specific mapped genre.",
+            ))
+            continue
+
+        if "local_metadata" in sources and len(sources) >= 2:
+            accepted.append(FusedGenreDecision(
+                term=term,
+                confidence=max(score, 0.80),
+                basis=_basis(sources),
+                sources=sources,
+                reason="User-curated local tags corroborated by an independent source.",
+            ))
+            continue
+
+        if sources == ["local_metadata"]:
+            # Never-drop invariant (2026-06-12 LPVV incident): the user's own
+            # file tags are retained — provisional publishes to observed_leaf.
+            provisional.append(FusedGenreDecision(
+                term=term,
+                confidence=score,
+                basis=_basis(sources),
+                sources=sources,
+                reason="User-curated local file tag retained (never dropped) pending corroboration.",
             ))
             continue
 
@@ -282,6 +357,8 @@ def _decision_term(item: EvidenceTerm) -> str:
     if item.mapping_status not in {"mapped", "canonical", "alias"}:
         return ""
     term = (item.canonical_slug or item.term).strip().casefold()
+    if term == "__empty__":
+        return ""  # pipeline sentinel, not a genre
     if term == "lofi":
         return "lo-fi"
     return term
@@ -304,7 +381,10 @@ def _basis(sources: list[str]) -> str:
     ordered = [
         source
         for source in [
+            "bandcamp_artist",
             "bandcamp_release",
+            "bandcamp_label",
+            "bandcamp_unknown",
             "official_release",
             "discogs",
             "musicbrainz",
@@ -331,15 +411,22 @@ def fuse_release_evidence(store: object, release: object) -> HybridGenreReport:
     """
     evidence = collect_hybrid_evidence(store, release.release_key)
 
-    _skip_prefixes = ("artist:lastfm", "album:lastfm", "track:")
+    _skip_prefixes = ("artist:lastfm", "album:lastfm")
     for source_key, genres in release.existing_genres_by_source.items():
         if any(source_key.startswith(p) for p in _skip_prefixes):
             continue
         parts = source_key.split(":", 1)
         if len(parts) != 2:
             continue
-        src = parts[1]
-        if "musicbrainz" in src:
+        level, src = parts
+        if src == "file" and level in ("track", "album"):
+            # The user's own embedded file tags — first-class evidence
+            # (2026-06-12: the old blanket `track:` skip kept LPVV's correct
+            # hardcore/post-punk/punk tags out of fusion entirely).
+            source_type, conf = "local_metadata", 0.85
+        elif level == "track":
+            continue
+        elif "musicbrainz" in src:
             source_type, conf = "musicbrainz", 0.75
         elif "discogs" in src:
             source_type, conf = "discogs", 0.78
@@ -362,7 +449,3 @@ def fuse_release_evidence(store: object, release: object) -> HybridGenreReport:
         evidence=evidence,
         sparse_release=not release.existing_genres_by_source,
     )
-
-
-def _is_ai_adjudicated(item: EvidenceTerm) -> bool:
-    return item.classifier in {"ai", "cached_ai"}

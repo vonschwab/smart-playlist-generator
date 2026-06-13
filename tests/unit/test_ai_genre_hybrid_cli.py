@@ -33,7 +33,9 @@ def test_hybrid_enrich_one_dry_run_fuses_existing_sidecar_without_api(monkeypatc
         normalized_artist="duster",
         normalized_album="stratosphere",
         album_id="a1",
-        source_url="https://example.bandcamp.com/album/stratosphere",
+        # artist-run page (subdomain matches artist) — stays auto-accept-strong
+        # under the 2026-06-12 bandcamp artist/label split
+        source_url="https://duster.bandcamp.com/album/stratosphere",
         source_type="bandcamp_release",
         identity_status="confirmed",
         identity_confidence=0.95,
@@ -177,7 +179,10 @@ def test_hybrid_enrich_one_apply_persists_accepted_signature(tmp_path: Path, cap
     assert rc == 0
     output = json.loads(capsys.readouterr().out)
     assert output["applied"] is True
-    assert output["applied_count"] == 1
+    # Both "slowcore" and the broad parent "rock" are local+lastfm corroborated,
+    # so fusion accepts both. Broad-parent suppression is a downstream taxonomy
+    # policy (`broad_only: reject`), not applied on this hybrid-enrich-one path.
+    assert output["applied_count"] == 2
 
     with sqlite3.connect(sidecar) as conn:
         conn.row_factory = sqlite3.Row
@@ -193,10 +198,11 @@ def test_hybrid_enrich_one_apply_persists_accepted_signature(tmp_path: Path, cap
             ("duster::stratosphere",),
         ).fetchone()
 
-    assert [row["genre"] for row in genres] == ["slowcore"]
-    assert genres[0]["basis"] == "local_metadata+lastfm_tags+taxonomy"
-    assert genres[0]["source_ref"].startswith("hybrid:")
-    assert json.loads(signature_row["signature_json"])["genres"] == ["slowcore"]
+    assert [row["genre"] for row in genres] == ["rock", "slowcore"]
+    by_genre = {row["genre"]: row for row in genres}
+    assert by_genre["slowcore"]["basis"] == "local_metadata+lastfm_tags+taxonomy"
+    assert by_genre["slowcore"]["source_ref"].startswith("hybrid:")
+    assert json.loads(signature_row["signature_json"])["genres"] == ["rock", "slowcore"]
 
 
 def test_hybrid_enrich_one_apply_can_include_provisional_lastfm_terms(tmp_path: Path, capsys):
@@ -253,9 +259,14 @@ def test_hybrid_enrich_one_apply_can_include_provisional_lastfm_terms(tmp_path: 
 
     assert rc == 0
     output = json.loads(capsys.readouterr().out)
-    assert output["applied_count"] == 3
+    # "indie folk" is local+lastfm corroborated (accepted). The lastfm-only
+    # terms avant-folk/drone/folk wait in review since 2026-06-12 (the
+    # provisional branch published junk like 'baroque' on Debussy at scale),
+    # so --include-provisional has nothing extra to apply here.
+    assert output["applied_count"] == 1
     assert [item["term"] for item in output["accepted_genres"]] == ["indie folk"]
-    assert [item["term"] for item in output["provisional_genres"]] == ["avant-folk", "drone"]
+    assert output["provisional_genres"] == []
+    assert {item["term"] for item in output["needs_review"]} >= {"avant-folk", "drone", "folk"}
 
     with sqlite3.connect(sidecar) as conn:
         genres = [
@@ -266,7 +277,7 @@ def test_hybrid_enrich_one_apply_can_include_provisional_lastfm_terms(tmp_path: 
             )
         ]
 
-    assert genres == ["avant-folk", "drone", "indie folk"]
+    assert genres == ["indie folk"]
 
 
 def test_hybrid_enrich_one_rejects_dry_run_apply_combo(tmp_path: Path, capsys):

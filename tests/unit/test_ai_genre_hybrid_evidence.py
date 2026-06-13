@@ -9,22 +9,30 @@ from src.ai_genre_enrichment.hybrid_evidence import (
 )
 
 
-def test_bandcamp_and_model_accepts_specific_genre():
+def test_bandcamp_artist_and_model_accepts_specific_genre():
+    # Artist-run bandcamp pages are self-reported — the strongest evidence we
+    # have. (Unclassified legacy "bandcamp_release" no longer auto-accepts; see
+    # the storefront tests below.)
     report = fuse_hybrid_evidence(
         release_key="duster::stratosphere",
         evidence=[
-            EvidenceTerm(term="slowcore", source_type="bandcamp_release", confidence=0.90),
+            EvidenceTerm(term="slowcore", source_type="bandcamp_artist", confidence=0.90),
             EvidenceTerm(term="slowcore", source_type="model_prior", confidence=0.88),
         ],
         sparse_release=False,
     )
 
     assert [item.term for item in report.accepted_genres] == ["slowcore"]
-    assert report.accepted_genres[0].basis == "bandcamp_release+model_prior+taxonomy"
+    assert report.accepted_genres[0].basis == "bandcamp_artist+model_prior+taxonomy"
     assert report.accepted_genres[0].confidence >= 0.90
 
 
-def test_lastfm_only_is_rejected_noise():
+def test_lastfm_only_no_release_evidence_needs_review():
+    # Current model: a lastfm-only mapped term with no corroborating release
+    # evidence is held for review (not auto-accepted). Tag-level noise rejection
+    # (junk tags like "seen live") now happens upstream at classification /
+    # review-decision time (see test_collect_hybrid_evidence_excludes_human_
+    # rejected_source_tags) rather than inside fusion.
     report = fuse_hybrid_evidence(
         release_key="test::album",
         evidence=[EvidenceTerm(term="seen live", source_type="lastfm_tags", confidence=0.70)],
@@ -32,8 +40,8 @@ def test_lastfm_only_is_rejected_noise():
     )
 
     assert report.accepted_genres == []
-    assert report.rejected_noise[0].term == "seen live"
-    assert "Last.fm-only" in report.rejected_noise[0].reason
+    assert [item.term for item in report.needs_review] == ["seen live"]
+    assert "Last.fm-only" in report.needs_review[0].reason
 
 
 def test_model_only_high_confidence_sparse_release_is_provisional():
@@ -65,6 +73,11 @@ def test_model_only_high_confidence_with_release_evidence_is_provisional():
 
 
 def test_specific_lastfm_only_terms_are_provisional_when_release_evidence_exists():
+    # High-confidence lastfm-only terms become provisional when release evidence
+    # exists. Broad-parent suppression (e.g. demoting "folk" beneath "avant-folk")
+    # is no longer a fusion-layer concern — it is a mode-aware taxonomy policy
+    # (`broad_only: reject` in data/layered_genre_taxonomy.yaml, covered by the
+    # layered-taxonomy/assignment tests), so fusion keeps "folk" provisional here.
     report = fuse_hybrid_evidence(
         release_key="mount eerie::sauna",
         evidence=[
@@ -77,11 +90,22 @@ def test_specific_lastfm_only_terms_are_provisional_when_release_evidence_exists
     )
 
     assert [item.term for item in report.accepted_genres] == []
-    assert [item.term for item in report.provisional_genres] == ["avant-folk", "drone"]
-    assert [item.term for item in report.rejected_noise] == ["folk"]
+    # 2026-06-12: lastfm-only terms are review-only at any confidence — the
+    # publish dry-run surfaced 'baroque' on Debussy and 'trip-hop' on afrobeat
+    # promoting via this branch. Only "indie folk" (local-only, never-drop)
+    # remains provisional.
+    assert [item.term for item in report.provisional_genres] == ["indie folk"]
+    assert {item.term for item in report.needs_review} == {"avant-folk", "drone", "folk"}
+    assert report.rejected_noise == []
 
 
-def test_ai_adjudicated_lastfm_only_terms_are_rejected_even_when_release_evidence_exists():
+def test_ai_adjudicated_lastfm_terms_are_handled_at_collection_not_fusion():
+    # AI-adjudicated junk ("mixtaperoom", "rare sad girl") is rejected upstream:
+    # classification + human review-decisions drop it before it reaches fusion
+    # (see test_collect_hybrid_evidence_excludes_human_rejected_source_tags).
+    # Fusion itself no longer special-cases classifier=ai/cached_ai — if such a
+    # term survives collection with release evidence present, it is provisional
+    # like any other corroboration-pending lastfm term.
     report = fuse_hybrid_evidence(
         release_key="ada lea::one hand on the steering wheel the other sewing a garden",
         evidence=[
@@ -92,9 +116,11 @@ def test_ai_adjudicated_lastfm_only_terms_are_rejected_even_when_release_evidenc
         sparse_release=False,
     )
 
-    assert [item.term for item in report.provisional_genres] == []
-    assert [item.term for item in report.rejected_noise] == ["mixtaperoom", "rare sad girl"]
-    assert all("AI-adjudicated" in item.reason for item in report.rejected_noise)
+    assert report.rejected_noise == []
+    # lastfm-only junk waits in review (2026-06-12); local "indie pop" is
+    # provisional under never-drop.
+    assert [item.term for item in report.provisional_genres] == ["indie pop"]
+    assert {item.term for item in report.needs_review} == {"mixtaperoom", "rare sad girl"}
 
 
 def test_lastfm_lofi_alias_collapses_to_lo_fi():
@@ -108,7 +134,10 @@ def test_lastfm_lofi_alias_collapses_to_lo_fi():
         sparse_release=False,
     )
 
-    assert [item.term for item in report.provisional_genres] == ["lo-fi"]
+    # lastfm-only "lo-fi" waits in review (2026-06-12); the alias still
+    # collapses (one lo-fi entry, not two). Local "indie folk" is provisional.
+    assert [item.term for item in report.provisional_genres] == ["indie folk"]
+    assert [item.term for item in report.needs_review] == ["lo-fi"]
 
 
 def test_local_and_model_can_accept_when_no_stronger_conflict():
@@ -140,7 +169,11 @@ def test_local_and_lastfm_accept_specific_corroborated_genre_without_bandcamp():
     assert "Local metadata and Last.fm corroborate" in report.accepted_genres[0].reason
 
 
-def test_local_and_lastfm_reject_broad_parent_when_specific_terms_exist():
+def test_local_and_lastfm_corroboration_accepts_even_broad_terms():
+    # Local + Last.fm corroboration accepts the mapped term at the fusion layer,
+    # including broad parents like "rock". Broad-parent suppression is enforced
+    # downstream by the taxonomy policy (`broad_only: reject`), not here — so
+    # fusion's job is just to record the corroborated signal.
     report = fuse_hybrid_evidence(
         release_key="duster::stratosphere",
         evidence=[
@@ -150,12 +183,16 @@ def test_local_and_lastfm_reject_broad_parent_when_specific_terms_exist():
         sparse_release=False,
     )
 
-    assert report.accepted_genres == []
-    assert report.rejected_noise[0].term == "rock"
-    assert "Broad parent genre" in report.rejected_noise[0].reason
+    assert [item.term for item in report.accepted_genres] == ["rock"]
+    assert report.rejected_noise == []
+    assert "Local metadata and Last.fm corroborate" in report.accepted_genres[0].reason
 
 
-def test_local_only_broad_parent_is_rejected_not_reviewed():
+def test_local_only_single_source_is_provisional_never_dropped():
+    # NEVER-DROP invariant (2026-06-12 LPVV incident): the user's own file tags
+    # are hand-curated and, for niche releases, often the only correct source.
+    # Uncorroborated mapped local terms are retained as provisional (which the
+    # materializer publishes to observed_leaf) — never silently queued away.
     report = fuse_hybrid_evidence(
         release_key="duster::stratosphere",
         evidence=[
@@ -164,9 +201,9 @@ def test_local_only_broad_parent_is_rejected_not_reviewed():
         sparse_release=False,
     )
 
-    assert report.needs_review == []
-    assert report.rejected_noise[0].term == "rock"
-    assert "Broad parent genre" in report.rejected_noise[0].reason
+    assert report.accepted_genres == []
+    assert [item.term for item in report.provisional_genres] == ["rock"]
+    assert "local" in report.provisional_genres[0].reason.lower()
 
 
 def test_collect_hybrid_evidence_reads_sidecar_sources_and_prior(tmp_path: Path):
@@ -224,7 +261,9 @@ def test_collect_hybrid_evidence_reads_sidecar_sources_and_prior(tmp_path: Path)
     evidence = collect_hybrid_evidence(store, "duster::stratosphere")
     source_types = sorted({item.source_type for item in evidence if item.term == "slowcore"})
 
-    assert source_types == ["bandcamp_release", "model_prior"]
+    # example.bandcamp.com does not match artist "duster" and hosts only one
+    # artist in the store -> reclassified as bandcamp_unknown (no auto-accept).
+    assert source_types == ["bandcamp_unknown", "model_prior"]
 
 
 def test_collect_hybrid_evidence_excludes_human_rejected_source_tags(tmp_path: Path):
@@ -291,3 +330,202 @@ def test_fuse_release_evidence_injects_metadata_genres(tmp_path):
     accepted = {d.term for d in report.accepted_genres}
     provisional = {d.term for d in report.provisional_genres}
     assert "shoegaze" in (accepted | provisional)
+
+
+# ── Bandcamp source classification + storefront trust (2026-06-12) ──────────
+# Root cause of the VV Torso/LPVV incident: a LABEL storefront page
+# (jurassicpop.bandcamp.com) tagged a hardcore record "indie rock, pop, rock"
+# and the fusion policy auto-accepted it at 0.95 while the user's correct file
+# tags never entered the evidence stream. Bandcamp stays top-tier ONLY when
+# the artist runs the page.
+
+
+def test_classify_bandcamp_source_buckets():
+    from src.ai_genre_enrichment.hybrid_evidence import classify_bandcamp_source
+
+    # subdomain matches artist -> self-reported, artist-run
+    assert classify_bandcamp_source(
+        "billcallahan.bandcamp.com", "bill callahan", domain_artist_count=1
+    ) == "bandcamp_artist"
+    # domain hosts many artists in our store -> label storefront
+    assert classify_bandcamp_source(
+        "eccentricsoul.bandcamp.com", "tear drops", domain_artist_count=98
+    ) == "bandcamp_label"
+    # mismatched single-artist domain -> unknown operator (no auto-accept)
+    assert classify_bandcamp_source(
+        "jurassicpop.bandcamp.com", "vv torso", domain_artist_count=1
+    ) == "bandcamp_unknown"
+
+
+def test_storefront_bandcamp_does_not_auto_accept_even_with_recycled_acceptance():
+    # The published LPVV row had evidence_count=2: the bandcamp page AND the
+    # ai_enriched_accepted graduation OF that same page. Neither alone nor
+    # together may they auto-accept.
+    report = fuse_hybrid_evidence(
+        release_key="vv torso::lpvv",
+        evidence=[
+            EvidenceTerm(term="pop", source_type="bandcamp_unknown", confidence=0.95),
+            EvidenceTerm(term="pop", source_type="ai_enriched_accepted", confidence=0.88),
+        ],
+        sparse_release=False,
+    )
+
+    assert all(d.term != "pop" for d in report.accepted_genres)
+    assert all(d.term != "pop" for d in report.provisional_genres)
+    assert any(d.term == "pop" for d in report.needs_review)
+
+
+def test_ai_enriched_accepted_alone_is_not_strong_evidence():
+    report = fuse_hybrid_evidence(
+        release_key="vv torso::lpvv",
+        evidence=[
+            EvidenceTerm(term="indie rock", source_type="ai_enriched_accepted", confidence=0.88),
+        ],
+        sparse_release=False,
+    )
+
+    assert report.accepted_genres == []
+    assert report.provisional_genres == []
+
+
+def test_lpvv_regression_local_tags_beat_storefront():
+    # Full evidence mix as it exists for vv torso::lpvv, with file tags finally
+    # in the stream: local tags publish, storefront genres wait for review,
+    # standalone "indie" stays rejected noise.
+    storefront = [
+        EvidenceTerm(term=t, source_type="bandcamp_unknown", confidence=0.95)
+        for t in ("indie", "indie rock", "pop", "rock")
+    ] + [
+        EvidenceTerm(term=t, source_type="ai_enriched_accepted", confidence=0.88)
+        for t in ("indie", "indie rock", "pop", "rock")
+    ]
+    local = [
+        EvidenceTerm(term=t, source_type="local_metadata", confidence=0.85)
+        for t in ("hardcore", "post-punk", "punk")
+    ]
+    report = fuse_hybrid_evidence(
+        release_key="vv torso::lpvv",
+        evidence=storefront + local,
+        sparse_release=False,
+    )
+
+    published = {d.term for d in report.accepted_genres} | {
+        d.term for d in report.provisional_genres
+    }
+    assert {"hardcore", "post-punk", "punk"} <= published
+    assert "pop" not in published
+    assert "indie rock" not in published
+    assert any(d.term == "indie" for d in report.rejected_noise)
+
+
+def test_lastfm_only_terms_never_reach_provisional_regardless_of_confidence():
+    # Publish dry-run regression (2026-06-12): 'baroque' on a Debussy record
+    # and 'trip-hop' on an afrobeat record were lastfm-only terms that the old
+    # rule promoted to provisional (score >= 0.90 with release evidence
+    # present). Lastfm-only now always waits for review; corroborated lastfm
+    # still counts through the multi-source rules.
+    report = fuse_hybrid_evidence(
+        release_key="philharmonia::debussy nocturnes",
+        evidence=[
+            EvidenceTerm(term="contemporary classical", source_type="local_metadata", confidence=0.85),
+            EvidenceTerm(term="baroque", source_type="lastfm_tags", confidence=0.99),
+        ],
+        sparse_release=False,
+    )
+
+    assert all(d.term != "baroque" for d in report.accepted_genres)
+    assert all(d.term != "baroque" for d in report.provisional_genres)
+    assert any(d.term == "baroque" for d in report.needs_review)
+
+
+def test_empty_sentinel_terms_are_dropped_from_fusion():
+    # "__EMPTY__" is a data-pipeline sentinel, not a genre. Found leaking into
+    # provisional via local_metadata source pages during the 2026-06-12 dry-run.
+    report = fuse_hybrid_evidence(
+        release_key="vv torso::lpvvii",
+        evidence=[
+            EvidenceTerm(term="__EMPTY__", source_type="local_metadata", confidence=0.85),
+            EvidenceTerm(term="__empty__", source_type="musicbrainz", confidence=0.75),
+            EvidenceTerm(term="hardcore", source_type="local_metadata", confidence=0.85),
+        ],
+        sparse_release=False,
+    )
+
+    all_terms = (
+        {d.term for d in report.accepted_genres}
+        | {d.term for d in report.provisional_genres}
+        | {d.term for d in report.needs_review}
+        | {d.term for d in report.rejected_noise}
+    )
+    assert "__empty__" not in all_terms
+    assert "__EMPTY__" not in all_terms
+    assert "hardcore" in {d.term for d in report.provisional_genres}
+
+
+def test_local_corroborated_by_second_source_is_accepted():
+    report = fuse_hybrid_evidence(
+        release_key="vv torso::lpvv",
+        evidence=[
+            EvidenceTerm(term="hardcore", source_type="local_metadata", confidence=0.85),
+            EvidenceTerm(term="hardcore", source_type="ai_check_metadata", confidence=0.70),
+        ],
+        sparse_release=False,
+    )
+
+    assert [d.term for d in report.accepted_genres] == ["hardcore"]
+    assert "local_metadata" in report.accepted_genres[0].sources
+
+
+def test_collect_reclassifies_artist_run_bandcamp_page(tmp_path: Path):
+    from src.ai_genre_enrichment.storage import SidecarStore
+
+    store = SidecarStore(tmp_path / "sidecar.db")
+    store.initialize()
+    page_id = store.upsert_source_page(
+        release_key="duster::stratosphere",
+        normalized_artist="duster",
+        normalized_album="stratosphere",
+        album_id="a1",
+        source_url="https://duster.bandcamp.com/album/stratosphere",
+        source_type="bandcamp_release",
+        identity_status="confirmed",
+        identity_confidence=0.95,
+        evidence_summary="Bandcamp release tags.",
+    )
+    store.replace_source_tags(page_id, ["slowcore"])
+    store.classify_source_tags(page_id)
+
+    evidence = collect_hybrid_evidence(store, "duster::stratosphere")
+    types = {item.source_type for item in evidence if item.term == "slowcore"}
+    assert types == {"bandcamp_artist"}
+
+
+def test_fuse_release_evidence_injects_local_file_tags(tmp_path):
+    # track:file / album:file genres are the user's own curation — they MUST
+    # enter fusion as local_metadata. (Before 2026-06-12 the track:* prefix was
+    # skipped wholesale, which is how LPVV's hardcore/post-punk/punk vanished.)
+    from types import SimpleNamespace
+    from src.ai_genre_enrichment.hybrid_evidence import fuse_release_evidence
+    from src.ai_genre_enrichment.storage import SidecarStore
+
+    store = SidecarStore(str(tmp_path / "side.db"))
+    store.initialize()
+    release = SimpleNamespace(
+        release_key="vv torso::lpvv",
+        normalized_artist="vv torso",
+        normalized_album="lpvv",
+        album_id="alb1",
+        existing_genres_by_source={
+            "track:file": ["hardcore", "post-punk", "punk"],
+            "album:file": ["rock"],
+            "artist:lastfm": ["seen live"],
+            "track:lastfm": ["noise"],
+        },
+    )
+    report = fuse_release_evidence(store, release)
+    published = {d.term for d in report.accepted_genres} | {
+        d.term for d in report.provisional_genres
+    }
+    assert {"hardcore", "post-punk", "punk", "rock"} <= published
+    assert "seen live" not in published
+    assert "noise" not in published

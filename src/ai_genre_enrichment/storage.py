@@ -167,6 +167,23 @@ class SidecarStore:
         # collection passes (e.g. Last.fm + Bandcamp in separate terminals)
         # don't error on write contention.
         conn.execute("PRAGMA busy_timeout = 30000")
+        # WAL so readers never block on a writer (persistent once set). The GUI
+        # review panel reads this DB inline on the worker's reader thread WHILE
+        # a scan/enrich writes it — under the default delete journal those reads
+        # wedged behind commit locks (2026-06-12 review-queue timeout incident).
+        conn.execute("PRAGMA journal_mode = WAL")
+        return conn
+
+    def connect_readonly(self, *, busy_timeout_ms: int = 2000) -> sqlite3.Connection:
+        """Read-only connection for inline/latency-sensitive readers.
+
+        mode=ro + WAL means these never block on writers and can never wedge
+        the caller's thread for the full 30s write busy_timeout. Raises
+        sqlite3.OperationalError if the DB file does not exist.
+        """
+        conn = sqlite3.connect(f"file:{self.db_path.as_posix()}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        conn.execute(f"PRAGMA busy_timeout = {int(busy_timeout_ms)}")
         return conn
 
     def initialize(self) -> None:
@@ -1945,6 +1962,8 @@ class SidecarStore:
                 """
                 SELECT
                     p.source_type,
+                    p.source_domain,
+                    p.normalized_artist,
                     p.identity_confidence,
                     t.normalized_tag AS term,
                     t.normalized_tag AS canonical_slug,
@@ -1972,6 +1991,23 @@ class SidecarStore:
                 }
                 for row in rows
             ]
+
+    def bandcamp_domain_artist_counts(self) -> dict[str, int]:
+        """Distinct-artist count per bandcamp domain (label-storefront signal).
+
+        A domain hosting releases by multiple artists in this store is a label
+        storefront; its tags describe the catalog, not any one release.
+        """
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT source_domain, COUNT(DISTINCT normalized_artist) AS n
+                FROM ai_genre_source_pages
+                WHERE source_domain LIKE '%bandcamp.com%'
+                GROUP BY source_domain
+                """
+            ).fetchall()
+            return {str(row["source_domain"]): int(row["n"]) for row in rows}
 
     def latest_model_prior_terms_for_release(self, release_key: str) -> list[dict[str, Any]]:
         with self.connect() as conn:
@@ -2808,16 +2844,50 @@ class SidecarStore:
         search: str | None = None,
         limit: int = 50,
         offset: int = 0,
+        readonly: bool = False,
     ) -> dict[str, Any]:
         """Releases with pending review terms, most-pending first.
 
         Header counts (pending_releases / pending_terms) always describe the
         whole queue, not the filtered page.
+
+        ``readonly=True`` is for inline/latency-sensitive callers (the GUI
+        review panel polling from the worker's reader thread): uses a read-only
+        connection that cannot block on writers, and returns an EMPTY page when
+        the DB or queue table doesn't exist yet (fresh install, scan never run)
+        instead of creating schema or raising.
         """
+        if readonly:
+            try:
+                conn = self.connect_readonly()
+            except sqlite3.OperationalError:
+                return {"releases": [], "pending_releases": 0, "pending_terms": 0}
+            try:
+                return self._review_queue_page(conn, search=search, limit=limit, offset=offset)
+            except sqlite3.OperationalError:
+                # e.g. "no such table: ai_genre_review_queue" before first scan
+                return {"releases": [], "pending_releases": 0, "pending_terms": 0}
+            finally:
+                conn.close()
         with self.connect() as conn:
+            return self._review_queue_page(conn, search=search, limit=limit, offset=offset)
+
+    def _review_queue_page(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        search: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        with conn:
             counts = conn.execute(
                 "SELECT COUNT(DISTINCT release_key) AS pr, COUNT(*) AS pt "
                 "FROM ai_genre_review_queue WHERE status = 'pending'"
+            ).fetchone()
+            decided = conn.execute(
+                "SELECT COUNT(DISTINCT release_key) AS dr, COUNT(*) AS dt "
+                "FROM ai_genre_review_queue WHERE status != 'pending'"
             ).fetchone()
             where = ""
             params: list[Any] = []
@@ -2867,6 +2937,103 @@ class SidecarStore:
             "releases": releases,
             "pending_releases": int(counts["pr"]),
             "pending_terms": int(counts["pt"]),
+            "decided_releases": int(decided["dr"]),
+            "decided_terms": int(decided["dt"]),
+        }
+
+    def get_completed_review_page(
+        self,
+        *,
+        search: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+        readonly: bool = False,
+    ) -> dict[str, Any]:
+        """Releases with at least one *decided* review term, newest decision first.
+
+        The 'Completed' counterpart to ``get_review_queue_page``: surfaces work
+        the user already settled — including fully-decided releases that drop off
+        the pending queue — so saved progress is browsable and revertible.
+        Header counts (decided_releases / decided_terms) describe the whole queue,
+        not the filtered page. ``readonly=True`` behaves exactly as on the pending
+        page (read-only connection, empty page when the DB/table is absent).
+        """
+        if readonly:
+            try:
+                conn = self.connect_readonly()
+            except sqlite3.OperationalError:
+                return {"releases": [], "decided_releases": 0, "decided_terms": 0}
+            try:
+                return self._completed_review_page(conn, search=search, limit=limit, offset=offset)
+            except sqlite3.OperationalError:
+                return {"releases": [], "decided_releases": 0, "decided_terms": 0}
+            finally:
+                conn.close()
+        with self.connect() as conn:
+            return self._completed_review_page(conn, search=search, limit=limit, offset=offset)
+
+    def _completed_review_page(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        search: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        with conn:
+            counts = conn.execute(
+                "SELECT COUNT(DISTINCT release_key) AS dr, COUNT(*) AS dt "
+                "FROM ai_genre_review_queue WHERE status != 'pending'"
+            ).fetchone()
+            where = ""
+            params: list[Any] = []
+            if search:
+                where = "WHERE (normalized_artist LIKE ? OR normalized_album LIKE ?)"
+                pattern = f"%{search.strip().casefold()}%"
+                params = [pattern, pattern]
+            release_rows = list(conn.execute(
+                f"""
+                SELECT release_key, normalized_artist, normalized_album,
+                       SUM(CASE WHEN status != 'pending' THEN 1 ELSE 0 END) AS decided_count,
+                       MAX(decided_at) AS last_decided
+                FROM ai_genre_review_queue
+                {where}
+                GROUP BY release_key, normalized_artist, normalized_album
+                HAVING decided_count > 0
+                ORDER BY last_decided DESC, release_key
+                LIMIT ? OFFSET ?
+                """,
+                (*params, limit, offset),
+            ))
+            releases = []
+            for rel in release_rows:
+                terms = [
+                    {
+                        "term": row["term"],
+                        "confidence": row["confidence"],
+                        "basis": row["basis"],
+                        "sources": json.loads(row["sources_json"]),
+                        "reason": row["reason"],
+                        "status": row["status"],
+                    }
+                    for row in conn.execute(
+                        "SELECT term, confidence, basis, sources_json, reason, status "
+                        "FROM ai_genre_review_queue WHERE release_key = ? "
+                        "ORDER BY decided_at DESC, confidence DESC, term",
+                        (rel["release_key"],),
+                    )
+                ]
+                releases.append({
+                    "release_key": rel["release_key"],
+                    "artist": rel["normalized_artist"],
+                    "album": rel["normalized_album"],
+                    "pending": [t for t in terms if t["status"] == "pending"],
+                    "decided": [t for t in terms if t["status"] != "pending"],
+                })
+        return {
+            "releases": releases,
+            "decided_releases": int(counts["dr"]),
+            "decided_terms": int(counts["dt"]),
         }
 
     def set_review_queue_status(
