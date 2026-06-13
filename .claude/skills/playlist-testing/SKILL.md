@@ -37,6 +37,7 @@ That single chain (especially `load_config_with_overrides`) is the piece ad-hoc 
 | Worker `@lru_cache` on `load_artifact_bundle` | rebuilt artifact/sidecar not seen | RESTART the GUI after any artifact/sidecar rebuild. |
 | Dense sidecar staleness | stale `X_genre_dense` / vocab drift | `load_artifact_bundle` only guards track_ids, not vocab/content. Rebuild sidecar (Build Artifacts button does both now). |
 | Last.fm recency nondeterminism | run-to-run track differences | harness is artifact-level and does not hit Last.fm; full-stack runs do. |
+| Mode keys mutated after `Config()` construction | genre/sonic modes silently inert (floors/weights stay at config.yaml values) while pace_mode works | `apply_mode_presets` runs inside `Config.__init__` (config_loader.py); genre/sonic presets bake at load time, pace is read at generation time. Don't drive `PlaylistApp`/`PlaylistGenerator` directly and set `playlists.genre_mode` afterward — use `generate_like_gui` (2026-06-12). |
 
 ## What this harness does and does NOT cover
 
