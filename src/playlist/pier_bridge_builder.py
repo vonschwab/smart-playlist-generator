@@ -390,24 +390,42 @@ def build_pier_bridge_playlist(
                 int(rhythm_matrix.shape[1]),
             )
         elif perceptual_bpm is not None:
-            # No rhythm axis (no-tower variant, e.g. mert): fall back to the
-            # perceptual-BPM bridge gate so the configured floor still acts.
+            # No usable rhythm axis (no-tower artifact, e.g. MERT 768-dim, or a
+            # stale tower_dims left after an in-place fold). The rhythm soft-penalty
+            # is tower-dependent, so it goes inert; the perceptual-BPM (+ onset)
+            # bands carry the pace gate instead.
             from src.playlist.pier_bridge.pace_gate import bpm_fallback_max_log_distance
 
             _bpm_cap = float(getattr(cfg, "bpm_bridge_max_log_distance", float("inf")))
             if not np.isfinite(_bpm_cap):
                 _bpm_cap = bpm_fallback_max_log_distance(float(cfg.pace_bridge_floor))
                 cfg = replace(cfg, bpm_bridge_max_log_distance=_bpm_cap)
-            logger.warning(
-                "Pace bridge gate FALLBACK: pace_bridge_floor=%.2f is set but the "
-                "artifact bundle has no usable tower_dims (got %r for blend dim %d); "
-                "rhythm-axis gating is unavailable — pace gating falls back to the "
-                "perceptual-BPM gate (bpm_bridge_max_log_distance=%.2f)",
-                float(cfg.pace_bridge_floor),
-                _td,
-                int(X_full_raw.shape[1]),
-                _bpm_cap,
-            )
+            if float(getattr(cfg, "pace_bridge_floor", 0.0)) > 0.0:
+                # A configured rhythm-cosine HARD gate that cannot act is a real
+                # fallback — warn loudly (CLAUDE.md: a configured knob that can't
+                # act must not silently no-op).
+                logger.warning(
+                    "Pace bridge gate FALLBACK: pace_bridge_floor=%.2f is set but the "
+                    "artifact bundle has no usable tower_dims (got %r for blend dim %d); "
+                    "rhythm-axis gating is unavailable — pace gating falls back to the "
+                    "perceptual-BPM gate (bpm_bridge_max_log_distance=%.2f)",
+                    float(cfg.pace_bridge_floor),
+                    _td,
+                    int(X_full_raw.shape[1]),
+                    _bpm_cap,
+                )
+            else:
+                # Only the soft rhythm penalty wanted the rhythm axis. Under a
+                # no-tower (MERT) artifact its going inert is expected by design,
+                # not a fallback — log once at INFO, not WARNING.
+                logger.info(
+                    "No tower decomposition (blend dim %d vs tower_dims %r) — MERT-style "
+                    "artifact: rhythm soft-penalty inert by design; perceptual-BPM + onset "
+                    "bands carry the pace gate (bpm_bridge_max_log_distance=%.2f)",
+                    int(X_full_raw.shape[1]),
+                    _td,
+                    _bpm_cap,
+                )
         else:
             logger.warning(
                 "Pace bridge gate INACTIVE: pace_bridge_floor=%.2f is set but the "
