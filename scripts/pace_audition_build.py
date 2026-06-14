@@ -128,3 +128,174 @@ def blind_and_shuffle(
         edges.append({"edge_id": eid, "a": rec["a"]["track_id"], "b": rec["b"]["track_id"]})
         edge_data[eid] = rec
     return edges, edge_data
+
+
+def lookup_file_paths(track_ids: List[str], db_path: str) -> Dict[str, str]:
+    """Read-only lookup of file_path by track_id (mirrors sonic_audition_build)."""
+    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    result: Dict[str, str] = {}
+    for i in range(0, len(track_ids), 900):
+        chunk = track_ids[i : i + 900]
+        ph = ",".join(["?"] * len(chunk))
+        rows = con.execute(
+            f"SELECT track_id, file_path FROM tracks WHERE track_id IN ({ph})", chunk
+        ).fetchall()
+        result.update({str(r[0]): str(r[1]) for r in rows})
+    con.close()
+    return result
+
+
+def _artifact_fingerprint(X: np.ndarray) -> str:
+    """Hash a few rows so analyze can assert all arms used the same artifact."""
+    sample = np.ascontiguousarray(X[:: max(1, X.shape[0] // 50)][:50])
+    return hashlib.sha256(sample.tobytes()).hexdigest()[:16]
+
+
+AMBIENT = ["Green-House", "Hiroshi Yoshimura", "Brian Eno"]
+RHYTHMIC = ["J Dilla", "De La Soul", "Beastie Boys"]
+REAL_ARMS = ["narrow", "dynamic", "off"]
+FIXED_MODES = {"cohesion_mode": "dynamic", "genre_mode": "narrow", "sonic_mode": "narrow"}
+
+
+def _artist_piers(bundle, artist: str, max_piers: int = 5) -> List[str]:
+    artists = np.array([str(a) for a in bundle.track_artists])
+    idx = np.where(np.char.lower(artists) == artist.lower())[0]
+    return [str(bundle.track_ids[i]) for i in idx[:max_piers]]
+
+
+def main() -> None:
+    from src.features.artifacts import load_artifact_bundle
+    from src.playlist.bpm_loader import load_bpm_arrays
+    from tests.support.gui_fidelity import generate_like_gui, resolved_artifact_path
+
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--seeds", nargs="*", default=AMBIENT + RHYTHMIC)
+    ap.add_argument("--length", type=int, default=30)
+    ap.add_argument("--edges-per-arm", type=int, default=5)
+    ap.add_argument("--decoy-per-seed", type=int, default=5)
+    ap.add_argument("--db", default="data/metadata.db")
+    ap.add_argument("--out-dir", default="docs/run_audits/pace_audition")
+    ap.add_argument("--random-seed", type=int, default=0)
+    args = ap.parse_args()
+
+    art_path = resolved_artifact_path()
+    load_artifact_bundle.cache_clear()
+    bundle = load_artifact_bundle(art_path)
+    tids_all = [str(t) for t in bundle.track_ids]
+    tid_to_idx = bundle.track_id_to_index
+
+    bpm_arrays = load_bpm_arrays(bundle.track_ids, db_path=args.db)
+    onset_arr = bpm_arrays["onset_rate"]
+    bpm_arr = bpm_arrays["perceptual_bpm"]
+    Xg = bundle.X_genre_smoothed
+
+    def onset_of(tid): return float(onset_arr[tid_to_idx[tid]])
+    def bpm_of(tid): return float(bpm_arr[tid_to_idx[tid]])
+    def genre_of(tid): return Xg[tid_to_idx[tid]]
+
+    rng = np.random.default_rng(args.random_seed)
+    regime_of = {**{a: "ambient" for a in AMBIENT}, **{a: "rhythmic" for a in RHYTHMIC}}
+
+    records: List[dict] = []
+    playlists: List[dict] = []
+    seeds_prov: Dict[str, dict] = {}
+    index_seeds: List[str] = []
+
+    for artist in args.seeds:
+        piers = _artist_piers(bundle, artist)
+        if len(piers) < 4:
+            print(f"  SKIP {artist!r}: only {len(piers)} piers in artifact")
+            continue
+        slug = artist.lower().replace(" ", "-").replace("/", "-")
+        seeds_prov[slug] = {"piers": piers, "regime": regime_of.get(artist, "?")}
+        index_seeds.append(artist)
+        pier_set = set(piers)
+        context: set = set()
+
+        for arm in REAL_ARMS:
+            res = generate_like_gui(
+                seeds=piers, pace_mode=arm, length=args.length,
+                random_seed=args.random_seed, **FIXED_MODES,
+            )
+            tids = [str(t) for t in res.track_ids]
+            context.update(tids)
+            onset_seq = [onset_of(t) if t in tid_to_idx else None for t in tids]
+            playlists.append({"seed": slug, "arm": arm, "track_ids": tids, "onset_seq": onset_seq})
+
+            interior = extract_interior_edges(tids, pier_set)
+            for (i, j) in sample_edges(interior, args.edges_per_arm, rng):
+                a, b = tids[i], tids[j]
+                m = edge_metrics(
+                    a_onset=onset_of(a), b_onset=onset_of(b),
+                    a_bpm=bpm_of(a), b_bpm=bpm_of(b),
+                    a_genre=genre_of(a), b_genre=genre_of(b),
+                )
+                records.append({
+                    "arm": arm, "seed": slug, "regime": regime_of.get(artist, "?"),
+                    "a": {"track_id": a, "artist": str(bundle.track_artists[tid_to_idx[a]]),
+                          "title": str(bundle.track_titles[tid_to_idx[a]]),
+                          "onset": onset_of(a), "bpm": bpm_of(a)},
+                    "b": {"track_id": b, "artist": str(bundle.track_artists[tid_to_idx[b]]),
+                          "title": str(bundle.track_titles[tid_to_idx[b]]),
+                          "onset": onset_of(b), "bpm": bpm_of(b)},
+                    **m,
+                })
+
+        ctx = [t for t in context if t in tid_to_idx]
+        decoys = synthesize_decoy_edges(
+            ctx,
+            onset={t: onset_of(t) for t in ctx},
+            bpm={t: bpm_of(t) for t in ctx},
+            genre_vecs={t: genre_of(t) for t in ctx},
+            k=args.decoy_per_seed, rng=rng, min_onset_dist=1.0,
+        )
+        for (a, b) in decoys:
+            m = edge_metrics(
+                a_onset=onset_of(a), b_onset=onset_of(b),
+                a_bpm=bpm_of(a), b_bpm=bpm_of(b),
+                a_genre=genre_of(a), b_genre=genre_of(b),
+            )
+            records.append({
+                "arm": "decoy", "seed": slug, "regime": regime_of.get(artist, "?"),
+                "a": {"track_id": a, "artist": str(bundle.track_artists[tid_to_idx[a]]),
+                      "title": str(bundle.track_titles[tid_to_idx[a]]),
+                      "onset": onset_of(a), "bpm": bpm_of(a)},
+                "b": {"track_id": b, "artist": str(bundle.track_artists[tid_to_idx[b]]),
+                      "title": str(bundle.track_titles[tid_to_idx[b]]),
+                      "onset": onset_of(b), "bpm": bpm_of(b)},
+                **m,
+            })
+        print(f"  OK   {artist!r}: {len(interior)} interior edges available")
+
+    edges, edge_data = blind_and_shuffle(records, rng)
+    needed = {e["a"] for e in edges} | {e["b"] for e in edges}
+    file_paths = lookup_file_paths(sorted(needed), args.db)
+
+    manifest = {
+        "type": "pace_edges",
+        "provenance": {
+            "artifact_path": art_path,
+            "artifact_mtime": Path(art_path).stat().st_mtime,
+            "artifact_fingerprint": _artifact_fingerprint(bundle.X_sonic),
+            "random_seed": args.random_seed,
+            "fixed_modes": FIXED_MODES,
+            "seeds": seeds_prov,
+        },
+        "playlists": playlists,
+        "edges": edges,
+        "edge_data": edge_data,
+        "file_paths": file_paths,
+    }
+
+    out_dir = ROOT / args.out_dir
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "pace_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    (out_dir / "index.json").write_text(
+        json.dumps([{"slug": "pace", "label": "Pace Edges"}], indent=2), encoding="utf-8"
+    )
+    print(f"\nDone. {len(edges)} edges ({len(playlists)} playlists) → {out_dir}/pace_manifest.json")
+    print("Next: python scripts/pace_audition_serve.py")
+
+
+if __name__ == "__main__":
+    main()
