@@ -61,3 +61,52 @@ def extract_interior_edges(
             continue
         out.append((i, i + 1))
     return out
+
+
+def sample_edges(
+    edges: List[Tuple[int, int]], k: int, rng: np.random.Generator
+) -> List[Tuple[int, int]]:
+    """Seeded sample of up to k edges (all of them if fewer than k)."""
+    if len(edges) <= k:
+        return list(edges)
+    idx = rng.permutation(len(edges))[:k]
+    return [edges[int(i)] for i in sorted(idx)]
+
+
+def synthesize_decoy_edges(
+    context_tids: Sequence[str],
+    *,
+    onset: Dict[str, float],
+    bpm: Dict[str, float],
+    genre_vecs: Dict[str, np.ndarray],
+    k: int,
+    rng: np.random.Generator,
+    min_onset_dist: float = 1.0,
+) -> List[Tuple[str, str]]:
+    """Pairs that are pace-distant (onset log-dist > min) but genre-close
+    (genre cos >= median over qualifying pairs). Falls back to the 25th
+    percentile genre floor if fewer than k qualify. Returns (a, b) track-id pairs."""
+    tids = [str(t) for t in context_tids]
+    cand: List[Tuple[str, str, float]] = []  # (a, b, genre_cos)
+    for i in range(len(tids)):
+        for j in range(i + 1, len(tids)):
+            a, b = tids[i], tids[j]
+            if not np.isfinite(float(bpm_log_distance(onset.get(a, np.nan), onset.get(b, np.nan)))):
+                continue
+            od = float(bpm_log_distance(onset.get(a, np.nan), onset.get(b, np.nan)))
+            if od <= float(min_onset_dist):
+                continue
+            gc = genre_cosine(genre_vecs.get(a, np.zeros(1)), genre_vecs.get(b, np.zeros(1)))
+            cand.append((a, b, gc))
+    if not cand:
+        return []
+    gcs = np.array([c[2] for c in cand])
+    floor = float(np.median(gcs))
+    qualifying = [(a, b) for (a, b, gc) in cand if gc >= floor]
+    if len(qualifying) < k:
+        floor = float(np.percentile(gcs, 25))
+        qualifying = [(a, b) for (a, b, gc) in cand if gc >= floor]
+    if len(qualifying) <= k:
+        return qualifying
+    idx = rng.permutation(len(qualifying))[:k]
+    return [qualifying[int(i)] for i in sorted(idx)]

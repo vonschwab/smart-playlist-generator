@@ -36,3 +36,39 @@ def test_extract_interior_edges_excludes_pier_adjacent():
     piers = {"p0", "p1"}
     # interior edges = consecutive pairs with NEITHER endpoint a pier
     assert extract_interior_edges(track_ids, piers) == [(1, 2), (2, 3)]
+
+
+from scripts.pace_audition_build import sample_edges, synthesize_decoy_edges
+
+
+def test_sample_edges_deterministic_and_bounded():
+    edges = [(i, i + 1) for i in range(10)]
+    rng1 = np.random.default_rng(0)
+    rng2 = np.random.default_rng(0)
+    a = sample_edges(edges, k=3, rng=rng1)
+    b = sample_edges(edges, k=3, rng=rng2)
+    assert a == b              # same seed → same sample
+    assert len(a) == 3
+    assert all(e in edges for e in a)
+
+
+def test_sample_edges_returns_all_when_fewer_than_k():
+    edges = [(0, 1), (1, 2)]
+    out = sample_edges(edges, k=5, rng=np.random.default_rng(0))
+    assert sorted(out) == sorted(edges)
+
+
+def test_synthesize_decoy_prefers_pace_distant_genre_close_pairs():
+    # 3 tracks: t0,t1 close pace & same genre; t0,t2 far pace (octave) same genre.
+    tids = ["t0", "t1", "t2"]
+    onset = {"t0": 2.0, "t1": 2.1, "t2": 8.0}     # t0-t2 log dist = 2.0 (>1.0)
+    bpm = {"t0": 90.0, "t1": 91.0, "t2": 90.0}
+    genre = {"t0": np.array([1.0, 0.0]), "t1": np.array([1.0, 0.0]),
+             "t2": np.array([1.0, 0.0])}           # all identical genre
+    decoys = synthesize_decoy_edges(
+        tids, onset=onset, bpm=bpm, genre_vecs=genre,
+        k=1, rng=np.random.default_rng(0), min_onset_dist=1.0,
+    )
+    assert len(decoys) == 1
+    a, b = decoys[0]
+    assert {a, b} == {"t0", "t2"}                  # the only pace-distant pair
