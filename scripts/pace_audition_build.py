@@ -200,46 +200,61 @@ def main() -> None:
     playlists: List[dict] = []
     seeds_prov: Dict[str, dict] = {}
     index_seeds: List[str] = []
+    skipped: List[str] = []
+
+    def _make_record(arm: str, seed: str, regime: str, a: str, b: str) -> dict:
+        m = edge_metrics(
+            a_onset=onset_of(a), b_onset=onset_of(b),
+            a_bpm=bpm_of(a), b_bpm=bpm_of(b),
+            a_genre=genre_of(a), b_genre=genre_of(b),
+        )
+        return {
+            "arm": arm, "seed": seed, "regime": regime,
+            "a": {"track_id": a, "artist": str(bundle.track_artists[tid_to_idx[a]]),
+                  "title": str(bundle.track_titles[tid_to_idx[a]]),
+                  "onset": onset_of(a), "bpm": bpm_of(a)},
+            "b": {"track_id": b, "artist": str(bundle.track_artists[tid_to_idx[b]]),
+                  "title": str(bundle.track_titles[tid_to_idx[b]]),
+                  "onset": onset_of(b), "bpm": bpm_of(b)},
+            **m,
+        }
 
     for artist in args.seeds:
         piers = _artist_piers(bundle, artist)
         if len(piers) < 4:
             print(f"  SKIP {artist!r}: only {len(piers)} piers in artifact")
+            skipped.append(artist)
             continue
         slug = artist.lower().replace(" ", "-").replace("/", "-")
-        seeds_prov[slug] = {"piers": piers, "regime": regime_of.get(artist, "?")}
-        index_seeds.append(artist)
+        regime = regime_of.get(artist, "?")
         pier_set = set(piers)
         context: set = set()
+        seed_records: List[dict] = []
+        seed_playlists: List[dict] = []
 
-        for arm in REAL_ARMS:
-            res = generate_like_gui(
-                seeds=piers, pace_mode=arm, length=args.length,
-                random_seed=args.random_seed, **FIXED_MODES,
-            )
-            tids = [str(t) for t in res.track_ids]
-            context.update(tids)
-            onset_seq = [onset_of(t) if t in tid_to_idx else None for t in tids]
-            playlists.append({"seed": slug, "arm": arm, "track_ids": tids, "onset_seq": onset_seq})
-
-            interior = extract_interior_edges(tids, pier_set)
-            for (i, j) in sample_edges(interior, args.edges_per_arm, rng):
-                a, b = tids[i], tids[j]
-                m = edge_metrics(
-                    a_onset=onset_of(a), b_onset=onset_of(b),
-                    a_bpm=bpm_of(a), b_bpm=bpm_of(b),
-                    a_genre=genre_of(a), b_genre=genre_of(b),
+        # Generate all 3 real arms for this seed. A single infeasible arm must NOT
+        # crash the whole build (an audition over 18 generations has to tolerate the
+        # odd seed whose narrow neighbourhood dead-ends). Accumulate per-seed and
+        # commit all-or-nothing so arms stay balanced per seed.
+        try:
+            for arm in REAL_ARMS:
+                res = generate_like_gui(
+                    seeds=piers, pace_mode=arm, length=args.length,
+                    random_seed=args.random_seed, **FIXED_MODES,
                 )
-                records.append({
-                    "arm": arm, "seed": slug, "regime": regime_of.get(artist, "?"),
-                    "a": {"track_id": a, "artist": str(bundle.track_artists[tid_to_idx[a]]),
-                          "title": str(bundle.track_titles[tid_to_idx[a]]),
-                          "onset": onset_of(a), "bpm": bpm_of(a)},
-                    "b": {"track_id": b, "artist": str(bundle.track_artists[tid_to_idx[b]]),
-                          "title": str(bundle.track_titles[tid_to_idx[b]]),
-                          "onset": onset_of(b), "bpm": bpm_of(b)},
-                    **m,
-                })
+                tids = [str(t) for t in res.track_ids]
+                context.update(tids)
+                onset_seq = [onset_of(t) if t in tid_to_idx else None for t in tids]
+                seed_playlists.append(
+                    {"seed": slug, "arm": arm, "track_ids": tids, "onset_seq": onset_seq}
+                )
+                interior = extract_interior_edges(tids, pier_set)
+                for (i, j) in sample_edges(interior, args.edges_per_arm, rng):
+                    seed_records.append(_make_record(arm, slug, regime, tids[i], tids[j]))
+        except Exception as e:
+            print(f"  SKIP {artist!r}: generation infeasible ({type(e).__name__}: {str(e)[:140]})")
+            skipped.append(artist)
+            continue
 
         ctx = [t for t in context if t in tid_to_idx]
         decoys = synthesize_decoy_edges(
@@ -250,22 +265,23 @@ def main() -> None:
             k=args.decoy_per_seed, rng=rng, min_onset_dist=1.0,
         )
         for (a, b) in decoys:
-            m = edge_metrics(
-                a_onset=onset_of(a), b_onset=onset_of(b),
-                a_bpm=bpm_of(a), b_bpm=bpm_of(b),
-                a_genre=genre_of(a), b_genre=genre_of(b),
-            )
-            records.append({
-                "arm": "decoy", "seed": slug, "regime": regime_of.get(artist, "?"),
-                "a": {"track_id": a, "artist": str(bundle.track_artists[tid_to_idx[a]]),
-                      "title": str(bundle.track_titles[tid_to_idx[a]]),
-                      "onset": onset_of(a), "bpm": bpm_of(a)},
-                "b": {"track_id": b, "artist": str(bundle.track_artists[tid_to_idx[b]]),
-                      "title": str(bundle.track_titles[tid_to_idx[b]]),
-                      "onset": onset_of(b), "bpm": bpm_of(b)},
-                **m,
-            })
-        print(f"  OK   {artist!r}: {len(interior)} interior edges available")
+            seed_records.append(_make_record("decoy", slug, regime, a, b))
+
+        # Commit this seed only now that all arms + decoys succeeded.
+        records.extend(seed_records)
+        playlists.extend(seed_playlists)
+        seeds_prov[slug] = {"piers": piers, "regime": regime}
+        index_seeds.append(artist)
+        print(f"  OK   {artist!r}: {len(seed_playlists)} playlists, {len(seed_records)} edges")
+
+    if not records:
+        print("No seeds produced edges — aborting (check generation feasibility).")
+        sys.exit(1)
+    if skipped:
+        print(f"  Skipped {len(skipped)} seed(s): {', '.join(skipped)}")
+    _surv = [regime_of.get(a, '?') for a in index_seeds]
+    print(f"  Surviving seeds: {len(index_seeds)} "
+          f"({_surv.count('ambient')} ambient, {_surv.count('rhythmic')} rhythmic)")
 
     edges, edge_data = blind_and_shuffle(records, rng)
     needed = {e["a"] for e in edges} | {e["b"] for e in edges}
