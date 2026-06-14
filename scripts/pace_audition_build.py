@@ -110,3 +110,21 @@ def synthesize_decoy_edges(
         return qualifying
     idx = rng.choice(len(qualifying), size=k, replace=False)
     return [qualifying[int(i)] for i in sorted(idx)]
+
+
+def blind_and_shuffle(
+    records: List[dict], rng: np.random.Generator
+) -> Tuple[List[dict], Dict[str, dict]]:
+    """Assign stable edge_ids, shuffle order, and split each record into a
+    BLINDED served view (edge_id + two track ids only) and a server-side
+    edge_data entry (arm/seed/metrics). The arm NEVER appears in the served view."""
+    order = list(range(len(records)))
+    rng.shuffle(order)
+    edges: List[dict] = []
+    edge_data: Dict[str, dict] = {}
+    for new_pos, orig_i in enumerate(order):
+        rec = records[orig_i]
+        eid = f"e{new_pos + 1:04d}"
+        edges.append({"edge_id": eid, "a": rec["a"]["track_id"], "b": rec["b"]["track_id"]})
+        edge_data[eid] = rec
+    return edges, edge_data

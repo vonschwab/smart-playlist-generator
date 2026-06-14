@@ -75,3 +75,38 @@ def test_synthesize_decoy_prefers_pace_distant_genre_close_pairs():
     assert len(decoys) == 1
     a, b = decoys[0]
     assert {a, b} == {"t0", "t2"}                  # the only pace-distant pair
+
+
+from scripts.pace_audition_build import blind_and_shuffle
+
+
+def _edge_record(arm, seed, a, b):
+    return {
+        "arm": arm, "seed": seed, "regime": "ambient",
+        "a": {"track_id": a, "artist": "AA", "title": "TA", "onset": 2.0, "bpm": 90.0},
+        "b": {"track_id": b, "artist": "BB", "title": "TB", "onset": 2.0, "bpm": 90.0},
+        "onset_log_dist": 0.0, "bpm_log_dist": 0.0, "genre_cos": 1.0,
+    }
+
+
+def test_blind_and_shuffle_strips_arm_from_served_edges():
+    records = [
+        _edge_record("narrow", "s", "a1", "b1"),
+        _edge_record("decoy", "s", "a2", "b2"),
+    ]
+    edges, edge_data = blind_and_shuffle(records, rng=np.random.default_rng(0))
+    # served edges expose ONLY edge_id + the two track ids
+    for e in edges:
+        assert set(e.keys()) == {"edge_id", "a", "b"}
+    # the arm lives only in the server-side edge_data, keyed by edge_id
+    assert set(edge_data.keys()) == {e["edge_id"] for e in edges}
+    arms = {edge_data[e["edge_id"]]["arm"] for e in edges}
+    assert arms == {"narrow", "decoy"}
+
+
+def test_blind_and_shuffle_is_deterministic():
+    records = [_edge_record("off", "s", f"a{i}", f"b{i}") for i in range(6)]
+    e1, _ = blind_and_shuffle(records, rng=np.random.default_rng(1))
+    e2, _ = blind_and_shuffle(records, rng=np.random.default_rng(1))
+    assert [e["edge_id"] for e in e1] == [e["edge_id"] for e in e2]
+    assert [e["a"] for e in e1] == [e["a"] for e in e2]
