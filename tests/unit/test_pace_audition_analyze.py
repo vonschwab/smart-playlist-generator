@@ -56,3 +56,15 @@ def test_confound_flag_true_when_continuity_gain_exceeds_smoothness_gain():
     res = confound_flag(joined)
     assert res["pace_specific"] is True
     assert res["continuity_gain"] > res["smoothness_gain"]
+
+
+from scripts.pace_audition_analyze import onset_variance_by_arm
+
+
+def test_onset_variance_by_arm_lower_for_flatter_playlist():
+    playlists = [
+        {"seed": "s", "arm": "narrow", "onset_seq": [2.0, 2.0, 2.1, 2.0]},
+        {"seed": "s", "arm": "off", "onset_seq": [1.0, 6.0, 0.5, 8.0]},
+    ]
+    out = onset_variance_by_arm(playlists)
+    assert out["narrow"] < out["off"]
