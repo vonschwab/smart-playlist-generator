@@ -59,9 +59,12 @@ def test_sample_edges_returns_all_when_fewer_than_k():
 
 
 def test_synthesize_decoy_prefers_pace_distant_genre_close_pairs():
-    # 3 tracks: t0,t1 close pace & same genre; t0,t2 far pace (octave) same genre.
+    # 3 tracks, all same genre. Onsets chosen so EXACTLY ONE pair exceeds the
+    # 1.0-octave pace threshold: t0-t1=log2(1.5)=0.585 and t1-t2=log2(1.5)=0.585
+    # are both <=1.0; only t0-t2=log2(2.25)=1.170 qualifies. So the single decoy
+    # is {t0,t2} regardless of the RNG stream (unambiguous by construction).
     tids = ["t0", "t1", "t2"]
-    onset = {"t0": 2.0, "t1": 2.1, "t2": 8.0}     # t0-t2 log dist = 2.0 (>1.0)
+    onset = {"t0": 2.0, "t1": 3.0, "t2": 4.5}
     bpm = {"t0": 90.0, "t1": 91.0, "t2": 90.0}
     genre = {"t0": np.array([1.0, 0.0]), "t1": np.array([1.0, 0.0]),
              "t2": np.array([1.0, 0.0])}           # all identical genre

@@ -69,7 +69,7 @@ def sample_edges(
     """Seeded sample of up to k edges (all of them if fewer than k)."""
     if len(edges) <= k:
         return list(edges)
-    idx = rng.permutation(len(edges))[:k]
+    idx = rng.choice(len(edges), size=k, replace=False)
     return [edges[int(i)] for i in sorted(idx)]
 
 
@@ -108,5 +108,5 @@ def synthesize_decoy_edges(
         qualifying = [(a, b) for (a, b, gc) in cand if gc >= floor]
     if len(qualifying) <= k:
         return qualifying
-    idx = rng.permutation(len(qualifying))[:k]
+    idx = rng.choice(len(qualifying), size=k, replace=False)
     return [qualifying[int(i)] for i in sorted(idx)]
