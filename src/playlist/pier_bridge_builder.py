@@ -29,6 +29,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 from src.features.artifacts import ArtifactBundle
+from src.cancellation import raise_if_cancelled
 from src.title_dedupe import normalize_artist_key
 from src.string_utils import sanitize_for_logging
 from src.playlist.identity_keys import identity_keys_for_index
@@ -1027,6 +1028,11 @@ def build_pier_bridge_playlist(
             last_beam_width = int(beam_width)
 
             for attempt in range(max_expansion_attempts):
+                # Cooperative cancellation: poll between beam-run attempts so a
+                # narrow-mode backoff/expansion cascade cannot grind on after the
+                # user requests cancel. raise_if_cancelled() is a no-op unless a
+                # hook is registered (worker generation path).
+                raise_if_cancelled()
                 pool_diag: Dict[str, Any] = {}
                 cand_artist_keys: Dict[int, str] = {}
                 arc_stats_segment: Dict[str, Any] = {}
@@ -1556,6 +1562,7 @@ def build_pier_bridge_playlist(
     # build cannot blow the generation budget on a pathological relaxation grind.
     _pb_build_start = time.monotonic()
     for seg_idx in range(num_segments):
+        raise_if_cancelled()  # cooperative cancellation at each segment boundary
         pier_a = ordered_seeds[seg_idx]
         pier_b = ordered_seeds[seg_idx + 1]
         interior_len = segment_lengths[seg_idx]

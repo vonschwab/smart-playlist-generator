@@ -1074,6 +1074,11 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
     include_collaborations = request.include_collaborations
     exclude_seed_tracks_from_recency = request.exclude_seed_tracks_from_recency
 
+    # Cooperative cancellation for the generation core (registered before the
+    # dispatch below). Imported ahead of the `try` so the `except
+    # OperationCancelled` clause can always resolve the name.
+    from src.cancellation import OperationCancelled, set_cancellation_hook
+
     emit_log("INFO", f"Starting playlist generation (mode={mode})")
     emit_progress("init", 0, 100, "Loading configuration")
 
@@ -1283,6 +1288,13 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
         # Cancellation check before generation
         check_cancelled()
 
+        # The generation core (build_pier_bridge_playlist -> beam search) runs
+        # several layers below this handler and cannot see the worker's cancel
+        # flag directly. Register a predicate it polls at its loop checkpoints;
+        # on cancel it raises OperationCancelled (caught below). Cleared in the
+        # `finally`. This is what makes a long generation actually cancellable.
+        set_cancellation_hook(_worker_state.is_cancelled)
+
         emit_progress("generate", 60, 100, "Generating playlist")
         emit_log("INFO", f"Running playlist generation with cohesion_mode={cohesion_mode}")
 
@@ -1471,6 +1483,11 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
             emit_error("No playlist generated")
             emit_done("generate_playlist", False, "No playlist generated")
 
+    except OperationCancelled:
+        # Raised by the generation core's cancellation checkpoints (BaseException
+        # subclass, so the core's broad `except Exception` blocks don't swallow it).
+        emit_log("INFO", "Playlist generation cancelled")
+        emit_done("generate_playlist", False, "Cancelled by user", cancelled=True)
     except CancellationError:
         emit_log("INFO", "Playlist generation cancelled")
         emit_done("generate_playlist", False, "Cancelled by user", cancelled=True)
@@ -1478,6 +1495,9 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
         tb = traceback.format_exc()
         emit_error(str(e), tb)
         emit_done("generate_playlist", False, str(e))
+    finally:
+        # Never leave the process-global hook set across requests.
+        set_cancellation_hook(None)
 
 
 def handle_scan_library(cmd_data: Dict[str, Any]) -> None:

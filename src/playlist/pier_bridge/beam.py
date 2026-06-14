@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import numpy as np
 
 from src.features.artifacts import ArtifactBundle
+from src.cancellation import raise_if_cancelled
 from src.playlist.artist_identity_resolver import (
     ArtistIdentityConfig,
     resolve_artist_identity_keys,
@@ -979,6 +980,9 @@ def _beam_search_segment(
         )
 
     for step in range(interior_length):
+        # Cooperative cancellation: the per-step poll is what bounds cancel
+        # latency inside a single long beam run (the reported segment-0 hang).
+        raise_if_cancelled()
         next_beam: List[BeamState] = []
         target_t = _step_fraction(step, interior_length)
         experiment_target_t = (
