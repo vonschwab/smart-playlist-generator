@@ -2435,12 +2435,16 @@ def handle_get_genre_review_queue(cmd_data: Dict[str, Any]) -> None:
     try:
         from src.ai_genre_enrichment.storage import SidecarStore
 
+        # readonly: this runs on the READER thread. It must never write (no
+        # initialize/DDL) and never wait behind a scan's write lock — a blocked
+        # read here starves every untracked command, including cancel
+        # (2026-06-12 review-queue timeout incident).
         store = SidecarStore(SIDECAR_DB_PATH)
-        store.initialize()
         page = store.get_review_queue_page(
             search=(cmd_data.get("search") or "").strip() or None,
             limit=int(cmd_data.get("limit") or 50),
             offset=int(cmd_data.get("offset") or 0),
+            readonly=True,
         )
         emit_event({"type": "result", "result_type": "genre_review_queue",
                     "request_id": rid, "job_id": None, **page})
@@ -2450,6 +2454,35 @@ def handle_get_genre_review_queue(cmd_data: Dict[str, Any]) -> None:
     except Exception as e:
         emit_event({"type": "error", "message": str(e), "request_id": rid, "job_id": None})
         emit_event({"type": "done", "cmd": "get_genre_review_queue", "ok": False,
+                    "detail": str(e), "request_id": rid, "job_id": None})
+
+
+def handle_get_genre_review_completed(cmd_data: Dict[str, Any]) -> None:
+    """Return the 'Completed' review page: releases with decided terms.
+
+    Untracked + readonly, same reader-thread discipline as
+    handle_get_genre_review_queue (see its docstring for the request_id/job_id
+    rationale and why this must never write or block behind a scan).
+    """
+    rid = cmd_data.get("request_id")
+    try:
+        from src.ai_genre_enrichment.storage import SidecarStore
+
+        store = SidecarStore(SIDECAR_DB_PATH)
+        page = store.get_completed_review_page(
+            search=(cmd_data.get("search") or "").strip() or None,
+            limit=int(cmd_data.get("limit") or 50),
+            offset=int(cmd_data.get("offset") or 0),
+            readonly=True,
+        )
+        emit_event({"type": "result", "result_type": "genre_review_completed",
+                    "request_id": rid, "job_id": None, **page})
+        emit_event({"type": "done", "cmd": "get_genre_review_completed", "ok": True,
+                    "detail": f"{page['decided_terms']} decided",
+                    "request_id": rid, "job_id": None})
+    except Exception as e:
+        emit_event({"type": "error", "message": str(e), "request_id": rid, "job_id": None})
+        emit_event({"type": "done", "cmd": "get_genre_review_completed", "ok": False,
                     "detail": str(e), "request_id": rid, "job_id": None})
 
 
@@ -2464,8 +2497,10 @@ def handle_apply_genre_review_decision(cmd_data: Dict[str, Any]) -> None:
         from src.ai_genre_enrichment.review_queue import apply_review_decision
         from src.ai_genre_enrichment.storage import SidecarStore
 
+        # No initialize() here: this runs inline on the reader thread, and DDL
+        # is a write that can wait behind a scan. If the queue table doesn't
+        # exist yet the decision fails fast with a clear done(ok=false).
         store = SidecarStore(SIDECAR_DB_PATH)
-        store.initialize()
         result = apply_review_decision(
             store,
             release_key=str(cmd_data.get("release_key") or ""),
@@ -2568,6 +2603,7 @@ UNTRACKED_COMMAND_HANDLERS = {
     # Quick DB reads/writes: run inline on the reader thread so they're
     # not blocked by a long-running tracked command (e.g. scan_genre_review).
     "get_genre_review_queue": handle_get_genre_review_queue,
+    "get_genre_review_completed": handle_get_genre_review_completed,
     "apply_genre_review_decision": handle_apply_genre_review_decision,
 }
 
@@ -2599,6 +2635,11 @@ def process_command(line: str) -> None:
             UNTRACKED_COMMAND_HANDLERS[cmd](cmd_data)
         except Exception as e:
             emit_log("ERROR", f"Untracked command {cmd} failed: {e}")
+            # A missing done leaves the bridge's command() future waiting until
+            # TimeoutError — every handler emits its own done, but a crash
+            # outside its try must still answer the request.
+            emit_event({"type": "done", "cmd": cmd, "ok": False, "detail": str(e),
+                        "request_id": cmd_data.get("request_id"), "job_id": None})
         return
 
     # For tracked commands, get identifiers
