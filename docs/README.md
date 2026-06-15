@@ -1,133 +1,55 @@
 # Documentation Index
 
-Welcome to the Playlist Generator documentation. This index provides an overview of all available documentation and how to navigate it.
+Overview of the Playlist Generator docs. `README.md` (repo root) is the listener-facing
+feature catalog; `docs/TECHNICAL_PLAYLIST_GENERATION_FLOW.md` is the most authoritative
+implementation walkthrough.
 
 ---
 
-## 📖 Core Documentation
+## Getting started
+- **[GOLDEN_COMMANDS.md](GOLDEN_COMMANDS.md)** — command reference (scan, analyze/enrich stages, generate, serve)
+- **[CONFIG.md](CONFIG.md)** — configuration key reference
+- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** — common issues
 
-### Getting Started
-- **[GOLDEN_COMMANDS.md](GOLDEN_COMMANDS.md)** - Essential commands for common workflows
-- **[CONFIG.md](CONFIG.md)** - Configuration reference and examples
-- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Common issues and solutions
+## Architecture & generation
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** — system architecture overview
+- **[TECHNICAL_PLAYLIST_GENERATION_FLOW.md](TECHNICAL_PLAYLIST_GENERATION_FLOW.md)** — full pipeline deep-dive
+- **[DJ_BRIDGE_ARCHITECTURE.md](DJ_BRIDGE_ARCHITECTURE.md)** — pier-bridge / DJ bridging design
+- **[PLAYLIST_ORDERING_TUNING.md](PLAYLIST_ORDERING_TUNING.md)** — knob-by-knob ordering/tuning guide
 
-### Architecture & Design
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture overview
-- **[DJ_BRIDGE_ARCHITECTURE.md](DJ_BRIDGE_ARCHITECTURE.md)** - Complete DJ bridging design (Phase 1 & 2)
-- **[TECHNICAL_PLAYLIST_GENERATION_FLOW.md](TECHNICAL_PLAYLIST_GENERATION_FLOW.md)** - Detailed playlist generation flow
+## Sonic (MERT + towers)
+- **[MERT_WHITEN_NEIGHBORS_20SEEDS.md](MERT_WHITEN_NEIGHBORS_20SEEDS.md)** — MERT cross-catalog neighbour QA (the default sonic space)
+- **[SONIC_PHASE2_HARMONY_FINDINGS.md](SONIC_PHASE2_HARMONY_FINDINGS.md)** — 2DFTM harmony tower investigation (the rollback space)
 
-### Release Notes
-- **[CHANGELOG.md](CHANGELOG.md)** - v3.4 release notes (DJ Bridge Mode)
-- **[TODO.md](TODO.md)** - Current roadmap and pending work
+## Genre (authority + taxonomy graph + enrichment)
+- **[AI_GENRE_ENRICHMENT.md](AI_GENRE_ENRICHMENT.md)** — enrichment usage
+- **[AI_GENRE_ENRICHMENT_DEVELOPMENT_BIBLE.md](AI_GENRE_ENRICHMENT_DEVELOPMENT_BIBLE.md)** — hybrid deterministic/LLM genre model (source of truth; overrides older "model prior" specs)
+- **[LAYERED_GENRE_GRAPH_SPEC.md](LAYERED_GENRE_GRAPH_SPEC.md)** — SP3a layered taxonomy graph spec
+- **[GENRE_DATA_QUALITY_FINDINGS_2026-06-12.md](GENRE_DATA_QUALITY_FINDINGS_2026-06-12.md)** — enrichment fusion + delta-migration findings
 
-### Development
-- **[LOGGING.md](LOGGING.md)** - Logging architecture and usage
-
----
-
-## 📂 Directory Structure
-
-```
-docs/
-├── README.md (this file)           # Documentation index
-├── ARCHITECTURE.md                 # System architecture
-├── CONFIG.md                       # Configuration reference
-├── GOLDEN_COMMANDS.md              # Quick command reference
-├── TROUBLESHOOTING.md              # Common issues
-├── TODO.md                         # Roadmap and pending work
-├── CHANGELOG_Phase2.md             # Release notes
-├── DJ_BRIDGE_ARCHITECTURE.md       # DJ bridging design
-├── TECHNICAL_PLAYLIST_*.md         # Technical deep-dives
-├── LOGGING.md                      # Logging architecture
-├── diagnostics/                    # Active diagnostic reports
-│   └── README.md                   # Diagnostics directory guide
-└── archive/                        # Archived documentation (git-ignored)
-    ├── README.md                   # Archive index
-    ├── dev_cycle_2026-01-02/       # Genre mode development
-    └── diagnostics_2026-01/        # DJ bridging diagnostics
-```
+## Release & development
+- **[CHANGELOG.md](CHANGELOG.md)** — release notes (latest: v6.0)
+- **[LOGGING.md](LOGGING.md)** — logging architecture
+- **[DEAD_CODE_AUDIT_2026-06-10.md](DEAD_CODE_AUDIT_2026-06-10.md)** — dead-code audit (see also `tools/dead_code_audit.py`)
+- Design specs + implementation plans: `docs/superpowers/specs/` and `docs/superpowers/plans/`
 
 ---
 
-## 🎯 Quick Navigation
+## Key concepts
 
-### I want to...
+**Generation:** seeds become fixed "piers"; beam search builds bridges between adjacent piers
+through the **MERT** sonic space (the 162-d towers are a config rollback). Four independent
+axes — `cohesion_mode` (beam tightness) plus `genre_mode` / `sonic_mode` / `pace_mode` (pool
+composition).
 
-**...generate a playlist**
-→ Start with [GOLDEN_COMMANDS.md](GOLDEN_COMMANDS.md)
+**Pace:** BPM + onset-rate log-distance hard bands plus a soft rhythm penalty (DB features,
+MERT-durable) — not a sonic-embedding axis.
 
-**...configure the system**
-→ See [CONFIG.md](CONFIG.md) for all configuration options
-
-**...understand how it works**
-→ Read [ARCHITECTURE.md](ARCHITECTURE.md) for high-level overview
-→ Read [DJ_BRIDGE_ARCHITECTURE.md](DJ_BRIDGE_ARCHITECTURE.md) for DJ bridging details
-
-**...troubleshoot an issue**
-→ Check [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
-→ Review logs in `logs/playlist_generator.log`
-
-**...contribute or extend the codebase**
-→ Start with [ARCHITECTURE.md](ARCHITECTURE.md)
-→ Review [LOGGING.md](LOGGING.md) for logging conventions
-→ Check [TODO.md](TODO.md) for roadmap
-
-**...understand DJ bridging and genre integration**
-→ Read [DJ_BRIDGE_ARCHITECTURE.md](DJ_BRIDGE_ARCHITECTURE.md) (comprehensive design doc)
-→ Check [CHANGELOG_Phase2.md](CHANGELOG_Phase2.md) for implementation summary
+**Genre:** the authority is `release_effective_genres` (metadata.db, written only by the
+enrichment publish stage, read via `src/genre/authority.py`), resolved against the layered
+taxonomy graph and baked into the artifact (`genre_source: graph`). See the
+`genre-data-authority` skill for the layer map.
 
 ---
 
-## 🔍 Key Concepts
-
-### Playlist Generation Modes
-- **Artist Mode**: Generate from a seed artist using sonic similarity
-- **Genre Mode**: Generate from a genre with DJ bridging
-- **History Mode**: Generate from listening history
-
-### DJ Bridging (Phase 2)
-- **Union Pooling**: Combines local + toward + genre candidate pools
-- **Waypoint Guidance**: Genre-guided beam search with IDF weighting
-- **Coverage Bonus**: Rewards matching anchor top-K genres with schedule decay
-
-### Sonic Analysis
-- **beat3tower**: 3-tower feature extraction (rhythm, timbre, harmony)
-- **Hybrid Similarity**: Combines multiple sonic dimensions
-- **Artifacts**: Pre-computed similarity matrices for fast lookups
-
----
-
-## 📝 Documentation Standards
-
-### File Naming
-- `UPPERCASE.md` - Core documentation (permanent)
-- `lowercase_with_underscores.md` - Archived/temporary docs
-- `CHANGELOG_*.md` - Release notes and changelogs
-
-### Structure
-- Use clear headings and table of contents for long docs
-- Include examples for configuration and commands
-- Reference source files with line numbers when applicable
-- Keep archived docs in `archive/` directory
-
-### Updates
-- Update `TODO.md` after completing features
-- Add release notes to `CHANGELOG_*.md`
-- Archive diagnostics after development cycles complete
-- Keep this index updated when adding new core docs
-
----
-
-## 🗂️ Archive Policy
-
-Diagnostic reports, A/B tests, and design exploration documents are archived after development cycles complete:
-
-- **Location**: `docs/archive/` (git-ignored)
-- **Organization**: By date or development cycle
-- **Purpose**: Historical reference, not active documentation
-
-See [archive/README.md](archive/README.md) for archive details.
-
----
-
-**Last Updated:** 2026-01-10
+**Note:** `docs/archive/` and `docs/run_audits/` are gitignored working areas, not shipped docs.

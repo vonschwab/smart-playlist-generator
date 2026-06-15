@@ -18,8 +18,8 @@ from `CLAUDE.md`.
 - Treat `docs/TECHNICAL_PLAYLIST_GENERATION_FLOW.md` as the most authoritative implementation document.
 - For AI genre enrichment work, read `docs/AI_GENRE_ENRICHMENT_DEVELOPMENT_BIBLE.md` before planning or editing code. It is the source of truth for the hybrid deterministic/LLM genre model and overrides older "model prior" specs when they conflict.
 - Use `audit/07-roadmap.md` for active roadmap and audit references; do not re-derive already-cited findings.
-- Python 3.11+ is required. Install with `pip install -e .[gui]` for users and `pip install -e .[gui,dev]` for contributors.
-- GUI work uses PySide6. Older references to PyQt are stale.
+- Python 3.11+ is required. Install with `pip install -e .[web]` for users and `pip install -e .[web,dev]` for contributors.
+- The GUI is a browser app (React + TypeScript + Vite over FastAPI), launched with `python tools/serve_web.py`. The PySide6 desktop GUI was removed; references to PySide6/PyQt are stale.
 
 ## Product Principles
 
