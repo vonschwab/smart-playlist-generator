@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-test("seed search appends a second page when the dropdown is scrolled", async ({ page }) => {
+test("seed search loads a further page on scroll (beyond the auto-prefetched page)", async ({ page }) => {
   await page.route("**/api/tracks/search**", async (route) => {
     const url = new URL(route.request().url());
     const offset = Number(url.searchParams.get("offset") ?? "0");
@@ -16,25 +16,21 @@ test("seed search appends a second page when the dropdown is scrolled", async ({
         genres: ["dream pop"],
       };
     });
-    await route.fulfill({ json: { items, has_more: offset === 0 } }); // one extra page only
+    await route.fulfill({ json: { items, has_more: true } }); // always another page
   });
 
   await page.goto("/");
-
-  // SeedTrackSection (and its search input) only renders in SEEDS mode
+  // The seed search input only mounts in "seeds" generation mode.
   await page.getByRole("combobox", { name: "Generation mode" }).selectOption("seeds");
-
   await page.getByTestId("seed-search-input").fill("beach");
 
-  // Wait for debounce + network
-  await page.waitForTimeout(400);
+  // First page (Song 0-24) plus the auto-prefetched second page (Song 25-49).
+  await expect(page.getByText("Song 49", { exact: true })).toBeVisible();
+  // Song 60 belongs to a THIRD page that only a scroll can load.
+  await expect(page.getByText("Song 60", { exact: true })).toHaveCount(0);
 
-  await expect(page.getByText("Song 0", { exact: true })).toBeVisible();
-  await expect(page.getByText("Song 24", { exact: true })).toBeVisible();
-
-  // Scroll the dropdown to trigger infinite-scroll load
   const list = page.locator("ul.overflow-auto").first();
   await list.evaluate((el) => { el.scrollTop = el.scrollHeight; });
 
-  await expect(page.getByText("Song 40", { exact: true })).toBeVisible();
+  await expect(page.getByText("Song 60", { exact: true })).toBeVisible();
 });
