@@ -28,8 +28,7 @@ textarea { width: 100%; background: #1a1a1a; color: #ddd; border: 1px solid #444
 <div class="bar"><span id="done">0</span> / <span id="total">0</span> rated</div>
 <div class="main" id="main"></div>
 <script>
-const TAIL = 12, HEAD = 12;       // seconds of A-tail and B-head
-let manifest = null, progress = {};
+let manifest = null, progress = {};       // server serves pre-trimmed A-tail / B-head WAV clips
 
 async function init() {
   const [m, p] = await Promise.all([fetch('/api/manifest'), fetch('/api/progress')]);
@@ -64,27 +63,18 @@ function card(e, i) {
 }
 
 function playEdge(aTid, bTid, btn) {
+  // Server returns pre-trimmed 16-bit WAV clips, so we just play tail(A) then
+  // head(B) — no client-side seeking or duration math (FLAC seek is unreliable).
   btn.disabled = true;
-  const a = new Audio('/audio/' + aTid);
-  a.addEventListener('loadedmetadata', () => {
-    a.currentTime = Math.max(0, (a.duration || TAIL) - TAIL);
-    a.play();
-  });
-  a.addEventListener('timeupdate', () => {
-    if (a.currentTime >= (a.duration - 0.15)) toB();
-  });
-  let switched = false;
-  function toB() {
-    if (switched) return; switched = true;
-    a.pause();
-    const b = new Audio('/audio/' + bTid);
-    b.addEventListener('loadedmetadata', () => b.play());
-    b.addEventListener('timeupdate', () => {
-      if (b.currentTime >= HEAD) { b.pause(); btn.disabled = false; }
-    });
-    b.addEventListener('ended', () => { btn.disabled = false; });
-  }
-  a.addEventListener('ended', toB);
+  const done = () => { btn.disabled = false; };
+  const b = new Audio('/audio/' + bTid + '/head');  // preload B during A for a tight cut
+  b.preload = 'auto';
+  b.addEventListener('ended', done);
+  b.addEventListener('error', done);
+  const a = new Audio('/audio/' + aTid + '/tail');
+  a.addEventListener('ended', () => { b.play().catch(done); });
+  a.addEventListener('error', done);
+  a.play().catch(done);
 }
 
 async function save(eid) {

@@ -22,17 +22,30 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-CONTENT_TYPES = {".flac": "audio/flac", ".mp3": "audio/mpeg", ".m4a": "audio/mp4",
-                 ".ogg": "audio/ogg", ".wav": "audio/wav"}
+WINDOW_SEC = 12.0  # seconds of A-tail / B-head served per transition side
 
 
-def _parse_range_header(header: str, file_size: int) -> tuple[int, int]:
-    if not header or not header.startswith("bytes="):
-        return (0, file_size - 1)
-    parts = header[6:].split("-")
-    start = int(parts[0]) if parts[0] else 0
-    end = int(parts[1]) if len(parts) > 1 and parts[1] else file_size - 1
-    return (start, min(end, file_size - 1))
+def read_window_wav(file_path: str, pos: str, window_sec: float = WINDOW_SEC) -> bytes:
+    """Return the tail (pos='tail') or head (pos='head') window of an audio file as
+    16-bit PCM WAV bytes.
+
+    The library is mostly FLAC, ~30% of it 24-bit or hi-res (96/192 kHz), which the
+    HTML5 <audio> element cannot decode. Transcoding the needed window to 16-bit WAV
+    makes every clip universally playable AND sidesteps fragile client-side FLAC
+    time-seeking by extracting the window server-side (soundfile seeks by frame)."""
+    import io
+    import soundfile as sf
+
+    info = sf.info(file_path)
+    n = int(float(window_sec) * info.samplerate)
+    if pos == "tail":
+        start, stop = max(0, info.frames - n), info.frames
+    else:  # head
+        start, stop = 0, min(info.frames, n)
+    data, sr = sf.read(file_path, start=start, stop=stop, dtype="int16")
+    bio = io.BytesIO()
+    sf.write(bio, data, sr, format="WAV", subtype="PCM_16")
+    return bio.getvalue()
 
 
 def blinded_manifest(manifest: dict) -> dict:
@@ -99,12 +112,19 @@ class PaceHandler(BaseHTTPRequestHandler):
             data = (yaml.safe_load(cap.read_text(encoding="utf-8")) or {}) if cap.exists() else {}
             self._json(data.get("entries", []))
         elif path.startswith("/audio/"):
-            tid = path[7:]
+            rest = path[len("/audio/"):]
+            if "/" not in rest:
+                self.send_error(400, "expected /audio/<track_id>/<tail|head>")
+                return
+            tid, pos = rest.rsplit("/", 1)
+            if pos not in ("tail", "head"):
+                self.send_error(400, "pos must be 'tail' or 'head'")
+                return
             fp = self.server.file_paths.get(tid)
             if not fp:
                 self.send_error(404, f"track {tid!r} not in manifest")
                 return
-            self._serve_audio(fp)
+            self._serve_window(fp, pos)
         else:
             self.send_error(404)
 
@@ -127,31 +147,22 @@ class PaceHandler(BaseHTTPRequestHandler):
         _append_capture(self.server.data_dir / "pace_capture.yaml", entry)
         self._json({"ok": True})
 
-    def _serve_audio(self, file_path: str):
+    def _serve_window(self, file_path: str, pos: str):
         p = Path(file_path)
         if not p.exists():
             self.send_error(404, "audio not on disk")
             return
-        size = p.stat().st_size
-        rng = self.headers.get("Range", "")
-        start, end = _parse_range_header(rng, size)
-        length = end - start + 1
-        self.send_response(206 if rng else 200)
-        self.send_header("Content-Type", CONTENT_TYPES.get(p.suffix.lower(), "application/octet-stream"))
-        self.send_header("Content-Length", str(length))
-        if rng:
-            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
-        self.send_header("Accept-Ranges", "bytes")
+        try:
+            wav = read_window_wav(str(p), pos)
+        except Exception as e:  # report to client, keep the server alive
+            self.send_error(500, f"transcode failed: {type(e).__name__}: {e}")
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "audio/wav")
+        self.send_header("Content-Length", str(len(wav)))
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        with open(p, "rb") as f:
-            f.seek(start)
-            remaining = length
-            while remaining > 0:
-                chunk = f.read(min(65536, remaining))
-                if not chunk:
-                    break
-                self.wfile.write(chunk)
-                remaining -= len(chunk)
+        self.wfile.write(wav)
 
 
 def main() -> None:
