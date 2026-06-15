@@ -23,28 +23,81 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 WINDOW_SEC = 12.0  # seconds of A-tail / B-head served per transition side
+SCAN_SEC = 120.0   # how far in from each end to scan for the musical body
+TOP_DB = 40.0      # frames quieter than this below the loudest frame are "silence"
 
 
-def read_window_wav(file_path: str, pos: str, window_sec: float = WINDOW_SEC) -> bytes:
-    """Return the tail (pos='tail') or head (pos='head') window of an audio file as
-    16-bit PCM WAV bytes.
+def _active_span(mono, sr, top_db: float = TOP_DB, hop_ms: float = 20.0):
+    """Return (start, stop) sample indices of the energetic region of a mono signal,
+    trimming leading/trailing near-silence (fades, silent intros/outros). A frame is
+    'active' if its RMS is within top_db of the loudest frame."""
+    import numpy as np
 
-    The library is mostly FLAC, ~30% of it 24-bit or hi-res (96/192 kHz), which the
-    HTML5 <audio> element cannot decode. Transcoding the needed window to 16-bit WAV
-    makes every clip universally playable AND sidesteps fragile client-side FLAC
-    time-seeking by extracting the window server-side (soundfile seeks by frame)."""
+    n = int(len(mono))
+    if n == 0:
+        return 0, 0
+    hop = max(1, int(sr * hop_ms / 1000.0))
+    nframes = (n + hop - 1) // hop
+    pad = nframes * hop - n
+    if pad:
+        mono = np.concatenate([mono, np.zeros(pad, dtype=mono.dtype)])
+    frames = mono.reshape(nframes, hop).astype(np.float64)
+    rms = np.sqrt((frames ** 2).mean(axis=1) + 1e-12)
+    peak = float(rms.max())
+    if peak <= 0:
+        return 0, n
+    thr = peak * (10.0 ** (-float(top_db) / 20.0))
+    active = np.where(rms > thr)[0]
+    if len(active) == 0:
+        return 0, n
+    start = int(active[0]) * hop
+    stop = min(n, (int(active[-1]) + 1) * hop)
+    return start, stop
+
+
+def read_window_wav(
+    file_path: str, pos: str, window_sec: float = WINDOW_SEC,
+    scan_sec: float = SCAN_SEC, top_db: float = TOP_DB,
+) -> bytes:
+    """Return the tail (pos='tail') or head (pos='head') window of a track as 16-bit
+    PCM WAV bytes, taken from the track's MUSICAL BODY (leading/trailing silence,
+    fade-ins/outs and silent intros skipped).
+
+    Two problems this solves:
+      * The library is mostly FLAC, ~30% 24-bit or hi-res (96/192 kHz), which the
+        HTML5 <audio> element cannot decode — so we transcode to 16-bit WAV.
+      * Fixed end-windows landed on fade-ins/outs and silent/spoken intros, so the
+        listener rated silence instead of the transition. We scan up to scan_sec
+        from the relevant end, find the energetic span, and take the window there.
+    Extracting server-side also avoids fragile client-side FLAC time-seeking."""
     import io
+    import numpy as np
     import soundfile as sf
 
     info = sf.info(file_path)
-    n = int(float(window_sec) * info.samplerate)
-    if pos == "tail":
-        start, stop = max(0, info.frames - n), info.frames
-    else:  # head
-        start, stop = 0, min(info.frames, n)
-    data, sr = sf.read(file_path, start=start, stop=stop, dtype="int16")
+    sr = info.samplerate
+    frames = info.frames
+    win = int(float(window_sec) * sr)
+    scan = int(float(scan_sec) * sr)
+
+    if pos == "head":
+        block, _ = sf.read(file_path, start=0, stop=min(frames, scan),
+                           dtype="int16", always_2d=True)
+        a_start, _a_end = _active_span(block.mean(axis=1), sr, top_db)
+        start = a_start
+        stop = min(frames, start + win)
+    else:  # tail
+        rstart = max(0, frames - scan)
+        block, _ = sf.read(file_path, start=rstart, stop=frames,
+                           dtype="int16", always_2d=True)
+        _a_start, a_end = _active_span(block.mean(axis=1), sr, top_db)
+        abs_end = rstart + a_end
+        start = max(0, abs_end - win)
+        stop = abs_end
+
+    clip, _ = sf.read(file_path, start=start, stop=stop, dtype="int16", always_2d=True)
     bio = io.BytesIO()
-    sf.write(bio, data, sr, format="WAV", subtype="PCM_16")
+    sf.write(bio, clip, sr, format="WAV", subtype="PCM_16")
     return bio.getvalue()
 
 

@@ -62,4 +62,44 @@ def test_read_window_wav_tail_returns_end_of_file(tmp_path):
     tail, _ = sf.read(io.BytesIO(read_window_wav(str(src), "tail", window_sec=0.5)), dtype="float32")
     head, _ = sf.read(io.BytesIO(read_window_wav(str(src), "head", window_sec=0.5)), dtype="float32")
     assert tail.max() > 0.8   # tail is near the end of the ramp (~1.0)
-    assert head.max() < 0.3   # head is near the start (~0.0)
+    # head trims the trailing-silence-free leading edge; first 0.5s of the ramp body
+    assert head.max() < 0.4
+
+
+def _rms(x):
+    import numpy as np
+    return float(np.sqrt((x.astype("float64") ** 2).mean()))
+
+
+def test_read_window_wav_head_skips_leading_silence(tmp_path):
+    import io
+    import numpy as np
+    import soundfile as sf
+    from scripts.pace_audition_serve import read_window_wav
+
+    sr = 22050
+    silence = np.zeros(2 * sr, dtype="float32")                                  # 2s silence
+    tone = (0.5 * np.sin(2 * np.pi * 440 * np.arange(2 * sr) / sr)).astype("float32")  # 2s tone
+    src = tmp_path / "intro_silence.flac"
+    sf.write(src, np.concatenate([silence, tone]), sr, format="FLAC", subtype="PCM_16")
+
+    head, _ = sf.read(io.BytesIO(read_window_wav(str(src), "head", window_sec=1.0)), dtype="float32")
+    # the head clip must be the TONE body, not the 2s of leading silence
+    assert _rms(head) > 0.1
+
+
+def test_read_window_wav_tail_skips_trailing_silence(tmp_path):
+    import io
+    import numpy as np
+    import soundfile as sf
+    from scripts.pace_audition_serve import read_window_wav
+
+    sr = 22050
+    tone = (0.5 * np.sin(2 * np.pi * 440 * np.arange(2 * sr) / sr)).astype("float32")  # 2s tone
+    silence = np.zeros(2 * sr, dtype="float32")                                  # 2s trailing silence
+    src = tmp_path / "outro_silence.flac"
+    sf.write(src, np.concatenate([tone, silence]), sr, format="FLAC", subtype="PCM_16")
+
+    tail, _ = sf.read(io.BytesIO(read_window_wav(str(src), "tail", window_sec=1.0)), dtype="float32")
+    # the tail clip must be the TONE body, not the 2s of trailing silence
+    assert _rms(tail) > 0.1
