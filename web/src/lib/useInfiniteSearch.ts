@@ -20,6 +20,14 @@ export interface UseInfiniteSearchResult<T> {
   reset: () => void;
 }
 
+/**
+ * Bounded-page infinite-scroll search hook: debounced first page, pause-prefetch of
+ * one extra page, scroll-driven loadMore, and stale-response guarding.
+ *
+ * `opts.fetchPage` MUST be a stable reference across renders (e.g. a module-level
+ * `api.*` method). An inline/unstable fetchPage can leave a scheduled prefetch timer
+ * holding a previous render's closure. The two current consumers pass stable methods.
+ */
 export function useInfiniteSearch<T>(opts: UseInfiniteSearchOptions<T>): UseInfiniteSearchResult<T> {
   const {
     fetchPage,
@@ -87,7 +95,7 @@ export function useInfiniteSearch<T>(opts: UseInfiniteSearchOptions<T>): UseInfi
     queryRef.current = q;
     setQueryState(q);
     clearTimers();
-    reqId.current += 1; // invalidate any in-flight fetch for the old query
+    reqId.current += 1; // bump so the in-flight fetch's captured id can't match; the q !== queryRef guard is what actually drops its result
     if (q.length < minChars) {
       itemsRef.current = [];
       hasMoreRef.current = false;

@@ -64,9 +64,24 @@ describe("useInfiniteSearch", () => {
     await act(async () => { vi.advanceTimersByTime(500); }); // pause-prefetch one page
     expect(result.current.items).toEqual(["A1", "A2", "A3", "A4"]);
     expect(fetchPage).toHaveBeenCalledTimes(2);
+    expect(fetchPage).toHaveBeenNthCalledWith(2, "aa", 2, 2); // offset advances by pageSize
 
     await act(async () => { vi.advanceTimersByTime(2000); }); // no further auto-fetch
     expect(fetchPage).toHaveBeenCalledTimes(2);
+  });
+
+  it("clears items immediately when the query drops below minChars", async () => {
+    const fetchPage = vi.fn<(q: string, o: number, l: number) => Promise<Page<string>>>()
+      .mockResolvedValueOnce({ items: ["A1", "A2"], has_more: false });
+    const { result } = renderHook(() =>
+      useInfiniteSearch<string>({ fetchPage, firstDebounceMs: 0, prefetchDelayMs: 999999, pageSize: 10 }));
+
+    act(() => result.current.setQuery("abc"));
+    await act(async () => { vi.advanceTimersByTime(0); });
+    expect(result.current.items).toEqual(["A1", "A2"]);
+
+    act(() => result.current.setQuery("a")); // below minChars (2)
+    expect(result.current.items).toEqual([]);
   });
 
   it("reset discards an in-flight response and clears state", async () => {
