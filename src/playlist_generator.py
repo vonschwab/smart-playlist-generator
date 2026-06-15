@@ -24,6 +24,7 @@ from src.playlist.artist_style import (
 )
 from src.playlist.pier_bridge_builder import PierBridgeConfig, resolve_pier_bridge_tuning
 from src.playlist.config import default_ds_config, get_min_sonic_similarity, resolve_cohesion_mode
+from src.playlist.genre_ds_params import resolve_genre_ds_params
 # Phase 2: Import utilities from refactored module
 from src.playlist import utils
 # Phase 3: Import filtering from refactored module
@@ -178,6 +179,9 @@ def _build_edge_audit_rows(
             "genre_penalty_applied": beam_comp.get("genre_penalty_applied") if beam_comp else edge.get("genre_penalty_applied"),
             "below_transition_floor": below_floor,
             "to_title_flags": detect_title_artifacts(to_title),
+            "bpm_a": edge.get("bpm_a"),
+            "bpm_b": edge.get("bpm_b"),
+            "bpm_log_dist": edge.get("bpm_log_dist"),
         }
         rows.append(row)
     return rows
@@ -739,28 +743,15 @@ class PlaylistGenerator:
         # Read genre similarity configuration
         playlists_cfg = self.config.config.get('playlists', {})
         pace_mode_effective = pace_mode or playlists_cfg.get("pace_mode") or "dynamic"
-        genre_cfg = playlists_cfg.get('genre_similarity', {})
-        genre_enabled = genre_cfg.get('enabled', True)
-        min_genre_sim = genre_cfg.get('min_genre_similarity', 0.30) if genre_enabled else None
-        if genre_enabled and mode == "narrow":
-            min_genre_sim = genre_cfg.get('min_genre_similarity_narrow', min_genre_sim)
-        genre_method = genre_cfg.get('method', 'ensemble') if genre_enabled else None
-        # Default to 50/50 when genre is enabled
-        sonic_weight = genre_cfg.get('sonic_weight', 0.50) if genre_enabled else None
-        genre_weight = genre_cfg.get('weight', 0.50) if genre_enabled else None
-        if not genre_enabled:
-            genre_weight = 0.0
-            sonic_weight = genre_cfg.get('sonic_weight', 1.0) or 1.0
-
-        mode_overrides_active = bool(
-            playlists_cfg.get("genre_mode") or playlists_cfg.get("sonic_mode")
-        )
-        if mode == "sonic_only" and not mode_overrides_active:
-            genre_enabled = False
-            min_genre_sim = None
-            genre_method = None
-            genre_weight = 0.0
-            sonic_weight = 1.0
+        # Genre gate + hybrid weights — resolved via the shared helper so the
+        # gui_fidelity harness (and any other caller) resolves them identically
+        # (these are explicit generate_playlist_ds params, NOT carried in overrides).
+        _genre_params = resolve_genre_ds_params(playlists_cfg, mode)
+        sonic_weight = _genre_params["sonic_weight"]
+        genre_weight = _genre_params["genre_weight"]
+        min_genre_sim = _genre_params["min_genre_similarity"]
+        genre_method = _genre_params["genre_method"]
+        genre_enabled = min_genre_sim is not None
 
         if artist_style_enabled and not allowed_track_ids:
             raise ValueError(

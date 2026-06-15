@@ -38,12 +38,14 @@ That single chain (especially `load_config_with_overrides`) is the piece ad-hoc 
 | Dense sidecar staleness | stale `X_genre_dense` / vocab drift | `load_artifact_bundle` only guards track_ids, not vocab/content. Rebuild sidecar (Build Artifacts button does both now). |
 | Last.fm recency nondeterminism | run-to-run track differences | harness is artifact-level and does not hit Last.fm; full-stack runs do. |
 | Mode keys mutated after `Config()` construction | genre/sonic modes silently inert (floors/weights stay at config.yaml values) while pace_mode works | `apply_mode_presets` runs inside `Config.__init__` (config_loader.py); genre/sonic presets bake at load time, pace is read at generation time. Don't drive `PlaylistApp`/`PlaylistGenerator` directly and set `playlists.genre_mode` afterward — use `generate_like_gui` (2026-06-12). |
+| Genre gate / hybrid weights silently OFF in the harness | `rejected_genre=0`, no "Candidate pool genre gating" line; any genre-gate experiment is inert (loosening `genre_admission_percentile` changes nothing) | `min_genre_similarity` / `sonic_weight` / `genre_weight` / `genre_method` are **explicit `generate_playlist_ds` params, NOT carried in the overrides dict** — the orchestrator resolves them from `playlists.genre_similarity`. `generate_like_gui` now calls `resolve_gui_genre_params` (shared `src/playlist/genre_ds_params.py::resolve_genre_ds_params`, same fn the orchestrator uses) and splats them in. If you call `generate_playlist_ds` directly, you MUST pass them too or the genre gate is off. Fixed 2026-06-14. |
 
 ## What this harness does and does NOT cover
 
 - ✅ Generation **logic** at full config fidelity — seeds mode (and artist mode when piers are supplied). Fast, artifact-level, deterministic.
+- ✅ Genre gate + hybrid sonic/genre weights (since 2026-06-14, via `resolve_gui_genre_params`) — the candidate-pool genre admission now fires in the harness exactly as in the GUI.
 - ❌ The Qt widget layer (use `pytest-qt`; the old no-op `qtbot` stub is gone).
-- ❌ DB-clustering (artist-style pier discovery) and Last.fm recency — those need the full `handle_generate_playlist` worker entry, a separate heavier tier not built here.
+- ❌ DB-clustering (artist-style pier discovery) and Last.fm recency — those need the full `handle_generate_playlist` worker entry, a separate heavier tier not built here. (Note: per-edge S/G/T *reporting* is also worker-layer — `generate_playlist_ds`'s result carries `track_ids` but empty `metrics`; compute edge stats yourself for harness experiments.)
 
 ## Assertion helpers (in `tests/support/gui_fidelity.py`)
 

@@ -39,6 +39,7 @@ from src.playlist_gui.ui_state import UIStateModel
 from src.playlist_gui.policy import derive_runtime_config, merge_overrides
 from src.playlist_gui.worker import load_config_with_overrides
 from src.playlist_generator import build_ds_overrides
+from src.playlist.genre_ds_params import resolve_genre_ds_params
 from src.playlist.ds_pipeline_runner import generate_playlist_ds
 
 DEFAULT_CONFIG = "config.yaml"
@@ -74,6 +75,25 @@ def resolve_gui_overrides(
     return build_ds_overrides(ds_cfg)
 
 
+def resolve_gui_genre_params(
+    ui: UIStateModel,
+    *,
+    config_path: str = DEFAULT_CONFIG,
+    seed_artist_keys: Optional[list[str]] = None,
+) -> dict[str, Any]:
+    """Resolve the genre gate + hybrid weights the GUI orchestrator passes to
+    ``generate_playlist_ds`` (these are explicit params, NOT carried in the
+    overrides dict). Mirrors ``playlist_generator`` via the shared
+    ``resolve_genre_ds_params`` so the harness runs the genre gate instead of
+    silently leaving it off. Keyed by the cohesion mode, exactly like the orchestrator.
+    """
+    decisions = derive_runtime_config(ui, seed_artist_keys=seed_artist_keys)
+    overrides = merge_overrides({}, decisions.overrides)
+    merged = load_config_with_overrides(config_path, overrides)
+    playlists_cfg = (merged.get("playlists", {}) or {})
+    return resolve_genre_ds_params(playlists_cfg, ui.cohesion_mode)
+
+
 def resolved_artifact_path(config_path: str = DEFAULT_CONFIG) -> str:
     merged = load_config_with_overrides(config_path, {})
     ds_cfg = (merged.get("playlists", {}) or {}).get("ds_pipeline", {}) or {}
@@ -98,6 +118,7 @@ def generate_like_gui(
     """
     ui = ui or gui_ui_state(**ui_kwargs)
     ds_overrides = resolve_gui_overrides(ui, config_path=config_path)
+    genre_params = resolve_gui_genre_params(ui, config_path=config_path)
     art = artifact_path or resolved_artifact_path(config_path)
     seeds = list(seeds)
     return generate_playlist_ds(
@@ -111,6 +132,7 @@ def generate_like_gui(
         overrides=ds_overrides,
         artist_style_enabled=False,
         artist_playlist=False,
+        **genre_params,
     )
 
 
