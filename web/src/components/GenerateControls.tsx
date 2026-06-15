@@ -88,7 +88,7 @@ export function GenerateControls({
 
   // Autocomplete (artist mode) — bounded-page infinite scroll
   const artistSearch = useInfiniteSearch<string>({ fetchPage: api.autocomplete, pageSize: 30 });
-  const suppressSearch = useRef(false);
+  const selectedRef = useRef<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
 
@@ -125,13 +125,14 @@ export function GenerateControls({
     }
     document.addEventListener("mousedown", onOutside);
     return () => document.removeEventListener("mousedown", onOutside);
-  }, [artistSearch]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Drive the artist autocomplete from the seed input. Skip one cycle after a
   // selection so picking a name doesn't immediately re-open the dropdown.
   useEffect(() => {
     if (mode !== "artist") { artistSearch.reset(); return; }
-    if (suppressSearch.current) { suppressSearch.current = false; return; }
+    if (seed === selectedRef.current) return; // just selected this name — don't reopen the dropdown
     artistSearch.setQuery(seed);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seed, mode]);
@@ -190,7 +191,7 @@ export function GenerateControls({
               <input
                 data-testid="seed-input"
                 value={seed}
-                onChange={(e) => setSeed(e.target.value)}
+                onChange={(e) => { selectedRef.current = null; setSeed(e.target.value); }}
                 onKeyDown={(e) => e.key === "Enter" && submit()}
                 placeholder={mode === "artist" ? "Artist name…" : "Genre…"}
                 className="w-full bg-[#0c0e12] border border-[#23262d] rounded text-[11px] text-[#e6e9ec] px-2.5 py-[3px]"
@@ -207,7 +208,7 @@ export function GenerateControls({
                   {artistSearch.items.map((s) => (
                     <li
                       key={s}
-                      onClick={() => { suppressSearch.current = true; setSeed(s); artistSearch.reset(); }}
+                      onClick={() => { selectedRef.current = s; setSeed(s); artistSearch.reset(); }}
                       className="px-2.5 py-1.5 text-[11px] text-[#e6e9ec] hover:bg-[#1e2229] cursor-pointer"
                     >
                       {s}
