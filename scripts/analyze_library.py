@@ -45,7 +45,17 @@ from src.ai_genre_enrichment.provider import resolve_enrichment_model
 
 DEFAULT_OUT_DIR = ROOT_DIR / "data" / "artifacts" / "beat3tower_32k"
 ENRICHMENT_DB_PATH = ROOT_DIR / "data" / "ai_genre_enrichment.db"
-STAGE_ORDER_DEFAULT = ["scan", "genres", "discogs", "lastfm", "sonic", "enrich", "publish", "genre-sim", "artifacts", "genre-embedding", "verify"]
+STAGE_ORDER_DEFAULT = ["scan", "genres", "discogs", "lastfm", "sonic", "mert", "enrich", "publish", "genre-sim", "artifacts", "genre-embedding", "verify"]
+
+# Substrings that identify a TRANSIENT Claude failure (rate limit / usage window).
+# These are resumable: the cache already persists whatever was adjudicated before
+# the error, so a re-run will pick up where it left off.
+# Hard config errors (SDK not installed, unauthenticated, bad model name) do NOT
+# match these patterns and must still propagate loudly.
+_TRANSIENT_CLAUDE_PATTERNS: tuple[str, ...] = (
+    "Claude Code returned an error result: success",
+    "Claude Code request failed after retries",
+)
 
 logger = logging.getLogger("analyze_library")
 
@@ -294,6 +304,17 @@ def compute_stage_fingerprint(ctx: Dict, stage: str) -> str:
             "has_features": has_features,
             "cols": _table_columns(conn, "tracks"),
         }
+        return _hash_obj(key)
+
+    if stage == "mert":
+        artifact_path = Path(ctx["out_dir"]) / "data_matrices_step1.npz"
+        try:
+            track_ids = sorted(
+                str(t) for t in np.load(artifact_path, allow_pickle=True)["track_ids"]
+            ) if artifact_path.exists() else []
+        except Exception:
+            track_ids = []
+        key = {"stage": stage, "track_ids": track_ids}
         return _hash_obj(key)
 
     if stage == "enrich":
@@ -1362,9 +1383,32 @@ def stage_enrich(ctx: Dict) -> Dict:
     injected_client = getattr(args, "enrich_client", None)
     tags_adjudicated = 0
     chunks_used = 0
+    enriched = 0
+    skipped = 0
+    assignments = 0
     for i in range(0, len(unknown), chunk_size):
         chunk = unknown[i:i + chunk_size]
-        results = adjudicate_tags(chunk, model=model, client=injected_client)
+        try:
+            results = adjudicate_tags(chunk, model=model, client=injected_client)
+        except RuntimeError as exc:
+            exc_str = str(exc)
+            if any(pat in exc_str for pat in _TRANSIENT_CLAUDE_PATTERNS):
+                logger.warning(
+                    "enrich stage: transient Claude failure — pausing cleanly "
+                    "(cache preserved, re-run will resume). Reason: %s", exc_str,
+                )
+                return {
+                    "skipped": False,
+                    "paused": True,
+                    "pause_reason": exc_str,
+                    "releases_enriched": enriched,
+                    "releases_skipped_unchanged": skipped,
+                    "tags_adjudicated": tags_adjudicated,
+                    "chunks_used": chunks_used,
+                    "genre_assignments": assignments,
+                    "total": enriched,
+                }
+            raise
         chunks_used += 1
         for norm, decision in results.items():
             classification = decision.get("classification")
@@ -1406,9 +1450,6 @@ def stage_enrich(ctx: Dict) -> Dict:
     # fixes (2026-06-13 incident). The current fusion policy still applies to
     # every release that IS materialized — new music gets the better rules.
     force = bool(getattr(args, "force", False))
-    enriched = 0
-    skipped = 0
-    assignments = 0
     for rk in pending_keys:
         release = by_key.get(rk)
         if release is None:
@@ -1805,6 +1846,139 @@ def stage_verify(ctx: Dict) -> Dict:
     }
 
 
+def _build_mert_embedder(device: str, torch_threads: int):
+    """Build and return the real MERT embedder.
+
+    Isolated so tests can monkeypatch ``al._build_mert_embedder`` without
+    loading torch/transformers.  Sets torch CPU thread count when requested.
+    """
+    if torch_threads > 0:
+        import torch
+        torch.set_num_threads(torch_threads)
+    from scripts.extract_mert_sidecar import build_real_embedder
+    return build_real_embedder(device)
+
+
+def stage_mert(ctx: Dict) -> Dict:
+    """Extract MERT sonic embeddings into resumable shards and a merged sidecar npz.
+
+    Pending = artifact track_ids minus whatever the shard manifest already marks
+    done-or-failed.  Returns immediately (skipped=True) when pending==0 and
+    force is False so the real embedder is never loaded in that case.
+    """
+    import yaml
+    from scripts.extract_mert_sidecar import (
+        ShardStore,
+        load_artifact_track_ids,
+        load_paths,
+        merge_shards,
+        MODEL_NAME,
+        DEFAULT_REVISION,
+        EMB_DIM,
+        run_extraction,
+    )
+
+    args = ctx["args"]
+    force: bool = bool(args.force)
+    limit: Optional[int] = args.limit if args.limit else None
+    out_dir: Path = Path(ctx["out_dir"])
+
+    # Read MERT config block (device / torch_threads / shard_size).
+    device = "cpu"
+    torch_threads = 0
+    shard_size = 500
+    try:
+        with open(ctx["config_path"], "r", encoding="utf-8") as _f:
+            _cfg = yaml.safe_load(_f) or {}
+        _mert_cfg = (_cfg.get("analyze") or {}).get("mert") or {}
+        device = str(_mert_cfg.get("device", "cpu"))
+        torch_threads = int(_mert_cfg.get("torch_threads", 0))
+        shard_size = int(_mert_cfg.get("shard_size", 500))
+    except Exception:
+        pass
+
+    # Determine artifact track_ids and shard directory.
+    artifact_path = out_dir / "data_matrices_step1.npz"
+    shard_dir = out_dir / "mert_shards"
+    sidecar_path = out_dir / "mert_sidecar.npz"
+
+    try:
+        artifact_track_ids: List[str] = load_artifact_track_ids(artifact_path)
+    except Exception as exc:
+        logger.warning("stage_mert: cannot load artifact track_ids: %s", exc)
+        return {"skipped": True, "pending": 0, "reason": str(exc)}
+
+    # Build the skip set from the existing manifest (if any).
+    skip_ids: set = set()
+    if not force and shard_dir.exists() and (shard_dir / "manifest.json").exists():
+        try:
+            store_probe = ShardStore(
+                shard_dir,
+                model_name=MODEL_NAME,
+                model_revision=DEFAULT_REVISION,
+                emb_dim=EMB_DIM,
+                shard_size=shard_size,
+            )
+            skip_ids = store_probe.skip_ids()
+        except Exception as exc:
+            logger.warning("stage_mert: manifest read failed, treating as empty: %s", exc)
+
+    pending_ids = [t for t in artifact_track_ids if t not in skip_ids]
+    if limit is not None:
+        pending_ids = pending_ids[:limit]
+
+    if not pending_ids and not force:
+        logger.info("stage_mert: nothing pending (manifest complete); skipping")
+        return {"skipped": True, "pending": 0}
+
+    # Force re-extracts everything in the artifact.
+    if force:
+        pending_ids = artifact_track_ids
+        if limit is not None:
+            pending_ids = pending_ids[:limit]
+
+    logger.info("stage_mert: %d track(s) pending (device=%s)", len(pending_ids), device)
+
+    # Load file paths for the pending tracks only.
+    db_paths: Dict[str, str] = {}
+    try:
+        db_paths = load_paths(ctx["db_path"])
+    except Exception as exc:
+        logger.warning("stage_mert: cannot load file paths from db: %s", exc)
+
+    items: List[Tuple[str, Optional[str]]] = [
+        (tid, db_paths.get(tid)) for tid in pending_ids
+    ]
+
+    embedder = _build_mert_embedder(device, torch_threads)
+    store = ShardStore(
+        shard_dir,
+        model_name=MODEL_NAME,
+        model_revision=DEFAULT_REVISION,
+        emb_dim=EMB_DIM,
+        shard_size=shard_size,
+    )
+
+    result = run_extraction(items, embedder, store)
+    n_ok: int = result["ok"]
+    n_fail: int = result["failed"]
+
+    # Merge all shards into the sidecar npz.
+    try:
+        merge_shards(shard_dir, sidecar_path)
+    except Exception as exc:
+        logger.warning("stage_mert: merge_shards failed: %s", exc)
+        sidecar_path = None  # type: ignore[assignment]
+
+    return {
+        "skipped": False,
+        "pending": len(pending_ids),
+        "ok": n_ok,
+        "failed": n_fail,
+        "sidecar": str(sidecar_path) if sidecar_path else None,
+    }
+
+
 STAGE_FUNCS = {
     "scan": stage_scan,
     "mbid": stage_mbid,
@@ -1814,6 +1988,7 @@ STAGE_FUNCS = {
     "enrich": stage_enrich,
     "publish": stage_publish,
     "sonic": stage_sonic,
+    "mert": stage_mert,
     "genre-sim": stage_genre_sim,
     "artifacts": stage_artifacts,
     "genre-embedding": stage_genre_embedding,
@@ -2024,6 +2199,22 @@ def run_pipeline(
             result = func(ctx)
             _check_cancelled()
             duration = time.time() - stage_start
+            if isinstance(result, dict) and result.get("paused"):
+                report["paused"] = True
+                report["paused_stage"] = stage
+                report["stages"][stage] = {
+                    "decision": "paused",
+                    "pause_reason": result.get("pause_reason"),
+                    "duration_sec": duration,
+                    "fingerprint_before": fingerprint_before,
+                    "pending_estimate": pending_count,
+                    "pending_label": pending_label,
+                }
+                logger.warning(
+                    "run_id=%s | stage=%s | decision=paused | reason=%s",
+                    run_id, stage, result.get("pause_reason"),
+                )
+                break
             fingerprint_after = compute_stage_fingerprint(ctx, stage)
             set_last_fingerprint(conn, stage, fingerprint_after)
             items = summarize_items(result)
