@@ -47,6 +47,7 @@ export function GenerateControls({
   mode,
   onModeChange,
   seedTrackIds,
+  seedDisplays,
   onSubmit,
   busy,
   initialValues,
@@ -54,6 +55,10 @@ export function GenerateControls({
   mode: Mode;
   onModeChange: (m: Mode) => void;
   seedTrackIds: string[];
+  // Display strings ("Title - Artist") parallel to seedTrackIds. The backend
+  // requires seed_tracks (the fuzzy-match fallback) alongside seed_track_ids
+  // (the exact-match optimization); sending IDs alone fails generation.
+  seedDisplays: string[];
   onSubmit: (body: GenerateRequestBody) => void;
   busy: boolean;
   initialValues?: Partial<GenerateRequestBody>;
@@ -135,6 +140,7 @@ export function GenerateControls({
       tracks,
       artist: mode === "artist" ? seed : undefined,
       genre: mode === "genre" ? seed : undefined,
+      seed_tracks: mode === "seeds" ? seedDisplays : undefined,
       seed_track_ids: mode === "seeds" ? seedTrackIds : undefined,
       cohesion_mode: cohesion as "strict" | "narrow" | "dynamic" | "discover",
       genre_mode: axes.genre_mode as AxisValue,
