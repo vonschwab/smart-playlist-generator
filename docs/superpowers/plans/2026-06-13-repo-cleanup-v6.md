@@ -55,32 +55,36 @@ The 2026-06-10 audit is **stale** — the genre, pace, and MERT lanes all landed
 - [ ] **Zombie tests:** tests importing dead-module candidates.
 - [ ] Write findings to `docs/run_audits/dead_code_2026-06-15.md` (gitignored path — scratch evidence). Each candidate cites its evidence. This drives B1–B5.
 
-### Task B1: Kill list C — delete the legacy pre-DS engine (the big surgery)
-The pre-pier-bridge engine is imported by `playlist_generator.py` but is the dead non-DS path. **Re-verify exact paths from B0** — they are NOT all under `src/playlist/` (e.g. the import is `from .similarity_calculator` → `src/similarity_calculator.py`; `genre_similarity_v2` likewise). Candidate cluster (verify each): `constructor`, `candidate_generator`, `ordering`, `diversity`, `history_analyzer`, `similarity_calculator`, `genre_similarity_v2`.
-- [ ] Map every importer (B0 output). Confirm the only consumers are `playlist_generator.py` + each other (the legacy cluster) — if a **live** DS-path module imports one, it is NOT dead; stop and reassess.
-- [ ] Remove the legacy code path from `playlist_generator.py` (the non-DS branch + its imports). Commit to `pipeline: ds` as the only engine.
-- [ ] Delete the modules + their zombie tests. Deleting `similarity_calculator.py` also removes the dormant `_get_combined_genres` signature-preferring seam (genre-data-authority skill).
-- [ ] **Guards:** `python -c "import src.playlist_generator"` clean; `ruff check src/playlist_generator.py` (no F401); **full non-slow suite green**; **one real multi-pier generation** via the `gui_fidelity` harness (read the playlist-testing skill first) with sane transition stats.
-- [ ] Commit — `refactor(engine): delete legacy pre-DS pipeline; ds is the only engine`. Do this as 1–3 incremental commits if the untangle is large; keep each green.
-- [ ] **Escape hatch:** if generation destabilizes and the cause isn't quickly found, revert the phase and raise it — do NOT ship a half-untangled engine.
+### Task B1: Legacy pre-DS engine removal — DEFERRED to its own focused pass ⚠️
+**User decision (2026-06-15): do NOT rush this; treat it as a dedicated, extremely-careful effort.** It gates the v6.0 tag (Phase D) but runs as its own pass, not inline with the rest of the cleanup.
 
-### Task B2: Delete `vocab_normalization`
-- [ ] Re-confirm 0 non-test importers (current: 0 in src/scripts/tools). Delete `src/genre/vocab_normalization.py` + `tests/unit/test_vocab_normalization.py`.
-- [ ] Full suite green; commit.
+**Why it's not a simple delete (2026-06-15 finding):** the legacy cluster (`constructor`, `candidate_generator`, `ordering`, `diversity`, `history_analyzer`, `similarity_calculator` @ `src/`, `genre_similarity_v2` @ `src/`) is **not an isolated dead branch**. `playlist_generator.py`'s live methods (`create_playlist_batch/for_artist/for_genre/from_seed_tracks` — all called by `main_app` + the worker) run the **DS pipeline** (`run_ds_pipeline`) but still *delegate* to these modules for auxiliary work: `history_analyzer` (listening-history seed selection, `is_collaboration_of`, `analyze_top_artists`), `candidate_generator` (`generate_candidates`, `CandidateConfig`, `build_seed_title_set`), `diversity` (`diversify_by_artist_cap`), `similarity_calculator` (scoring). The 2026-06-10 audit rated these "5–12% runtime coverage" — mostly the dead old engine, but with a few helper functions still invoked. Done wrong, this breaks live generation.
 
-### Task B3: Dead scripts — delete; research scripts — relocate
-- [ ] **Delete** (all confirmed present): `scripts/sweep_pier_bridge_dials.py`, `run_dj_connector_bias_ab.py`, `run_dj_ladder_route_ab.py`, `run_dj_relaxation_micro_pier_demo.py`, `run_dj_union_pooling_stress_ab.py`, `fix_compound_genres.py`, `rebuild_sonic_tower_weighted.py` (dangerous post-2DFTM; also drop its CLAUDE.md gotcha), `build_windows.ps1` (PyInstaller, dead with PySide6 gone). Re-verify B0 shows no importer for each.
-- [ ] **Move to `scripts/research/`** (referenced as reproducibility evidence — update the links in `docs/SONIC_PHASE2_HARMONY_FINDINGS.md`): the `sonic_*` probes, `research_*`, `measure_genre_baseline.py`, `run_model_prior_album_tests.py`. **Also assess the new `pace_audition_*` scripts** — if they're one-shot harness scripts like the sonic audition, relocate them too.
-- [ ] Commit deletions and moves separately.
+**Method (coverage-guided, the audit's own approach):**
+- [ ] Set up read-only `data/` in the worktree (point the untracked `config.yaml` at the main checkout's absolute `data/metadata.db` + artifact paths). Never write them.
+- [ ] Run real multi-pier generations (GUI 10-seed + artist-mode CLI) under `coverage.py --branch`. Identify, per legacy module, exactly which functions execute vs are dead.
+- [ ] For each still-executed helper: either it is genuinely needed (extract it to a live home / inline it) or its caller is itself a dead path (remove the caller). Decide per function, with evidence.
+- [ ] Remove the dead engine + dormant `_get_combined_genres` seam; untangle `playlist_generator.py`'s imports; commit to `pipeline: ds` as the only engine.
+- [ ] **Guards after every increment:** import clean; `ruff` no F401; full non-slow suite green; **a real multi-pier generation with sane transition stats** (playlist-testing skill). Incremental commits, each green.
+- [ ] **Folds in:** the two B4 keys read only by `similarity_calculator` (`genre_similarity.use_artist_tags`, `similar_artists.boost`) are removed here, with their reader.
+- [ ] **Escape hatch:** if generation destabilizes and the cause isn't fast to find, revert and raise — never ship a half-untangled engine.
 
-### Task B4: Config deprecated-settings sweep
-From B0's knob audit, against the **post-B1** code (engine removal orphans more keys):
-- [ ] Delete the three known-dead keys: `playlists.cache_expiry_days`, `playlists.genre_similarity.use_artist_tags`, `playlists.similar_artists.boost` (the latter two were only read by the now-deleted `similarity_calculator`).
-- [ ] Delete every other zero-reader key B0 found. Keep the ~37 live per-mode-suffixed keys (dynamic reads). Re-check the **new** pace (onset/bpm bands, rhythm soft penalty), MERT (`analyze.mert`, `artifacts.sonic_variant_override`), and genre keys are all live before pruning.
-- [ ] `python tools/doctor.py` loads clean. Commit `config.example.yaml` (the local `config.yaml` is untracked — edit it too, not committed). Record before/after leaf-key counts in the message.
+### Task B2: Delete `vocab_normalization` — DONE (`3ec567c`)
+Deleted module + test (0 importers). Suite green (1716).
 
-### Task B5: Close any remaining dead wiring B0 surfaced
-- [ ] For each "declared-but-unimplemented" item from B0: either implement it (if intended, like mert-stage was) or remove the declaration (if abandoned). No configured value may resolve to a no-op. Commit per fix.
+### Task B3a: Delete dead scripts — DONE (`d0f1760`)
+Deleted the A/B sweeps, `fix_compound_genres`, `rebuild_sonic_tower_weighted` + `src/features/sonic_rebuild.py`, `build_windows.ps1`, and their tests (−3706 LOC). Suite green (1712).
+
+### Task B3b: Relocate research/audition scripts — DEFERRED (organizational, not dead-code)
+- [ ] Move to `scripts/research/`: the `sonic_*` probes, `research_*`, `measure_genre_baseline.py`, `run_model_prior_album_tests.py`, and the audition harnesses (`sonic_audition_*`, `genre_audition_*`, `pace_audition_*`, `pace_calibration_sweep.py`) — these have tests, so update test import paths + the links in `docs/SONIC_PHASE2_HARMONY_FINDINGS.md`. Lower priority than dead-code; can land late.
+
+### Task B4: Config deprecated-settings sweep (the truly-zero-reader keys now; legacy-coupled keys in B1)
+- [ ] Delete `playlists.cache_expiry_days` (0 readers anywhere). The other two known-dead keys (`use_artist_tags`, `similar_artists.boost`) are read only by `similarity_calculator` → remove them **in B1** with their reader, to keep each phase self-consistent.
+- [ ] From a fresh knob audit, delete every other key with **zero readers anywhere** (not even the legacy engine). Keep the ~37 live per-mode-suffixed keys (dynamic reads) and the new pace/MERT/genre keys (verify each is read).
+- [ ] `python tools/doctor.py` loads clean. Commit `config.example.yaml`; edit the untracked `config.yaml` too. Record before/after leaf-key counts.
+
+### Task B5: Close any remaining dead wiring
+- [ ] The two declared-but-unimplemented items B0 surfaced (mert analyze stage, enrich-pause) are already **implemented** (`dd10396`). Re-run the declared-but-unimplemented audit after B1; resolve anything new (implement if intended, else remove the declaration). No configured value may resolve to a no-op.
 
 ---
 
