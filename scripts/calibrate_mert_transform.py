@@ -44,6 +44,14 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+# Same artist-identity primitive the generator uses for seed-artist exclusion.
+# We exclude the seed artist's own catalogue from the candidate pool so the
+# eval mirrors real generation (principle 10/11: identity is computed; seed
+# artist disallowed). Note: this is normalize-key parity with the generator's
+# default — it does NOT resolve aliases (e.g. AFX↔Aphex Twin), matching the
+# generator's own default behaviour.
+from src.string_utils import normalize_artist_key  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # Hardcoded constants from the spec
 # ---------------------------------------------------------------------------
@@ -89,6 +97,23 @@ DEFAULT_MAX_PER_ARTIST = 10
 
 # Number of cosine-spread pairs to sample (speed vs accuracy)
 MAX_SPREAD_PAIRS = 5_000
+
+# Transforms saved to the output NPZ (usable in the fold pipeline)
+LABELS_SAVE = ["center_l2", "whiten_l2", "center_pca128", "whiten_pca256",
+               "power_l2_050", "power_l2_075"]
+
+# Additional transforms evaluated in the table but NOT persisted (no fold path yet)
+LABELS_EVAL_ONLY = ["umap_128", "umap_64"]
+
+# Layer-selection labels (only run when --layers-sidecar is provided)
+LAYER_SUBSETS = {
+    "layers_all":    list(range(13)),     # sanity check: should ≈ center_l2
+    "layers_upper4": list(range(9, 13)),  # layers 9-12
+    "layers_top2":   list(range(11, 13)), # layers 11-12
+    "layers_last1":  [12],               # final layer only
+    "layers_mid4":   list(range(5, 9)),  # layers 5-8
+    "layers_lower4": list(range(1, 5)),  # layers 1-4
+}
 
 
 # ---------------------------------------------------------------------------
@@ -287,6 +312,27 @@ def fit_transform(
         params[f"{label}_components"] = pca.components_.astype(np.float32)
         Xt = _l2_normalize(Xp)
 
+    elif label in ("power_l2_050", "power_l2_075"):
+        alpha = 0.50 if label == "power_l2_050" else 0.75
+        params[f"{label}_alpha"] = np.array(alpha, dtype=np.float32)
+        Xp = np.sign(X) * np.abs(X) ** alpha
+        Xt = _l2_normalize(Xp)
+
+    elif label in ("umap_128", "umap_64"):
+        try:
+            import umap as umap_lib  # type: ignore[import]
+        except ImportError as exc:
+            raise ImportError("umap-learn required: pip install umap-learn") from exc
+        k = 128 if label == "umap_128" else 64
+        print(f"    fitting UMAP(n_components={k}, metric='cosine') on {X.shape[0]} tracks...",
+              flush=True)
+        reducer = umap_lib.UMAP(n_components=k, random_state=0, metric="cosine",
+                                n_neighbors=15, min_dist=0.1, verbose=False)
+        Xt_raw = reducer.fit_transform(X.astype(np.float64)).astype(np.float32)
+        Xt = _l2_normalize(Xt_raw)
+        # UMAP model is not NPZ-serializable; params is intentionally empty.
+        # If UMAP wins, persist via joblib in the fold script.
+
     else:
         raise ValueError(f"unknown transform label: {label!r}")
 
@@ -305,15 +351,22 @@ def fit_and_save_transforms(
     *,
     pca_k_center: Optional[int] = None,
     pca_k_whiten: Optional[int] = None,
+    only_labels: Optional[list[str]] = None,
 ) -> dict[str, tuple[dict[str, np.ndarray], np.ndarray]]:
-    """Fit all four transforms on X, save params to *out_path*, return results.
+    """Fit the transforms on X, save params to *out_path*, return results.
+
+    If *only_labels* is given, only those transforms are fit/saved (useful for
+    focused experimental runs that skip the slow UMAP fit on large pools).
 
     Returns {label: (params, X_transformed)} for each label.
     """
     results: dict[str, tuple[dict[str, np.ndarray], np.ndarray]] = {}
     all_params: dict[str, np.ndarray] = {}
 
-    for label in ("center_l2", "whiten_l2", "center_pca128", "whiten_pca256"):
+    all_labels = LABELS_SAVE + LABELS_EVAL_ONLY
+    if only_labels is not None:
+        all_labels = [lbl for lbl in all_labels if lbl in only_labels]
+    for label in all_labels:
         kwargs: dict = {}
         if label == "center_pca128" and pca_k_center is not None:
             kwargs["pca_k"] = pca_k_center
@@ -321,7 +374,8 @@ def fit_and_save_transforms(
             kwargs["pca_k"] = pca_k_whiten
         params, Xt = fit_transform(label, X, **kwargs)
         results[label] = (params, Xt)
-        all_params.update(params)
+        if label in LABELS_SAVE:  # only persist saveable transforms
+            all_params.update(params)
 
     np.savez(out_path, **all_params)  # type: ignore[arg-type]
     return results
@@ -337,11 +391,17 @@ def compute_coherence(
     X_emb: np.ndarray,
     X_genre_raw: np.ndarray,
     k_neighbors: int = 6,
+    artist_keys: Optional[np.ndarray] = None,
 ) -> float:
     """Mean genre-maxsim between each seed and its top-k neighbors in X_emb.
 
     Genre-maxsim(seed, neighbor) = cosine similarity of their X_genre_raw rows
     (L2-normalized).
+
+    If *artist_keys* (one normalized key per row, aligned to X_emb) is given,
+    every track sharing the seed's artist key is excluded from that seed's
+    neighbor pool — mirroring the generator's seed-artist exclusion so the
+    metric measures cross-catalogue discovery, not intra-catalogue self-match.
 
     Returns NaN if no seed indices are provided.
     """
@@ -362,6 +422,8 @@ def compute_coherence(
     for si in seed_indices:
         sims = X_norm @ X_norm[si]
         sims[si] = -2.0  # exclude self
+        if artist_keys is not None:
+            sims[artist_keys == artist_keys[si]] = -2.0  # exclude seed artist catalogue
         top_k = int(min(k_neighbors, n - 1))
         neighbor_idxs = np.argpartition(-sims, top_k)[:top_k]
         for ni in neighbor_idxs:
@@ -450,14 +512,21 @@ def _top_k_neighbors(
     seed_idx: int,
     X_emb: np.ndarray,
     k: int = 6,
+    artist_keys: Optional[np.ndarray] = None,
 ) -> np.ndarray:
-    """Return indices of top-k nearest neighbors to *seed_idx* (excluding self)."""
+    """Return indices of top-k nearest neighbors to *seed_idx* (excluding self).
+
+    If *artist_keys* is given, all tracks sharing the seed's artist key are
+    excluded too (seed-artist exclusion, matching the generator).
+    """
     X = np.asarray(X_emb, np.float32)
     norms = np.linalg.norm(X, axis=1, keepdims=True)
     X_norm = X / np.where(norms < 1e-9, 1.0, norms)
 
     sims = X_norm @ X_norm[seed_idx]
     sims[seed_idx] = -2.0
+    if artist_keys is not None:
+        sims[artist_keys == artist_keys[seed_idx]] = -2.0
     actual_k = min(k, X_norm.shape[0] - 1)
     if actual_k <= 0:
         return np.array([], dtype=int)
@@ -479,6 +548,85 @@ def _top_genres(Xg_row: np.ndarray, vocab: np.ndarray, k: int = 3) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
+def evaluate_layer_subsets(
+    layers_path: Path,
+    id2art_idx: dict[str, int],
+    art_artists: np.ndarray,
+    art_titles: np.ndarray,
+    Xg_full: np.ndarray,
+    genre_vocab: np.ndarray,
+) -> list[dict]:
+    """Evaluate LAYER_SUBSETS from a per-layer sidecar (small targeted extraction).
+
+    The per-layer sidecar stores emb_mid_layers: (N, 13, 768).  Each layer subset
+    is mean-pooled → center → L2, then evaluated on its own N-track pool (which
+    is typically just the 20 calibration seeds, so the neighbor lists are the
+    primary evidence).
+
+    Returns a list of row dicts in the same shape as the main comparison table,
+    plus a 'neighbor_details' key for display.
+    """
+    z = np.load(layers_path, allow_pickle=True)
+    layer_tids = [str(t) for t in z["track_ids"]]
+    emb_layers = np.asarray(z["emb_mid_layers"], np.float32)  # (N, 13, 768)
+    n_tracks, n_layers, _ = emb_layers.shape
+
+    # Map track_ids → artifact positions for genre/artist lookup
+    layer_art_idxs = [id2art_idx[t] for t in layer_tids if t in id2art_idx]
+    resolved_tids = [t for t in layer_tids if t in id2art_idx]
+    if not resolved_tids:
+        return []
+
+    emb_layers = emb_layers[[layer_tids.index(t) for t in resolved_tids]]
+    Xg_sub = Xg_full[layer_art_idxs]
+    all_idxs = list(range(len(resolved_tids)))  # all tracks = seeds in this pool
+
+    rows: list[dict] = []
+    for subset_name, layer_indices in LAYER_SUBSETS.items():
+        valid = [i for i in layer_indices if i < n_layers]
+        if not valid:
+            continue
+        X_sub = emb_layers[:, valid, :].mean(axis=1)  # (N, 768)
+        mean = X_sub.mean(axis=0)
+        Xc = X_sub - mean
+        Xt = _l2_normalize(Xc)
+
+        coherence = compute_coherence(all_idxs, Xt, Xg_sub, k_neighbors=min(5, len(all_idxs) - 1))
+        cos_p5, cos_p50, cos_p95 = compute_cosine_spread(Xt, np.random.default_rng(42))
+
+        # Per-seed neighbor detail
+        details = []
+        for si in all_idxs:
+            ap = layer_art_idxs[si]
+            s_artist = str(art_artists[ap])
+            s_title = str(art_titles[ap])
+            k = min(5, len(all_idxs) - 1)
+            top_k = _top_k_neighbors(si, Xt, k=k)
+            lines = []
+            X_norm = _l2_normalize(Xt)
+            for ni in top_k:
+                nap = layer_art_idxs[ni]
+                sim = float(X_norm[si] @ X_norm[ni])
+                n_genres = _top_genres(Xg_sub[ni], genre_vocab)
+                lines.append(
+                    f"    {sim:+.3f}  {str(art_artists[nap])[:20]:20s}"
+                    f" - {str(art_titles[nap])[:24]:24s}  {n_genres}"
+                )
+            details.append((s_artist, s_title, lines, 0.0))
+
+        rows.append({
+            "label": subset_name,
+            "coherence": coherence,
+            "spot_check": "N/A (layers)",
+            "cos_p5": cos_p5,
+            "cos_p50": cos_p50,
+            "cos_p95": cos_p95,
+            "dims": 768,
+            "neighbor_details": details,
+        })
+    return rows
+
+
 def _format_spot_check(passed: bool, n_seeds: int, failures: list[int]) -> str:
     if n_seeds == 0:
         return "N/A (0 seeds)"
@@ -494,9 +642,21 @@ def run_calibration(
     db_path: Optional[Path],
     out_path: Path,
     subset_size: int,
+    seed_ids: Optional[list[str]] = None,
+    layers_sidecar_path: Optional[Path] = None,
+    max_per_artist: int = DEFAULT_MAX_PER_ARTIST,
+    only_transforms: Optional[list[str]] = None,
 ) -> None:
-    """Full calibration pipeline — fits, evaluates, prints table, writes NPZ."""
+    """Full calibration pipeline — fits, evaluates, prints table, writes NPZ.
+
+    *seed_ids* overrides DIAGNOSTIC_SEEDS when provided.  Custom seeds disable
+    the tower-error spot-check (the check is only meaningful for the original
+    indie-rock diagnostic seeds where Metallica/Jay-Z are clear failures).
+    """
     rng = np.random.default_rng(42)
+
+    custom_seeds = seed_ids is not None
+    effective_seeds = seed_ids if custom_seeds else DIAGNOSTIC_SEEDS
 
     print(f"Loading sidecar: {sidecar_path}", flush=True)
     sidecar_tids, emb_mid_full = _load_sidecar(sidecar_path)
@@ -519,7 +679,7 @@ def run_calibration(
     # Emit artist info from DB (optional; falls back to artifact artist strings)
     db_artist_map = _load_artist_from_db(sidecar_tids, db_path)
 
-    # Build error-artist track_ids from the artifact
+    # Build error-artist track_ids from the artifact (only used by built-in spot-check)
     error_artist_ids_resolved: list[str] = []
     error_lower = {a.lower() for a in TOWER_ERROR_ARTISTS}
     for tid, art_idx in zip(sidecar_tids_resolved, sidecar_art_idxs):
@@ -529,9 +689,11 @@ def run_calibration(
 
     # Resolve seeds that appear in the sidecar
     sidecar_set = set(sidecar_tids_resolved)
-    seed_ids_resolved = [s for s in DIAGNOSTIC_SEEDS if s in sidecar_set]
+    seed_ids_resolved = [s for s in effective_seeds if s in sidecar_set]
+    n_total = len(effective_seeds)
+    seed_label = "custom" if custom_seeds else "diagnostic"
     print(
-        f"  Seeds resolved: {len(seed_ids_resolved)}/{len(DIAGNOSTIC_SEEDS)}  "
+        f"  Seeds resolved: {len(seed_ids_resolved)}/{n_total} ({seed_label})  "
         f"Tower-error tracks in sidecar: {len(error_artist_ids_resolved)}",
         flush=True,
     )
@@ -542,10 +704,11 @@ def run_calibration(
         sidecar_path=sidecar_path,
         artifact_path=artifact_path,
         db_path=db_path,
-        seed_ids=DIAGNOSTIC_SEEDS,
-        error_artist_ids=TOWER_ERROR_ARTISTS,
+        seed_ids=effective_seeds,
+        error_artist_ids=TOWER_ERROR_ARTISTS if not custom_seeds else [],
         subset_size=subset_size,
         rng=rng,
+        max_per_artist=max_per_artist,
     )
     print(f"  Subset size: {len(subset_ids)}", flush=True)
 
@@ -560,6 +723,13 @@ def run_calibration(
             subset_sidecar_pos.append(sp)
             subset_art_idxs.append(ap)
 
+    # Normalized artist key per subset row (for seed-artist exclusion, parity
+    # with the generator's identity-based pool gating).
+    subset_artist_keys = np.array(
+        [normalize_artist_key(str(art_artists[ap])) for ap in subset_art_idxs],
+        dtype=object,
+    )
+
     emb_subset = emb_mid_full[subset_sidecar_pos]        # (M, 768)
     Xg_subset = Xg_full[subset_art_idxs]                  # (M, G)
     Xs_subset = Xs_towers_full[subset_art_idxs]           # (M, 162)
@@ -568,7 +738,7 @@ def run_calibration(
     # Seed indices within subset
     seed_subset_idxs: list[int] = []
     seed_display: list[tuple[str, str]] = []  # (artist, title) for display
-    for sid in DIAGNOSTIC_SEEDS:
+    for sid in effective_seeds:
         ap = id2art_idx.get(sid)
         if ap is not None and ap in art_idx_in_subset:
             seed_subset_idxs.append(art_idx_in_subset[ap])
@@ -590,14 +760,18 @@ def run_calibration(
 
     # Fit all four transforms
     print("\nFitting transforms...", flush=True)
-    transform_results = fit_and_save_transforms(emb_subset, out_path)
+    transform_results = fit_and_save_transforms(
+        emb_subset, out_path, only_labels=only_transforms
+    )
     print(f"  Transform params saved to: {out_path}", flush=True)
 
     # Also prepare towers baseline (L2-normalize tower vectors)
     Xs_norm = _l2_normalize(Xs_subset)
 
     # Evaluate each transform
-    LABELS_EVAL = ["center_l2", "whiten_l2", "center_pca128", "whiten_pca256"]
+    LABELS_EVAL = LABELS_SAVE + LABELS_EVAL_ONLY
+    if only_transforms is not None:
+        LABELS_EVAL = [lbl for lbl in LABELS_EVAL if lbl in only_transforms]
 
     rows: list[dict] = []
     neighbor_details: dict[str, list[tuple[str, str, list[str], float]]] = {}
@@ -612,15 +786,19 @@ def run_calibration(
             X_emb=Xt,
             X_genre_raw=Xg_subset,
             k_neighbors=6,
+            artist_keys=subset_artist_keys,
         )
 
-        passed, fail_positions = _spot_check_clean(
-            seed_indices=seed_subset_idxs,
-            X_emb=Xt,
-            error_indices=error_subset_idxs,
-            k_neighbors=10,
-        )
-        spot_str = _format_spot_check(passed, len(seed_subset_idxs), fail_positions)
+        if custom_seeds:
+            spot_str = "N/A (custom)"
+        else:
+            passed, fail_positions = _spot_check_clean(
+                seed_indices=seed_subset_idxs,
+                X_emb=Xt,
+                error_indices=error_subset_idxs,
+                k_neighbors=10,
+            )
+            spot_str = _format_spot_check(passed, len(seed_subset_idxs), fail_positions)
 
         cos_p5, cos_p50, cos_p95 = compute_cosine_spread(Xt, rng)
 
@@ -637,7 +815,7 @@ def run_calibration(
         # Per-seed neighbor details
         details: list[tuple[str, str, list[str], float]] = []
         for si, (s_artist, s_title) in zip(seed_subset_idxs, seed_display):
-            top6 = _top_k_neighbors(si, Xt, k=6)
+            top6 = _top_k_neighbors(si, Xt, k=6, artist_keys=subset_artist_keys)
             neighbor_lines: list[str] = []
             for ni in top6:
                 ap = subset_art_idxs[ni]
@@ -660,6 +838,7 @@ def run_calibration(
         X_emb=Xs_norm,
         X_genre_raw=Xg_subset,
         k_neighbors=6,
+        artist_keys=subset_artist_keys,
     )
     cos_p5_t, cos_p50_t, cos_p95_t = compute_cosine_spread(Xs_norm, rng)
     rows.append({
@@ -707,6 +886,31 @@ def run_calibration(
         print("For the seeds-present evaluation, run Phase 3 (full extraction)")
         print("and re-run this script against the full sidecar.")
 
+    # --- layer selection section (only when --layers-sidecar provided) -------
+    if layers_sidecar_path is not None and layers_sidecar_path.exists():
+        print(f"\n{'='*90}")
+        print("Layer selection — comparison table (pool = seeds only)")
+        print("=" * 90)
+        layer_rows = evaluate_layer_subsets(
+            layers_sidecar_path, id2art_idx,
+            art_artists, art_titles, Xg_full, genre_vocab,
+        )
+        for r in layer_rows:
+            coh = f"{r['coherence']:.3f}" if r['coherence'] == r['coherence'] else "  N/A"
+            print(
+                f"{r['label']:<20}  {coh:>10}  {r['spot_check']:>14}  "
+                f"{r['cos_p5']:>+7.3f}  {r['cos_p50']:>+7.3f}  {r['cos_p95']:>+7.3f}  {r['dims']:>5}"
+            )
+        # Neighbor lists for first 4 seeds
+        for r in layer_rows:
+            print(f"\n{'='*70}")
+            print(f"Layer neighbors: {r['label']}")
+            print("="*70)
+            for s_artist, s_title, lines, _ in r["neighbor_details"][:4]:
+                print(f"\n  SEED: {s_artist} - {s_title}")
+                for line in lines:
+                    print(line)
+
     print(f"\nCalibration params written to: {out_path}", flush=True)
 
 
@@ -745,12 +949,57 @@ def main() -> None:
         help="Target evaluation subset size (default: 2000)",
     )
     ap.add_argument(
+        "--max-per-artist",
+        type=int,
+        default=DEFAULT_MAX_PER_ARTIST,
+        help=(
+            f"Max tracks per artist in the eval pool (default: {DEFAULT_MAX_PER_ARTIST}). "
+            "Set high (e.g. 1000000) together with a large --subset-size to rank seeds "
+            "against the entire scanned library with no per-artist cap."
+        ),
+    )
+    ap.add_argument(
         "--out",
         type=Path,
         default=DEFAULT_OUT,
         help=f"Output NPZ for transform params (default: {DEFAULT_OUT})",
     )
+    ap.add_argument(
+        "--seeds",
+        type=Path,
+        default=None,
+        help=(
+            "Optional file of seed track IDs (one per line) to use instead of the "
+            "8 hardcoded diagnostic seeds. Tower-error spot-check is skipped for "
+            "custom seeds; use the neighbor lists for manual quality assessment."
+        ),
+    )
+    ap.add_argument(
+        "--transforms",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated subset of transforms to fit/evaluate (e.g. 'whiten_l2'). "
+            "Skips fitting the rest — notably the slow UMAP fit on large pools. "
+            "The towers baseline is always included. Default: all transforms."
+        ),
+    )
+    ap.add_argument(
+        "--layers-sidecar",
+        type=Path,
+        default=None,
+        help=(
+            "Per-layer sidecar NPZ (from extract_mert_sidecar.py --layers-out). "
+            "When provided, appends a layer-selection comparison section to the output."
+        ),
+    )
     args = ap.parse_args()
+
+    custom_seed_ids: Optional[list[str]] = None
+    if args.seeds is not None:
+        custom_seed_ids = [
+            line.strip() for line in args.seeds.read_text().splitlines() if line.strip()
+        ]
 
     run_calibration(
         sidecar_path=args.sidecar,
@@ -758,6 +1007,14 @@ def main() -> None:
         db_path=args.db,
         out_path=args.out,
         subset_size=args.subset_size,
+        seed_ids=custom_seed_ids,
+        layers_sidecar_path=args.layers_sidecar,
+        max_per_artist=args.max_per_artist,
+        only_transforms=(
+            [t.strip() for t in args.transforms.split(",") if t.strip()]
+            if args.transforms
+            else None
+        ),
     )
 
 

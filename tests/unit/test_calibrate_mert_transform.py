@@ -329,11 +329,16 @@ def test_output_npz_has_all_transform_keys(tmp_path: Path) -> None:
     _make_artifact(tmp_path / "art.npz", tids)
 
     out_path = tmp_path / "calib.npz"
+    # Restrict to the saveable transforms only: UMAP is eval-only (not persisted to
+    # NPZ) and requires n > n_components+1 rows for its spectral init — a tiny fixture
+    # can't satisfy that constraint.  This test verifies saved-param keys, so running
+    # only LABELS_SAVE is faithful to its intent.
     mod.fit_and_save_transforms(
         X=emb,
         out_path=out_path,
         pca_k_center=8,   # smaller than dim to keep test fast
         pca_k_whiten=8,
+        only_labels=mod.LABELS_SAVE,
     )
 
     with np.load(out_path, allow_pickle=True) as z:

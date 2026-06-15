@@ -84,7 +84,7 @@ SONIC_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "enabled": True,
         "weight": 0.85,
         "candidate_pool_multiplier": 0.6,
-        "min_sonic_similarity": 0.20,  # Relaxed from 0.28 (Phase 2A)
+        "min_sonic_similarity": 0.28,  # MERT p75 (recalibrated 2026-06; see FLOOR_RECALIBRATION_DISTRIBUTIONS.md)
         "description": "Ultra-tight sonic matching - very similar sound",
         "use_case": "Extremely cohesive sound with minimal variation",
     },
@@ -92,7 +92,7 @@ SONIC_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "enabled": True,
         "weight": 0.70,
         "candidate_pool_multiplier": 0.8,
-        "min_sonic_similarity": 0.12,  # Relaxed from 0.18 (Phase 2A)
+        "min_sonic_similarity": 0.18,  # MERT p50 (recalibrated 2026-06; see FLOOR_RECALIBRATION_DISTRIBUTIONS.md)
         "description": "Strict sonic coherence - familiar sound",
         "use_case": "Cohesive playlists with consistent sonic character",
     },
@@ -100,7 +100,7 @@ SONIC_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "enabled": True,
         "weight": 0.50,
         "candidate_pool_multiplier": 1.0,
-        "min_sonic_similarity": 0.05,  # Relaxed from 0.10 (Phase 2A)
+        "min_sonic_similarity": 0.08,  # MERT p25 (recalibrated 2026-06; see FLOOR_RECALIBRATION_DISTRIBUTIONS.md)
         "description": "Balanced sonic flow (default)",
         "use_case": "Standard playlists with moderate sonic variation",
     },
@@ -108,7 +108,7 @@ SONIC_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "enabled": True,
         "weight": 0.35,
         "candidate_pool_multiplier": 1.2,
-        "min_sonic_similarity": 0.00,  # Disabled from 0.02 (Phase 2A)
+        "min_sonic_similarity": 0.00,  # MERT p10 ≈ 0 (recalibrated 2026-06; see FLOOR_RECALIBRATION_DISTRIBUTIONS.md)
         "description": "Broader sonic palette - varied textures",
         "use_case": "Exploratory playlists with diverse sonic textures",
     },

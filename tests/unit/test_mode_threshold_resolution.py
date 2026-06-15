@@ -14,11 +14,17 @@ class TestSonicFloorResolution:
     """Test sonic floor resolution for all modes."""
 
     def test_sonic_mode_presets_values(self):
-        """Verify SONIC_MODE_PRESETS has correct values (Phase 2A)."""
-        assert SONIC_MODE_PRESETS["strict"]["min_sonic_similarity"] == 0.20
-        assert SONIC_MODE_PRESETS["narrow"]["min_sonic_similarity"] == 0.12  # Relaxed from 0.18
-        assert SONIC_MODE_PRESETS["dynamic"]["min_sonic_similarity"] == 0.05  # Relaxed from 0.10
-        assert SONIC_MODE_PRESETS["discover"]["min_sonic_similarity"] == 0.00  # Disabled from 0.02
+        """SONIC_MODE_PRESETS recalibrated to MERT's measured cosine scale (2026-06).
+
+        Set as percentiles of the seed-relative max-sim distribution measured on
+        the folded MERT artifact (docs/run_audits/mert_full/FLOOR_RECALIBRATION_DISTRIBUTIONS.md):
+        strict p75, narrow p50, dynamic p25, discover p10. Supersedes the Phase 2A
+        values, which were band-aided down for the (untrustworthy) towers.
+        """
+        assert SONIC_MODE_PRESETS["strict"]["min_sonic_similarity"] == 0.28   # p75
+        assert SONIC_MODE_PRESETS["narrow"]["min_sonic_similarity"] == 0.18   # p50
+        assert SONIC_MODE_PRESETS["dynamic"]["min_sonic_similarity"] == 0.08  # p25
+        assert SONIC_MODE_PRESETS["discover"]["min_sonic_similarity"] == 0.00  # p10
 
     def test_get_min_sonic_similarity_defaults(self):
         """get_min_sonic_similarity returns None when nothing is configured.
@@ -113,7 +119,7 @@ class TestDSPipelineConfigResolution:
     def test_narrow_mode_config(self):
         """Verify narrow mode resolves correctly (Phase 2A/3A relaxation).
 
-        min_sonic_similarity is None — apply_mode_presets() sets 0.12 for narrow.
+        min_sonic_similarity is None — apply_mode_presets() sets 0.18 for narrow.
         max_artist_fraction_final is the universal fallback 0.125.
         """
         cfg = default_ds_config("narrow", playlist_len=30)
@@ -128,7 +134,7 @@ class TestDSPipelineConfigResolution:
     def test_dynamic_mode_config(self):
         """Verify dynamic mode resolves correctly (Phase 2A/3A relaxation).
 
-        min_sonic_similarity is None — apply_mode_presets() sets 0.05 for dynamic.
+        min_sonic_similarity is None — apply_mode_presets() sets 0.08 for dynamic.
         max_artist_fraction_final is the universal fallback 0.125.
         """
         cfg = default_ds_config("dynamic", playlist_len=30)
@@ -176,7 +182,7 @@ class TestModePresetsApplication:
 
         # Sonic settings
         candidate_pool = playlists_cfg["ds_pipeline"]["candidate_pool"]
-        assert candidate_pool["min_sonic_similarity"] == 0.20
+        assert candidate_pool["min_sonic_similarity"] == 0.28  # MERT p75
         assert candidate_pool["broad_filters"] == ["rock", "indie", "alternative", "pop"]
 
     def test_apply_narrow_mode_presets(self):
@@ -196,7 +202,7 @@ class TestModePresetsApplication:
 
         # Sonic settings
         candidate_pool = playlists_cfg["ds_pipeline"]["candidate_pool"]
-        assert candidate_pool["min_sonic_similarity"] == 0.12  # Relaxed from 0.18
+        assert candidate_pool["min_sonic_similarity"] == 0.18  # MERT p50
         assert candidate_pool["broad_filters"] == ["rock", "indie", "alternative", "pop"]
 
     def test_apply_dynamic_mode_presets(self):
@@ -215,7 +221,7 @@ class TestModePresetsApplication:
 
         # Sonic settings
         candidate_pool = playlists_cfg["ds_pipeline"]["candidate_pool"]
-        assert candidate_pool["min_sonic_similarity"] == 0.05  # Relaxed from 0.10
+        assert candidate_pool["min_sonic_similarity"] == 0.08  # MERT p25
         assert "broad_filters" not in candidate_pool
 
     def test_apply_mode_presets_preserves_custom_broad_filters(self):
