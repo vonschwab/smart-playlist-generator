@@ -84,3 +84,31 @@ def test_track_search_rejects_out_of_range_params(monkeypatch, params):
         with _client(monkeypatch, db) as client:
             resp = client.get("/api/tracks/search", params={"q": "beach", **params})
             assert resp.status_code == 422
+
+
+def test_autocomplete_paginates(monkeypatch):
+    with tempfile.TemporaryDirectory() as d:
+        db = _make_db(Path(d))
+        with _client(monkeypatch, db) as client:
+            r0 = client.get("/api/autocomplete", params={"q": "be", "offset": 0, "limit": 2}).json()
+            assert r0["items"] == ["Beach House", "Beck"]  # alphabetical
+            assert r0["has_more"] is True
+            r2 = client.get("/api/autocomplete", params={"q": "be", "offset": 4, "limit": 2}).json()
+            assert r2["items"] == ["Belle & Sebastian"]
+            assert r2["has_more"] is False
+
+
+def test_autocomplete_empty_query(monkeypatch):
+    with tempfile.TemporaryDirectory() as d:
+        db = _make_db(Path(d))
+        with _client(monkeypatch, db) as client:
+            assert client.get("/api/autocomplete", params={"q": ""}).json() == {"items": [], "has_more": False}
+
+
+@pytest.mark.parametrize("params", [{"limit": 0}, {"limit": 300}, {"offset": -1}])
+def test_autocomplete_rejects_out_of_range_params(monkeypatch, params):
+    with tempfile.TemporaryDirectory() as d:
+        db = _make_db(Path(d))
+        with _client(monkeypatch, db) as client:
+            resp = client.get("/api/autocomplete", params={"q": "be", **params})
+            assert resp.status_code == 422

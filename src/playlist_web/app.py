@@ -367,22 +367,28 @@ def create_app(
         return out
 
     @app.get("/api/autocomplete")
-    async def autocomplete(q: str = "") -> list[str]:
+    async def autocomplete(
+        q: str = "",
+        offset: int = Query(0, ge=0),
+        limit: int = Query(30, ge=1, le=200),
+    ) -> dict:
         q = q.strip()
         if not q or not DB_PATH.exists():
-            return []
+            return {"items": [], "has_more": False}
         try:
             conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
             try:
                 rows = conn.execute(
-                    "SELECT artist_name FROM artists WHERE artist_name LIKE ? ORDER BY artist_name LIMIT 15",
-                    (q + "%",),
+                    "SELECT artist_name FROM artists WHERE artist_name LIKE ? "
+                    "ORDER BY artist_name LIMIT ? OFFSET ?",
+                    (q + "%", limit + 1, offset),
                 ).fetchall()
             finally:
                 conn.close()
-            return [r[0] for r in rows]
+            has_more = len(rows) > limit
+            return {"items": [r[0] for r in rows[:limit]], "has_more": has_more}
         except Exception:
-            return []
+            return {"items": [], "has_more": False}
 
     @app.get("/api/audio/{track_id}")
     async def audio(track_id: str, request: Request):
