@@ -72,3 +72,15 @@ def test_track_search_empty_query(monkeypatch):
         db = _make_db(Path(d))
         with _client(monkeypatch, db) as client:
             assert client.get("/api/tracks/search", params={"q": ""}).json() == {"items": [], "has_more": False}
+
+
+import pytest
+
+
+@pytest.mark.parametrize("params", [{"limit": 0}, {"limit": 300}, {"offset": -1}])
+def test_track_search_rejects_out_of_range_params(monkeypatch, params):
+    with tempfile.TemporaryDirectory() as d:
+        db = _make_db(Path(d))
+        with _client(monkeypatch, db) as client:
+            resp = client.get("/api/tracks/search", params={"q": "beach", **params})
+            assert resp.status_code == 422

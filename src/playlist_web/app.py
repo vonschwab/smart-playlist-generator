@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Callable, Optional
 
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -278,7 +278,11 @@ def create_app(
         return {"ok": True, **result}
 
     @app.get("/api/tracks/search")
-    async def track_search(q: str = "", offset: int = 0, limit: int = 25) -> dict:
+    async def track_search(
+        q: str = "",
+        offset: int = Query(0, ge=0),
+        limit: int = Query(25, ge=1, le=200),
+    ) -> dict:
         q = q.strip()
         if not q or not DB_PATH.exists():
             return {"items": [], "has_more": False}
