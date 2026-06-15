@@ -4,7 +4,7 @@ range support; the page seeks client-side to play A-tail -> hard cut -> B-head.
 Serves the BLINDED manifest (no arm/seed) and captures dual scores to YAML.
 
 Usage:
-    python scripts/pace_audition_serve.py [--port 8766] [--data-dir docs/run_audits/pace_audition]
+    python scripts/pace_audition_serve.py [--port 8767] [--data-dir docs/run_audits/pace_audition]
 """
 from __future__ import annotations
 
@@ -159,7 +159,7 @@ def main() -> None:
     import webbrowser
 
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--port", type=int, default=8766)
+    ap.add_argument("--port", type=int, default=8767)
     ap.add_argument("--data-dir", default="docs/run_audits/pace_audition")
     args = ap.parse_args()
 
@@ -171,7 +171,12 @@ def main() -> None:
     manifest = json.loads(mpath.read_text(encoding="utf-8"))
     page = (Path(__file__).parent / "pace_audition_page.html").read_text(encoding="utf-8")
 
-    server = PaceServer(("127.0.0.1", args.port), PaceHandler, data_dir, manifest, page)
+    try:
+        server = PaceServer(("127.0.0.1", args.port), PaceHandler, data_dir, manifest, page)
+    except OSError as e:
+        print(f"Could not bind port {args.port} ({e}). Another audition server may be "
+              f"running there (sonic=8765, genre=8766). Retry: --port <free-port>.")
+        sys.exit(1)
     url = f"http://127.0.0.1:{args.port}/"
     print(f"Serving pace audition at {url} ({len(manifest['edges'])} edges). Ctrl-C to stop.")
     webbrowser.open(url)
