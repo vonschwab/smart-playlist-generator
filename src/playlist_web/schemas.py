@@ -147,6 +147,11 @@ class CandidateOut(BaseModel):
     album: str = ""
     genres: list[str] = Field(default_factory=list)
     fit_score: float = 0.0
+    # file_path is the identity the Plex/M3U exporters resolve on; it must reach the
+    # GUI so a replacement stamps the new track's path onto the playlist. Without it
+    # the export resolves the OLD track's path and the replacement is lost.
+    file_path: str = ""
+    duration_ms: int = 0
 
 
 class ReplaceSuggestionsRequest(BaseModel):
@@ -171,6 +176,8 @@ class ReplaceSuggestionsResponse(BaseModel):
                 album=c.get("album", ""),
                 genres=list(c.get("genres", []) or []),
                 fit_score=float(c.get("mean_t", 0.0) or 0.0),
+                file_path=str(c.get("file_path", "") or ""),
+                duration_ms=int(c.get("duration_ms", 0) or 0),
             )
             for c in raw
         ]

@@ -5,6 +5,7 @@ import pytest
 from src.playlist_web.schemas import (
     GenerateRequestBody,
     PlaylistOut,
+    ReplaceSuggestionsResponse,
     TrackOut,
 )
 
@@ -46,3 +47,26 @@ def test_playlist_out_parses_worker_result():
     assert out.track_count == 1
     assert out.tracks[0].title == "Sundown"
     assert out.metrics.distinct_artists == 18
+
+
+def test_replacement_candidate_preserves_file_path():
+    # The Plex/M3U exporters resolve each track by file_path first (plex_exporter
+    # _lookup_track_key, m3u_exporter). A replacement candidate's file_path must
+    # survive serialization, or the GUI cannot stamp the new track's identity onto
+    # the playlist and the export keeps the OLD track.
+    raw = [{
+        "rating_key": "t123",
+        "title": "New Song",
+        "artist": "New Artist",
+        "album": "New Album",
+        "genres": ["dreampop"],
+        "mean_t": 0.87,
+        "duration_ms": 210000,
+        "file_path": "/music/new_artist/new_song.flac",
+    }]
+    resp = ReplaceSuggestionsResponse.from_worker_candidates(3, raw)
+    cand = resp.candidates[0]
+    assert cand.track_id == "t123"
+    assert cand.fit_score == pytest.approx(0.87)
+    assert cand.file_path == "/music/new_artist/new_song.flac"
+    assert cand.duration_ms == 210000

@@ -87,6 +87,10 @@ export interface CandidateOut {
   album: string;
   genres: string[];
   fit_score: number;
+  // Identity the exporters resolve on — must be stamped onto the replaced track,
+  // or Plex/M3U export keeps the old track's file_path.
+  file_path: string;
+  duration_ms: number;
 }
 
 export interface ReplaceSuggestionsResponse {
