@@ -564,6 +564,12 @@ class SidecarStore:
                     FOREIGN KEY (facet_id)
                         REFERENCES genre_graph_canonical_facets(facet_id)
                 );
+
+                CREATE TABLE IF NOT EXISTS genre_graph_release_materialization (
+                    release_id TEXT PRIMARY KEY,
+                    evidence_fingerprint TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
                 """
             )
             _ensure_column(conn, "ai_genre_release_checks", "web_mode", "TEXT NOT NULL DEFAULT 'off'")
@@ -2389,6 +2395,41 @@ class SidecarStore:
             "review_count": review_count,
             "deprecated_count": deprecated_count,
         }
+
+    def has_genre_assignments(self, release_id: str) -> bool:
+        """True if the release already has any materialized graph genre rows."""
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM genre_graph_release_genre_assignments "
+                "WHERE release_id = ? LIMIT 1",
+                (release_id,),
+            ).fetchone()
+        return row is not None
+
+    def materialization_fingerprint(self, release_id: str) -> str | None:
+        """Evidence fingerprint recorded at the release's last materialization.
+
+        None when the release was never fingerprinted (drives the incremental
+        enrich guard's bootstrap-adopt: existing assignments are kept as-is).
+        """
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT evidence_fingerprint FROM genre_graph_release_materialization "
+                "WHERE release_id = ?",
+                (release_id,),
+            ).fetchone()
+        return str(row[0]) if row else None
+
+    def set_materialization_fingerprint(self, release_id: str, fingerprint: str) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                "INSERT INTO genre_graph_release_materialization "
+                "(release_id, evidence_fingerprint, updated_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(release_id) DO UPDATE SET "
+                "evidence_fingerprint = excluded.evidence_fingerprint, "
+                "updated_at = excluded.updated_at",
+                (release_id, fingerprint, _now_iso()),
+            )
 
     def replace_layered_assignments_for_release(
         self,
