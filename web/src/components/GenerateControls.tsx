@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { api } from "../lib/api";
+import { useInfiniteSearch } from "../lib/useInfiniteSearch";
 import { useLocalStorage } from "../lib/useLocalStorage";
 import type { AxisValue, GenerateRequestBody, Mode } from "../lib/types";
 
@@ -85,10 +86,11 @@ export function GenerateControls({
   const [artistVariety, setArtistVariety] = useLocalStorage("pg_artist_variety", "balanced");
   const [includeCollabs, setIncludeCollabs] = useLocalStorage("pg_include_collabs", false);
 
-  // Autocomplete
-  const [suggestions, setSuggestions] = useState<string[]>([]);
-  const timer = useRef<number | undefined>(undefined);
+  // Autocomplete (artist mode) — bounded-page infinite scroll
+  const artistSearch = useInfiniteSearch<string>({ fetchPage: api.autocomplete, pageSize: 30 });
+  const suppressSearch = useRef(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
 
   // Apply initialValues (re-run prefill) once per change
   useEffect(() => {
@@ -118,20 +120,20 @@ export function GenerateControls({
   useEffect(() => {
     function onOutside(e: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setSuggestions([]);
+        artistSearch.reset();
       }
     }
     document.addEventListener("mousedown", onOutside);
     return () => document.removeEventListener("mousedown", onOutside);
-  }, []);
+  }, [artistSearch]);
 
-  // Debounced artist autocomplete
+  // Drive the artist autocomplete from the seed input. Skip one cycle after a
+  // selection so picking a name doesn't immediately re-open the dropdown.
   useEffect(() => {
-    if (mode !== "artist" || seed.length < 2) { setSuggestions([]); return; }
-    window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(async () => {
-      setSuggestions(await api.autocomplete(seed).catch(() => []));
-    }, 180);
+    if (mode !== "artist") { artistSearch.reset(); return; }
+    if (suppressSearch.current) { suppressSearch.current = false; return; }
+    artistSearch.setQuery(seed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seed, mode]);
 
   function submit() {
@@ -170,7 +172,7 @@ export function GenerateControls({
         <Cell>
           <select
             value={mode}
-            onChange={(e) => { onModeChange(e.target.value as Mode); setSeed(""); setSuggestions([]); }}
+            onChange={(e) => { onModeChange(e.target.value as Mode); setSeed(""); artistSearch.reset(); }}
             className={SEL}
             title="Generation mode"
           >
@@ -193,17 +195,29 @@ export function GenerateControls({
                 placeholder={mode === "artist" ? "Artist name…" : "Genre…"}
                 className="w-full bg-[#0c0e12] border border-[#23262d] rounded text-[11px] text-[#e6e9ec] px-2.5 py-[3px]"
               />
-              {suggestions.length > 0 && (
-                <ul className="absolute z-10 mt-1 w-full bg-[#16181d] border border-[#23262d] rounded shadow-xl max-h-48 overflow-auto">
-                  {suggestions.map((s) => (
+              {mode === "artist" && artistSearch.items.length > 0 && (
+                <ul
+                  ref={listRef}
+                  onScroll={() => {
+                    const el = listRef.current;
+                    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 48) artistSearch.loadMore();
+                  }}
+                  className="absolute z-10 mt-1 w-full bg-[#16181d] border border-[#23262d] rounded shadow-xl max-h-48 overflow-auto"
+                >
+                  {artistSearch.items.map((s) => (
                     <li
                       key={s}
-                      onClick={() => { setSeed(s); setSuggestions([]); }}
+                      onClick={() => { suppressSearch.current = true; setSeed(s); artistSearch.reset(); }}
                       className="px-2.5 py-1.5 text-[11px] text-[#e6e9ec] hover:bg-[#1e2229] cursor-pointer"
                     >
                       {s}
                     </li>
                   ))}
+                  {(artistSearch.loading || artistSearch.hasMore) && (
+                    <li className="px-2.5 py-1.5 text-[10px] text-[#5b6470]">
+                      {artistSearch.loading ? "Loading…" : "Scroll for more"}
+                    </li>
+                  )}
                 </ul>
               )}
             </div>
