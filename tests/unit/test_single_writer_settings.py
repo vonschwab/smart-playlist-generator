@@ -21,7 +21,7 @@ def _build_playlists_cfg(cohesion: str, sonic: str, genre: str) -> dict:
 
 class TestSingleWriterEndToEnd:
     def test_sonic_mode_owns_min_sonic_similarity(self):
-        """sonic_mode=narrow should set 0.12 regardless of cohesion_mode."""
+        """sonic_mode=narrow should set 0.18 regardless of cohesion_mode."""
         cfg = _build_playlists_cfg(cohesion="strict", sonic="narrow", genre="dynamic")
         apply_mode_presets(cfg)
         ds_cfg = default_ds_config(
@@ -29,9 +29,10 @@ class TestSingleWriterEndToEnd:
             playlist_len=30,
             overrides=cfg["ds_pipeline"],
         )
-        # Sonic-narrow preset writes 0.12. Without dedup, cohesion=strict would
-        # overwrite to 0.20 inside default_ds_config(). Confirm it does not.
-        assert ds_cfg.candidate.min_sonic_similarity == 0.12
+        # Sonic-narrow preset writes 0.18 (MERT p50, recalibrated 2026-06).
+        # Without dedup, cohesion=strict would overwrite it inside
+        # default_ds_config(); confirm sonic_mode stays the single writer.
+        assert ds_cfg.candidate.min_sonic_similarity == 0.18
 
     def test_genre_mode_owns_broad_filters(self):
         """genre_mode=dynamic means no broad_filters even if cohesion_mode=strict."""
