@@ -75,6 +75,36 @@ def _resolve_seed_artist_keys(track_ids: list[str]) -> list[str]:
     return [by_id.get(str(t), "") for t in track_ids]
 
 
+def _genres_for_tracks(
+    conn: sqlite3.Connection, track_ids: list[str], per_track: int = 5
+) -> dict[str, list[str]]:
+    """Batch genre lookup for a page of tracks: effective genres first (priority
+    order), then a track_genres fallback for tracks with none. Replaces the old
+    per-row N+1 subquery (audit [P#1])."""
+    if not track_ids:
+        return {}
+    out: dict[str, list[str]] = {tid: [] for tid in track_ids}
+    ph = ",".join("?" for _ in track_ids)
+    for tid, genre in conn.execute(
+        f"SELECT track_id, genre FROM track_effective_genres "
+        f"WHERE track_id IN ({ph}) ORDER BY priority",
+        tuple(track_ids),
+    ):
+        if len(out[tid]) < per_track:
+            out[tid].append(genre)
+    missing = [tid for tid, gl in out.items() if not gl]
+    if missing:
+        ph2 = ",".join("?" for _ in missing)
+        for tid, genre in conn.execute(
+            f"SELECT track_id, genre FROM track_genres "
+            f"WHERE track_id IN ({ph2}) ORDER BY weight DESC",
+            tuple(missing),
+        ):
+            if len(out[tid]) < per_track:
+                out[tid].append(genre)
+    return out
+
+
 def create_app(
     worker_cmd: Optional[list[str]] = None,
     config_path: str = DEFAULT_CONFIG,
@@ -248,10 +278,10 @@ def create_app(
         return {"ok": True, **result}
 
     @app.get("/api/tracks/search")
-    async def track_search(q: str = "", limit: int = 15) -> list[dict]:
+    async def track_search(q: str = "", offset: int = 0, limit: int = 25) -> dict:
         q = q.strip()
         if not q or not DB_PATH.exists():
-            return []
+            return {"items": [], "has_more": False}
         pattern = f"%{q.lower()}%"
         try:
             conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
@@ -262,36 +292,30 @@ def create_app(
                     FROM tracks t
                     WHERE lower(t.title) LIKE ? OR lower(t.artist) LIKE ? OR lower(t.album) LIKE ?
                     ORDER BY t.artist, t.title
-                    LIMIT ?
+                    LIMIT ? OFFSET ?
                     """,
-                    (pattern, pattern, pattern, limit),
+                    (pattern, pattern, pattern, limit + 1, offset),
                 ).fetchall()
-                results = []
-                for row in rows:
-                    track_id = row[0]
-                    genres = [g[0] for g in conn.execute(
-                        "SELECT genre FROM track_effective_genres WHERE track_id = ? ORDER BY priority LIMIT 5",
-                        (track_id,),
-                    ).fetchall()]
-                    if not genres:
-                        genres = [g[0] for g in conn.execute(
-                            "SELECT genre FROM track_genres WHERE track_id = ? ORDER BY weight DESC LIMIT 5",
-                            (track_id,),
-                        ).fetchall()]
-                    results.append({
-                        "track_id": track_id,
-                        "title": row[1] or "Unknown",
-                        "artist": row[2] or "Unknown",
-                        "album": row[3] or "",
-                        "duration_ms": row[4] or 0,
-                        "file_path": row[5] or "",
-                        "genres": genres,
-                    })
-                return results
+                has_more = len(rows) > limit
+                rows = rows[:limit]
+                genres_by_id = _genres_for_tracks(conn, [r[0] for r in rows])
+                items = [
+                    {
+                        "track_id": r[0],
+                        "title": r[1] or "Unknown",
+                        "artist": r[2] or "Unknown",
+                        "album": r[3] or "",
+                        "duration_ms": r[4] or 0,
+                        "file_path": r[5] or "",
+                        "genres": genres_by_id.get(r[0], []),
+                    }
+                    for r in rows
+                ]
+                return {"items": items, "has_more": has_more}
             finally:
                 conn.close()
         except Exception:
-            return []
+            return {"items": [], "has_more": False}
 
     @app.post("/api/tracks/genres")
     async def track_genres(body: TrackGenresRequest) -> dict[str, list[str]]:
