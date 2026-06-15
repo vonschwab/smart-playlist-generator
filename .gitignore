@@ -67,6 +67,15 @@ data/genre_cache.json
 data/test_genre_cache.json
 data/*.npz
 data/*.csv
+# SQLite DBs (enrichment store, generated test DBs) + their WAL/SHM sidecars + backups
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/*_test.db
+data/*.bak*
+# MERT calibration scratch lists (the tracked seeds file is committed explicitly)
+data/mert_cal_chunk_*.txt
+data/mert_calibration_track_ids.txt
 
 # M3U exports
 *.m3u
@@ -112,3 +121,6 @@ docs/mode_audit_*.md
 # Web frontend (Vite)
 web/node_modules/
 web/dist/
+# Playwright test output
+web/test-results/
+web/playwright-report/
