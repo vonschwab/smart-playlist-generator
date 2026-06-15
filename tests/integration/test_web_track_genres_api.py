@@ -24,13 +24,34 @@ def client(tmp_path, monkeypatch):
     conn = sqlite3.connect(db_path)
     conn.executescript(
         """
-        CREATE TABLE tracks (track_id TEXT PRIMARY KEY, artist TEXT, album TEXT);
+        CREATE TABLE tracks (track_id TEXT PRIMARY KEY, artist TEXT, album TEXT,
+                             album_id TEXT, duration_ms INTEGER, file_path TEXT,
+                             title TEXT);
         CREATE TABLE track_effective_genres (track_id TEXT, genre TEXT, priority INTEGER);
         CREATE TABLE track_genres (track_id TEXT, genre TEXT, weight REAL);
+        CREATE TABLE release_effective_genres (
+            album_id TEXT, genre_id TEXT, assignment_layer TEXT,
+            confidence REAL, source TEXT,
+            PRIMARY KEY (album_id, genre_id, assignment_layer)
+        );
+        CREATE TABLE genre_graph_canonical_genres (
+            genre_id TEXT PRIMARY KEY, name TEXT, kind TEXT,
+            specificity_score REAL, status TEXT, taxonomy_version TEXT
+        );
 
-        INSERT INTO tracks VALUES ('t-enriched', 'Duster', 'Stratosphere');
-        INSERT INTO tracks VALUES ('t-metadata', 'Acetone', 'Cindy');
-        INSERT INTO tracks VALUES ('t-uncovered', 'Somebody', 'Something');
+        INSERT INTO tracks VALUES ('t-enriched', 'Duster', 'Stratosphere', NULL, 0, '', 't-enriched title');
+        INSERT INTO tracks VALUES ('t-metadata', 'Acetone', 'Cindy', NULL, 0, '', 't-metadata title');
+        INSERT INTO tracks VALUES ('t-uncovered', 'Somebody', 'Something', NULL, 0, '', 't-uncovered title');
+        INSERT INTO tracks VALUES ('t-published', 'Blood Orange', 'Angels Pulse', 'alb-pub', 0, '', 't-published title');
+
+        -- t-published: rich published authority (the layer chips MUST read);
+        -- its sidecar signature below is deliberately poor.
+        INSERT INTO release_effective_genres VALUES
+            ('alb-pub', 'slowcore', 'observed_leaf', 1.0, 'graph'),
+            ('alb-pub', 'rock', 'inferred_family', 0.9, 'graph');
+        INSERT INTO genre_graph_canonical_genres VALUES
+            ('slowcore', 'slowcore', 'subgenre', 0.88, 'active', 'v-test'),
+            ('rock', 'rock', 'family', 0.05, 'active', 'v-test');
 
         -- t-metadata: effective genres stored broad-first + one unknown
         INSERT INTO track_effective_genres VALUES ('t-metadata', 'rock', 1);
@@ -62,6 +83,19 @@ def client(tmp_path, monkeypatch):
                 None,
                 json.dumps({"genres": ["rock", "slowcore", "seen live"], "sources": []}),
                 "2026-06-11T00:00:00",
+            ),
+        )
+        # t-published: poor bandcamp-era signature that must LOSE to the authority
+        sconn.execute(
+            "INSERT INTO enriched_genre_signatures(release_key, normalized_artist, "
+            "normalized_album, album_id, signature_json, updated_at) VALUES(?, ?, ?, ?, ?, ?)",
+            (
+                "blood orange::angels pulse",
+                "blood orange",
+                "angels pulse",
+                None,
+                json.dumps({"genres": ["alternative"], "sources": []}),
+                "2026-06-12T00:00:00",
             ),
         )
         sconn.commit()
@@ -107,3 +141,19 @@ def test_empty_request_returns_empty(client):
     resp = client.post("/api/tracks/genres", json={"track_ids": []})
     assert resp.status_code == 200
     assert resp.json() == {}
+
+
+def test_published_authority_outranks_poor_signature(client):
+    """release_effective_genres (rich) must beat the bandcamp-era signature
+    (sparse) — the Blood Orange 'one chip' bug."""
+    resp = client.post("/api/tracks/genres", json={"track_ids": ["t-published"]})
+    assert resp.status_code == 200
+    assert resp.json() == {"t-published": ["slowcore", "rock"]}
+
+
+def test_search_results_use_published_authority(client):
+    resp = client.get("/api/tracks/search", params={"q": "blood orange"})
+    assert resp.status_code == 200
+    rows = resp.json()
+    assert len(rows) == 1
+    assert rows[0]["genres"] == ["slowcore", "rock"]

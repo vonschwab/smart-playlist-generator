@@ -60,6 +60,7 @@ def test_graph_init_upserts_seed_taxonomy_idempotently(tmp_path, capsys):
 
 def test_graph_report_outputs_layered_taxonomy_counts(tmp_path, capsys):
     from scripts import ai_genre_enrich
+    from src.ai_genre_enrichment.layered_taxonomy import load_default_layered_taxonomy
 
     sidecar = tmp_path / "sidecar.db"
     assert ai_genre_enrich.main(["--sidecar-db", str(sidecar), "graph-init"]) == 0
@@ -69,7 +70,9 @@ def test_graph_report_outputs_layered_taxonomy_counts(tmp_path, capsys):
 
     assert rc == 0
     report = json.loads(capsys.readouterr().out)
-    assert report["taxonomy_version"] == "0.2.0-expanded"
+    # Verify the report surfaces the loaded taxonomy version (propagation check),
+    # without pinning a literal that breaks on every taxonomy growth pass.
+    assert report["taxonomy_version"] == load_default_layered_taxonomy().version
     assert report["genre_counts_by_kind"]["family"] >= 14
     assert report["facet_counts_by_type"]["production"] >= 3
     assert report["alias_count"] >= 5

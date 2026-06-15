@@ -7,9 +7,37 @@ from src.playlist.analyze_library_results import (
     format_analyze_library_action_list,
     format_analyze_library_attention_summary,
     format_analyze_library_summary,
+    parse_analyze_library_paused,
     parse_analyze_library_report,
     parse_analyze_library_stage_progress,
 )
+
+
+def test_parse_analyze_library_paused_returns_stage_and_reason(tmp_path):
+    report_path = tmp_path / "analyze_run_report.json"
+    report_path.write_text(
+        json.dumps(
+            {
+                "paused": True,
+                "paused_stage": "enrich",
+                "stages": {
+                    "enrich": {"decision": "paused", "reason": "Claude rate window"},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert parse_analyze_library_paused(report_path) == ("enrich", "Claude rate window")
+
+
+def test_parse_analyze_library_paused_none_for_completed_run(tmp_path):
+    report_path = tmp_path / "analyze_run_report.json"
+    report_path.write_text(
+        json.dumps({"stages": {"scan": {"decision": "ran"}}}), encoding="utf-8"
+    )
+    assert parse_analyze_library_paused(report_path) is None
+    # Missing file is treated as "not paused", never an exception.
+    assert parse_analyze_library_paused(tmp_path / "nope.json") is None
 
 
 def test_parse_analyze_library_report_builds_stage_summary(tmp_path):

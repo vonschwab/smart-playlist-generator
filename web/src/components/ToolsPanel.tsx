@@ -1,10 +1,11 @@
 import { useCallback, useState } from "react";
 import { api } from "../lib/api";
+import { useJobReconcile } from "../lib/useJobReconcile";
 import { useWorkerEvents } from "../lib/ws";
 import type { AnalyzeToolRequest, EnrichToolRequest, WsEvent } from "../lib/types";
 
 const ALL_STAGES = [
-  "scan", "genres", "discogs", "lastfm", "sonic",
+  "scan", "genres", "discogs", "lastfm", "sonic", "mert",
   "enrich", "publish", "genre-sim", "artifacts",
   "genre-embedding", "verify",
 ] as const;
@@ -134,6 +135,48 @@ export function ToolsPanel({
   const anyRunning = analyzeJobId !== null || enrichJobId !== null;
   const runDisabled = externalBusy || anyRunning;
 
+  // Completion handlers, shared by the WS `done` path and the reconcile backstop
+  // (useJobReconcile) so a fast job whose `done` raced ahead of setAnalyzeJobId/
+  // setEnrichJobId still clears the running state. Idempotent: clearing the job
+  // id stops the poll and makes the WS guard a no-op if both fire.
+  const finishAnalyze = useCallback(
+    (jid: string) => {
+      setAnalyzeJobId(null);
+      setAnalyzeProgress("");
+      api
+        .job(jid)
+        .then((j) => {
+          const tr = j.tool_result;
+          if (tr && Array.isArray(tr["stages"]))
+            setLastAnalyzeStages(tr["stages"] as StageResult[]);
+          if (j.error) setAnalyzeError(j.error ?? null);
+        })
+        .catch(() => {});
+      refreshJobs();
+    },
+    [refreshJobs]
+  );
+
+  const finishEnrich = useCallback(
+    (jid: string) => {
+      setEnrichJobId(null);
+      setEnrichProgress("");
+      api
+        .job(jid)
+        .then((j) => {
+          const tr = j.tool_result;
+          if (tr)
+            setLastEnrichSummary(
+              `${tr["releases"] ?? 0} releases enriched, ${tr["genres_applied"] ?? 0} genres applied`
+            );
+          if (j.error) setEnrichError(j.error ?? null);
+        })
+        .catch(() => {});
+      refreshJobs();
+    },
+    [refreshJobs]
+  );
+
   useWorkerEvents(
     useCallback(
       (e: WsEvent) => {
@@ -143,43 +186,16 @@ export function ToolsPanel({
           if (e.job_id === enrichJobId) setEnrichProgress(detail ?? "");
         }
         if (e.type === "done") {
-          if (e.job_id === analyzeJobId) {
-            const jid = e.job_id as string;
-            setAnalyzeJobId(null);
-            setAnalyzeProgress("");
-            api
-              .job(jid)
-              .then((j) => {
-                const tr = j.tool_result;
-                if (tr && Array.isArray(tr["stages"]))
-                  setLastAnalyzeStages(tr["stages"] as StageResult[]);
-                if (j.error) setAnalyzeError(j.error ?? null);
-              })
-              .catch(() => {});
-            refreshJobs();
-          }
-          if (e.job_id === enrichJobId) {
-            const jid = e.job_id as string;
-            setEnrichJobId(null);
-            setEnrichProgress("");
-            api
-              .job(jid)
-              .then((j) => {
-                const tr = j.tool_result;
-                if (tr)
-                  setLastEnrichSummary(
-                    `${tr["releases"] ?? 0} releases enriched, ${tr["genres_applied"] ?? 0} genres applied`
-                  );
-                if (j.error) setEnrichError(j.error ?? null);
-              })
-              .catch(() => {});
-            refreshJobs();
-          }
+          if (e.job_id === analyzeJobId) finishAnalyze(e.job_id as string);
+          if (e.job_id === enrichJobId) finishEnrich(e.job_id as string);
         }
       },
-      [analyzeJobId, enrichJobId, refreshJobs]
+      [analyzeJobId, enrichJobId, finishAnalyze, finishEnrich]
     )
   );
+
+  useJobReconcile(analyzeJobId, finishAnalyze);
+  useJobReconcile(enrichJobId, finishEnrich);
 
   function toggleStage(s: AnalyzeStageName) {
     setSelectedStages((prev) =>

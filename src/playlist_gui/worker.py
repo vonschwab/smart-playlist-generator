@@ -131,6 +131,16 @@ class WorkerState:
                 return True
             return False
 
+    def cancel_active(self) -> None:
+        """Request cancellation of whatever request is currently active.
+
+        Unlike request_cancel, this does not match a specific request_id — it is
+        used on shutdown (stdin EOF) to signal any in-flight tracked command to
+        unwind at its next checkpoint so the worker can exit with its parent.
+        """
+        with self._lock:
+            self.cancel_requested = True
+
     def is_cancelled(self) -> bool:
         """Check if cancellation has been requested."""
         with self._lock:
@@ -608,12 +618,33 @@ def _resolve_track_genres(
     *,
     sidecar_db_path: str,
     fallback,
+    db_path: Optional[str] = None,
 ) -> List[str]:
-    """Return enriched genres if available for (artist, album), else call fallback.
+    """Display genres for a track: published authority -> signature -> fallback.
 
-    fallback is a no-arg callable returning the raw genres list.
+    The published authority (release_effective_genres in metadata.db, maintained
+    by the publish stage) is THE genre output and is consulted first when
+    db_path is given. The sidecar signature is the older bandcamp-era layer —
+    often sparse/stale while the authority is rich — kept only as a fallback
+    for releases enriched but not yet published. fallback is a no-arg callable
+    returning the raw genres list.
     """
     from src.ai_genre_enrichment.genre_resolver import EnrichedGenreResolver
+
+    track_id = track.get("rating_key") or track.get("id") or track.get("track_id")
+    if db_path and track_id:
+        from src.genre.authority import display_genre_names_for_track
+
+        try:
+            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            try:
+                published = display_genre_names_for_track(conn, str(track_id))
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            published = []
+        if published:
+            return published
 
     artist = track.get("artist") or ""
     album = track.get("album") or ""
@@ -631,9 +662,10 @@ def _resolve_display_genres(
     *,
     sidecar_db_path: str,
     fallback,
+    db_path: Optional[str] = None,
 ) -> List[str]:
-    """Display genres for a track: resolved (enriched -> fallback), then
-    canonicalized through the taxonomy and ordered most-specific first.
+    """Display genres for a track: resolved (authority -> enriched -> fallback),
+    then canonicalized through the taxonomy and ordered most-specific first.
 
     order_genres_for_display applies the raw-tags safety fallback and never
     raises (degrades to raw tags if the taxonomy is unavailable).
@@ -641,7 +673,9 @@ def _resolve_display_genres(
     from src.genre.granularity import order_genres_for_display
 
     return order_genres_for_display(
-        _resolve_track_genres(track, sidecar_db_path=sidecar_db_path, fallback=fallback)
+        _resolve_track_genres(
+            track, sidecar_db_path=sidecar_db_path, fallback=fallback, db_path=db_path
+        )
     )
 
 
@@ -1343,6 +1377,7 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                     track,
                     sidecar_db_path=SIDECAR_DB_PATH,
                     fallback=_raw_genres,
+                    db_path=merged_config.library_database_path,
                 )
 
                 # Prefer explicit similarity fields; fall back to edge scores from DS report
@@ -2722,8 +2757,16 @@ def main():
         emit_error(f"Worker fatal error: {e}", traceback.format_exc())
         sys.exit(1)
     finally:
+        # stdin closed → the parent (web bridge) is gone or shutting down. Signal
+        # any in-flight tracked command to unwind, then exit promptly. The worker
+        # thread is a daemon, so we MUST NOT block the process on a long-running
+        # job here — an unbounded join leaves the worker grinding after the parent
+        # dies, orphaning it and wedging the bridge (worker-orphan incident
+        # 2026-06-12). The bounded join gives a clean unwind a brief window; past
+        # that we let the daemon thread be reclaimed when the process exits.
         if worker_thread is not None and worker_thread.is_alive():
-            worker_thread.join()
+            _worker_state.cancel_active()
+            worker_thread.join(timeout=2.0)
 
     emit_log("INFO", "Worker shutdown")
 

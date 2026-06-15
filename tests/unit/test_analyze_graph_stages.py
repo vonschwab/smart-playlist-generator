@@ -162,20 +162,81 @@ def test_stage_enrich_no_pending_skips(tmp_path, monkeypatch):
     assert result.get("releases_enriched", 0) == 0
 
 
-def test_stage_enrich_propagates_adjudication_failure(tmp_path, monkeypatch):
+def test_stage_enrich_propagates_hard_config_error(tmp_path, monkeypatch):
+    # A config error re-running cannot fix (CLI missing / unauthenticated) must
+    # propagate loudly — it is not a resumable pause.
     db_path = _metadata_db(tmp_path)
     sidecar = str(tmp_path / "side.db")
     monkeypatch.setattr(al, "ENRICHMENT_DB_PATH", Path(sidecar))
     _seed_sidecar_with_pages(sidecar)
 
     def boom(tags, *, model=None, dry_run=False, client=None):
-        raise RuntimeError("Claude Code request failed after retries: rate window")
+        raise RuntimeError("claude-agent-sdk is not installed")
 
     monkeypatch.setattr(al, "adjudicate_tags", boom)
     ctx = _ctx(tmp_path, db_path)
-    with pytest.raises(RuntimeError, match="failed after retries"):
+    with pytest.raises(RuntimeError, match="not installed"):
         al.stage_enrich(ctx)
     ctx["conn"].close()
+
+
+def test_stage_enrich_pauses_on_transient_rate_window(tmp_path, monkeypatch):
+    # A transient Claude failure mid-sweep (rate/usage window) pauses cleanly
+    # instead of raising — the cache persists and the run resumes on re-run.
+    db_path = _metadata_db(tmp_path)
+    sidecar = str(tmp_path / "side.db")
+    monkeypatch.setattr(al, "ENRICHMENT_DB_PATH", Path(sidecar))
+    _seed_sidecar_with_pages(sidecar)
+
+    def boom(tags, *, model=None, dry_run=False, client=None):
+        raise RuntimeError(
+            "Claude Code request failed after retries: "
+            "Claude Code returned an error result: success"
+        )
+
+    monkeypatch.setattr(al, "adjudicate_tags", boom)
+    ctx = _ctx(tmp_path, db_path)
+    result = al.stage_enrich(ctx)
+    ctx["conn"].close()
+
+    assert result["paused"] is True
+    assert result["skipped"] is False
+    assert "success" in result["pause_reason"]
+
+
+def test_run_pipeline_pause_halts_before_publish(tmp_path, monkeypatch):
+    # enrich pausing must stop the run before publish so partial enrichment is
+    # never written to metadata.db; the report records the pause and rc == 0.
+    import json
+    db_path = _metadata_db(tmp_path)
+    sidecar = str(tmp_path / "side.db")
+    monkeypatch.setattr(al, "ENRICHMENT_DB_PATH", Path(sidecar))
+    _seed_sidecar_with_pages(sidecar)
+
+    def boom(tags, *, model=None, dry_run=False, client=None):
+        raise RuntimeError("Claude Code returned an error result: success")
+
+    monkeypatch.setattr(al, "adjudicate_tags", boom)
+    config_path = _write_minimal_config(tmp_path, db_path)
+    out_dir = str(tmp_path / "artifacts")
+    args = Namespace(
+        config=config_path, db_path=db_path, out_dir=out_dir,
+        stages="enrich,publish", lastfm_api_key="FAKEKEY", model=None,
+        enrich_chunk_size=50, dry_run=False, beat_sync=False, force=False,
+        limit=None, max_tracks=0, workers="auto", progress=False,
+        progress_interval=15.0, progress_every=500, verbose=False,
+        debug=False, quiet=False, log_level="INFO",
+    )
+
+    rc = al.run_pipeline(args, console_logging=False)
+    assert rc == 0
+    assert not _published_table_exists(db_path), "publish must not run after a pause"
+
+    report = json.loads((Path(out_dir) / "analyze_run_report.json").read_text(encoding="utf-8"))
+    assert report.get("paused") is True
+    assert report.get("paused_stage") == "enrich"
+    assert report["stages"]["enrich"]["decision"] == "paused"
+    assert "publish" not in report["stages"]
 
 
 def _published_table_exists(db_path: str) -> bool:

@@ -30,7 +30,7 @@ def test_analyze_creates_job_and_succeeds():
         assert job["status"] == "success"
         assert job["tool_result"]["result_type"] == "analyze_library"
         stages = job["tool_result"]["stages"]
-        assert isinstance(stages, list) and len(stages) == 11
+        assert isinstance(stages, list) and len(stages) == 12
 
 
 def test_analyze_with_stage_subset():

@@ -299,13 +299,22 @@ def create_app(
                     """,
                     (pattern, pattern, pattern, limit),
                 ).fetchall()
+                from src.genre.authority import display_genre_names_for_track
+                from src.genre.granularity import order_genres_for_display
+
                 results = []
                 for row in rows:
                     track_id = row[0]
-                    genres = [g[0] for g in conn.execute(
-                        "SELECT genre FROM track_effective_genres WHERE track_id = ? ORDER BY priority LIMIT 5",
-                        (track_id,),
-                    ).fetchall()]
+                    # Published authority first (the genre output), then the
+                    # legacy per-track tables.
+                    genres = order_genres_for_display(
+                        display_genre_names_for_track(conn, track_id)
+                    )[:5]
+                    if not genres:
+                        genres = [g[0] for g in conn.execute(
+                            "SELECT genre FROM track_effective_genres WHERE track_id = ? ORDER BY priority LIMIT 5",
+                            (track_id,),
+                        ).fetchall()]
                     if not genres:
                         genres = [g[0] for g in conn.execute(
                             "SELECT genre FROM track_genres WHERE track_id = ? ORDER BY weight DESC LIMIT 5",
@@ -338,6 +347,7 @@ def create_app(
         if not ids or not DB_PATH.exists():
             return {}
         from src.ai_genre_enrichment.genre_resolver import EnrichedGenreResolver
+        from src.genre.authority import display_genre_names_for_track
         from src.genre.granularity import order_genres_for_display
 
         resolver = EnrichedGenreResolver(SIDECAR_DB_PATH)
@@ -352,7 +362,12 @@ def create_app(
                 ).fetchall()
                 for track_id, artist, album in rows:
                     tid = str(track_id)
-                    raw = resolver.get_enriched_genres(artist=artist or "", album=album) or []
+                    # Published authority first (release_effective_genres); the
+                    # sidecar signature is the older bandcamp-era layer, kept as
+                    # fallback for enriched-but-unpublished releases.
+                    raw = display_genre_names_for_track(conn, tid)
+                    if not raw:
+                        raw = resolver.get_enriched_genres(artist=artist or "", album=album) or []
                     if not raw:
                         raw = [g[0] for g in conn.execute(
                             "SELECT genre FROM track_effective_genres WHERE track_id = ? ORDER BY priority",

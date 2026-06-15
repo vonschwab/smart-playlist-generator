@@ -8,6 +8,30 @@ from src.playlist_web.worker_bridge import WorkerBridge, BridgeBusy, WorkerComma
 
 FAKE = [sys.executable, "tests/fixtures/fake_worker.py"]
 
+# A worker stub that emits a single result line LARGER than asyncio's 64KB
+# StreamReader.readline() default limit. The real Genre Review limit=50 page is
+# ~192KB on one line; that overran the limit, killed the bridge read loop, and
+# every command timed out (the multi-day 504 bug, 2026-06-12).
+_BIG_LINE_WORKER = [
+    sys.executable, "-c",
+    "import sys, json\n"
+    "for line in sys.stdin:\n"
+    "    c = json.loads(line); rid = c.get('request_id')\n"
+    "    print(json.dumps({'type':'result','result_type':'big','request_id':rid,'blob':'x'*200000}), flush=True)\n"
+    "    print(json.dumps({'type':'done','ok':True,'request_id':rid}), flush=True)\n",
+]
+
+
+@pytest.mark.asyncio
+async def test_command_handles_result_line_over_64kb():
+    bridge = WorkerBridge(_BIG_LINE_WORKER, on_event=_noop)
+    await bridge.start()
+    try:
+        result = await bridge.command({"cmd": "big"}, timeout=10)
+        assert len(result["blob"]) == 200000
+    finally:
+        await bridge.stop()
+
 
 @pytest.mark.asyncio
 async def test_bridge_streams_events_for_generate():

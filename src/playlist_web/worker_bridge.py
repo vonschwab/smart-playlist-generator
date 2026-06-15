@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import uuid
 from typing import Awaitable, Callable, Optional
+
+logger = logging.getLogger(__name__)
 
 PROTOCOL_VERSION = 1
 EventHandler = Callable[[dict], Awaitable[None]]
@@ -15,6 +18,18 @@ class BridgeBusy(RuntimeError):
 
 class WorkerCommandError(RuntimeError):
     """Raised when a synchronous worker command completes with ok=false."""
+
+
+class WorkerUnavailable(RuntimeError):
+    """Worker subprocess is not running (crashed, never started, or stopped)."""
+
+
+class WorkerTimeout(WorkerUnavailable):
+    """Worker did not emit a `done` event within the command timeout.
+
+    Subclass of WorkerUnavailable so a single handler covers both, but distinct
+    so endpoints/handlers can map it to 504 vs 503.
+    """
 
 
 class WorkerBridge:
@@ -46,6 +61,12 @@ class WorkerBridge:
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            # Raise the StreamReader line limit far above the default 64KB. The
+            # worker emits whole results as one NDJSON line; the Genre Review
+            # limit=50 page is ~192KB. At the default, readline() raises
+            # LimitOverrunError, the read loop dies, and EVERY command times out
+            # (the multi-day 504 bug, 2026-06-12).
+            limit=2 ** 24,  # 16 MiB
         )
         self._reader_task = asyncio.create_task(self._read_loop())
 
@@ -69,7 +90,7 @@ class WorkerBridge:
 
     async def submit(self, cmd: dict) -> str:
         if not self.running:
-            raise RuntimeError("Worker not running")
+            raise WorkerUnavailable("Worker not running")
         if self.busy:
             raise BridgeBusy("Worker is busy with another request")
         request_id = str(uuid.uuid4())
@@ -98,7 +119,7 @@ class WorkerBridge:
         long scan blocks the review panel entirely.
         """
         if not self.running:
-            raise RuntimeError("Worker not running")
+            raise WorkerUnavailable("Worker not running")
         if not untracked and self.busy:
             raise BridgeBusy("Worker is busy with another request")
         request_id = str(uuid.uuid4())
@@ -114,6 +135,13 @@ class WorkerBridge:
         await self._proc.stdin.drain()
         try:
             return await asyncio.wait_for(fut, timeout=timeout)
+        except asyncio.TimeoutError as exc:
+            # The worker never emitted `done` for this request_id. Translate to a
+            # typed error so endpoints surface a clean 504 instead of letting a
+            # bare asyncio.TimeoutError bubble into an HTTP 500 traceback.
+            raise WorkerTimeout(
+                f"Worker did not respond within {timeout:.0f}s"
+            ) from exc
         finally:
             self._pending.pop(request_id, None)
             self._results.pop(request_id, None)
@@ -136,6 +164,26 @@ class WorkerBridge:
         return True
 
     async def _read_loop(self) -> None:
+        assert self._proc and self._proc.stdout
+        try:
+            await self._read_loop_inner()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            # A read error (e.g. LimitOverrunError on an over-long line) must not
+            # silently wedge the bridge. Surface it and fail in-flight commands
+            # so callers get an immediate clear error instead of a 60s timeout.
+            logger.exception("worker read loop crashed: %s", exc)
+        finally:
+            self._fail_pending(WorkerUnavailable("Worker stream closed"))
+
+    def _fail_pending(self, exc: BaseException) -> None:
+        for rid, fut in list(self._pending.items()):
+            if not fut.done():
+                fut.set_exception(exc)
+        self._active_request_id = None
+
+    async def _read_loop_inner(self) -> None:
         assert self._proc and self._proc.stdout
         while True:
             raw = await self._proc.stdout.readline()

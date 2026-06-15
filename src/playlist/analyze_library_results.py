@@ -95,6 +95,27 @@ def parse_analyze_library_report(report_path: str | Path) -> dict[str, Any]:
     return result
 
 
+def parse_analyze_library_paused(report_path: str | Path) -> tuple[str, str] | None:
+    """If the run stopped at a resumable checkpoint, return (stage, reason).
+
+    ``run_pipeline`` sets ``report["paused"]`` and records the stage's decision as
+    ``"paused"`` (e.g. enrich hit a Claude rate window). Returns None for a normal
+    completed run.
+    """
+    path = Path(report_path)
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            report = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if not report.get("paused"):
+        return None
+    stage = str(report.get("paused_stage") or "")
+    stage_report = (report.get("stages") or {}).get(stage) or {}
+    reason = str(stage_report.get("reason") or "resumable checkpoint")
+    return stage, reason
+
+
 def format_analyze_library_summary(result: dict[str, Any]) -> str:
     """Return a concise one-line Analyze Library summary for tables/status bars."""
     total = _safe_int(result.get("total_stages"), 0)

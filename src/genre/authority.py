@@ -62,6 +62,35 @@ def canonical_genre_names(conn: sqlite3.Connection) -> dict[str, str]:
     )
 
 
+def display_genre_names_for_track(conn: sqlite3.Connection, track_id: str) -> list[str]:
+    """Published genres for a track's album as display names, deduped.
+
+    The read for GUI display paths (chips, search results, staged seeds):
+    observed + inferred layers, genre_id mapped to the canonical display name
+    (unmapped ids pass through as-is). Returns [] when the track's album is
+    unpublished or the authority tables are absent — display callers fall back
+    to other sources, they don't crash.
+    """
+    try:
+        rows = conn.execute(
+            "SELECT reg.genre_id, COALESCE(g.name, reg.genre_id) "
+            "FROM release_effective_genres reg "
+            "LEFT JOIN genre_graph_canonical_genres g ON g.genre_id = reg.genre_id "
+            "WHERE reg.album_id = (SELECT album_id FROM tracks WHERE track_id = ?) "
+            "ORDER BY reg.assignment_layer, reg.genre_id",
+            (str(track_id),),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for genre_id, name in rows:
+        if genre_id not in seen:
+            seen.add(genre_id)
+            out.append(name)
+    return out
+
+
 def genre_source_for_album(conn: sqlite3.Connection, album_id: str) -> str:
     base = conn.execute(
         "SELECT source FROM release_effective_genres "

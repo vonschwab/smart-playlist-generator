@@ -1,6 +1,11 @@
 library:
   music_directory: /path/to/music
   database_path: data/metadata.db
+analyze:
+  mert:
+    device: cpu        # cpu|cuda
+    torch_threads: 0   # 0 = all available (--workers N overrides)
+    shard_size: 200    # tracks per resumable shard npz
 discogs:
   token: ''
 lastfm:

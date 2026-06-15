@@ -3,9 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
-
-import pytest
 
 from src.ai_genre_enrichment.storage import SidecarStore
 
@@ -78,12 +75,16 @@ def test_build_enriched_preserves_overrides_in_signature(tmp_path):
     store = SidecarStore(tmp_path / "sidecar.db")
     store.initialize()
 
+    # Use a seedable source (local_metadata): lastfm_tags cannot seed a signature
+    # under the current model, so a lastfm-only release produces no signature row
+    # for the override to attach to. This test is about override preservation, so
+    # it needs a base source that actually seeds.
     page_id = store.upsert_source_page(
         release_key="autechre::amber", normalized_artist="autechre",
         normalized_album="amber", album_id=None,
-        source_url="lastfm://artist/autechre/album/amber",
-        source_type="lastfm_tags", identity_status="confirmed",
-        identity_confidence=1.0, evidence_summary="lastfm",
+        source_url="local://autechre/amber",
+        source_type="local_metadata", identity_status="confirmed",
+        identity_confidence=1.0, evidence_summary="local",
     )
     store.replace_source_tags(page_id, ["idm", "glitch"])
     store.classify_source_tags(page_id, adjudicate=False)

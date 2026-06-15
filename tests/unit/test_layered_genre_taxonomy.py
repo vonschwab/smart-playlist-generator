@@ -32,7 +32,10 @@ def test_layered_taxonomy_loads_seed_aliases_parents_and_bridge_rules():
 
     taxonomy = load_default_layered_taxonomy()
 
-    assert taxonomy.version == "0.2.0-expanded"
+    # Version is a moving target (grows with each SP3a pass); assert it loaded a
+    # well-formed version rather than pinning a literal. Structural assertions
+    # below are the real verification that the default taxonomy loaded.
+    assert isinstance(taxonomy.version, str) and taxonomy.version
     assert taxonomy.genre_by_name("jangle pop").genre_id == "jangle_pop"
     assert taxonomy.facet_by_name("lo-fi").facet_type == "production"
 

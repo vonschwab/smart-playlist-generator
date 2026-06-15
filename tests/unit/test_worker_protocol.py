@@ -46,6 +46,20 @@ class TestWorkerState:
         assert result is False
         assert state.is_cancelled() is False
 
+    def test_worker_state_cancel_active_ignores_request_id(self):
+        """cancel_active cancels whatever is running without matching an id.
+
+        Used on stdin EOF (shutdown) so an in-flight tracked command unwinds and
+        the worker exits with its parent instead of orphaning.
+        """
+        from src.playlist_gui.worker import WorkerState
+
+        state = WorkerState()
+        state.start_request("some-active-id", "scan_genre_review", job_id="j1")
+
+        state.cancel_active()
+        assert state.is_cancelled() is True
+
     def test_worker_state_check_cancelled_raises(self):
         """Test that check_cancelled raises CancellationError."""
         from src.playlist_gui.worker import WorkerState, CancellationError
