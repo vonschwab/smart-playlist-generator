@@ -1263,6 +1263,70 @@ def _uncached_review_only_tags(store: SidecarStore, page_ids: List[int]) -> List
     return [(raw, norm) for norm, raw in seen.items()]
 
 
+def _enrich_materialization_action(
+    *, force: bool, has_assignments: bool, stored_fp: Optional[str], current_fp: str
+) -> str:
+    """Decide whether to (re)materialize a release in the incremental enrich.
+
+    Returns "materialize" | "adopt" | "skip":
+      - force                       -> materialize (deliberate full re-derive)
+      - no existing assignments     -> materialize (new music; new fusion applies)
+      - assignments, no stored fp   -> adopt (first incremental run: keep the
+                                       existing/surgical state, record baseline)
+      - stored fp == current fp     -> skip (evidence unchanged)
+      - stored fp != current fp     -> materialize (evidence genuinely changed)
+    """
+    if force or not has_assignments:
+        return "materialize"
+    if stored_fp is None:
+        return "adopt"
+    return "skip" if stored_fp == current_fp else "materialize"
+
+
+def _release_evidence_fingerprint(store: Any, release: Any) -> str:
+    """Stable hash of everything that feeds fuse_release_evidence for a release.
+
+    Covers sidecar source tags + their classification/domain, accepted enriched
+    genres, model-prior terms, and the release payload's existing file/MB/Discogs
+    genres. Unchanged inputs -> unchanged hash -> enrich skips the release; any
+    real evidence change flips the hash and triggers re-materialization through
+    the current fusion policy.
+    """
+    rk = release.release_key
+    terms = sorted(
+        (
+            str(r.get("source_type")),
+            str(r.get("source_domain") or ""),
+            str(r.get("term")),
+            str(r.get("mapping_status") or ""),
+            round(float(r.get("confidence") or 0.0), 4),
+            str(r.get("classifier") or ""),
+        )
+        for r in store.hybrid_source_terms_for_release(rk)
+    )
+    enriched = sorted(
+        str(r.get("genre")) for r in store.accepted_enriched_genres_for_release(rk)
+    )
+    priors = sorted(
+        (
+            str(r.get("normalized_term")),
+            str(r.get("mapping_status") or ""),
+            round(float(r.get("confidence") or 0.0), 4),
+        )
+        for r in store.latest_model_prior_terms_for_release(rk)
+    )
+    existing = {
+        k: sorted(v)
+        for k, v in sorted((getattr(release, "existing_genres_by_source", {}) or {}).items())
+    }
+    payload = json.dumps(
+        {"terms": terms, "enriched": enriched, "priors": priors, "existing": existing},
+        sort_keys=True,
+        default=str,
+    )
+    return hashlib.md5(payload.encode("utf-8")).hexdigest()
+
+
 def stage_enrich(ctx: Dict) -> Dict:
     """Adjudicate unknown tags (chunked Claude calls) and materialize graph genres.
 
@@ -1335,7 +1399,15 @@ def stage_enrich(ctx: Dict) -> Dict:
         if getattr(args, "progress", True) else None
     )
 
+    # Incremental: only (re)materialize NEW music or releases whose evidence
+    # actually changed. Existing releases are left exactly as they are (the
+    # surgical/published state) unless --force. This stops a routine analyze
+    # run from wholesale re-deriving the library and undoing targeted genre
+    # fixes (2026-06-13 incident). The current fusion policy still applies to
+    # every release that IS materialized — new music gets the better rules.
+    force = bool(getattr(args, "force", False))
     enriched = 0
+    skipped = 0
     assignments = 0
     for rk in pending_keys:
         release = by_key.get(rk)
@@ -1346,19 +1418,35 @@ def stage_enrich(ctx: Dict) -> Dict:
         for pid in pages_by_release.get(rk, []):
             store.classify_source_tags(pid, adjudicate=False, model=None)
         store.rebuild_enriched_genres_for_release(rk)
+        current_fp = _release_evidence_fingerprint(store, release)
+        action = _enrich_materialization_action(
+            force=force,
+            has_assignments=store.has_genre_assignments(rk),
+            stored_fp=store.materialization_fingerprint(rk),
+            current_fp=current_fp,
+        )
+        if action != "materialize":
+            if action == "adopt":
+                store.set_materialization_fingerprint(rk, current_fp)
+            skipped += 1
+            continue
         fused = fuse_release_evidence(store, release)
         summary = materialize_layered_assignments(
             store, release_id=rk, artist=release.normalized_artist,
             album=release.normalized_album, report=fused, taxonomy=taxonomy,
         )
+        store.set_materialization_fingerprint(rk, current_fp)
         assignments += summary.genre_assignment_count
         enriched += 1
 
     if prog:
-        prog.finish(detail=f"enriched {enriched:,} releases")
-    logger.info("enrich stage: releases=%d tags_adjudicated=%d chunks=%d assignments=%d",
-                enriched, tags_adjudicated, chunks_used, assignments)
+        prog.finish(detail=f"materialized {enriched:,} releases ({skipped:,} unchanged)")
+    logger.info(
+        "enrich stage: materialized=%d skipped_unchanged=%d tags_adjudicated=%d chunks=%d assignments=%d",
+        enriched, skipped, tags_adjudicated, chunks_used, assignments,
+    )
     return {"skipped": False, "releases_enriched": enriched,
+            "releases_skipped_unchanged": skipped,
             "tags_adjudicated": tags_adjudicated, "chunks_used": chunks_used,
             "genre_assignments": assignments, "total": enriched}
 
