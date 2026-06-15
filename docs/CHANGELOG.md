@@ -1,5 +1,75 @@
 # Playlist Generator Changelog
 
+## v6.0.0 - Learned Sonic Embedding, Genre Authority, Browser GUI
+
+**Release Date:** 2026-06 (in preparation)
+**Focus:** Replace the perceptually-unreliable hand-built sonic towers with a learned
+audio embedding; make published graph-resolved genres the authority; rebuild pace on
+tempo + rhythmic density; consolidate on the browser GUI; and remove deprecated code.
+
+### Sonic
+
+- **Learned MERT sonic embedding is now the default similarity space.** The hand-built
+  rhythm/timbre/harmony towers were perceptually coarse (the dominant timbre tower rated
+  Metallica ≈ Yeah Yeah Yeahs), capping playlist quality regardless of tuning. v6.0 folds a
+  **MERT-v1-95M** embedding (768-d, mean-pooled over 13 layers) into the artifact as
+  `X_sonic_mert{,_start,_mid,_end}` and flips `X_sonic_variant` to `mert`. Post-processing is
+  `whiten_l2` (mean-center → per-dim std → L2) fitted on the full library; cross-catalog,
+  seed-artist-excluded neighbour QA beats the towers by ~45–93%. Full-library extraction is
+  resumable (`scripts/extract_mert_sidecar.py`); the fold is `scripts/fold_mert_into_artifact.py`.
+- **Towers remain as a rollback** (`artifacts.sonic_variant_override: tower_weighted`),
+  untouched in the artifact. A startup guard rejects tower-style transition weights under the
+  MERT variant. The pace gate falls back to perceptual-BPM when no rhythm tower exists.
+- **sonic_mode floors recalibrated** to MERT cosine percentiles (strict 0.28 / narrow 0.18 /
+  dynamic 0.08 / discover 0.00) — MERT cosines compress near 0, so the tower-era 0.3–0.5
+  floors no longer apply.
+
+### Pace
+
+- **Rebuilt on tempo + rhythmic density.** The rhythm-cosine hard floor (near-noise,
+  unsatisfiable for beatless/ambient artists) is replaced by two embedding-independent hard
+  bands — **BPM log-distance** and **onset-rate log-distance** — plus a **soft** rhythm-cosine
+  penalty (tower variants only). Bands widen on segment backoff so pace never blows the 90 s
+  budget. Because the bands read DB features, pace is unchanged by the MERT migration, and
+  `pace_mode: narrow` is now usable for an ambient seed.
+
+### Genre
+
+- **Enriched genres are the authority.** `release_effective_genres` (metadata.db), written
+  only by the enrichment **publish** stage and read via `src/genre/authority.py`, is the single
+  source consumers read. The generation artifact bakes it in (`genre_source: graph`).
+- **Layered taxonomy graph** (`data/layered_genre_taxonomy.yaml`, ~455 genres) resolves and
+  orders genres; artifact genre vectors exclude inferred hub-families (which had saturated
+  genre similarity).
+- **Multisource enrichment via Claude** (Agent SDK, no API billing), run as resumable
+  `analyze_library.py` stages. Fusion rebalanced to weight artist-page over label-storefront
+  evidence, never drop correct local tags, and avoid self-corroboration; a surgical delta
+  migration repaired legacy mislabels (e.g. storefront/last.fm wrong-identity contamination).
+  Transient rate-limit failures **pause** the enrich stage cleanly before publish, so partial
+  enrichment never reaches metadata.db.
+- **Genre Review GUI panel** queues hybrid-evidence review terms per release for human
+  accept/reject (persisted as user overrides); genre chips are graph-canonical, ordered
+  most-specific → broadest.
+
+### GUI & pipeline
+
+- **Browser GUI is the only front-end** (`tools/serve_web.py`): Generate, Tools (library
+  analyze/enrich), and Genre Review tabs over a FastAPI + NDJSON worker. The PySide6 desktop
+  GUI was removed.
+- **`analyze_library.py`** orchestrates the full pipeline as resumable, fingerprint-skipping
+  stages including the new `mert` extraction stage.
+
+### Repo cleanup
+
+- Removed deprecated/dead code: `src/genre/vocab_normalization.py`; dead A/B-sweep and
+  one-off scripts (`sweep_pier_bridge_dials`, `run_dj_*_ab`, `fix_compound_genres`,
+  `rebuild_sonic_tower_weighted` + `src/features/sonic_rebuild.py`); the PyInstaller
+  `build_windows.ps1`; and their tests.
+- Added `tools/dead_code_audit.py` (static reachability audit) to keep dead wiring from
+  re-accumulating.
+- `config.yaml` is no longer tracked; generated test DBs / backups / web test output are
+  gitignored.
+
 ## v4.3.0 - 2DFTM Harmony Tower Rebuild
 
 **Release Date:** 2026-06-03
