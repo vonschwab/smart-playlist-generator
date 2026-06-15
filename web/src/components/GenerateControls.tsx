@@ -131,7 +131,7 @@ export function GenerateControls({
   // Drive the artist autocomplete from the seed input. Skip one cycle after a
   // selection so picking a name doesn't immediately re-open the dropdown.
   useEffect(() => {
-    if (mode !== "artist") { artistSearch.reset(); return; }
+    if (mode !== "artist") { artistSearch.reset(); selectedRef.current = null; return; }
     if (seed === selectedRef.current) return; // just selected this name — don't reopen the dropdown
     artistSearch.setQuery(seed);
     // eslint-disable-next-line react-hooks/exhaustive-deps

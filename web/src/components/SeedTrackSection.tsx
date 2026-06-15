@@ -72,6 +72,7 @@ export function SeedTrackSection({
     }
     document.addEventListener("mousedown", onOutside);
     return () => document.removeEventListener("mousedown", onOutside);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function addTrack(track: SeedTrack) {
