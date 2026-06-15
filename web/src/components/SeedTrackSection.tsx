@@ -3,6 +3,7 @@ import { api } from "../lib/api";
 import { usePlayer } from "../contexts/PlayerContext";
 import type { SeedTrack, TrackOut } from "../lib/types";
 import { GenreChips } from "./GenreChips";
+import { useInfiniteSearch } from "../lib/useInfiniteSearch";
 
 function seedToTrackOut(seed: SeedTrack, index: number): TrackOut {
   return {
@@ -30,9 +31,12 @@ export function SeedTrackSection({
   onRemove: (id: string) => void;
   onClear: () => void;
 }) {
-  const [q, setQ] = useState("");
-  const [results, setResults] = useState<SeedTrack[]>([]);
-  const timer = useRef<number | undefined>(undefined);
+  const search = useInfiniteSearch<SeedTrack>({
+    fetchPage: api.searchTracks,
+    pageSize: 25,
+    maxItems: 400,
+  });
+  const listRef = useRef<HTMLUListElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const player = usePlayer();
   const trackOuts = tracks.map(seedToTrackOut);
@@ -61,17 +65,9 @@ export function SeedTrackSection({
   }, [idsKey]);
 
   useEffect(() => {
-    if (q.length < 2) { setResults([]); return; }
-    window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(async () => {
-      setResults(await api.searchTracks(q).catch(() => []));
-    }, 200);
-  }, [q]);
-
-  useEffect(() => {
     function onOutside(e: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setResults([]);
+        search.reset();
       }
     }
     document.addEventListener("mousedown", onOutside);
@@ -81,8 +77,7 @@ export function SeedTrackSection({
   function addTrack(track: SeedTrack) {
     if (tracks.some((t) => t.track_id === track.track_id)) return;
     onAdd(track);
-    setQ("");
-    setResults([]);
+    search.reset();
   }
 
   return (
@@ -95,14 +90,21 @@ export function SeedTrackSection({
         <div ref={dropdownRef} className="relative flex-1 px-3 py-[5px]">
           <input
             data-testid="seed-search-input"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
+            value={search.query}
+            onChange={(e) => search.setQuery(e.target.value)}
             placeholder="Search by title, artist, or album…"
             className="w-full bg-[#0c0e12] border border-[#23262d] rounded text-xs text-[#e6e9ec] px-2.5 py-1"
           />
-          {results.length > 0 && (
-            <ul className="absolute z-20 left-3 right-3 mt-1 bg-[#16181d] border border-[#23262d] rounded shadow-xl max-h-60 overflow-auto">
-              {results.map((r) => {
+          {search.items.length > 0 && (
+            <ul
+              ref={listRef}
+              onScroll={() => {
+                const el = listRef.current;
+                if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 48) search.loadMore();
+              }}
+              className="absolute z-20 left-3 right-3 mt-1 bg-[#16181d] border border-[#23262d] rounded shadow-xl max-h-60 overflow-auto"
+            >
+              {search.items.map((r) => {
                 const already = tracks.some((t) => t.track_id === r.track_id);
                 return (
                   <li
@@ -120,6 +122,11 @@ export function SeedTrackSection({
                   </li>
                 );
               })}
+              {search.items.length >= 400 && search.hasMore ? (
+                <li className="px-3 py-2 text-[10px] text-[#5b6470]">Showing first 400 — refine your search</li>
+              ) : (search.loading || search.hasMore) ? (
+                <li className="px-3 py-2 text-[10px] text-[#5b6470]">{search.loading ? "Loading…" : "Scroll for more"}</li>
+              ) : null}
             </ul>
           )}
         </div>
