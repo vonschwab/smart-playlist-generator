@@ -6,6 +6,7 @@ import type {
   EnrichToolRequest,
   GenerateRequestBody,
   JobOut,
+  Page,
   PlexExportRequest,
   ReplaceSuggestionsResponse,
   ReviewDecisionRequest,
@@ -35,11 +36,13 @@ export const api = {
   async jobs(): Promise<JobOut[]> {
     return jsonOrThrow(await fetch("/api/jobs"));
   },
-  async autocomplete(q: string): Promise<string[]> {
-    return jsonOrThrow(await fetch(`/api/autocomplete?q=${encodeURIComponent(q)}`));
+  async autocomplete(q: string, offset = 0, limit = 30): Promise<Page<string>> {
+    const params = new URLSearchParams({ q, offset: String(offset), limit: String(limit) });
+    return jsonOrThrow(await fetch(`/api/autocomplete?${params}`));
   },
-  async searchTracks(q: string, limit = 15): Promise<SeedTrack[]> {
-    return jsonOrThrow(await fetch(`/api/tracks/search?q=${encodeURIComponent(q)}&limit=${limit}`));
+  async searchTracks(q: string, offset = 0, limit = 25): Promise<Page<SeedTrack>> {
+    const params = new URLSearchParams({ q, offset: String(offset), limit: String(limit) });
+    return jsonOrThrow(await fetch(`/api/tracks/search?${params}`));
   },
   async trackGenres(trackIds: string[]): Promise<Record<string, string[]>> {
     return jsonOrThrow(await fetch("/api/tracks/genres", {

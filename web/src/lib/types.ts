@@ -172,3 +172,8 @@ export interface ReviewDecisionRequest {
   term: string;
   decision: "accept" | "reject" | "revert";
 }
+
+export interface Page<T> {
+  items: T[];
+  has_more: boolean;
+}
