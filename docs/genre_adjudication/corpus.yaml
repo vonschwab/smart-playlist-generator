@@ -1,4 +1,4 @@
-corpus_version: 0.4-batch4
+corpus_version: 1.0-complete
 date: '2026-06-16'
 gold_definition: tight, specific, facet-separated OBSERVED-LEAF identity; broad/inferred genres are geometry-derived
   and NOT stored; all genres canonical (validated via graph_adapter.canonicalize_tag) or recorded as taxonomy_gaps
@@ -597,3 +597,175 @@ entries:
   - space jazz
   - cosmic jazz
   notes: 0 observed leaves; free/space jazz
+- release_key: black sabbath::black sabbath 2012 shm sacd
+  album_id: d0ce596a133a6dd0
+  artist: Black Sabbath
+  title: Black Sabbath (2012 SHM-SACD)
+  bucket: failure
+  failure_mode: wrong_tag
+  gold_genres:
+  - heavy metal
+  - doom metal
+  - hard rock
+  gold_facets: []
+  must_preserve:
+  - hard rock
+  taxonomy_gaps: []
+  notes: metal entirely missing (Sabbath invented heavy/doom metal); 'stoner rock' anachronistic
+- release_key: tim hecker::an imaginary country
+  album_id: c5e8299993121e37
+  artist: Tim Hecker
+  title: An Imaginary Country
+  bucket: failure
+  failure_mode: wrong_tag
+  gold_genres:
+  - ambient
+  - dark ambient
+  - experimental electronic
+  gold_facets:
+  - drone
+  must_preserve: []
+  taxonomy_gaps: []
+  notes: '''emo'' + ''gothic rock'' wrong; drone is a facet'
+- release_key: bill callahan::apocalypse
+  album_id: bad0dc4e358e4515
+  artist: Bill Callahan
+  title: Apocalypse
+  bucket: failure
+  failure_mode: over_tagged
+  gold_genres:
+  - indie folk
+  - alternative country
+  - singer-songwriter
+  gold_facets: []
+  must_preserve:
+  - indie folk
+  taxonomy_gaps: []
+  notes: 11->3; dropped contemporary r&b/funk rock/pop soul/psychedelic pop (wrong)
+- release_key: wilco::a ghost is born
+  album_id: 967b9bde5bc0928c
+  artist: Wilco
+  title: A ghost is born
+  bucket: control
+  gold_genres:
+  - alternative country
+  - experimental rock
+  gold_facets: []
+  must_preserve:
+  - alternative country
+  taxonomy_gaps: []
+  notes: prune country/country rock/alt rock dup
+- release_key: the cure::the head on the door
+  album_id: 504547667d031638
+  artist: The Cure
+  title: The Head on the Door
+  bucket: control
+  gold_genres:
+  - gothic rock
+  - post-punk
+  - new wave
+  - synth-pop
+  gold_facets: []
+  must_preserve:
+  - gothic rock
+  - post-punk
+  taxonomy_gaps: []
+  notes: drop alt rock/art pop
+- release_key: terry riley::a rainbow in curved air
+  album_id: 4f91cf46633e10df
+  artist: Terry Riley
+  title: A Rainbow In Curved Air
+  bucket: control
+  gold_genres:
+  - minimalist composition
+  - contemporary classical
+  gold_facets: []
+  must_preserve:
+  - minimalist composition
+  taxonomy_gaps: []
+  notes: clean
+- release_key: funkadelic::maggot brain
+  album_id: ac786e9588bc0338
+  artist: Funkadelic
+  title: Maggot Brain
+  bucket: control
+  gold_genres:
+  - funk
+  - psychedelic soul
+  - acid rock
+  - psychedelic rock
+  gold_facets: []
+  must_preserve:
+  - funk
+  - psychedelic soul
+  taxonomy_gaps: []
+  notes: drop funk rock/hard rock/r&b-soul/synth funk
+- release_key: don cherry::blue note 75 75th anniversary mqs collection
+  album_id: b0c396c5447f458c
+  artist: Don Cherry
+  title: Blue Note 75 (75th Anniversary MQS Collection)
+  bucket: control
+  gold_genres:
+  - spiritual jazz
+  - jazz fusion
+  gold_facets: []
+  must_preserve:
+  - spiritual jazz
+  taxonomy_gaps: []
+  notes: clean (observed already right)
+- release_key: mandingo griot society::soul jazz records presents soul of a nation afro centric visions
+    in the age of black power underground jazz street funk the roots of rap 1968 79
+  album_id: 62195c0f2e738cfc
+  artist: Mandingo Griot Society with Don Cherry
+  title: 'Soul Jazz Records Presents Soul Of A Nation: Afro-Centric Visions in the Age of Black Power
+    - Underground Jazz, Street Funk & The Roots of Rap 1968-79'
+  bucket: sparse
+  gold_genres:
+  - spiritual jazz
+  - free jazz
+  gold_facets: []
+  must_preserve: []
+  taxonomy_gaps:
+  - world fusion
+  notes: 0 observed leaves; Don Cherry world-jazz; world fusion is a taxonomy gap
+- release_key: stars of the lid::and their refinement of the decline
+  album_id: 92ea5a69ea20b62d
+  artist: Stars of the Lid
+  title: And Their Refinement of the Decline
+  bucket: sparse
+  gold_genres:
+  - ambient
+  - modern classical
+  - minimalist composition
+  gold_facets:
+  - drone
+  must_preserve: []
+  taxonomy_gaps: []
+  notes: ambient/drone missing; thin
+- release_key: stars of the lid::avec laudenum
+  album_id: 7290b75c19efad5e
+  artist: Stars of the Lid
+  title: Avec Laudenum
+  bucket: sparse
+  gold_genres:
+  - ambient
+  - minimalist composition
+  gold_facets:
+  - drone
+  must_preserve: []
+  taxonomy_gaps: []
+  notes: thin (2 observed)
+- release_key: television::marquee moon elektra 7599 60616 2
+  album_id: 4961dd137c0b57b7
+  artist: Television
+  title: Marquee Moon [Elektra 7599-60616-2]
+  bucket: sparse
+  gold_genres:
+  - art rock
+  - post-punk
+  - experimental rock
+  gold_facets: []
+  must_preserve:
+  - art rock
+  taxonomy_gaps: []
+  notes: thin; post-punk missing
