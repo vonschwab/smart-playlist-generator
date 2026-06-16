@@ -452,14 +452,15 @@ def test_cli_propose_growth_writes_file(tmp_path, monkeypatch):
 
 
 def test_cli_ingest_growth_appends_kept_only(tmp_path):
-    import shutil, sqlite3
+    import shutil
     from src.ai_genre_enrichment.layered_taxonomy import (
         DEFAULT_TAXONOMY_PATH, load_layered_taxonomy)
     from scripts import ai_genre_enrich as cli
 
     tax_path = tmp_path / "taxonomy.yaml"
     shutil.copy(DEFAULT_TAXONOMY_PATH, tax_path)
-    side = tmp_path / "sidecar.db"; SidecarStore(side).initialize()
+    side = tmp_path / "sidecar.db"
+    SidecarStore(side).initialize()
 
     # one keep, one reject
     proposals_path = tmp_path / "proposals.yaml"
@@ -502,7 +503,8 @@ def test_cli_ingest_growth_dry_run_writes_nothing(tmp_path):
     tax_path = tmp_path / "taxonomy.yaml"
     shutil.copy(DEFAULT_TAXONOMY_PATH, tax_path)
     before = tax_path.read_text(encoding="utf-8")
-    side = tmp_path / "sidecar.db"; SidecarStore(side).initialize()
+    side = tmp_path / "sidecar.db"
+    SidecarStore(side).initialize()
     proposals_path = tmp_path / "proposals.yaml"
     keep = gg.GrowthProposal(
         name="xyzzy-growth-test", kind="subgenre", status="active", specificity_score=0.8,
@@ -531,7 +533,8 @@ def test_cli_ingest_growth_all_invalid_writes_nothing(tmp_path, capsys):
     tax_path = tmp_path / "taxonomy.yaml"
     shutil.copy(DEFAULT_TAXONOMY_PATH, tax_path)
     before = tax_path.read_text(encoding="utf-8")
-    side = tmp_path / "sidecar.db"; SidecarStore(side).initialize()
+    side = tmp_path / "sidecar.db"
+    SidecarStore(side).initialize()
     proposals_path = tmp_path / "proposals.yaml"
     keep = gg.GrowthProposal(
         name="vaporwave", kind="subgenre", status="active", specificity_score=0.8,

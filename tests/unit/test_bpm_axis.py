@@ -1,5 +1,4 @@
 import numpy as np
-import pytest
 from src.playlist.bpm_axis import (
     resolve_perceptual_bpm,
     bpm_log_distance,

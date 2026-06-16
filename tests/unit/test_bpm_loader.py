@@ -2,7 +2,6 @@ import json
 import sqlite3
 
 import numpy as np
-import pytest
 
 from src.playlist.bpm_loader import load_bpm_arrays
 

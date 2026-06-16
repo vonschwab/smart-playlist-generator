@@ -3669,7 +3669,7 @@ def test_vocab_save_preserves_indentation_style(tmp_path):
 
 def test_graduate_ai_writes_to_vocab_yaml(tmp_path):
     from src.ai_genre_enrichment.genre_vocabulary import GenreVocabulary
-    from src.ai_genre_enrichment.tag_classification import set_vocabulary, reset_vocabulary
+    from src.ai_genre_enrichment.tag_classification import reset_vocabulary
 
     store = SidecarStore(tmp_path / "test.db")
     store.initialize()

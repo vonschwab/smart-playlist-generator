@@ -71,7 +71,6 @@ def read_window_wav(
         from the relevant end, find the energetic span, and take the window there.
     Extracting server-side also avoids fragile client-side FLAC time-seeking."""
     import io
-    import numpy as np
     import soundfile as sf
 
     info = sf.info(file_path)

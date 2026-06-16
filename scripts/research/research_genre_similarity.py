@@ -214,10 +214,14 @@ def main():
         neg_idx = np.where(any_counts == 0)[0]  # genre vector exists but 0 overlap
         neg_idx = neg_idx[nnz[neg_idx] > 0]
         if len(pos_idx) and len(neg_idx):
-            ai_p.append(s); bi_p.append(RNG.choice(pos_idx))
-            ai_n.append(s); bi_n.append(RNG.choice(neg_idx))
-    ai_p = np.array(ai_p); bi_p = np.array(bi_p)
-    ai_n = np.array(ai_n); bi_n = np.array(bi_n)
+            ai_p.append(s)
+            bi_p.append(RNG.choice(pos_idx))
+            ai_n.append(s)
+            bi_n.append(RNG.choice(neg_idx))
+    ai_p = np.array(ai_p)
+    bi_p = np.array(bi_p)
+    ai_n = np.array(ai_n)
+    bi_n = np.array(bi_n)
     m = len(ai_p)
     print(f"  positive pairs (>=2 shared specific): {m}    negative pairs (0 shared): {len(ai_n)}")
     hr()

@@ -61,13 +61,16 @@ def main() -> int:
     eg_rows: dict[str, list[sqlite3.Row]] = {}
 
     for p in others:
-        src = sqlite3.connect(f"file:{p}?mode=ro", uri=True); src.row_factory = sqlite3.Row
+        src = sqlite3.connect(f"file:{p}?mode=ro", uri=True)
+        src.row_factory = sqlite3.Row
         tables = _tables(src)
         if "enriched_genre_signatures" not in tables:
-            src.close(); continue
+            src.close()
+            continue
         if "enriched_genres" not in tables:
             print(f"warning: skipping {os.path.basename(p)}: missing required table enriched_genres")
-            src.close(); continue
+            src.close()
+            continue
         for r in src.execute("SELECT * FROM enriched_genre_signatures"):
             rk = r["release_key"]
             if rk in canon_sig or rk in merged_keys:

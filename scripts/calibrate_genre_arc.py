@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import argparse
 import sys
-import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -188,8 +187,8 @@ def main() -> int:
 
         sl = shortlist(cfg_results)
         lines.append(f"\n## {mode}\n")
-        lines.append(f"| P_admit | P_arc | w_genre | feasible | mean_mono | mean_minT |\n")
-        lines.append(f"|---------|-------|---------|----------|-----------|-----------|\n")
+        lines.append("| P_admit | P_arc | w_genre | feasible | mean_mono | mean_minT |\n")
+        lines.append("|---------|-------|---------|----------|-----------|-----------|\n")
         for r in sl:
             c = r["cfg"]
             lines.append(f"| {c['P_admit']} | {c['P_arc']} | {c['w_genre']:.2f} | "

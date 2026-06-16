@@ -1,6 +1,5 @@
 import numpy as np
 
-import numpy as np
 
 from src.features.artifacts import load_artifact_bundle
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 
 def test_handle_enrich_artist_runs_pipeline_steps_in_order():

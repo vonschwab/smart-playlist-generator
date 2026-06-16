@@ -145,7 +145,7 @@ def main() -> None:
     out = data_dir / "findings.md"
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"Wrote {out}")
-    print(f"\nVerdicts by space:")
+    print("\nVerdicts by space:")
     for space, counts in sorted(by_space.items()):
         print(f"  {space}: {counts}")
 

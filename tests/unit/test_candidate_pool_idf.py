@@ -2,7 +2,6 @@
 import numpy as np
 from src.playlist.candidate_pool import _compute_genre_similarity, build_candidate_pool
 from src.playlist.config import CandidatePoolConfig
-from src.playlist.genre_idf import compute_genre_idf
 
 
 def _make_cfg(*, idf_enabled: bool):

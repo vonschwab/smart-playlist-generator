@@ -12,7 +12,6 @@ Layer 2  genre_bridge_weight in SegmentPoolConfig
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from src.features.artifacts import ArtifactBundle
 from src.playlist.candidate_pool import build_candidate_pool
@@ -146,7 +145,7 @@ class TestGenreAdmissionAggregate:
             " the rock seed's genre neighborhood even though centroid rejects it"
         )
         for i in range(6, 11):
-            assert i in admitted, f"per_seed mode must also admit indie tracks"
+            assert i in admitted, "per_seed mode must also admit indie tracks"
 
     def test_default_aggregate_matches_explicit_centroid(self):
         """Omitting genre_admission_aggregate produces identical results to 'centroid'."""

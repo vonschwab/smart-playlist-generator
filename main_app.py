@@ -25,7 +25,6 @@ from src.metadata_client import MetadataClient
 from src.similarity.sonic_variant import resolve_sonic_variant
 from src.plex_exporter import PlexExporter
 from src.playlist.request_models import GeneratePlaylistRequest
-from src.playlist.config import resolve_cohesion_mode
 
 logger = logging.getLogger(__name__)
 

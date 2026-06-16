@@ -6,7 +6,6 @@ from src.playlist_web.schemas import (
     GenerateRequestBody,
     PlaylistOut,
     ReplaceSuggestionsResponse,
-    TrackOut,
 )
 
 

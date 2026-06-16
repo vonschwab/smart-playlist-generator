@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
 
 from src.playlist_gui.worker import handle_edit_genres
 from src.ai_genre_enrichment.storage import SidecarStore

@@ -1,5 +1,4 @@
 import numpy as np
-import pytest
 from src.playlist.candidate_pool import build_candidate_pool, CandidatePoolConfig
 
 

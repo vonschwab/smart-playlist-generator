@@ -157,7 +157,7 @@ def main():
         print(f"\n  [{sp_name}] expected count/track={exp:.1f}  max={counts.max()}  skew(std/mean)={skew:.2f}")
         print(f"    among TOP-1% hubs: noisy fraction = {hub_noisy:.3f}  (base {br_noisy:.3f})")
         top = np.argsort(-counts)[:10]
-        print(f"    top-10 hub tracks (count | genres | artist - title):")
+        print("    top-10 hub tracks (count | genres | artist - title):")
         for i in top:
             js = np.where(raw[i] > 0)[0]
             js = js[np.argsort(-raw[i, js])][:3]
@@ -176,7 +176,8 @@ def main():
     print(f"  timbre singular values S[0:4] = {np.round(S[:4],1)}  S0/S1={S[0]/S[1]:.2f}")
     pc1 = Tc @ Vt[0]
     # does PC1 separate noisy from non-noisy?
-    m_noisy = float(pc1[noisy_mask].mean()); m_other = float(pc1[~noisy_mask].mean())
+    m_noisy = float(pc1[noisy_mask].mean())
+    m_other = float(pc1[~noisy_mask].mean())
     sd = float(pc1.std())
     print(f"  PC1 projection: noisy mean={m_noisy:+.3f}  non-noisy mean={m_other:+.3f}  "
           f"separation={abs(m_noisy-m_other)/sd:.2f} sd")

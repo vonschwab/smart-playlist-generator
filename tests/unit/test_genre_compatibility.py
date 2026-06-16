@@ -1,6 +1,5 @@
 import numpy as np
 
-import numpy as np
 
 from src.playlist.genre_compatibility import compute_raw_genre_compatibility
 

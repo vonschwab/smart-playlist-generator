@@ -1,5 +1,4 @@
 import numpy as np
-import numpy as np
 import pytest
 
 from src.playlist.artist_style import (

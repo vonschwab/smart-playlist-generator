@@ -5,7 +5,7 @@ import logging
 
 import pytest
 
-from src.playlist.config import Mode, default_ds_config, resolve_cohesion_mode
+from src.playlist.config import default_ds_config, resolve_cohesion_mode
 
 
 class TestResolveCohesionMode:
