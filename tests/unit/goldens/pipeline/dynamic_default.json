@@ -1,5 +1,6 @@
 {
   "bpm_bridge_max_log_distance": 0.85,
+  "bpm_bridge_soft_penalty_strength": 0.3,
   "bpm_stability_min": 0.5,
   "bridge_floor": 0.02,
   "center_transitions": false,
@@ -113,6 +114,7 @@
   "max_segment_pool_max": 1200,
   "min_edge_objective": "total_score",
   "onset_bridge_max_log_distance": 0.85,
+  "onset_bridge_soft_penalty_strength": 0.3,
   "pace_bridge_floor": 0.0,
   "progress_arc_autoscale_distance_scale": 0.5,
   "progress_arc_autoscale_enabled": false,

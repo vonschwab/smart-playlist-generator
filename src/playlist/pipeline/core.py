@@ -492,6 +492,8 @@ def generate_playlist_ds(
                 bpm_bridge_max_log_distance=float(pace_settings.get("bpm_bridge_max_log_distance", float("inf"))),
                 bpm_stability_min=float(cfg.candidate.bpm_stability_min),
                 onset_bridge_max_log_distance=float(pace_settings.get("onset_bridge_max_log_distance", float("inf"))),
+                bpm_bridge_soft_penalty_strength=float(pace_settings.get("bpm_bridge_soft_penalty_strength", 0.0)),
+                onset_bridge_soft_penalty_strength=float(pace_settings.get("onset_bridge_soft_penalty_strength", 0.0)),
                 rhythm_soft_penalty_threshold=float(pace_settings.get("rhythm_soft_penalty_threshold", 0.0)),
                 rhythm_soft_penalty_strength=float(pace_settings.get("rhythm_soft_penalty_strength", 0.0)),
             )

@@ -44,6 +44,13 @@ class PierBridgeConfig:
     bpm_bridge_max_log_distance: float = float("inf")  # inf = disabled
     bpm_stability_min: float = 0.5
     onset_bridge_max_log_distance: float = float("inf")  # inf = disabled
+    # Pace bridge bands as SOFT penalties instead of hard gates. When strength > 0,
+    # an out-of-band candidate is demoted by strength * (log_distance - max_log_distance)
+    # rather than rejected — so an onset/BPM-outlier pier (e.g. a near-silent ambient
+    # track) can't strand a segment and detonate the relaxation cascade. 0.0 = legacy
+    # hard gate (reject), preserving backward-compatible behavior.
+    bpm_bridge_soft_penalty_strength: float = 0.0
+    onset_bridge_soft_penalty_strength: float = 0.0
     rhythm_soft_penalty_threshold: float = 0.0  # below this rhythm cosine, demote
     rhythm_soft_penalty_strength: float = 0.0   # multiplicative penalty (0 = off)
     center_transitions: bool = False  # if True, mean-center transition mats and rescale sims to [0,1]
