@@ -1,4 +1,4 @@
-corpus_version: 0.2-batch2
+corpus_version: 0.3-batch3
 date: '2026-06-16'
 gold_definition: tight, specific, facet-separated OBSERVED-LEAF identity; broad/inferred genres are geometry-derived
   and NOT stored; all genres canonical (validated via graph_adapter.canonicalize_tag) or recorded as taxonomy_gaps
@@ -280,3 +280,147 @@ entries:
   - modern classical
   taxonomy_gaps: []
   notes: tagged 'chiptune' + 'progressive rock' (synth/orchestral PS1 score)
+- release_key: slowdive::just for a day
+  album_id: 111c6b9b3a5c06aa
+  artist: Slowdive
+  title: Just For A Day
+  bucket: control
+  gold_genres:
+  - shoegaze
+  - dream pop
+  - noise pop
+  gold_facets: []
+  must_preserve:
+  - shoegaze
+  - dream pop
+  taxonomy_gaps: []
+  notes: prune ambient pop/indie rock/post-rock
+- release_key: beach house::bloom
+  album_id: b3269f87a2f2335c
+  artist: Beach House
+  title: Bloom
+  bucket: control
+  gold_genres:
+  - dream pop
+  - ethereal wave
+  gold_facets: []
+  must_preserve:
+  - dream pop
+  taxonomy_gaps: []
+  notes: NOT shoegaze (ratified); drop alt rock/indie pop/indie rock/slowcore
+- release_key: john coltrane::a love supreme
+  album_id: 737dfd8ccb3df5a1
+  artist: John Coltrane
+  title: A Love Supreme
+  bucket: control
+  gold_genres:
+  - spiritual jazz
+  - modal jazz
+  gold_facets: []
+  must_preserve:
+  - spiritual jazz
+  - modal jazz
+  taxonomy_gaps: []
+  notes: drop free jazz (ratified), bebop/hard bop/post-bop/avant-garde
+- release_key: d angelo::black messiah
+  album_id: ea6fd3c6f673bd75
+  artist: D'Angelo
+  title: Black Messiah
+  bucket: control
+  gold_genres:
+  - neo-soul
+  - funk
+  gold_facets: []
+  must_preserve:
+  - neo-soul
+  - funk
+  taxonomy_gaps: []
+  notes: drop contemporary r&b/quiet storm/r&b-soul/rhythm-and-blues redundancy
+- release_key: nick drake::pink moon
+  album_id: b104088e05950625
+  artist: Nick Drake
+  title: Pink Moon
+  bucket: control
+  gold_genres:
+  - chamber folk
+  - folk rock
+  gold_facets: []
+  must_preserve:
+  - folk rock
+  taxonomy_gaps: []
+  notes: drop baroque pop/contemporary folk/folk pop/jazz pop
+- release_key: boards of canada::geogaddi
+  album_id: 6870d12c5050b266
+  artist: Boards of Canada
+  title: Geogaddi
+  bucket: control
+  gold_genres:
+  - idm
+  - ambient techno
+  - downtempo
+  - folktronica
+  gold_facets: []
+  must_preserve:
+  - idm
+  - ambient techno
+  taxonomy_gaps: []
+  notes: rare near-correct observed set; no prune
+- release_key: duster::contemporay movement
+  album_id: 3742d6370eab8c71
+  artist: Duster
+  title: Contemporay Movement
+  bucket: control
+  gold_genres:
+  - slowcore
+  - space rock
+  - slacker rock
+  gold_facets: []
+  must_preserve:
+  - slowcore
+  taxonomy_gaps: []
+  notes: drop dream pop/indie rock/post-rock/shoegaze (artist-homogenized over-tag)
+- release_key: kendrick lamar::damn
+  album_id: b7efcab5636dbc87
+  artist: Kendrick Lamar
+  title: DAMN.
+  bucket: control
+  gold_genres:
+  - conscious hip hop
+  - west coast hip hop
+  - jazz rap
+  gold_facets: []
+  must_preserve:
+  - conscious hip hop
+  taxonomy_gaps: []
+  notes: drop alt/hardcore hip hop/generic hip hop/contemporary r&b
+- release_key: mf doom::mm food
+  album_id: 0b22b4b0e23703a8
+  artist: MF DOOM
+  title: MM..FOOD
+  bucket: failure
+  failure_mode: wrong_tag
+  gold_genres:
+  - abstract hip hop
+  - boom bap
+  - east coast hip hop
+  gold_facets: []
+  must_preserve:
+  - abstract hip hop
+  taxonomy_gaps: []
+  notes: drop 'doom metal' (NAME COLLISION), alternative hip hop, generic hip hop, underground hip-hop
+- release_key: cocteau twins::heaven or las vegas
+  album_id: 49ad0bd7f9caaaf7
+  artist: Cocteau Twins
+  title: Heaven Or Las Vegas
+  bucket: failure
+  failure_mode: wrong_tag
+  gold_genres:
+  - dream pop
+  - ethereal wave
+  - shoegaze
+  gold_facets: []
+  must_preserve:
+  - dream pop
+  - ethereal wave
+  taxonomy_gaps: []
+  notes: drop 'ambient techno' (WRONG), darkwave, gothic rock, downtempo, indie rock
