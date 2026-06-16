@@ -13,6 +13,9 @@ the taxonomy mid-corpus; batch these and process after the corpus is built.
 | `jazz-funk` | Mulatu Astatke — Ethio Jazz | `unknown` at runtime — see coherence bug below. Add as a genre (distinct from `jazz fusion`). |
 | `exotica` | Haruomi Hosono — Tropical Dandy | established genre (Martin Denny / Hosono). Clear add. |
 | `aor` | DJ Notoya — Tokyo Glow (comp) | album-oriented rock; add, or alias to a canonical (soft rock / arena rock?) — decide at growth. |
+| `space jazz` | Sun Ra — Atlantis | Sun Ra's cosmic/space-jazz lane; gold falls back to `free jazz`/`avant-garde jazz`. Add, or alias to those? |
+| `cosmic jazz` | Sun Ra — Atlantis | as above (sibling of space jazz). |
+| `generative music` | Brian Eno (noticed, not in current gold) | Eno's generative ambient; consider add or alias to `ambient`. Not blocking. |
 
 ## Coherence bugs (not gaps — fix the data)
 - **`jazz-funk` DB↔YAML mismatch:** `metadata.db.genre_graph_aliases` maps `jazz-funk → jazz fusion`, but the YAML-backed `canonicalize_tag` returns `unknown`. Runtime steering uses the YAML adapter, so `jazz-funk` is **effectively unmapped during generation** despite the DB alias. This is the vocab-drift / "looks wired but isn't" class flagged in `docs/GENRE_REDESIGN_HANDOFF_2026-06-16.md` (§ vocab reconciliation). Resolve when reconciling the 408/442/455 vocabularies.
