@@ -1,0 +1,145 @@
+corpus_version: 0.1-batch1
+date: '2026-06-16'
+gold_definition: tight, specific, facet-separated OBSERVED-LEAF identity; broad/inferred genres are geometry-derived
+  and NOT stored; all genres canonical (validated via graph_adapter.canonicalize_tag) or recorded as taxonomy_gaps
+buckets:
+  failure: wrong/over-tagged observed set
+  control: already-correct (de-bloat inferred only)
+  sparse: legacy-only/unpublished/thin
+ratified_by: Dylan 2026-06-16
+entries:
+- release_key: joseph shabason::anne
+  album_id: 087397497a4f045c
+  artist: Joseph Shabason
+  title: Anne
+  bucket: control
+  gold_genres:
+  - ambient jazz
+  - nu jazz
+  - fourth world
+  - avant-garde jazz
+  gold_facets:
+  - instrumental
+  must_preserve:
+  - avant-garde jazz
+  taxonomy_gaps: []
+  notes: observed-leaf core already correct; stripped inferred ambient/electronic/rock/new age/jazz/experimental
+- release_key: marnie stern::the chronicles of marnia
+  album_id: 03360d2e96361cf0
+  artist: Marnie Stern
+  title: The Chronicles of Marnia
+  bucket: control
+  gold_genres:
+  - math rock
+  - noise rock
+  - experimental rock
+  - indie rock
+  - noise pop
+  gold_facets: []
+  must_preserve:
+  - experimental rock
+  - indie rock
+  taxonomy_gaps: []
+  notes: observed-leaf already correct; stripped pop/rock/alternative/indie-alternative inferred + redundant
+    experimental variants
+- release_key: sonic youth::goo
+  album_id: 74431b7ad782bc5b
+  artist: Sonic Youth
+  title: '"Goo"'
+  bucket: failure
+  failure_mode: over_tagged
+  gold_genres:
+  - noise rock
+  - alternative rock
+  - no wave
+  - experimental rock
+  gold_facets: []
+  must_preserve:
+  - noise rock
+  - no wave
+  taxonomy_gaps: []
+  notes: pruned 10-leaf observed authority to 4 (dropped grunge/new wave/punk rock/art rock/post-punk/avant-garde);
+    'no wave' in files but missing from authority (recall miss); ratified
+- release_key: outkast::stankonia 20th anniversary deluxe
+  album_id: 7046b4b8ece955ec
+  artist: OutKast
+  title: Stankonia (20th Anniversary Deluxe)
+  bucket: failure
+  failure_mode: over_tagged
+  gold_genres:
+  - southern hip hop
+  - funk
+  - conscious hip hop
+  - psychedelic soul
+  gold_facets: []
+  must_preserve:
+  - conscious hip hop
+  - funk
+  taxonomy_gaps: []
+  notes: added psychedelic soul; dropped crunk/contemporary r&b/generic hip hop/trap(inf); ratified
+- release_key: joao gilberto::joão gilberto 2011 shm sacd
+  album_id: add2cbb31d5e7790
+  artist: João Gilberto
+  title: João Gilberto (2011 SHM-SACD)
+  bucket: control
+  gold_genres:
+  - bossa nova
+  - mpb
+  gold_facets: []
+  must_preserve:
+  - bossa nova
+  taxonomy_gaps: []
+  notes: observed-leaf already correct+tight; stripped brazilian-latin/jazz/pop inferred
+- release_key: king tubby::dub from the roots
+  album_id: c26af75b402000e2
+  artist: King Tubby
+  title: Dub From the Roots
+  bucket: control
+  gold_genres:
+  - dub
+  - roots reggae
+  gold_facets:
+  - instrumental
+  must_preserve:
+  - dub
+  taxonomy_gaps: []
+  notes: observed-leaf correct; stripped electronic/experimental/r&b inferred
+- release_key: mulatu astatke::ethio jazz
+  album_id: 9c86bb1a999f712f
+  artist: Mulatu Astatke
+  title: Ethio Jazz
+  bucket: failure
+  failure_mode: wrong_tag
+  gold_genres:
+  - ethio-jazz
+  - jazz-funk
+  - soul jazz
+  - funk
+  gold_facets:
+  - instrumental
+  must_preserve:
+  - jazz-funk
+  - soul jazz
+  taxonomy_gaps:
+  - ethio-jazz
+  - jazz-funk
+  notes: 'authority WRONG-tagged ''afrobeat'' (Mulatu=Ethio-jazz, not Fela) + ''world music'' vague; gaps:
+    ethio-jazz, jazz-funk (jazz-funk is unknown at runtime despite a DB alias row -> DB/YAML coherence
+    bug); ''soul jazz'' is canonical (hyphen variant normalizes)'
+- release_key: floating points pharoah sanders the london symphony orchestra::promises
+  album_id: 7b1ba9c4dd6684eb
+  artist: Floating Points, Pharoah Sanders & The London Symphony Orchestra
+  title: Promises
+  bucket: sparse
+  failure_mode: legacy_only
+  gold_genres:
+  - spiritual jazz
+  - ambient jazz
+  - third stream
+  - ambient
+  gold_facets:
+  - instrumental
+  must_preserve:
+  - third stream
+  taxonomy_gaps: []
+  notes: legacy-only (no adjudicated authority); gold from knowledge; all 4 taxonomy-valid
