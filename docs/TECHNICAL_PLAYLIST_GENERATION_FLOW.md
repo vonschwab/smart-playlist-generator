@@ -6,6 +6,17 @@
 
 **Note:** This document covers Artist Mode (single-seed playlists with artist clustering). DJ Bridge Mode (multi-seed playlists with genre-aware routing) is the primary mode in v3.4 and is documented in [DJ_BRIDGE_ARCHITECTURE.md](DJ_BRIDGE_ARCHITECTURE.md).
 
+> **⚠️ v6.0 scope note (2026-06-15):** This walkthrough was written for v3.4 and has
+> drifted in specifics. As of v6.0: the sonic space defaults to the **MERT learned
+> embedding** (not the 137-dim tower blend shown below — towers are the rollback);
+> genres come from the **published authority** (`src/genre/authority.py` →
+> `release_effective_genres`); and the **pre-DS legacy engine was deleted** —
+> `candidate_generator.py` → `src/playlist/candidate_pool.py`, and
+> `genre_similarity_v2.py` → `src/genre/similarity.py` / `graph_similarity.py`. The
+> pier-bridge **structure** described here is still accurate; treat exact dims, vocab
+> sizes, and `file:line` refs as historical. Current map: [ARCHITECTURE.md](ARCHITECTURE.md);
+> beam internals: [dj_bridge_architecture.md](dj_bridge_architecture.md).
+
 ---
 
 ## High-Level Summary
@@ -313,7 +324,7 @@ for cluster_id in range(n_clusters):
 
 ### Phase 6: Candidate Pool Generation
 **Duration:** ~2-3 seconds
-**Files:** `src/playlist/pipeline.py`, `src/playlist/candidate_generator.py`
+**Files:** `src/playlist/pipeline.py`, `src/playlist/candidate_pool.py` (legacy `candidate_generator.py` removed in v6.0)
 
 #### 6.1 Hybrid Embedding Construction & Genre Vector Source Selection (v3.4+)
 ```python
@@ -366,7 +377,7 @@ def build_hybrid_embedding(X_sonic, X_genre, sonic_weight=0.6, genre_weight=0.5)
 
 #### 6.2 Candidate Filtering Pipeline
 ```python
-# candidate_generator.py:410-520
+# candidate_pool.py (DS engine; legacy candidate_generator.py removed in v6.0)
 def generate_candidate_pool(
     bundle,
     seed_track_ids,
@@ -1058,7 +1069,7 @@ Full write-up: `docs/SONIC_PHASE2_HARMONY_FINDINGS.md`.
 **Purpose:** Propagate genre similarity through the semantic graph
 
 ```python
-# src/genre_similarity_v2.py:156-234
+# src/genre/similarity.py (legacy genre_similarity_v2.py removed in v6.0)
 def smooth_genre_embeddings(X_genre_raw, genre_similarity_matrix, alpha=0.3):
     """
     Apply label propagation to genre vectors.
@@ -1403,14 +1414,14 @@ python main_app.py --artist "Bill Evans Trio" --verbose
 - `src/playlist_generator.py`: High-level playlist logic
 - `src/playlist/pipeline.py`: DS pipeline orchestrator
 - `src/playlist/pier_bridge_builder.py`: Bridge construction (1,900+ lines)
-- `src/playlist/candidate_generator.py`: Candidate pool filtering
+- `src/playlist/candidate_pool.py`: Candidate pool filtering (was `candidate_generator.py`, removed v6.0)
 - `src/playlist/artist_style_clustering.py`: Style analysis
 
 ### Supporting Modules
 - `src/features/artifacts.py`: Artifact loading
 - `src/playlist/identity_keys.py`: Artist/track normalization
 - `src/similarity/sonic_variant.py`: Tower PCA embeddings
-- `src/genre_similarity_v2.py`: Genre smoothing, taxonomy
+- `src/genre/similarity.py`: Genre smoothing, taxonomy (was `genre_similarity_v2.py`, removed v6.0)
 - `src/lastfm_client.py`: Scrobble history retrieval
 - `src/m3u_exporter.py`: M3U8 file generation
 - `src/plex_exporter.py`: Plex integration
