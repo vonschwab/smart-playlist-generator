@@ -1439,6 +1439,17 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                     "p90_transition": metrics.get('p90_transition'),
                     "distinct_artists": metrics.get('distinct_artists'),
                 }
+                # Surface pier-bridge relaxation warnings so the GUI can display
+                # a notice when generation had to bend a guideline to stay feasible.
+                all_warnings = (
+                    (ds_report.get("playlist_stats") or {})
+                    .get("playlist", {})
+                    .get("warnings") or []
+                )
+                playlist_result["relaxations"] = [
+                    w for w in all_warnings
+                    if isinstance(w, dict) and w.get("type") == "relaxation"
+                ]
 
             try:
                 _populate_last_generation_cache(

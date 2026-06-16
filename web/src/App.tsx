@@ -18,6 +18,7 @@ import { TrackContextMenu, type MenuTarget } from "./components/TrackContextMenu
 import { ReplaceDialog } from "./components/ReplaceDialog";
 import { EditGenresDialog } from "./components/EditGenresDialog";
 import { ExportPlexDialog } from "./components/ExportPlexDialog";
+import { RelaxationNotice } from "./components/RelaxationNotice";
 import { downloadM3U8 } from "./lib/m3u";
 
 export default function App() {
@@ -261,6 +262,7 @@ export default function App() {
                 onExportM3U8={() => playlist && downloadM3U8(playlist.tracks)}
                 onExportPlex={() => setPlexOpen(true)}
               />
+              <RelaxationNotice relaxations={playlist?.relaxations ?? []} />
               <div className="flex-1 overflow-auto">
                 <TrackTable
                   tracks={playlist?.tracks ?? []}

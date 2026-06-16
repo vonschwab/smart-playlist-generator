@@ -56,11 +56,19 @@ export interface MetricsOut {
   distinct_artists?: number | null;
 }
 
+export interface RelaxationEntry {
+  segment_index?: number;
+  bridge: string;
+  relaxed: string[];
+  severity: string;
+}
+
 export interface PlaylistOut {
   name: string;
   track_count: number;
   tracks: TrackOut[];
   metrics: MetricsOut;
+  relaxations?: RelaxationEntry[];
 }
 
 export interface JobOut {
