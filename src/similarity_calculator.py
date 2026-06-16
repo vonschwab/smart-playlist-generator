@@ -14,8 +14,13 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 import numpy as np
 from scipy.spatial.distance import cosine
 
-from .genre_similarity_v2 import GenreSimilarityV2
 from .blacklist_db import ensure_blacklist_schema
+
+# GenreSimilarityV2 was the legacy genre scoring engine; genre_similarity_v2.py has been
+# removed as part of v6 cleanup.  SimilarityCalculator is kept because LocalLibraryClient
+# instantiates it, but the genre-scoring code paths (genre_calc) are dead in the live
+# generation path.  Stub the class so __init__ doesn't crash.
+GenreSimilarityV2 = None  # type: ignore[assignment]
 
 if TYPE_CHECKING:
     from .ai_genre_enrichment.genre_resolver import EnrichedGenreResolver
@@ -100,13 +105,12 @@ class SimilarityCalculator:
         self.similar_artists_enabled = False
         self.similar_artists_boost = 0.0
 
-        # Initialize genre similarity calculator (V2 with multiple methods)
+        # GenreSimilarityV2 has been removed in v6 cleanup; genre scoring is dead in
+        # the live generation path (DS pipeline uses artifact-based genre matrices).
+        self.genre_calc = None
         if self.genre_enabled:
-            similarity_file = genre_config.get('similarity_file', 'data/genre_similarity.yaml')
-            self.genre_calc = GenreSimilarityV2(similarity_file)
-            logger.info(f"Genre similarity V2 enabled (method: {self.genre_method}, weight: {self.genre_weight}, min: {self.min_genre_similarity})")
+            logger.info(f"Genre similarity config present (method: {self.genre_method}, weight: {self.genre_weight}) — legacy V2 scorer removed in v6")
         else:
-            self.genre_calc = None
             logger.info("Genre similarity disabled")
 
         self._init_db_connection()

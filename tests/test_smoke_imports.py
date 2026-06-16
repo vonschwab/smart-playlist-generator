@@ -33,10 +33,6 @@ class TestPlaylistModuleImports:
         from src.playlist.pipeline import DSPipelineResult
         assert DSPipelineResult is not None
 
-    def test_constructor(self):
-        from src.playlist.constructor import construct_playlist
-        assert construct_playlist is not None
-
     def test_config(self):
         from src.playlist.config import DSPipelineConfig
         assert DSPipelineConfig is not None
@@ -45,9 +41,6 @@ class TestPlaylistModuleImports:
         from src.playlist.filtering import apply_filters
         assert apply_filters is not None
 
-    def test_ordering(self):
-        from src.playlist import ordering
-        assert ordering is not None
 
 
 class TestFeatureModuleImports:

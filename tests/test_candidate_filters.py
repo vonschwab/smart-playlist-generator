@@ -3,7 +3,6 @@ import pytest
 
 from src.playlist.candidate_pool import build_candidate_pool
 from src.playlist.config import CandidatePoolConfig
-from src.genre_similarity_v2 import GenreSimilarityV2
 
 
 def test_narrow_sonic_floor_rejects_negative():
@@ -435,20 +434,6 @@ def test_genre_compatibility_penalty_can_demote_without_rejecting():
     artists = [artist_keys[i] for i in result.pool_indices.tolist()]
     assert artists == ["clean"]
     assert result.stats["genre_compatibility_penalty_applied"] == 1
-
-
-def test_genre_explainer_returns_filtered_pairs():
-    calc = GenreSimilarityV2()
-    score, details = calc.calculate_similarity_with_explain(
-        ["rock", "dream pop"],
-        ["indie rock", "shoegaze"],
-        broad_filters=["rock"],
-        top_k=3,
-    )
-    assert "rock" in details["seed_broad_removed"]
-    assert "rock" not in [g.lower() for g in details["seed_genres_filtered"]]
-    assert isinstance(score, float)
-    assert details["top_pairs"]  # should have at least one contributing pair
 
 
 class _CapturedBundle(Exception):

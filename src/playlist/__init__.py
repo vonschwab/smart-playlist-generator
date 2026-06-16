@@ -16,10 +16,7 @@ from .pipeline import DSPipelineResult, generate_playlist_ds
 # New refactored modules (Phase 1+)
 from . import filtering
 from . import scoring
-from . import diversity
-from . import ordering
 from . import history_analyzer
-from . import candidate_generator
 from . import batch_builder
 from . import reporter
 from . import utils
@@ -43,10 +40,7 @@ __all__ = [
     # New refactored modules
     "filtering",
     "scoring",
-    "diversity",
-    "ordering",
     "history_analyzer",
-    "candidate_generator",
     "batch_builder",
     "reporter",
     "utils",
