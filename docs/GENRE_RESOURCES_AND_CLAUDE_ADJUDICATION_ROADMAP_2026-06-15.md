@@ -150,6 +150,7 @@ By `reason` (top):
 2. **The live adjudicator is ungrounded `gpt-4o-mini`.** All 4,121 `release_checks` used it, web off; 1,312 came back `needs_review`. The genres your library runs on today were inferred by the weakest available model with no grounding.
 3. **The "model priors" feature — an independent LLM genre opinion — is built but never run.** 0 rows. It already encodes the anti-noise guards we keep rediscovering.
 4. **Identity is the upstream root of the worst errors.** Green-House and the bandcamp-label incident are both *who is this / who said this* failures, not *what genre is this* failures. The adjudicator contract must treat identity as a first-class, escapable ("uncertain → escalate") decision.
+5. **A second population needs *collection*, not re-adjudication** (from `docs/GENRE_REDESIGN_HANDOFF_2026-06-16.md`). Of 294 degraded albums, only **26 are publish-away**; **268 have no adjudicated sidecar data at all** — and they cluster in exactly the adventurous corners that get *seeded* (reissues / OSTs / world / jazz / dub / city-pop / ambient + major unpublished artists: Beyoncé, Sonic Youth, Hüsker Dü, Rosalía, OutKast, João Gilberto…). A thin identity at a **pier** breaks steering for the whole bridge segment, so these are the *highest-leverage* releases. For releases with little or no scraped evidence there is nothing to "adjudicate" — Claude's **`model_prior` (own-knowledge) path is the primary adjudicator there**, grounded by file tags + identifiers, not a shadow cross-check.
 
 ---
 
@@ -281,4 +282,19 @@ Each phase is its own spec → plan → implementation cycle. Phases 1–3 touch
 
 ## Appendix — provenance of every number
 
-All counts pulled 2026-06-15 from `data/metadata.db`, `data/ai_genre_enrichment.db`, and `data/layered_genre_taxonomy.yaml` via direct `SELECT COUNT(*)` / `GROUP BY` and a YAML record count. Code references: `scripts/analyze_library.py` (stage registry), `src/genre/genre_publish.py` (authority writer), `src/genre/authority.py` (authority reader), `src/ai_genre_enrichment/claude_client.py`, `src/ai_genre_enrichment/model_prior.py`.
+All counts pulled 2026-06-15 from `data/metadata.db`, `data/ai_genre_enrichment.db`, and `data/layered_genre_taxonomy.yaml` via direct `SELECT COUNT(*)` / `GROUP BY` and a YAML record count. Code references: `scripts/analyze_library.py` (stage registry), `src/genre/genre_publish.py` (authority writer), `src/genre/authority.py` (authority reader), `src/ai_genre_enrichment/claude_client.py`, `src/ai_genre_enrichment/model_prior.py`. The 2026-06-16 authority counts reconcile exactly (observed_leaf 16,460 = 14,382 graph + 2,078 user).
+
+---
+
+## 10. Guards folded from the 2026-06-16 redesign handoff
+
+`docs/GENRE_REDESIGN_HANDOFF_2026-06-16.md` is the measured trigger for the redesign. Lessons it forces onto this roadmap — *do not recreate these mistakes*:
+
+1. **Don't bake inference/smoothing into the *scored* genre vector.** Measured: smoothed space is over-densified (median 179/442 nonzero, random-pair cosine p90 0.645). The adjudicator's job is the **tight, weighted, specific observed-leaf identity, facet-separated**; broad/inferred genres are derived by the geometry, never stored per-track for scoring.
+2. **Prioritize seed/pier-eligible adventurous-corner releases** (the 268, §4 finding 5) — that's where thin identities do the most damage. The Phase-0 eval corpus must *include* these, not just easy bloat cases.
+3. **`model_prior` is primary, not shadow, for evidence-less releases.** Flip the dormant own-knowledge path on (it's still 0 rows) and confidence-cap it by evidence richness, as designed.
+4. **Surgical/additive, never wholesale re-derivation.** The graph layer is populated via a path *other* than `enriched_genres` (3,214 graph albums vs 1,585 sidecar-enriched) — "re-enrich everything" would un-decide good legacy-absorbed calls. Map that path before any bulk re-run; deploy policy fixes as additive deltas (authority skill).
+5. **Verify past fixes actually landed before building on them.** Mechanism-1 fusion fix was "awaiting enrich re-run + publish"; the Last.fm name-collision *source-side* identity fix (stamp `probable`, verify identity) was still open. Confirm both before the bulk adjudication run.
+6. **Reconcile the genre vocabularies before any A/B.** The handoff cites 408 canonical genres vs 442 artifact `X_genre` dims vs 455 graph path-nodes — vocab drift silently invalidates "X beats Y" comparisons (evaluation-methodology). Produce a precise crosswalk first.
+
+The data-first sequencing is unchanged; these guards make the data phase *target the right releases* and keep it from rebuilding the same over-dense, hub-permeable representation.

@@ -1,7 +1,7 @@
 # Genre steering — two-system rebuild: findings
 
 **Date:** 2026-06-16
-**Status:** Parked research/findings. **Resume after the gold-genre-tagging work** (see `docs/GENRE_RESOURCES_AND_CLAUDE_ADJUDICATION_ROADMAP_2026-06-15.md`). This document is the "why + what," not an implementation plan — the rebuild depends on foundations that the gold work delivers, so it must not start first.
+**Status:** Parked research/findings. **Resume after the gold-genre-tagging work** (see `docs/GENRE_RESOURCES_AND_CLAUDE_ADJUDICATION_ROADMAP_2026-06-15.md`). This document is the "why + what," not an implementation plan — the rebuild depends on foundations that the gold work delivers, so it must not start first. Measured evidence + the broken-run trigger case that prompted the redesign live in `docs/GENRE_REDESIGN_HANDOFF_2026-06-16.md`.
 
 **Thesis (decided):** Genre steering should be **two systems, not one** — a *cohesion* system for **similar seeds** and a *bridge* system for **diverse seeds** — because holding a genre neighborhood and crossing a genre chasm are different problems that the current single mechanism conflates.
 
@@ -26,6 +26,8 @@ Two things are decisive:
 And the engine's core operation is **cosine to an interpolated genre vector**, which the codebase itself has documented as broken for discrimination:
 
 > *(`taxonomy_steering.GenrePairSimProvider`)* "the graph-smoothed genre-vector **cosine** cannot separate bad edges from good ones (shared rock-family mass blurs everything to ~0.6–0.7); tag-level **max-sim** separates them cleanly."
+
+This is now **measured** (`docs/GENRE_REDESIGN_HANDOFF_2026-06-16.md`): the scored `X_genre_smoothed` carries a median **179 of 442** nonzero dims per track and a random-pair cosine of **p90 0.645 / p99 0.881**, vs raw observed tags at median **5** nonzero / p50 **0.000**. The smoothing/propagation over-densifies the *scored* representation into near-uselessness — a hard constraint on the rebuild: **never bake inference/smoothing into the scored vector; score sparse observed identities through the geometry.**
 
 The IDF weighting, the `coverage_A`/`coverage_B` decay bonus, and the broad-vs-specific label preference are all **patches** compensating for the fact that a single interpolation-by-cosine engine is the wrong primitive for at least one (really both) of the two jobs.
 
@@ -93,7 +95,7 @@ Both systems sit on **two foundations**, and both foundations are exactly what t
 
 ## 6. Open questions / design considerations (resolve during the rebuild)
 
-1. **Pier ordering for diverse seeds.** With ≥3 distant piers, the *order* in which they're visited is a TSP-in-genre-space problem — a good order minimizes total bridge distance and avoids backtracking. System D's quality depends on it; today pier order is set upstream (`seeds.py`) without a genre-distance objective. Decide whether ordering moves into System D.
+1. **Feasibility-aware seed ordering — a confirmed root cause, not just an optimization.** The 2026-06-16 handoff traced a broken run to exactly this: `pier_bridge/seeds.py` orders piers for *closeness* (0.6 sonic / 0.2 genre / 0.2 bridge) and is **feasibility-blind** — it placed the two *least-bridgeable* anchors adjacent (heartland-rock Springsteen ↔ legacy-only Shabason & Krgovich, score 0.9926), forcing steering through the `pop` hub, making the segment infeasible, and dropping it to a genre-blind fill. **Ordering is the first domino.** The rebuild must make seed ordering + segment construction **genre-feasibility-aware up front** — a path must exist through real, populated rungs *before* a segment is committed — rather than leaning on a last-resort fill. Decide whether this lives in System D or a pre-D ordering stage; with ≥3 piers it's also a TSP-in-genre-space ordering.
 2. **Facets as orthogonal modifiers.** Mood/texture/era/instrumentation should shape *transition smoothness* (and maybe the neighborhood radius), but they are not genres and must not enter the genre path. Where do they attach — a separate facet-smoothness term in the beam?
 3. **Does System S need per-step targets at all,** or just a constant anchor + radius + a worst-edge cap? Simpler is likely better.
 4. **Geometry: pure graph vs learned embedding.** Mutual-proximity over the curated graph may suffice; a learned genre embedding (audio+text, taxonomy-anchored) is the more ambitious option. Decide after the gold work exposes how good the positions can get.
@@ -114,6 +116,8 @@ Both systems sit on **two foundations**, and both foundations are exactly what t
 
 - Supersedes the single-arc **genre-edge-safeguards** redesign (memory: `project_genre_embedding_anisotropy`) — that kept the one-arc paradigm (waypoint vote + adaptive floors + niche ladder); the two-system cut is more fundamental and absorbs its good parts (niche ladder ≈ System D rungs; adaptive floors ≈ per-system worst-edge bounds).
 - Consumes the genre-adjudication roadmap's output (accurate identities) and the taxonomy-graph geometry (SP4). **Does not block the gold work; the gold work unblocks it.**
+- **Measured trigger + evidence:** `docs/GENRE_REDESIGN_HANDOFF_2026-06-16.md` — the broken 5-seed run that prompted the redesign (over-densification numbers, the feasibility-blind ordering trace, the `pop`-permeable routing, and confirmation that MERT geometry is healthy so *genre* is the right arbiter; the library is not missing bridge material — the engine just couldn't select it).
+- **In-flight band-aid to supersede:** a genre-aware never-fail greedy fallback shipped on branch `worktree-genre-aware-greedy-fallback` (`0b028d4`, knob `infeasible_handling.greedy_genre_weight`) — it makes the *fallback* less wrong but addresses neither root problem. The two-system rebuild should make the fallback rarely reached; keep/retune/retire it then.
 
 ---
 
