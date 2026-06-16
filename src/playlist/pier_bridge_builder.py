@@ -21,6 +21,7 @@ Key features:
 from __future__ import annotations
 
 import logging
+import math
 from pathlib import Path
 from dataclasses import replace
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -265,32 +266,39 @@ def _enforce_min_gap_global(
 
 
 def _greedy_terminal_path(
-    candidates: list[int],
-    global_used: Set[int],
-    pier_a: int,
-    pier_b: int,
-    interior_len: int,
-    X_full_norm: np.ndarray,
+    candidates: list[int], global_used: "Set[int]", pier_a: int, pier_b: int,
+    interior_len: int, X_full_norm: np.ndarray,
 ) -> Optional[list[int]]:
-    """Last-resort placement that cannot fail while >= interior_len unused tracks exist.
+    """Last-resort placement that cannot fail while >= interior_len usable tracks exist.
 
-    Picks the interior_len best tracks by sonic proximity to both piers, then
-    orders them by increasing similarity to pier_b (progress toward the end pier).
+    Picks the interior_len tracks with the best mean sonic cosine to both piers, then
+    orders them by increasing similarity to pier_b so the segment progresses toward B.
+    Excludes already-used tracks, the piers, duplicates, out-of-range, and NaN/inf-scored
+    candidates (zero-vector rows) so the sort can never raise.
     """
-    pool = [int(i) for i in candidates if int(i) not in global_used and int(i) not in (pier_a, pier_b)]
-    if len(pool) < interior_len:
-        return None
+    if interior_len <= 0:
+        return []
+    n = int(X_full_norm.shape[0])
     a_vec = X_full_norm[pier_a]
     b_vec = X_full_norm[pier_b]
-    scored = sorted(
-        pool,
-        key=lambda i: 0.5 * float(np.dot(X_full_norm[i], a_vec)) + 0.5 * float(np.dot(X_full_norm[i], b_vec)),
-        reverse=True,
-    )
-    chosen = scored[:interior_len]
-    # Order by increasing similarity to pier_b so the path progresses toward B.
-    chosen.sort(key=lambda i: float(np.dot(X_full_norm[i], b_vec)))
-    return chosen
+    pool: list[tuple[int, float, float]] = []
+    seen: set[int] = set()
+    for raw in candidates:
+        i = int(raw)
+        if i in seen or i in global_used or i == pier_a or i == pier_b or not (0 <= i < n):
+            continue
+        sa = float(np.dot(X_full_norm[i], a_vec))
+        sb = float(np.dot(X_full_norm[i], b_vec))
+        if not (math.isfinite(sa) and math.isfinite(sb)):
+            continue
+        seen.add(i)
+        pool.append((i, 0.5 * sa + 0.5 * sb, sb))
+    if len(pool) < interior_len:
+        return None
+    pool.sort(key=lambda t: t[1], reverse=True)
+    chosen = pool[:interior_len]
+    chosen.sort(key=lambda t: t[2])  # ascending sim-to-pier_b = progress toward B
+    return [t[0] for t in chosen]
 
 
 def build_pier_bridge_playlist(
