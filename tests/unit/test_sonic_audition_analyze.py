@@ -1,4 +1,4 @@
-from scripts.sonic_audition_analyze import aggregate_by_space, cosine_verdict_correlation
+from scripts.research.sonic_audition_analyze import aggregate_by_space, cosine_verdict_correlation
 
 VERDICT_SCORE = {"match": 3, "close": 2, "off": 1, "wrong": 0}
 

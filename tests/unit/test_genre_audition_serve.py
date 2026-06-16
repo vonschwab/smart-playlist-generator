@@ -1,6 +1,6 @@
 import yaml
 
-from scripts.genre_audition_serve import _append_capture_entry, _blind_manifest
+from scripts.research.genre_audition_serve import _append_capture_entry, _blind_manifest
 
 
 def test_append_creates_file(tmp_path):

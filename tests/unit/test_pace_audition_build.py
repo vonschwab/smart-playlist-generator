@@ -1,7 +1,7 @@
 # tests/unit/test_pace_audition_build.py
 import numpy as np
 
-from scripts.pace_audition_build import (
+from scripts.research.pace_audition_build import (
     genre_cosine,
     edge_metrics,
     extract_interior_edges,
@@ -38,7 +38,7 @@ def test_extract_interior_edges_excludes_pier_adjacent():
     assert extract_interior_edges(track_ids, piers) == [(1, 2), (2, 3)]
 
 
-from scripts.pace_audition_build import sample_edges, synthesize_decoy_edges
+from scripts.research.pace_audition_build import sample_edges, synthesize_decoy_edges
 
 
 def test_sample_edges_deterministic_and_bounded():
@@ -77,7 +77,7 @@ def test_synthesize_decoy_prefers_pace_distant_genre_close_pairs():
     assert {a, b} == {"t0", "t2"}                  # the only pace-distant pair
 
 
-from scripts.pace_audition_build import blind_and_shuffle
+from scripts.research.pace_audition_build import blind_and_shuffle
 
 
 def _edge_record(arm, seed, a, b):

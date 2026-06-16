@@ -4,19 +4,19 @@ Common issues and their solutions.
 
 ## Environment Issues
 
-### "ModuleNotFoundError: No module named 'playlist_generator'"
+### "ModuleNotFoundError: No module named '…'"
 
-**Cause:** Python can't find the package.
+**Cause:** The package isn't installed into the active environment.
 
 **Fix:**
 ```bash
-# Ensure you're in the repo root
-cd /path/to/repo_refreshed
-
-# For scripts, they should auto-add to path
-# For manual import, add src/ to PYTHONPATH:
-export PYTHONPATH="$PWD/src:$PYTHONPATH"
+# From the repo root, install editable (Python 3.11+ required):
+pip install -e .[web]        # users
+pip install -e .[web,dev]    # contributors (adds pytest, ruff, mypy, pre-commit)
 ```
+Scripts add the repo root to `sys.path` themselves when run directly, so once the
+editable install is in place both `python main_app.py …` and `python -m pytest` resolve
+`src/` and `scripts/`.
 
 ### "config.yaml not found"
 
@@ -34,7 +34,7 @@ cp config.example.yaml config.yaml
 
 **Fix:**
 ```bash
-pip install -r requirements.txt
+pip install -e .[web,dev]
 
 # For specific issues:
 pip install librosa mutagen scikit-learn
@@ -175,8 +175,8 @@ python scripts/build_beat3tower_artifacts.py \
 # Check if artist exists
 sqlite3 data/metadata.db "SELECT COUNT(*) FROM tracks WHERE artist LIKE '%Artist Name%'"
 
-# Try with more relaxed mode
-python main_app.py --artist "Artist Name" --ds-mode discover
+# Try with a more relaxed beam
+python main_app.py --artist "Artist Name" --cohesion-mode discover
 ```
 
 ### Playlists are too similar
@@ -185,23 +185,33 @@ python main_app.py --artist "Artist Name" --ds-mode discover
 
 **Fix:**
 ```bash
-python main_app.py --artist "Artist" --ds-mode dynamic
+python main_app.py --artist "Artist" --cohesion-mode dynamic
 # or
-python main_app.py --artist "Artist" --ds-mode discover
+python main_app.py --artist "Artist" --cohesion-mode discover
 ```
 
 ### Playlists have jarring transitions
 
-**Cause:** Sonic features may need preprocessing adjustment.
+**Cause:** Beam admitted a weak edge, or the sonic space needs a different preprocessing.
 
 **Fix:**
 ```bash
-# Try different variant
-python main_app.py --artist "Artist" --sonic-variant tower_pca
+# Tighten the beam (raises per-mode bridge/transition floors)
+python main_app.py --artist "Artist" --cohesion-mode narrow
 
-# Or increase transition floor in config:
-# playlists.ds_pipeline.constraints.transition_floor: 0.25
+# Engage pace gating so tempo jumps are penalized
+python main_app.py --artist "Artist" --pace-mode narrow
 ```
+Or raise the per-mode transition floor in config (these are keyed by `cohesion_mode`):
+```yaml
+playlists:
+  ds_pipeline:
+    constraints:
+      transition_floor_dynamic: 0.40   # default 0.35
+      transition_floor_narrow: 0.50    # default 0.45
+```
+The sonic space defaults to the MERT embedding in v6.0; `--sonic-variant tower_pca`
+falls back to the tower blend if you need to A/B against it.
 
 ### Same artist appears too often
 
@@ -244,6 +254,41 @@ plex:
   token: "your_token_here"
   music_section: "Music"  # Must match your library name
 ```
+
+## Browser GUI Issues
+
+The GUI is React (`web/`) → FastAPI (`src/playlist_web/app.py`) → NDJSON worker
+(`src/playlist_gui/worker.py`), launched by `python tools/serve_web.py` (default port
+8770). Most "the GUI doesn't show / do X" reports are **stale process or build state**,
+not logic bugs. Walk these first; the full trap catalog is in the `web-gui` skill.
+
+### A front-end change doesn't appear
+
+**Cause:** `web/dist` wasn't rebuilt; the server is still serving the old bundle.
+
+**Fix:**
+```bash
+npm --prefix web run build     # rebuild the bundle
+# then hard-reload the browser (cache)
+```
+
+### A worker/backend change doesn't take effect
+
+**Cause:** `serve_web.py` (and the worker child process it spawns) wasn't restarted after
+editing the worker, policy layer, or an analyze stage.
+
+**Fix:** Stop and restart `python tools/serve_web.py`. A long-lived worker holds the old
+code (and any `@lru_cache`d artifact) until the process is replaced.
+
+### A button runs but nothing comes back
+
+**Cause:** Usually an end-to-end wiring gap — a new API endpoint or worker command that
+isn't wired through every layer (React → FastAPI route → worker command handler →
+streamed result), or a result the bridge silently drops.
+
+**Fix:** Trace the request through all four layers. The `web-gui` skill documents the
+stale-dist, worker-restart, end-to-end-wiring, and silently-dropped-result traps that each
+historically cost a debugging cycle.
 
 ## Logs
 

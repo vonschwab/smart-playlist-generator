@@ -1,4 +1,4 @@
-from scripts.genre_audition_analyze import (
+from scripts.research.genre_audition_analyze import (
     aggregate_by_provenance,
     mean_score_by_provenance,
     sim_verdict_rows,

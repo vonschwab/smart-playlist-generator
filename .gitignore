@@ -103,9 +103,6 @@ scripts/oneoffs/
 # Internal audit / roadmap notes (not part of the shipped repo)
 audit/
 
-# Local Claude project guide (developer scratch, not part of shipped repo)
-CLAUDE.md
-
 # Development archives
 docs/archive/
 # Audit/test docs

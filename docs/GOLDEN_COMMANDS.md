@@ -4,8 +4,8 @@ These are the canonical production workflows for the Playlist Generator. Run `do
 
 ## Prerequisites
 
-1. Python 3.8+
-2. Install dependencies: `pip install -r requirements.txt`
+1. Python 3.11+
+2. Install dependencies: `pip install -e .[web]` (add `,dev` for contributors)
 3. Copy `config.example.yaml` to `config.yaml` and configure paths
 4. Ensure `data/metadata.db` exists (created by library scan)
 
@@ -141,10 +141,11 @@ python scripts/analyze_library.py --stages lastfm,enrich,publish
 python scripts/analyze_library.py --stages publish --dry-run
 ```
 
-**Default stage order:** scan → genres → discogs → lastfm → sonic → enrich → publish → genre-sim → artifacts → genre-embedding → verify
+**Default stage order:** scan → genres → discogs → lastfm → sonic → mert → enrich → publish → genre-sim → artifacts → genre-embedding → verify
 
-**New stages (Phase 2):**
+**New stages:**
 - `lastfm` — fetch Last.fm top tags into the enrichment sidecar (`LASTFM_API_KEY` or config; no LLM).
+- `mert` — extract MERT learned audio embeddings into resumable shards + a merged sidecar (the v6.0 default sonic space; CPU-only by default, see `analyze.mert` in config). Irreplaceable artifacts — never delete the shards.
 - `enrich` — adjudicate unknown tags via Claude (provider factory; de-duped library-wide, chunked) and materialize layered graph genres into `ai_genre_enrichment.db`.
 - `publish` — resolve graph-where-present-else-legacy into `release_effective_genres` in `metadata.db`. First publish backs up `metadata.db` (timestamped); idempotent thereafter.
 

@@ -35,7 +35,7 @@ weakest tower, and decide whether to act. Read-only throughout — no writes to
 
 ### 1.1 Ground truth — blinded audition
 
-Per seed, the harness ([`scripts/sonic_audition_build.py`](../scripts/sonic_audition_build.py)
+Per seed, the harness ([`scripts/research/sonic_audition_build.py`](../scripts/research/sonic_audition_build.py)
 / `sonic_audition_serve.py` / `sonic_audition_page.html`) computes the union of
 top-15 nearest neighbours across several sonic spaces, **deduplicates and shuffles
 them with the originating space hidden**, and the listener rates each unique track:
@@ -106,7 +106,7 @@ showcase still returns punk and chamber-pop at 0.85.
 
 ## 3. Finding B — Structural diagnostic (40k tracks)
 
-[`scripts/sonic_tower_diagnostic.py`](../scripts/sonic_tower_diagnostic.py) →
+[`scripts/research/sonic_tower_diagnostic.py`](../scripts/research/sonic_tower_diagnostic.py) →
 `docs/run_audits/sonic_phase2/tower_diagnostic.json`. Measured per tower on
 L2-normalised rows over all 39 887 tracks; 400 000 random pairs for cosine stats.
 
@@ -134,7 +134,7 @@ themselves*.
 
 ## 4. Finding C — Richer-harmony probe (286 tracks)
 
-[`scripts/sonic_harmony_richer_probe.py`](../scripts/sonic_harmony_richer_probe.py) →
+[`scripts/research/sonic_harmony_richer_probe.py`](../scripts/research/sonic_harmony_richer_probe.py) →
 `richer_harmony_probe.json`. Richer features extracted on the **harmonic-separated**
 signal (`librosa.effects.harmonic`); cached to `richer_harmony_cache.npz`.
 
@@ -158,7 +158,7 @@ FFT magnitude).
 
 ## 5. Finding D — Gate 1: does it improve the *blend*?
 
-[`scripts/sonic_gate1_blend.py`](../scripts/sonic_gate1_blend.py) → `gate1_blend.json`.
+[`scripts/research/sonic_gate1_blend.py`](../scripts/research/sonic_gate1_blend.py) → `gate1_blend.json`.
 Reconstructs the tower-weighted blend and swaps only the harmony block.
 
 | representation | mean ρ |
@@ -180,7 +180,7 @@ key, which key-invariance discards. One seed, small effect, flagged for recheck.
 
 ## 6. Finding E — Gate 2: rhythm (NEGATIVE result)
 
-[`scripts/sonic_gate2_rhythm.py`](../scripts/sonic_gate2_rhythm.py) → `gate2_rhythm.json`.
+[`scripts/research/sonic_gate2_rhythm.py`](../scripts/research/sonic_gate2_rhythm.py) → `gate2_rhythm.json`.
 Richer rhythm = `librosa.beat.plp` pulse clarity + `librosa.feature.tempogram_ratio`
 (tempo-invariant pattern); cached to `richer_rhythm_cache.npz`.
 
@@ -212,7 +212,7 @@ unchanged.**
 
 ## 7. Finding F — Harmony-weight sweep
 
-[`scripts/sonic_harmony_weight_sweep.py`](../scripts/sonic_harmony_weight_sweep.py) →
+[`scripts/research/sonic_harmony_weight_sweep.py`](../scripts/research/sonic_harmony_weight_sweep.py) →
 `harmony_weight_sweep.json`. Rhythm 0.20 / timbre 0.50 fixed; harmony weight swept.
 
 | w_harmony | current | 2dftm |
@@ -279,12 +279,12 @@ harmful one — which is why nobody noticed for years, *and* why the fix's blend
 
 Two further checks after the gates, before committing to any rebuild:
 
-- **Key-invariance proven empirically** ([`sonic_keyinvariance_check.py`](../scripts/sonic_keyinvariance_check.py)):
+- **Key-invariance proven empirically** ([`sonic_keyinvariance_check.py`](../scripts/research/sonic_keyinvariance_check.py)):
   pitch-shifting a track leaves 2DFTM at cosine **0.99+** across 1–7 semitones, while
   chroma_median and CENS fall to **0.6–0.8**. The +0.210 is a deterministic property, not a
   5-seed fluke. Also explains CENS underperforming: it stays key-sensitive (cover-song
   matching in the *same* key), so it's the wrong invariance for cross-key similarity.
-- **Beat-sync vs frame-level 2DFTM is a wash** ([`sonic_beatsync_2dftm.py`](../scripts/sonic_beatsync_2dftm.py)):
+- **Beat-sync vs frame-level 2DFTM is a wash** ([`sonic_beatsync_2dftm.py`](../scripts/research/sonic_beatsync_2dftm.py)):
   isolated +0.230 vs +0.210, blend +0.348 vs +0.361 (−0.013, within noise). The
   Bertin-Mahieux/Ellis beat-synchronous method buys nothing measurable here. **Use the
   simpler frame-level** — cheaper, and uniform across the beatless ambient/drone corner where

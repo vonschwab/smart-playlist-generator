@@ -1,5 +1,5 @@
 # tests/unit/test_pace_audition_analyze.py
-from scripts.pace_audition_analyze import (
+from scripts.research.pace_audition_analyze import (
     distribution,
     join_scores,
     per_arm,
@@ -58,7 +58,7 @@ def test_confound_flag_true_when_continuity_gain_exceeds_smoothness_gain():
     assert res["continuity_gain"] > res["smoothness_gain"]
 
 
-from scripts.pace_audition_analyze import onset_variance_by_arm
+from scripts.research.pace_audition_analyze import onset_variance_by_arm
 
 
 def test_onset_variance_by_arm_lower_for_flatter_playlist():

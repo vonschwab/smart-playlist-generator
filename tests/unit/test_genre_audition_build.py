@@ -1,7 +1,7 @@
 # tests/unit/test_genre_audition_build.py
 import numpy as np
 
-from scripts.genre_audition_build import (
+from scripts.research.genre_audition_build import (
     top_k_row,
     resolve_cooc_index,
     sample_decoys,

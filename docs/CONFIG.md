@@ -535,8 +535,6 @@ playlists:
     sonic_weight: 0.50               # Sonic weight in hybrid score
     min_genre_similarity: 0.30       # Filter threshold
     method: ensemble                 # Similarity method
-    similarity_file: data/genre_similarity.yaml
-    use_artist_tags: true
 
     # Broad filters (excluded from matching)
     broad_filters:
