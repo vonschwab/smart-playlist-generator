@@ -24,7 +24,9 @@ export default defineConfig({
   use: { baseURL: "http://127.0.0.1:8771" },
   webServer: {
     // npm --prefix runs the build from the web/ directory; python serves from repo root
-    command: `npm --prefix "${webDir}" run build && ${pythonCmd} "${serverScript}" --port 8771 --no-browser`,
+    // serve_web now builds by default; this spec already builds explicitly above,
+    // so pass --no-build to avoid a redundant second build.
+    command: `npm --prefix "${webDir}" run build && ${pythonCmd} "${serverScript}" --port 8771 --no-browser --no-build`,
     url: "http://127.0.0.1:8771/api/health",
     timeout: 120000,
     reuseExistingServer: false,
