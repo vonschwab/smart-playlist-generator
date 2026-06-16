@@ -1,4 +1,4 @@
-corpus_version: 0.1-batch1
+corpus_version: 0.2-batch2
 date: '2026-06-16'
 gold_definition: tight, specific, facet-separated OBSERVED-LEAF identity; broad/inferred genres are geometry-derived
   and NOT stored; all genres canonical (validated via graph_adapter.canonicalize_tag) or recorded as taxonomy_gaps
@@ -143,3 +143,140 @@ entries:
   - third stream
   taxonomy_gaps: []
   notes: legacy-only (no adjudicated authority); gold from knowledge; all 4 taxonomy-valid
+- release_key: flying lotus::cosmogramma
+  album_id: adb9319b8a586031
+  artist: Flying Lotus
+  title: Cosmogramma
+  bucket: failure
+  failure_mode: over_tagged
+  gold_genres:
+  - experimental hip hop
+  - instrumental hip hop
+  - nu jazz
+  - idm
+  - glitch
+  gold_facets: []
+  must_preserve:
+  - instrumental hip hop
+  - idm
+  taxonomy_gaps: []
+  notes: 11 observed leaves pruned to 5 (dropped abstract/alternative hip hop, downtempo, glitch hop,
+    hip hop, trip-hop)
+- release_key: flying lotus::until the quiet comes
+  album_id: 69179b24f5feccd7
+  artist: Flying Lotus
+  title: Until The Quiet Comes
+  bucket: failure
+  failure_mode: over_tagged
+  gold_genres:
+  - experimental hip hop
+  - instrumental hip hop
+  - nu jazz
+  - ambient
+  gold_facets: []
+  must_preserve:
+  - instrumental hip hop
+  taxonomy_gaps: []
+  notes: same 11-leaf bloat; more ambient/downtempo than Cosmogramma
+- release_key: null
+  album_id: 42554c7f8231adcc
+  artist: Flying Lotus
+  title: Flamagra
+  bucket: sparse
+  failure_mode: legacy_only
+  gold_genres:
+  - experimental hip hop
+  - instrumental hip hop
+  - nu jazz
+  - funk
+  gold_facets: []
+  must_preserve:
+  - nu jazz
+  taxonomy_gaps: []
+  notes: legacy-only (0 observed leaves, 14 inferred); more funk/soul
+- release_key: haruomi hosono::hosono house
+  album_id: 3d708b4eaee56bab
+  artist: Haruomi Hosono
+  title: Hosono House
+  bucket: sparse
+  failure_mode: legacy_only
+  gold_genres:
+  - folk rock
+  - country rock
+  - singer-songwriter
+  gold_facets: []
+  must_preserve:
+  - folk rock
+  taxonomy_gaps: []
+  notes: 0 observed leaves; foundational 1973 Japanese folk/country rock
+- release_key: haruomi hosono::tropical dandy
+  album_id: e42278da441c955c
+  artist: Haruomi Hosono
+  title: Tropical Dandy
+  bucket: failure
+  failure_mode: wrong_tag
+  gold_genres:
+  - exotica
+  - city pop
+  - folk rock
+  gold_facets: []
+  must_preserve:
+  - city pop
+  - folk rock
+  taxonomy_gaps:
+  - exotica
+  notes: tagged 'techno' (anachronistic 1975); exotica in files but dropped + missing from taxonomy
+- release_key: dj notoya::tokyo glow japanese city pop funk boogie
+  album_id: bd259f569c553c00
+  artist: DJ Notoya
+  title: 'Tokyo Glow: Japanese City Pop, Funk & Boogie'
+  bucket: sparse
+  gold_genres:
+  - city pop
+  - funk
+  - boogie
+  - aor
+  - disco
+  gold_facets: []
+  must_preserve:
+  - city pop
+  - funk
+  - boogie
+  taxonomy_gaps:
+  - aor
+  notes: VA city-pop/boogie/AOR comp; 0 observed leaves
+- release_key: pharoah sanders::black unity
+  album_id: 14aeb0b35577b94a
+  artist: Pharoah Sanders
+  title: Black Unity
+  bucket: failure
+  failure_mode: wrong_tag
+  gold_genres:
+  - spiritual jazz
+  - free jazz
+  - avant-garde jazz
+  gold_facets: []
+  must_preserve:
+  - free jazz
+  - spiritual jazz
+  - avant-garde jazz
+  taxonomy_gaps: []
+  notes: tagged 'cool jazz' (wrong); spiritual jazz dropped from observed (recall miss); dropped soul
+    jazz
+- release_key: 植松伸夫::fithos lusec wecos vinosec final fantasy viii
+  album_id: 3a7e7629083731d0
+  artist: 植松伸夫
+  title: 'FITHOS LUSEC WECOS VINOSEC: FINAL FANTASY VIII'
+  bucket: failure
+  failure_mode: wrong_tag
+  gold_genres:
+  - video game music
+  - modern classical
+  - ambient
+  gold_facets:
+  - orchestral
+  must_preserve:
+  - video game music
+  - modern classical
+  taxonomy_gaps: []
+  notes: tagged 'chiptune' + 'progressive rock' (synth/orchestral PS1 score)
