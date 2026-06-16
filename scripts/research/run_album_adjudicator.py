@@ -20,6 +20,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -104,6 +105,7 @@ def main() -> int:
     ap.add_argument("--model", default="haiku")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--bucket", default=None, help="filter to one bucket")
+    ap.add_argument("--concurrency", type=int, default=6, help="parallel Claude calls")
     args = ap.parse_args()
 
     corpus = yaml.safe_load(CORPUS.read_text(encoding="utf-8"))
@@ -115,27 +117,51 @@ def main() -> int:
 
     meta = open_ro(resolve_db("metadata.db"))
     id2name = {r[0]: r[1] for r in meta.execute("SELECT genre_id, name FROM genre_graph_canonical_genres")}
-    adapter = load_graph_adapter()
-    client = ClaudeCodeEnrichmentClient(model=args.model, dry_run=args.dry_run)
-
-    results = []
-    t0 = time.time()
-    for i, entry in enumerate(entries, 1):
+    # Phase A: build all payloads sequentially off the single DB connection.
+    preps = []
+    for entry in entries:
         evidence = build_evidence(meta, entry["album_id"], id2name)
         payload = build_adjudicator_payload(evidence)
-        prompt = build_adjudicator_prompt(payload)
-        res = client.request_structured(
-            payload=payload, prompt=prompt,
+        preps.append({
+            "entry": entry, "evidence": evidence, "payload": payload,
+            "prompt": build_adjudicator_prompt(payload),
+        })
+    meta.close()
+
+    # Phase B: fan out the INDEPENDENT Claude calls. Per-call client (cheap) avoids
+    # the shared last_token_usage race; concurrency overlaps the per-call SDK startup.
+    def _adjudicate(prep):
+        client = ClaudeCodeEnrichmentClient(model=args.model, dry_run=args.dry_run)
+        return prep["entry"]["album_id"], client.request_structured(
+            payload=prep["payload"], prompt=prep["prompt"],
             response_format=adjudicator_response_format(),
             validator=validate_adjudicator_response,
             instructions=ADJUDICATOR_INSTRUCTIONS,
             estimated_output_tokens=700,
         )
+
+    t0 = time.time()
+    res_by_id: dict[str, object] = {}
+    with ThreadPoolExecutor(max_workers=max(1, args.concurrency)) as ex:
+        futures = [ex.submit(_adjudicate, p) for p in preps]
+        for n, fut in enumerate(as_completed(futures), 1):
+            aid, res = fut.result()
+            res_by_id[aid] = res
+            print(f"  ({n}/{len(preps)}) [{round(time.time() - t0)}s]")
+
+    # Phase C: canonicalize + assemble in corpus order (sequential; adapter cache).
+    adapter = load_graph_adapter()
+    results = []
+    for prep in preps:
+        entry, evidence, payload = prep["entry"], prep["evidence"], prep["payload"]
+        res = res_by_id[entry["album_id"]]
         rec = {
             "release_key": entry.get("release_key"), "album_id": entry["album_id"],
             "artist": evidence["artist"], "title": evidence["album"], "bucket": entry["bucket"],
             "failure_mode": entry.get("failure_mode"),
             "gold_genres": entry["gold_genres"], "gold_facets": entry.get("gold_facets", []),
+            "must_preserve": entry.get("must_preserve", []),
+            "taxonomy_gaps_gold": entry.get("taxonomy_gaps", []),
             "current_observed_leaf": payload["current_observed_leaf"],
         }
         if res.status == "complete":
@@ -147,12 +173,12 @@ def main() -> int:
                 "escalate_reason": r["escalate_reason"], "overall_confidence": r["overall_confidence"],
                 "warnings": r["warnings"], "tokens": res.token_usage,
             }
-            print(f"  [{i}/{len(entries)}] {evidence['artist']} — {evidence['album']}: "
-                  f"{canon['canonical']}" + (f"  GAPS={canon['gaps']}" if canon['gaps'] else "")
+            print(f"  {evidence['artist']} — {evidence['album']}: {canon['canonical']}"
+                  + (f"  GAPS={canon['gaps']}" if canon['gaps'] else "")
                   + ("  [ESCALATE]" if r["escalate"] else ""))
         else:
             rec["proposed"] = {"status": res.status, "error": res.error_message}
-            print(f"  [{i}/{len(entries)}] {evidence['artist']} — {evidence['album']}: {res.status} {res.error_message or ''}")
+            print(f"  {evidence['artist']} — {evidence['album']}: {res.status} {res.error_message or ''}")
         results.append(rec)
 
     SHADOW_DIR.mkdir(parents=True, exist_ok=True)
