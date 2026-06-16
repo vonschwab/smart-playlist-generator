@@ -39,6 +39,12 @@ class InfeasibleHandlingConfig:
     # When True, a terminal "last-resort" placement guarantees at least one track
     # is placed per segment even if all relaxation tiers are exhausted.
     guarantee_feasible: bool = True
+    # Weight on genre cosine (vs sonic) in the terminal greedy placement. The greedy
+    # fallback used to pick purely on sonic similarity, which is perceptually unreliable
+    # across dissimilar anchors and produced genre-incoherent fill (e.g. heartland rock
+    # -> nu-jazz). Blending genre in steers the fill toward genre-compatible tracks while
+    # preserving the never-fail guarantee. 0.0 = legacy sonic-only behavior.
+    greedy_genre_weight: float = 0.5
 
 
 @dataclass(frozen=True)
@@ -103,6 +109,7 @@ def parse_infeasible_handling_config(raw: Any) -> InfeasibleHandlingConfig:
         genre_arc_relaxation_enabled=bool(raw.get("genre_arc_relaxation_enabled", True)),
         min_genre_arc_percentile=float(raw.get("min_genre_arc_percentile", 0.0)),
         guarantee_feasible=bool(raw.get("guarantee_feasible", True)),
+        greedy_genre_weight=float(raw.get("greedy_genre_weight", 0.5)),
     )
 
 

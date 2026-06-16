@@ -268,11 +268,18 @@ def _enforce_min_gap_global(
 def _greedy_terminal_path(
     candidates: list[int], global_used: "Set[int]", pier_a: int, pier_b: int,
     interior_len: int, X_full_norm: np.ndarray,
+    X_genre_norm: Optional[np.ndarray] = None, genre_weight: float = 0.0,
 ) -> Optional[list[int]]:
     """Last-resort placement that cannot fail while >= interior_len usable tracks exist.
 
-    Picks the interior_len tracks with the best mean sonic cosine to both piers, then
-    orders them by increasing similarity to pier_b so the segment progresses toward B.
+    Picks the interior_len tracks with the best blended cosine to both piers, then
+    orders them by increasing sonic similarity to pier_b so the segment progresses
+    toward B. The selection score is
+        (1 - genre_weight) * mean_sonic_cos(piers) + genre_weight * mean_genre_cos(piers)
+    so an infeasible segment is no longer filled on sonic similarity alone (MERT cosine
+    is perceptually unreliable across dissimilar anchors). With genre_weight <= 0 or no
+    genre matrix this reduces to the legacy sonic-only behavior, preserving the
+    never-fail guarantee (selection never drops candidates, only reweights them).
     Excludes already-used tracks, the piers, duplicates, out-of-range, and NaN/inf-scored
     candidates (zero-vector rows) so the sort can never raise.
     """
@@ -281,6 +288,14 @@ def _greedy_terminal_path(
     n = int(X_full_norm.shape[0])
     a_vec = X_full_norm[pier_a]
     b_vec = X_full_norm[pier_b]
+    w = float(min(max(genre_weight, 0.0), 1.0))
+    use_genre = (
+        w > 0.0
+        and X_genre_norm is not None
+        and int(X_genre_norm.shape[0]) == n
+    )
+    ga_vec = X_genre_norm[pier_a] if use_genre else None
+    gb_vec = X_genre_norm[pier_b] if use_genre else None
     pool: list[tuple[int, float, float]] = []
     seen: set[int] = set()
     for raw in candidates:
@@ -291,13 +306,20 @@ def _greedy_terminal_path(
         sb = float(np.dot(X_full_norm[i], b_vec))
         if not (math.isfinite(sa) and math.isfinite(sb)):
             continue
+        sonic_blend = 0.5 * sa + 0.5 * sb
+        score = sonic_blend
+        if use_genre:
+            ga = float(np.dot(X_genre_norm[i], ga_vec))
+            gb = float(np.dot(X_genre_norm[i], gb_vec))
+            genre_blend = (0.5 * ga + 0.5 * gb) if (math.isfinite(ga) and math.isfinite(gb)) else 0.0
+            score = (1.0 - w) * sonic_blend + w * genre_blend
         seen.add(i)
-        pool.append((i, 0.5 * sa + 0.5 * sb, sb))
+        pool.append((i, score, sb))
     if len(pool) < interior_len:
         return None
     pool.sort(key=lambda t: t[1], reverse=True)
     chosen = pool[:interior_len]
-    chosen.sort(key=lambda t: t[2])  # ascending sim-to-pier_b = progress toward B
+    chosen.sort(key=lambda t: t[2])  # ascending sonic sim-to-pier_b = progress toward B
     return [t[0] for t in chosen]
 
 
@@ -1931,12 +1953,15 @@ def build_pier_bridge_playlist(
 
             if segment_path is None and infeasible_handling and infeasible_handling.guarantee_feasible:
                 _term_pool = last_segment_candidates or list(universe)
+                _greedy_genre_w = float(getattr(infeasible_handling, "greedy_genre_weight", 0.0))
                 _greedy = _greedy_terminal_path(
-                    _term_pool, global_used, int(pier_a), int(pier_b), int(interior_len), X_full_norm
+                    _term_pool, global_used, int(pier_a), int(pier_b), int(interior_len), X_full_norm,
+                    X_genre_norm=X_genre_norm, genre_weight=_greedy_genre_w,
                 )
                 if _greedy is None:
                     _greedy = _greedy_terminal_path(
-                        list(universe), global_used, int(pier_a), int(pier_b), int(interior_len), X_full_norm
+                        list(universe), global_used, int(pier_a), int(pier_b), int(interior_len), X_full_norm,
+                        X_genre_norm=X_genre_norm, genre_weight=_greedy_genre_w,
                     )
                 if _greedy is not None:
                     segment_path = _greedy

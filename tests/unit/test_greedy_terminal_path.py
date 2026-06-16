@@ -35,3 +35,34 @@ def test_nan_rows_are_filtered_not_raised():
     X[2] = np.nan  # poisoned row must be skipped, sort must not raise
     path = _greedy_terminal_path([1, 2, 3], set(), 0, 1, 1, X)
     assert path == [3]  # idx 2 (NaN) filtered; idx 3 chosen (idx 1 is pier_b)
+
+
+# --- genre-aware terminal placement (band-aid for genre-blind fallback) -----
+# idx 0=pier_a, 1=pier_b, 2=cand_S (sonic-best, genre-incoherent),
+#               3=cand_G (sonic-poor, genre-coherent with both piers).
+_SONIC = _rows([[1, 0, 0], [0, 1, 0], [1, 1, 0], [0, 0, 1]])
+_GENRE = _rows([[1, 0], [1, 0], [0, 1], [1, 0]])
+
+
+def test_genre_weight_zero_is_legacy_sonic_behavior():
+    # No genre args -> picks the sonic-best track even though it is genre-incoherent.
+    assert _greedy_terminal_path([2, 3], set(), 0, 1, 1, _SONIC) == [2]
+    # Passing genre vectors but weight 0 must be identical to legacy.
+    assert _greedy_terminal_path(
+        [2, 3], set(), 0, 1, 1, _SONIC, X_genre_norm=_GENRE, genre_weight=0.0
+    ) == [2]
+
+
+def test_genre_weight_flips_to_genre_coherent_pick():
+    # With genre weighted in, the sonic-best-but-genre-incoherent track loses to
+    # the genre-coherent one.
+    assert _greedy_terminal_path(
+        [2, 3], set(), 0, 1, 1, _SONIC, X_genre_norm=_GENRE, genre_weight=0.7
+    ) == [3]
+
+
+def test_genre_weight_without_vectors_falls_back_to_sonic():
+    # Never-fail: genre weight set but no genre matrix -> sonic behavior, no crash.
+    assert _greedy_terminal_path(
+        [2, 3], set(), 0, 1, 1, _SONIC, X_genre_norm=None, genre_weight=0.7
+    ) == [2]
