@@ -10,8 +10,24 @@ from src.ai_genre_enrichment.album_adjudicator import (
     ADJUDICATOR_SCHEMA_VERSION,
     build_adjudicator_payload,
     canonicalize_proposed,
+    enforce_file_tag_floor,
     validate_adjudicator_response,
 )
+
+
+def _canon(table):
+    def fn(term: str):
+        res, canon = table.get(term, ("unknown", None))
+        return SimpleNamespace(resolution=res, canonical=canon)
+    return fn
+
+
+def _resp(genre_terms, escalate=False):
+    return {
+        "genres": [{"term": t, "confidence": 0.8, "layer": "core", "rationale": ""} for t in genre_terms],
+        "facets": [], "escalate": escalate, "escalate_reason": "",
+        "overall_confidence": 0.8, "warnings": [],
+    }
 
 
 def _wellformed() -> dict:
@@ -94,3 +110,44 @@ def test_canonicalize_splits_canonical_alias_and_gaps_preserving_order():
     # canonical names, deduped, first-seen order; aliases resolve to their canonical
     assert out["canonical"] == ["soul jazz", "funk", "jazz fusion"]
     assert out["gaps"] == ["ethio-jazz"]
+
+
+def test_payload_surfaces_user_file_tags_normalized():
+    p = build_adjudicator_payload({
+        "artist": "X",
+        "file_tags": ["Shoegaze", "rock", "shoegaze"],
+        "existing_genres_by_source": {"file": ["Shoegaze", "rock"]},
+    })
+    assert p["user_file_tags"] == ["rock", "shoegaze"]  # normalized, deduped, sorted
+
+
+def test_floor_forces_escalate_when_specific_file_tag_dropped():
+    canon = _canon({"dream pop": ("canonical", "dream pop"),
+                    "shoegaze": ("canonical", "shoegaze"), "rock": ("canonical", "rock")})
+    out = enforce_file_tag_floor(
+        _resp(["dream pop"]), file_tags=["shoegaze", "rock"],
+        canonicalize_fn=canon, is_broad_fn=lambda n: n == "rock",
+    )
+    assert out["escalate"] is True
+    assert out["dropped_file_tags"] == ["shoegaze"]  # rock is broad -> not required
+    assert "shoegaze" in out["escalate_reason"]
+
+
+def test_floor_noop_when_specific_file_tags_present():
+    canon = _canon({"shoegaze": ("canonical", "shoegaze"), "rock": ("canonical", "rock")})
+    out = enforce_file_tag_floor(
+        _resp(["shoegaze"]), file_tags=["shoegaze", "rock"],
+        canonicalize_fn=canon, is_broad_fn=lambda n: n == "rock",
+    )
+    assert out["escalate"] is False
+    assert out["dropped_file_tags"] == []
+
+
+def test_floor_records_drop_even_if_already_escalated():
+    canon = _canon({"shoegaze": ("canonical", "shoegaze")})
+    out = enforce_file_tag_floor(
+        _resp(["x"], escalate=True), file_tags=["shoegaze"],
+        canonicalize_fn=canon, is_broad_fn=lambda n: False,
+    )
+    assert out["escalate"] is True
+    assert out["dropped_file_tags"] == ["shoegaze"]

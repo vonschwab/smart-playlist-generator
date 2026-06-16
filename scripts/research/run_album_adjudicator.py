@@ -34,6 +34,7 @@ from src.ai_genre_enrichment.album_adjudicator import (  # noqa: E402
     build_adjudicator_payload,
     build_adjudicator_prompt,
     canonicalize_proposed,
+    enforce_file_tag_floor,
     validate_adjudicator_response,
 )
 from src.ai_genre_enrichment.claude_client import ClaudeCodeEnrichmentClient  # noqa: E402
@@ -85,6 +86,7 @@ def build_evidence(conn: sqlite3.Connection, album_id: str, id2name: dict[str, s
     )]
     if trk:
         by_source["file_track"] = sorted(set(trk))
+    file_tags = sorted(set(trk))
     observed = [
         id2name[g] for (g,) in conn.execute(
             "SELECT genre_id FROM release_effective_genres WHERE album_id=? AND assignment_layer='observed_leaf'",
@@ -94,7 +96,7 @@ def build_evidence(conn: sqlite3.Connection, album_id: str, id2name: dict[str, s
     identifiers = {"mbid": mbid} if mbid else {}
     return {
         "artist": artist, "album": title, "album_id": album_id, "year": year,
-        "identifiers": identifiers, "track_titles": tracks,
+        "identifiers": identifiers, "track_titles": tracks, "file_tags": file_tags,
         "existing_genres_by_source": by_source, "current_observed_leaf": observed,
     }
 
@@ -149,8 +151,13 @@ def main() -> int:
             res_by_id[aid] = res
             print(f"  ({n}/{len(preps)}) [{round(time.time() - t0)}s]")
 
-    # Phase C: canonicalize + assemble in corpus order (sequential; adapter cache).
+    # Phase C: floor + canonicalize + assemble in corpus order (sequential; adapter cache).
     adapter = load_graph_adapter()
+
+    def _is_broad(name: str) -> bool:
+        node = adapter.node(name)
+        return bool(node is not None and node.is_broad)
+
     results = []
     for prep in preps:
         entry, evidence, payload = prep["entry"], prep["evidence"], prep["payload"]
@@ -165,13 +172,17 @@ def main() -> int:
             "current_observed_leaf": payload["current_observed_leaf"],
         }
         if res.status == "complete":
-            r = res.response_json
+            r = enforce_file_tag_floor(
+                res.response_json, file_tags=payload["user_file_tags"],
+                canonicalize_fn=adapter.canonicalize_tag, is_broad_fn=_is_broad,
+            )
             canon = canonicalize_proposed([g["term"] for g in r["genres"]], adapter.canonicalize_tag)
             rec["proposed"] = {
                 "genres": r["genres"], "canonical": canon["canonical"], "gaps": canon["gaps"],
                 "facets": r["facets"], "escalate": r["escalate"],
                 "escalate_reason": r["escalate_reason"], "overall_confidence": r["overall_confidence"],
-                "warnings": r["warnings"], "tokens": res.token_usage,
+                "warnings": r["warnings"], "dropped_file_tags": r.get("dropped_file_tags", []),
+                "tokens": res.token_usage,
             }
             print(f"  {evidence['artist']} — {evidence['album']}: {canon['canonical']}"
                   + (f"  GAPS={canon['gaps']}" if canon['gaps'] else "")

@@ -37,7 +37,7 @@ Separate genres from facets. Mood, texture, instrumentation, production, era, re
 
 Each genre gets a `layer`: "core" (primary identity, keep to ~2-4) or "secondary" (a real but lesser element). Total genres ~3-6; fewer for focused releases.
 
-The user's own file tags are ground truth. `existing_genres_by_source` includes file tags; treat a SPECIFIC, correct file-tag genre as authoritative and do not silently drop it. If you believe a correct file tag should be excluded, do NOT drop it silently — set `escalate` true and explain in `escalate_reason`.
+The payload's `user_file_tags` are the USER'S OWN embedded file tags — ground truth. Every SPECIFIC `user_file_tags` genre (anything that is not a broad parent) MUST appear in your `genres`, OR you MUST set `escalate` true and name the omitted tag in `escalate_reason`. Silently dropping a specific user file tag is the single worst error — never do it. (You MAY drop a broad-parent file tag like "rock" without escalating, since broad parents are derived elsewhere.)
 
 Source tags are often applied at the ARTIST level, identical across an artist's albums. Use your own music knowledge to give THIS release its specific identity, distinct from the artist's other work. But never infer genre from artist name, nationality, language, album-title aesthetics, or demographic cues alone.
 
@@ -173,6 +173,11 @@ def build_adjudicator_payload(evidence: dict[str, Any]) -> dict[str, Any]:
         for genre in (evidence.get("current_observed_leaf") or [])
         if str(genre).strip()
     })
+    file_tags = sorted({
+        normalize_source_tag(str(tag))
+        for tag in (evidence.get("file_tags") or [])
+        if str(tag).strip()
+    })
     return {
         "artist": evidence.get("artist"),
         "album": evidence.get("album"),
@@ -182,10 +187,41 @@ def build_adjudicator_payload(evidence: dict[str, Any]) -> dict[str, Any]:
         "track_titles": list(evidence.get("track_titles") or [])[:8],
         "existing_genres_by_source": by_source,
         "known_tags": known,
+        "user_file_tags": file_tags,
         "current_observed_leaf": observed,
         "prompt_version": ADJUDICATOR_PROMPT_VERSION,
         "schema_version": ADJUDICATOR_SCHEMA_VERSION,
     }
+
+
+def enforce_file_tag_floor(
+    response: dict[str, Any],
+    *,
+    file_tags: list[str],
+    canonicalize_fn: Callable[[str], Any],
+    is_broad_fn: Callable[[str], bool],
+) -> dict[str, Any]:
+    """Deterministic floor: a SPECIFIC (resolved, non-broad) user file-tag genre that
+    is absent from the proposed set forces `escalate` (the prompt can't be trusted on
+    the tail). Production-valid — uses the user's file tags, not gold.
+    """
+    proposed = set(canonicalize_proposed([g["term"] for g in response["genres"]], canonicalize_fn)["canonical"])
+    required: set[str] = set()
+    for tag in file_tags:
+        result = canonicalize_fn(tag)
+        name = getattr(result, "canonical", None)
+        if getattr(result, "resolution", None) in ("canonical", "alias") and name and not is_broad_fn(name):
+            required.add(name)
+    dropped = sorted(required - proposed)
+    out = dict(response)
+    out["dropped_file_tags"] = dropped
+    if dropped and not response.get("escalate"):
+        note = f"file-tag floor: specific file tag(s) dropped: {dropped}"
+        prev = str(response.get("escalate_reason", "")).strip()
+        out["escalate"] = True
+        out["escalate_reason"] = f"{prev}; {note}".strip("; ") if prev else note
+        out["warnings"] = list(response.get("warnings", [])) + [note]
+    return out
 
 
 def canonicalize_proposed(
