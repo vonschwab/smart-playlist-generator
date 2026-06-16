@@ -99,9 +99,9 @@ def parse_infeasible_handling_config(raw: Any) -> InfeasibleHandlingConfig:
         extra_beam_width=int(raw.get("extra_beam_width", 50)),
         extra_expansion_attempts=int(raw.get("extra_expansion_attempts", 2)),
         transition_floor_relaxation_enabled=bool(raw.get("transition_floor_relaxation_enabled", True)),
-        min_transition_floor=float(raw.get("min_transition_floor", 0.20)),
+        min_transition_floor=float(raw.get("min_transition_floor", 0.0)),
         genre_arc_relaxation_enabled=bool(raw.get("genre_arc_relaxation_enabled", True)),
-        min_genre_arc_percentile=float(raw.get("min_genre_arc_percentile", 0.5)),
+        min_genre_arc_percentile=float(raw.get("min_genre_arc_percentile", 0.0)),
         guarantee_feasible=bool(raw.get("guarantee_feasible", True)),
     )
 

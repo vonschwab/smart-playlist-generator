@@ -11,3 +11,12 @@ def test_min_floors_default_to_zero():
 def test_guarantee_feasible_defaults_true_and_parses():
     assert InfeasibleHandlingConfig().guarantee_feasible is True
     assert parse_infeasible_handling_config({"guarantee_feasible": False}).guarantee_feasible is False
+
+
+def test_parse_fallbacks_match_dataclass_defaults():
+    # A config that OMITS the min-floor keys (like the live config.yaml) must still
+    # get 0.0 via the parse path — not the old 0.20/0.5 — so the relax tiers aren't
+    # silently re-inerted by an out-of-sync .get() fallback.
+    cfg = parse_infeasible_handling_config({"enabled": True})
+    assert cfg.min_transition_floor == 0.0
+    assert cfg.min_genre_arc_percentile == 0.0
