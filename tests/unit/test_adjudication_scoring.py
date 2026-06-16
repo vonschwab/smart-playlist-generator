@@ -1,13 +1,17 @@
 """Tests for the Phase-2 adjudication scorer (metrics.md protocol)."""
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from src.ai_genre_enrichment.adjudication_scoring import (
     distribution,
+    match_keys,
     preservation,
     set_metrics,
 )
+from src.ai_genre_enrichment.tag_classification import normalize_source_tag
 
 
 def test_set_metrics_precision_recall_noise():
@@ -31,6 +35,22 @@ def test_preservation_is_fraction_of_must_preserve_kept():
     assert preservation({"a", "b"}, {"a", "b"}) == 1.0
     assert preservation({"a"}, {"a", "b"}) == 0.5
     assert preservation({"x"}, set()) == 1.0  # nothing required -> perfect
+
+
+def test_match_keys_canonicalizes_and_falls_back_to_normalized():
+    table = {
+        "soul-jazz": ("canonical", "soul jazz"),
+        "soul jazz": ("canonical", "soul jazz"),
+        "ethio-jazz": ("unknown", None),
+    }
+
+    def fake(term: str):
+        res, canon = table.get(term, ("unknown", None))
+        return SimpleNamespace(resolution=res, canonical=canon)
+
+    keys = match_keys(["soul-jazz", "ethio-jazz", "soul jazz"], fake)
+    # canonical-equivalent terms collapse; gaps fall back to a normalized key
+    assert keys == {"soul jazz", normalize_source_tag("ethio-jazz")}
 
 
 def test_distribution_reports_min_p10_p50_p90():

@@ -6,9 +6,28 @@ just means; the worst release defines trust).
 """
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
+from typing import Any
 
 import numpy as np
+
+from .tag_classification import normalize_source_tag
+
+
+def match_keys(terms: Iterable[str], canonicalize_fn: Callable[[str], Any]) -> set[str]:
+    """Map terms to comparison keys: canonical name where the taxonomy resolves it,
+    else a normalized fallback. Lets gold and proposed match on canonical-equivalence
+    (soul-jazz == soul jazz) while still matching gap terms (ethio-jazz) by string.
+    """
+    keys: set[str] = set()
+    for term in terms:
+        result = canonicalize_fn(term)
+        name = getattr(result, "canonical", None)
+        if getattr(result, "resolution", None) in ("canonical", "alias") and name:
+            keys.add(name)
+        else:
+            keys.add(normalize_source_tag(str(term)))
+    return keys
 
 
 def set_metrics(proposed: Iterable[str], gold: Iterable[str]) -> dict[str, float]:
