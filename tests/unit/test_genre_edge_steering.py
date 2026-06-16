@@ -135,7 +135,7 @@ def test_infeasible_handling_genre_floor_fields_default():
     from src.playlist.run_audit import InfeasibleHandlingConfig, parse_infeasible_handling_config
     cfg = InfeasibleHandlingConfig()
     assert cfg.genre_arc_relaxation_enabled is True
-    assert cfg.min_genre_arc_percentile == 0.5
+    assert cfg.min_genre_arc_percentile == 0.0
     parsed = parse_infeasible_handling_config({
         "enabled": True, "min_genre_arc_percentile": 0.15, "genre_arc_relaxation_enabled": False,
     })

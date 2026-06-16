@@ -422,7 +422,9 @@ def test_progress_monotonicity_in_beam_search_segment():
 
 def test_dynamic_transition_floor_blocks_low_t():
     # With dynamic transition_floor=0.35, a segment with no valid transitions should fail.
+    # guarantee_feasible=False restores the legacy failure path so this gate is still exercised.
     from src.playlist.pier_bridge_builder import PierBridgeConfig, build_pier_bridge_playlist
+    from src.playlist.run_audit import InfeasibleHandlingConfig
 
     X = np.array([
         [1.0, 0.0],         # pier A
@@ -442,6 +444,7 @@ def test_dynamic_transition_floor_blocks_low_t():
         candidate_pool_indices=[2],
         cfg=PierBridgeConfig(transition_floor=0.35, bridge_floor=0.0, eta_destination_pull=0.0),
         allowed_track_ids_set={"a0", "b0", "c0"},
+        infeasible_handling=InfeasibleHandlingConfig(guarantee_feasible=False),
     )
     assert not result.success
 
@@ -741,7 +744,9 @@ def test_build_ds_overrides_includes_pier_bridge():
 
 
 def test_high_bridge_floor_fails_segment():
+    # guarantee_feasible=False restores the legacy failure path so the high bridge_floor gate is exercised.
     from src.playlist.pier_bridge_builder import build_pier_bridge_playlist, PierBridgeConfig
+    from src.playlist.run_audit import InfeasibleHandlingConfig
     X = np.array([
         [1.0, 0.0],
         [0.0, 1.0],
@@ -760,6 +765,7 @@ def test_high_bridge_floor_fails_segment():
         candidate_pool_indices=[2],
         cfg=PierBridgeConfig(bridge_floor=0.9, transition_floor=0.8),
         allowed_track_ids_set={"a0", "b0", "c0"},
+        infeasible_handling=InfeasibleHandlingConfig(guarantee_feasible=False),
     )
     assert not result.success
     assert result.failure_reason
@@ -768,7 +774,9 @@ def test_high_bridge_floor_fails_segment():
 def test_bridge_floor_backoff_disabled_infeasible_segment_fails():
     # Initial bridge_floor is too strict for the only candidate; without backoff,
     # segment remains infeasible (default behavior).
+    # guarantee_feasible=False restores the legacy failure path so the bridge_floor gate is exercised.
     from src.playlist.pier_bridge_builder import build_pier_bridge_playlist, PierBridgeConfig
+    from src.playlist.run_audit import InfeasibleHandlingConfig
 
     x = 0.04  # min(simA, simB)
     X = np.array([
@@ -789,6 +797,7 @@ def test_bridge_floor_backoff_disabled_infeasible_segment_fails():
         candidate_pool_indices=[2],
         cfg=PierBridgeConfig(bridge_floor=0.08, transition_floor=0.0, eta_destination_pull=0.0),
         allowed_track_ids_set={"a0", "b0", "c0"},
+        infeasible_handling=InfeasibleHandlingConfig(guarantee_feasible=False),
     )
     assert not result.success
     assert result.failure_reason and "bridge_floor=0.08" in result.failure_reason

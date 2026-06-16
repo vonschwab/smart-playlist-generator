@@ -92,3 +92,28 @@ def test_pace_narrow_feasible_for_ambient_piers():
     )
     assert res is not None
     assert len(res.track_ids) == 30, f"expected 30 tracks, got {len(res.track_ids)}"
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@_requires_artifact
+def test_hard_seed_pair_never_fails():
+    """Regression for greedy terminal guarantee: a seed combination that exhausts
+    every relaxation tier (bridge_floor backoff, micro-pier) must still produce a
+    full 30-track playlist instead of raising ValueError('Segment N infeasible…').
+    The terminal greedy path kicks in when guarantee_feasible=True (set by default
+    via the infeasible_handling config block).
+    """
+    res = generate_like_gui(
+        seeds=[
+            "29a6637c9ba785f6270b114b37e59594",
+            "afd9ee94229bde6f31c853bfbe754730",
+            "a7cf50c432f58d0df81fcbb22c4bd674",
+            "8539afd5d87ff30c3180863dced469c8",
+            "631f693758a8c5de622d750a08cbf6ee",
+        ],
+        cohesion_mode="dynamic", genre_mode="narrow", sonic_mode="narrow",
+        pace_mode="dynamic", artist_spacing="strong", length=30, random_seed=0,
+    )
+    tids = getattr(res, "track_ids", res)
+    assert len(tids) == 30, f"expected 30 tracks, got {len(tids)} — greedy terminal did not fire"

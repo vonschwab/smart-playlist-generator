@@ -21,6 +21,7 @@ Key features:
 from __future__ import annotations
 
 import logging
+import math
 from pathlib import Path
 from dataclasses import replace
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -263,6 +264,41 @@ def _enforce_min_gap_global(
 
     return output, dropped
 
+
+def _greedy_terminal_path(
+    candidates: list[int], global_used: "Set[int]", pier_a: int, pier_b: int,
+    interior_len: int, X_full_norm: np.ndarray,
+) -> Optional[list[int]]:
+    """Last-resort placement that cannot fail while >= interior_len usable tracks exist.
+
+    Picks the interior_len tracks with the best mean sonic cosine to both piers, then
+    orders them by increasing similarity to pier_b so the segment progresses toward B.
+    Excludes already-used tracks, the piers, duplicates, out-of-range, and NaN/inf-scored
+    candidates (zero-vector rows) so the sort can never raise.
+    """
+    if interior_len <= 0:
+        return []
+    n = int(X_full_norm.shape[0])
+    a_vec = X_full_norm[pier_a]
+    b_vec = X_full_norm[pier_b]
+    pool: list[tuple[int, float, float]] = []
+    seen: set[int] = set()
+    for raw in candidates:
+        i = int(raw)
+        if i in seen or i in global_used or i == pier_a or i == pier_b or not (0 <= i < n):
+            continue
+        sa = float(np.dot(X_full_norm[i], a_vec))
+        sb = float(np.dot(X_full_norm[i], b_vec))
+        if not (math.isfinite(sa) and math.isfinite(sb)):
+            continue
+        seen.add(i)
+        pool.append((i, 0.5 * sa + 0.5 * sb, sb))
+    if len(pool) < interior_len:
+        return None
+    pool.sort(key=lambda t: t[1], reverse=True)
+    chosen = pool[:interior_len]
+    chosen.sort(key=lambda t: t[2])  # ascending sim-to-pier_b = progress toward B
+    return [t[0] for t in chosen]
 
 
 def build_pier_bridge_playlist(
@@ -1893,32 +1929,53 @@ def build_pier_bridge_playlist(
                 if micro_path is not None and len(micro_path) == interior_len:
                     segment_path = micro_path
 
-            if audit_enabled:
-                audit_events.append(
-                    RunAuditEvent(
-                        kind="segment_failure",
-                        ts_utc=now_utc_iso(),
-                        payload={
-                            "segment_index": int(seg_idx),
-                            "failure_reason": str(last_failure_reason or "segment infeasible"),
-                            "attempted_bridge_floors": [float(x) for x in backoff_attempts],
-                        },
-                    )
+            if segment_path is None and infeasible_handling and infeasible_handling.guarantee_feasible:
+                _term_pool = last_segment_candidates or list(universe)
+                _greedy = _greedy_terminal_path(
+                    _term_pool, global_used, int(pier_a), int(pier_b), int(interior_len), X_full_norm
                 )
-            if infeasible_handling and infeasible_handling.enabled:
-                failure = f"Segment {seg_idx} infeasible under bridge_floor backoff (attempted={backoff_attempts}; last_reason={last_failure_reason})"
-            else:
-                failure = f"Segment {seg_idx} infeasible under bridge_floor={cfg.bridge_floor}"
-            logger.error(failure)
-            return PierBridgeResult(
-                track_ids=[],
-                track_indices=[],
-                seed_positions=[],
-                segment_diagnostics=[],
-                stats={},
-                success=False,
-                failure_reason=failure,
-            )
+                if _greedy is None:
+                    _greedy = _greedy_terminal_path(
+                        list(universe), global_used, int(pier_a), int(pier_b), int(interior_len), X_full_norm
+                    )
+                if _greedy is not None:
+                    segment_path = _greedy
+                    warnings.append({
+                        "type": "relaxation",
+                        "scope": "segment",
+                        "segment_index": int(seg_idx),
+                        "bridge": f"{pier_a_id} -> {pier_b_id}",
+                        "relaxed": ["all guideline gates (terminal greedy placement)"],
+                        "severity": "invariant",
+                    })
+
+            if segment_path is None:
+                if audit_enabled:
+                    audit_events.append(
+                        RunAuditEvent(
+                            kind="segment_failure",
+                            ts_utc=now_utc_iso(),
+                            payload={
+                                "segment_index": int(seg_idx),
+                                "failure_reason": str(last_failure_reason or "segment infeasible"),
+                                "attempted_bridge_floors": [float(x) for x in backoff_attempts],
+                            },
+                        )
+                    )
+                if infeasible_handling and infeasible_handling.enabled:
+                    failure = f"Segment {seg_idx} infeasible under bridge_floor backoff (attempted={backoff_attempts}; last_reason={last_failure_reason})"
+                else:
+                    failure = f"Segment {seg_idx} infeasible under bridge_floor={cfg.bridge_floor}"
+                logger.error(failure)
+                return PierBridgeResult(
+                    track_ids=[],
+                    track_indices=[],
+                    seed_positions=[],
+                    segment_diagnostics=[],
+                    stats={},
+                    success=False,
+                    failure_reason=failure,
+                )
 
         soft_genre_penalty_hits_total += int(soft_genre_penalty_hits_segment)
         soft_genre_penalty_edges_scored_total += int(soft_genre_penalty_edges_scored_segment)
