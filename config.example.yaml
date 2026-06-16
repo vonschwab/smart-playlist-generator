@@ -579,7 +579,8 @@ playlists:
       infeasible_handling:
         enabled: false
         genre_arc_relaxation_enabled: true
-        min_genre_arc_percentile: 0.40
+        min_transition_floor: 0.0
+        min_genre_arc_percentile: 0.0
         strategy: "backoff"
         min_bridge_floor: 0.00
         backoff_steps: [0.08, 0.06, 0.05, 0.04, 0.03, 0.02, 0.01, 0.00]

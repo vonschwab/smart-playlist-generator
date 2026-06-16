@@ -33,9 +33,9 @@ class InfeasibleHandlingConfig:
     # Addresses niche-artist infeasibility where the beam edge gate is the bottleneck
     # rather than the pool admission floor.
     transition_floor_relaxation_enabled: bool = True
-    min_transition_floor: float = 0.20
+    min_transition_floor: float = 0.0
     genre_arc_relaxation_enabled: bool = True
-    min_genre_arc_percentile: float = 0.5
+    min_genre_arc_percentile: float = 0.0
 
 
 @dataclass(frozen=True)
