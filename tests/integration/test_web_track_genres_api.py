@@ -154,6 +154,6 @@ def test_published_authority_outranks_poor_signature(client):
 def test_search_results_use_published_authority(client):
     resp = client.get("/api/tracks/search", params={"q": "blood orange"})
     assert resp.status_code == 200
-    rows = resp.json()
-    assert len(rows) == 1
-    assert rows[0]["genres"] == ["slowcore", "rock"]
+    items = resp.json()["items"]  # paginated shape: {items, has_more}
+    assert len(items) == 1
+    assert items[0]["genres"] == ["slowcore", "rock"]

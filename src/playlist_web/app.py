@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Callable, Optional
 
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -79,6 +79,46 @@ def _resolve_seed_artist_keys(track_ids: list[str]) -> list[str]:
         return []
     by_id = {str(r[0]): str(r[1] or "") for r in rows}
     return [by_id.get(str(t), "") for t in track_ids]
+
+
+def _genres_for_tracks(
+    conn: sqlite3.Connection, track_ids: list[str], per_track: int = 5
+) -> dict[str, list[str]]:
+    """Genre lookup for a page of tracks. Published authority first
+    (`release_effective_genres` via authority.py, graph-canonically ordered),
+    then `track_effective_genres` (priority), then a `track_genres` fallback for
+    tracks still without any. Per-track authority lookup is fine for a page;
+    the effective/raw fallbacks stay batched (audit [P#1])."""
+    if not track_ids:
+        return {}
+    from src.genre.authority import display_genre_names_for_track
+    from src.genre.granularity import order_genres_for_display
+
+    out: dict[str, list[str]] = {}
+    for tid in track_ids:
+        names = order_genres_for_display(display_genre_names_for_track(conn, str(tid)))
+        out[tid] = names[:per_track]
+    missing = [tid for tid, gl in out.items() if not gl]
+    if missing:
+        ph = ",".join("?" for _ in missing)
+        for tid, genre in conn.execute(
+            f"SELECT track_id, genre FROM track_effective_genres "
+            f"WHERE track_id IN ({ph}) ORDER BY priority",
+            tuple(missing),
+        ):
+            if len(out[tid]) < per_track:
+                out[tid].append(genre)
+    still_missing = [tid for tid in missing if not out[tid]]
+    if still_missing:
+        ph2 = ",".join("?" for _ in still_missing)
+        for tid, genre in conn.execute(
+            f"SELECT track_id, genre FROM track_genres "
+            f"WHERE track_id IN ({ph2}) ORDER BY weight DESC",
+            tuple(still_missing),
+        ):
+            if len(out[tid]) < per_track:
+                out[tid].append(genre)
+    return out
 
 
 def create_app(
@@ -281,10 +321,14 @@ def create_app(
         return {"ok": True, **result}
 
     @app.get("/api/tracks/search")
-    async def track_search(q: str = "", limit: int = 15) -> list[dict]:
+    async def track_search(
+        q: str = "",
+        offset: int = Query(0, ge=0),
+        limit: int = Query(25, ge=1, le=200),
+    ) -> dict:
         q = q.strip()
         if not q or not DB_PATH.exists():
-            return []
+            return {"items": [], "has_more": False}
         pattern = f"%{q.lower()}%"
         try:
             conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
@@ -295,45 +339,30 @@ def create_app(
                     FROM tracks t
                     WHERE lower(t.title) LIKE ? OR lower(t.artist) LIKE ? OR lower(t.album) LIKE ?
                     ORDER BY t.artist, t.title
-                    LIMIT ?
+                    LIMIT ? OFFSET ?
                     """,
-                    (pattern, pattern, pattern, limit),
+                    (pattern, pattern, pattern, limit + 1, offset),
                 ).fetchall()
-                from src.genre.authority import display_genre_names_for_track
-                from src.genre.granularity import order_genres_for_display
-
-                results = []
-                for row in rows:
-                    track_id = row[0]
-                    # Published authority first (the genre output), then the
-                    # legacy per-track tables.
-                    genres = order_genres_for_display(
-                        display_genre_names_for_track(conn, track_id)
-                    )[:5]
-                    if not genres:
-                        genres = [g[0] for g in conn.execute(
-                            "SELECT genre FROM track_effective_genres WHERE track_id = ? ORDER BY priority LIMIT 5",
-                            (track_id,),
-                        ).fetchall()]
-                    if not genres:
-                        genres = [g[0] for g in conn.execute(
-                            "SELECT genre FROM track_genres WHERE track_id = ? ORDER BY weight DESC LIMIT 5",
-                            (track_id,),
-                        ).fetchall()]
-                    results.append({
-                        "track_id": track_id,
-                        "title": row[1] or "Unknown",
-                        "artist": row[2] or "Unknown",
-                        "album": row[3] or "",
-                        "duration_ms": row[4] or 0,
-                        "file_path": row[5] or "",
-                        "genres": genres,
-                    })
-                return results
+                has_more = len(rows) > limit
+                rows = rows[:limit]
+                genres_by_id = _genres_for_tracks(conn, [r[0] for r in rows])
+                items = [
+                    {
+                        "track_id": r[0],
+                        "title": r[1] or "Unknown",
+                        "artist": r[2] or "Unknown",
+                        "album": r[3] or "",
+                        "duration_ms": r[4] or 0,
+                        "file_path": r[5] or "",
+                        "genres": genres_by_id.get(r[0], []),
+                    }
+                    for r in rows
+                ]
+                return {"items": items, "has_more": has_more}
             finally:
                 conn.close()
         except Exception:
-            return []
+            return {"items": [], "has_more": False}
 
     @app.post("/api/tracks/genres")
     async def track_genres(body: TrackGenresRequest) -> dict[str, list[str]]:
@@ -387,22 +416,28 @@ def create_app(
         return out
 
     @app.get("/api/autocomplete")
-    async def autocomplete(q: str = "") -> list[str]:
+    async def autocomplete(
+        q: str = "",
+        offset: int = Query(0, ge=0),
+        limit: int = Query(30, ge=1, le=200),
+    ) -> dict:
         q = q.strip()
         if not q or not DB_PATH.exists():
-            return []
+            return {"items": [], "has_more": False}
         try:
             conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
             try:
                 rows = conn.execute(
-                    "SELECT artist_name FROM artists WHERE artist_name LIKE ? ORDER BY artist_name LIMIT 15",
-                    (q + "%",),
+                    "SELECT artist_name FROM artists WHERE artist_name LIKE ? "
+                    "ORDER BY artist_name LIMIT ? OFFSET ?",
+                    (q + "%", limit + 1, offset),
                 ).fetchall()
             finally:
                 conn.close()
-            return [r[0] for r in rows]
+            has_more = len(rows) > limit
+            return {"items": [r[0] for r in rows[:limit]], "has_more": has_more}
         except Exception:
-            return []
+            return {"items": [], "has_more": False}
 
     @app.get("/api/audio/{track_id}")
     async def audio(track_id: str, request: Request):

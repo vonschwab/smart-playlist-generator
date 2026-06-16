@@ -133,6 +133,10 @@ export default function App() {
       tracks[position] = {
         ...old,
         rating_key: cand.track_id,
+        // file_path is the identity the Plex/M3U exporters resolve on — without it
+        // the export keeps the OLD track's path and the replacement is lost.
+        file_path: cand.file_path,
+        duration_ms: cand.duration_ms,
         title: cand.title,
         artist: cand.artist,
         album: cand.album,

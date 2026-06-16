@@ -31,7 +31,8 @@ export function BlacklistPanel() {
     if (q.length < 2) { setSuggestions([]); return; }
     window.clearTimeout(timer.current);
     timer.current = window.setTimeout(async () => {
-      setSuggestions(await api.autocomplete(q).catch(() => []));
+      const page = await api.autocomplete(q).catch(() => ({ items: [] as string[], has_more: false }));
+      setSuggestions(page.items);
     }, 180);
   }, [q]);
 
