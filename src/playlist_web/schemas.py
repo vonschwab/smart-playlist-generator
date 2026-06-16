@@ -84,6 +84,7 @@ class PlaylistOut(BaseModel):
     track_count: int = 0
     tracks: list[TrackOut] = Field(default_factory=list)
     metrics: MetricsOut = Field(default_factory=MetricsOut)
+    relaxations: list[dict] = Field(default_factory=list)
 
     @classmethod
     def from_worker(cls, raw: dict[str, Any]) -> "PlaylistOut":
@@ -117,11 +118,17 @@ class PlaylistOut(BaseModel):
             distinct_artists=metrics_raw.get("distinct_artists"),
         )
 
+        relaxations = [
+            e for e in (raw.get("relaxations") or [])
+            if isinstance(e, dict)
+        ]
+
         return cls(
             name=raw.get("name", "Generated Playlist"),
             track_count=raw.get("track_count", len(tracks_raw)),
             tracks=tracks,
             metrics=metrics,
+            relaxations=relaxations,
         )
 
 

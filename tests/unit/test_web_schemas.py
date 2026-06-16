@@ -49,6 +49,28 @@ def test_playlist_out_parses_worker_result():
     assert out.metrics.distinct_artists == 18
 
 
+def test_playlist_out_carries_relaxations():
+    """PlaylistOut.from_worker must surface relaxation warnings from the worker payload."""
+    raw = {
+        "name": "x",
+        "track_count": 0,
+        "tracks": [],
+        "metrics": {},
+        "relaxations": [
+            {
+                "segment_index": 1,
+                "bridge": "A -> B",
+                "relaxed": ["all guideline gates (terminal greedy placement)"],
+                "severity": "invariant",
+            }
+        ],
+    }
+    out = PlaylistOut.from_worker(raw)
+    assert len(out.relaxations) == 1
+    assert out.relaxations[0]["bridge"] == "A -> B"
+    assert out.relaxations[0]["severity"] == "invariant"
+
+
 def test_replacement_candidate_preserves_file_path():
     # The Plex/M3U exporters resolve each track by file_path first (plex_exporter
     # _lookup_track_key, m3u_exporter). A replacement candidate's file_path must
