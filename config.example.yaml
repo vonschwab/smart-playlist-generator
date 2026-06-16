@@ -591,6 +591,9 @@ playlists:
         extra_bridge_helpers: 100
         extra_beam_width: 50
         extra_expansion_attempts: 2
+        # When true, a terminal last-resort placement guarantees generation never
+        # fails completely even after all relaxation tiers are exhausted.
+        guarantee_feasible: true
 
       # Optional: write a markdown run audit report (default OFF).
       # Useful when debugging infeasible segments or verifying gating behavior.

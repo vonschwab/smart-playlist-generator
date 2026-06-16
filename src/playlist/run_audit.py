@@ -36,6 +36,9 @@ class InfeasibleHandlingConfig:
     min_transition_floor: float = 0.0
     genre_arc_relaxation_enabled: bool = True
     min_genre_arc_percentile: float = 0.0
+    # When True, a terminal "last-resort" placement guarantees at least one track
+    # is placed per segment even if all relaxation tiers are exhausted.
+    guarantee_feasible: bool = True
 
 
 @dataclass(frozen=True)
@@ -99,6 +102,7 @@ def parse_infeasible_handling_config(raw: Any) -> InfeasibleHandlingConfig:
         min_transition_floor=float(raw.get("min_transition_floor", 0.20)),
         genre_arc_relaxation_enabled=bool(raw.get("genre_arc_relaxation_enabled", True)),
         min_genre_arc_percentile=float(raw.get("min_genre_arc_percentile", 0.5)),
+        guarantee_feasible=bool(raw.get("guarantee_feasible", True)),
     )
 
 
