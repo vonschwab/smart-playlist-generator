@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from src.ai_genre_enrichment.provider import create_enrichment_client
 from src.ai_genre_enrichment.genre_vocabulary import GenreVocabulary

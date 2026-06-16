@@ -1,6 +1,6 @@
 import numpy as np
 
-from scripts.sonic_phase1_metrics import cosine_spread_to_seed, per_tower_contribution
+from scripts.research.sonic_phase1_metrics import cosine_spread_to_seed, per_tower_contribution
 
 
 def test_cosine_spread_keys_and_range():

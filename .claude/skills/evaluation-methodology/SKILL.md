@@ -34,8 +34,8 @@ description: Use when designing, running, or reporting any similarity/ranking/A-
 
 ## Existing harnesses (adapt, don't rebuild)
 
-- **Sonic audition:** `scripts/sonic_audition_build.py` / `_serve.py` / `_analyze.py`; findings pattern in `docs/SONIC_PHASE2_HARMONY_FINDINGS.md`.
-- **Genre audition:** `scripts/genre_audition_build.py` / `_serve.py` / `_analyze.py` (graph vs co-occurrence vs decoy); spec `docs/superpowers/specs/2026-06-09-genre-similarity-audition-design.md`, plan `docs/superpowers/plans/2026-06-10-genre-similarity-audition-harness.md`.
+- **Sonic audition:** `scripts/research/sonic_audition_build.py` / `_serve.py` / `_analyze.py`; findings pattern in `docs/SONIC_PHASE2_HARMONY_FINDINGS.md`.
+- **Genre audition:** `scripts/research/genre_audition_build.py` / `_serve.py` / `_analyze.py` (graph vs co-occurrence vs decoy); spec `docs/superpowers/specs/2026-06-09-genre-similarity-audition-design.md`, plan `docs/superpowers/plans/2026-06-10-genre-similarity-audition-harness.md`.
 - **Output convention:** manifests + `index.json` under `docs/run_audits/<experiment>/`.
 
 ## Maintenance protocol

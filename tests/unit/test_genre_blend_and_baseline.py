@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from genre.blend import alpha_schedule, blend_with_prior
-from scripts import measure_genre_baseline
+from scripts.research import measure_genre_baseline
 
 
 @pytest.mark.parametrize(

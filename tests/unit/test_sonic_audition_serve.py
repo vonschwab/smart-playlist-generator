@@ -1,6 +1,6 @@
 import yaml
 
-from scripts.sonic_audition_serve import _parse_range_header, _append_capture_entry
+from scripts.research.sonic_audition_serve import _parse_range_header, _append_capture_entry
 
 
 def test_range_full():

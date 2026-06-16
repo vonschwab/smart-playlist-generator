@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from scripts.sonic_audition_build import (
+from scripts.research.sonic_audition_build import (
     compute_spaces,
     find_medoid,
     top_k_for_seed,
