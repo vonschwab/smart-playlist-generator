@@ -2,6 +2,7 @@
   "bpm_bridge_max_log_distance": 0.85,
   "bpm_bridge_soft_penalty_strength": 0.3,
   "bpm_stability_min": 0.5,
+  "bpm_trust_min_onset_rate": 0.5,
   "bridge_floor": 0.02,
   "center_transitions": false,
   "collapse_segment_pool_by_artist": true,

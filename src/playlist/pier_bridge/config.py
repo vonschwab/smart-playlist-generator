@@ -43,6 +43,14 @@ class PierBridgeConfig:
     pace_bridge_floor: float = 0.0  # rhythm-axis moving-target floor; 0 disables
     bpm_bridge_max_log_distance: float = float("inf")  # inf = disabled
     bpm_stability_min: float = 0.5
+    # BPM is meaningless on beatless audio (drone/ambient) — librosa still emits a
+    # confident garbage tempo and tempo_stability is fooled (reads ~0.96 even for
+    # drone). onset_rate is the reliable beat-presence signal. When > 0, the BPM
+    # bridge band is bypassed for any track whose onset_rate is below this threshold:
+    # a beatless PIER disables the band for the segment (its BPM can't set a target),
+    # a beatless CANDIDATE skips it (its BPM can't be judged). 0.0 = off (legacy:
+    # trust all BPMs). The onset band is unaffected — it is the trustworthy signal.
+    bpm_trust_min_onset_rate: float = 0.0
     onset_bridge_max_log_distance: float = float("inf")  # inf = disabled
     # Pace bridge bands as SOFT penalties instead of hard gates. When strength > 0,
     # an out-of-band candidate is demoted by strength * (log_distance - max_log_distance)

@@ -960,6 +960,20 @@ def _beam_search_segment(
     chosen_waypoint_sims: List[float] = []    # Raw sims per step (for context)
     chosen_waypoint_sim0s: List[float] = []   # Baselines per step (for debugging)
 
+    # BPM-trust gate (onset-based). BPM is meaningless on beatless audio; if either
+    # pier is beatless its BPM target is garbage, so disable the BPM band for the
+    # whole segment. (Candidate-level trust is checked per-candidate below.) The
+    # onset band stays active — it is the reliable beat-presence signal.
+    _bpm_trust_min_onset = float(getattr(cfg, "bpm_trust_min_onset_rate", 0.0))
+    _bpm_band_pier_trusted = True
+    if _bpm_trust_min_onset > 0.0 and onset_rate is not None:
+        _oa = float(onset_rate[int(pier_a)])
+        _ob = float(onset_rate[int(pier_b)])
+        _bpm_band_pier_trusted = (
+            (not np.isnan(_oa)) and (not np.isnan(_ob))
+            and _oa >= _bpm_trust_min_onset and _ob >= _bpm_trust_min_onset
+        )
+
     for step in range(interior_length):
         next_beam: List[BeamState] = []
         target_t = _step_fraction(step, interior_length)
@@ -1051,9 +1065,10 @@ def _beam_search_segment(
                         axis_cosine_similarity(rhythm_matrix[int(cand)], _pace_target).reshape(-1)[0]
                     )
 
-                # BPM bridge gate
+                # BPM bridge gate (skipped when a pier is beatless — garbage target)
                 if (
-                    float(getattr(cfg, "bpm_bridge_max_log_distance", float("inf"))) < float("inf")
+                    _bpm_band_pier_trusted
+                    and float(getattr(cfg, "bpm_bridge_max_log_distance", float("inf"))) < float("inf")
                     and perceptual_bpm is not None
                 ):
                     from src.playlist.pier_bridge.pace_gate import (
@@ -1073,9 +1088,15 @@ def _beam_search_segment(
                         else 1.0
                     )
                     _stab_min = float(getattr(cfg, "bpm_stability_min", 0.5))
+                    # Beatless candidate -> its BPM is meaningless, bypass the band.
+                    _cand_bpm_trusted = True
+                    if _bpm_trust_min_onset > 0.0 and onset_rate is not None:
+                        _co = float(onset_rate[int(cand)])
+                        _cand_bpm_trusted = (not np.isnan(_co)) and _co >= _bpm_trust_min_onset
                     if (
                         not np.isnan(_cand_bpm)
                         and _cand_stab >= _stab_min
+                        and _cand_bpm_trusted
                     ):
                         _bpm_excess = float(_bld(_cand_bpm, _bpm_target)) - float(cfg.bpm_bridge_max_log_distance)
                         if _bpm_excess > 0.0:
