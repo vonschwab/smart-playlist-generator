@@ -55,6 +55,14 @@ def test_validate_normalizes_a_well_formed_response():
     assert out["warnings"] == []
 
 
+def test_validate_accepts_missing_rationale():
+    d = _wellformed()
+    for g in d["genres"]:
+        g.pop("rationale", None)
+    out = validate_adjudicator_response(d)
+    assert out["genres"][0]["rationale"] == ""
+
+
 @pytest.mark.parametrize("mutate", [
     lambda d: d["genres"][0].update(confidence=1.5),     # out of [0,1]
     lambda d: d["genres"][0].update(confidence=-0.1),

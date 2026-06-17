@@ -31,6 +31,10 @@ from .client import EnrichmentResult, _combine_token_usage, _retry_instructions
 SingleRunner = Callable[[str, str], tuple[str, dict[str, int]]]
 # (prompts, instructions) -> list of (response_text, normalized_usage), aligned with prompts
 BatchRunner = Callable[[list[str], str], list[tuple[str, dict[str, int]]]]
+# (rendered_batch, instructions, on_turn) -> None; calls on_turn(item_id, text, usage) per item,
+# feeding the whole batch through ONE persistent session (cached prefix).
+OnTurn = Callable[[str, str, dict[str, int]], None]
+SessionRunner = Callable[[list[tuple[str, str]], str, OnTurn], None]
 
 _JSON_CONTRACT = (
     "\n\nRespond with ONLY one JSON object (no prose, no code fences) "
@@ -101,6 +105,7 @@ class ClaudeCodeEnrichmentClient:
         retry_sleep_seconds: float = 1.0,
         single_runner: SingleRunner | None = None,
         batch_runner: BatchRunner | None = None,
+        session_runner: SessionRunner | None = None,
     ) -> None:
         self.model = model
         self.dry_run = dry_run
@@ -109,6 +114,7 @@ class ClaudeCodeEnrichmentClient:
         self.last_token_usage: dict[str, int] = {}
         self._single_runner: SingleRunner = single_runner or self._sdk_single_runner
         self._batch_runner: BatchRunner = batch_runner or self._sdk_batch_runner
+        self._session_runner: SessionRunner = session_runner or self._sdk_session_runner
         # Fail loudly at construction when the backend can't possibly work.
         if single_runner is None and batch_runner is None and not dry_run:
             self._ensure_sdk()
@@ -300,6 +306,38 @@ class ClaudeCodeEnrichmentClient:
         self.last_token_usage = total_usage
         return results
 
+    def call_structured_session(
+        self,
+        items: list[tuple[str, str]],
+        *,
+        response_format: dict[str, Any],
+        validator: Callable[[dict[str, Any]], dict[str, Any]],
+        instructions: str,
+        on_result: Callable[[str, dict[str, Any] | None, str | None, dict[str, int]], None],
+        reset_every: int = 30,
+    ) -> None:
+        """Feed items one-per-turn through PERSISTENT sessions (the cached prefix avoids
+        re-sending the instructions/harness every call), opening a fresh session every
+        ``reset_every`` items to bound context growth. ``on_result(item_id, parsed|None,
+        error|None, usage)`` fires immediately after each item so the caller can checkpoint
+        per item — resumable and usage-window-safe. One process, so no config-write races.
+        """
+        def on_turn(item_id: str, text: str, usage: dict[str, int]) -> None:
+            try:
+                parsed = validator(_parse_json_text(text))
+                on_result(item_id, parsed, None, usage)
+            except Exception as exc:
+                on_result(item_id, None, str(exc), usage)
+
+        step = max(1, int(reset_every))
+        for start in range(0, len(items), step):
+            rendered = [
+                (str(item_id), self._render_structured_prompt(prompt, response_format))
+                for item_id, prompt in items[start:start + step]
+            ]
+            if rendered:
+                self._session_runner(rendered, instructions, on_turn)
+
     @staticmethod
     def _render_chunk_prompt(items: list[tuple[str, str]], item_schema_text: str) -> str:
         blocks = "\n\n".join(
@@ -358,6 +396,27 @@ class ClaudeCodeEnrichmentClient:
                 await client.query(prompt)
                 out.append(await self._collect_response(client.receive_response()))
         return out
+
+    def _sdk_session_runner(
+        self, rendered: list[tuple[str, str]], instructions: str, on_turn: OnTurn
+    ) -> None:
+        self._ensure_sdk()
+        import asyncio
+
+        asyncio.run(self._sdk_session(rendered, instructions, on_turn))
+
+    async def _sdk_session(
+        self, rendered: list[tuple[str, str]], instructions: str, on_turn: OnTurn
+    ) -> None:
+        """One persistent ClaudeSDKClient for the whole batch; per-turn callback fires as
+        each turn completes (the caller checkpoints there)."""
+        from claude_agent_sdk import ClaudeSDKClient
+
+        async with ClaudeSDKClient(options=self._sdk_options(instructions)) as client:
+            for item_id, prompt in rendered:
+                await client.query(prompt)
+                text, usage = await self._collect_response(client.receive_response())
+                on_turn(item_id, text, usage)
 
     def _sdk_options(self, instructions: str):
         from claude_agent_sdk import ClaudeAgentOptions

@@ -43,7 +43,7 @@ Source tags are often applied at the ARTIST level, identical across an artist's 
 
 Do not use web search. Do not claim any external source says anything.
 
-`confidence` (0-1) per genre and `overall_confidence`: lower for sparse evidence. Set `escalate` true when the release identity is ambiguous, evidence is thin and you are guessing, or a correct file tag would be dropped. Concise `rationale` per genre; no chain-of-thought. Use canonical genre names where known — spelling is normalized downstream.
+`confidence` (0-1) per genre and `overall_confidence`: lower for sparse evidence. Set `escalate` true when the release identity is ambiguous, evidence is thin and you are guessing, or a correct file tag would be dropped. Do NOT output per-genre rationale (omit the field) and no chain-of-thought — keep output minimal. Use canonical genre names where known — spelling is normalized downstream.
 """
 
 ADJUDICATOR_RESPONSE_SCHEMA: dict[str, Any] = {
@@ -59,7 +59,7 @@ ADJUDICATOR_RESPONSE_SCHEMA: dict[str, Any] = {
                     "layer": {"type": "string", "enum": sorted(LAYERS)},
                     "rationale": {"type": "string"},
                 },
-                "required": ["term", "confidence", "layer", "rationale"],
+                "required": ["term", "confidence", "layer"],
                 "additionalProperties": False,
             },
         },
