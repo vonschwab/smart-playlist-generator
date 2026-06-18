@@ -25,7 +25,11 @@ class AlbumSpec:
 CORPUS: list[AlbumSpec] = [
     AlbumSpec("renaissance", "%Beyonc%", "%RENAISSANCE%", "flat_uniform_mix", "high", path_contains="Explicit", expected=16),
     AlbumSpec("discovery", "%Daft Punk%", "%Discovery%", "gradient_flow", "high", expected=14),
-    AlbumSpec("avalanches", "%Avalanches%", "%Since I Left You%", "tight_continuous", "high", path_contains="Disc 1", usable_first=1, usable_last=18, expected=18),
+    # Avalanches "Since I Left You (Deluxe)" dropped from Pass 1: deluxe-edition
+    # filenames use disc-track format "1-NN." which the leading-int parser reads as
+    # the disc number, and there's no "Disc 1" path substring. Needs disc-aware
+    # parsing (a per-spec `disc` field) — revisit in Pass 2 if more high-register
+    # tight_continuous data is wanted.
     AlbumSpec("lcd_tih", "%LCD Soundsystem%", "%This Is Happening%", "gradient_flow", "high", usable_first=1, usable_last=9, expected=9),
     AlbumSpec("caribou_swim", "%Caribou%", "%Swim%", "gradient_flow", "high", usable_first=1, usable_last=9, expected=9),
     AlbumSpec("donuts", "%Dilla%", "%Donuts%", "tight_continuous", "mid", expected=31),

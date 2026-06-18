@@ -5,7 +5,6 @@ Does NOT import essentia. Reuses bpm_loader for perceptual_bpm + onset_rate.
 """
 from __future__ import annotations
 
-import json
 import sqlite3
 
 import numpy as np
