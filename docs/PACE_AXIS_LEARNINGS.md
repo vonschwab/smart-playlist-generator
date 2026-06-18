@@ -64,10 +64,104 @@ p10–p90) → the sidecar stores the distribution, not just the mean.
 - Role: **similarity** (pairwise pace-compatibility, fused like sonic/genre cosine) vs
   **arc** (whole-sequence pace trajectory) vs both. Working assumption: similarity primary,
   arc secondary. (confirming)
-- Independent ground-truth arm for the eval (the crux — TBD this brainstorm).
+- Gold corpus contents — need flow-sequenced albums spanning energy REGISTERS, not just dance
+  (see decision below). Collaborative w/ Dylan.
 
 ## Decisions
 
 - 2026-06-18: Energy descriptor sidecar shipped as an `analyze_library` stage (commit 4f4031f).
   PRODUCE-only; consumption is this effort.
 - 2026-06-18: Adopt the two-sub-project decomposition above (eval first, wire second).
+- 2026-06-18: **Ground-truth arm = adjacency in continuously-mixed / DJ-sequenced albums**
+  (Dylan: Beyoncé–Renaissance, Jessy Lanza–DJ-Kicks, etc.), NOT arbitrary albums. In a
+  continuous mix, adjacency is intentional pace-compatibility → strong truth, authored
+  independently of our features.
+  - **Control (de-confound + fine-grained test):** compare within-album **adjacent** pairs
+    vs within-album **non-adjacent** pairs (same artist/genre/sonic, larger intended pace
+    step) vs **random cross-album** pairs. A good representation ranks
+    adjacent > non-adjacent-same-album > random. The within-album non-adjacent control is
+    what isolates *pace* from "same record sounds alike" (sonic/genre confound).
+  - **Register coverage trap:** if the corpus is ALL dance mixes, the eval just re-proves
+    "danceability separates dance from non-dance" (already known). Corpus MUST span registers:
+    high-energy continuous (house/dance mixes), LOW-energy continuous (ambient/drone works
+    sequenced to flow — Stars of the Lid, Eno, GAS/Wolfgang Voigt), and mid (a flowing
+    post-rock or hip-hop record). Then the eval tests calm↔calm and energetic↔energetic
+    matching, i.e. a real pace *gradient*, not a dance binary.
+  - Plan to also run a small **blind human pairwise/odd-one-out** check (Dylan's ears) on
+    edge cases as the perceptual confirmation that the album-proxy isn't lying.
+- 2026-06-18: **TRAP — "well-sequenced album" ≠ "adjacency is pace-compatible".** Dylan's
+  candidate corpus (`~/Downloads/playlist_gold_corpus_candidates.md`, ~70 albums) is excellent
+  but conflates two ground truths: (1) **continuous/tight-flow mixes** where adjacency =
+  pace-COMPATIBLE by construction (Renaissance, Daft Punk–Discovery, The Avalanches,
+  This Is Happening, J Dilla–Donuts, dub, continuous ambient like SAW II / Eno–On Land /
+  Stars of the Lid / Hiroshi Yoshimura) — these are valid **similarity positives**; vs
+  (2) **arc/contrast albums** sequenced for intentional dynamic *change* (Kid A "pacing arc
+  across beat/no-beat", Fleet Foxes "large dynamic arcs", Black Sabbath "big dynamic shifts",
+  Sophie "huge energy jumps that still belong", Unwound, Godspeed, Flaming Lips) — here adjacent
+  pairs deliberately DIFFER in pace, so they are **false positives for a similarity metric** and
+  belong instead to the **arc/trajectory** gold. FIX: tag every corpus album `flow_type ∈
+  {tight_continuous, gradient_flow, arc_contrast, flat_uniform_mix}`; use tight/gradient as
+  similarity positives, reserve arc_contrast for the (later) arc eval. This also concretely
+  resolves the similarity-vs-arc split: the corpus supplies BOTH gold sets.
+  - Sub-trap: **flat-uniform mixes** (a Renaissance-style record that stays in one pace pocket
+    throughout) make the within-album non-adjacent control weak (non-adjacent pairs are ALSO
+    compatible) → for those, only the binary test (adjacent-in-mix close vs random far) applies;
+    the 3-tier control needs **gradient_flow** albums that traverse pace.
+  - Minor data caveats: SAW II has duplicate/expanded rows (dedup needed, est_usable=nan);
+    long-form suites (Godspeed, Fela, In A Silent Way) have too few/too-long tracks for pairwise
+    adjacency (exclude or long-track-bench only); 4–6-track albums are thin for the non-adjacent
+    control.
+- 2026-06-18: **Product target = a pace SLIDER (pace_mode: strict/narrow/dynamic/off), like
+  sonic & genre.** Dylan's framing of the behavior:
+  - **Always-on FLOOR (all modes): avoid big swings between disparate energies/BPMs** between
+    adjacent tracks. This is the adjacency-smoothness / similarity floor — the core thing the
+    representation must get right.
+  - **Gradient/arc adherence SCALES with the slider** — strict enforces a tighter pace gradient
+    across the pier-bridge; dynamic/off relax the *gradient*, but the anti-big-swing floor still
+    applies. (Not every bridge needs an exact gradient in every setting.)
+  - **Eval implication:** the representation must yield a **graded, continuous pairwise distance**
+    (not a binary class), because the slider sets per-mode thresholds/penalty strengths on that
+    distance. So the eval scores each candidate on: (i) rates flow-adjacency CLOSE, (ii) rates
+    cross-register/big-swing pairs FAR, (iii) monotonic in between — i.e. distance tracks
+    *degree* of pace difference, not just same/different.
+  - Maps to sub-project 2: validated distance → pace_mode per-mode knobs (floor penalty always
+    on; gradient/arc weight strict→off), fused alongside sonic & genre.
+- 2026-06-18: **Eval is multi-pass, coarse→fine (Dylan: "testing should narrow over the passes").**
+  - Pass 1 (broad, cheap, automated): ALL candidates vs album-adjacency ranking on the full
+    corpus; drop clear losers. No human.
+  - Pass 2 (narrow): top ~2–4 candidates get the 3-tier within-album control (gradient_flow
+    albums), per-register breakdown, monotonicity, + the small **blind human pairwise/odd-one-out**.
+  - Pass 3 (confirm/tune): only if warranted, fit `pace_tuned` weights (cross-validated) on the
+    finalist feature set; final blind confirmation. `pace_tuned` deferred out of Pass 1 (overfit risk).
+  - Album selection + `flow_type` tagging DELEGATED to controller (register-balanced subset of the
+    candidate list; tight_continuous + gradient_flow as similarity positives). Candidate menu ratified.
+- 2026-06-18: **Spec + plan written, harness built (subagent-driven TDD), PASS 1 RUN.** Harness:
+  `scripts/research/pace_eval_{metrics,corpus,features,run}.py` (+ unit tests, 10 pass; ruff/mypy
+  clean). Spec/plan under `docs/superpowers/{specs,plans}/2026-06-18-pace-representation-eval*`.
+  Corpus = 12 albums (Avalanches dropped — deluxe disc-track filename "1-NN" defeats the leading-int
+  track parser; revisit w/ disc-aware parse if Pass 2 wants more high-tight data). N = 158 corpus
+  tracks → 146 adjacent / 372 non-adjacent (gradient) / 2000 cross-register pairs. Artifacts:
+  `docs/run_audits/pace_axis_eval/` (gitignored; copied to main checkout to survive worktree teardown).
+- 2026-06-18: **PASS 1 RESULT (automated screen; AUC = P(more-compatible pair ranked closer)):**
+  ```
+  candidate       auc_adj_vs_random  auc_adj_vs_nonadj(HARD)
+  energy_dist          0.797              0.637   <- leader
+  energy_pair          0.775              0.633   <- leader
+  arousal_p50          0.771              0.588
+  energy_onset         0.735              0.605
+  pace_full            0.727              0.579   <- kitchen-sink, DILUTED
+  rhythm_tower         0.724              0.537   <- worst on hard discriminator
+  beat_strength        0.718              0.627
+  danceability         0.694              0.638   <- best HARD alone
+  onset_rate           0.631              0.561
+  perceptual_bpm       0.583              0.514   <- near-random (confirms BPM weak)
+  ```
+  KEY FINDINGS: (1) energy is the pace signal; BPM/rhythm-tower/onset are weak. (2) **arousal &
+  danceability are COMPLEMENTARY** — arousal wins the easy cross-register floor, danceability wins
+  the hard within-album discriminator; their combination (`energy_pair`/`energy_dist`) is best on
+  BOTH. (3) **kitchen-sink dilutes** — `pace_full` (energy+bpm+onset+beat_strength) is WORSE than
+  the focused energy vector (validates "narrow over passes"; more features ≠ better). (4) hard
+  discriminator is genuinely hard (~0.64 ceiling) — sets realistic Pass-2 expectations.
+  ADVANCING TO PASS 2: energy_dist, energy_pair, danceability, arousal_p50. CAVEAT: Pass 1 is the
+  automated album-adjacency proxy only — **no verdict until Pass 2's blind human arm** confirms it.
+  Full detail: `docs/run_audits/pace_axis_eval/findings_pass1.md`.
