@@ -6,6 +6,11 @@ analyze:
     device: cpu        # cpu|cuda
     torch_threads: 0   # 0 = all available (--workers N overrides)
     shard_size: 200    # tracks per resumable shard npz
+  energy:
+    distro: "Ubuntu-22.04"        # WSL distro hosting the Essentia venv
+    python: "/opt/ess/bin/python" # interpreter inside that distro
+    models_dir: "/opt/ess/models" # Essentia model dir (preflight checks it)
+    workers: 14                   # parallel decode workers (--energy-workers overrides)
 discogs:
   token: ''
 lastfm:
