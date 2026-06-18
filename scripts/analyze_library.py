@@ -2022,7 +2022,7 @@ def stage_energy(ctx: Dict) -> Dict:
     out_dir = Path(ctx["out_dir"])
     cfg = load_energy_config(ctx["config_path"])
     energy_workers = getattr(args, "energy_workers", None)
-    if energy_workers:
+    if energy_workers is not None:
         cfg.workers = int(energy_workers)
 
     artifact_npz, _ckpt, _sidecar = energy_paths(out_dir)

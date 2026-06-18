@@ -44,7 +44,7 @@ def test_stage_energy_runs_and_returns_counts(tmp_path, monkeypatch):
     monkeypatch.setattr(al, "_energy_preflight", lambda cfg: None)
     monkeypatch.setattr(
         al, "_energy_run",
-        lambda cfg, force, cancellation_check: {
+        lambda cfg, *, force, cancellation_check: {
             "ok": 2, "missing": 0, "error": 0, "total": 2, "sidecar": "/x.npz"},
     )
     res = al.stage_energy(_ctx(tmp_path, force=False))
