@@ -7,6 +7,7 @@ Energy is a standalone pace-axis sidecar under <artifact>/energy/.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -96,3 +97,68 @@ def preflight_wsl(cfg: EnergyConfig, *, runner: Callable = subprocess.run) -> No
             f"models={cfg.models_dir}). Set up the /opt/ess venv + models, or fix "
             f"analyze.energy in config.yaml. stderr: {getattr(res, 'stderr', '')!r}"
         )
+
+
+_RESULT_RE = re.compile(
+    r"ok=(\d+)\s+missing=(\d+)\s+error=(\d+)\s+total=(\d+)"
+)
+_SIDECAR_RE = re.compile(r"^wrote\s+(\S+):")
+
+
+def run_energy_scan(
+    cfg: EnergyConfig,
+    *,
+    repo_root: Path,
+    force: bool,
+    logger,
+    cancellation_check: Optional[Callable[[], None]] = None,
+    popen: Callable = subprocess.Popen,
+) -> dict:
+    """Run the WSL extractor, stream progress to logger, return parsed counts."""
+    wsl_repo = win_path_to_wsl(str(repo_root))
+    inner = (
+        f"cd '{wsl_repo}' && {cfg.python} scripts/extract_energy_sidecar.py "
+        f"--workers {int(cfg.workers)}"
+    )
+    if force:
+        inner += " --force"
+    cmd = ["wsl.exe", "-d", cfg.distro, "-u", "root", "--", "bash", "-c", inner]
+
+    proc = popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    result = {"ok": 0, "missing": 0, "error": 0, "total": 0, "sidecar": None}
+    try:
+        for raw in proc.stdout:  # type: ignore[union-attr]
+            if cancellation_check is not None:
+                cancellation_check()  # raises on cancel
+            line = raw.rstrip()
+            if not line:
+                continue
+            logger.info("energy: %s", line)
+            m = _RESULT_RE.search(line)
+            if m:
+                result["ok"], result["missing"], result["error"], result["total"] = (
+                    int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4)),
+                )
+            sm = _SIDECAR_RE.match(line)
+            if sm:
+                result["sidecar"] = sm.group(1)
+        rc = proc.wait()
+    except BaseException:
+        try:
+            proc.terminate()
+            proc.wait(timeout=10)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+        raise
+    if rc != 0:
+        raise RuntimeError(f"energy extractor exited with code {rc}")
+    return result
