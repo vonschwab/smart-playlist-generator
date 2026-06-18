@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .layered_assignment import classify_layered_term
-from .layered_taxonomy import FAMILY_KIND, CanonicalGenre, LayeredTaxonomy
+from .layered_taxonomy import CanonicalGenre, LayeredTaxonomy
 from .normalization import normalize_release_artist, normalize_release_name
 
 ADJUDICATOR_SOURCE = "claude_adjudicator"
