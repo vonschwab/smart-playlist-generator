@@ -63,14 +63,13 @@ def main() -> int:
     std_pv = effective_prompt_version(thorough=False)
     tho_pv = effective_prompt_version(thorough=True)
 
-    conn = sqlite3.connect(f"file:{args.shadow_db}?mode=ro", uri=True)
-    raw = [
-        (a, pv, json.loads(rj))
-        for a, pv, rj in conn.execute(
-            "SELECT album_id, prompt_version, response_json FROM adjudications WHERE status='complete'"
-        )
-    ]
-    conn.close()
+    with sqlite3.connect(f"file:{args.shadow_db}?mode=ro", uri=True) as conn:
+        raw = [
+            (a, pv, json.loads(rj))
+            for a, pv, rj in conn.execute(
+                "SELECT album_id, prompt_version, response_json FROM adjudications WHERE status='complete'"
+            )
+        ]
 
     best = best_results(raw, thorough_pv=tho_pv)
     auto, escalated = split_lanes(best)
