@@ -66,7 +66,7 @@ def test_reviewed_structured_taxonomy_validation_and_policy_fields():
     assert taxonomy.genre_by_name("art pop").status == "active"
     assert taxonomy.genre_by_name("space rock").status == "active"
     assert taxonomy.genre_by_name("slacker rock").status == "active"
-    assert taxonomy.genre_by_name("pop rock").status == "review"
+    assert taxonomy.genre_by_name("pop rock").status == "active"
     assert taxonomy.facet_by_name("lo-fi").facet_type == "production"
     assert taxonomy.facet_by_name("instrumental").facet_type == "function"
     assert taxonomy.rejected_term_by_name("pop/rock").reason == "retail_bucket"

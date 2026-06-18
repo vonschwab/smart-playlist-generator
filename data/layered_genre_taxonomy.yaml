@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.12.1-group1-pass9-edge-upgrade
+taxonomy_version: 0.13.0-phase4-gaps-grown
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -528,7 +528,7 @@ records:
 - name: pop rock
   kind: genre
   role: leaf
-  status: review
+  status: active
   facet_type: null
   specificity_score: 0.5
   canonical_target: null
@@ -4651,7 +4651,7 @@ records:
 - name: sophisti-pop
   kind: subgenre
   role: leaf
-  status: review
+  status: active
   facet_type: null
   specificity_score: 0.68
   canonical_target: null
@@ -4949,7 +4949,7 @@ records:
 - name: samba
   kind: genre
   role: leaf
-  status: review
+  status: active
   facet_type: null
   specificity_score: 0.62
   canonical_target: null
@@ -4989,7 +4989,7 @@ records:
 - name: french house
   kind: subgenre
   role: leaf
-  status: review
+  status: active
   facet_type: null
   specificity_score: 0.72
   canonical_target: null
@@ -5116,7 +5116,7 @@ records:
 - name: trap
   kind: genre
   role: leaf
-  status: review
+  status: active
   facet_type: null
   specificity_score: 0.66
   canonical_target: null
@@ -21571,6 +21571,443 @@ records:
   facet_type: null
   specificity_score: null
   canonical_target: spectral music
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: chicago soul
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.82
+  canonical_target: null
+  parent_edges:
+  - target: soul
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  - target: rhythm and blues
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.8
+    notes: null
+  - target: motown
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Distinctly Chicago-flavored soul with gospel roots and electrified blues
+    influence (Impressions, Curtis Mayfield, Otis Clay). Clear specificity over plain
+    soul. similar_to memphis soul = same-tier; motown is adjacent enough to note.
+- name: future jazz
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.76
+  canonical_target: null
+  parent_edges:
+  - target: jazz
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.8
+    notes: null
+  - target: contemporary jazz
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  - target: nu jazz
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: acid jazz
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Contemporary jazz fusing electronic production, ambient textures, and avant-garde
+    improvisation (Nils Petter Molvaer, Bugge Wesseltoft, Eivind Aarset). More forward-looking
+    than nu jazz, less groove-centric than acid jazz.
+- name: kankyo ongaku
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.88
+  canonical_target: null
+  parent_edges:
+  - target: ambient
+    edge_type: family_context
+    weight: 0.7
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Japanese environmental music pioneered by Hiroshi Yoshimura, Brian Eno-adjacent
+    but distinctly influenced by Japanese aesthetics (ma, wabi-sabi). High specificity
+    — the term identifies a cultural and aesthetic tradition, not just any ambient
+    music.
+- name: kankyō ongaku
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: kankyo ongaku
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: environmental music
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: kankyo ongaku
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: horror rock
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.8
+  canonical_target: null
+  parent_edges:
+  - target: hard rock
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.75
+    notes: null
+  - target: gothic rock
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rock music with horror/macabre lyrical and visual themes — distinct from
+    gothic rock (more theatrical, more 50s-horror camp; Rob Zombie, Type O Negative,
+    early Alice Cooper). Bridges shock rock and gothic with a horror-cinema aesthetic.
+- name: aor
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.78
+  canonical_target: null
+  parent_edges:
+  - target: soft rock
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  - target: rock
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.7
+    notes: null
+  - target: soft rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: yacht rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Adult-oriented rock — late 70s/80s polished studio rock optimized for FM
+    radio (Toto, Journey, Boston, Foreigner). Distinct polish/arrangement style vs
+    plain soft rock. similar_to yacht rock (overlapping audience, lighter/coastal
+    variant).
+- name: adult-oriented rock
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: aor
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: adult oriented rock
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: aor
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: arena rock
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: aor
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: garage psych
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.82
+  canonical_target: null
+  parent_edges:
+  - target: psychedelic rock
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  - target: garage rock
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  - target: acid rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: neo-psychedelia
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Intersection of lo-fi garage-rock rawness with psychedelic experimentation
+    (Oh Sees, Ty Segall early work, 13th Floor Elevators descendants). More distorted
+    and DIY than neo-psychedelia; more hallucinatory than plain garage rock.
+- name: garage psychedelia
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: garage psych
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: psychedelic garage
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: garage psych
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: rare groove
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.8
+  canonical_target: null
+  parent_edges:
+  - target: funk
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  - target: soul
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.8
+    notes: null
+  - target: jazz
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.7
+    notes: null
+  - target: funk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: soul jazz
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Late 1960s–70s funk, soul, and jazz-funk records valued by DJs and crate-diggers
+    for their breakbeats and arrangements (influential on hip-hop sampling). Less
+    about era than about a specific textural/arrangement quality distinct from mainstream
+    R&B.
+- name: dance-rock
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.76
+  canonical_target: null
+  parent_edges:
+  - target: rock
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.75
+    notes: null
+  - target: new wave
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  - target: post-punk
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.8
+    notes: null
+  - target: new wave
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: funk rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Post-punk/new wave rock with driving danceable rhythms — emphasis on rhythm
+    guitar, bass, and groove over riffs (Gang of Four, ESG, Bloc Party, LCD Soundsystem
+    adjacent). Distinct from funk-rock in the punk/angular energy.
+- name: rumba
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.78
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.7
+    confidence: 0.85
+    notes: null
+  - target: salsa
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: cumbia
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Afro-Cuban percussion and dance music form — distinct from the ballroom rumba.
+    Root genre for much of salsa and Afro-Cuban jazz. Flamenco rumba (Spanish variant)
+    is adjacent but distinct. Appropriate specificity at subgenre.
+- name: avantgarde
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: avant-garde
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: r and b
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: rhythm and blues
   parent_edges: []
   secondary_roles: []
   reject_reason: null
