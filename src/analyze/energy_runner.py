@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -62,7 +63,8 @@ def pending_energy(out_dir: Path) -> tuple[int, int]:
     artifact_npz, ckpt, _ = energy_paths(out_dir)
     if not artifact_npz.exists():
         return (0, 0)
-    track_ids = [str(t) for t in np.load(artifact_npz, allow_pickle=True)["track_ids"]]
+    with np.load(artifact_npz, allow_pickle=True) as z:
+        track_ids = [str(t) for t in z["track_ids"]]
     done: set[str] = set()
     if ckpt.exists():
         with open(ckpt, encoding="utf-8") as f:
@@ -80,7 +82,12 @@ def pending_energy(out_dir: Path) -> tuple[int, int]:
 
 def preflight_wsl(cfg: EnergyConfig, *, runner: Callable = subprocess.run) -> None:
     """Raise RuntimeError if the WSL distro, venv, or models are unreachable."""
-    probe = f"test -x {cfg.python} && test -f {cfg.models_dir}/msd-musicnn-1.pb"
+    probe = (
+        f"test -x {cfg.python} "
+        f"&& test -f {cfg.models_dir}/msd-musicnn-1.pb "
+        f"&& test -f {cfg.models_dir}/emomusic-msd-musicnn-2.pb "
+        f"&& test -f {cfg.models_dir}/danceability-msd-musicnn-1.pb"
+    )
     cmd = ["wsl.exe", "-d", cfg.distro, "-u", "root", "--", "bash", "-c", probe]
     try:
         res = runner(cmd, capture_output=True, text=True, timeout=60)
@@ -117,8 +124,8 @@ def run_energy_scan(
     """Run the WSL extractor, stream progress to logger, return parsed counts."""
     wsl_repo = win_path_to_wsl(str(repo_root))
     inner = (
-        f"cd '{wsl_repo}' && {cfg.python} scripts/extract_energy_sidecar.py "
-        f"--workers {int(cfg.workers)}"
+        f"cd {shlex.quote(wsl_repo)} && {shlex.quote(cfg.python)} "
+        f"scripts/extract_energy_sidecar.py --workers {int(cfg.workers)}"
     )
     if force:
         inner += " --force"

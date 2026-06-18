@@ -72,6 +72,25 @@ def test_preflight_wsl_missing_raises():
         er.preflight_wsl(er.EnergyConfig(), runner=fake_runner)
 
 
+def test_preflight_probes_all_three_models():
+    captured = {}
+
+    def fake_runner(cmd, **kw):
+        captured["cmd"] = cmd
+
+        class R:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+        return R()
+
+    er.preflight_wsl(er.EnergyConfig(), runner=fake_runner)
+    probe = " ".join(captured["cmd"])
+    assert "msd-musicnn-1.pb" in probe
+    assert "emomusic-msd-musicnn-2.pb" in probe
+    assert "danceability-msd-musicnn-1.pb" in probe
+
+
 import logging
 
 

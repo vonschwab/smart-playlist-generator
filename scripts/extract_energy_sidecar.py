@@ -192,12 +192,17 @@ def _merge() -> None:
     print(f"wrote {SIDECAR}: ok={ok} missing={miss} error={err} total={n}")
 
 
-def main() -> None:
+def _parse_args(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--workers", type=int, default=14)
     ap.add_argument("--limit", type=int, default=0, help="process at most N (smoke test)")
     ap.add_argument("--merge-only", action="store_true")
-    args = ap.parse_args()
+    ap.add_argument("--force", action="store_true", help="re-process all tracks, ignoring checkpoint")
+    return ap.parse_args(argv)
+
+
+def main() -> None:
+    args = _parse_args()
 
     os.makedirs(OUTDIR, exist_ok=True)
     if args.merge_only:
@@ -207,7 +212,7 @@ def main() -> None:
     tids = _artifact_track_ids()
     paths = _paths_for(tids)
     done = _done_ids()
-    todo = [(t, paths.get(t)) for t in tids if t not in done]
+    todo = [(t, paths.get(t)) for t in tids if (args.force or t not in done)]
     if args.limit:
         todo = todo[: args.limit]
     print(
