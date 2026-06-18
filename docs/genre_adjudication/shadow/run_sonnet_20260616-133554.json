@@ -1,0 +1,4888 @@
+{
+  "model": "sonnet",
+  "dry_run": false,
+  "prompt_version": "album-adjudicator-v1",
+  "count": 50,
+  "elapsed_s": 477.1,
+  "results": [
+    {
+      "release_key": "joseph shabason::anne",
+      "album_id": "087397497a4f045c",
+      "artist": "Joseph Shabason",
+      "title": "Anne",
+      "bucket": "control",
+      "failure_mode": null,
+      "gold_genres": [
+        "ambient jazz",
+        "nu jazz",
+        "fourth world",
+        "avant-garde jazz"
+      ],
+      "gold_facets": [
+        "instrumental"
+      ],
+      "must_preserve": [
+        "avant-garde jazz"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "ambient jazz",
+        "avant-garde jazz",
+        "fourth world",
+        "nu jazz"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "ambient jazz",
+            "confidence": 0.9,
+            "layer": "core",
+            "rationale": "Primary identity of the album: saxophone-driven compositions embedded in ambient electronic textures. Consistent across all credible sources (Discogs, MusicBrainz, observed_leaf) and matches Shabason's known solo aesthetic on this record."
+          },
+          {
+            "term": "avant-garde jazz",
+            "confidence": 0.78,
+            "layer": "core",
+            "rationale": "Multiple independent sources (discogs_master, musicbrainz_release) agree. The non-traditional handling of jazz material — including an ambient recontextualization of the bebop standard 'Donna Lee' — supports experimental/avant-garde jazz framing beyond mere ambient crossover."
+          },
+          {
+            "term": "fourth world",
+            "confidence": 0.58,
+            "layer": "secondary",
+            "rationale": "Present in observed_leaf. Shabason's layering of jazz improvisation over ambient/electronic production shares the Jon Hassell fourth world lineage. Credible but less source-backed than ambient jazz; may reflect artist-level tagging across his catalogue rather than this album specifically."
+          },
+          {
+            "term": "nu jazz",
+            "confidence": 0.5,
+            "layer": "secondary",
+            "rationale": "In observed_leaf. Applies loosely as a contemporary jazz-electronic fusion descriptor, but 'ambient jazz' is more precise for this release. Retained as a secondary signal given the electronic production throughout."
+          }
+        ],
+        "canonical": [
+          "ambient jazz",
+          "avant-garde jazz",
+          "fourth world",
+          "nu jazz"
+        ],
+        "gaps": [],
+        "facets": [
+          {
+            "term": "saxophone",
+            "facet_type": "instrumentation"
+          },
+          {
+            "term": "electronic production",
+            "facet_type": "production"
+          },
+          {
+            "term": "meditative",
+            "facet_type": "mood"
+          },
+          {
+            "term": "sparse",
+            "facet_type": "texture"
+          },
+          {
+            "term": "introspective",
+            "facet_type": "mood"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.78,
+        "warnings": [
+          "File tag 'electronic' and source tag 'jazz' are broad parent genres explicitly excluded per adjudication rules; both are subsumed by the specific 'ambient jazz' genre assigned. No escalation required for dropping them.",
+          "Year is null; cannot apply era facet. Release is believed to be circa 2018 based on knowledge but no tag confirms this."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 1855,
+          "cache_creation_input_tokens": 15072,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 1858
+        }
+      }
+    },
+    {
+      "release_key": "marnie stern::the chronicles of marnia",
+      "album_id": "03360d2e96361cf0",
+      "artist": "Marnie Stern",
+      "title": "The Chronicles of Marnia",
+      "bucket": "control",
+      "failure_mode": null,
+      "gold_genres": [
+        "math rock",
+        "noise rock",
+        "experimental rock",
+        "indie rock",
+        "noise pop"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "experimental rock",
+        "indie rock"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "experimental rock",
+        "indie rock",
+        "math rock",
+        "noise pop",
+        "noise rock"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "math rock",
+            "confidence": 0.88,
+            "layer": "core",
+            "rationale": "Marnie Stern's defining characteristic is intricate two-handed guitar tapping with polyrhythmic, technically complex arrangements — the textbook math rock signature. This album continues that approach throughout its eight tracks."
+          },
+          {
+            "term": "noise pop",
+            "confidence": 0.8,
+            "layer": "core",
+            "rationale": "Her work pairs strong melodic pop hooks with abrasive, dense guitar textures. 'Chronicles' maintains this noise-pop balance, present in current_observed_leaf and consistent with her established identity across albums."
+          },
+          {
+            "term": "experimental rock",
+            "confidence": 0.72,
+            "layer": "secondary",
+            "rationale": "Authoritatively file-tagged via MusicBrainz and known_tags. Captures the unconventional song structures and guitar technique that exceed noise pop's melodic frame without reducing to a generic label."
+          },
+          {
+            "term": "art rock",
+            "confidence": 0.6,
+            "layer": "secondary",
+            "rationale": "Self-consciously compositional approach — tapping patterns as formal architecture, not just texture — gives the album an art-rock character beyond noise pop's energy-first aesthetic."
+          }
+        ],
+        "canonical": [
+          "math rock",
+          "noise pop",
+          "experimental rock",
+          "art rock"
+        ],
+        "gaps": [],
+        "facets": [
+          {
+            "term": "female vocals",
+            "facet_type": "vocal"
+          },
+          {
+            "term": "guitar-forward",
+            "facet_type": "instrumentation"
+          },
+          {
+            "term": "intricate",
+            "facet_type": "texture"
+          },
+          {
+            "term": "indie production",
+            "facet_type": "production"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.73,
+        "warnings": [
+          "File-tagged 'indie rock' (MusicBrainz) excluded per policy — broad parent genre derived from graph, not placed here.",
+          "Release year is null; era facet omitted to avoid speculation.",
+          "No Discogs or MusicBrainz source provides 'math rock' directly — placement is knowledge-based on artist's established sonic identity, corroborated by current_observed_leaf."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 2823,
+          "cache_creation_input_tokens": 15043,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 2826
+        }
+      }
+    },
+    {
+      "release_key": "sonic youth::goo",
+      "album_id": "74431b7ad782bc5b",
+      "artist": "Sonic Youth",
+      "title": "\"Goo\"",
+      "bucket": "failure",
+      "failure_mode": "over_tagged",
+      "gold_genres": [
+        "noise rock",
+        "alternative rock",
+        "no wave",
+        "experimental rock"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "noise rock",
+        "no wave"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "alternative rock",
+        "art rock",
+        "avant-garde",
+        "experimental rock",
+        "grunge",
+        "indie rock",
+        "new wave",
+        "noise rock",
+        "post-punk",
+        "punk rock"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "noise rock",
+            "confidence": 0.95,
+            "layer": "core",
+            "rationale": "The primary identity of 'Goo': feedback-saturated guitars in unconventional tunings, dissonant riffing, and aggressive textural noise throughout 'Mote', 'Disappearer', and 'Mildred Pierce'. Corroborated by every non-trivial tagging source (Discogs, MusicBrainz)."
+          },
+          {
+            "term": "post-punk",
+            "confidence": 0.78,
+            "layer": "secondary",
+            "rationale": "Angular, bass-forward song construction and metronomic rhythmic drive — Kim Gordon's bass lines and Steve Shelley's drumming descend directly from post-punk architecture. More song-structured than earlier Sonic Youth, which amplifies this lineage on 'Goo' relative to their prior records."
+          },
+          {
+            "term": "art rock",
+            "confidence": 0.72,
+            "layer": "secondary",
+            "rationale": "The album is deliberately constructed as an art object: 'Tunic (Song For Karen)' as meditative tribute, Raymond Pettibon cover art, Chuck D's cameo on 'Kool Thing' as cultural provocation. Conceptual intent is first-class, not incidental."
+          },
+          {
+            "term": "no wave",
+            "confidence": 0.62,
+            "layer": "secondary",
+            "rationale": "Sonic Youth formed within the 1978–83 NYC no-wave scene and that dissonance/anti-commercial stance still marks 'Goo', but by 1990 the album is more song-based and polished than canonical no wave. MusicBrainz lists it; appropriate as a secondary heritage marker, not a primary identity for this release."
+          }
+        ],
+        "canonical": [
+          "noise rock",
+          "post-punk",
+          "art rock",
+          "no wave"
+        ],
+        "gaps": [],
+        "facets": [
+          {
+            "term": "early 1990s",
+            "facet_type": "era"
+          },
+          {
+            "term": "nyc underground",
+            "facet_type": "scene"
+          },
+          {
+            "term": "major label debut",
+            "facet_type": "production"
+          },
+          {
+            "term": "feedback and dissonance",
+            "facet_type": "texture"
+          },
+          {
+            "term": "unconventional guitar tunings",
+            "facet_type": "instrumentation"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.82,
+        "warnings": [
+          "File tag 'alternative' is a broad parent genre excluded per policy; no escalation needed.",
+          "MusicBrainz tag 'new wave' appears to be an artist-level misapplication — 'Goo' has no meaningful new wave character and is excluded.",
+          "'Grunge' and 'punk rock' in observed_leaf reflect Sonic Youth's influence on those scenes, not this album's identity; excluded.",
+          "'Avantgarde'/'experimental' from Discogs are parent-level facets superseded by the more specific noise-rock and no-wave terms retained here."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 3830,
+          "cache_creation_input_tokens": 15202,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 3833
+        }
+      }
+    },
+    {
+      "release_key": "outkast::stankonia 20th anniversary deluxe",
+      "album_id": "7046b4b8ece955ec",
+      "artist": "OutKast",
+      "title": "Stankonia (20th Anniversary Deluxe)",
+      "bucket": "failure",
+      "failure_mode": "over_tagged",
+      "gold_genres": [
+        "southern hip hop",
+        "funk",
+        "conscious hip hop",
+        "psychedelic soul"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "conscious hip hop",
+        "funk"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "conscious hip hop",
+        "contemporary r&b",
+        "crunk",
+        "funk",
+        "hip hop",
+        "southern hip hop"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "southern hip hop",
+            "confidence": 0.97,
+            "layer": "core",
+            "rationale": "OutKast are the defining Atlanta/Dungeon Family act; Stankonia is a landmark Southern hip hop record rooted in that regional sound — Snappin' & Trappin', Gasoline Dreams, and Spaghetti Junction all embody it."
+          },
+          {
+            "term": "funk rap",
+            "confidence": 0.92,
+            "layer": "core",
+            "rationale": "P-funk influence is structural, not incidental — deep bass lines, synth stabs, and layered funk textures throughout. File tags 'p.funk' and 'funk/soul' both confirm this is a core element, not just an influence."
+          },
+          {
+            "term": "experimental hip hop",
+            "confidence": 0.87,
+            "layer": "core",
+            "rationale": "Stankonia's production is deliberately genre-colliding across the full album — drum-and-bass velocity (B.O.B.), distorted rock guitars (Gasoline Dreams), psychedelic layering. Its defining identity is avant-garde eclecticism within hip hop."
+          },
+          {
+            "term": "conscious hip hop",
+            "confidence": 0.77,
+            "layer": "secondary",
+            "rationale": "Socially observational and politically charged content on Gasoline Dreams and elsewhere; file tag 'conscious' and observed_leaf both confirm this strand. It coexists with party tracks rather than dominating."
+          },
+          {
+            "term": "pop rap",
+            "confidence": 0.73,
+            "layer": "secondary",
+            "rationale": "Ms. Jackson and So Fresh, So Clean were massive mainstream crossover hits. File tag 'pop rap' aligns; this is a genuine commercial dimension of the album, not a mislabel."
+          }
+        ],
+        "canonical": [
+          "southern hip hop",
+          "experimental hip hop",
+          "conscious hip hop"
+        ],
+        "gaps": [
+          "funk rap",
+          "pop rap"
+        ],
+        "facets": [
+          {
+            "term": "atlanta",
+            "facet_type": "region"
+          },
+          {
+            "term": "2000s",
+            "facet_type": "era"
+          },
+          {
+            "term": "psychedelic",
+            "facet_type": "production"
+          },
+          {
+            "term": "energetic",
+            "facet_type": "mood"
+          }
+        ],
+        "escalate": true,
+        "escalate_reason": "Two file tags have been dropped and are flagged for human review. (1) 'crunk' (discogs_master): crunk as a codified genre crystallized ~2003 around Lil Jon's chant/bass template; Stankonia was released in 2000 and OutKast's aesthetic on this album does not match that template — the tag appears to be a retroactive or genre-adjacent mislabel. (2) 'gangsta' (discogs_master): OutKast's Stankonia is conscious, experimental, and Southern; it is not gangsta rap by any standard reading. Both dropped in favor of genres that reflect the album's actual identity.",
+        "overall_confidence": 0.87,
+        "warnings": [
+          "'crunk' tag (discogs_master) appears anachronistic for Stankonia (2000) — crunk as a named genre crystallized ~2003; does not match OutKast's aesthetic on this album; dropped.",
+          "'gangsta' tag (discogs_master) is a poor fit — Stankonia is conscious/experimental Southern hip hop, not gangsta rap; dropped.",
+          "'contemporary r&b' in observed_leaf looks like an artist-level tag applied broadly; Stankonia is primarily hip hop and this label does not reflect this specific album's identity; omitted.",
+          "Track listing provided is partial (8 tracks including interludes out of ~25 on full album); genre assessment draws on established knowledge of the complete album, not only the listed tracks."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 4099,
+          "cache_creation_input_tokens": 15093,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 4102
+        }
+      }
+    },
+    {
+      "release_key": "joao gilberto::joão gilberto 2011 shm sacd",
+      "album_id": "add2cbb31d5e7790",
+      "artist": "João Gilberto",
+      "title": "João Gilberto (2011 SHM-SACD)",
+      "bucket": "control",
+      "failure_mode": null,
+      "gold_genres": [
+        "bossa nova",
+        "mpb"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "bossa nova"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "bossa nova",
+        "mpb"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "bossa nova",
+            "confidence": 0.97,
+            "layer": "core",
+            "rationale": "João Gilberto is the originating figure of bossa nova; this recording (the 2000 'João Voz e Violão' album, reissued as a 2011 SHM-SACD) is a canonical stripped-down voice-and-guitar statement of the style. The bossa nova guitar syncopation and intimate sotto voce phrasing define every track regardless of the source composition's origin. File tag is authoritative and matches."
+          },
+          {
+            "term": "samba",
+            "confidence": 0.82,
+            "layer": "secondary",
+            "rationale": "Several compositions are explicitly samba-rooted ('Eu Quero Um Samba', 'Falsa Baiana' by Geraldo Pereira, 'Na Baixa Do Sapateiro' by Dorival Caymmi), and João Gilberto's entire aesthetic is a direct evolution out of samba. The samba DNA is audible even through the bossa nova filter."
+          },
+          {
+            "term": "mpb",
+            "confidence": 0.72,
+            "layer": "secondary",
+            "rationale": "The repertoire explicitly draws on MPB composers — Gilberto Gil's 'Eu Vim Da Bahia' and 'Avarandado', and Jobim's 'Águas de Março' (a post-bossa nova MPB standard). Supported by observed_leaf. João Gilberto sits at the founding edge of MPB even if he predates the movement's name."
+          }
+        ],
+        "canonical": [
+          "bossa nova",
+          "samba",
+          "mpb"
+        ],
+        "gaps": [],
+        "facets": [
+          {
+            "term": "voice and guitar",
+            "facet_type": "instrumentation"
+          },
+          {
+            "term": "acoustic",
+            "facet_type": "production"
+          },
+          {
+            "term": "intimate",
+            "facet_type": "mood"
+          },
+          {
+            "term": "brazilian",
+            "facet_type": "region"
+          },
+          {
+            "term": "shm-sacd",
+            "facet_type": "format"
+          },
+          {
+            "term": "japanese audiophile reissue",
+            "facet_type": "format"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.92,
+        "warnings": [
+          "Year field is null; this is a 2011 SHM-SACD reissue of the 2000 album 'João Voz e Violão' — the recording year and the reissue year differ. Genre identity is for the source recording, not the reissue format."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 2734,
+          "cache_creation_input_tokens": 15007,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 2737
+        }
+      }
+    },
+    {
+      "release_key": "king tubby::dub from the roots",
+      "album_id": "c26af75b402000e2",
+      "artist": "King Tubby",
+      "title": "Dub From the Roots",
+      "bucket": "control",
+      "failure_mode": null,
+      "gold_genres": [
+        "dub",
+        "roots reggae"
+      ],
+      "gold_facets": [
+        "instrumental"
+      ],
+      "must_preserve": [
+        "dub"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "dub",
+        "reggae",
+        "roots reggae"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "dub",
+            "confidence": 0.97,
+            "layer": "core",
+            "rationale": "King Tubby is the foundational architect of dub — all sources agree, and the album title itself signals this directly. Core identity beyond dispute."
+          },
+          {
+            "term": "roots reggae",
+            "confidence": 0.82,
+            "layer": "secondary",
+            "rationale": "Track titles ('African Roots', 'Dub From the Roots') and King Tubby's late-1970s production context situate this within the roots reggae movement that supplied his source material. Not a primary genre for a dub record, but the lineage is audible in the instrumentation."
+          }
+        ],
+        "canonical": [
+          "dub",
+          "roots reggae"
+        ],
+        "gaps": [],
+        "facets": [
+          {
+            "term": "studio production",
+            "facet_type": "production"
+          },
+          {
+            "term": "remix",
+            "facet_type": "production"
+          },
+          {
+            "term": "jamaican",
+            "facet_type": "region"
+          },
+          {
+            "term": "bass-heavy",
+            "facet_type": "texture"
+          },
+          {
+            "term": "instrumental",
+            "facet_type": "vocal"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.88,
+        "warnings": [
+          "Year is null — cannot confirm exact era; King Tubby's dub output spans roughly 1973–1989. Track titles suggest mid-to-late 1970s roots-era material but this cannot be confirmed without release date.",
+          "Discogs master tags only 'dub' (not reggae); both are retained as they are complementary rather than contradictory. 'reggae' as a standalone genre is a broad parent and would normally be excluded, but here it is preserved via 'roots reggae' secondary which is the specific correct form."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 363,
+          "cache_creation_input_tokens": 15025,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 366
+        }
+      }
+    },
+    {
+      "release_key": "mulatu astatke::ethio jazz",
+      "album_id": "9c86bb1a999f712f",
+      "artist": "Mulatu Astatke",
+      "title": "Ethio Jazz",
+      "bucket": "failure",
+      "failure_mode": "wrong_tag",
+      "gold_genres": [
+        "ethio-jazz",
+        "jazz-funk",
+        "soul jazz",
+        "funk"
+      ],
+      "gold_facets": [
+        "instrumental"
+      ],
+      "must_preserve": [
+        "jazz-funk",
+        "soul jazz"
+      ],
+      "taxonomy_gaps_gold": [
+        "ethio-jazz",
+        "jazz-funk"
+      ],
+      "current_observed_leaf": [
+        "afrobeat",
+        "funk",
+        "world music"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "ethio-jazz",
+            "confidence": 0.99,
+            "layer": "core",
+            "rationale": "Mulatu Astatke is the originator of ethio-jazz; this album is a canonical work of the genre. Confirmed by file tags, MusicBrainz, and the album title itself. Ethiopian pentatonic modality over jazz harmony and instrumentation is the defining character."
+          },
+          {
+            "term": "jazz-funk",
+            "confidence": 0.78,
+            "layer": "secondary",
+            "rationale": "Discogs master tags jazz-funk explicitly; a funk rhythmic pulse runs through Astatke's arrangements, corroborated by 'funk' and 'jazz-funk' across multiple sources."
+          },
+          {
+            "term": "soul-jazz",
+            "confidence": 0.6,
+            "layer": "secondary",
+            "rationale": "Discogs master tags soul-jazz; soulful organ and brass colorings appear within the jazz framework, though the Ethiopian modal identity remains dominant."
+          }
+        ],
+        "canonical": [
+          "soul jazz"
+        ],
+        "gaps": [
+          "ethio-jazz",
+          "jazz-funk"
+        ],
+        "facets": [
+          {
+            "term": "ethiopian",
+            "facet_type": "region"
+          },
+          {
+            "term": "vibraphone",
+            "facet_type": "instrumentation"
+          },
+          {
+            "term": "1970s",
+            "facet_type": "era"
+          }
+        ],
+        "escalate": true,
+        "escalate_reason": "File tag 'afrobeat' is excluded: afrobeat is specifically Fela Kuti's Nigerian big-band political genre and is genuinely distinct from ethio-jazz. Applying it here conflates 'African music with funk/jazz elements' with the named genre. This is a common mislabeling in library tagging but it does appear as a file_track tag, so human confirmation of removal is warranted.",
+        "overall_confidence": 0.93,
+        "warnings": [
+          "File tag 'afrobeat' excluded as a mislabeling; escalated for human review rather than silently dropped.",
+          "File tags 'funk' and 'soul' are too broad to stand as leaf genres per adjudication rules; their substance is captured by secondary genres 'jazz-funk' and 'soul-jazz' respectively.",
+          "Parent genres 'jazz', 'african', 'folk, world, & country', and 'world music' omitted per instructions; derived from the genre graph upstream."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 2498,
+          "cache_creation_input_tokens": 15147,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 2501
+        }
+      }
+    },
+    {
+      "release_key": "floating points pharoah sanders the london symphony orchestra::promises",
+      "album_id": "7b1ba9c4dd6684eb",
+      "artist": "Floating Points, Pharoah Sanders & The London Symphony Orchestra",
+      "title": "Promises",
+      "bucket": "sparse",
+      "failure_mode": "legacy_only",
+      "gold_genres": [
+        "spiritual jazz",
+        "ambient jazz",
+        "third stream",
+        "ambient"
+      ],
+      "gold_facets": [
+        "instrumental"
+      ],
+      "must_preserve": [
+        "third stream"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [],
+      "proposed": {
+        "genres": [
+          {
+            "term": "third stream",
+            "confidence": 0.95,
+            "layer": "core",
+            "rationale": "Definitional third stream: Pharoah Sanders improvises over a fully scored London Symphony Orchestra accompaniment within a through-composed framework, fusing jazz and Western art-music on equal footing. File tag corroborates."
+          },
+          {
+            "term": "ambient",
+            "confidence": 0.92,
+            "layer": "core",
+            "rationale": "The entire album is built on a single slowly evolving chord progression across 46 minutes of eight movements; pacing, textural density, and meditative stasis are ambient in the Eno-lineage sense. File tag corroborates."
+          },
+          {
+            "term": "contemporary classical",
+            "confidence": 0.82,
+            "layer": "secondary",
+            "rationale": "Scored for the London Symphony Orchestra with through-composed movements and a harmonic language rooted in art-music tradition; the compositional architecture is unambiguously concert-music."
+          },
+          {
+            "term": "free jazz",
+            "confidence": 0.74,
+            "layer": "secondary",
+            "rationale": "Pharoah Sanders's saxophone work draws on his free jazz lineage — extended technique, emotional intensity, modal and free phrasing — even within the constrained harmonic frame Floating Points provided."
+          },
+          {
+            "term": "instrumental jazz",
+            "confidence": 0.68,
+            "layer": "secondary",
+            "rationale": "Retained per authoritative file-tag; accurately describes the jazz-instrumental character, though third stream and free jazz are more release-specific. Kept rather than silently dropped."
+          }
+        ],
+        "canonical": [
+          "third stream",
+          "ambient",
+          "contemporary classical",
+          "free jazz"
+        ],
+        "gaps": [
+          "instrumental jazz"
+        ],
+        "facets": [
+          {
+            "term": "instrumental",
+            "facet_type": "vocal"
+          },
+          {
+            "term": "orchestral",
+            "facet_type": "instrumentation"
+          },
+          {
+            "term": "saxophone",
+            "facet_type": "instrumentation"
+          },
+          {
+            "term": "synthesizer",
+            "facet_type": "instrumentation"
+          },
+          {
+            "term": "electronic textures",
+            "facet_type": "production"
+          },
+          {
+            "term": "meditative",
+            "facet_type": "mood"
+          },
+          {
+            "term": "drone",
+            "facet_type": "texture"
+          },
+          {
+            "term": "suite",
+            "facet_type": "format"
+          },
+          {
+            "term": "minimalist",
+            "facet_type": "texture"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.88,
+        "warnings": [
+          "File tags 'jazz' and 'electronic' are broad parent genres per taxonomy rules and have been excluded from genres; their content is captured by third stream, free jazz, and the electronic-textures production facet.",
+          "'Instrumental jazz' is retained as a secondary genre per file-tag authority, though third stream and free jazz are more precise descriptors for this specific release."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 3445,
+          "cache_creation_input_tokens": 15001,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 3448
+        }
+      }
+    },
+    {
+      "release_key": "flying lotus::cosmogramma",
+      "album_id": "adb9319b8a586031",
+      "artist": "Flying Lotus",
+      "title": "Cosmogramma",
+      "bucket": "failure",
+      "failure_mode": "over_tagged",
+      "gold_genres": [
+        "experimental hip hop",
+        "instrumental hip hop",
+        "nu jazz",
+        "idm",
+        "glitch"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "instrumental hip hop",
+        "idm"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "abstract hip hop",
+        "alternative hip hop",
+        "downtempo",
+        "experimental hip hop",
+        "glitch",
+        "glitch hop",
+        "hip hop",
+        "idm",
+        "instrumental hip hop",
+        "nu jazz",
+        "trip-hop"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "instrumental hip hop",
+            "confidence": 0.9,
+            "layer": "core",
+            "rationale": "The foundational architecture across Cosmogramma is hip-hop beatmaking without rap vocals — confirmed by MusicBrainz and Discogs, and evident in the track-title aesthetic ('Zodiac Shit', 'Computer Face//Pure Being'). FlyLo's beat-constructor identity is strongest on this record."
+          },
+          {
+            "term": "future jazz",
+            "confidence": 0.87,
+            "layer": "core",
+            "rationale": "The jazz-electronic fusion is the defining characteristic that separates this album from FlyLo's earlier work — live bass from Thundercat, cosmic spiritual atmosphere invoking Alice Coltrane's lineage, and jazz harmonic vocabulary woven throughout. Tagged directly by Discogs master."
+          },
+          {
+            "term": "idm",
+            "confidence": 0.82,
+            "layer": "core",
+            "rationale": "Released on Warp with dense, intricate electronic sound design and fractured rhythmic programming squarely in the IDM lineage. Corroborated by both Discogs master and MusicBrainz."
+          },
+          {
+            "term": "abstract hip hop",
+            "confidence": 0.75,
+            "layer": "secondary",
+            "rationale": "The hip-hop foundations are deconstructed and abstracted well beyond conventional instrumental boom-bap — beats are fragmented, pitch-shifted, and non-linear, placing this within the abstract hip-hop tradition. Present in current_observed_leaf."
+          },
+          {
+            "term": "glitch",
+            "confidence": 0.62,
+            "layer": "secondary",
+            "rationale": "Digital artifacts, stuttered rhythms, and glitched sound design run throughout the production as a consistent aesthetic layer. Corroborated by Discogs master tag."
+          }
+        ],
+        "canonical": [
+          "instrumental hip hop",
+          "idm",
+          "abstract hip hop",
+          "glitch"
+        ],
+        "gaps": [
+          "future jazz"
+        ],
+        "facets": [
+          {
+            "term": "instrumental",
+            "facet_type": "vocal"
+          },
+          {
+            "term": "cosmic",
+            "facet_type": "mood"
+          },
+          {
+            "term": "2010s",
+            "facet_type": "era"
+          },
+          {
+            "term": "dense layering",
+            "facet_type": "texture"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.83,
+        "warnings": [
+          "trip-hop and downtempo are present in source tags but are poor fits for Cosmogramma specifically — the album is more energetic, structurally complex, and jazz-inflected than either genre implies; both omitted intentionally.",
+          "nu jazz (current_observed_leaf) replaced by file-tagged 'future jazz' (Discogs master) as the more specific and accurate term for this release's electronic-cosmic jazz fusion."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 3842,
+          "cache_creation_input_tokens": 15160,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 3845
+        }
+      }
+    },
+    {
+      "release_key": "flying lotus::until the quiet comes",
+      "album_id": "69179b24f5feccd7",
+      "artist": "Flying Lotus",
+      "title": "Until The Quiet Comes",
+      "bucket": "failure",
+      "failure_mode": "over_tagged",
+      "gold_genres": [
+        "experimental hip hop",
+        "instrumental hip hop",
+        "nu jazz",
+        "ambient"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "instrumental hip hop"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "abstract hip hop",
+        "alternative hip hop",
+        "downtempo",
+        "experimental hip hop",
+        "glitch",
+        "glitch hop",
+        "hip hop",
+        "idm",
+        "instrumental hip hop",
+        "nu jazz",
+        "trip-hop"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "abstract hip hop",
+            "confidence": 0.91,
+            "layer": "core",
+            "rationale": "Central identity across all sources and observed_leaf; FlyLo's beats use hip-hop rhythmic architecture abstracted into non-standard forms — the defining frame for his Brainfeeder output."
+          },
+          {
+            "term": "beat music",
+            "confidence": 0.87,
+            "layer": "core",
+            "rationale": "Flying Lotus is a founding figure of the LA beat scene / Low End Theory aesthetic; 'Until The Quiet Comes' is a canonical entry in this instrumental-beat microgenre, distinct from generic instrumental hip hop in its jazz-soul-psychedelic synthesis."
+          },
+          {
+            "term": "future jazz",
+            "confidence": 0.84,
+            "layer": "core",
+            "rationale": "Jazz harmony, Alice Coltrane / Sun Ra lineage, and improvisation-inspired timbres are integral throughout; confirmed by discogs_master; this album's meditative arc leans harder into jazz texture than earlier FlyLo work."
+          },
+          {
+            "term": "glitch",
+            "confidence": 0.74,
+            "layer": "secondary",
+            "rationale": "Stuttered samples, micro-edits, and digital-artifact production are a consistent FlyLo signature present throughout this album; confirmed in observed_leaf; secondary to the hip-hop and jazz identity."
+          },
+          {
+            "term": "ambient",
+            "confidence": 0.7,
+            "layer": "secondary",
+            "rationale": "This album is notably more spacious and meditative than 'Cosmogramma' or 'You're Dead!' — several tracks are ambient in texture with minimal rhythmic drive, making this a real secondary element specific to this release."
+          }
+        ],
+        "canonical": [
+          "abstract hip hop",
+          "beat music",
+          "glitch",
+          "ambient"
+        ],
+        "gaps": [
+          "future jazz"
+        ],
+        "facets": [
+          {
+            "term": "instrumental",
+            "facet_type": "vocal"
+          },
+          {
+            "term": "downtempo",
+            "facet_type": "rhythm"
+          },
+          {
+            "term": "meditative",
+            "facet_type": "mood"
+          },
+          {
+            "term": "experimental",
+            "facet_type": "production"
+          },
+          {
+            "term": "2010s",
+            "facet_type": "era"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.83,
+        "warnings": [
+          "Most source tags ('electronic', 'hip hop', 'jazz', 'experimental', 'abstract', 'instrumental') are broad parent genres or facets excluded per adjudication rules; 'future jazz' from discogs_master is the only source-supplied specific genre retained verbatim.",
+          "'idm' and 'trip-hop' from observed_leaf are dropped: IDM (Aphex Twin / Warp lineage) and trip-hop (Bristol sound) do not characterize this release; beat music and abstract hip hop are more accurate framings for this LA-beat-scene output.",
+          "'downtempo' from discogs_master is reclassified as a rhythm facet, not a genre.",
+          "File tag 'electronic' is a broad parent genre explicitly excluded per instructions; no escalation needed."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 3342,
+          "cache_creation_input_tokens": 15179,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 3345
+        }
+      }
+    },
+    {
+      "release_key": null,
+      "album_id": "42554c7f8231adcc",
+      "artist": "Flying Lotus",
+      "title": "Flamagra",
+      "bucket": "sparse",
+      "failure_mode": "legacy_only",
+      "gold_genres": [
+        "experimental hip hop",
+        "instrumental hip hop",
+        "nu jazz",
+        "funk"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "nu jazz"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [],
+      "proposed": {
+        "genres": [
+          {
+            "term": "beat music",
+            "confidence": 0.88,
+            "layer": "core",
+            "rationale": "Flying Lotus is a defining figure of the LA beat scene; Flamagra's producer-led, rhythmically abstracted construction places it squarely in beat music regardless of vocal features."
+          },
+          {
+            "term": "nu jazz",
+            "confidence": 0.87,
+            "layer": "core",
+            "rationale": "File tag (authoritative); Flamagra is FlyLo's most jazz-forward release, featuring Herbie Hancock, Kamasi Washington, and Thundercat with jazz improvisation woven throughout the electronic production framework."
+          },
+          {
+            "term": "abstract hip-hop",
+            "confidence": 0.82,
+            "layer": "core",
+            "rationale": "Discogs 'abstract' and 'jazzy hip-hop' tags align with this; non-linear beat construction and atypical song structures distinguish the album from conventional hip-hop and place it in the abstract hip-hop tradition."
+          },
+          {
+            "term": "glitch hop",
+            "confidence": 0.74,
+            "layer": "secondary",
+            "rationale": "File tag (authoritative); FlyLo's chopped, glitchy rhythmic gestures are present throughout Flamagra, though less foregrounded here than on Cosmogramma-era work."
+          }
+        ],
+        "canonical": [
+          "beat music",
+          "nu jazz",
+          "abstract hip hop",
+          "glitch hop"
+        ],
+        "gaps": [],
+        "facets": [
+          {
+            "term": "psychedelic",
+            "facet_type": "mood"
+          },
+          {
+            "term": "experimental",
+            "facet_type": "production"
+          },
+          {
+            "term": "2010s",
+            "facet_type": "era"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.84,
+        "warnings": [
+          "Year is null in payload; 2010s era facet inferred from knowledge (Flamagra released 2019).",
+          "Broad parent genres (electronic, hip hop, jazz) from discogs_release and musicbrainz_release excluded per schema rules — these are derivable from the genre graph."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 3842,
+          "cache_creation_input_tokens": 15072,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 3845
+        }
+      }
+    },
+    {
+      "release_key": "haruomi hosono::hosono house",
+      "album_id": "3d708b4eaee56bab",
+      "artist": "Haruomi Hosono",
+      "title": "Hosono House",
+      "bucket": "sparse",
+      "failure_mode": "legacy_only",
+      "gold_genres": [
+        "folk rock",
+        "country rock",
+        "singer-songwriter"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "folk rock"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [],
+      "proposed": {
+        "genres": [
+          {
+            "term": "folk rock",
+            "confidence": 0.87,
+            "layer": "core",
+            "rationale": "Hosono House (1973) is Hosono's debut solo album built on gentle, acoustic-forward folk-rock arrangements — confirmed by Discogs Master tag and consistent with the album's character of fingerpicked guitars, intimate melodies, and small-ensemble production."
+          },
+          {
+            "term": "japanese folk",
+            "confidence": 0.82,
+            "layer": "core",
+            "rationale": "All-Japanese-language delivery, pastoral and domestic lyrical themes, and the album's place in the Japanese folk (フォーク) lineage of the early 1970s make this a defining identity — not reducible to its American country/folk influences alone."
+          },
+          {
+            "term": "country rock",
+            "confidence": 0.65,
+            "layer": "secondary",
+            "rationale": "Hosono drew explicitly on American country and country-rock at this career moment — pedal-steel-inflected textures and country chord progressions are audible throughout — but it is a flavoring rather than a primary identity."
+          },
+          {
+            "term": "singer-songwriter",
+            "confidence": 0.72,
+            "layer": "secondary",
+            "rationale": "Home-recorded in Hosono's own house with a small circle of musicians; the intimate, confessional, personally authored character places it firmly in the singer-songwriter tradition."
+          }
+        ],
+        "canonical": [
+          "folk rock",
+          "country rock",
+          "singer-songwriter"
+        ],
+        "gaps": [
+          "japanese folk"
+        ],
+        "facets": [
+          {
+            "term": "acoustic",
+            "facet_type": "instrumentation"
+          },
+          {
+            "term": "home recording",
+            "facet_type": "production"
+          },
+          {
+            "term": "1970s",
+            "facet_type": "era"
+          },
+          {
+            "term": "japanese",
+            "facet_type": "region"
+          },
+          {
+            "term": "intimate",
+            "facet_type": "mood"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.78,
+        "warnings": [
+          "file_track tag 'folk' is a broad parent genre subsumed by folk rock; excluded per schema rules (derived from genre graph, not placed here).",
+          "discogs_master tag 'psychedelic rock' not reflected — Hosono House is pastoral and folk-country-oriented; 'psychedelic' overstates occasional quirky arrangement choices and is a common Discogs over-tag for this era.",
+          "discogs_release 'funk / soul' tag appears misapplied to this release and is not reflected in output."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 2441,
+          "cache_creation_input_tokens": 15096,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 2444
+        }
+      }
+    },
+    {
+      "release_key": "haruomi hosono::tropical dandy",
+      "album_id": "e42278da441c955c",
+      "artist": "Haruomi Hosono",
+      "title": "Tropical Dandy",
+      "bucket": "failure",
+      "failure_mode": "wrong_tag",
+      "gold_genres": [
+        "exotica",
+        "city pop",
+        "folk rock"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "city pop",
+        "folk rock"
+      ],
+      "taxonomy_gaps_gold": [
+        "exotica"
+      ],
+      "current_observed_leaf": [
+        "city pop",
+        "folk rock",
+        "techno"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "exotica",
+            "confidence": 0.88,
+            "layer": "core",
+            "rationale": "The dominant aesthetic of Tropical Dandy — Pacific-inflected pseudo-tropical pastiche, globe-trotting track titles (Chattanooga Choo Choo, Peking Duck, Hurricane Dorothy, Sanji no Komori Uta), Polynesian and South Seas textures throughout. Strongly corroborated by Discogs master tags (exotica, pacific) and consistent with Hosono's documented tropical trilogy period."
+          },
+          {
+            "term": "city pop",
+            "confidence": 0.76,
+            "layer": "core",
+            "rationale": "Discogs master tag; 1975 places this in the founding period of the genre and Hosono is a canonical originating figure. The sophisticated melodic songwriting and urban-escapist sensibility fit the city pop mold even before the genre fully crystallized in the late 1970s."
+          },
+          {
+            "term": "folk rock",
+            "confidence": 0.58,
+            "layer": "secondary",
+            "rationale": "Discogs master tag with residual merit — carries over from Hosono's Happy End and Tin Pan Alley folk-rock roots. Acoustic guitar arrangements and singer-songwriter song structures are present, though less central here than on his earlier work."
+          }
+        ],
+        "canonical": [
+          "city pop",
+          "folk rock"
+        ],
+        "gaps": [
+          "exotica"
+        ],
+        "facets": [
+          {
+            "term": "japanese",
+            "facet_type": "region"
+          },
+          {
+            "term": "pacific",
+            "facet_type": "region"
+          },
+          {
+            "term": "1970s",
+            "facet_type": "era"
+          },
+          {
+            "term": "tropical",
+            "facet_type": "texture"
+          },
+          {
+            "term": "escapist",
+            "facet_type": "mood"
+          },
+          {
+            "term": "lush",
+            "facet_type": "production"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.76,
+        "warnings": [
+          "file_track tags ('alternative', 'pop') appear to be artist-level tags applied uniformly and do not describe this specific release — not carried into genres.",
+          "discogs_release broad buckets ('electronic', 'pop', 'rock') are format/style fields rather than style tags; 'electronic' is inconsistent with a 1975 Hosono album predating his YMO electronic phase and is not carried into genres.",
+          "current_observed_leaf contains 'techno', which is clearly inapplicable to a 1975 tropical/exotica album and was dropped."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 3829,
+          "cache_creation_input_tokens": 15084,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 3832
+        }
+      }
+    },
+    {
+      "release_key": "dj notoya::tokyo glow japanese city pop funk boogie",
+      "album_id": "bd259f569c553c00",
+      "artist": "DJ Notoya",
+      "title": "Tokyo Glow: Japanese City Pop, Funk & Boogie",
+      "bucket": "sparse",
+      "failure_mode": null,
+      "gold_genres": [
+        "city pop",
+        "funk",
+        "boogie",
+        "aor",
+        "disco"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "city pop",
+        "funk",
+        "boogie"
+      ],
+      "taxonomy_gaps_gold": [
+        "aor"
+      ],
+      "current_observed_leaf": [],
+      "proposed": {
+        "genres": [
+          {
+            "term": "city pop",
+            "confidence": 0.95,
+            "layer": "core",
+            "rationale": "Explicitly named in the album title and confirmed by MusicBrainz tag; the primary Japanese style of the late-1970s–1980s fusing soft rock, funk, AOR gloss, and synth production."
+          },
+          {
+            "term": "boogie",
+            "confidence": 0.92,
+            "layer": "core",
+            "rationale": "Explicitly named in the album title and confirmed by MusicBrainz tag; synth-funk dance style that overlaps heavily with city pop and forms a clear pillar of this release."
+          },
+          {
+            "term": "funk",
+            "confidence": 0.9,
+            "layer": "core",
+            "rationale": "Explicitly named in the album title and confirmed by MusicBrainz tag; foundational groove language tying together the city pop and boogie material."
+          },
+          {
+            "term": "aor",
+            "confidence": 0.82,
+            "layer": "secondary",
+            "rationale": "Confirmed by MusicBrainz tag; the polished adult-oriented rock sheen is a hallmark of the city pop aesthetic and distinguishes it from rawer funk."
+          },
+          {
+            "term": "synth-pop",
+            "confidence": 0.76,
+            "layer": "secondary",
+            "rationale": "Confirmed by MusicBrainz tag; synthesizer-led pop production is integral to both the city pop and boogie tracks in this cluster."
+          },
+          {
+            "term": "disco",
+            "confidence": 0.7,
+            "layer": "secondary",
+            "rationale": "Confirmed by MusicBrainz tag; disco underpins the boogie and funk strands present here and reflects the late-1970s lineage of the source material."
+          }
+        ],
+        "canonical": [
+          "city pop",
+          "boogie",
+          "funk",
+          "synth-pop",
+          "disco"
+        ],
+        "gaps": [
+          "aor"
+        ],
+        "facets": [
+          {
+            "term": "japanese",
+            "facet_type": "region"
+          },
+          {
+            "term": "1980s",
+            "facet_type": "era"
+          },
+          {
+            "term": "dj mix",
+            "facet_type": "format"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.87,
+        "warnings": [
+          "Year is null; '1980s' era facet is inferred from genre cluster (city pop, boogie) and may describe the source material's era rather than the compilation's release year — this could be a modern DJ compilation of vintage recordings.",
+          "MusicBrainz tags 'electronic' and 'pop' excluded as broad parent genres per adjudication policy."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 2592,
+          "cache_creation_input_tokens": 15084,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 2595
+        }
+      }
+    },
+    {
+      "release_key": "pharoah sanders::black unity",
+      "album_id": "14aeb0b35577b94a",
+      "artist": "Pharoah Sanders",
+      "title": "Black Unity",
+      "bucket": "failure",
+      "failure_mode": "wrong_tag",
+      "gold_genres": [
+        "spiritual jazz",
+        "free jazz",
+        "avant-garde jazz"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "free jazz",
+        "spiritual jazz",
+        "avant-garde jazz"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "cool jazz",
+        "free jazz",
+        "soul jazz"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "spiritual jazz",
+            "confidence": 0.97,
+            "layer": "core",
+            "rationale": "Black Unity is a canonical spiritual jazz statement — devotional energy, large ensemble collective improvisation, cosmic/ecstatic arc over a single extended piece. Sanders is one of the genre's architects and this 1971 recording is among its definitive works. Confirmed by MusicBrainz tags."
+          },
+          {
+            "term": "free jazz",
+            "confidence": 0.93,
+            "layer": "core",
+            "rationale": "The album features extended outside playing, collective improvisation with multiple overlapping voices, and passages of intense atonality characteristic of free jazz. Confirmed by both file tag and MusicBrainz."
+          },
+          {
+            "term": "avant-garde jazz",
+            "confidence": 0.87,
+            "layer": "secondary",
+            "rationale": "The single-movement, 37-minute epic form and experimental group dynamics place it in avant-garde jazz territory. Overlaps substantially with free jazz but captures the compositional ambition of the release. MusicBrainz confirms."
+          },
+          {
+            "term": "modal jazz",
+            "confidence": 0.72,
+            "layer": "secondary",
+            "rationale": "Coltrane-lineage modal frameworks underpin the improvisation — static scale centers, no conventional chord changes. Characteristic of Sanders' post-Coltrane approach and audible in the rhythmic-groove sections of this piece."
+          }
+        ],
+        "canonical": [
+          "spiritual jazz",
+          "free jazz",
+          "avant-garde jazz",
+          "modal jazz"
+        ],
+        "gaps": [],
+        "facets": [
+          {
+            "term": "1970s",
+            "facet_type": "era"
+          },
+          {
+            "term": "large ensemble",
+            "facet_type": "instrumentation"
+          },
+          {
+            "term": "single-track",
+            "facet_type": "format"
+          },
+          {
+            "term": "devotional",
+            "facet_type": "mood"
+          },
+          {
+            "term": "collective improvisation",
+            "facet_type": "texture"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.93,
+        "warnings": [
+          "'cool jazz' in current_observed_leaf is incorrect for this release — Black Unity is intense, ecstatic spiritual/free jazz; cool jazz (relaxed West Coast tradition) is the opposite aesthetic. Likely an artist-level tag bleed from elsewhere.",
+          "'soul jazz' in current_observed_leaf is a weak fit — the groove elements here serve devotional/spiritual function, not the organ-trio soul-jazz idiom. Spiritual jazz is the correct specific term."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 1884,
+          "cache_creation_input_tokens": 14982,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 1887
+        }
+      }
+    },
+    {
+      "release_key": "植松伸夫::fithos lusec wecos vinosec final fantasy viii",
+      "album_id": "3a7e7629083731d0",
+      "artist": "植松伸夫",
+      "title": "FITHOS LUSEC WECOS VINOSEC: FINAL FANTASY VIII",
+      "bucket": "failure",
+      "failure_mode": "wrong_tag",
+      "gold_genres": [
+        "video game music",
+        "modern classical",
+        "ambient"
+      ],
+      "gold_facets": [
+        "orchestral"
+      ],
+      "must_preserve": [
+        "video game music",
+        "modern classical"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "chiptune",
+        "modern classical",
+        "new age",
+        "progressive rock",
+        "video game music"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "video game music",
+            "confidence": 0.97,
+            "layer": "core",
+            "rationale": "All eight tracks are arrangements from the Final Fantasy VIII game score; video game music is the unambiguous primary domain, confirmed by discogs_master, discogs_release (stage & screen), and the file tag 'game'."
+          },
+          {
+            "term": "modern classical",
+            "confidence": 0.88,
+            "layer": "core",
+            "rationale": "The album presents full orchestral arrangements with choir (Liberi Fatali, FITHOS LUSEC WECOS VINOSEC), strings, and concert-hall production — placing it squarely in modern/contemporary classical idiom. Confirmed by discogs_master."
+          },
+          {
+            "term": "ambient",
+            "confidence": 0.72,
+            "layer": "secondary",
+            "rationale": "Several tracks (Blue Fields, Fisherman's Horizon, Balamb GARDEN ~ Ami) are slow, atmospheric, and texturally static in ways that qualify as ambient. Confirmed by discogs_master ambient tag."
+          }
+        ],
+        "canonical": [
+          "video game music",
+          "modern classical",
+          "ambient"
+        ],
+        "gaps": [],
+        "facets": [
+          {
+            "term": "orchestral",
+            "facet_type": "instrumentation"
+          },
+          {
+            "term": "choral",
+            "facet_type": "instrumentation"
+          },
+          {
+            "term": "female vocals",
+            "facet_type": "vocal"
+          },
+          {
+            "term": "japanese",
+            "facet_type": "region"
+          },
+          {
+            "term": "game soundtrack",
+            "facet_type": "function"
+          },
+          {
+            "term": "1990s",
+            "facet_type": "era"
+          },
+          {
+            "term": "arranged album",
+            "facet_type": "format"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.88,
+        "warnings": [
+          "'chiptune' in current_observed_leaf is an artist-level tag misapplied here — this album is fully orchestral with no chiptune elements; it has been excluded.",
+          "'progressive rock' in current_observed_leaf is similarly an artist-level tag with no basis in this orchestral arranged album; excluded.",
+          "'electronic' (discogs_release) is a broad parent category deferred to the genre graph; 'stage & screen' from discogs_release is a function descriptor moved to facets."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 2890,
+          "cache_creation_input_tokens": 15097,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 2893
+        }
+      }
+    },
+    {
+      "release_key": "slowdive::just for a day",
+      "album_id": "111c6b9b3a5c06aa",
+      "artist": "Slowdive",
+      "title": "Just For A Day",
+      "bucket": "control",
+      "failure_mode": null,
+      "gold_genres": [
+        "shoegaze",
+        "dream pop",
+        "noise pop"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "shoegaze",
+        "dream pop"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "ambient pop",
+        "dream pop",
+        "indie rock",
+        "noise pop",
+        "post-rock",
+        "shoegaze"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "shoegaze",
+            "confidence": 0.97,
+            "layer": "core",
+            "rationale": "Slowdive's debut is a defining shoegaze document: thick walls of distorted, heavily reverbed guitar, breathy vocals buried in the mix. Confirmed by every substantive source (Discogs master, MusicBrainz). Non-negotiable core identity for this release."
+          },
+          {
+            "term": "dream pop",
+            "confidence": 0.95,
+            "layer": "core",
+            "rationale": "The melodic, ethereal, and emotionally luminous quality is equally central to this album — not incidental to the shoegaze. Confirmed by Discogs master and MusicBrainz. Slowdive's debut sits closer to the dream pop pole than their noisier contemporaries (MBV, Ride)."
+          },
+          {
+            "term": "ambient pop",
+            "confidence": 0.72,
+            "layer": "secondary",
+            "rationale": "More pronounced here than on later Slowdive records. Tracks like 'Erik's Song' and 'Waves' are near-ambient in texture and pacing; the album overall is unusually spacious and haze-saturated even within the shoegaze canon. Supports the observed_leaf tag."
+          }
+        ],
+        "canonical": [
+          "shoegaze",
+          "dream pop",
+          "ambient pop"
+        ],
+        "gaps": [],
+        "facets": [
+          {
+            "term": "heavy reverb",
+            "facet_type": "production"
+          },
+          {
+            "term": "layered guitars",
+            "facet_type": "instrumentation"
+          },
+          {
+            "term": "hazy",
+            "facet_type": "texture"
+          },
+          {
+            "term": "ethereal",
+            "facet_type": "mood"
+          },
+          {
+            "term": "male-female vocals",
+            "facet_type": "vocal"
+          },
+          {
+            "term": "early 1990s",
+            "facet_type": "era"
+          },
+          {
+            "term": "uk",
+            "facet_type": "region"
+          },
+          {
+            "term": "creation records",
+            "facet_type": "scene"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.93,
+        "warnings": [
+          "File tag 'rock' and Discogs master tag 'indie rock' are broad parent genres excluded per schema instructions; no specific genre signal is lost.",
+          "current_observed_leaf includes 'post-rock' and 'noise pop' — not applied here; 'Just For A Day' predates Slowdive's ambient/post-rock turn (Pygmalion) and is not primarily noise pop in character.",
+          "Release year absent from payload; dated to 1991 via music knowledge, which informs era facet but not genre assignment."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 2363,
+          "cache_creation_input_tokens": 15079,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 2366
+        }
+      }
+    },
+    {
+      "release_key": "beach house::bloom",
+      "album_id": "b3269f87a2f2335c",
+      "artist": "Beach House",
+      "title": "Bloom",
+      "bucket": "control",
+      "failure_mode": null,
+      "gold_genres": [
+        "dream pop",
+        "ethereal wave"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "dream pop"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "alternative rock",
+        "dream pop",
+        "ethereal wave",
+        "indie pop",
+        "indie rock",
+        "shoegaze",
+        "slowcore"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "dream pop",
+            "confidence": 0.97,
+            "layer": "core",
+            "rationale": "Universally agreed across all sources; Bloom is a quintessential dream pop record — Victoria Legrand's hazy, reverb-soaked vocals over lush chord-organ and guitar washes define the album's identity."
+          },
+          {
+            "term": "shoegaze",
+            "confidence": 0.7,
+            "layer": "secondary",
+            "rationale": "Thick, reverb-saturated guitar layers and densely textured production carry clear shoegaze influence; confirmed by MusicBrainz and current observed leaf. Present but subordinate to the dream pop identity."
+          },
+          {
+            "term": "ethereal wave",
+            "confidence": 0.6,
+            "layer": "secondary",
+            "rationale": "Discogs master tags 'ethereal'; Bloom's atmospheric, otherworldly drift and Legrand's deep vocal timbre share DNA with the 4AD ethereal wave lineage (Cocteau Twins, Pale Saints). Secondary and texture-adjacent but a real genre marker for this record."
+          }
+        ],
+        "canonical": [
+          "dream pop",
+          "shoegaze",
+          "ethereal wave"
+        ],
+        "gaps": [],
+        "facets": [
+          {
+            "term": "female vocals",
+            "facet_type": "vocal"
+          },
+          {
+            "term": "reverb-heavy",
+            "facet_type": "production"
+          },
+          {
+            "term": "hazy",
+            "facet_type": "mood"
+          },
+          {
+            "term": "layered",
+            "facet_type": "texture"
+          },
+          {
+            "term": "2010s",
+            "facet_type": "era"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.87,
+        "warnings": [
+          "File tag 'alternative rock' is an explicit broad parent genre (in exclusion list); omitted per schema rules — not a silent drop.",
+          "'indie pop' and 'indie rock' from MusicBrainz/observed leaf are also broad parents; omitted. 'slowcore' from observed leaf is not well-supported for this release — Bloom is lush and maximalist, not the sparse lo-fi minimalism of Low/Codeine; dropped."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 2304,
+          "cache_creation_input_tokens": 15103,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 2307
+        }
+      }
+    },
+    {
+      "release_key": "john coltrane::a love supreme",
+      "album_id": "737dfd8ccb3df5a1",
+      "artist": "John Coltrane",
+      "title": "A Love Supreme",
+      "bucket": "control",
+      "failure_mode": null,
+      "gold_genres": [
+        "spiritual jazz",
+        "modal jazz"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "spiritual jazz",
+        "modal jazz"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "avant-garde jazz",
+        "bebop",
+        "free jazz",
+        "hard bop",
+        "modal jazz",
+        "post-bop",
+        "spiritual jazz"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "modal jazz",
+            "confidence": 0.97,
+            "layer": "core",
+            "rationale": "The harmonic language throughout the suite is explicitly modal — the famous bass ostinato and Coltrane's scalar improvisation over static or slowly shifting tonal centers are the defining structural feature of the record."
+          },
+          {
+            "term": "spiritual jazz",
+            "confidence": 0.97,
+            "layer": "core",
+            "rationale": "A Love Supreme is the canonical reference point for spiritual jazz: an explicitly devotional four-part suite dedicated to God, with liner notes functioning as prayer. The intent and structure are inseparable from the genre."
+          },
+          {
+            "term": "post-bop",
+            "confidence": 0.93,
+            "layer": "core",
+            "rationale": "The Classic Quartet — Tyner, Garrison, Jones, Coltrane — operates firmly in post-bop: extended forms, complex harmonic development, and a move beyond bebop's changes-based conventions. Tagged by MusicBrainz and consistent with the 1964 release context."
+          },
+          {
+            "term": "hard bop",
+            "confidence": 0.78,
+            "layer": "secondary",
+            "rationale": "Part III (Pursuance) is a hard-driving blues-rooted blowout that pulls directly from hard bop vocabulary. Philly Joe Jones–style drumming and Garrison's walking bass anchor the rhythm section in hard bop tradition. Cited by Discogs master and MusicBrainz."
+          },
+          {
+            "term": "free jazz",
+            "confidence": 0.6,
+            "layer": "secondary",
+            "rationale": "There are passages of rhythmic and harmonic freedom — notably in Coltrane's extended saxophone cadenzas — but this album is structurally composed and far more controlled than his later Ascension or Interstellar Space. Tagged by both Discogs and MusicBrainz; acknowledged as a real element but not a primary identity."
+          }
+        ],
+        "canonical": [
+          "modal jazz",
+          "spiritual jazz",
+          "post-bop",
+          "hard bop",
+          "free jazz"
+        ],
+        "gaps": [],
+        "facets": [
+          {
+            "term": "1960s",
+            "facet_type": "era"
+          },
+          {
+            "term": "devotional",
+            "facet_type": "mood"
+          },
+          {
+            "term": "acoustic quartet",
+            "facet_type": "instrumentation"
+          },
+          {
+            "term": "suite",
+            "facet_type": "format"
+          },
+          {
+            "term": "tenor saxophone",
+            "facet_type": "instrumentation"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.95,
+        "warnings": [
+          "bebop appears in current_observed_leaf but is not tagged by any source and is not characteristic of this release — A Love Supreme explicitly moves beyond bebop structures; excluded.",
+          "avant-garde jazz is tagged by MusicBrainz but this album, while innovative, is compositionally structured and tonally grounded compared to the dissonant freedom of canonical avant-garde jazz; the combination of modal jazz + post-bop + secondary free jazz covers the territory more precisely; excluded.",
+          "year is null in payload; 1964 is the historically documented release year used to inform era facet."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 2276,
+          "cache_creation_input_tokens": 15160,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 2279
+        }
+      }
+    },
+    {
+      "release_key": "d angelo::black messiah",
+      "album_id": "ea6fd3c6f673bd75",
+      "artist": "D'Angelo",
+      "title": "Black Messiah",
+      "bucket": "control",
+      "failure_mode": null,
+      "gold_genres": [
+        "neo-soul",
+        "funk"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "neo-soul",
+        "funk"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "contemporary r&b",
+        "funk",
+        "neo-soul",
+        "quiet storm",
+        "r&b/soul",
+        "rhythm and blues"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "neo-soul",
+            "confidence": 0.97,
+            "layer": "core",
+            "rationale": "D'Angelo is a founding neo-soul figure and Black Messiah is the genre's defining late-period statement; universally cited across all sources and critical consensus."
+          },
+          {
+            "term": "funk",
+            "confidence": 0.95,
+            "layer": "core",
+            "rationale": "Dense polyrhythmic arrangements rooted in James Brown and P-Funk traditions; 'Sugah Daddy' and '1000 Deaths' are explicitly funk-structured; confirmed by all source tags."
+          },
+          {
+            "term": "psychedelic soul",
+            "confidence": 0.84,
+            "layer": "secondary",
+            "rationale": "The album's hazy, layered, consciousness-expanding production aesthetic and politically charged themes ('1000 Deaths', 'The Charade') place it in the psychedelic soul lineage beyond conventional neo-soul."
+          },
+          {
+            "term": "soul",
+            "confidence": 0.87,
+            "layer": "secondary",
+            "rationale": "Consciously channels classic 1960s–70s soul tradition — 'Really Love' most directly; confirmed across file tags, MusicBrainz, and Discogs; not merely a parent category here but a genuine stylistic reference point."
+          },
+          {
+            "term": "gospel",
+            "confidence": 0.7,
+            "layer": "secondary",
+            "rationale": "'Prayer' and the devotional vocal arrangements throughout reflect genuine gospel influence integral to the album's spiritual identity, not incidental."
+          }
+        ],
+        "canonical": [
+          "neo-soul",
+          "funk",
+          "psychedelic soul",
+          "soul",
+          "gospel"
+        ],
+        "gaps": [],
+        "facets": [
+          {
+            "term": "live band",
+            "facet_type": "production"
+          },
+          {
+            "term": "analog warmth",
+            "facet_type": "production"
+          },
+          {
+            "term": "falsetto",
+            "facet_type": "vocal"
+          },
+          {
+            "term": "politically charged",
+            "facet_type": "mood"
+          },
+          {
+            "term": "2010s",
+            "facet_type": "era"
+          },
+          {
+            "term": "orchestral arrangements",
+            "facet_type": "instrumentation"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.93,
+        "warnings": [
+          "'blues' tag from discogs_release appears to be a Discogs style-category artifact (Funk / Soul → Blues subcategory) rather than a genuine blues genre tag for this album; excluded.",
+          "year field is null; album released December 2014."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 2938,
+          "cache_creation_input_tokens": 15110,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 2941
+        }
+      }
+    },
+    {
+      "release_key": "nick drake::pink moon",
+      "album_id": "b104088e05950625",
+      "artist": "Nick Drake",
+      "title": "Pink Moon",
+      "bucket": "control",
+      "failure_mode": null,
+      "gold_genres": [
+        "chamber folk",
+        "folk rock"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "folk rock"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "baroque pop",
+        "chamber folk",
+        "contemporary folk",
+        "folk pop",
+        "folk rock",
+        "jazz pop"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "singer-songwriter",
+            "confidence": 0.96,
+            "layer": "core",
+            "rationale": "Pink Moon is Nick Drake alone with acoustic guitar and voice — no ensemble, no arrangements, no overdubs except a brief piano flourish on the title track. This is the defining singer-songwriter format and is entirely distinct from his orchestrated prior albums."
+          },
+          {
+            "term": "contemporary folk",
+            "confidence": 0.84,
+            "layer": "core",
+            "rationale": "MusicBrainz file tag; fits the late British folk revival tradition of solo acoustic storytelling. The appropriate specific-folk genre for this release, unlike the baroque/chamber tags inherited from earlier Drake work."
+          }
+        ],
+        "canonical": [
+          "singer-songwriter",
+          "contemporary folk"
+        ],
+        "gaps": [],
+        "facets": [
+          {
+            "term": "solo acoustic guitar",
+            "facet_type": "instrumentation"
+          },
+          {
+            "term": "sparse",
+            "facet_type": "texture"
+          },
+          {
+            "term": "melancholic",
+            "facet_type": "mood"
+          },
+          {
+            "term": "introspective",
+            "facet_type": "mood"
+          },
+          {
+            "term": "lo-fi",
+            "facet_type": "production"
+          },
+          {
+            "term": "british",
+            "facet_type": "region"
+          },
+          {
+            "term": "1970s",
+            "facet_type": "era"
+          }
+        ],
+        "escalate": true,
+        "escalate_reason": "Dropping three MusicBrainz file tags: 'folk baroque' and 'folk rock' are artist-level tags that fit Nick Drake's orchestrated earlier work (Five Leaves Left, Bryter Layter) but not Pink Moon's bare acoustic recording; 'folk pop' is inappropriate for an album this stark and dark. Dropping 'folk pop' and 'folk rock' from current_observed_leaf for the same reason. Also dropping current_observed_leaf entries 'baroque pop', 'chamber folk', and 'jazz pop' — all absent from Pink Moon's sonic character. These are artist-level bleeds, not release-specific identities.",
+        "overall_confidence": 0.88,
+        "warnings": [
+          "current_observed_leaf entries 'baroque pop', 'chamber folk', and 'jazz pop' describe Drake's earlier orchestrated albums, not this release.",
+          "File tags appear applied at artist level across his catalogue; Pink Moon's solo acoustic minimalism is the exception in his discography and requires release-specific treatment.",
+          "Year is null in payload; album is 1972 — era facet inferred from music knowledge."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 3878,
+          "cache_creation_input_tokens": 15057,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 3881
+        }
+      }
+    },
+    {
+      "release_key": "boards of canada::geogaddi",
+      "album_id": "6870d12c5050b266",
+      "artist": "Boards of Canada",
+      "title": "Geogaddi",
+      "bucket": "control",
+      "failure_mode": null,
+      "gold_genres": [
+        "idm",
+        "ambient techno",
+        "downtempo",
+        "folktronica"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "idm",
+        "ambient techno"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "ambient techno",
+        "downtempo",
+        "folktronica",
+        "idm",
+        "trip-hop"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "idm",
+            "confidence": 0.93,
+            "layer": "core",
+            "rationale": "Boards of Canada are canonical Warp-lineage IDM artists; Geogaddi's intricate rhythmic programming, melodic synthesis, and compositional density place it firmly in that tradition. Confirmed by Discogs master and MusicBrainz."
+          },
+          {
+            "term": "ambient",
+            "confidence": 0.9,
+            "layer": "core",
+            "rationale": "Extended ambient passages, immersive textural construction, and a production approach prioritizing sonic environment over functional rhythm are defining features of this record. Confirmed across all file-tag sources."
+          },
+          {
+            "term": "hauntology",
+            "confidence": 0.88,
+            "layer": "core",
+            "rationale": "Geogaddi is one of the defining hauntology texts: backward masking, distorted childhood samples, number-station fragments, occult numerology, and uncanny nostalgia make it more hauntological than BOC's own debut. MusicBrainz confirms; highly specific to this release rather than the artist at large."
+          },
+          {
+            "term": "downtempo",
+            "confidence": 0.75,
+            "layer": "secondary",
+            "rationale": "Slow BPM structures and ruminative pacing are consistent with the downtempo tradition, though BOC's abstraction exceeds typical fare. Confirmed by MusicBrainz file tag."
+          }
+        ],
+        "canonical": [
+          "idm",
+          "ambient",
+          "downtempo"
+        ],
+        "gaps": [
+          "hauntology"
+        ],
+        "facets": [
+          {
+            "term": "instrumental",
+            "facet_type": "vocal"
+          },
+          {
+            "term": "psychedelic",
+            "facet_type": "mood"
+          },
+          {
+            "term": "lo-fi",
+            "facet_type": "production"
+          },
+          {
+            "term": "abstract",
+            "facet_type": "texture"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.88,
+        "warnings": [
+          "current_observed_leaf 'trip-hop' is unsupported by any file-tag source and is inappropriate for this release; excluded.",
+          "current_observed_leaf 'folktronica' appears applied at artist level and does not describe Geogaddi's darker, more abstract character; excluded.",
+          "current_observed_leaf 'ambient techno' overstates rhythmic structure for this release; excluded.",
+          "File tags 'electronic' and 'progressive' excluded as broad parent genres per adjudication policy. 'avant-garde' excluded as too broad to be a specific genre here. 'instrumental', 'psychedelic', and 'abstract' moved to facets."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 4446,
+          "cache_creation_input_tokens": 15140,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 4449
+        }
+      }
+    },
+    {
+      "release_key": "duster::contemporay movement",
+      "album_id": "3742d6370eab8c71",
+      "artist": "Duster",
+      "title": "Contemporay Movement",
+      "bucket": "control",
+      "failure_mode": null,
+      "gold_genres": [
+        "slowcore",
+        "space rock",
+        "slacker rock"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "slowcore"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "dream pop",
+        "indie rock",
+        "post-rock",
+        "shoegaze",
+        "slacker rock",
+        "slowcore",
+        "space rock"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "slowcore",
+            "confidence": 0.92,
+            "layer": "core",
+            "rationale": "Duster's defining mode: sparse arrangements, glacial tempos, understated vocals, and melancholic affect. Contemporary Movement sustains this throughout — tracks like 'Unrecovery' and 'The Phantom Facing Me' exemplify the genre's hallmarks."
+          },
+          {
+            "term": "space rock",
+            "confidence": 0.84,
+            "layer": "core",
+            "rationale": "Hazy, expansive, low-gravity drift is central to Duster's sound on this album — drifting guitar tones and a sense of cosmic remove that distinguishes them from purely slowcore peers."
+          },
+          {
+            "term": "dream pop",
+            "confidence": 0.67,
+            "layer": "secondary",
+            "rationale": "Floating melodic sensibility and atmospheric wash ('Me and the Birds', 'Diamond') cross into dream pop territory, though Duster's aridity and minimalism keep this secondary to slowcore."
+          },
+          {
+            "term": "post-rock",
+            "confidence": 0.54,
+            "layer": "secondary",
+            "rationale": "Loose textural and structural influence visible in the instrumental passages and dynamic restraint, but Contemporary Movement is too song-based and intimate to claim post-rock as a primary identity."
+          }
+        ],
+        "canonical": [
+          "slowcore",
+          "space rock",
+          "dream pop",
+          "post-rock"
+        ],
+        "gaps": [],
+        "facets": [
+          {
+            "term": "lo-fi",
+            "facet_type": "production"
+          },
+          {
+            "term": "sparse",
+            "facet_type": "texture"
+          },
+          {
+            "term": "melancholic",
+            "facet_type": "mood"
+          },
+          {
+            "term": "hazy",
+            "facet_type": "texture"
+          },
+          {
+            "term": "2000s",
+            "facet_type": "era"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.8,
+        "warnings": [
+          "File tag 'indie' is a broad parent genre excluded per policy — no specific actionable tag was dropped. The observed_leaf list contains 'indie rock', 'shoegaze', and 'slacker rock' which are artist-level tags applied across Duster's catalog; Contemporary Movement's actual character skews toward slowcore/space rock with less shoegaze density than Stratosphere. Year is null — Contemporary Movement is known from training knowledge as a ~2000 release but cannot be confirmed from the payload."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 2000,
+          "cache_creation_input_tokens": 14984,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 2003
+        }
+      }
+    },
+    {
+      "release_key": "kendrick lamar::damn",
+      "album_id": "b7efcab5636dbc87",
+      "artist": "Kendrick Lamar",
+      "title": "DAMN.",
+      "bucket": "control",
+      "failure_mode": null,
+      "gold_genres": [
+        "conscious hip hop",
+        "west coast hip hop",
+        "jazz rap"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "conscious hip hop"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "alternative hip hop",
+        "conscious hip hop",
+        "contemporary r&b",
+        "hardcore hip hop",
+        "hip hop",
+        "jazz rap"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "conscious hip hop",
+            "confidence": 0.95,
+            "layer": "core",
+            "rationale": "The album's primary identity: thematic threads of sin, loyalty, pride, and DNA/identity run throughout; deeply introspective and socially aware lyricism is the spine of every track."
+          },
+          {
+            "term": "trap",
+            "confidence": 0.88,
+            "layer": "core",
+            "rationale": "DNA., HUMBLE., and ELEMENT. are built on trap production (808s, aggressive hi-hat patterns, minimalist hard beats); this is a defining and deliberate departure from TPAB's jazz-funk palette."
+          },
+          {
+            "term": "west coast hip hop",
+            "confidence": 0.83,
+            "layer": "core",
+            "rationale": "Kendrick is from Compton; the album carries West Coast identity in cadence, cultural reference, and sonic framing even when deploying non-regional production."
+          },
+          {
+            "term": "political hip hop",
+            "confidence": 0.72,
+            "layer": "secondary",
+            "rationale": "YAH. and DNA. contain explicit commentary on Blackness, media narratives, and systemic critique; present but subordinate to the personal/spiritual register."
+          },
+          {
+            "term": "contemporary r&b",
+            "confidence": 0.65,
+            "layer": "secondary",
+            "rationale": "LOYALTY. (feat. Rihanna) and PRIDE. feature R&B melodic structure and production texture; a real but minor element of the album's identity."
+          }
+        ],
+        "canonical": [
+          "conscious hip hop",
+          "trap",
+          "west coast hip hop",
+          "contemporary r&b"
+        ],
+        "gaps": [
+          "political hip hop"
+        ],
+        "facets": [
+          {
+            "term": "introspective",
+            "facet_type": "mood"
+          },
+          {
+            "term": "confrontational",
+            "facet_type": "mood"
+          },
+          {
+            "term": "trap production",
+            "facet_type": "production"
+          },
+          {
+            "term": "2010s",
+            "facet_type": "era"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.87,
+        "warnings": [
+          "jazz rap appears in current_observed_leaf but is artist-level carryover from TPAB/GKMC; DAMN. departs significantly from that jazz palette and jazz rap is excluded here.",
+          "pop and pop rap tags from MusicBrainz reflect individual-track crossover appeal (HUMBLE., LOYALTY.) but do not characterize the album identity.",
+          "hardcore hip hop in current_observed_leaf is excluded; aggressive tracks (DNA., ELEMENT.) are better characterised by trap production than the hardcore subgenre."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 2733,
+          "cache_creation_input_tokens": 15143,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 2736
+        }
+      }
+    },
+    {
+      "release_key": "mf doom::mm food",
+      "album_id": "0b22b4b0e23703a8",
+      "artist": "MF DOOM",
+      "title": "MM..FOOD",
+      "bucket": "failure",
+      "failure_mode": "wrong_tag",
+      "gold_genres": [
+        "abstract hip hop",
+        "boom bap",
+        "east coast hip hop"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "abstract hip hop"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "abstract hip hop",
+        "alternative hip hop",
+        "boom bap",
+        "doom metal",
+        "east coast hip hop",
+        "hip hop",
+        "underground hip-hop"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "underground hip-hop",
+            "confidence": 0.95,
+            "layer": "core",
+            "rationale": "MM..FOOD is an independently distributed concept album on Rhymesack; MF DOOM operates entirely outside the mainstream, and the release's aesthetic, distribution, and lyrical density are definitively underground."
+          },
+          {
+            "term": "boom bap",
+            "confidence": 0.92,
+            "layer": "core",
+            "rationale": "DOOM's self-production (as Metal Fingers) uses classic drum-loop-over-sample construction; confirmed by discogs_master file tag and consistent with the album's beat architecture across all listed tracks."
+          },
+          {
+            "term": "jazz rap",
+            "confidence": 0.9,
+            "layer": "core",
+            "rationale": "Production is built primarily from looped jazz samples — bass lines, horns, piano — giving the album a distinctly jazzy harmonic feel; maps directly to the discogs_master 'jazzy hip-hop' file tag, which is authoritative here."
+          },
+          {
+            "term": "abstract hip hop",
+            "confidence": 0.82,
+            "layer": "secondary",
+            "rationale": "The album is a food-concept vehicle for dense, non-linear wordplay and layered cultural references; the lyrical mode is closer to abstract than narrative or conscious hip-hop, consistent with current_observed_leaf and DOOM's broader catalog identity on this specific LP."
+          },
+          {
+            "term": "conscious hip hop",
+            "confidence": 0.52,
+            "layer": "secondary",
+            "rationale": "Retained from discogs_master file tag (treated as ground truth); however, MM..FOOD's primary mode is abstract wordplay and food-theme concept rather than social/political commentary, making this a weak fit for this specific release as opposed to DOOM's wider output."
+          }
+        ],
+        "canonical": [
+          "underground hip-hop",
+          "boom bap",
+          "jazz rap",
+          "abstract hip hop",
+          "conscious hip hop"
+        ],
+        "gaps": [],
+        "facets": [
+          {
+            "term": "east coast",
+            "facet_type": "region"
+          },
+          {
+            "term": "2000s",
+            "facet_type": "era"
+          },
+          {
+            "term": "sample-based",
+            "facet_type": "production"
+          },
+          {
+            "term": "concept album",
+            "facet_type": "format"
+          },
+          {
+            "term": "lyrically dense",
+            "facet_type": "vocal"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.88,
+        "warnings": [
+          "'doom metal' in current_observed_leaf is an artist-name false positive (MF DOOM contains 'doom'); this release has zero metal content and the tag is discarded — it does not appear in any source file tags so no escalation is required.",
+          "'conscious' (discogs_master file tag) is retained as a secondary genre but sits at low confidence for this specific LP; MM..FOOD is a food-themed abstract concept album with minimal explicit social commentary relative to the broader conscious hip-hop canon."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 2915,
+          "cache_creation_input_tokens": 15089,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 2918
+        }
+      }
+    },
+    {
+      "release_key": "cocteau twins::heaven or las vegas",
+      "album_id": "49ad0bd7f9caaaf7",
+      "artist": "Cocteau Twins",
+      "title": "Heaven Or Las Vegas",
+      "bucket": "failure",
+      "failure_mode": "wrong_tag",
+      "gold_genres": [
+        "dream pop",
+        "ethereal wave",
+        "shoegaze"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "dream pop",
+        "ethereal wave"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "ambient techno",
+        "darkwave",
+        "downtempo",
+        "dream pop",
+        "ethereal wave",
+        "gothic rock",
+        "indie rock",
+        "shoegaze"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "dream pop",
+            "confidence": 0.97,
+            "layer": "core",
+            "rationale": "Heaven or Las Vegas is one of dream pop's canonical texts: melodic songwriting, lush reverb-drenched guitars, gossamer atmosphere, and strong hooks distinguish it from the band's more austere earlier work. Every track fits the mode."
+          },
+          {
+            "term": "ethereal wave",
+            "confidence": 0.95,
+            "layer": "core",
+            "rationale": "Cocteau Twins co-defined the subgenre; this album exemplifies its hallmarks — Elizabeth Fraser's abstract, vowel-heavy vocals, shimmering Guthrie guitar washes, and an otherworldly suspended quality. Discogs 'ethereal' tag corroborates."
+          },
+          {
+            "term": "shoegaze",
+            "confidence": 0.62,
+            "layer": "secondary",
+            "rationale": "The guitar-effects palette and textured production share clear DNA with concurrent shoegaze, and the album is frequently cited as an influence on the scene. However it is melodically more upfront and vocally more prominent than strict shoegaze, making this a real but subordinate affiliation."
+          }
+        ],
+        "canonical": [
+          "dream pop",
+          "ethereal wave",
+          "shoegaze"
+        ],
+        "gaps": [],
+        "facets": [
+          {
+            "term": "lush production",
+            "facet_type": "production"
+          },
+          {
+            "term": "reverb-heavy",
+            "facet_type": "production"
+          },
+          {
+            "term": "abstract vocals",
+            "facet_type": "vocal"
+          },
+          {
+            "term": "shimmering guitar textures",
+            "facet_type": "texture"
+          },
+          {
+            "term": "atmospheric",
+            "facet_type": "mood"
+          },
+          {
+            "term": "4ad",
+            "facet_type": "scene"
+          },
+          {
+            "term": "early 1990s",
+            "facet_type": "era"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.93,
+        "warnings": [
+          "file_track tags ('pop', 'rock') and discogs_release tag ('rock') are parent-level placeholders with no specificity for this release; excluded per instructions.",
+          "observed_leaf tags 'gothic rock', 'darkwave', 'ambient techno', and 'downtempo' appear to be artist-level overflow from earlier Cocteau Twins work (e.g. Garlands era) or MusicBrainz style-level tagging errors; none describe Heaven or Las Vegas, which is bright, melodic, and groove-present.",
+          "musicbrainz tags 'ambient', 'downtempo', and 'electronic' are misleading for this release; retained as warnings only."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 1925,
+          "cache_creation_input_tokens": 15126,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 1928
+        }
+      }
+    },
+    {
+      "release_key": "portishead::dummy",
+      "album_id": "4468b94f8217965f",
+      "artist": "Portishead",
+      "title": "Dummy",
+      "bucket": "failure",
+      "failure_mode": "wrong_tag",
+      "gold_genres": [
+        "trip-hop",
+        "downtempo"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "downtempo"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "acid jazz",
+        "alternative rock",
+        "downtempo",
+        "experimental rock",
+        "folktronica"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "trip-hop",
+            "confidence": 0.97,
+            "layer": "core",
+            "rationale": "Portishead's Dummy is a canonical trip-hop record: sampled hip-hop breakbeats, dark cinematic electronic production, Beth Gibbons' haunting vocals, and Bristol scene provenance. Confirmed by file_track and discogs_master tags; co-invented the genre alongside Massive Attack and Tricky."
+          },
+          {
+            "term": "downtempo",
+            "confidence": 0.72,
+            "layer": "secondary",
+            "rationale": "Accurate as a cross-cutting electronic descriptor: slow, heavy grooves throughout. Multi-source confirmation (musicbrainz, known_tags). Broader than trip-hop but commonly co-cited as a distinct genre label rather than just a tempo facet."
+          },
+          {
+            "term": "acid jazz",
+            "confidence": 0.32,
+            "layer": "secondary",
+            "rationale": "Present in multiple musicbrainz sources but a poor fit for Dummy specifically. Jazz influence arrives via noir-cinematic samples and atmosphere, not the live funk-jazz instrumentation acid jazz proper requires. Likely an artist-level tag applied across Portishead's catalog. Retained rather than silently dropped per source-tag policy."
+          }
+        ],
+        "canonical": [
+          "trip-hop",
+          "downtempo",
+          "acid jazz"
+        ],
+        "gaps": [],
+        "facets": [
+          {
+            "term": "cinematic",
+            "facet_type": "texture"
+          },
+          {
+            "term": "atmospheric",
+            "facet_type": "texture"
+          },
+          {
+            "term": "dark",
+            "facet_type": "mood"
+          },
+          {
+            "term": "melancholic",
+            "facet_type": "mood"
+          },
+          {
+            "term": "sample-based",
+            "facet_type": "production"
+          },
+          {
+            "term": "female vocals",
+            "facet_type": "vocal"
+          },
+          {
+            "term": "bristol",
+            "facet_type": "region"
+          },
+          {
+            "term": "1990s",
+            "facet_type": "era"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.95,
+        "warnings": [
+          "current_observed_leaf includes 'folktronica', 'alternative rock', and 'experimental rock' — none are appropriate for Dummy; these appear to be artist-level tags misapplied at the release level and were excluded.",
+          "acid jazz retained as secondary despite weak fit to avoid silent file-tag drop; confidence is intentionally low."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 2682,
+          "cache_creation_input_tokens": 15076,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 2685
+        }
+      }
+    },
+    {
+      "release_key": "harold budd::ambient 2 the plateaux of mirror 2004 remaster",
+      "album_id": "d63d95a5c1a5761c",
+      "artist": "Harold Budd and Brian Eno",
+      "title": "Ambient 2: The Plateaux of Mirror (2004 Remaster)",
+      "bucket": "failure",
+      "failure_mode": "wrong_tag",
+      "gold_genres": [
+        "ambient",
+        "modern classical",
+        "minimalist composition"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "modern classical"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "contemporary classical",
+        "minimalist composition",
+        "modern classical",
+        "neoclassical"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "ambient",
+            "confidence": 0.99,
+            "layer": "core",
+            "rationale": "Canonical ambient release — literally titled as 'Ambient 2' in Eno's definitive ambient series. File tag and Discogs master both confirm. The album is a foundational document of the genre."
+          },
+          {
+            "term": "minimalism",
+            "confidence": 0.92,
+            "layer": "core",
+            "rationale": "Harold Budd's piano writing is definitively minimalist: sparse, widely-spaced notes, long decay, near-complete melodic economy. Eno's production matches this restraint. Minimalism is a co-equal structural identity of this release, not merely a descriptor."
+          },
+          {
+            "term": "contemporary classical",
+            "confidence": 0.62,
+            "layer": "secondary",
+            "rationale": "Budd comes from a post-Cage American classical lineage and the piano composition has classical sensibility, but this release is primarily ambient rather than a classical record. Retained as secondary given Budd's compositional approach is unmistakably in the classical tradition."
+          }
+        ],
+        "canonical": [
+          "ambient",
+          "minimalist composition",
+          "contemporary classical"
+        ],
+        "gaps": [],
+        "facets": [
+          {
+            "term": "piano",
+            "facet_type": "instrumentation"
+          },
+          {
+            "term": "meditative",
+            "facet_type": "mood"
+          },
+          {
+            "term": "sparse",
+            "facet_type": "texture"
+          },
+          {
+            "term": "1980s",
+            "facet_type": "era"
+          },
+          {
+            "term": "processed piano",
+            "facet_type": "production"
+          },
+          {
+            "term": "instrumental",
+            "facet_type": "vocal"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.93,
+        "warnings": [
+          "current_observed_leaf tags (neoclassical, modern classical, contemporary classical, minimalist composition) appear to be artist-level Harold Budd tags applied uniformly across his catalog. For this specific release — a collaboration with Eno squarely in the Ambient series — 'neoclassical' and 'modern classical' do not apply and have been excluded. Only 'contemporary classical' is retained as a secondary element reflecting Budd's compositional lineage.",
+          "discogs_release tag 'electronic' is a broad parent genre and excluded per policy; the more specific 'ambient' (already captured from file_track and discogs_master) subsumes it."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 2799,
+          "cache_creation_input_tokens": 15036,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 2802
+        }
+      }
+    },
+    {
+      "release_key": "sun ra his arkestra::atlantis",
+      "album_id": "f4825a36794850ae",
+      "artist": "Sun Ra & His Arkestra",
+      "title": "Atlantis",
+      "bucket": "failure",
+      "failure_mode": "wrong_tag",
+      "gold_genres": [
+        "free jazz",
+        "avant-garde jazz"
+      ],
+      "gold_facets": [],
+      "must_preserve": [],
+      "taxonomy_gaps_gold": [
+        "space jazz",
+        "cosmic jazz"
+      ],
+      "current_observed_leaf": [
+        "big band"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "free jazz",
+            "confidence": 0.95,
+            "layer": "core",
+            "rationale": "Sun Ra's Atlantis (recorded 1967, Saturn Records) is a canonical free jazz recording: collective improvisation, dissolution of fixed meter, dense group interplay across the Arkestra ensemble."
+          },
+          {
+            "term": "avant-garde jazz",
+            "confidence": 0.92,
+            "layer": "core",
+            "rationale": "Experimental structure, unconventional harmonic language, and the album's programmatic mythological arc (Mu, Lemuria, Atlantis) place it squarely in the avant-garde jazz tradition beyond standard free jazz."
+          },
+          {
+            "term": "space jazz",
+            "confidence": 0.88,
+            "layer": "core",
+            "rationale": "Atlantis is a flagship Sun Ra 'space music' document: cosmic-mythological concept, the Arkestra's signature ritualistic percussion density, and Sun Ra's Afrofuturist aesthetic make this a defining space jazz release."
+          }
+        ],
+        "canonical": [
+          "free jazz",
+          "avant-garde jazz"
+        ],
+        "gaps": [
+          "space jazz"
+        ],
+        "facets": [
+          {
+            "term": "large ensemble",
+            "facet_type": "instrumentation"
+          },
+          {
+            "term": "1960s",
+            "facet_type": "era"
+          },
+          {
+            "term": "afrofuturist",
+            "facet_type": "scene"
+          },
+          {
+            "term": "cosmic",
+            "facet_type": "mood"
+          },
+          {
+            "term": "percussion-driven",
+            "facet_type": "instrumentation"
+          },
+          {
+            "term": "collective improvisation",
+            "facet_type": "production"
+          }
+        ],
+        "escalate": true,
+        "escalate_reason": "The discogs_master tag 'nu-disco' and discogs_release tags 'electronic' and 'pop' are completely inapplicable to Sun Ra's Atlantis (an avant-garde free jazz album from 1967). These appear to be a metadata lookup error — possibly a release ID collision with an unrelated album. I am discarding these tags rather than incorporating them, and they should be investigated and corrected at the source. The file_track 'jazz' is correct as a broad ancestor and is not being dropped — it is simply a parent genre derived from the graph. The current_observed_leaf 'big band' is partially warranted by the Arkestra's large-ensemble format but 'big band' as a genre implies the swing-era style Sun Ra actively subverted; it is better represented as a facet (large ensemble) than a genre.",
+        "overall_confidence": 0.87,
+        "warnings": [
+          "discogs_master 'nu-disco' is a wrong-album metadata error — completely inapplicable to Sun Ra's Atlantis.",
+          "discogs_release 'electronic' and 'pop' are also inapplicable; likely same lookup collision.",
+          "year is null; release is well-attested as recorded 1967, released 1969 on Saturn Records — consider enriching the year field.",
+          "'big band' (current_observed_leaf) reflects ensemble size but misrepresents the genre; Sun Ra's Arkestra inverts swing-era big band conventions."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 2146,
+          "cache_creation_input_tokens": 14992,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 2149
+        }
+      }
+    },
+    {
+      "release_key": "sade::love deluxe",
+      "album_id": "e9e91ace3721f9fe",
+      "artist": "Sade",
+      "title": "Love Deluxe",
+      "bucket": "failure",
+      "failure_mode": "wrong_tag",
+      "gold_genres": [
+        "sophisti-pop",
+        "smooth soul",
+        "quiet storm"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "smooth soul",
+        "quiet storm"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "contemporary r&b",
+        "cool jazz",
+        "downtempo",
+        "jazz pop",
+        "pop soul",
+        "quiet storm",
+        "smooth jazz",
+        "smooth soul",
+        "soul",
+        "trip-hop"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "quiet storm",
+            "confidence": 0.93,
+            "layer": "core",
+            "rationale": "Love Deluxe is a canonical quiet storm record: slow tempos, lush romantic arrangements, sensual soul production, and understated dynamics throughout. Tracks like 'Cherish the Day,' 'No Ordinary Love,' and 'Kiss of Life' define the format. Not listed as an explicit file tag but is the most precise genre description of this album's actual identity."
+          },
+          {
+            "term": "sophisti-pop",
+            "confidence": 0.89,
+            "layer": "core",
+            "rationale": "MusicBrainz file tag; Sade's polished adult-pop sensibility with jazz chord structures, refined production, and deliberate crossover appeal make Love Deluxe a canonical sophisti-pop release. The sophisticated arrangement aesthetic is a defining characteristic, not just an influence."
+          },
+          {
+            "term": "smooth soul",
+            "confidence": 0.88,
+            "layer": "core",
+            "rationale": "MusicBrainz file tag; the warm, polished, dynamics-restrained soul production is the album's sonic spine across all eight tracks."
+          },
+          {
+            "term": "contemporary r&b",
+            "confidence": 0.74,
+            "layer": "secondary",
+            "rationale": "MusicBrainz file tag; R&B production framework is present (drum machines, electric bass, synth textures) but is subordinate to the sophisti-pop and quiet storm identity on this release."
+          },
+          {
+            "term": "trip-hop",
+            "confidence": 0.38,
+            "layer": "secondary",
+            "rationale": "MusicBrainz file tag; retained rather than silently dropped. 'No Ordinary Love' and 'Bullet Proof Soul' have atmospheric, bass-forward languidness with retroactive affinity to trip-hop aesthetics, but the production predates canonical trip-hop and lacks its sample-based drum construction and turntablist lineage. Label likely applied retroactively."
+          }
+        ],
+        "canonical": [
+          "quiet storm",
+          "sophisti-pop",
+          "smooth soul",
+          "contemporary r&b",
+          "trip-hop"
+        ],
+        "gaps": [],
+        "facets": [
+          {
+            "term": "downtempo",
+            "facet_type": "rhythm"
+          },
+          {
+            "term": "female vocals",
+            "facet_type": "vocal"
+          },
+          {
+            "term": "saxophone",
+            "facet_type": "instrumentation"
+          },
+          {
+            "term": "jazz-inflected",
+            "facet_type": "production"
+          },
+          {
+            "term": "lush",
+            "facet_type": "texture"
+          },
+          {
+            "term": "romantic",
+            "facet_type": "mood"
+          },
+          {
+            "term": "1990s",
+            "facet_type": "era"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.84,
+        "warnings": [
+          "'electronic' (discogs_release) is excluded — appears to be a broadly-applied artist or label tag; Love Deluxe is not an electronic album.",
+          "'downtempo' (discogs_master) is a rhythm descriptor; moved to facets.",
+          "'cool jazz' (MusicBrainz file tag) excluded from genres — jazz inflections are real but function as an instrumentation facet, not a genre identity; this is not a jazz album.",
+          "'pop soul' (MusicBrainz file tag) excluded as redundant with 'smooth soul' and 'sophisti-pop,' which together are more specific.",
+          "'r&b' and 'soul' (MusicBrainz file tags) excluded as broad parent genres derived from the genre graph.",
+          "'trip-hop' retained as low-confidence secondary rather than dropped, per file-tag authority policy, with rationale noting its retroactive nature."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 4246,
+          "cache_creation_input_tokens": 15157,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 4249
+        }
+      }
+    },
+    {
+      "release_key": "fela kuti::alagbon close",
+      "album_id": "10d3b51f730e503f",
+      "artist": "Fela Kuti",
+      "title": "Alagbon Close",
+      "bucket": "failure",
+      "failure_mode": "wrong_tag",
+      "gold_genres": [
+        "afrobeat"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "afrobeat"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "afrobeat",
+        "juju",
+        "world music"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "afrobeat",
+            "confidence": 0.99,
+            "layer": "core",
+            "rationale": "Fela Kuti is the inventor and defining practitioner of afrobeat; 'Alagbon Close' (1974, Africa 70 era) is a canonical mid-period example — extended cyclic groove, call-and-response horn section, political Pidgin English lyrics. File tag from discogs_master is authoritative and correct."
+          },
+          {
+            "term": "funk",
+            "confidence": 0.82,
+            "layer": "secondary",
+            "rationale": "The Africa 70 rhythm section is deeply funk-rooted — bass-forward locked groove, syncopated percussion, interlocking guitar riffs. Discogs 'funk / soul' release tag reflects this accurately as a real constituent element, not just a parent category."
+          },
+          {
+            "term": "jazz",
+            "confidence": 0.7,
+            "layer": "secondary",
+            "rationale": "Fela trained in jazz and it pervades the Africa 70 horn writing — extended improvised solos, jazz harmony in the arrangement, and a big-band sensibility in the reed and brass voicings. Audible on all 1970s afrobeat sides."
+          }
+        ],
+        "canonical": [
+          "afrobeat",
+          "funk",
+          "jazz"
+        ],
+        "gaps": [],
+        "facets": [
+          {
+            "term": "nigeria",
+            "facet_type": "region"
+          },
+          {
+            "term": "1970s",
+            "facet_type": "era"
+          },
+          {
+            "term": "brass and horns",
+            "facet_type": "instrumentation"
+          },
+          {
+            "term": "male vocals",
+            "facet_type": "vocal"
+          },
+          {
+            "term": "political",
+            "facet_type": "function"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.95,
+        "warnings": [
+          "'juju' in current_observed_leaf is incorrect for this release. Juju is a distinct Yoruba guitar-based popular music style (King Sunny Ade, Ebenezer Obey); it is not Fela Kuti's genre. Recommend removing 'juju' from the observed leaf.",
+          "'world music' in current_observed_leaf is a broad parent/facet descriptor, not a specific genre; excluded per adjudication rules.",
+          "Discogs release tags 'folk, world, & country' and 'funk / soul' are Discogs taxonomy buckets (structural groupings), not genre names — treated as partial corroboration of funk influence only, not as standalone genre assignments."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 2378,
+          "cache_creation_input_tokens": 14974,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 2381
+        }
+      }
+    },
+    {
+      "release_key": "stereolab::chemical chords",
+      "album_id": "ff764e6df6a3b3c8",
+      "artist": "Stereolab",
+      "title": "Chemical Chords",
+      "bucket": "failure",
+      "failure_mode": "over_tagged",
+      "gold_genres": [
+        "indietronica",
+        "krautrock",
+        "art pop"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "krautrock"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "art pop",
+        "avant-garde pop",
+        "experimental rock",
+        "indie pop",
+        "indie rock",
+        "indietronica",
+        "krautrock",
+        "noise pop",
+        "post-rock",
+        "space rock",
+        "synth-pop"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "synth-pop",
+            "confidence": 0.91,
+            "layer": "core",
+            "rationale": "Chemical Chords is among Stereolab's most overtly synth-pop releases — crystalline, melodic synthesizer lines and tightly structured pop forms dominate, supported by multiple source tags (discogs_master, file_track era MusicBrainz)."
+          },
+          {
+            "term": "art pop",
+            "confidence": 0.86,
+            "layer": "core",
+            "rationale": "The album pairs sophisticated orchestral and chamber arrangements with pop songwriting and an arch aesthetic; track titles like 'Pop Molecule' and 'One Finger Symphony' signal a self-aware, art-inflected pop stance more prominent here than in earlier Stereolab work."
+          },
+          {
+            "term": "krautrock",
+            "confidence": 0.8,
+            "layer": "core",
+            "rationale": "Stereolab's signature motorik rhythmic grid is present throughout, even on the more pop-forward tracks; this is the structural spine that separates them from straightforward synth-pop acts."
+          },
+          {
+            "term": "chamber pop",
+            "confidence": 0.72,
+            "layer": "secondary",
+            "rationale": "String and woodwind arrangements contribute a chamber quality on several tracks, distinguishing this album from earlier noisier Stereolab records."
+          },
+          {
+            "term": "electro-pop",
+            "confidence": 0.64,
+            "layer": "secondary",
+            "rationale": "The more dance-adjacent, electronics-forward tracks ('Neon Beanbag', 'The Ecstatic Static') push into electro-pop territory; distinct from the synth-pop core but a real facet of the album's palette."
+          }
+        ],
+        "canonical": [
+          "synth-pop",
+          "art pop",
+          "krautrock",
+          "chamber pop"
+        ],
+        "gaps": [
+          "electro-pop"
+        ],
+        "facets": [
+          {
+            "term": "female vocals",
+            "facet_type": "vocal"
+          },
+          {
+            "term": "orchestral",
+            "facet_type": "instrumentation"
+          },
+          {
+            "term": "motorik",
+            "facet_type": "rhythm"
+          },
+          {
+            "term": "2000s",
+            "facet_type": "era"
+          },
+          {
+            "term": "lush production",
+            "facet_type": "production"
+          }
+        ],
+        "escalate": true,
+        "escalate_reason": "The file-tag 'space rock' (file_track source — treated as authoritative) is being dropped. Chemical Chords is not a representative space rock release: it is a polished, pop-forward synth/art-pop album with orchestral flourishes, a significant departure from the droning, extended-form cosmic rock the genre implies. The tag appears to be an artist-level label applied uniformly across Stereolab's catalog rather than a characterization of this specific album. Flagging for human confirmation before silently excluding a file tag.",
+        "overall_confidence": 0.78,
+        "warnings": [
+          "year is null; genre identity derived from release title and artist knowledge without date confirmation",
+          "'space rock' file tag excluded as artist-level overgeneralization; see escalate_reason",
+          "'noise pop' and 'post-rock' from observed_leaf not retained — Chemical Chords is notably less noisy and less post-rock-structured than earlier Stereolab records"
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 2642,
+          "cache_creation_input_tokens": 15144,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 2645
+        }
+      }
+    },
+    {
+      "release_key": "talking heads::fear of music",
+      "album_id": "b5ed8ad2ff3e5d1d",
+      "artist": "Talking Heads",
+      "title": "Fear of Music",
+      "bucket": "failure",
+      "failure_mode": "over_tagged",
+      "gold_genres": [
+        "new wave",
+        "post-punk",
+        "art rock",
+        "funk"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "new wave",
+        "post-punk"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "alternative rock",
+        "art pop",
+        "art punk",
+        "art rock",
+        "funk",
+        "funk rock",
+        "new wave",
+        "post-punk"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "post-punk",
+            "confidence": 0.95,
+            "layer": "core",
+            "rationale": "Primary identity of the album: angular guitar work, tense rhythms, David Byrne's anxious and theatrical delivery. Confirmed by file tag (ground truth) and MusicBrainz."
+          },
+          {
+            "term": "new wave",
+            "confidence": 0.9,
+            "layer": "core",
+            "rationale": "Hook-driven melodic accessibility layered over the art-driven experimentalism. Confirmed across Discogs master and MusicBrainz; the most cross-source consensus genre in the payload."
+          },
+          {
+            "term": "art punk",
+            "confidence": 0.83,
+            "layer": "core",
+            "rationale": "Performance-art sensibility, conceptual and anxious lyrics, abrasive textures on tracks like 'Memories Can't Wait.' More specific to this album's CBGB-scene energy than the softer 'art rock' label."
+          },
+          {
+            "term": "afrobeat",
+            "confidence": 0.74,
+            "layer": "secondary",
+            "rationale": "'I Zimbra' is built on Ghanaian highlife and Fela Kuti-style polyrhythms via Brian Eno's involvement. Distinguishes this album specifically from the band's earlier work and points toward Remain in Light."
+          },
+          {
+            "term": "funk rock",
+            "confidence": 0.68,
+            "layer": "secondary",
+            "rationale": "The rhythm section on 'Life During Wartime,' 'Cities,' and 'I Zimbra' is groove-driven with clear funk DNA — a defining rhythmic character of this record before the full Afrobeat pivot."
+          }
+        ],
+        "canonical": [
+          "post-punk",
+          "new wave",
+          "art punk",
+          "afrobeat",
+          "funk rock"
+        ],
+        "gaps": [],
+        "facets": [
+          {
+            "term": "late 1970s",
+            "facet_type": "era"
+          },
+          {
+            "term": "new york",
+            "facet_type": "region"
+          },
+          {
+            "term": "cbgb scene",
+            "facet_type": "scene"
+          },
+          {
+            "term": "brian eno production",
+            "facet_type": "production"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.88,
+        "warnings": [
+          "MusicBrainz 'progressive' tag dropped: too vague as a standalone genre label and does not describe this album's actual identity.",
+          "MusicBrainz 'art rock' tag not carried forward as a separate entry — its descriptive territory is covered by 'art punk,' which is more specific to this album's energy and scene context.",
+          "Discogs release tags 'electronic' and 'rock' dropped as broad parent genres not meaningful at this specificity level."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 3672,
+          "cache_creation_input_tokens": 15092,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 3675
+        }
+      }
+    },
+    {
+      "release_key": "my bloody valentine::loveless",
+      "album_id": "ef3e8cccd091ddc7",
+      "artist": "My Bloody Valentine",
+      "title": "loveless",
+      "bucket": "control",
+      "failure_mode": null,
+      "gold_genres": [
+        "shoegaze",
+        "dream pop",
+        "noise pop"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "shoegaze",
+        "dream pop"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "alternative rock",
+        "dream pop",
+        "noise pop",
+        "noise rock",
+        "post-punk",
+        "shoegaze"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "shoegaze",
+            "confidence": 0.99,
+            "layer": "core",
+            "rationale": "Loveless is the canonical shoegaze album; the track list (Only Shallow, Loomer, To Here Knows When, Sometimes) confirms it. Present across MusicBrainz and current_observed_leaf. Highest specificity and accuracy of any tag here."
+          },
+          {
+            "term": "dream pop",
+            "confidence": 0.94,
+            "layer": "core",
+            "rationale": "The ethereal, melody-submerged, heavily atmospheric quality of tracks like Sometimes, To Here Knows When, and Loomer places this firmly in dream pop territory. Corroborated by MusicBrainz and current_observed_leaf."
+          },
+          {
+            "term": "noise pop",
+            "confidence": 0.84,
+            "layer": "secondary",
+            "rationale": "The album's dense guitar distortion and feedback over melodic structures is a textbook noise pop trait. Present in MusicBrainz. A real but secondary dimension behind the dominant shoegaze/dream pop identity."
+          }
+        ],
+        "canonical": [
+          "shoegaze",
+          "dream pop",
+          "noise pop"
+        ],
+        "gaps": [],
+        "facets": [
+          {
+            "term": "wall of sound",
+            "facet_type": "production"
+          },
+          {
+            "term": "treated vocals",
+            "facet_type": "vocal"
+          },
+          {
+            "term": "densely layered",
+            "facet_type": "texture"
+          },
+          {
+            "term": "heavily distorted guitars",
+            "facet_type": "instrumentation"
+          },
+          {
+            "term": "1990s",
+            "facet_type": "era"
+          },
+          {
+            "term": "uk",
+            "facet_type": "region"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.97,
+        "warnings": [
+          "File tag 'indie' is a broad scene/parent descriptor, not a specific genre; treated as a facet (UK scene) rather than a genre entry.",
+          "MusicBrainz and current_observed_leaf include 'noise rock'; excluded because Loveless's character is textural and melodic rather than the aggression noise rock implies — noise pop covers the distortion dimension more precisely.",
+          "'alternative rock' and 'rock' from sources are broad parent genres excluded per adjudication rules."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 1558,
+          "cache_creation_input_tokens": 15072,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 1561
+        }
+      }
+    },
+    {
+      "release_key": "neu::neu",
+      "album_id": "506581bb324c666b",
+      "artist": "Neu!",
+      "title": "Neu!",
+      "bucket": "control",
+      "failure_mode": null,
+      "gold_genres": [
+        "krautrock",
+        "experimental rock"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "krautrock"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "ambient",
+        "art rock",
+        "experimental rock",
+        "krautrock",
+        "proto-punk"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "krautrock",
+            "confidence": 0.97,
+            "layer": "core",
+            "rationale": "Unanimous across all sources and unambiguous from the tracklist: 'Hallogallo' is one of the genre's defining documents, and the full album's motorik pulse, pastoral drift, and noise experimentation collectively constitute the krautrock blueprint."
+          },
+          {
+            "term": "kosmische musik",
+            "confidence": 0.87,
+            "layer": "core",
+            "rationale": "'Weissensee,' 'Im Glück,' and 'Lieber Honig' have the drifting, meditative, texture-over-structure quality that distinguishes the kosmische strand of German music from its harder krautrock cousins; the album sits squarely in both simultaneously."
+          },
+          {
+            "term": "art rock",
+            "confidence": 0.71,
+            "layer": "secondary",
+            "rationale": "Present in current_observed_leaf and supported by the album's refusal of conventional song forms, its side-long suite structure, and its integration of noise and ambient passages as compositional material rather than accident."
+          },
+          {
+            "term": "noise rock",
+            "confidence": 0.6,
+            "layer": "secondary",
+            "rationale": "'Negativland' and 'Sonderangebot' deploy abrasive, largely atonal textures that anticipate noise rock; limited to these tracks so confidence is held below the core pair."
+          }
+        ],
+        "canonical": [
+          "krautrock",
+          "kosmische musik",
+          "art rock",
+          "noise rock"
+        ],
+        "gaps": [],
+        "facets": [
+          {
+            "term": "motorik",
+            "facet_type": "rhythm"
+          },
+          {
+            "term": "1970s",
+            "facet_type": "era"
+          },
+          {
+            "term": "west german",
+            "facet_type": "region"
+          },
+          {
+            "term": "hypnotic",
+            "facet_type": "mood"
+          },
+          {
+            "term": "minimalist",
+            "facet_type": "texture"
+          },
+          {
+            "term": "drone",
+            "facet_type": "texture"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.88,
+        "warnings": [
+          "'proto-punk' in current_observed_leaf is an artist-level tag most applicable to Neu! '75 (e.g. 'Hero', 'After Eight'); it has no meaningful foothold on the 1972 debut and is excluded.",
+          "File tags 'electronic', 'rock', and 'experimental' are broad parent genres excluded per adjudication policy; 'krautrock' from file tags is retained as the sole specific, correct file-tag genre.",
+          "'experimental rock' from current_observed_leaf is superseded by the more specific 'noise rock' (secondary) applied only to the abrasive tracks; the general 'experimental' label is a broad parent excluded by policy."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 4423,
+          "cache_creation_input_tokens": 15059,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 4426
+        }
+      }
+    },
+    {
+      "release_key": "fela ransome kuti the africa 70::confusion",
+      "album_id": "43e594e49d4ac64c",
+      "artist": "Fela Kuti",
+      "title": "Confusion",
+      "bucket": "control",
+      "failure_mode": null,
+      "gold_genres": [
+        "afrobeat"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "afrobeat"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "afrobeat",
+        "world music"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "afrobeat",
+            "confidence": 0.97,
+            "layer": "core",
+            "rationale": "Fela Kuti invented and defines afrobeat; 'Confusion' is a canonical long-form Afrobeat recording. MusicBrainz tag and current_observed_leaf both confirm; this is unambiguous."
+          },
+          {
+            "term": "funk",
+            "confidence": 0.85,
+            "layer": "secondary",
+            "rationale": "Afrobeat's rhythmic engine is deeply rooted in James Brown-era funk — polyrhythmic groove, tight bass-and-drum interlock, and call-and-response horn stabs are funk devices present throughout Fela's work including this track."
+          },
+          {
+            "term": "jazz",
+            "confidence": 0.75,
+            "layer": "secondary",
+            "rationale": "Fela studied at Trinity College of Music; his horn arrangements, extended improvisational passages, and harmonic language carry clear jazz influence across his catalog and are audible on Confusion."
+          }
+        ],
+        "canonical": [
+          "afrobeat",
+          "funk",
+          "jazz"
+        ],
+        "gaps": [],
+        "facets": [
+          {
+            "term": "nigerian",
+            "facet_type": "region"
+          },
+          {
+            "term": "west african",
+            "facet_type": "region"
+          },
+          {
+            "term": "1970s",
+            "facet_type": "era"
+          },
+          {
+            "term": "brass section",
+            "facet_type": "instrumentation"
+          },
+          {
+            "term": "long-form",
+            "facet_type": "format"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.92,
+        "warnings": [
+          "discogs_master tag 'thrash' and discogs_release tag 'rock' are almost certainly metadata errors (wrong Discogs entry associations); they carry no genre signal for this release and are not reflected in adjudicated genres.",
+          "'world music' in current_observed_leaf is a broad parent category (facet-level regional descriptor), not a specific genre; excluded per instructions."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 1597,
+          "cache_creation_input_tokens": 14962,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 1600
+        }
+      }
+    },
+    {
+      "release_key": "ryuichi sakamoto::12",
+      "album_id": "18ad29f55661466f",
+      "artist": "Ryuichi Sakamoto",
+      "title": "12",
+      "bucket": "sparse",
+      "failure_mode": null,
+      "gold_genres": [
+        "ambient",
+        "modern classical"
+      ],
+      "gold_facets": [],
+      "must_preserve": [],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "contemporary classical"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "modern classical",
+            "confidence": 0.92,
+            "layer": "core",
+            "rationale": "Convergent across MusicBrainz and Discogs sources; '12' is entirely composed solo piano pieces in the post-classical tradition — serious, notated instrumental music, not ambient production or electronic composition."
+          },
+          {
+            "term": "neoclassical",
+            "confidence": 0.88,
+            "layer": "core",
+            "rationale": "Track titles are dates from a recording diary, and one piece is explicitly subtitled 'sarabande' — a Baroque dance form — confirming Sakamoto's late-period practice of embedding classical structural forms in spare piano writing."
+          },
+          {
+            "term": "contemporary classical",
+            "confidence": 0.8,
+            "layer": "secondary",
+            "rationale": "Near-synonym with modern classical; retained because it is the current_observed_leaf and present in source tags. Accurately describes the compositional register of this work."
+          }
+        ],
+        "canonical": [
+          "modern classical",
+          "neoclassical",
+          "contemporary classical"
+        ],
+        "gaps": [],
+        "facets": [
+          {
+            "term": "solo piano",
+            "facet_type": "instrumentation"
+          },
+          {
+            "term": "acoustic",
+            "facet_type": "production"
+          },
+          {
+            "term": "sparse",
+            "facet_type": "texture"
+          },
+          {
+            "term": "introspective",
+            "facet_type": "mood"
+          },
+          {
+            "term": "meditative",
+            "facet_type": "mood"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.88,
+        "warnings": [
+          "'electronic' appears in Discogs and MusicBrainz sources but is not accurate for this release — '12' is entirely solo acoustic piano with no electronic production; this tag reflects Sakamoto's broader catalog identity, not this album.",
+          "'ambient' appears in multiple sources but '12' is diary-format solo piano compositions, not ambient music in any production or textural sense; this tag is artist-level bleed from Sakamoto's synth and electronic work."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 2722,
+          "cache_creation_input_tokens": 15031,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 2725
+        }
+      }
+    },
+    {
+      "release_key": "sun ra his arkestra::a fireside chat with lucifer",
+      "album_id": "00f0314f90d2457b",
+      "artist": "Sun Ra & His Arkestra",
+      "title": "A Fireside Chat with Lucifer",
+      "bucket": "sparse",
+      "failure_mode": null,
+      "gold_genres": [
+        "free jazz",
+        "avant-garde jazz"
+      ],
+      "gold_facets": [],
+      "must_preserve": [],
+      "taxonomy_gaps_gold": [
+        "space jazz",
+        "cosmic jazz"
+      ],
+      "current_observed_leaf": [],
+      "proposed": {
+        "genres": [
+          {
+            "term": "avant-garde jazz",
+            "confidence": 0.95,
+            "layer": "core",
+            "rationale": "Confirmed by discogs_master tag and unambiguously accurate for Sun Ra & His Arkestra across all periods; the album's title track and cosmic provocation reinforce it."
+          },
+          {
+            "term": "free jazz",
+            "confidence": 0.88,
+            "layer": "core",
+            "rationale": "The Arkestra's live and studio work in this era is deeply rooted in collective free improvisation; extended solos, non-functional harmony, and spontaneous ensemble texture are hallmarks."
+          },
+          {
+            "term": "space jazz",
+            "confidence": 0.85,
+            "layer": "core",
+            "rationale": "Sun Ra is the originator of this style; the cosmic/mythological aesthetic — reflected in the album title and the Arkestra's entire identity — is genre-constitutive, not merely a facet."
+          },
+          {
+            "term": "jazz funk",
+            "confidence": 0.72,
+            "layer": "secondary",
+            "rationale": "'Nuclear War' has a prominent, repetitive funk groove with call-and-response vocals that is musically distinct from free improvisation; this album is one of the clearer funk-inflected entries in Sun Ra's catalog."
+          }
+        ],
+        "canonical": [
+          "avant-garde jazz",
+          "free jazz"
+        ],
+        "gaps": [
+          "space jazz",
+          "jazz funk"
+        ],
+        "facets": [
+          {
+            "term": "large ensemble",
+            "facet_type": "instrumentation"
+          },
+          {
+            "term": "cosmic",
+            "facet_type": "mood"
+          },
+          {
+            "term": "politically charged",
+            "facet_type": "mood"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.84,
+        "warnings": [
+          "year is null — era facet omitted; 'Nuclear War' strongly implies an early-1980s recording date but is not confirmed in the payload",
+          "'jazz' from file_track and discogs_release is a parent genre and is intentionally excluded per taxonomy rules; no specific correct tag is dropped"
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 1852,
+          "cache_creation_input_tokens": 14964,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 1855
+        }
+      }
+    },
+    {
+      "release_key": "black sabbath::black sabbath 2012 shm sacd",
+      "album_id": "d0ce596a133a6dd0",
+      "artist": "Black Sabbath",
+      "title": "Black Sabbath (2012 SHM-SACD)",
+      "bucket": "failure",
+      "failure_mode": "wrong_tag",
+      "gold_genres": [
+        "heavy metal",
+        "doom metal",
+        "hard rock"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "hard rock"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "hard rock",
+        "stoner rock"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "heavy metal",
+            "confidence": 0.97,
+            "layer": "core",
+            "rationale": "The track listing is unambiguous — this is the 1970 Black Sabbath debut, universally cited as one of the founding documents of heavy metal. Down-tuned tritone riffs, dark occult themes, and distorted heaviness define the album's identity."
+          },
+          {
+            "term": "doom metal",
+            "confidence": 0.91,
+            "layer": "core",
+            "rationale": "The title track 'Black Sabbath' and 'Sleeping Village' are the literal blueprints for doom metal: slow tempos, ominous atmosphere, tritone dread. This album is the genre's ground zero."
+          },
+          {
+            "term": "blues rock",
+            "confidence": 0.82,
+            "layer": "secondary",
+            "rationale": "'Warning' and 'Evil Woman' are blues covers; 'The Wizard' and 'Behind the Wall of Sleep' carry clear blues-rock DNA. The band had not yet shed its blues-rock origins on this debut."
+          },
+          {
+            "term": "hard rock",
+            "confidence": 0.75,
+            "layer": "secondary",
+            "rationale": "File tag — retained as legitimate. Tracks like 'N.I.B.' and 'The Wizard' sit comfortably in a hard rock frame alongside the heavier material. Valid label for the debut's range even if heavy metal is more precise."
+          }
+        ],
+        "canonical": [
+          "heavy metal",
+          "doom metal",
+          "blues rock",
+          "hard rock"
+        ],
+        "gaps": [],
+        "facets": [
+          {
+            "term": "1970",
+            "facet_type": "era"
+          },
+          {
+            "term": "shm-sacd reissue",
+            "facet_type": "format"
+          },
+          {
+            "term": "occult",
+            "facet_type": "mood"
+          },
+          {
+            "term": "raw",
+            "facet_type": "production"
+          },
+          {
+            "term": "heavy distorted guitar",
+            "facet_type": "instrumentation"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.93,
+        "warnings": [
+          "year field is null; track listing is definitive — this is the 1970 Black Sabbath debut.",
+          "current_observed_leaf includes 'stoner rock', which is anachronistic (stoner rock emerged ~1990s as a Sabbath-derived genre); excluded as inapplicable to this release."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 2014,
+          "cache_creation_input_tokens": 14967,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 2017
+        }
+      }
+    },
+    {
+      "release_key": "tim hecker::an imaginary country",
+      "album_id": "c5e8299993121e37",
+      "artist": "Tim Hecker",
+      "title": "An Imaginary Country",
+      "bucket": "failure",
+      "failure_mode": "wrong_tag",
+      "gold_genres": [
+        "ambient",
+        "dark ambient",
+        "experimental electronic"
+      ],
+      "gold_facets": [
+        "drone"
+      ],
+      "must_preserve": [],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "dark ambient",
+        "electroacoustic",
+        "emo",
+        "experimental electronic",
+        "glitch",
+        "gothic rock"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "drone ambient",
+            "confidence": 0.88,
+            "layer": "core",
+            "rationale": "Primary identity of the album; sustained harmonic drones, slow-moving atmospheric layers, and melodic haze define the record across all eight tracks. Ambient confirmed across every source; drone character is specific to this album's palette."
+          },
+          {
+            "term": "noise",
+            "confidence": 0.7,
+            "layer": "secondary",
+            "rationale": "Textural noise processing present throughout, confirmed by Discogs master and known_tags. Less abrasive here than on later Hecker works — this album is comparatively lush — but noise is a clear secondary ingredient in the grain and saturation."
+          },
+          {
+            "term": "glitch",
+            "confidence": 0.62,
+            "layer": "secondary",
+            "rationale": "Confirmed by MusicBrainz and known_tags; micro-editing and glitch artifacts appear in the textural fabric, though they are subordinate to the ambient drone character."
+          }
+        ],
+        "canonical": [
+          "noise",
+          "glitch"
+        ],
+        "gaps": [
+          "drone ambient"
+        ],
+        "facets": [
+          {
+            "term": "textural",
+            "facet_type": "texture"
+          },
+          {
+            "term": "melancholic",
+            "facet_type": "mood"
+          },
+          {
+            "term": "lush",
+            "facet_type": "texture"
+          },
+          {
+            "term": "heavily processed",
+            "facet_type": "production"
+          },
+          {
+            "term": "melodic",
+            "facet_type": "texture"
+          },
+          {
+            "term": "2000s",
+            "facet_type": "era"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.8,
+        "warnings": [
+          "current_observed_leaf contains 'emo' and 'gothic rock' — plainly inapplicable to this release; almost certainly artist-level tag bleed from misclassified sources. Both dropped without escalation as they are not correct tags.",
+          "current_observed_leaf contains 'dark ambient' — marginally applicable; this album is more melodic and lush than canonical dark ambient and the tag is not corroborated by any external source, so it is omitted in favour of 'drone ambient'.",
+          "current_observed_leaf contains 'electroacoustic' — Hecker does use processed acoustic sources but this tag implies an academic acousmatic tradition not well matched to this release; not included.",
+          "year field is null in the payload; album is 2009 per music knowledge, used only for era facet."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 3163,
+          "cache_creation_input_tokens": 15067,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 3166
+        }
+      }
+    },
+    {
+      "release_key": "bill callahan::apocalypse",
+      "album_id": "bad0dc4e358e4515",
+      "artist": "Bill Callahan",
+      "title": "Apocalypse",
+      "bucket": "failure",
+      "failure_mode": "over_tagged",
+      "gold_genres": [
+        "indie folk",
+        "alternative country",
+        "singer-songwriter"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "indie folk"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "alternative country",
+        "alternative rock",
+        "americana",
+        "contemporary folk",
+        "contemporary r&b",
+        "folk rock",
+        "funk rock",
+        "indie folk",
+        "neo-psychedelia",
+        "pop soul",
+        "psychedelic pop"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "singer-songwriter",
+            "confidence": 0.92,
+            "layer": "core",
+            "rationale": "Callahan's literary, first-person lyrical voice is the defining axis of Apocalypse — every track is built around his baritone delivery and authored perspective; consistently implied by the MusicBrainz tag set and the album's known character."
+          },
+          {
+            "term": "americana",
+            "confidence": 0.88,
+            "layer": "core",
+            "rationale": "American landscapes, mythology, and imagery (\"Drover,\" \"America!\") anchor the album culturally; pedal steel and country-folk instrumentation place it squarely in the Americana tradition; supported by multiple sources."
+          },
+          {
+            "term": "alternative country",
+            "confidence": 0.85,
+            "layer": "core",
+            "rationale": "Country-inflected arrangements and lyrical sensibility but outside any mainstream country framework; strong agreement across MusicBrainz and Discogs; fits Callahan's post-Smog output."
+          },
+          {
+            "term": "contemporary folk",
+            "confidence": 0.78,
+            "layer": "secondary",
+            "rationale": "Sparse acoustic arrangements and folk songcraft on several tracks (\"Baby's Breath,\" \"Universal Applicant\"); corroborated by MusicBrainz tags."
+          },
+          {
+            "term": "folk rock",
+            "confidence": 0.68,
+            "layer": "secondary",
+            "rationale": "Electric guitar and rhythmic drive appear on tracks like \"Drover\" and \"Riding For The Feeling,\" lifting the sound above purely acoustic folk; Discogs master tags confirm."
+          }
+        ],
+        "canonical": [
+          "singer-songwriter",
+          "americana",
+          "alternative country",
+          "contemporary folk",
+          "folk rock"
+        ],
+        "gaps": [],
+        "facets": [
+          {
+            "term": "male vocals",
+            "facet_type": "vocal"
+          },
+          {
+            "term": "baritone",
+            "facet_type": "vocal"
+          },
+          {
+            "term": "sparse",
+            "facet_type": "production"
+          },
+          {
+            "term": "acoustic",
+            "facet_type": "instrumentation"
+          },
+          {
+            "term": "literary",
+            "facet_type": "mood"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.85,
+        "warnings": [
+          "current_observed_leaf contains clearly inapplicable artist-level tags (contemporary r&b, funk rock, pop soul, psychedelic pop, neo-psychedelia) — these appear to have bled from broader artist-level tagging and do not reflect this release; excluded without escalation as they contradict all file-tag sources and known album character.",
+          "Discogs 'indie rock' tag (discogs_master) is marginal for this release; the album's acoustic/country-folk character makes it a weak fit and it was not included."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 1777,
+          "cache_creation_input_tokens": 15142,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 1780
+        }
+      }
+    },
+    {
+      "release_key": "wilco::a ghost is born",
+      "album_id": "967b9bde5bc0928c",
+      "artist": "Wilco",
+      "title": "A ghost is born",
+      "bucket": "control",
+      "failure_mode": null,
+      "gold_genres": [
+        "alternative country",
+        "experimental rock"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "alternative country"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "alternative country",
+        "alternative rock",
+        "country",
+        "country rock",
+        "experimental rock"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "art rock",
+            "confidence": 0.85,
+            "layer": "core",
+            "rationale": "The album's dominant character is cerebral, compositionally adventurous rock — extended structures, noise excursions, and tonal abstraction place it squarely in art rock rather than any of Wilco's earlier alt-country modes."
+          },
+          {
+            "term": "indie rock",
+            "confidence": 0.88,
+            "layer": "core",
+            "rationale": "The song-based framework of most tracks (Hummingbird, Muzzle of Bees, Hell Is Chrome) is quintessential 2000s indie rock; Wilco are a canonical example of the form on this record."
+          },
+          {
+            "term": "experimental rock",
+            "confidence": 0.87,
+            "layer": "core",
+            "rationale": "Corroborated by multiple sources and accurate: noise sections, extended drone passages, and unconventional song architecture throughout make this one of Wilco's most explicitly experimental releases."
+          },
+          {
+            "term": "noise rock",
+            "confidence": 0.72,
+            "layer": "secondary",
+            "rationale": "Handshake Drugs, Wishful Thinking, and At Least That's What You Said all build into extended feedback and noise blowouts that are characteristic of noise rock, not merely 'loud indie'."
+          },
+          {
+            "term": "krautrock",
+            "confidence": 0.7,
+            "layer": "secondary",
+            "rationale": "Spiders (Kidsmoke) is a direct, deliberate exercise in motorik groove — an extended Neu!/Can-influenced piece that cannot be adequately described by any of the existing tags in the payload."
+          }
+        ],
+        "canonical": [
+          "art rock",
+          "indie rock",
+          "experimental rock",
+          "noise rock",
+          "krautrock"
+        ],
+        "gaps": [],
+        "facets": [
+          {
+            "term": "drone",
+            "facet_type": "texture"
+          },
+          {
+            "term": "noise",
+            "facet_type": "production"
+          },
+          {
+            "term": "introspective",
+            "facet_type": "mood"
+          },
+          {
+            "term": "2000s",
+            "facet_type": "era"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.82,
+        "warnings": [
+          "Tags 'country', 'country rock', and 'alternative country' appear to be artist-level attributions applied broadly across Wilco's catalog; A Ghost Is Born has minimal country influence compared to Being There or Summerteeth and those tags are dropped here as release-inaccurate.",
+          "The 'electronic' tag from musicbrainz_release is not reflected in the genre output — it likely refers to synthesizer textures rather than an electronic genre identity, and is better captured as a production/instrumentation facet if needed.",
+          "The sole file_track tag ('rock') is a flat catch-all and is subsumed by the more specific genres above; no authoritative file-tag genre is dropped."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 2328,
+          "cache_creation_input_tokens": 15117,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 2331
+        }
+      }
+    },
+    {
+      "release_key": "the cure::the head on the door",
+      "album_id": "504547667d031638",
+      "artist": "The Cure",
+      "title": "The Head on the Door",
+      "bucket": "control",
+      "failure_mode": null,
+      "gold_genres": [
+        "gothic rock",
+        "post-punk",
+        "new wave",
+        "synth-pop"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "gothic rock",
+        "post-punk"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "alternative rock",
+        "art pop",
+        "gothic rock",
+        "new wave",
+        "post-punk",
+        "synth-pop"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "new wave",
+            "confidence": 0.93,
+            "layer": "core",
+            "rationale": "The album's dominant identity: mid-80s production sheen, hook-driven rhythms, and danceable momentum define almost every track from 'In Between Days' to 'Push'. Confirmed by multiple sources and directly audible in the record's feel."
+          },
+          {
+            "term": "art pop",
+            "confidence": 0.85,
+            "layer": "core",
+            "rationale": "Eclectic and experimental across the album — 'Kyoto Song' draws on Eastern textures, 'Close to Me' is chamber-inflected, 'Six Different Ways' is minimalist. Not a straightforward genre exercise; the artistic variety is the point."
+          },
+          {
+            "term": "gothic rock",
+            "confidence": 0.75,
+            "layer": "secondary",
+            "rationale": "Residual but real: 'The Blood' and 'Kyoto Song' carry darker timbres and gothic atmosphere. This album is considerably brighter than Faith or Pornography, so gothic rock is secondary rather than core for this specific release."
+          },
+          {
+            "term": "jangle pop",
+            "confidence": 0.72,
+            "layer": "secondary",
+            "rationale": "'In Between Days' is a textbook jangle pop track; the chiming, arpeggiated guitar tone recurs throughout the album and is a signature of this particular record, distinct from the band's earlier work."
+          },
+          {
+            "term": "synth-pop",
+            "confidence": 0.6,
+            "layer": "secondary",
+            "rationale": "Synth textures underpin 'Push', 'The Baby Screams', and others; the keyboard programming has genuine synth-pop character, though guitars remain prominent enough to keep this secondary."
+          }
+        ],
+        "canonical": [
+          "new wave",
+          "art pop",
+          "gothic rock",
+          "jangle pop",
+          "synth-pop"
+        ],
+        "gaps": [],
+        "facets": [
+          {
+            "term": "1980s",
+            "facet_type": "era"
+          },
+          {
+            "term": "uk",
+            "facet_type": "region"
+          },
+          {
+            "term": "saxophone",
+            "facet_type": "instrumentation"
+          },
+          {
+            "term": "layered production",
+            "facet_type": "production"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.88,
+        "warnings": [
+          "File-tag 'rock' and source-tag 'alternative rock' are broad parent genres excluded per adjudication rules; both are derivable from the graph and not dropped silently.",
+          "Year is null in payload; album is known to be 1985 from track listing and cultural context, but not confirmed by structured data."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 2944,
+          "cache_creation_input_tokens": 15140,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 2947
+        }
+      }
+    },
+    {
+      "release_key": "terry riley::a rainbow in curved air",
+      "album_id": "4f91cf46633e10df",
+      "artist": "Terry Riley",
+      "title": "A Rainbow In Curved Air",
+      "bucket": "control",
+      "failure_mode": null,
+      "gold_genres": [
+        "minimalist composition",
+        "contemporary classical"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "minimalist composition"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "contemporary classical",
+        "minimalist composition"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "minimalism",
+            "confidence": 0.97,
+            "layer": "core",
+            "rationale": "Terry Riley is one of the genre's originators; both pieces on this album are built from cycling, repetitive figures that define the minimalist idiom — this is a foundational work of the form."
+          },
+          {
+            "term": "ambient",
+            "confidence": 0.83,
+            "layer": "core",
+            "rationale": "File-tagged ambient (authoritative source retained); the album's meditative, texture-first, non-narrative approach directly prefigured and influenced Brian Eno's ambient concept. Sustained across discogs_master and musicbrainz_release as well."
+          },
+          {
+            "term": "drone music",
+            "confidence": 0.6,
+            "layer": "secondary",
+            "rationale": "'Poppy Nogood and The Phantom Band' builds continuous soprano saxophone lines into sustained drone layers via tape loops; even the harpsichord piece holds tonal stasis through cycling repetition, placing the album in drone-adjacent territory."
+          }
+        ],
+        "canonical": [
+          "minimalist composition",
+          "ambient",
+          "drone music"
+        ],
+        "gaps": [],
+        "facets": [
+          {
+            "term": "1960s",
+            "facet_type": "era"
+          },
+          {
+            "term": "tape loops",
+            "facet_type": "production"
+          },
+          {
+            "term": "multitracking",
+            "facet_type": "production"
+          },
+          {
+            "term": "tape delay",
+            "facet_type": "production"
+          },
+          {
+            "term": "electric harpsichord",
+            "facet_type": "instrumentation"
+          },
+          {
+            "term": "soprano saxophone",
+            "facet_type": "instrumentation"
+          },
+          {
+            "term": "hypnotic",
+            "facet_type": "texture"
+          },
+          {
+            "term": "instrumental",
+            "facet_type": "vocal"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.92,
+        "warnings": [
+          "'electronic' (discogs_release, musicbrainz_release) and 'experimental' (musicbrainz_release) dropped as broad parent genres excluded by schema rules.",
+          "'contemporary classical' and 'minimalist composition' from current_observed_leaf are superseded by the more canonical and specific genre term 'minimalism'.",
+          "Year is null in payload; album is known to be 1969 — era facet assigned from music knowledge."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 3711,
+          "cache_creation_input_tokens": 15014,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 3714
+        }
+      }
+    },
+    {
+      "release_key": "funkadelic::maggot brain",
+      "album_id": "ac786e9588bc0338",
+      "artist": "Funkadelic",
+      "title": "Maggot Brain",
+      "bucket": "control",
+      "failure_mode": null,
+      "gold_genres": [
+        "funk",
+        "psychedelic soul",
+        "acid rock",
+        "psychedelic rock"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "funk",
+        "psychedelic soul"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "acid rock",
+        "funk",
+        "funk rock",
+        "hard rock",
+        "psychedelic rock",
+        "psychedelic soul",
+        "r&b/soul",
+        "synth funk"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "p-funk",
+            "confidence": 0.95,
+            "layer": "core",
+            "rationale": "Funkadelic is the foundational P-Funk act and this album is a canonical P-Funk artifact; confirmed by both Discogs master and MusicBrainz. The Clinton/Worrell-led psychedelic funk collective identity is unmistakable throughout."
+          },
+          {
+            "term": "psychedelic soul",
+            "confidence": 0.92,
+            "layer": "core",
+            "rationale": "Early Funkadelic's defining blend of Black soul traditions with psychedelic sensibility is central here — 'Can You Get to That' and 'Hit It and Quit It' are clear examples. Confirmed MusicBrainz; specific to this era of the act vs. later synth-forward work."
+          },
+          {
+            "term": "funk rock",
+            "confidence": 0.9,
+            "layer": "core",
+            "rationale": "This album is notably guitar- and rock-forward within Funkadelic's catalog; 'Super Stupid' and the title track fuse hard funk grooves with electric-guitar rock instrumentation. Confirmed MusicBrainz. Distinguishes this release from later P-Funk studio albums."
+          },
+          {
+            "term": "psychedelic rock",
+            "confidence": 0.88,
+            "layer": "secondary",
+            "rationale": "The 10-minute title track — an unaccompanied guitar solo by Eddie Hazel — is one of psychedelic rock's defining pieces. 'Wars of Armageddon' is freeform psychedelia. Confirmed Discogs master."
+          },
+          {
+            "term": "acid rock",
+            "confidence": 0.8,
+            "layer": "secondary",
+            "rationale": "The heavily distorted, improvisational, and feedback-laden quality of the title track and 'Wars of Armageddon' fits acid rock specifically. Confirmed MusicBrainz. Overlaps with but is narrower than psychedelic rock here."
+          }
+        ],
+        "canonical": [
+          "psychedelic soul",
+          "funk rock",
+          "psychedelic rock",
+          "acid rock"
+        ],
+        "gaps": [
+          "p-funk"
+        ],
+        "facets": [
+          {
+            "term": "1971",
+            "facet_type": "era"
+          },
+          {
+            "term": "guitar-driven",
+            "facet_type": "instrumentation"
+          },
+          {
+            "term": "raw",
+            "facet_type": "production"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.92,
+        "warnings": [
+          "'synth funk' present in observed_leaf has no source-tag basis and is inapplicable to this 1971 album, which predates Funkadelic's synthesizer-heavy period; it should be pruned from the observed leaf.",
+          "File tag 'funk' is a broad parent genre represented here via the more specific 'p-funk' and 'funk rock'; no silent drop — these terms subsume it at the required specificity level."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 3213,
+          "cache_creation_input_tokens": 15208,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 3216
+        }
+      }
+    },
+    {
+      "release_key": "don cherry::blue note 75 75th anniversary mqs collection",
+      "album_id": "b0c396c5447f458c",
+      "artist": "Don Cherry",
+      "title": "Blue Note 75 (75th Anniversary MQS Collection)",
+      "bucket": "control",
+      "failure_mode": null,
+      "gold_genres": [
+        "spiritual jazz",
+        "jazz fusion"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "spiritual jazz"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "jazz fusion",
+        "spiritual jazz"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "free jazz",
+            "confidence": 0.9,
+            "layer": "core",
+            "rationale": "Complete Communion (1966) is a canonical free jazz suite — open form, collective improvisation, through-composed multi-part movements. Cherry's Blue Note output from this period is defining free jazz, not jazz fusion or any later genre."
+          },
+          {
+            "term": "avant-garde jazz",
+            "confidence": 0.85,
+            "layer": "core",
+            "rationale": "Both source albums depart from bebop/hard bop structure: non-functional harmony, fluid time, experimental ensemble texture. Cherry's approach on these sessions is definitionally avant-garde jazz."
+          },
+          {
+            "term": "spiritual jazz",
+            "confidence": 0.63,
+            "layer": "secondary",
+            "rationale": "Complete Communion's devotional suite structure and title carry explicitly spiritual character; 'Bishmallah' (Islamic invocation) on Elephantasy reinforces this dimension. A real element of these recordings, though not the lead identity."
+          },
+          {
+            "term": "world jazz",
+            "confidence": 0.58,
+            "layer": "secondary",
+            "rationale": "Elephantasy in particular reflects Cherry's emerging integration of non-Western ideas — Middle Eastern and global textures evident in titles ('Bishmallah', 'Wind, Sand and Stars') and instrumentation. Less prominent in the 1966 Complete Communion material."
+          }
+        ],
+        "canonical": [
+          "free jazz",
+          "avant-garde jazz",
+          "spiritual jazz"
+        ],
+        "gaps": [
+          "world jazz"
+        ],
+        "facets": [
+          {
+            "term": "1960s",
+            "facet_type": "era"
+          },
+          {
+            "term": "compilation",
+            "facet_type": "format"
+          },
+          {
+            "term": "high-resolution audio",
+            "facet_type": "production"
+          },
+          {
+            "term": "blue note records",
+            "facet_type": "scene"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.78,
+        "warnings": [
+          "current_observed_leaf contains 'jazz fusion', which is inapplicable to these 1966–1969 Blue Note recordings; they predate jazz fusion and belong to the free/avant-garde jazz lineage.",
+          "File tag 'jazz' is a broad parent genre explicitly excluded per adjudication rules (handled by the taxonomy graph); not silently dropped — noted here.",
+          "year is null; source content dates to 1966 (Complete Communion) and 1968–1969 (Elephantasy) — this is a 75th-anniversary reissue compilation, not an original release.",
+          "This release combines two distinct source albums; world jazz weighting is pulled down by Complete Communion, which shows less non-Western influence than Elephantasy."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 3852,
+          "cache_creation_input_tokens": 14999,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 3855
+        }
+      }
+    },
+    {
+      "release_key": "mandingo griot society::soul jazz records presents soul of a nation afro centric visions in the age of black power underground jazz street funk the roots of rap 1968 79",
+      "album_id": "62195c0f2e738cfc",
+      "artist": "Mandingo Griot Society with Don Cherry",
+      "title": "Soul Jazz Records Presents Soul Of A Nation: Afro-Centric Visions in the Age of Black Power - Underground Jazz, Street Funk & The Roots of Rap 1968-79",
+      "bucket": "sparse",
+      "failure_mode": null,
+      "gold_genres": [
+        "spiritual jazz",
+        "free jazz"
+      ],
+      "gold_facets": [],
+      "must_preserve": [],
+      "taxonomy_gaps_gold": [
+        "world fusion"
+      ],
+      "current_observed_leaf": [],
+      "proposed": {
+        "genres": [
+          {
+            "term": "afro-jazz",
+            "confidence": 0.78,
+            "layer": "core",
+            "rationale": "Mandingo Griot Society explicitly blends West African griot percussion traditions with jazz; Don Cherry's cross-cultural explorations in this era produced exactly this hybrid. 'Sounds from the Bush' title reinforces the African-rooted orientation."
+          },
+          {
+            "term": "spiritual jazz",
+            "confidence": 0.72,
+            "layer": "core",
+            "rationale": "Afro-centric consciousness music of the Black Power era is the compilation's explicit frame; Don Cherry's late-1960s–70s work sits squarely in the spiritual/avant jazz stream alongside Coltrane-adjacent artists."
+          },
+          {
+            "term": "jazz-funk",
+            "confidence": 0.6,
+            "layer": "secondary",
+            "rationale": "The compilation subtitle names 'Street Funk' as a constituent element, and funk is a consistent file tag; the rhythmic fusion of African percussion with funk underpinnings is characteristic of this 1968-79 period."
+          },
+          {
+            "term": "soul",
+            "confidence": 0.58,
+            "layer": "secondary",
+            "rationale": "Authoritative file tag; soul music is a documented strand of the Soul of a Nation compilation's scope and appropriate for this artist-era intersection."
+          },
+          {
+            "term": "free jazz",
+            "confidence": 0.52,
+            "layer": "secondary",
+            "rationale": "Don Cherry is a defining free-jazz voice (Ornette Coleman Quartet); his contributions to this collaboration likely carry avant-garde/free jazz inflection even within the African-fusion context."
+          }
+        ],
+        "canonical": [
+          "afro-jazz",
+          "spiritual jazz",
+          "soul",
+          "free jazz"
+        ],
+        "gaps": [
+          "jazz-funk"
+        ],
+        "facets": [
+          {
+            "term": "1968-1979",
+            "facet_type": "era"
+          },
+          {
+            "term": "west african",
+            "facet_type": "region"
+          },
+          {
+            "term": "black power era",
+            "facet_type": "scene"
+          },
+          {
+            "term": "african percussion",
+            "facet_type": "instrumentation"
+          },
+          {
+            "term": "afro-centric",
+            "facet_type": "mood"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.64,
+        "warnings": [
+          "Only one track title available ('Sounds from the Bush'); genre assessment leans on Don Cherry and Mandingo Griot Society contextual knowledge rather than track-level evidence.",
+          "Album field is the Soul Jazz Records 'Soul of a Nation' compilation title; this release appears to represent only the Mandingo Griot Society with Don Cherry contribution(s) to that compilation, not the full diverse comp — genres here reflect this specific artist, not the compilation breadth.",
+          "Year field is null; 1968-79 era inferred from compilation scope."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 3161,
+          "cache_creation_input_tokens": 14955,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 3164
+        }
+      }
+    },
+    {
+      "release_key": "stars of the lid::and their refinement of the decline",
+      "album_id": "92ea5a69ea20b62d",
+      "artist": "Stars of the Lid",
+      "title": "And Their Refinement of the Decline",
+      "bucket": "sparse",
+      "failure_mode": null,
+      "gold_genres": [
+        "ambient",
+        "modern classical",
+        "minimalist composition"
+      ],
+      "gold_facets": [
+        "drone"
+      ],
+      "must_preserve": [],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "minimalist composition",
+        "modern classical",
+        "neoclassical",
+        "post-rock"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "ambient",
+            "confidence": 0.97,
+            "layer": "core",
+            "rationale": "Primary genre identity confirmed across all sources (file_track, discogs_master, discogs_release, musicbrainz_release); the album is slow-moving, textural, non-narrative immersive music — the defining ambient aesthetic"
+          },
+          {
+            "term": "drone",
+            "confidence": 0.95,
+            "layer": "core",
+            "rationale": "Structural foundation of the album: sustained orchestral tones, minimal harmonic movement, glacially evolving textures; confirmed by discogs_master and musicbrainz_release; intrinsic to Stars of the Lid's compositional method on this release"
+          },
+          {
+            "term": "modern classical",
+            "confidence": 0.8,
+            "layer": "secondary",
+            "rationale": "Heavy scored orchestration — strings, brass, woodwinds — written and arranged compositionally rather than sampled; confirmed by discogs_master file tag; the writing draws on classical forms even while serving ambient/drone ends"
+          }
+        ],
+        "canonical": [
+          "ambient",
+          "modern classical"
+        ],
+        "gaps": [
+          "drone"
+        ],
+        "facets": [
+          {
+            "term": "orchestral",
+            "facet_type": "instrumentation"
+          },
+          {
+            "term": "strings",
+            "facet_type": "instrumentation"
+          },
+          {
+            "term": "instrumental",
+            "facet_type": "vocal"
+          },
+          {
+            "term": "meditative",
+            "facet_type": "mood"
+          },
+          {
+            "term": "minimalist",
+            "facet_type": "texture"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.9,
+        "warnings": [
+          "'electronic' tag (discogs_release, musicbrainz_release) not included — this album is primarily acoustic orchestral; any electronic processing is incidental and not genre-defining for this release",
+          "'rock' tag (musicbrainz_release) not included — parent-genre graph artifact; no rock instrumentation or structure present on this album",
+          "'post-rock' (current_observed_leaf) not included — Stars of the Lid have post-rock roots but this album contains no guitar-driven or rock-structured content; purely orchestral ambient",
+          "'neoclassical' (current_observed_leaf) not included — 'modern classical' (confirmed discogs_master file tag) is the more accurate term; neoclassical implies adherence to Classical-era formal conventions, which does not describe this work",
+          "'minimalist composition' (current_observed_leaf) moved to facet (texture) — compositional approach, not a genre"
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 3704,
+          "cache_creation_input_tokens": 15123,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 3707
+        }
+      }
+    },
+    {
+      "release_key": "stars of the lid::avec laudenum",
+      "album_id": "7290b75c19efad5e",
+      "artist": "Stars of the Lid",
+      "title": "Avec Laudenum",
+      "bucket": "sparse",
+      "failure_mode": null,
+      "gold_genres": [
+        "ambient",
+        "minimalist composition"
+      ],
+      "gold_facets": [
+        "drone"
+      ],
+      "must_preserve": [],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "avant-garde",
+        "minimalist composition"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "ambient drone",
+            "confidence": 0.9,
+            "layer": "core",
+            "rationale": "Stars of the Lid's primary identity on this album: slowly evolving, heavily layered guitar drones with near-static harmonic motion across long-form pieces (the three-part 'Atomium' suite). All sources converge on 'ambient'; 'ambient drone' is the specific subgenre a knowledgeable listener would name for this release."
+          },
+          {
+            "term": "post-rock",
+            "confidence": 0.7,
+            "layer": "secondary",
+            "rationale": "File-tag confirmed and structurally present: SOTL's guitar timbre, extended multi-part forms, and dynamic arc in pieces like 'I Will Surround You' reflect post-rock lineage. More audible on this earlier album than their later, more purely orchestral work."
+          },
+          {
+            "term": "minimalist composition",
+            "confidence": 0.62,
+            "layer": "secondary",
+            "rationale": "The album's reduction to sustained tonal fields, glacially slow evolution, and repetition-based architecture align with minimalist compositional principles. Present in current_observed_leaf and consistent with the suite structure of 'The Atomium'."
+          }
+        ],
+        "canonical": [
+          "post-rock",
+          "minimalist composition"
+        ],
+        "gaps": [
+          "ambient drone"
+        ],
+        "facets": [
+          {
+            "term": "drone",
+            "facet_type": "texture"
+          },
+          {
+            "term": "glacial",
+            "facet_type": "texture"
+          },
+          {
+            "term": "heavily processed",
+            "facet_type": "production"
+          },
+          {
+            "term": "meditative",
+            "facet_type": "mood"
+          },
+          {
+            "term": "guitar",
+            "facet_type": "instrumentation"
+          }
+        ],
+        "escalate": false,
+        "escalate_reason": "",
+        "overall_confidence": 0.78,
+        "warnings": [
+          "File tags 'electronic' and 'rock' are broad parent genres excluded per policy.",
+          "File tag 'experimental' is a broad parent genre excluded per policy.",
+          "File tag 'drone' placed in facets per policy (explicitly listed as a texture/facet descriptor); the drone character is also captured within the 'ambient drone' genre term."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 5075,
+          "cache_creation_input_tokens": 15046,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 5078
+        }
+      }
+    },
+    {
+      "release_key": "television::marquee moon elektra 7599 60616 2",
+      "album_id": "4961dd137c0b57b7",
+      "artist": "Television",
+      "title": "Marquee Moon [Elektra 7599-60616-2]",
+      "bucket": "sparse",
+      "failure_mode": null,
+      "gold_genres": [
+        "art rock",
+        "post-punk",
+        "experimental rock"
+      ],
+      "gold_facets": [],
+      "must_preserve": [
+        "art rock"
+      ],
+      "taxonomy_gaps_gold": [],
+      "current_observed_leaf": [
+        "art rock",
+        "experimental rock"
+      ],
+      "proposed": {
+        "genres": [
+          {
+            "term": "art punk",
+            "confidence": 0.93,
+            "layer": "core",
+            "rationale": "The canonical art punk text: Television fuses CBGB-scene punk ethos with interlocking twin-guitar counterpoint, long exploratory song forms (the title track runs ~10 min), and literary abstraction — this is the definitive identity of Marquee Moon."
+          },
+          {
+            "term": "post-punk",
+            "confidence": 0.88,
+            "layer": "core",
+            "rationale": "Universally cited as a foundational post-punk record; detached, literary vocals, unconventional compositional structures, intellectual atmosphere, and a wholesale rejection of punk primitivism place it here even though it predates the label by a year."
+          },
+          {
+            "term": "new wave",
+            "confidence": 0.6,
+            "layer": "secondary",
+            "rationale": "Emerged from the same 1977 moment and is periodically grouped with early new wave; a looser fit than art punk or post-punk for this record's specific character."
+          }
+        ],
+        "canonical": [
+          "art punk",
+          "post-punk",
+          "new wave"
+        ],
+        "gaps": [],
+        "facets": [
+          {
+            "term": "1970s",
+            "facet_type": "era"
+          },
+          {
+            "term": "new york",
+            "facet_type": "region"
+          },
+          {
+            "term": "cbgb scene",
+            "facet_type": "scene"
+          },
+          {
+            "term": "twin guitar interplay",
+            "facet_type": "instrumentation"
+          },
+          {
+            "term": "angular",
+            "facet_type": "texture"
+          }
+        ],
+        "escalate": true,
+        "escalate_reason": "File tag 'punk' appears to be a scene-level label applied artist-wide (Television as a CBGB-era band) rather than a sonic description of Marquee Moon itself. The album's actual sound is far more harmonically and structurally sophisticated than punk rock; 'art punk' retains the punk lineage while accurately describing the record. Flagging rather than silently dropping — if library policy requires the literal 'punk' token, it should be added back explicitly.",
+        "overall_confidence": 0.88,
+        "warnings": [
+          "File tag 'punk' reflects CBGB scene membership, not Marquee Moon's sonic identity; refined to 'art punk'. See escalate_reason.",
+          "Year field is null; release is widely documented as 1977 (Elektra); catalog number 7599-60616-2 is the CD reissue pressing.",
+          "current_observed_leaf ('art rock', 'experimental rock') are both too broad/generic for this release and have been superseded by tighter descriptors."
+        ],
+        "tokens": {
+          "input_tokens": 3,
+          "output_tokens": 2951,
+          "cache_creation_input_tokens": 14960,
+          "cache_read_input_tokens": 13351,
+          "total_tokens": 2954
+        }
+      }
+    }
+  ]
+}
