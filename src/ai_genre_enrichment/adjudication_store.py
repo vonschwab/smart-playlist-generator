@@ -111,5 +111,25 @@ class AdjudicationStore:
                 "dropped_file_tags": json.loads(dropped) if dropped else [],
             }
 
+    def shallow_album_ids(self, prompt_version: str, max_genres: int = 2) -> list[str]:
+        """Album IDs from a completed pass with ≤max_genres genres and not escalated.
+
+        Used to build the second-pass (thorough) target list: releases the standard pass
+        gave a minimal result that wasn't flagged for human review.
+        """
+        rows = self._conn.execute(
+            "SELECT album_id, response_json FROM adjudications "
+            "WHERE status='complete' AND prompt_version=?",
+            (prompt_version,),
+        ).fetchall()
+        result = []
+        for album_id, resp_json in rows:
+            if resp_json is None:
+                continue
+            resp = json.loads(resp_json)
+            if not resp.get("escalate") and len(resp.get("genres", [])) <= max_genres:
+                result.append(album_id)
+        return result
+
     def close(self) -> None:
         self._conn.close()

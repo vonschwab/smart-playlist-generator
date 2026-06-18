@@ -17,6 +17,7 @@ from typing import Any
 from .tag_classification import normalize_source_tag
 
 ADJUDICATOR_PROMPT_VERSION = "album-adjudicator-v1"
+ADJUDICATOR_PROMPT_VERSION_THOROUGH = "album-adjudicator-v1-thorough"
 ADJUDICATOR_SCHEMA_VERSION = "album-adjudicator-response-v1"
 
 LAYERS = {"core", "secondary"}
@@ -44,6 +45,23 @@ Source tags are often applied at the ARTIST level, identical across an artist's 
 Do not use web search. Do not claim any external source says anything.
 
 `confidence` (0-1) per genre and `overall_confidence`: lower for sparse evidence. Set `escalate` true when the release identity is ambiguous, evidence is thin and you are guessing, or a correct file tag would be dropped. Do NOT output per-genre rationale (omit the field) and no chain-of-thought — keep output minimal. Use canonical genre names where known — spelling is normalized downstream.
+"""
+
+ADJUDICATOR_INSTRUCTIONS_THOROUGH = """You are adjudicating the genre identity of a single music release for a local library on a SECOND PASS.
+
+Return ONE JSON object only — no prose, no markdown.
+
+Goal: give this release a COMPLETE, SPECIFIC genre picture. A prior automated pass returned a minimal result (1-2 genres). Draw on your full knowledge of this specific album — its production style, era, critical reception, scene, and how it is discussed by listeners — to provide every genre it genuinely warrants. If you know this record well, do not leave out secondary or complementary genres out of excessive caution. Lean toward completeness: a release with a primary style almost always has 1-3 secondary styles worth naming. If the release is genuinely focused and minimal in identity, keep it tight — but only if that reflects reality, not uncertainty.
+
+Same rules as always:
+- Broad parent genres (rock, pop, jazz, electronic, hip hop, folk, indie rock, alternative rock, experimental) are derived elsewhere; do NOT include them. Prefer the specific: shoegaze not "rock"; ethio-jazz not "world music".
+- Separate genres from facets. Mood, texture, instrumentation, production, era, region, function, vocal, scene, format, and rhythm descriptors (instrumental, lo-fi, acoustic, orchestral, 1970s, japanese, live, female vocals, drone) are FACETS — put them in `facets`, never in `genres`.
+- Each genre gets a `layer`: "core" (primary identity, keep to ~2-4) or "secondary" (a real but lesser element). Total genres typically 3-6.
+- The payload's `user_file_tags` are the USER'S OWN embedded file tags — ground truth. Every SPECIFIC `user_file_tags` genre (anything that is not a broad parent) MUST appear in your `genres`, OR you MUST set `escalate` true and name the omitted tag in `escalate_reason`. Silently dropping a specific user file tag is the single worst error.
+- Use your own music knowledge for THIS specific release, not the artist in general. Never infer genre from name, nationality, language, or demographic cues alone.
+- Do not use web search. Do not claim any external source says anything.
+- `confidence` (0-1) per genre and `overall_confidence`: lower for sparse evidence. Set `escalate` true when genuinely uncertain, evidence is thin, or a correct file tag would be dropped.
+- Do NOT output per-genre rationale (omit the field) and no chain-of-thought — keep output minimal.
 """
 
 ADJUDICATOR_RESPONSE_SCHEMA: dict[str, Any] = {

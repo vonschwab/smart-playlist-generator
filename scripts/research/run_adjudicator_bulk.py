@@ -12,6 +12,10 @@ Usage:
   python scripts/research/run_adjudicator_bulk.py --source library                # full pass
   python scripts/research/run_adjudicator_bulk.py --source library --max-calls 500  # one window
   # rerun the same command to resume.
+
+Second-pass (thorough) for shallow results (≤2 genres, not escalated):
+  python scripts/research/run_adjudicator_bulk.py --source shallow --model sonnet
+  # --thorough is implied by --source shallow; stored under a different prompt_version key.
 """
 from __future__ import annotations
 
@@ -32,7 +36,9 @@ from run_album_adjudicator import build_evidence, open_ro, resolve_db  # noqa: E
 from src.ai_genre_enrichment.adjudication_store import AdjudicationStore  # noqa: E402
 from src.ai_genre_enrichment.album_adjudicator import (  # noqa: E402
     ADJUDICATOR_INSTRUCTIONS,
+    ADJUDICATOR_INSTRUCTIONS_THOROUGH,
     ADJUDICATOR_PROMPT_VERSION,
+    ADJUDICATOR_PROMPT_VERSION_THOROUGH,
     adjudicator_response_format,
     build_adjudicator_payload,
     build_adjudicator_prompt,
@@ -48,17 +54,19 @@ DEFAULT_DB = _ROOT / "data" / "adjudication_pass1.db"
 FAIL_STREAK_STOP = 8  # consecutive failures => likely a usage/rate-limit wall
 
 
-def effective_prompt_version() -> str:
+def effective_prompt_version(thorough: bool = False) -> str:
     """Bump automatically whenever the contract instructions change."""
-    h = hashlib.sha256(ADJUDICATOR_INSTRUCTIONS.encode("utf-8")).hexdigest()[:8]
-    return f"{ADJUDICATOR_PROMPT_VERSION}+{h}"
+    instructions = ADJUDICATOR_INSTRUCTIONS_THOROUGH if thorough else ADJUDICATOR_INSTRUCTIONS
+    base = ADJUDICATOR_PROMPT_VERSION_THOROUGH if thorough else ADJUDICATOR_PROMPT_VERSION
+    h = hashlib.sha256(instructions.encode("utf-8")).hexdigest()[:8]
+    return f"{base}+{h}"
 
 
 class _StopRun(Exception):
     """Raised from the per-item callback to stop a session run cleanly (resumable)."""
 
 
-def target_albums(source: str, meta, corpus_path: str, overtag_min: int):
+def target_albums(source: str, meta, corpus_path: str, overtag_min: int, store=None):
     if source == "corpus":
         doc = yaml.safe_load(Path(corpus_path).read_text(encoding="utf-8"))
         return [(e["album_id"], e.get("release_key")) for e in doc["entries"]]
@@ -69,12 +77,21 @@ def target_albums(source: str, meta, corpus_path: str, overtag_min: int):
             "WHERE assignment_layer='observed_leaf' GROUP BY album_id")}
         return [(aid, None) for (aid,) in meta.execute("SELECT album_id FROM albums ORDER BY album_id")
                 if counts.get(aid, 0) == 0 or counts.get(aid, 0) >= overtag_min]
+    if source == "shallow":
+        # Second-pass targets: albums where the standard pass returned ≤2 genres, not escalated.
+        if store is None:
+            raise ValueError("--source shallow requires a checkpoint DB (--checkpoint-db)")
+        standard_pv = effective_prompt_version(thorough=False)
+        album_ids = store.shallow_album_ids(standard_pv)
+        return [(aid, None) for aid in album_ids]
     return [(r[0], None) for r in meta.execute("SELECT album_id FROM albums ORDER BY album_id")]
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--source", choices=["corpus", "library", "targeted"], default="targeted")
+    ap.add_argument("--source", choices=["corpus", "library", "targeted", "shallow"], default="targeted")
+    ap.add_argument("--thorough", action="store_true",
+                    help="use the completeness-nudged second-pass instructions (auto-set for --source shallow)")
     ap.add_argument("--overtag-min", type=int, default=7,
                     help="targeted: min observed_leaf count for 'over-tagged' (sparse=0 always included)")
     ap.add_argument("--model", default="haiku")
@@ -85,11 +102,13 @@ def main() -> int:
     ap.add_argument("--corpus", default=str(_ROOT / "docs" / "genre_adjudication" / "corpus.yaml"))
     args = ap.parse_args()
 
-    pv = effective_prompt_version()
+    thorough = args.thorough or args.source == "shallow"
+    instructions = ADJUDICATOR_INSTRUCTIONS_THOROUGH if thorough else ADJUDICATOR_INSTRUCTIONS
+    pv = effective_prompt_version(thorough=thorough)
     store = AdjudicationStore(args.checkpoint_db)
     meta = open_ro(resolve_db("metadata.db"))
     id2name = {r[0]: r[1] for r in meta.execute("SELECT genre_id, name FROM genre_graph_canonical_genres")}
-    targets = target_albums(args.source, meta, args.corpus, args.overtag_min)
+    targets = target_albums(args.source, meta, args.corpus, args.overtag_min, store=store)
     if args.limit:
         targets = targets[: args.limit]
 
@@ -167,7 +186,7 @@ def main() -> int:
     try:
         client.call_structured_session(
             items, response_format=adjudicator_response_format(),
-            validator=validate_adjudicator_response, instructions=ADJUDICATOR_INSTRUCTIONS,
+            validator=validate_adjudicator_response, instructions=instructions,
             on_result=on_result, reset_every=args.reset_every,
         )
     except _StopRun:

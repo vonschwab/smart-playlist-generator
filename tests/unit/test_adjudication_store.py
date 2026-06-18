@@ -44,3 +44,30 @@ def test_reopen_persists(tmp_path):
     s.close()
     s2 = AdjudicationStore(path)  # reopen
     assert s2.is_done("a1", "pv", "h") is True
+
+
+def test_shallow_album_ids_returns_low_genre_non_escalated(tmp_path):
+    s = AdjudicationStore(tmp_path / "shadow.db")
+    _save = lambda aid, genres, esc: s.save(
+        album_id=aid, prompt_version="pv1", input_hash="h", status="complete",
+        response={"genres": [{"term": g} for g in genres], "escalate": esc},
+    )
+    _save("a1", ["indie pop"], False)           # 1 genre, not escalated -> SHALLOW
+    _save("a2", ["foo", "bar", "baz"], False)   # 3 genres -> not shallow
+    _save("a3", ["foo", "bar"], True)           # 2 genres, escalated -> excluded
+    _save("a4", [], False)                      # 0 genres -> SHALLOW
+    _save("a5", ["x", "y"], False)              # 2 genres, not escalated -> SHALLOW
+
+    result = s.shallow_album_ids("pv1")
+    assert set(result) == {"a1", "a4", "a5"}
+
+
+def test_shallow_album_ids_only_looks_at_given_prompt_version(tmp_path):
+    s = AdjudicationStore(tmp_path / "shadow.db")
+    s.save(album_id="a1", prompt_version="pv1", input_hash="h", status="complete",
+           response={"genres": [{"term": "foo"}], "escalate": False})
+    s.save(album_id="a2", prompt_version="pv2", input_hash="h", status="complete",
+           response={"genres": [{"term": "foo"}], "escalate": False})
+
+    assert s.shallow_album_ids("pv1") == ["a1"]  # pv2 album not included
+    assert s.shallow_album_ids("pv2") == ["a2"]
