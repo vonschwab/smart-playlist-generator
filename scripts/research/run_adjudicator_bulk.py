@@ -66,6 +66,19 @@ class _StopRun(Exception):
     """Raised from the per-item callback to stop a session run cleanly (resumable)."""
 
 
+def exclude_done_album_ids(targets, done_ids):
+    """Drop targets whose album_id already has a complete adjudication row.
+
+    Unlike the runner's per-item `is_done` check (which keys on input_hash and so
+    re-runs an album once its evidence drifts), this excludes by album_id alone.
+    Needed for the remaining-library pass: publishing the first pass rewrote
+    `current_observed_leaf` for the already-done albums, changing their input_hash —
+    without this they would all be re-adjudicated.
+    """
+    done = set(done_ids)
+    return [(aid, key) for (aid, key) in targets if aid not in done]
+
+
 def target_albums(source: str, meta, corpus_path: str, overtag_min: int, store=None):
     if source == "corpus":
         doc = yaml.safe_load(Path(corpus_path).read_text(encoding="utf-8"))
@@ -94,6 +107,10 @@ def main() -> int:
                     help="use the completeness-nudged second-pass instructions (auto-set for --source shallow)")
     ap.add_argument("--overtag-min", type=int, default=7,
                     help="targeted: min observed_leaf count for 'over-tagged' (sparse=0 always included)")
+    ap.add_argument("--exclude-done", action="store_true",
+                    help="skip albums with any complete adjudication row (by album_id, ignoring "
+                         "input_hash). Use for the remaining-library pass after the first pass "
+                         "was published — otherwise evidence drift re-adjudicates done albums.")
     ap.add_argument("--model", default="haiku")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--max-calls", type=int, default=0, help="0=unlimited; cap a run to one usage window")
@@ -109,6 +126,11 @@ def main() -> int:
     meta = open_ro(resolve_db("metadata.db"))
     id2name = {r[0]: r[1] for r in meta.execute("SELECT genre_id, name FROM genre_graph_canonical_genres")}
     targets = target_albums(args.source, meta, args.corpus, args.overtag_min, store=store)
+    if args.exclude_done:
+        done_ids = {row["album_id"] for row in store.iter_complete()}
+        before = len(targets)
+        targets = exclude_done_album_ids(targets, done_ids)
+        print(f"exclude_done: {before} -> {len(targets)} ({before - len(targets)} already complete)")
     if args.limit:
         targets = targets[: args.limit]
 
