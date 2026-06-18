@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.13.0-phase4-gaps-grown
+taxonomy_version: 0.13.1-phase4-review-gaps
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -5408,17 +5408,10 @@ records:
   parent_edges: []
   secondary_roles: []
   reject_reason: null
-  alias_policy:
-    type: conditional
-    requires_any_context:
-    - jazz fusion
-    - jazz
-    - funk
-    notes: Map to jazz fusion only with jazz/funk context; standalone jazz-funk is
-      ambiguous.
+  alias_policy: null
   source_policy: null
   possible_context_target: null
-  notes: Map to jazz fusion only with jazz/funk context.
+  notes: Unconditional alias for jazz fusion.
 - name: jazz funk
   kind: alias
   role: alias
@@ -5429,16 +5422,10 @@ records:
   parent_edges: []
   secondary_roles: []
   reject_reason: null
-  alias_policy:
-    type: conditional
-    requires_any_context:
-    - jazz fusion
-    - jazz
-    - funk
-    notes: Map to jazz fusion only with jazz/funk context.
+  alias_policy: null
   source_policy: null
   possible_context_target: null
-  notes: Map to jazz fusion only with jazz/funk context.
+  notes: Unconditional alias for jazz fusion.
 - name: hardcore
   kind: alias
   role: alias
@@ -22008,6 +21995,451 @@ records:
   facet_type: null
   specificity_score: null
   canonical_target: rhythm and blues
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: sweet soul
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.8
+  canonical_target: null
+  parent_edges:
+  - target: soul
+    edge_type: family_context
+    weight: 0.7
+    confidence: 0.85
+    notes: null
+  - target: rhythm and blues
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.75
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Lush, melodic soul with gentle production and romantic/emotional themes (Al
+    Green, Stylistics, Delfonics). Distinct from the grittier Memphis soul or funk-heavier
+    Motown soul by its softness and orchestrated arrangements.
+- name: cinematic classical
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.78
+  canonical_target: null
+  parent_edges:
+  - target: classical
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Orchestral classical music with a cinematic scope and emotional arc — closer
+    to film-score aesthetics than concert-hall formalism (Ennio Morricone, Max Richter,
+    Nino Rota). Distinct from plain orchestral classical in its narrative and emotional
+    directness.
+- name: cinematic music
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: cinematic classical
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: crossover soul
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.76
+  canonical_target: null
+  parent_edges:
+  - target: soul
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.8
+    notes: null
+  - target: rhythm and blues
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.75
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Soul music engineered to cross over into pop/mainstream radio (Lionel Richie,
+    Diana Ross solo, late-era Motown). More polished and pop-structured than straight
+    soul; less rock-inflected than blue-eyed soul.
+- name: orchestral jazz
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.78
+  canonical_target: null
+  parent_edges:
+  - target: jazz
+    edge_type: family_context
+    weight: 0.7
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Jazz composed for and performed with full orchestra — large-scale arrangements
+    blending jazz improvisation with orchestral color (Charles Mingus orchestral works,
+    Gil Evans/Miles Davis, Clare Fischer). Distinct from big band in scale and classical
+    writing craft.
+- name: acoustic rock
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: rock
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.8
+    notes: null
+  - target: folk
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.7
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rock music centered on acoustic guitar rather than electric — unplugged rock
+    arrangements, often straddling folk rock and singer-songwriter territory (early
+    REM, Neil Young acoustic albums, Counting Crows). Distinct from folk rock in retaining
+    rock song structure and energy.
+- name: jangle rock
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.78
+  canonical_target: null
+  parent_edges:
+  - target: rock
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Jangly, chiming guitar rock with more energy and electric drive than jangle
+    pop — closer to indie rock in tempo and intensity (early R.E.M. electric sets,
+    The Replacements, Teenage Fanclub). Distinguished from jangle pop by rock volume
+    and forward momentum over pop melody.
+- name: kayokyoku
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.86
+  canonical_target: null
+  parent_edges:
+  - target: pop
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Japanese popular song genre dominant from the 1960s–80s, blending Western
+    pop/jazz arrangements with Japanese melodic sensibility and enka influence. Precursor
+    to J-pop; includes city pop's stylistic ancestor.
+- name: kayōkyoku
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: kayokyoku
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: kayo kyoku
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: kayokyoku
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: kayo-kyoku
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: kayokyoku
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: power electronics
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.86
+  canonical_target: null
+  parent_edges:
+  - target: industrial
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  - target: noise
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Extreme industrial noise subgenre characterized by harsh feedback, distortion,
+    and confrontational content (Whitehouse, Sutcliffe Jugend). Distinct from broader
+    noise music in its industrial/political abrasiveness and structured performance
+    format.
+- name: afro-cuban
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.8
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.7
+    confidence: 0.85
+    notes: null
+  - target: salsa
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: rumba
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Afro-Cuban music blending African rhythmic traditions with Cuban song forms
+    — the root of salsa, mambo, and Afro-Cuban jazz. Encompasses son montuno, rumba,
+    mambo, and related styles.
+- name: afrocuban
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: afro-cuban
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: choro
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.84
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.7
+    confidence: 0.85
+    notes: null
+  - target: samba
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Brazilian instrumental music originating in 19th-century Rio — complex improvised
+    interplay over syncopated rhythms, considered the first distinctly Brazilian urban
+    music genre (Jacob do Bandolim, Pixinguinha). Precursor to samba and bossa nova.
+- name: chorinho
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: choro
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: minimalist
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: minimalist composition
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: hip hop jazz
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: jazz rap
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: jazztronica
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: nu jazz
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: environmental
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: kankyo ongaku
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: choral
+  kind: facet
+  role: modifier
+  status: active
+  facet_type: instrumentation
+  specificity_score: 0.5
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Instrumentation facet — music performed by a choir/chorus. Applies across
+    classical, gospel, folk, and contemporary genres.
+- name: choral music
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: choral
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: choir
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: choral
   parent_edges: []
   secondary_roles: []
   reject_reason: null
