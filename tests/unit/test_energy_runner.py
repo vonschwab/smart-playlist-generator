@@ -73,7 +73,6 @@ def test_preflight_wsl_missing_raises():
 
 
 import logging
-import re
 
 
 class _FakeProc:
