@@ -230,3 +230,27 @@ p10–p90) → the sidecar stores the distribution, not just the mean.
     vocal-continuity term IF the blind session shows ears notice (weaker than it first looked).
     **arousal = the keeper** (steerable pace scalar). Wiring representation defaults arousal-led,
     knob-swappable; blind session (Pass 2) finalizes. No new heads added to the chain now.
+
+## Wiring shipped 2026-06-19 (branch worktree-pace-energy-steering, NOT merged yet)
+
+- **What was wired:** `energy_loader.py` (z-scored arousal_p50 from sidecar) + `pace_gate.py` helpers
+  (`compute_step_energy_target`, `compute_energy_pace_penalty`) + `PierBridgeConfig` fields
+  (`energy_step_cap/strength`, `energy_arc_band/strength`) + `_beam_search_segment` soft penalty term
+  (additive, never excludes candidates) + `core.py` + `build_pier_bridge_playlist` threading.
+- **Default: feature OFF.** All `PACE_MODE_PRESETS` have `energy_*` = 0.0. Users opt-in by setting
+  `energy_step_strength > 0` in `config.yaml`. The energy sidecar must exist (from WSL extract).
+- **Never-hard-fail confirmed:** all 4 pace_modes (off/dynamic/narrow/strict) completed in smoke run
+  with 3-pier seeds. Energy code is additive-only (`_pace_penalty +=`) and NaN-safe (returns 0.0 on
+  missing data). See `docs/run_audits/pace_energy_wiring/smoke_2026-06-19.md`.
+- **Cascade trap found and fixed:** non-zero arc_strength in presets caused the arc penalty to make
+  all candidates score below `bridge_floor` when piers spanned a wide arousal range → infeasibility
+  cascade → 755s for dynamic mode. Root cause: soft-penalty-becomes-hard-gate via bridge_floor check.
+  Fix = ship at 0.0, calibrate before enabling. Triggering values: strict 0.5 / narrow 0.3 / dynamic
+  0.15 arc_strength.
+- **Energy load overhead:** ~63ms for 40k tracks (negligible). Per-candidate beam cost ~5μs (negligible).
+  The cascade risk is the only cost concern; mitigation = start small (step_strength-only, no arc).
+- **Remaining gate:** blind A/B session comparing energy-on (step_strength=0.3, arc disabled) vs
+  energy-off playlists. Must confirm ears notice a real pace-coherence improvement before enabling
+  defaults. Do NOT re-enable the old arc preset values without re-calibration first.
+- **Representation default:** `arousal_p50` (single scalar). Configurable via
+  `analyze.pace.energy_features`. Blind session (Pass 2) may add `danceability` or drop arousal.
