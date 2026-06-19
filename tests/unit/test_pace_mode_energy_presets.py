@@ -11,13 +11,9 @@ def test_config_defaults_off():
         assert getattr(c, k) == 0.0
 
 
-def test_presets_have_energy_keys_and_off_disables_arc():
+def test_presets_have_energy_keys_all_zero_by_default():
+    # Keys must exist in all modes; all values are 0.0 (feature off, opt-in via config.yaml).
     for mode in ("strict", "narrow", "dynamic", "off"):
         for k in KEYS:
             assert k in PACE_MODE_PRESETS[mode], f"{mode} missing {k}"
-    # always-on step cap (anti-whiplash) even at off
-    assert PACE_MODE_PRESETS["off"]["energy_step_strength"] > 0.0
-    # off disables the arc term
-    assert PACE_MODE_PRESETS["off"]["energy_arc_strength"] == 0.0
-    # strict is the tightest step cap
-    assert PACE_MODE_PRESETS["strict"]["energy_step_cap"] < PACE_MODE_PRESETS["off"]["energy_step_cap"]
+            assert PACE_MODE_PRESETS[mode][k] == 0.0, f"{mode}.{k} must be 0.0 until calibrated"
