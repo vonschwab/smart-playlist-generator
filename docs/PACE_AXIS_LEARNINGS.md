@@ -142,26 +142,33 @@ p10–p90) → the sidecar stores the distribution, not just the mean.
   track parser; revisit w/ disc-aware parse if Pass 2 wants more high-tight data). N = 158 corpus
   tracks → 146 adjacent / 372 non-adjacent (gradient) / 2000 cross-register pairs. Artifacts:
   `docs/run_audits/pace_axis_eval/` (gitignored; copied to main checkout to survive worktree teardown).
-- 2026-06-18: **PASS 1 RESULT (automated screen; AUC = P(more-compatible pair ranked closer)):**
+- 2026-06-18: **PASS 1 RESULT (automated screen; AUC = P(more-compatible pair ranked closer)).**
+  NOTE: the final code review caught a confound — the original hard discriminator mixed ALL-album
+  adjacent positives against gradient-only non-adjacent negatives, which inflated/mis-ranked it
+  (it had falsely shown "danceability best on hard 0.638"). FIXED to gradient-only adjacent vs
+  gradient non-adjacent (`adjacent_gradient`), and re-run. Corrected:
   ```
-  candidate       auc_adj_vs_random  auc_adj_vs_nonadj(HARD)
-  energy_dist          0.797              0.637   <- leader
-  energy_pair          0.775              0.633   <- leader
-  arousal_p50          0.771              0.588
-  energy_onset         0.735              0.605
-  pace_full            0.727              0.579   <- kitchen-sink, DILUTED
-  rhythm_tower         0.724              0.537   <- worst on hard discriminator
-  beat_strength        0.718              0.627
-  danceability         0.694              0.638   <- best HARD alone
-  onset_rate           0.631              0.561
-  perceptual_bpm       0.583              0.514   <- near-random (confirms BPM weak)
+  candidate       auc_adj_vs_random(COARSE floor)  auc_adj_vs_nonadj(FINE, gradient-only)
+  energy_dist          0.797                            0.553   <- leader (coarse)
+  energy_pair          0.775                            0.549
+  arousal_p50          0.771                            0.547
+  energy_onset         0.735                            0.528
+  pace_full            0.727                            0.525   <- kitchen-sink, DILUTED
+  rhythm_tower         0.724                            0.511
+  beat_strength        0.718                            0.533
+  danceability         0.694                            0.524
+  onset_rate           0.631                            0.523
+  perceptual_bpm       0.583                            0.510   <- near-random (confirms BPM weak)
   ```
-  KEY FINDINGS: (1) energy is the pace signal; BPM/rhythm-tower/onset are weak. (2) **arousal &
-  danceability are COMPLEMENTARY** — arousal wins the easy cross-register floor, danceability wins
-  the hard within-album discriminator; their combination (`energy_pair`/`energy_dist`) is best on
-  BOTH. (3) **kitchen-sink dilutes** — `pace_full` (energy+bpm+onset+beat_strength) is WORSE than
-  the focused energy vector (validates "narrow over passes"; more features ≠ better). (4) hard
-  discriminator is genuinely hard (~0.64 ceiling) — sets realistic Pass-2 expectations.
-  ADVANCING TO PASS 2: energy_dist, energy_pair, danceability, arousal_p50. CAVEAT: Pass 1 is the
-  automated album-adjacency proxy only — **no verdict until Pass 2's blind human arm** confirms it.
+  KEY FINDINGS: (1) **Energy decisively wins COARSE pace compatibility** (the always-on "avoid big
+  swings" floor): energy_dist/energy_pair/arousal_p50 = 0.77–0.80; BPM near-random (0.583),
+  onset/rhythm-tower weak. (2) **FINE within-album gradient ordering is near-chance for EVERY
+  candidate (~0.51–0.55)** once apples-to-apples — BUT this may be a near-degenerate test (within one
+  flowing album the real pace step is tiny), not feature failure. **Pass 2's blind human arm must
+  first establish whether fine within-album pace ordering is even perceptible** before judging
+  representations on it; if not, the COARSE floor is the real product signal. (3) kitchen-sink
+  `pace_full` dilutes (< focused energy). (4) The confound lesson: a mixed positive set silently
+  re-ranks candidates — exactly what the final-review gate is for.
+  ADVANCING TO PASS 2: energy_dist, energy_pair, arousal_p50 (coarse-floor leaders). CAVEAT: Pass 1
+  is the automated album-adjacency proxy only — **no verdict until Pass 2's blind human arm**.
   Full detail: `docs/run_audits/pace_axis_eval/findings_pass1.md`.
