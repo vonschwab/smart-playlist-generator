@@ -156,3 +156,61 @@ def filter_candidates_by_bpm_target(
     distances = _bpm_log_distance(cand_bpm, float(target_bpm))
     pass_mask = bypass | (distances <= float(max_log_distance))
     return [idx for idx, ok in zip(indices, pass_mask) if bool(ok)]
+
+
+def compute_step_energy_target(
+    e_a: np.ndarray,
+    e_b: np.ndarray,
+    *,
+    step: int,
+    segment_length: int,
+) -> np.ndarray:
+    """Linear pier->pier energy target at beam step `step` (energy is a linear scale)."""
+    if int(segment_length) <= 0:
+        return np.asarray(e_a, dtype=float)
+    t = max(0.0, min(1.0, float(step) / float(segment_length)))
+    return interpolate_axis_vector(e_a, e_b, t)
+
+
+def compute_energy_pace_penalty(
+    energy_matrix,
+    *,
+    current: int,
+    cand: int,
+    pier_a: int,
+    pier_b: int,
+    step: int,
+    segment_length: int,
+    step_cap: float,
+    step_strength: float,
+    arc_band: float,
+    arc_strength: float,
+) -> float:
+    """SOFT pace penalty (>= 0) for placing `cand` after `current`.
+
+    Two terms: adjacent-step cap (energy distance current->cand) and arc-band
+    (distance from the interpolated pier->pier target). NaN/None -> 0.0.
+    NEVER raises and NEVER signals exclusion — callers only subtract this.
+    """
+    if energy_matrix is None:
+        return 0.0
+    penalty = 0.0
+    e_cand = energy_matrix[int(cand)]
+    if not np.all(np.isfinite(e_cand)):
+        return 0.0
+    # adjacent-step cap
+    if step_strength > 0.0:
+        e_cur = energy_matrix[int(current)]
+        if np.all(np.isfinite(e_cur)):
+            d_step = float(np.linalg.norm(e_cand - e_cur))
+            if d_step > step_cap:
+                penalty += step_strength * (d_step - step_cap)
+    # arc-band
+    if arc_strength > 0.0:
+        e_a, e_b = energy_matrix[int(pier_a)], energy_matrix[int(pier_b)]
+        if np.all(np.isfinite(e_a)) and np.all(np.isfinite(e_b)):
+            target = compute_step_energy_target(e_a, e_b, step=step, segment_length=segment_length)
+            d_arc = float(np.linalg.norm(e_cand - target))
+            if d_arc > arc_band:
+                penalty += arc_strength * (d_arc - arc_band)
+    return penalty
