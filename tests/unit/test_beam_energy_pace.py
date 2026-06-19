@@ -38,18 +38,24 @@ _C_HI = 2
 _ENERGIES = [0.5, 0.6, 1.9, 0.7]
 
 
-def _cfg_energy(**overrides) -> PierBridgeConfig:
-    defaults = dict(
-        bridge_floor=-1.0,
-        transition_floor=-1.0,
-        progress_enabled=False,
-        energy_step_cap=0.2,
-        energy_step_strength=5.0,
-        energy_arc_band=0.5,
-        energy_arc_strength=0.0,  # arc disabled in these tests; step_strength drives the penalty
+def _cfg_energy(
+    bridge_floor: float = -1.0,
+    transition_floor: float = -1.0,
+    progress_enabled: bool = False,
+    energy_step_cap: float = 0.2,
+    energy_step_strength: float = 5.0,
+    energy_arc_band: float = 0.5,
+    energy_arc_strength: float = 0.0,
+) -> PierBridgeConfig:
+    return PierBridgeConfig(
+        bridge_floor=bridge_floor,
+        transition_floor=transition_floor,
+        progress_enabled=progress_enabled,
+        energy_step_cap=energy_step_cap,
+        energy_step_strength=energy_step_strength,
+        energy_arc_band=energy_arc_band,
+        energy_arc_strength=energy_arc_strength,
     )
-    defaults.update(overrides)
-    return PierBridgeConfig(**defaults)
 
 
 def test_energy_step_demotes_big_jump_candidate():
