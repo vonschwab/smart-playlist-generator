@@ -11,6 +11,8 @@ analyze:
     python: "/opt/ess/bin/python" # interpreter inside that distro
     models_dir: "/opt/ess/models" # Essentia model dir (preflight checks it)
     workers: 14                   # parallel decode workers (--energy-workers overrides)
+  pace:
+    energy_features: ["arousal_p50"]   # configurable; danceability/arousal_p10/p90 available
 discogs:
   token: ''
 lastfm:
