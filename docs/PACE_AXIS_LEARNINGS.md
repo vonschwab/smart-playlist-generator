@@ -172,3 +172,31 @@ p10–p90) → the sidecar stores the distribution, not just the mean.
   ADVANCING TO PASS 2: energy_dist, energy_pair, arousal_p50 (coarse-floor leaders). CAVEAT: Pass 1
   is the automated album-adjacency proxy only — **no verdict until Pass 2's blind human arm**.
   Full detail: `docs/run_audits/pace_axis_eval/findings_pass1.md`.
+- 2026-06-18: **SUB-PROJECT 2 = the full pace_mode slider, specified by Dylan via a 0-10 energy
+  illustration (the scale need NOT be 1-D — generalize to multidimensional energy space).** Two
+  beam terms on the validated `energy_pair` (2-D, z-scored, weighted-Euclidean):
+  1. **Adjacent-step cap (anti-whiplash) — ALWAYS ON, every mode incl. `off`.** Per-edge penalty on
+     the energy DISTANCE between consecutive tracks (prev `current` → `cand`), tightening
+     strict→off. Even `off` forbids whiplash (e.g. 1→9→2→9); it just doesn't impose an arc.
+  2. **Arc-band term — per-step penalty vs the interpolated pier→pier energy target**
+     (`interpolate_axis_vector(energy_a, energy_b, t)`, same pattern as `compute_step_rhythm_target`).
+     Band width / overshoot by mode: `strict` = tight tube, monotonic linear pull (1→2→3→4→4→5);
+     `narrow` = wider tube bounded near the piers, zig-zag ok (1→2→3→2→3→5); `dynamic` = loose
+     tube + overshoot-beyond-piers allowed (1→3→5→6→7→5); `off` = arc term DISABLED (1→3→6→8→4→5),
+     step-cap only.
+  Both soft, mode-keyed via PACE_MODE_PRESETS. Multidimensional is fine — distance-cap and
+  interpolated-target-band both generalize to N-D; reuses the existing axis-interpolation
+  (`pace_gate`) + edge-penalty (`local_sonic_edge_penalty`) machinery. Built on the COARSE energy
+  signal (pier-to-pier arc spans a wide range — NOT the fine within-album micro-ordering Pass 1
+  found near-chance). Eval-gate = blind audition of generated playlists per mode (the with/without
+  + per-mode behavior check) before default-on. Representation: `energy_pair` now; Pass-2 blind
+  session can still tie-break vs `energy_dist`/`arousal_p50` (knob makes swapping trivial).
+  - **NON-NEGOTIABLE: never hard-fail on pace (Dylan).** Both energy terms are SOFT penalties ONLY
+    — ranking nudges into `_pace_penalty`, never a `continue`/candidate-reject, never an
+    admission-pool filter. A candidate is only down-ranked, NEVER excluded — so a segment is always
+    buildable in EVERY mode (incl. strict); pace can never cause infeasibility or trigger the
+    relaxation cascade. NaN energy (missing track / pier) → that term is skipped for that edge.
+    This IS the lesson from [[project_onset_band_soft_penalty]] (hard pace bands stranded segments
+    → cascade detonated → "took FOREVER"; [[feedback_generation_time_budget]] 90s ceiling) and
+    CLAUDE.md "infeasible bridge → progressively relax, don't crash / edge cases get graceful
+    fallbacks." Strict just means a STRONGER soft penalty, not a gate.
