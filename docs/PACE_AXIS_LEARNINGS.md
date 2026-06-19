@@ -200,3 +200,33 @@ p10–p90) → the sidecar stores the distribution, not just the mean.
     → cascade detonated → "took FOREVER"; [[feedback_generation_time_budget]] 90s ceiling) and
     CLAUDE.md "infeasible bridge → progressively relax, don't crash / edge cases get graceful
     fallbacks." Strict just means a STRONGER soft penalty, not a gate.
+- 2026-06-18: **HEAD PROBE + edge tests + MERT-redundancy — explored adding more Essentia heads;
+  net = keep the pace axis LEAN (arousal-led).** Scripts: `scripts/research/pace_head_probe_*`,
+  `mert_redundancy.py` (+ run_audits artifacts). Cached one MusiCNN embedding, ran 7 heads on the
+  158-track corpus.
+  - **Pace-adjacency probe (coarse AUC):** arousal 0.767 leads singles; relaxed 0.744 (but 0.89
+    corr w/ arousal = inverse-arousal, redundant); danceability 0.694; instrumental 0.672;
+    **mood_aggressive FLOPPED (0.621)** — my "catches slow-heavy intensity" hypothesis was WRONG,
+    and ar+aggressive (0.753) < arousal alone. electronic 0.609 / acoustic 0.561 = off-axis for pace.
+    Combos: +instrumental 0.808 (biggest), +relaxed 0.792 — but suspected album-consistency confound.
+  - **Edge tests of `voice_instrumental` head** (P(instrumental)): (a) jazz — instrumental jazz
+    0.85–0.98, clear lead vocals (Norah Jones/Gregory Porter) 0.15–0.18 ✓; soft/buried vocals (bossa
+    Getz/Gilberto) read 0.65 = fooled. (b) **Black Moth Super Rainbow vocoder** vs the matched
+    *Cobra Juicy Instrumentals* — vocoded ~0.65 ≈ instrumental versions (mean paired Δ only −0.09);
+    **calls vocoder "instrumental."** Net: it's a PROMINENT-NATURAL-LEAD-VOCAL detector, blind to
+    processed/soft vocals — arguably benign (those don't create a jarring vocal entrance), but a
+    PARTIAL signal, not a clean axis.
+  - **MERT-redundancy (leave-one-out kNN k=10 in MERT emb_mid space; HIGH=MERT already captures it):**
+    danceability **0.89**, arousal **0.77**, relaxed 0.70, acoustic 0.67, instrumental 0.67,
+    electronic 0.66, aggressive 0.48 (most independent but off-axis). (Corrects an earlier looser
+    pairwise measure that wrongly showed instrumental "0.02 independent" — kNN says 0.67.)
+  - **REFRAME (important):** MERT (rich timbre embedding) already encodes most of these, so the pace
+    axis is NOT an orthogonal third axis — it's substantially correlated with sonic. **It earns its
+    place by being STEERABLE (an explicit interpolatable scalar for the arc + step-cap that MERT's
+    768-d cosine cannot express), not by carrying orthogonal info.** Proof = the with/without-energy
+    generation A/B (the eval-gate), not redundancy stats.
+  - **DECISIONS:** electronic/acoustic = SKIP (partly MERT-redundant + off-axis). danceability =
+    likely DROP (0.89 MERT-redundant, +0.004 marginal over arousal). instrumental = only a small
+    vocal-continuity term IF the blind session shows ears notice (weaker than it first looked).
+    **arousal = the keeper** (steerable pace scalar). Wiring representation defaults arousal-led,
+    knob-swappable; blind session (Pass 2) finalizes. No new heads added to the chain now.
