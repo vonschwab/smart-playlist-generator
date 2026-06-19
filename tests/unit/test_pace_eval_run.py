@@ -8,6 +8,7 @@ def test_score_candidates_ranks_separating_feature_high():
     corpus_index = {t: i for i, t in enumerate(ids)}
     pairs = {
         "adjacent": [("a1", "a2"), ("b1", "b2")],
+        "adjacent_gradient": [("a1", "a2"), ("b1", "b2")],
         "non_adjacent_same_album": [],
         "random_cross": [("a1", "b1"), ("a2", "b2")],
     }
@@ -20,3 +21,4 @@ def test_score_candidates_ranks_separating_feature_high():
     res = run.score_candidates(corpus_index, pairs, zs, zt)
     assert res["arousal_p50"]["auc_adj_vs_random"] == 1.0
     assert res["arousal_p50"]["adjacent"]["n"] == 2
+    assert "adjacent_gradient" in res["arousal_p50"]

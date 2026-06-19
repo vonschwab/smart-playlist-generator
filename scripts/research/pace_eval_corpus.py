@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import random
 import re
+import warnings
 from dataclasses import dataclass
 
 
@@ -90,6 +91,8 @@ def resolve_corpus(conn, specs: list[AlbumSpec] = CORPUS):
             seen.add(tn)
             ordered.append((tn, tid))
         counts[spec.key] = len(ordered)
+        if spec.expected is not None and counts[spec.key] != spec.expected:
+            warnings.warn(f"{spec.key}: expected {spec.expected} tracks, resolved {counts[spec.key]}")
         for tn, tid in ordered:
             out.append(CorpusTrack(tid, spec.key, tn, spec.flow_type, spec.register))
     return out, counts
@@ -103,11 +106,14 @@ def build_pairs(tracks: list[CorpusTrack], *, seed: int = 13, n_random: int = 20
         by_album[k].sort(key=lambda t: t.track_no)
 
     adjacent: list[tuple[str, str]] = []
+    adjacent_gradient: list[tuple[str, str]] = []
     non_adjacent: list[tuple[str, str]] = []
     for ts in by_album.values():
         ids = [t.track_id for t in ts]
         for i in range(len(ids) - 1):
             adjacent.append((ids[i], ids[i + 1]))
+            if ts[0].flow_type == "gradient_flow":
+                adjacent_gradient.append((ids[i], ids[i + 1]))
         if ts and ts[0].flow_type == "gradient_flow":
             for i in range(len(ids)):
                 for j in range(i + 2, len(ids)):
@@ -129,8 +135,10 @@ def build_pairs(tracks: list[CorpusTrack], *, seed: int = 13, n_random: int = 20
             continue
         seen_pairs.add(key)
         random_cross.append((a, b))
-    return {"adjacent": adjacent, "non_adjacent_same_album": non_adjacent,
-            "random_cross": random_cross}
+    if len(random_cross) < n_random:
+        warnings.warn(f"random_cross under-sampled: {len(random_cross)}/{n_random} pairs")
+    return {"adjacent": adjacent, "adjacent_gradient": adjacent_gradient,
+            "non_adjacent_same_album": non_adjacent, "random_cross": random_cross}
 
 
 def write_corpus_tsv(path: str, tracks: list[CorpusTrack]) -> None:

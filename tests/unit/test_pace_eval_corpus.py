@@ -36,6 +36,10 @@ def test_build_pairs_adjacent_nonadjacent_and_cross_register():
     # non-adjacent only from gradient album A (a1,a3); none from tight album B
     assert ("a1", "a3") in pairs["non_adjacent_same_album"]
     assert all(p not in pairs["non_adjacent_same_album"] for p in [("b1", "b2")])
+    # adjacent_gradient: only adjacent pairs from gradient_flow albums (A only, not B)
+    assert ("a1", "a2") in pairs["adjacent_gradient"]
+    assert ("a2", "a3") in pairs["adjacent_gradient"]
+    assert ("b1", "b2") not in pairs["adjacent_gradient"]
     # random_cross pairs are cross-register only
     reg = {t.track_id: t.register for t in tracks}
     assert all(reg[x] != reg[y] for x, y in pairs["random_cross"])
