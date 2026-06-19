@@ -323,6 +323,7 @@ def generate_playlist_ds(
     energy_matrix: Optional[np.ndarray] = None
     _energy_active = any(
         float(pace_settings.get(k, 0.0)) > 0.0
+        or float(pb_overrides.get(k, 0.0)) > 0.0
         for k in ("energy_step_strength", "energy_arc_strength")
     )
     if _energy_active:
@@ -528,6 +529,16 @@ def generate_playlist_ds(
                 energy_arc_band=float(pace_settings.get("energy_arc_band", 0.0)),
                 energy_arc_strength=float(pace_settings.get("energy_arc_strength", 0.0)),
             )
+            # Apply config.yaml pier_bridge energy overrides on top of preset defaults.
+            # Keys: energy_step_cap, energy_step_strength, energy_arc_band, energy_arc_strength.
+            # These override the preset values (all 0.0) so users can opt-in via config.yaml
+            # without defining a custom pace_mode preset.
+            _energy_overrides: dict = {}
+            for _ek in ("energy_step_cap", "energy_step_strength", "energy_arc_band", "energy_arc_strength"):
+                if isinstance(pb_overrides.get(_ek), (int, float)):
+                    _energy_overrides[_ek] = float(pb_overrides[_ek])
+            if _energy_overrides:
+                pb_cfg = replace(pb_cfg, **_energy_overrides)
 
             # Tower-knob guard: tower-style transition_weights cannot act on a
             # no-tower sonic variant (e.g. mert). Non-default weights raise
