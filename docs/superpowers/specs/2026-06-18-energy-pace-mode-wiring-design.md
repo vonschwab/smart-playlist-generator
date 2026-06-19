@@ -32,7 +32,9 @@ Both energy terms are **soft penalties only** — ranking nudges added to the be
 ## Design
 
 ### Energy space
-`X_energy` = per-track 2-D vector `[arousal_p50, danceability]`, **z-scored library-wide** (so distances are comparable in std units, matching the eval). Distance = Euclidean (unit weights; `energy_pair` is the validated representation). A track missing energy → NaN row → both terms skipped for any edge touching it.
+`X_energy` = a per-track vector built from a **configurable feature list** (config `analyze.pace.energy_features`), each feature **z-scored library-wide** (distances in std units, matching the eval); distance = Euclidean. A track missing energy → NaN row → both terms skipped for any edge touching it.
+
+**Default feature list = `[arousal_p50]` (arousal-led), per the head-probe findings (learnings log 2026-06-18):** arousal is the strongest pace signal and the steerable scalar MERT can't express; **danceability is OFF by default** (0.89 MERT-redundant, +0.004 marginal — available in the list but not default); mood/texture heads (electronic/acoustic/aggressive/relaxed) are excluded (off-axis and/or MERT-redundant). The list is a knob so the **eval-gate + Pass-2 blind session finalize it** (e.g. add `danceability` or use the `arousal_p10/p50/p90` distribution if they win). `instrumental` is NOT in this list — if a vocal-continuity signal is wanted it's a *separate* small term (deferred, pending the blind session), not folded into the pace distance.
 
 ### Term 1 — adjacent-step cap (always on)
 At the `_apply_local_sonic_edge_policy` site, with `a=current`, `b=cand`:
@@ -64,7 +66,7 @@ if finite(d_arc) and energy_arc_strength > 0 and d_arc > energy_arc_band:
   | off | 1.6 | low | — | 0.0 (disabled) |
 
 ### Components (each one responsibility)
-- **`src/playlist/energy_loader.py`** — `load_energy_matrix(track_ids, *, sidecar_path) -> np.ndarray (n,2)` z-scored `[arousal_p50, danceability]`, NaN rows for missing (mirrors `bpm_loader`; reads sidecar npz; no essentia).
+- **`src/playlist/energy_loader.py`** — `load_energy_matrix(track_ids, *, sidecar_path, features) -> np.ndarray (n, len(features))` z-scored, built from the configurable `features` list (default `["arousal_p50"]`), NaN rows for missing (mirrors `bpm_loader`; reads sidecar npz; no essentia).
 - **`src/playlist/pier_bridge/pace_gate.py`** — `compute_step_energy_target`.
 - **`src/playlist/pier_bridge/config.py`** — the 4 fields.
 - **`src/playlist/mode_presets.py`** — per-mode values in `PACE_MODE_PRESETS`.
