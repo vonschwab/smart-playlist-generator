@@ -111,6 +111,24 @@ class AdjudicationStore:
                 "dropped_file_tags": json.loads(dropped) if dropped else [],
             }
 
+    def complete_album_ids(self, prompt_version: str) -> set[str]:
+        """Album IDs with a `complete` row under `prompt_version` (any input_hash).
+
+        Unlike `is_done`, this ignores input_hash — so it identifies albums already
+        adjudicated under a given pass even after their evidence drifted (e.g. publishing
+        the first pass rewrote `current_observed_leaf`, changing the input_hash). Used by
+        the bulk runner's `--exclude-done` to skip albums already done under the pass it
+        is about to run.
+        """
+        return {
+            album_id
+            for (album_id,) in self._conn.execute(
+                "SELECT DISTINCT album_id FROM adjudications "
+                "WHERE status='complete' AND prompt_version=?",
+                (prompt_version,),
+            )
+        }
+
     def shallow_album_ids(self, prompt_version: str, max_genres: int = 2) -> list[str]:
         """Album IDs from a completed pass with ≤max_genres genres and not escalated.
 

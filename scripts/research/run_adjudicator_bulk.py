@@ -108,9 +108,11 @@ def main() -> int:
     ap.add_argument("--overtag-min", type=int, default=7,
                     help="targeted: min observed_leaf count for 'over-tagged' (sparse=0 always included)")
     ap.add_argument("--exclude-done", action="store_true",
-                    help="skip albums with any complete adjudication row (by album_id, ignoring "
-                         "input_hash). Use for the remaining-library pass after the first pass "
-                         "was published — otherwise evidence drift re-adjudicates done albums.")
+                    help="skip albums already complete under THIS run's prompt_version (by "
+                         "album_id, ignoring input_hash). Use for resumable passes after an "
+                         "earlier pass was published — otherwise evidence drift re-adjudicates "
+                         "done albums. Scoped per-pass: standard excludes standard-done, "
+                         "thorough excludes thorough-done.")
     ap.add_argument("--model", default="haiku")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--max-calls", type=int, default=0, help="0=unlimited; cap a run to one usage window")
@@ -127,10 +129,11 @@ def main() -> int:
     id2name = {r[0]: r[1] for r in meta.execute("SELECT genre_id, name FROM genre_graph_canonical_genres")}
     targets = target_albums(args.source, meta, args.corpus, args.overtag_min, store=store)
     if args.exclude_done:
-        done_ids = {row["album_id"] for row in store.iter_complete()}
+        done_ids = store.complete_album_ids(pv)
         before = len(targets)
         targets = exclude_done_album_ids(targets, done_ids)
-        print(f"exclude_done: {before} -> {len(targets)} ({before - len(targets)} already complete)")
+        print(f"exclude_done[{pv}]: {before} -> {len(targets)} "
+              f"({before - len(targets)} already complete under this pass)")
     if args.limit:
         targets = targets[: args.limit]
 

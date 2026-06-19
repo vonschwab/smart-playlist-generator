@@ -62,6 +62,23 @@ def test_shallow_album_ids_returns_low_genre_non_escalated(tmp_path):
     assert set(result) == {"a1", "a4", "a5"}
 
 
+def test_complete_album_ids_scoped_by_prompt_version_ignoring_input_hash(tmp_path):
+    s = AdjudicationStore(tmp_path / "shadow.db")
+    # a1 complete under std; a2 complete under thorough; a3 failed under std.
+    s.save(album_id="a1", prompt_version="std", input_hash="h1", status="complete",
+           response={"genres": []})
+    s.save(album_id="a2", prompt_version="thorough", input_hash="h2", status="complete",
+           response={"genres": []})
+    s.save(album_id="a3", prompt_version="std", input_hash="h3", status="failed", error="x")
+    # a1 also has a thorough row (Phase-4-style overlap).
+    s.save(album_id="a1", prompt_version="thorough", input_hash="h4", status="complete",
+           response={"genres": []})
+
+    assert s.complete_album_ids("std") == {"a1"}          # a3 failed -> excluded
+    assert s.complete_album_ids("thorough") == {"a1", "a2"}
+    assert s.complete_album_ids("missing") == set()
+
+
 def test_shallow_album_ids_only_looks_at_given_prompt_version(tmp_path):
     s = AdjudicationStore(tmp_path / "shadow.db")
     s.save(album_id="a1", prompt_version="pv1", input_hash="h", status="complete",
