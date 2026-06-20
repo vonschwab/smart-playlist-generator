@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.13.1-phase4-review-gaps
+taxonomy_version: 0.14.0-pass2-gaps-grown
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -3054,7 +3054,7 @@ records:
 - name: kosmische musik
   kind: genre
   role: leaf
-  status: review
+  status: active
   facet_type: null
   specificity_score: 0.74
   canonical_target: null
@@ -9955,7 +9955,7 @@ records:
 - name: leftfield
   kind: umbrella
   role: context
-  status: review
+  status: active
   facet_type: null
   specificity_score: 0.32
   canonical_target: null
@@ -17645,7 +17645,7 @@ records:
 - name: jazz blues
   kind: genre
   role: leaf
-  status: review
+  status: active
   facet_type: null
   specificity_score: 0.52
   canonical_target: null
@@ -18836,7 +18836,7 @@ records:
 - name: dark folk
   kind: subgenre
   role: leaf
-  status: review
+  status: active
   facet_type: null
   specificity_score: 0.64
   canonical_target: null
@@ -22440,6 +22440,949 @@ records:
   facet_type: null
   specificity_score: null
   canonical_target: choral
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: electronic rock
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: rock
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.8
+    notes: null
+  - target: electronic
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rock built on electronic instrumentation and production (synths, drum machines,
+    sequencers) while keeping rock song structure. Broader than synth-pop; rockier
+    than synthwave.
+- name: electro-rock
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: electronic rock
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: rave
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.76
+  canonical_target: null
+  parent_edges:
+  - target: electronic
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.8
+    notes: null
+  - target: breakbeat
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: jungle
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Early-90s UK rave — breakbeat/hardcore-driven dance music with stabs, hoovers,
+    and pitched breaks. The cradle of jungle and happy hardcore.
+- name: rave music
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: rave
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: oldskool rave
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: rave
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: afro-soul
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.8
+  canonical_target: null
+  parent_edges:
+  - target: soul
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.8
+    notes: null
+  - target: funk
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.75
+    notes: null
+  - target: afrobeat
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: highlife
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: African soul music fusing American soul/funk with West African rhythms and
+    melody (Ebo Taylor, William Onyeabor's milieu). Distinct from afrobeat by its
+    soul-vocal core.
+- name: pop rap
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.74
+  canonical_target: null
+  parent_edges:
+  - target: hip hop
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  - target: pop
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.75
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Hip hop built for mainstream pop radio — hooks, sung choruses, polished production.
+    Distinct from conscious/boom-bap by its pop-crossover intent.
+- name: breakbeat hardcore
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.82
+  canonical_target: null
+  parent_edges:
+  - target: breakbeat
+    edge_type: family_context
+    weight: 0.7
+    confidence: 0.85
+    notes: null
+  - target: jungle
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: drum and bass
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Early-90s UK hardcore built on chopped breakbeats, rave stabs, and sped-up
+    samples — the direct precursor to jungle and drum and bass.
+- name: hardcore breakbeat
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: breakbeat hardcore
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: oldskool hardcore
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: breakbeat hardcore
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: gospel soul
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.8
+  canonical_target: null
+  parent_edges:
+  - target: soul
+    edge_type: family_context
+    weight: 0.7
+    confidence: 0.85
+    notes: null
+  - target: gospel
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Soul with overt gospel structure and fervor — church-rooted call-and-response
+    and testifying vocals (Mavis Staples, early Aretha). Distinct from secular deep
+    soul by its sacred phrasing.
+- name: library music
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.82
+  canonical_target: null
+  parent_edges:
+  - target: easy listening
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.75
+    notes: null
+  - target: lounge
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Production music recorded for film/TV/radio licensing (KPM, De Wolfe), spanning
+    moods from groovy to eerie. A distinct tradition prized by crate-diggers, not
+    a mood label.
+- name: production music
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: library music
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: stock music
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: library music
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: exotica
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.84
+  canonical_target: null
+  parent_edges:
+  - target: lounge
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  - target: easy listening
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.75
+    notes: null
+  - target: lounge
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 1950s-60s fantasy-tropical lounge music — Martin Denny, Les Baxter, Arthur
+    Lyman. Highly specific aesthetic (bird calls, vibraphone, faux-Polynesian/Latin
+    orchestration).
+- name: outsider music
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.8
+  canonical_target: null
+  parent_edges:
+  - target: experimental
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.75
+    notes: null
+  - target: singer-songwriter
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Music by self-taught/idiosyncratic artists outside industry norms (Daniel
+    Johnston, Jandek, The Shaggs). Defined by naive, unguarded expression rather than
+    a sound.
+- name: outsider
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: outsider music
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: girl group
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.8
+  canonical_target: null
+  parent_edges:
+  - target: pop
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.8
+    notes: null
+  - target: soul
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.7
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Early-60s vocal-harmony pop sung by female groups (The Ronettes, The Shirelles,
+    early Motown girl groups) — Brill Building / Spector production aesthetic.
+- name: classical crossover
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.72
+  canonical_target: null
+  parent_edges:
+  - target: classical
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.8
+    notes: null
+  - target: neoclassical
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: contemporary classical
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Classical written/performed for popular crossover appeal (Ludovico Einaudi,
+    soundtrack-classical, operatic-pop). Distinct from concert-hall contemporary classical
+    by its accessibility.
+- name: crossover classical
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: classical crossover
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: teen pop
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.72
+  canonical_target: null
+  parent_edges:
+  - target: pop
+    edge_type: family_context
+    weight: 0.7
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Pop marketed to teenagers with bright hooks and dance production (late-90s/00s
+    boy bands, Britney-era pop). Distinct from general dance-pop by its youth-idol
+    framing.
+- name: teenybop
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: teen pop
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: nature ambient
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.78
+  canonical_target: null
+  parent_edges:
+  - target: ambient
+    edge_type: family_context
+    weight: 0.7
+    confidence: 0.85
+    notes: null
+  - target: kankyo ongaku
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Ambient built around field recordings and natural soundscapes (water, birds,
+    wind) as primary material. Overlaps kankyo ongaku but emphasizes literal nature
+    over designed environments.
+- name: naturalist ambient
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: nature ambient
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: illbient
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.84
+  canonical_target: null
+  parent_edges:
+  - target: ambient
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.8
+    notes: null
+  - target: trip-hop
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.8
+    notes: null
+  - target: trip-hop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 90s NYC fusion of dub, hip-hop, and dark ambient (DJ Spooky). Murky, bass-heavy,
+    collage-based — distinct from trip-hop by its noisier, abstract edge.
+- name: funk metal
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.8
+  canonical_target: null
+  parent_edges:
+  - target: metal
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.8
+    notes: null
+  - target: funk
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.8
+    notes: null
+  - target: heavy metal
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Metal with funk rhythm sections and slap bass (Faith No More, early RHCP,
+    Living Colour). Distinct from nu metal by its live-funk groove over downtuned
+    riffing.
+- name: latin alternative
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.78
+  canonical_target: null
+  parent_edges:
+  - target: rock
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.75
+    notes: null
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Latin American alternative/indie blending rock and electronic with regional
+    traditions (Café Tacvba, Bomba Estéreo). Distinct from straight Latin pop by its
+    indie/experimental bent.
+- name: alternative latino
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: latin alternative
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: rock en espanol
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: latin alternative
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: impressionism
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.82
+  canonical_target: null
+  parent_edges:
+  - target: classical
+    edge_type: family_context
+    weight: 0.7
+    confidence: 0.85
+    notes: null
+  - target: modern classical
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: contemporary classical
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Turn-of-century classical movement of colour, atmosphere, and whole-tone
+    harmony (Debussy, Ravel). A distinct historical school, not a generic classical
+    bucket.
+- name: impressionist classical
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: impressionism
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: musical impressionism
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: impressionism
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: drone folk
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.82
+  canonical_target: null
+  parent_edges:
+  - target: folk
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.8
+    notes: null
+  - target: neofolk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: american primitivism
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Folk built on sustained drones and modal repetition (Six Organs of Admittance,
+    early Espers). Distinct from freak folk by its minimalist, hypnotic stasis.
+- name: surf pop
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.76
+  canonical_target: null
+  parent_edges:
+  - target: pop
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.8
+    notes: null
+  - target: surf rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: indie pop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Sunny, reverb-kissed pop with surf-guitar jangle but pop song-craft over
+    instrumental surf rock (Beach Boys melodic lineage, Allah-Las/Best Coast). Poppier
+    than surf rock.
+- name: jazzy hip-hop
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: jazz rap
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: minimal music
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: minimalist composition
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: political hip hop
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: conscious hip hop
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: electronic classical
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: electroacoustic
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: alternative folk
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: indie folk
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: psych folk
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: psychedelic folk
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: american primitive guitar
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: american primitivism
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: electronic jazz
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: nu jazz
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: symphonic rock
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: progressive rock
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: electronic pop
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: synth-pop
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: symphonic
+  kind: facet
+  role: modifier
+  status: active
+  facet_type: instrumentation
+  specificity_score: 0.5
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Instrumentation facet — performed by / arranged for full orchestra. Applies
+    across classical, rock, metal, and soundtrack genres.
+- name: symphonic music
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: symphonic
   parent_edges: []
   secondary_roles: []
   reject_reason: null
