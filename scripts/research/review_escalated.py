@@ -4,8 +4,7 @@ from the sidecar EscalationQueue. accept/edit -> materialize via queue.record_de
 reject -> leave the album's existing authority untouched.
 
 Usage:
-  python scripts/research/review_escalated.py            # interactive review
-  python scripts/research/review_escalated.py --apply    # materialize decided accept/edit
+  python scripts/research/review_escalated.py            # interactive review and apply decisions
 """
 from __future__ import annotations
 
@@ -106,9 +105,7 @@ def apply_decisions(*, sidecar_path: str, decisions: dict) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Human review of escalated album adjudications.")
-    ap.add_argument("--apply", action="store_true",
-                    help="materialize the decisions captured interactively (no prompts)")
-    args = ap.parse_args()
+    ap.parse_args()
 
     sidecar = _sidecar_path()
     queue = EscalationQueue(sidecar)
