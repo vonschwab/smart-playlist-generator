@@ -122,3 +122,73 @@ python scripts/research/review_escalated.py
 # 4. Re-run publish to incorporate newly accepted escalations
 python scripts/analyze_library.py --stages publish
 ```
+
+---
+
+## Reviewing escalations in the GUI
+
+The **Genre Review** tab in the web UI is the recommended interface for working through the
+escalation queue once `apply` has populated it.
+
+### Starting the server
+
+```bash
+python tools/serve_web.py
+```
+
+Open `http://localhost:8770` and click the **Genre Review** tab.
+
+### What the panel shows
+
+The panel lists pending **album-level escalations** — one card per album — not the tag-grain review
+terms from the old queue. Each card shows:
+
+- Album / artist
+- Proposed canonical genres (may be empty if SP1 canonicalization produced no matches — use **Edit**)
+- Escalation reason (uncertainty, thin evidence, file-tag preservation)
+- Existing file tags that would be affected
+
+### Per-album actions
+
+| Action | Keyboard | Effect |
+|--------|----------|--------|
+| **Accept** | `A` | Approve proposed genres as-is |
+| **Edit** | — | Reveal a comma-separated genre input; type replacements, then confirm |
+| **Reject** | `R` | Leave album's existing authority untouched |
+
+Decisions are recorded in-session. The panel advances to the next pending escalation automatically
+after Accept or Reject.
+
+### Publishing decisions
+
+Click **Publish decided (K)** (or press `K`) when you are ready to commit the session's decisions.
+The handler:
+
+1. Creates a timestamped backup of `data/metadata.db` before writing.
+2. Calls `publish()` to write accepted/edited genres into `release_effective_genres`.
+
+Rejected albums are left untouched. Escalations resolved this way move to `status='decided'` and
+will not reappear in the queue.
+
+### Artifact rebuild after publishing
+
+Publishing updates the database but **does not update the generation artifact**. Run the artifact
+rebuild before the next playlist generation:
+
+```bash
+python scripts/fold_2dftm_into_artifact.py
+```
+
+or the full pipeline stage:
+
+```bash
+python scripts/analyze_library.py --stages artifacts
+```
+
+### Restart trap
+
+- **After any edit to `src/playlist_gui/worker.py`** — restart `python tools/serve_web.py`; the
+  worker process is spawned at server startup and will not pick up changes otherwise.
+- **After any edit to `web/src/`** — rebuild `web/dist` with `npm --prefix web run build` (or
+  `npm --prefix web run dev` for live-reload during development); the server serves the pre-built
+  dist directory.
