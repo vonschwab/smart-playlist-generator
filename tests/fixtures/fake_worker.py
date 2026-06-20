@@ -2,6 +2,8 @@
 import json
 import sys
 
+FAKE_WORKER_CMD = [sys.executable, __file__]
+
 
 def emit(obj):
     sys.stdout.write(json.dumps(obj) + "\n")
@@ -110,60 +112,34 @@ def main():
             emit({"type": "done", "cmd": "enrich_genres", "ok": True,
                   "detail": "Enriched 5 releases",
                   "request_id": rid, "job_id": jid})
-        elif name == "scan_genre_review":
-            emit({"type": "progress", "stage": "scan_genre_review", "current": 1, "total": 2,
-                  "detail": "acetone – cindy", "request_id": rid, "job_id": jid})
-            emit({"type": "result", "result_type": "scan_genre_review",
-                  "request_id": rid, "job_id": jid,
-                  "releases_scanned": 2, "new_terms": 3, "pruned_terms": 0, "pending_terms": 3})
-            emit({"type": "done", "cmd": name, "ok": True, "detail": "Scanned 2 releases",
-                  "request_id": rid, "job_id": jid})
-        elif name == "get_genre_review_queue":
-            emit({"type": "result", "result_type": "genre_review_queue",
-                  "request_id": rid, "job_id": jid,
-                  "releases": [{
-                      "release_key": "acetone::cindy", "artist": "acetone", "album": "cindy",
-                      "pending": [
-                          {"term": "slowcore", "confidence": 0.4, "basis": "hybrid_fusion",
-                           "sources": ["lastfm_tags"], "reason": "uncertain", "status": "pending"},
-                          {"term": "sadcore", "confidence": 0.3, "basis": "layered_taxonomy",
-                           "sources": ["discogs"], "reason": "Unknown layered taxonomy term.",
-                           "status": "pending"},
-                      ],
-                      "decided": [],
-                  }],
-                  "pending_releases": 1, "pending_terms": 2})
-            emit({"type": "done", "cmd": name, "ok": True, "detail": "2 pending",
-                  "request_id": rid, "job_id": jid})
-        elif name == "get_genre_review_completed":
-            emit({"type": "result", "result_type": "genre_review_completed",
-                  "request_id": rid, "job_id": jid,
-                  "releases": [{
-                      "release_key": "acetone::cindy", "artist": "acetone", "album": "cindy",
-                      "pending": [],
-                      "decided": [
-                          {"term": "slowcore", "confidence": 0.4, "basis": "hybrid_fusion",
-                           "sources": ["lastfm_tags"], "reason": "uncertain",
-                           "status": "accepted"},
-                      ],
-                  }],
-                  "decided_releases": 1, "decided_terms": 1})
-            emit({"type": "done", "cmd": name, "ok": True, "detail": "1 decided",
-                  "request_id": rid, "job_id": jid})
-        elif name == "apply_genre_review_decision":
-            decision = cmd.get("decision", "accept")
-            status = {"accept": "accepted", "reject": "rejected", "revert": "pending"}.get(decision)
-            if status is None:
-                emit({"type": "error", "message": f"invalid decision: {decision}",
-                      "request_id": rid, "job_id": jid})
-                emit({"type": "done", "cmd": name, "ok": False, "request_id": rid, "job_id": jid})
-            else:
-                emit({"type": "result", "result_type": "genre_review_decision",
-                      "request_id": rid, "job_id": jid,
-                      "release_key": cmd.get("release_key"), "term": cmd.get("term"),
-                      "decision": decision, "status": status})
-                emit({"type": "done", "cmd": name, "ok": True, "detail": status,
-                      "request_id": rid, "job_id": jid})
+        elif name == "get_escalation_queue":
+            emit({"type": "result", "result_type": "escalation_queue",
+                  "escalations": [{"album_id": "a1", "artist": "Slowdive", "album": "Souvlaki",
+                                   "prior_observed_leaf": ["indie rock"],
+                                   "proposed_genres": [{"term": "shoegaze", "confidence": 0.9}],
+                                   "escalate_reason": "sparse", "dropped_file_tags": [],
+                                   "status": "pending"}],
+                  "pending_albums": 1, "decided_albums": 0, "request_id": rid, "job_id": None})
+            emit({"type": "done", "cmd": "get_escalation_queue", "ok": True,
+                  "request_id": rid, "job_id": None})
+        elif name == "get_escalation_completed":
+            emit({"type": "result", "result_type": "escalation_completed",
+                  "escalations": [], "pending_albums": 1, "decided_albums": 0,
+                  "request_id": rid, "job_id": None})
+            emit({"type": "done", "cmd": "get_escalation_completed", "ok": True,
+                  "request_id": rid, "job_id": None})
+        elif name == "apply_escalation_decision":
+            emit({"type": "result", "result_type": "escalation_decision",
+                  "album_id": cmd.get("album_id"), "status": "accepted",
+                  "request_id": rid, "job_id": None})
+            emit({"type": "done", "cmd": "apply_escalation_decision", "ok": True,
+                  "request_id": rid, "job_id": None})
+        elif name == "publish_decided":
+            emit({"type": "result", "result_type": "publish_decided",
+                  "graph_albums": 3325, "legacy_albums": 81, "total_albums": 3428,
+                  "collisions": 31, "request_id": rid, "job_id": cmd.get("job_id")})
+            emit({"type": "done", "cmd": "publish_decided", "ok": True,
+                  "request_id": rid, "job_id": cmd.get("job_id")})
         else:
             emit({"type": "error", "message": f"unknown cmd {name}", "request_id": rid, "job_id": jid})
             emit({"type": "done", "cmd": name or "?", "ok": False, "request_id": rid, "job_id": jid})

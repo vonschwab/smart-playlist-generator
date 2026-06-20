@@ -279,6 +279,12 @@ class ReviewDecisionRequest(BaseModel):
     decision: str  # accept | reject | revert — validated by the worker
 
 
+class EscalationDecisionRequest(BaseModel):
+    album_id: str
+    decision: str  # accept | edit | reject | revert
+    genres: list[str] | None = None
+
+
 class TrackGenresRequest(BaseModel):
     """Batch lookup of display genres for staged seed tracks."""
 
