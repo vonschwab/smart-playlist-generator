@@ -42,10 +42,23 @@ from src.ai_genre_enrichment.discovery import discover_releases
 from src.ai_genre_enrichment.lastfm_enrichment import fetch_lastfm_tags
 from src.ai_genre_enrichment.tag_adjudicator import adjudicate_tags
 from src.ai_genre_enrichment.provider import resolve_enrichment_model
+from src.ai_genre_enrichment.adjudication_store import AdjudicationStore
+from src.ai_genre_enrichment.adjudication_runner import build_todo, run_adjudication
+from src.ai_genre_enrichment.adjudication_apply import apply_adjudications
+from src.ai_genre_enrichment.escalation_queue import EscalationQueue
+from src.ai_genre_enrichment.album_adjudicator import (
+    ADJUDICATOR_INSTRUCTIONS,
+    ADJUDICATOR_INSTRUCTIONS_THOROUGH,
+    ADJUDICATOR_PROMPT_VERSION,
+    ADJUDICATOR_PROMPT_VERSION_THOROUGH,
+)
+from src.ai_genre_enrichment.claude_client import ClaudeCodeEnrichmentClient
+from src.ai_genre_enrichment.layered_taxonomy import load_default_layered_taxonomy
+from src.genre.graph_adapter import load_graph_adapter
 
 DEFAULT_OUT_DIR = ROOT_DIR / "data" / "artifacts" / "beat3tower_32k"
 ENRICHMENT_DB_PATH = ROOT_DIR / "data" / "ai_genre_enrichment.db"
-STAGE_ORDER_DEFAULT = ["scan", "genres", "discogs", "lastfm", "sonic", "mert", "enrich", "publish", "genre-sim", "artifacts", "genre-embedding", "verify"]
+STAGE_ORDER_DEFAULT = ["scan", "genres", "discogs", "lastfm", "sonic", "mert", "adjudicate", "apply", "publish", "genre-sim", "artifacts", "genre-embedding", "verify"]
 
 # Substrings that identify a TRANSIENT Claude failure (rate limit / usage window).
 # These are resumable: the cache already persists whatever was adjudicated before
@@ -58,6 +71,13 @@ _TRANSIENT_CLAUDE_PATTERNS: tuple[str, ...] = (
 )
 
 logger = logging.getLogger("analyze_library")
+
+
+def effective_prompt_version(thorough: bool = False) -> str:
+    instructions = ADJUDICATOR_INSTRUCTIONS_THOROUGH if thorough else ADJUDICATOR_INSTRUCTIONS
+    base = ADJUDICATOR_PROMPT_VERSION_THOROUGH if thorough else ADJUDICATOR_PROMPT_VERSION
+    h = hashlib.sha256(instructions.encode("utf-8")).hexdigest()[:8]
+    return f"{base}+{h}"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -326,6 +346,18 @@ def compute_stage_fingerprint(ctx: Dict, stage: str) -> str:
                "signatures": signatures, "assignments": assignments}
         return _hash_obj(key)
 
+    if stage == "adjudicate":
+        total_albums = _safe_count(conn, "SELECT COUNT(*) FROM albums")
+        done = _sidecar_count(
+            "SELECT COUNT(DISTINCT album_id) FROM adjudications WHERE status='complete'")
+        return _hash_obj({"stage": stage, "total_albums": total_albums, "done": done})
+    if stage == "apply":
+        complete = _sidecar_count(
+            "SELECT COUNT(*) FROM adjudications WHERE status='complete'")
+        from src.ai_genre_enrichment.layered_taxonomy import load_default_layered_taxonomy
+        tax_version = load_default_layered_taxonomy().version
+        return _hash_obj({"stage": stage, "complete": complete, "taxonomy": tax_version})
+
     if stage == "publish":
         side_assignments = _sidecar_count(
             "SELECT COUNT(*) FROM genre_graph_release_genre_assignments")
@@ -475,6 +507,14 @@ def estimate_stage_units(ctx: Dict, stage: str) -> Tuple[Optional[int], Optional
             source_pages = _sidecar_count("SELECT COUNT(DISTINCT release_key) "
                                           "FROM ai_genre_source_pages")
             return source_pages, "releases with source pages to enrich"
+        if stage == "adjudicate":
+            total = _safe_count(conn, "SELECT COUNT(*) FROM albums")
+            done = _sidecar_count(
+                "SELECT COUNT(DISTINCT album_id) FROM adjudications WHERE status='complete'")
+            return max(0, total - done), "albums to adjudicate"
+        if stage == "apply":
+            complete = _sidecar_count("SELECT COUNT(*) FROM adjudications WHERE status='complete'")
+            return complete, "adjudications to apply"
         if stage == "publish":
             total_albums = _safe_count(conn, "SELECT COUNT(*) FROM albums "
                                             "WHERE album_id IS NOT NULL AND album_id != ''")
@@ -1492,6 +1532,79 @@ def stage_enrich(ctx: Dict) -> Dict:
             "genre_assignments": assignments, "total": enriched}
 
 
+def stage_adjudicate(ctx: Dict) -> Dict:
+    """Album-grain Sonnet adjudication. One call per new/changed album -> sidecar checkpoint.
+
+    Incremental: skips albums already complete (is_done by input_hash). Returns a `paused`
+    result on the rate wall (resumable). Writes only the sidecar `adjudications` table.
+    """
+    args = ctx["args"]
+    conn = sqlite3.connect(ctx["db_path"])
+    id2name = {r[0]: r[1] for r in conn.execute(
+        "SELECT genre_id, name FROM genre_graph_canonical_genres")}
+    album_ids = [r[0] for r in conn.execute("SELECT album_id FROM albums ORDER BY album_id")]
+    limit = getattr(args, "limit", None)
+    if limit and limit > 0:
+        album_ids = album_ids[:limit]
+    store = AdjudicationStore(str(ENRICHMENT_DB_PATH))
+    pv = effective_prompt_version(thorough=False)
+    todo = build_todo(store, conn, id2name, album_ids, prompt_version=pv)
+    conn.close()
+    if not todo:
+        logger.info("Skipping adjudicate stage (no new/changed albums)")
+        return {"skipped": True, "reason": "nothing_pending", "adjudicated": 0}
+    model = getattr(args, "adjudicate_model", None) or "sonnet"
+    client = getattr(args, "adjudicate_client", None) or ClaudeCodeEnrichmentClient(model=model)
+    adapter = load_graph_adapter()
+    summary = run_adjudication(
+        store, todo, model=model, instructions=ADJUDICATOR_INSTRUCTIONS,
+        prompt_version=pv, adapter=adapter, client=client)
+    store.close()
+    if summary.paused:
+        return {"paused": True, "pause_reason": summary.pause_reason,
+                "adjudicated": summary.adjudicated, "failed": summary.failed}
+    return {"adjudicated": summary.adjudicated, "failed": summary.failed,
+            "total": summary.adjudicated}
+
+
+def stage_apply(ctx: Dict) -> Dict:
+    """Deterministic apply of checkpointed adjudications: materialize non-escalated, queue escalated."""
+    args = ctx["args"]
+    std_pv = effective_prompt_version(thorough=False)
+    tho_pv = effective_prompt_version(thorough=True)
+    rows = []
+    side = sqlite3.connect(str(ENRICHMENT_DB_PATH))
+    for album_id, pv, rj, ih in side.execute(
+        "SELECT album_id, prompt_version, response_json, input_hash "
+        "FROM adjudications WHERE status='complete'"
+    ):
+        resp = json.loads(rj) if rj else None
+        if resp is None:
+            continue
+        resp["input_hash"] = ih
+        rows.append((album_id, pv, resp))
+    side.close()
+    if not rows:
+        logger.info("Skipping apply stage (no complete adjudications)")
+        return {"skipped": True, "reason": "no_adjudications", "materialized": 0, "escalated": 0}
+    conn = sqlite3.connect(ctx["db_path"])
+    id2name = {r[0]: r[1] for r in conn.execute(
+        "SELECT genre_id, name FROM genre_graph_canonical_genres")}
+    taxonomy = load_default_layered_taxonomy()
+    adapter = load_graph_adapter()
+    store = SidecarStore(str(ENRICHMENT_DB_PATH))
+    store.initialize()
+    queue = EscalationQueue(ENRICHMENT_DB_PATH)
+    summary = apply_adjudications(
+        rows=rows, thorough_pv=tho_pv, std_pv=std_pv, meta_conn=conn, id2name=id2name,
+        taxonomy=taxonomy, adapter=adapter, sidecar_store=store, queue=queue,
+        model=getattr(args, "adjudicate_model", None) or "sonnet")
+    conn.close()
+    queue.close()
+    return {"materialized": summary.materialized, "escalated": summary.escalated,
+            "total": summary.materialized}
+
+
 def _release_effective_genres_exists(db_path: str) -> bool:
     """True if metadata.db already has the published release_effective_genres table."""
     try:
@@ -1986,6 +2099,8 @@ STAGE_FUNCS = {
     "discogs": stage_discogs,
     "lastfm": stage_lastfm,
     "enrich": stage_enrich,
+    "adjudicate": stage_adjudicate,
+    "apply": stage_apply,
     "publish": stage_publish,
     "sonic": stage_sonic,
     "mert": stage_mert,
@@ -2035,6 +2150,8 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
                         help="Last.fm API key for the lastfm stage (else env LASTFM_API_KEY / config)")
     parser.add_argument("--model", default=None,
                         help="LLM model override for the enrich stage (default: provider default)")
+    parser.add_argument("--adjudicate-model", default=None,
+                        help="Model for the adjudicate stage (default: sonnet)")
     parser.add_argument("--enrich-chunk-size", type=int, default=50,
                         help="Tags per adjudication chunk in the enrich stage (default: 50)")
     add_logging_args(parser)

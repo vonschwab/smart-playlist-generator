@@ -385,13 +385,21 @@ def test_artifacts_fingerprint_tracks_published_genres_in_graph_mode(tmp_path, m
 
 def test_default_stage_order_has_new_stages_positioned():
     order = al.STAGE_ORDER_DEFAULT
-    for name in ("lastfm", "enrich", "publish"):
+    # lastfm and publish remain in the default order; enrich is opt-in only (not in default)
+    for name in ("lastfm", "publish"):
         assert name in order, f"{name} missing from STAGE_ORDER_DEFAULT"
         assert name in al.STAGE_FUNCS
-    # lastfm after discogs; enrich after sonic; publish after enrich
+    # adjudicate + apply replace enrich in the default order
+    assert "adjudicate" in order
+    assert "apply" in order
+    assert "enrich" not in order, "enrich should be opt-in only (not in default order)"
+    # enrich is still registered so --stages enrich still works
+    assert "enrich" in al.STAGE_FUNCS
+    # lastfm after discogs; adjudicate+apply after mert; publish after apply
     assert order.index("lastfm") > order.index("discogs")
-    assert order.index("enrich") > order.index("sonic")
-    assert order.index("publish") == order.index("enrich") + 1
+    assert order.index("adjudicate") > order.index("mert")
+    assert order.index("apply") == order.index("adjudicate") + 1
+    assert order.index("publish") == order.index("apply") + 1
     # publish precedes genre-sim/artifacts
     assert order.index("publish") < order.index("genre-sim")
 
