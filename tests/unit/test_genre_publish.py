@@ -378,3 +378,59 @@ def test_cli_main_runs_dry_run(tmp_path, capsys):
     assert rc == 0
     out = capsys.readouterr().out
     assert "graph_albums" in out
+
+
+def test_escalated_album_retains_prior_assignments(tmp_path):
+    """An album with prior graph assignments that is later escalated (and therefore NOT
+    re-materialized by apply) keeps its prior observed_leaf after publish."""
+    from src.ai_genre_enrichment.storage import SidecarStore
+    from src.ai_genre_enrichment.escalation_queue import EscalationQueue
+    from src.ai_genre_enrichment.adjudication_apply import apply_adjudications
+    from src.ai_genre_enrichment.layered_taxonomy import load_default_layered_taxonomy
+
+    class FakeAdapter:
+        def canonicalize_tag(self, t): return t
+        def node(self, n): return None
+
+    side = tmp_path / "side.db"
+    store = SidecarStore(str(side)); store.initialize()
+    meta = sqlite3.connect(tmp_path / "m.db")
+    meta.executescript(
+        """
+        CREATE TABLE albums (album_id TEXT PRIMARY KEY, title TEXT, artist TEXT,
+            release_year INTEGER, musicbrainz_release_id TEXT);
+        CREATE TABLE tracks (track_id TEXT PRIMARY KEY, album_id TEXT, title TEXT);
+        CREATE TABLE album_genres (album_id TEXT, genre TEXT, source TEXT);
+        CREATE TABLE track_genres (track_id TEXT, genre TEXT);
+        INSERT INTO albums VALUES ('a1','Souvlaki','Slowdive',1993,NULL);
+        """
+    )
+    meta.commit()
+    taxonomy = load_default_layered_taxonomy()
+    queue = EscalationQueue(side)
+
+    # First apply: non-escalated -> materializes shoegaze.
+    rows1 = [("a1", "std", {"genres": [{"term": "shoegaze", "confidence": 0.9}],
+                            "facets": [], "escalate": False})]
+    apply_adjudications(rows=rows1, thorough_pv="tho", std_pv="std", meta_conn=meta,
+                        id2name={}, taxonomy=taxonomy, adapter=FakeAdapter(),
+                        sidecar_store=store, queue=queue)
+    before = sqlite3.connect(side).execute(
+        "SELECT COUNT(*) FROM genre_graph_release_genre_assignments "
+        "WHERE release_id='slowdive::souvlaki' AND assignment_layer='observed_leaf'"
+    ).fetchone()[0]
+    assert before >= 1
+
+    # Second apply: same album now ESCALATED -> must NOT clear prior assignments.
+    rows2 = [("a1", "std", {"genres": [{"term": "dream pop", "confidence": 0.9}],
+                            "facets": [], "escalate": True, "escalate_reason": "x",
+                            "dropped_file_tags": []})]
+    apply_adjudications(rows=rows2, thorough_pv="tho", std_pv="std", meta_conn=meta,
+                        id2name={}, taxonomy=taxonomy, adapter=FakeAdapter(),
+                        sidecar_store=store, queue=queue)
+    after = sqlite3.connect(side).execute(
+        "SELECT COUNT(*) FROM genre_graph_release_genre_assignments "
+        "WHERE release_id='slowdive::souvlaki' AND assignment_layer='observed_leaf'"
+    ).fetchone()[0]
+    meta.close()
+    assert after == before  # prior assignments preserved; nothing cleared
