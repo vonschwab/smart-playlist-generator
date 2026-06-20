@@ -7,7 +7,6 @@ album through an injected client, and checkpoints each result the moment it land
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 from .album_adjudicator import (
     adjudicator_response_format,
