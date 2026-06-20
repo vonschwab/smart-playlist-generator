@@ -1,7 +1,7 @@
 #!/usr/bin/env python
-"""Human review of the escalated adjudications (album-grain). Resumable: decisions
-persist to escalation_decisions in the shadow DB. accept/edit -> materialize via the
-SAME path as the auto lane; reject -> leave the album's existing authority untouched.
+"""Human review of the escalated adjudications (album-grain). Reads pending escalations
+from the sidecar EscalationQueue. accept/edit -> materialize via queue.record_decision();
+reject -> leave the album's existing authority untouched.
 
 Usage:
   python scripts/research/review_escalated.py            # interactive review
@@ -13,20 +13,16 @@ import argparse
 import json
 import sqlite3
 import sys
-import time
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from run_adjudicator_bulk import effective_prompt_version  # noqa: E402
-from run_album_adjudicator import build_evidence, open_ro, resolve_db  # noqa: E402
+from run_album_adjudicator import resolve_db  # noqa: E402
 
-from src.ai_genre_enrichment.adjudication_materializer import materialize_adjudication  # noqa: E402
-from src.ai_genre_enrichment.album_adjudicator import canonicalize_proposed  # noqa: E402
+from src.ai_genre_enrichment.escalation_queue import EscalationQueue  # noqa: E402
 from src.ai_genre_enrichment.layered_taxonomy import load_default_layered_taxonomy  # noqa: E402
-from src.genre.graph_adapter import load_graph_adapter  # noqa: E402
 from src.ai_genre_enrichment.storage import SidecarStore  # noqa: E402
 
 
@@ -62,6 +58,7 @@ class ReviewDecisionStore:
         self._c.commit()
 
     def save(self, album_id: str, decision: str, genres: list[str]) -> None:
+        import time
         self._c.execute(
             "INSERT INTO escalation_decisions (album_id, decision, genres_json, updated_at) "
             "VALUES (?,?,?,?) ON CONFLICT(album_id) DO UPDATE SET "
@@ -85,99 +82,46 @@ class ReviewDecisionStore:
         self._c.close()
 
 
-def _escalated(shadow_db: str, tho_pv: str) -> dict:
-    """Return best response per album_id for albums that have escalate=True."""
-    conn = sqlite3.connect(f"file:{shadow_db}?mode=ro", uri=True)
-    raw = [
-        (a, pv, json.loads(rj))
-        for a, pv, rj in conn.execute(
-            "SELECT album_id, prompt_version, response_json FROM adjudications WHERE status='complete'"
-        )
-    ]
-    conn.close()
-    best: dict = {}
-    for a, pv, resp in raw:
-        if a not in best or pv == tho_pv:
-            best[a] = resp
-    return {a: r for a, r in best.items() if r.get("escalate")}
+def _sidecar_path() -> str:
+    return str(resolve_db("ai_genre_enrichment.db"))
+
+
+def apply_decisions(*, sidecar_path: str, decisions: dict) -> int:
+    """Materialize accept/edit decisions via the queue; reject is a no-op. Returns count applied."""
+    store = SidecarStore(sidecar_path)
+    store.initialize()
+    queue = EscalationQueue(sidecar_path)
+    taxonomy = load_default_layered_taxonomy()
+    n = 0
+    for album_id, (decision, genres) in decisions.items():
+        if decision not in ("accept", "edit", "reject"):
+            continue
+        queue.record_decision(album_id, decision, genres=genres or None,
+                              sidecar_store=store, taxonomy=taxonomy)
+        if decision in ("accept", "edit"):
+            n += 1
+    queue.close()
+    return n
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(
-        description="Human review of escalated album adjudications."
-    )
-    ap.add_argument(
-        "--shadow-db",
-        default=str(_ROOT / "data" / "adjudication_pass1.db"),
-    )
-    ap.add_argument(
-        "--apply",
-        action="store_true",
-        help="materialize decided accept/edit decisions (no interactive prompts)",
-    )
+    ap = argparse.ArgumentParser(description="Human review of escalated album adjudications.")
+    ap.add_argument("--apply", action="store_true",
+                    help="materialize the decisions captured interactively (no prompts)")
     args = ap.parse_args()
 
-    tho_pv = effective_prompt_version(thorough=True)
-    std_pv = effective_prompt_version(thorough=False)
-    escalated = _escalated(args.shadow_db, tho_pv)
-    decisions = ReviewDecisionStore(args.shadow_db)
-    adapter = load_graph_adapter()
-    meta = open_ro(resolve_db("metadata.db"))
-    id2name = {
-        r[0]: r[1]
-        for r in meta.execute("SELECT genre_id, name FROM genre_graph_canonical_genres")
-    }
-
-    if args.apply:
-        taxonomy = load_default_layered_taxonomy()
-        store = SidecarStore(str(resolve_db("ai_genre_enrichment.db")))
-        n = 0
-        for album_id in escalated:
-            d = decisions.get(album_id)
-            if not d or d["decision"] not in ("accept", "edit"):
-                continue
-            ev = build_evidence(meta, album_id, id2name)
-            resp = escalated[album_id]
-            if d["decision"] == "edit":
-                resp = {
-                    **resp,
-                    "genres": [
-                        {"term": g, "confidence": 0.8, "layer": "core"}
-                        for g in d["genres"]
-                    ],
-                }
-            materialize_adjudication(
-                store,
-                album_id=album_id,
-                artist=ev["artist"],
-                album=ev["album"],
-                response=resp,
-                taxonomy=taxonomy,
-                prompt_version=std_pv,
-                model="review",
-            )
-            n += 1
-        meta.close()
-        decisions.close()
-        print(f"applied {n} accept/edit decisions")
-        return 0
-
-    # Interactive review loop
-    done = decisions.decided_ids()
-    todo = [a for a in escalated if a not in done]
-    print(f"escalated={len(escalated)} decided={len(done)} remaining={len(todo)}")
-    for i, album_id in enumerate(todo, 1):
-        ev = build_evidence(meta, album_id, id2name)
-        resp = escalated[album_id]
-        canon = canonicalize_proposed(
-            [g["term"] for g in resp["genres"]], adapter.canonicalize_tag
-        )["canonical"]
-        print(f"\n[{i}/{len(todo)}] {ev['artist']} — {ev['album']}")
-        print(f"   prior    = {ev['current_observed_leaf']}")
-        print(f"   proposed = {canon}")
-        print(f"   reason   = {resp.get('escalate_reason', '')}")
-        if resp.get("dropped_file_tags"):
-            print(f"   DROPPED FILE TAGS = {resp['dropped_file_tags']}")
+    sidecar = _sidecar_path()
+    queue = EscalationQueue(sidecar)
+    pending = queue.list_pending()
+    print(f"pending escalations: {len(pending)}")
+    decisions: dict = {}
+    for i, row in enumerate(pending, 1):
+        print(f"\n[{i}/{len(pending)}] {row['artist']} — {row['album']}")
+        print(f"   prior    = {row['prior_observed_leaf']}")
+        print(f"   proposed = {[g['term'] for g in row['proposed_genres']]}")
+        print(f"   reason   = {row['escalate_reason']}")
+        if row["dropped_file_tags"]:
+            print(f"   DROPPED FILE TAGS = {row['dropped_file_tags']}")
         line = input("   [accept / reject / edit a,b,c / skip / quit] > ")
         decision, genres = parse_decision(line)
         if decision == "quit":
@@ -185,11 +129,10 @@ def main() -> int:
         if decision == "skip":
             continue
         if decision in ("accept", "reject", "edit"):
-            decisions.save(album_id, decision, genres)
-
-    meta.close()
-    decisions.close()
-    print("review session saved. Re-run to resume; then --apply to materialize.")
+            decisions[row["album_id"]] = (decision, genres)
+    queue.close()
+    n = apply_decisions(sidecar_path=sidecar, decisions=decisions)
+    print(f"applied {n} accept/edit decisions (reject = no-op)")
     return 0
 
 
