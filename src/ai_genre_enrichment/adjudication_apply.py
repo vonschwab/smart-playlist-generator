@@ -6,7 +6,6 @@ taxonomy-growth pass to pick up new canonical mappings.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 from .adjudication_materializer import materialize_adjudication
 from .album_adjudicator import canonicalize_proposed
@@ -14,7 +13,7 @@ from .album_evidence import build_evidence
 from .normalization import normalize_release_artist, normalize_release_name
 
 
-def best_results(rows, *, thorough_pv) -> dict:
+def best_results(rows, *, thorough_pv) -> dict[str, dict]:
     best: dict = {}
     for album_id, pv, resp in rows:
         if album_id not in best or pv == thorough_pv:
