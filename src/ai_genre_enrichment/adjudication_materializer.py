@@ -98,10 +98,12 @@ def compute_adjudication_rows(
                        prompt_version=prompt_version, model=model, term=term)
 
     for f in response.get("facets", []):
-        term = f.get("term", "")
-        cls = classify_layered_term(taxonomy, term)
-        if cls.term_kind in ("facet", "alias") and cls.canonical_id and taxonomy.facet_by_id(cls.canonical_id):
-            _facet(cls.canonical_id, response.get("overall_confidence", 0.8), term)
+        raw = f.get("term", "")
+        atoms = [a.strip() for a in raw.split(",") if a.strip()] or [raw]
+        for term in atoms:
+            cls = classify_layered_term(taxonomy, term)
+            if cls.term_kind in ("facet", "alias") and cls.canonical_id and taxonomy.facet_by_id(cls.canonical_id):
+                _facet(cls.canonical_id, response.get("overall_confidence", 0.8), term)
 
     return list(genre_rows.values()), list(facet_rows.values()), skipped
 

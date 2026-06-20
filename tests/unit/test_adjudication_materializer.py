@@ -55,3 +55,18 @@ def test_provenance_and_reliability_stamped():
     assert row["provenance"]["source"] == ADJUDICATOR_SOURCE
     assert row["provenance"]["prompt_version"] == "pv-X"
     assert row["provenance"]["model"] == "sonnet"
+
+
+def test_compound_facet_string_is_split_into_atomic_terms():
+    # Use facet atoms known to exist in the taxonomy facet vocabulary.
+    response = {
+        "genres": [{"term": "shoegaze", "confidence": 0.9}],
+        "facets": [{"term": "instrumental, lo-fi"}],
+        "overall_confidence": 0.8,
+    }
+    _, facet_rows, _ = compute_adjudication_rows(
+        response, TAX, prompt_version="pv", model="sonnet")
+    facet_ids = {r["facet_id"] for r in facet_rows}
+    # both atoms resolve to facets and are present; the compound string is NOT a single row
+    assert "instrumental" in {TAX.facet_by_id(fid).name for fid in facet_ids}
+    assert "lo-fi" in {TAX.facet_by_id(fid).name for fid in facet_ids}
