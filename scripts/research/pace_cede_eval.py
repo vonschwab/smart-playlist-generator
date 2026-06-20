@@ -22,9 +22,12 @@ BPM_BRIDGE and ONSET_BRIDGE arms.
 
 Usage:
     python scripts/research/pace_cede_eval.py [--ablation] [--out-dir PATH]
+    python scripts/research/pace_cede_eval.py --strict-narrow [--out-dir PATH]
 
-    --ablation   run the full ablation (default if no args)
-    --out-dir    write ABLATION.md here (default: docs/run_audits/pace_cedes_sonic)
+    --ablation      run the full ablation at pace=dynamic (default if no args)
+    --strict-narrow run BASELINE/ADMISSION/BPM_BRIDGE/ONSET_BRIDGE at
+                    pace=strict/strict/strict and pace=narrow/narrow/narrow
+    --out-dir       write ABLATION.md here (default: docs/run_audits/pace_cedes_sonic)
 
 Also exposes compute_pace_metrics() for use by Task 5.
 """
@@ -174,6 +177,7 @@ def _self_test() -> None:
 def _run_one(
     *,
     energy_on: bool,
+    mode: str = "dynamic",
     relax_admission: bool = False,
     wb_override: Optional[float] = None,
     bpm_bridge_off: bool = False,
@@ -185,6 +189,9 @@ def _run_one(
     ----------
     energy_on:
         Whether to inject the strong energy knobs.
+    mode:
+        Pace/genre/sonic/cohesion mode string applied uniformly (e.g. "strict",
+        "narrow", "dynamic").  All four axes are set to this value.
     relax_admission:
         ADMISSION arm: after preset application, force candidate_pool.min_sonic_similarity=None.
     wb_override:
@@ -194,12 +201,13 @@ def _run_one(
     onset_bridge_off:
         ONSET_BRIDGE arm: monkeypatch resolve_pace_mode to return onset_bridge_max_log_distance=1e6.
     """
-    # Build base UI state: genre=dynamic, sonic=dynamic, pace=dynamic, cohesion=dynamic
+    # Build base UI state with all four axes set to the requested mode.
+    # cohesion_mode drives the beam; genre/sonic/pace drive pool composition.
     ui = gui_ui_state(
-        genre_mode="dynamic",
-        sonic_mode="dynamic",
-        pace_mode="dynamic",
-        cohesion_mode="dynamic",
+        genre_mode=mode,
+        sonic_mode=mode,
+        pace_mode=mode,
+        cohesion_mode=mode,
     )
 
     # Resolve overrides the same way the GUI worker does
@@ -242,8 +250,8 @@ def _run_one(
     _onset_bridge_log_dist = None
 
     if bpm_bridge_off or onset_bridge_off:
-        def _patched_resolve_pace_mode(mode: str) -> dict:
-            settings = dict(_real_resolve_pace_mode(mode))
+        def _patched_resolve_pace_mode(pm: str) -> dict:
+            settings = dict(_real_resolve_pace_mode(pm))
             if bpm_bridge_off:
                 settings["bpm_bridge_max_log_distance"] = _BPM_BAND_OFF
                 # Also disable the soft penalty so it's truly "off"
@@ -253,13 +261,13 @@ def _run_one(
                 settings["onset_bridge_soft_penalty_strength"] = 0.0
             return settings
         _core_mod.resolve_pace_mode = _patched_resolve_pace_mode  # type: ignore[assignment]
-        # Read what the patch will yield so we can log it
-        _patched = _patched_resolve_pace_mode("dynamic")
+        # Read what the patch will yield for this mode so we can log it
+        _patched = _patched_resolve_pace_mode(mode)
         _bpm_bridge_log_dist = _patched["bpm_bridge_max_log_distance"]
         _onset_bridge_log_dist = _patched["onset_bridge_max_log_distance"]
     else:
         _core_mod.resolve_pace_mode = _real_resolve_pace_mode  # type: ignore[assignment]
-        _natural = _real_resolve_pace_mode("dynamic")
+        _natural = _real_resolve_pace_mode(mode)
         _bpm_bridge_log_dist = _natural["bpm_bridge_max_log_distance"]
         _onset_bridge_log_dist = _natural["onset_bridge_max_log_distance"]
 
@@ -342,6 +350,7 @@ def _diff_count(ids_a: list[str], ids_b: list[str]) -> int:
 def _arm(
     arm_name: str,
     *,
+    mode: str = "dynamic",
     relax_admission: bool = False,
     wb_override: Optional[float] = None,
     bpm_bridge_off: bool = False,
@@ -349,7 +358,7 @@ def _arm(
 ) -> dict:
     """Run energy-off and energy-on for one ablation arm; return per-arm result."""
     print(f"\n{'='*60}")
-    print(f"ARM: {arm_name}")
+    print(f"ARM: {arm_name}  [mode={mode}]")
     print(
         f"  relax_admission={relax_admission}  wb_override={wb_override}  "
         f"bpm_bridge_off={bpm_bridge_off}  onset_bridge_off={onset_bridge_off}"
@@ -358,6 +367,7 @@ def _arm(
     t0 = time.time()
     off_ids, off_m, off_dbg, off_bpm = _run_one(
         energy_on=False,
+        mode=mode,
         relax_admission=relax_admission,
         wb_override=wb_override,
         bpm_bridge_off=bpm_bridge_off,
@@ -368,6 +378,7 @@ def _arm(
     t1 = time.time()
     on_ids, on_m, on_dbg, on_bpm = _run_one(
         energy_on=True,
+        mode=mode,
         relax_admission=relax_admission,
         wb_override=wb_override,
         bpm_bridge_off=bpm_bridge_off,
@@ -400,6 +411,7 @@ def _arm(
 
     return {
         "arm": arm_name,
+        "mode": mode,
         "pos_diff": pos_diff,
         "off_arc_dev": off_m["arc_dev"],
         "on_arc_dev": on_m["arc_dev"],
@@ -417,6 +429,8 @@ def _arm(
         "on_ids": on_ids,
         "bpm_status_off": off_bpm,
         "bpm_status_on": on_bpm,
+        "off_wall": off_t,
+        "on_wall": on_t,
     }
 
 
@@ -701,10 +715,199 @@ def run_ablation(*, out_dir: str) -> list[dict]:
     return results
 
 
+def _strict_narrow_decision(results_by_mode: dict[str, list[dict]]) -> str:
+    """Synthesize the strict/narrow lever decision."""
+    lines = []
+    for mode, results in results_by_mode.items():
+        by_arm = {r["arm"]: r for r in results}
+        baseline_ok = by_arm.get("BASELINE", {}).get("unblocks", False)
+        admission_ok = by_arm.get("ADMISSION", {}).get("unblocks", False)
+        bpm_brd_ok = by_arm.get("BPM_BRIDGE", {}).get("unblocks", False)
+        onset_brd_ok = by_arm.get("ONSET_BRIDGE", {}).get("unblocks", False)
+
+        baseline_str = "NOT INERT (energy already fires)" if baseline_ok else "INERT"
+        admission_str = "UNBLOCKS" if admission_ok else "INERT"
+        bpm_str = "UNBLOCKS" if bpm_brd_ok else "INERT"
+        onset_str = "UNBLOCKS" if onset_brd_ok else "INERT"
+
+        lines.append(
+            f"pace_mode={mode}: BASELINE={baseline_str}; "
+            f"ADMISSION={admission_str}; BPM_BRIDGE={bpm_str}; ONSET_BRIDGE={onset_str}"
+        )
+    return "\n".join(lines)
+
+
+def _append_strict_narrow_report(
+    results_by_mode: dict[str, list[dict]],
+    *,
+    out_dir: str,
+) -> str:
+    """Append a 'Strict/Narrow ablation' section to ABLATION.md; return the path."""
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, "ABLATION.md")
+
+    decision = _strict_narrow_decision(results_by_mode)
+
+    lines = [
+        "",
+        "---",
+        "",
+        "# Strict/Narrow ablation (BPM active)",
+        "",
+        "**Generated by**: `scripts/research/pace_cede_eval.py --strict-narrow`",
+        "**Seeds**: Songs: Ohia / Bill Callahan / William Tyler (mellow trio)",
+        "**Genre/sonic/pace/cohesion**: matched (all axes set to the same mode)",
+        "**Energy**: strong (`arc_strength=10, arc_band=0.1, step_strength=10, step_cap=0.1`)",
+        "**Playlist length**: 12",
+        "**BPM gates**: ACTIVE (injected via absolute db path override)",
+        "",
+        "## Arms (per mode)",
+        "",
+        "| Mode | Arm | resolved min_sonic | bpm_bridge_max_log_dist | onset_bridge_max_log_dist |",
+        "|------|-----|--------------------|------------------------|--------------------------|",
+    ]
+
+    for mode, results in results_by_mode.items():
+        for r in results:
+            ms = r["resolved_min_sonic"]
+            ms_str = str(ms) if ms is not None else "None"
+            bpm_d = r.get("bpm_bridge_max_log_distance", "?")
+            bpm_str = f"{bpm_d:.2f}" if isinstance(bpm_d, float) and bpm_d < 1e5 else (
+                "1e6 (OFF)" if isinstance(bpm_d, float) else str(bpm_d)
+            )
+            onset_d = r.get("onset_bridge_max_log_distance", "?")
+            onset_str = f"{onset_d:.2f}" if isinstance(onset_d, float) and onset_d < 1e5 else (
+                "1e6 (OFF)" if isinstance(onset_d, float) else str(onset_d)
+            )
+            lines.append(
+                f"| {mode} | {r['arm']} | {ms_str} | {bpm_str} | {onset_str} |"
+            )
+
+    lines += ["", "## BPM confirmation (per mode)", ""]
+    for mode, results in results_by_mode.items():
+        for r in results:
+            lines.append(f"- {mode}/{r['arm']}: {r.get('bpm_status_on', 'N/A')}")
+
+    lines += [
+        "",
+        "## Per-arm results",
+        "",
+        "| Mode | Arm | pos_diff/12 | arc_dev OFF | arc_dev ON | Δ arc_dev "
+        "| max_step OFF | max_step ON | wall OFF | wall ON | VERDICT |",
+        "|------|-----|-------------|-------------|------------|-----------|"
+        "--------------|-------------|----------|---------|---------|",
+    ]
+    for mode, results in results_by_mode.items():
+        for r in results:
+            v = "UNBLOCKS" if r["unblocks"] else "INERT"
+            off_w = r.get("off_wall", 0.0)
+            on_w = r.get("on_wall", 0.0)
+            lines.append(
+                f"| {mode} | {r['arm']} | {r['pos_diff']}/12 "
+                f"| {r['off_arc_dev']:.4f} | {r['on_arc_dev']:.4f} | {r['arc_delta']:+.4f} "
+                f"| {r['off_max_step']:.4f} | {r['on_max_step']:.4f} "
+                f"| {off_w:.0f}s | {on_w:.0f}s | {v} |"
+            )
+
+    lines += ["", "## Arousal curves", ""]
+    for mode, results in results_by_mode.items():
+        lines.append(f"### pace_mode={mode}")
+        lines.append("")
+        for r in results:
+            lines += [
+                f"#### {r['arm']}",
+                f"- OFF: {r['off_curve']}",
+                f"- ON : {r['on_curve']}",
+                "",
+            ]
+
+    lines += [
+        "## Lever decision (strict/narrow)",
+        "",
+        decision,
+        "",
+        "## Interpretation",
+        "",
+        "- **INERT at BASELINE, UNBLOCKS at ADMISSION**: the sonic admission floor "
+        "(`min_sonic_similarity`) is the primary gate. Ceding it (→ None) unblocks energy. "
+        "BPM/onset bridge bands are secondary or irrelevant for this seed set.",
+        "- **INERT at BASELINE, UNBLOCKS at BPM_BRIDGE or ONSET_BRIDGE**: the bridge bands "
+        "are the primary gate. Ceding them unblocks energy; admission floor is secondary.",
+        "- **NOT INERT at BASELINE**: energy already fires without relaxation even in tight mode. "
+        "No cede needed at this mode for these seeds.",
+        "- **ALL ARMS INERT**: energy is blocked by the beam's sonic-weight hybrid or arousal "
+        "diversity is too low in the restricted pool. The design's chosen levers do not apply; "
+        "a different approach is needed.",
+    ]
+
+    append_mode = "a" if os.path.exists(path) else "w"
+    with open(path, append_mode, encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    print(f"\n[report] appended -> {path}")
+    return path
+
+
+def run_strict_narrow_ablation(*, out_dir: str) -> dict[str, list[dict]]:
+    """Run BASELINE/ADMISSION/BPM_BRIDGE/ONSET_BRIDGE for strict and narrow modes.
+
+    Returns a dict mapping mode -> list[arm_result].
+    Appends a 'Strict/Narrow ablation' section to ABLATION.md.
+    """
+    print(f"\n{'='*60}")
+    print("PACE-CEDES-SONIC: Strict/Narrow ablation (BPM active)")
+    print(f"  config: {CONFIG_PATH}")
+    print(f"  artifact: {ARTIFACT_PATH}")
+    print(f"  sidecar: {SIDECAR_PATH}")
+    print(f"  seeds: {SEEDS}")
+    print("  Modes: strict (min_sonic=0.28, bpm_bridge=0.40, onset_bridge=0.40)")
+    print("         narrow (min_sonic=0.18, bpm_bridge=0.60, onset_bridge=0.60)")
+
+    _self_test()
+
+    results_by_mode: dict[str, list[dict]] = {}
+    t_total = time.time()
+
+    for pace_mode in ("strict", "narrow"):
+        print(f"\n{'*'*60}")
+        print(f"*** pace_mode={pace_mode} ***")
+        print(f"{'*'*60}")
+        mode_results = []
+
+        # ARM 1: BASELINE — all four axes at pace_mode; no relaxation.
+        # Expect energy INERT if sonic admission floor or BPM bands block it.
+        mode_results.append(_arm("BASELINE", mode=pace_mode))
+
+        # ARM 2: ADMISSION — relax min_sonic_similarity to None.
+        # Tests whether the sonic admission floor is the primary gate.
+        mode_results.append(_arm("ADMISSION", mode=pace_mode, relax_admission=True))
+
+        # ARM 3: BPM_BRIDGE — set bpm_bridge_max_log_distance to 1e6 (off).
+        # Tests whether the BPM bridge band gates energy.
+        mode_results.append(_arm("BPM_BRIDGE", mode=pace_mode, bpm_bridge_off=True))
+
+        # ARM 4: ONSET_BRIDGE — set onset_bridge_max_log_distance to 1e6 (off).
+        # Tests whether the onset bridge band gates energy.
+        mode_results.append(_arm("ONSET_BRIDGE", mode=pace_mode, onset_bridge_off=True))
+
+        results_by_mode[pace_mode] = mode_results
+
+    total_wall = time.time() - t_total
+    print(f"\nTotal strict/narrow ablation time: {total_wall:.0f}s")
+    print(f"\n{'='*60}")
+    print("STRICT/NARROW DECISION:")
+    print(_strict_narrow_decision(results_by_mode))
+    print(f"{'='*60}\n")
+
+    _append_strict_narrow_report(results_by_mode, out_dir=out_dir)
+    return results_by_mode
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--ablation", action="store_true", default=True,
-                        help="Run full ablation (default)")
+    parser.add_argument("--ablation", action="store_true", default=False,
+                        help="Run full ablation at pace=dynamic")
+    parser.add_argument("--strict-narrow", action="store_true", default=False,
+                        help="Run BASELINE/ADMISSION/BPM_BRIDGE/ONSET_BRIDGE at strict and narrow")
     parser.add_argument("--self-test", action="store_true",
                         help="Run only the compute_pace_metrics self-test")
     parser.add_argument(
@@ -718,6 +921,11 @@ def main() -> None:
         _self_test()
         return
 
+    if args.strict_narrow:
+        run_strict_narrow_ablation(out_dir=args.out_dir)
+        return
+
+    # Default: run the original dynamic ablation
     run_ablation(out_dir=args.out_dir)
 
 
