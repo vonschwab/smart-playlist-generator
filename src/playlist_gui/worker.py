@@ -2564,6 +2564,81 @@ def handle_apply_genre_review_decision(cmd_data: Dict[str, Any]) -> None:
                     "detail": str(e), "request_id": rid, "job_id": None})
 
 
+def handle_get_escalation_queue(cmd_data: Dict[str, Any]) -> None:
+    """Album-grain escalation queue page. UNTRACKED + read-only (reader thread)."""
+    rid = cmd_data.get("request_id")
+    try:
+        from src.ai_genre_enrichment.escalation_queue import list_page
+        page = list_page(
+            SIDECAR_DB_PATH, status="pending",
+            search=(cmd_data.get("search") or "").strip() or None,
+            limit=int(cmd_data.get("limit") or 50),
+            offset=int(cmd_data.get("offset") or 0))
+        emit_event({"type": "result", "result_type": "escalation_queue",
+                    "request_id": rid, "job_id": None, **page})
+        emit_event({"type": "done", "cmd": "get_escalation_queue", "ok": True,
+                    "detail": f"{page['pending_albums']} pending",
+                    "request_id": rid, "job_id": None})
+    except Exception as e:
+        emit_event({"type": "error", "message": str(e), "request_id": rid, "job_id": None})
+        emit_event({"type": "done", "cmd": "get_escalation_queue", "ok": False,
+                    "detail": str(e), "request_id": rid, "job_id": None})
+
+
+def handle_get_escalation_completed(cmd_data: Dict[str, Any]) -> None:
+    """Decided escalations page. UNTRACKED + read-only."""
+    rid = cmd_data.get("request_id")
+    try:
+        from src.ai_genre_enrichment.escalation_queue import list_page
+        page = list_page(
+            SIDECAR_DB_PATH, status="decided",
+            search=(cmd_data.get("search") or "").strip() or None,
+            limit=int(cmd_data.get("limit") or 50),
+            offset=int(cmd_data.get("offset") or 0))
+        emit_event({"type": "result", "result_type": "escalation_completed",
+                    "request_id": rid, "job_id": None, **page})
+        emit_event({"type": "done", "cmd": "get_escalation_completed", "ok": True,
+                    "detail": f"{page['decided_albums']} decided",
+                    "request_id": rid, "job_id": None})
+    except Exception as e:
+        emit_event({"type": "error", "message": str(e), "request_id": rid, "job_id": None})
+        emit_event({"type": "done", "cmd": "get_escalation_completed", "ok": False,
+                    "detail": str(e), "request_id": rid, "job_id": None})
+
+
+def handle_apply_escalation_decision(cmd_data: Dict[str, Any]) -> None:
+    """Apply accept/edit/reject/revert for one escalation. UNTRACKED (quick write)."""
+    rid = cmd_data.get("request_id")
+    try:
+        from src.ai_genre_enrichment.escalation_queue import EscalationQueue
+        from src.ai_genre_enrichment.layered_taxonomy import load_default_layered_taxonomy
+        from src.ai_genre_enrichment.storage import SidecarStore
+
+        album_id = str(cmd_data.get("album_id") or "")
+        decision = str(cmd_data.get("decision") or "")
+        genres = cmd_data.get("genres") or None
+        store = SidecarStore(SIDECAR_DB_PATH)
+        queue = EscalationQueue(SIDECAR_DB_PATH)
+        if decision == "revert":
+            queue.revert(album_id, sidecar_store=store)
+            status = "pending"
+        else:
+            taxonomy = load_default_layered_taxonomy()
+            queue.record_decision(album_id, decision, genres=genres,
+                                  sidecar_store=store, taxonomy=taxonomy)
+            status = {"accept": "accepted", "edit": "edited", "reject": "rejected"}[decision]
+        queue.close()
+        emit_event({"type": "result", "result_type": "escalation_decision",
+                    "album_id": album_id, "status": status,
+                    "request_id": rid, "job_id": None})
+        emit_event({"type": "done", "cmd": "apply_escalation_decision", "ok": True,
+                    "detail": f"{album_id}: {status}", "request_id": rid, "job_id": None})
+    except Exception as e:
+        emit_event({"type": "error", "message": str(e), "request_id": rid, "job_id": None})
+        emit_event({"type": "done", "cmd": "apply_escalation_decision", "ok": False,
+                    "detail": str(e), "request_id": rid, "job_id": None})
+
+
 def handle_enrich_artist_cmd(cmd_data: Dict[str, Any]) -> None:
     """Command handler wrapper for enrich_artist — called from the dispatch table."""
     artist = cmd_data.get("artist", "")
@@ -2651,6 +2726,9 @@ UNTRACKED_COMMAND_HANDLERS = {
     "get_genre_review_queue": handle_get_genre_review_queue,
     "get_genre_review_completed": handle_get_genre_review_completed,
     "apply_genre_review_decision": handle_apply_genre_review_decision,
+    "get_escalation_queue": handle_get_escalation_queue,
+    "get_escalation_completed": handle_get_escalation_completed,
+    "apply_escalation_decision": handle_apply_escalation_decision,
 }
 
 
