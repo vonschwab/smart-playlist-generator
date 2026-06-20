@@ -8,10 +8,9 @@ import type {
   JobOut,
   Page,
   PlexExportRequest,
-  CompletedReviewResponse,
+  EscalationDecisionRequest,
+  EscalationQueueResponse,
   ReplaceSuggestionsResponse,
-  ReviewDecisionRequest,
-  ReviewQueueResponse,
   SeedTrack,
 } from "./types";
 
@@ -107,22 +106,22 @@ export const api = {
       body: JSON.stringify(req),
     }));
   },
-  async reviewScan(): Promise<{ job_id: string }> {
-    return jsonOrThrow(await fetch("/api/review/scan", { method: "POST" }));
-  },
-  async reviewQueue(search = "", limit = 50, offset = 0): Promise<ReviewQueueResponse> {
+  async reviewQueue(search = "", limit = 50, offset = 0): Promise<EscalationQueueResponse> {
     const params = new URLSearchParams({ search, limit: String(limit), offset: String(offset) });
     return jsonOrThrow(await fetch(`/api/review/queue?${params}`));
   },
-  async reviewCompleted(search = "", limit = 50, offset = 0): Promise<CompletedReviewResponse> {
+  async reviewCompleted(search = "", limit = 50, offset = 0): Promise<EscalationQueueResponse> {
     const params = new URLSearchParams({ search, limit: String(limit), offset: String(offset) });
     return jsonOrThrow(await fetch(`/api/review/completed?${params}`));
   },
-  async reviewDecision(req: ReviewDecisionRequest): Promise<{ ok: boolean; status: string }> {
+  async reviewDecision(req: EscalationDecisionRequest): Promise<{ ok: boolean; status: string }> {
     return jsonOrThrow(await fetch("/api/review/decision", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(req),
     }));
+  },
+  async reviewPublish(): Promise<{ job_id: string }> {
+    return jsonOrThrow(await fetch("/api/review/publish", { method: "POST" }));
   },
 };

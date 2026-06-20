@@ -152,43 +152,32 @@ export interface EnrichToolRequest {
   album?: string;
 }
 
-export interface ReviewTermOut {
+export interface ProposedGenre {
   term: string;
   confidence: number | null;
-  basis: string;
-  sources: string[];
-  reason: string;
-  status: "pending" | "accepted" | "rejected";
 }
 
-export interface ReviewReleaseOut {
-  release_key: string;
+export interface EscalationOut {
+  album_id: string;
   artist: string;
   album: string;
-  pending: ReviewTermOut[];
-  decided: ReviewTermOut[];
+  prior_observed_leaf: string[];
+  proposed_genres: ProposedGenre[];
+  escalate_reason: string;
+  dropped_file_tags: string[];
+  status: "pending" | "accepted" | "edited" | "rejected";
 }
 
-export interface ReviewQueueResponse {
-  releases: ReviewReleaseOut[];
-  pending_releases: number;
-  pending_terms: number;
-  // Global totals of already-decided work (surfaced so the header can show that
-  // progress is being saved even while the user is in the Pending view).
-  decided_releases?: number;
-  decided_terms?: number;
+export interface EscalationQueueResponse {
+  escalations: EscalationOut[];
+  pending_albums: number;
+  decided_albums: number;
 }
 
-export interface CompletedReviewResponse {
-  releases: ReviewReleaseOut[];
-  decided_releases: number;
-  decided_terms: number;
-}
-
-export interface ReviewDecisionRequest {
-  release_key: string;
-  term: string;
-  decision: "accept" | "reject" | "revert";
+export interface EscalationDecisionRequest {
+  album_id: string;
+  decision: "accept" | "edit" | "reject" | "revert";
+  genres?: string[];
 }
 
 export interface Page<T> {
