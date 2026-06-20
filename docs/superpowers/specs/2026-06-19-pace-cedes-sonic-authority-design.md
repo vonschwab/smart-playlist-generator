@@ -24,6 +24,8 @@ The energy soft-penalty wiring (2026-06-18 spec) shipped and is correct — the 
 - **Genre authority is preserved** at every level (admission floor, weighting, genre-arc floor). Pace spends *sonic* cohesion only.
 - **90s budget** (`feedback_generation_time_budget`): no new hard gate; soft penalties only.
 - **Opt-in / backward-compatible:** default behavior unchanged until the per-mode cede values are non-zero (and gated behind the eval-gate before default-on).
+- **Preserve a hard sonic SAFETY FLOOR in every mode, including strict.** The cede reduces sonic's *pull* (weight + tunable admission) but never removes the minimum sonic floor on bridge edges (`bridge_floor` and the absolute per-edge minimum). Pace can demote sonic; it can **never admit a sonically-disconnected transition.** This caps the downside — north star #5: the worst edge defines the experience. (Risk framing: because arousal is ~0.77 MERT-redundant, the cede only changes the pick where energy and sonic *disagree* — exactly the sonically-riskiest edges — so this floor is what stands between "steered" and "jarring.")
+- **Net-quality KILL CRITERION, not a rubber stamp.** The eval-gate measures the sonic-cohesion COST (worst-edge sonic) alongside the energy benefit. If ceding sonic authority degrades the weakest sonic edge past a pre-set threshold, the cede is reduced or the feature is **not shipped default-on.** "Do more harm than good" is an explicit, measured fail state.
 
 ## Scope
 
@@ -50,6 +52,8 @@ Resolution rule for conflicting sliders (e.g. pace=strict + sonic=strict): pace 
 ### 3. Energy terms (already wired) shape within the freed room
 The existing `energy_arc_band`/`energy_arc_strength` (arc) and `energy_step_cap`/`energy_step_strength` (whiplash) from the 2026-06-18 wiring now have candidates to act on. Per-mode values calibrated in the eval-gate.
 
+**Calibration ramps UP from minimal, never down from aggressive.** Start each mode at the smallest cede + energy strength that produces an *audible* arc, and increase only while the worst-edge sonic cost stays under threshold. Goal = the gentlest setting that works, not the strongest that flattens the curve.
+
 ### 4. GUI
 Add `off` to the pace dropdown in `web/src/components/GenerateControls.tsx` (currently `["dynamic","narrow","strict"]`) and widen the TS union type. No new control — pace stays one slider.
 
@@ -61,7 +65,12 @@ Add `off` to the pace dropdown in `web/src/components/GenerateControls.tsx` (cur
 ## Testing
 - **Unit:** the cede multiplier composes with `sonic_mode` correctly per pace_mode; genre knobs are untouched by any pace_mode; `off` keeps a non-zero step-cap; default (cede=1.0, energy=0) reproduces current behavior (golden-safe).
 - **Generation (gui_fidelity / `generate_like_gui`, multi-pier):** all four pace_modes complete within 90s (never-hard-fail); the realized arousal curve tightens strict→off and never whiplashes even at `off`; genre cohesion metric is unchanged across pace_modes (proves genre preserved).
-- **Eval-gate before default-on:** per-mode arousal curve vs pier targets (arc-deviation + max-step), and a blind A/B (energy/cede on vs off) for weakest-edge + perceptual quality. Ship behind knobs (default off) until it passes.
+- **Eval-gate before default-on (PASS criteria, not just observation):**
+  1. **Worst-edge sonic cost is the gate.** Compute weakest-edge sonic (T) per mode, energy-on vs energy-off. The cede passes a mode only if the weakest sonic edge does not drop below a pre-set threshold. Net quality, not energy-curve-only — this is the "don't do more harm than good" kill switch.
+  2. Energy benefit: per-mode arousal curve vs pier targets (arc-deviation + max-step) must measurably improve.
+  3. Blind A/B (energy/cede on vs off) for perceptual quality, with a decoy arm (evaluation-methodology skill).
+  4. **Diverse seeds**, not just the mellow trio: include high-arousal and wide-swing piers, where the cede is riskiest. Full-pool, multi-pier via `generate_like_gui`.
+  - If a mode fails (1), reduce its cede or ship that mode at cede=1.0 (energy off). A mode can ship disabled while others ship on.
 
 ## Risks / assumptions
 - The cede trades sonic cohesion for pace — **intended** (Dylan: "let it outrank MERT"). Strict pace = more sonically varied; quantify the sonic-cohesion cost in the eval-gate so the tradeoff is visible per mode.
