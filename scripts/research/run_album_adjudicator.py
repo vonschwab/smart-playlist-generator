@@ -37,6 +37,7 @@ from src.ai_genre_enrichment.album_adjudicator import (  # noqa: E402
     enforce_file_tag_floor,
     validate_adjudicator_response,
 )
+from src.ai_genre_enrichment.album_evidence import build_evidence  # noqa: F401
 from src.ai_genre_enrichment.claude_client import ClaudeCodeEnrichmentClient  # noqa: E402
 from src.genre.graph_adapter import load_graph_adapter  # noqa: E402
 
@@ -62,9 +63,6 @@ def resolve_db(name: str) -> Path:
 
 def open_ro(path: Path) -> sqlite3.Connection:
     return sqlite3.connect(f"file:{path}?mode=ro", uri=True)
-
-
-from src.ai_genre_enrichment.album_evidence import build_evidence  # noqa: F401
 
 
 def main() -> int:
