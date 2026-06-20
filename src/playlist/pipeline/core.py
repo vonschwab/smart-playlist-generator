@@ -325,7 +325,7 @@ def generate_playlist_ds(
         float(pace_settings.get(k, 0.0)) > 0.0
         or float(pb_overrides.get(k, 0.0)) > 0.0
         for k in ("energy_step_strength", "energy_arc_strength")
-    )
+    ) or int(pace_settings.get("pace_rescue_k_energy", 0)) > 0
     if _energy_active:
         try:
             from src.playlist.energy_loader import load_energy_matrix
@@ -334,7 +334,10 @@ def generate_playlist_ds(
                     "energy_features", ["arousal_p50"]
                 )
             )
-            _sidecar = str(Path(artifact_path).parent / "energy" / "energy_sidecar.npz")
+            _sidecar = str(
+                ((overrides or {}).get("energy", {}) or {}).get("sidecar_path")
+                or (Path(artifact_path).parent / "energy" / "energy_sidecar.npz")
+            )
             energy_matrix = load_energy_matrix(
                 bundle.track_ids, sidecar_path=_sidecar, features=_energy_feats
             )
@@ -443,6 +446,7 @@ def generate_playlist_ds(
             perceptual_bpm=perceptual_bpm,
             tempo_stability=tempo_stability_bpm,
             onset_rate=onset_rate_arr,
+            X_energy=(energy_matrix.reshape(-1) if energy_matrix is not None else None),
             genre_admission_percentile=_genre_admission_percentile,
             genre_admission_aggregate=_genre_admission_aggregate,
             layered_genre_diagnostics=layered_genre_shadow_available and genre_graph_source in {"layered_shadow", "layered"},
@@ -457,7 +461,11 @@ def generate_playlist_ds(
             genre_graph_source=genre_graph_source,
         )
 
-    pool = _build_pool(cfg.candidate, min_genre_similarity)
+    _candidate_cfg = replace(
+        cfg.candidate,
+        pace_rescue_k_energy=int(pace_settings.get("pace_rescue_k_energy", 0)),
+    )
+    pool = _build_pool(_candidate_cfg, min_genre_similarity)
     pool.stats["target_length"] = num_tracks
 
     max_per_artist = max(1, math.ceil(playlist_len * cfg.construct.max_artist_fraction_final))
