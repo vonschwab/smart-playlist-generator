@@ -33,6 +33,57 @@ CREATE TABLE IF NOT EXISTS adjudication_escalations (
 """
 
 
+def _row_to_dict(row: sqlite3.Row) -> dict:
+    """Convert a database row to a dict. Shared by class and module-level readers."""
+    return {
+        "album_id": row["album_id"], "release_key": row["release_key"],
+        "artist": row["artist"], "album": row["album"],
+        "prior_observed_leaf": json.loads(row["prior_observed_leaf_json"] or "[]"),
+        "proposed_genres": json.loads(row["proposed_genres_json"] or "[]"),
+        "escalate_reason": row["escalate_reason"],
+        "dropped_file_tags": json.loads(row["dropped_file_tags_json"] or "[]"),
+        "prompt_version": row["prompt_version"], "model": row["model"],
+        "input_hash": row["input_hash"], "status": row["status"],
+        "decision_genres": json.loads(row["decision_genres_json"] or "null"),
+        "created_at": row["created_at"], "decided_at": row["decided_at"],
+    }
+
+
+_DECIDED = "('accepted','edited','rejected')"
+
+
+def list_page(db_path, *, status: str = "pending", search=None, limit: int = 50, offset: int = 0) -> dict:
+    """Read-only page of escalations. Opens mode=ro and does NO DDL — safe on the
+    worker reader thread (2026-06-12 timeout-incident rule). `status` is 'pending'
+    or 'decided' (accepted|edited|rejected)."""
+    uri = f"file:{Path(db_path).as_posix()}?mode=ro"
+    conn = sqlite3.connect(uri, uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        where = "status='pending'" if status == "pending" else f"status IN {_DECIDED}"
+        params: list = []
+        if search:
+            where += " AND (lower(artist) LIKE ? OR lower(album) LIKE ?)"
+            like = f"%{search.lower()}%"
+            params += [like, like]
+        rows = conn.execute(
+            f"SELECT * FROM adjudication_escalations WHERE {where} "
+            "ORDER BY created_at LIMIT ? OFFSET ?",
+            (*params, int(limit), int(offset)),
+        ).fetchall()
+        pending = conn.execute(
+            "SELECT COUNT(*) FROM adjudication_escalations WHERE status='pending'").fetchone()[0]
+        decided = conn.execute(
+            f"SELECT COUNT(*) FROM adjudication_escalations WHERE status IN {_DECIDED}").fetchone()[0]
+        return {"escalations": [_row_to_dict(r) for r in rows],
+                "pending_albums": int(pending), "decided_albums": int(decided)}
+    except sqlite3.OperationalError:
+        # table not created yet (no escalations enqueued)
+        return {"escalations": [], "pending_albums": 0, "decided_albums": 0}
+    finally:
+        conn.close()
+
+
 class EscalationQueue:
     def __init__(self, db_path: "str | Path") -> None:
         self.path = str(db_path)
@@ -80,18 +131,7 @@ class EscalationQueue:
         self._c.commit()
 
     def _row_to_dict(self, row: sqlite3.Row) -> dict:
-        return {
-            "album_id": row["album_id"], "release_key": row["release_key"],
-            "artist": row["artist"], "album": row["album"],
-            "prior_observed_leaf": json.loads(row["prior_observed_leaf_json"] or "[]"),
-            "proposed_genres": json.loads(row["proposed_genres_json"] or "[]"),
-            "escalate_reason": row["escalate_reason"],
-            "dropped_file_tags": json.loads(row["dropped_file_tags_json"] or "[]"),
-            "prompt_version": row["prompt_version"], "model": row["model"],
-            "input_hash": row["input_hash"], "status": row["status"],
-            "decision_genres": json.loads(row["decision_genres_json"] or "null"),
-            "created_at": row["created_at"], "decided_at": row["decided_at"],
-        }
+        return _row_to_dict(row)
 
     def list_pending(self) -> list[dict]:
         rows = self._c.execute(
@@ -146,6 +186,24 @@ class EscalationQueue:
         )
         self._mark(album_id, status=("edited" if decision == "edit" else "accepted"),
                    decision_genres=terms)
+
+    def revert(self, album_id: str, *, sidecar_store: Any) -> None:
+        """Re-open an escalation to pending and un-materialize its genre assignment."""
+        from .normalization import normalize_release_artist, normalize_release_name
+
+        row = self.get(album_id)
+        if row is None:
+            raise KeyError(f"no escalation queued for album_id={album_id!r}")
+        release_id = row["release_key"] or (
+            f"{normalize_release_artist(row['artist'])}::{normalize_release_name(row['album'])}")
+        sidecar_store.replace_layered_assignments_for_release(
+            release_id=release_id, artist=row["artist"], album=row["album"],
+            genre_assignments=[], facet_assignments=[])
+        self._c.execute(
+            "UPDATE adjudication_escalations "
+            "SET status='pending', decision_genres_json=NULL, decided_at=NULL WHERE album_id=?",
+            (album_id,))
+        self._c.commit()
 
     def close(self) -> None:
         self._c.close()
