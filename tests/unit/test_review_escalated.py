@@ -27,7 +27,8 @@ def test_review_apply_materializes_via_queue(tmp_path, monkeypatch):
     from src.ai_genre_enrichment.storage import SidecarStore
 
     side = tmp_path / "ai_genre_enrichment.db"
-    store = SidecarStore(str(side)); store.initialize()
+    store = SidecarStore(str(side))
+    store.initialize()
     q = EscalationQueue(side)
     q.enqueue(album_id="a1", release_key="slowdive::souvlaki", artist="Slowdive",
               album="Souvlaki", prior_observed_leaf=["indie rock"],
@@ -35,7 +36,6 @@ def test_review_apply_materializes_via_queue(tmp_path, monkeypatch):
               escalate_reason="sparse", dropped_file_tags=[], prompt_version="pv",
               model="sonnet", input_hash="h1")
     # mark a decision directly, then run --apply path
-    q.record_decision  # ensure attribute exists
     # Point the CLI's sidecar resolver at our temp DB.
     monkeypatch.setattr(re_mod, "_sidecar_path", lambda: str(side))
 

@@ -14,6 +14,12 @@ from .normalization import normalize_release_artist, normalize_release_name
 
 
 def best_results(rows, *, thorough_pv) -> dict[str, dict]:
+    """Return the best adjudication response per album_id.
+
+    The thorough-pv response wins over any standard-pv response for the same
+    album.  Exactly one result per album is expected; if duplicate thorough rows
+    exist for the same album the last one seen wins.
+    """
     best: dict = {}
     for album_id, pv, resp in rows:
         if album_id not in best or pv == thorough_pv:

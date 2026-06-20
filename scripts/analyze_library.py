@@ -9,6 +9,7 @@ Unified Analyze Library pipeline:
 - Verification
 """
 import argparse
+import contextlib
 import json
 import logging
 import os
@@ -1540,17 +1541,16 @@ def stage_adjudicate(ctx: Dict) -> Dict:
     """
     args = ctx["args"]
     conn = sqlite3.connect(ctx["db_path"])
-    id2name = {r[0]: r[1] for r in conn.execute(
-        "SELECT genre_id, name FROM genre_graph_canonical_genres")}
-    album_ids = [r[0] for r in conn.execute("SELECT album_id FROM albums ORDER BY album_id")]
-    limit = getattr(args, "limit", None)
-    if limit and limit > 0:
-        album_ids = album_ids[:limit]
     store = AdjudicationStore(str(ENRICHMENT_DB_PATH))
     pv = effective_prompt_version(thorough=False)
     try:
+        id2name = {r[0]: r[1] for r in conn.execute(
+            "SELECT genre_id, name FROM genre_graph_canonical_genres")}
+        album_ids = [r[0] for r in conn.execute("SELECT album_id FROM albums ORDER BY album_id")]
+        limit = getattr(args, "limit", None)
+        if limit and limit > 0:
+            album_ids = album_ids[:limit]
         todo = build_todo(store, conn, id2name, album_ids, prompt_version=pv)
-        conn.close()
         if not todo:
             logger.info("Skipping adjudicate stage (no new/changed albums)")
             return {"skipped": True, "reason": "nothing_pending", "adjudicated": 0}
@@ -1561,6 +1561,7 @@ def stage_adjudicate(ctx: Dict) -> Dict:
             store, todo, model=model, instructions=ADJUDICATOR_INSTRUCTIONS,
             prompt_version=pv, adapter=adapter, client=client)
     finally:
+        conn.close()
         store.close()
     if summary.paused:
         return {"paused": True, "pause_reason": summary.pause_reason,
@@ -1575,17 +1576,16 @@ def stage_apply(ctx: Dict) -> Dict:
     std_pv = effective_prompt_version(thorough=False)
     tho_pv = effective_prompt_version(thorough=True)
     rows = []
-    side = sqlite3.connect(str(ENRICHMENT_DB_PATH))
-    for album_id, pv, rj, ih in side.execute(
-        "SELECT album_id, prompt_version, response_json, input_hash "
-        "FROM adjudications WHERE status='complete'"
-    ):
-        resp = json.loads(rj) if rj else None
-        if resp is None:
-            continue
-        resp["input_hash"] = ih
-        rows.append((album_id, pv, resp))
-    side.close()
+    with contextlib.closing(sqlite3.connect(str(ENRICHMENT_DB_PATH))) as side:
+        for album_id, pv, rj, ih in side.execute(
+            "SELECT album_id, prompt_version, response_json, input_hash "
+            "FROM adjudications WHERE status='complete'"
+        ):
+            resp = json.loads(rj) if rj else None
+            if resp is None:
+                continue
+            resp["input_hash"] = ih
+            rows.append((album_id, pv, resp))
     if not rows:
         logger.info("Skipping apply stage (no complete adjudications)")
         return {"skipped": True, "reason": "no_adjudications", "materialized": 0, "escalated": 0}
