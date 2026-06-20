@@ -77,6 +77,9 @@ PROTOCOL_VERSION = 1
 # Path to the AI genre enrichment sidecar DB (relative to project root / cwd)
 SIDECAR_DB_PATH = "data/ai_genre_enrichment.db"
 
+# Path to the primary track/album metadata DB (relative to project root / cwd)
+METADATA_DB_PATH = "data/metadata.db"
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Worker State Management
@@ -2463,6 +2466,39 @@ def handle_scan_genre_review(cmd_data: Dict[str, Any]) -> None:
         emit_done("scan_genre_review", False, str(e))
 
 
+def handle_publish_decided(cmd_data: Dict[str, Any]) -> None:
+    """Back up metadata.db, then publish() the materialized assignments into the authority.
+
+    Tracked job — the button click is the explicit confirmation; the backup is automatic
+    (CLAUDE.md metadata.db discipline). publish() is the only authority writer.
+    """
+    import datetime
+    import shutil
+
+    try:
+        emit_progress("publish_decided", 0, 2, "backing up metadata.db")
+        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        bak = f"{METADATA_DB_PATH}.bak.{ts}"
+        shutil.copy2(METADATA_DB_PATH, bak)
+        check_cancelled()
+        emit_progress("publish_decided", 1, 2, "publishing")
+        from src.genre.genre_publish import publish
+        stats = publish(METADATA_DB_PATH, SIDECAR_DB_PATH, dry_run=False)
+        result = {
+            "graph_albums": stats.graph_albums, "legacy_albums": stats.legacy_albums,
+            "total_albums": stats.total_albums, "collisions": stats.collisions,
+            "backup": bak,
+        }
+        emit_result("publish_decided", result)
+        emit_done("publish_decided", True, f"Published {stats.graph_albums} graph albums",
+                  summary=f"graph={stats.graph_albums} legacy={stats.legacy_albums}")
+    except CancellationError:
+        emit_done("publish_decided", False, "Cancelled", cancelled=True)
+    except Exception as e:
+        emit_error(str(e), traceback.format_exc())
+        emit_done("publish_decided", False, str(e))
+
+
 def handle_get_genre_review_queue(cmd_data: Dict[str, Any]) -> None:
     """Return the persisted review queue page.
 
@@ -2694,6 +2730,7 @@ TRACKED_COMMAND_HANDLERS = {
     "enrich_genres": handle_enrich_genres_cmd,
     "edit_genres": handle_edit_genres,
     "scan_genre_review": handle_scan_genre_review,
+    "publish_decided": handle_publish_decided,
 }
 
 # Commands that don't have their own request context

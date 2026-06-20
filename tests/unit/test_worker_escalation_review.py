@@ -56,3 +56,33 @@ def test_apply_escalation_decision_accept_materializes(tmp_path, monkeypatch, ca
         "WHERE release_id='slowdive::souvlaki' AND assignment_layer='observed_leaf'").fetchone()[0]
     assert n >= 1
     assert EscalationQueue(sidecar).get("a1")["status"] == "accepted"
+
+
+def test_publish_decided_backs_up_and_publishes(tmp_path, monkeypatch, capsys):
+    import sqlite3
+    from src.playlist_gui import worker as W
+    # Minimal metadata.db: publish() reads tracks, track_genres, album_genres,
+    # artist_genres, and albums for legacy genre aggregation.  All tables must
+    # exist; empty rows are fine — publish() will produce zero-row output tables.
+    meta = tmp_path / "metadata.db"
+    c = sqlite3.connect(meta)
+    c.executescript("""
+        CREATE TABLE albums (album_id TEXT PRIMARY KEY, title TEXT, artist TEXT);
+        CREATE TABLE tracks (track_id TEXT PRIMARY KEY, album_id TEXT, artist TEXT);
+        CREATE TABLE track_genres (track_id TEXT, genre TEXT, source TEXT, weight REAL);
+        CREATE TABLE album_genres (album_id TEXT, genre TEXT, source TEXT);
+        CREATE TABLE artist_genres (artist TEXT, genre TEXT, source TEXT);
+    """)
+    c.commit(); c.close()
+    side = tmp_path / "sidecar.db"
+    from src.ai_genre_enrichment.storage import SidecarStore
+    SidecarStore(str(side)).initialize()
+    monkeypatch.setattr(W, "METADATA_DB_PATH", str(meta))
+    monkeypatch.setattr(W, "SIDECAR_DB_PATH", str(side))
+
+    W.handle_publish_decided({"cmd": "publish_decided", "request_id": "r3", "job_id": "j3"})
+    events = _events(capsys)
+    done = next(e for e in events if e["type"] == "done")
+    assert done["ok"] is True
+    # a timestamped backup was created next to metadata.db
+    assert any(p.name.startswith("metadata.db.bak.") for p in tmp_path.iterdir())
