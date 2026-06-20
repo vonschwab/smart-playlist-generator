@@ -23,10 +23,14 @@ BPM_BRIDGE and ONSET_BRIDGE arms.
 Usage:
     python scripts/research/pace_cede_eval.py [--ablation] [--out-dir PATH]
     python scripts/research/pace_cede_eval.py --strict-narrow [--out-dir PATH]
+    python scripts/research/pace_cede_eval.py --diverse-seeds [--out-dir PATH]
 
     --ablation      run the full ablation at pace=dynamic (default if no args)
     --strict-narrow run BASELINE/ADMISSION/BPM_BRIDGE/ONSET_BRIDGE at
                     pace=strict/strict/strict and pace=narrow/narrow/narrow
+    --diverse-seeds run BASELINE/ADMISSION/SONIC_WEIGHT + pool-spread measurement
+                    for HIGH-AROUSAL and WIDE-SWING seed sets at strict/narrow;
+                    answers (A) seed-artifact vs (B) lever-gap for narrow's inertness
     --out-dir       write ABLATION.md here (default: docs/run_audits/pace_cedes_sonic)
 
 Also exposes compute_pace_metrics() for use by Task 5.
@@ -57,6 +61,30 @@ SEEDS = [
     "b587eb56fa1e173138152bf09565eb80",  # Bill Callahan
     "f28fd5cebac845cf64fee59d5ac3b3aa",  # William Tyler
 ]
+
+# Diverse seed sets for Task 1 final ablation (A vs B hypothesis test).
+# All arousal z-values are library-wide z-scores (mean=4.857, std=0.969).
+
+# HIGH-AROUSAL trio: three distinct high-energy artists (z ≈ +2.8..+3.3).
+# If the narrow pool still has spread at these seeds, hypothesis (B) applies.
+SEEDS_HIGH_AROUSAL = [
+    "d9080b3589a305dbab44bae6344e7f92",  # Parquet Courts  z≈+3.34
+    "3ae0b2d9e322ecb65b3016927d4dc692",  # Minor Threat    z≈+3.02
+    "0ff586c693822e0e6198d387db55485d",  # The Hives       z≈+2.83
+]
+
+# WIDE-SWING set: spans ≈6 z-units (low→high).
+# Tests whether the full arc range matters when the beam is constrained.
+SEEDS_WIDE_SWING = [
+    "7be4bb510346bf74b4890c34c68524e1",  # Ryuichi Sakamoto  z≈-2.66 (low)
+    "0ff586c693822e0e6198d387db55485d",  # The Hives         z≈+2.83 (high)
+    "d9080b3589a305dbab44bae6344e7f92",  # Parquet Courts    z≈+3.34 (high)
+]
+
+DIVERSE_SEED_SETS = {
+    "HIGH_AROUSAL": SEEDS_HIGH_AROUSAL,
+    "WIDE_SWING": SEEDS_WIDE_SWING,
+}
 
 # Absolute paths: data lives in main checkout, not the worktree.
 # The worktree's data/ directory is linked via a junction but git has already
@@ -902,12 +930,736 @@ def run_strict_narrow_ablation(*, out_dir: str) -> dict[str, list[dict]]:
     return results_by_mode
 
 
+# ── Pool-spread measurement (A-vs-B hypothesis tool) ─────────────────────────
+
+def _measure_pool_arousal_spread(
+    seeds: list[str],
+    *,
+    mode: str,
+    relax_admission: bool = False,
+    sonic_weight_override: Optional[float] = None,
+) -> dict:
+    """Monkeypatch the pool builder, run a generation, return pool arousal stats.
+
+    Captures the candidate pool (as global indices into the artifact) for each
+    segment, then looks up z-scored arousal values from the energy sidecar.
+
+    Returns
+    -------
+    dict with:
+        pool_arousal_std_per_segment : list[float]
+        pool_arousal_std_global      : float   (std across ALL pool candidates)
+        pool_arousal_mean_global     : float
+        pool_sizes                   : list[int]
+        n_segments                   : int
+    """
+    import src.playlist.pier_bridge_builder as pbb
+    from src.playlist.pier_bridge.pool import _build_segment_candidate_pool_scored as _orig_pool
+
+    # Storage for captured pools
+    captured: list[dict] = []
+
+    def _capture(*args, **kw):
+        result = _orig_pool(*args, **kw)
+        candidates = result[0]
+        captured.append({
+            "candidates": list(candidates),  # artifact indices
+        })
+        return result
+
+    # Build overrides (same as _run_one)
+    from tests.support.gui_fidelity import resolve_gui_overrides, gui_ui_state
+    ui = gui_ui_state(
+        genre_mode=mode,
+        sonic_mode=mode,
+        pace_mode=mode,
+        cohesion_mode=mode,
+    )
+    ds_overrides = resolve_gui_overrides(ui, config_path=CONFIG_PATH)
+    ds_overrides.setdefault("library", {})["database_path"] = DB_PATH
+
+    if relax_admission:
+        ds_overrides.setdefault("candidate_pool", {})["min_sonic_similarity"] = None
+
+    if sonic_weight_override is not None:
+        # sonic_weight is passed as a kwarg to generate_playlist_ds — not in overrides
+        pass  # handled below via generate_playlist_ds kwargs
+
+    # Load energy sidecar for arousal lookup
+    z_data = np.load(SIDECAR_PATH, allow_pickle=True)
+    side_ids = [str(t) for t in z_data["track_ids"]]
+    arousal_raw = np.asarray(z_data["arousal_p50"], float)
+    arousal_mean = float(np.nanmean(arousal_raw))
+    arousal_std_lib = float(np.nanstd(arousal_raw))
+    if arousal_std_lib == 0.0:
+        arousal_std_lib = 1.0
+    arousal_z = (arousal_raw - arousal_mean) / arousal_std_lib
+
+    # We need the bundle's track_ids to map artifact indices → sidecar arousal.
+    # Capture a reference via the pool monkeypatch.
+    bundle_ref: list = []
+
+    def _capture_with_bundle(*args, **kw):
+        result = _orig_pool(*args, **kw)
+        candidates = result[0]
+        captured.append({"candidates": list(candidates)})
+        if not bundle_ref:
+            bundle_ref.append(kw.get("bundle"))
+        return result
+
+    pbb._build_segment_candidate_pool_scored = _capture_with_bundle
+    try:
+        from src.playlist.genre_ds_params import resolve_genre_ds_params
+        from src.playlist_gui.policy import derive_runtime_config, merge_overrides
+        from src.playlist_gui.worker import load_config_with_overrides
+        from src.playlist.ds_pipeline_runner import generate_playlist_ds
+
+        ui2 = gui_ui_state(
+            genre_mode=mode, sonic_mode=mode, pace_mode=mode, cohesion_mode=mode
+        )
+        decisions = derive_runtime_config(ui2)
+        raw_overrides = merge_overrides({}, decisions.overrides)
+        merged = load_config_with_overrides(CONFIG_PATH, raw_overrides)
+        playlists_cfg = merged.get("playlists", {}) or {}
+        genre_params = resolve_genre_ds_params(playlists_cfg, ui2.cohesion_mode)
+
+        # Override sonic_weight if requested
+        if sonic_weight_override is not None:
+            genre_params["sonic_weight"] = sonic_weight_override
+
+        generate_playlist_ds(
+            artifact_path=ARTIFACT_PATH,
+            seed_track_id=seeds[0],
+            anchor_seed_ids=seeds,
+            mode=ui2.cohesion_mode,
+            pace_mode=ui2.pace_mode,
+            length=PLAYLIST_LENGTH,
+            random_seed=0,
+            overrides=ds_overrides,
+            artist_style_enabled=False,
+            artist_playlist=False,
+            **genre_params,
+        )
+    finally:
+        pbb._build_segment_candidate_pool_scored = _orig_pool  # type: ignore[assignment]
+
+    if not captured or not bundle_ref:
+        return {
+            "pool_arousal_std_per_segment": [],
+            "pool_arousal_std_global": float("nan"),
+            "pool_arousal_mean_global": float("nan"),
+            "pool_sizes": [],
+            "n_segments": 0,
+        }
+
+    bundle = bundle_ref[0]
+    # Map artifact indices → track_id strings using bundle.track_ids
+    artifact_ids = [str(t) for t in bundle.track_ids]
+    side_pos = {t: i for i, t in enumerate(side_ids)}
+
+    # De-dup segments (relaxation cascade may re-call pool builder per segment)
+    # Keep the largest candidate set per ordinal position
+    # We don't have pier_a/pier_b here, so just de-dup by candidate set hash
+    seen: set[tuple] = set()
+    unique_captured: list[dict] = []
+    for cap in captured:
+        key = tuple(sorted(cap["candidates"][:20]))  # cheap fingerprint
+        if key not in seen:
+            seen.add(key)
+            unique_captured.append(cap)
+
+    pool_stds: list[float] = []
+    pool_sizes: list[int] = []
+    all_arousal_vals: list[float] = []
+
+    for seg in unique_captured:
+        cands = seg["candidates"]
+        pool_sizes.append(len(cands))
+        avals: list[float] = []
+        for ci in cands:
+            if ci < len(artifact_ids):
+                tid = artifact_ids[ci]
+                si = side_pos.get(tid)
+                if si is not None and np.isfinite(arousal_z[si]):
+                    avals.append(float(arousal_z[si]))
+        if len(avals) >= 2:
+            pool_stds.append(float(np.std(avals)))
+            all_arousal_vals.extend(avals)
+        else:
+            pool_stds.append(float("nan"))
+
+    global_std = float(np.std(all_arousal_vals)) if len(all_arousal_vals) >= 2 else float("nan")
+    global_mean = float(np.mean(all_arousal_vals)) if all_arousal_vals else float("nan")
+
+    return {
+        "pool_arousal_std_per_segment": [round(s, 3) if np.isfinite(s) else None for s in pool_stds],
+        "pool_arousal_std_global": round(global_std, 3) if np.isfinite(global_std) else float("nan"),
+        "pool_arousal_mean_global": round(global_mean, 3) if np.isfinite(global_mean) else float("nan"),
+        "pool_sizes": pool_sizes,
+        "n_segments": len(unique_captured),
+    }
+
+
+def _run_diverse_arm(
+    arm_name: str,
+    seeds: list[str],
+    *,
+    mode: str,
+    relax_admission: bool = False,
+    sonic_weight_override: Optional[float] = None,
+    measure_pool_spread: bool = False,
+) -> dict:
+    """Run one arm for diverse-seeds ablation; return result dict.
+
+    Runs energy-off, energy-on, and optionally measures pool arousal spread.
+    SONIC_WEIGHT arm passes sonic_weight_override directly to generate_playlist_ds.
+    """
+    print(f"\n{'='*60}")
+    print(f"ARM: {arm_name}  [mode={mode}]  seeds={seeds[0][:8]}..+{len(seeds)-1}")
+    print(
+        f"  relax_admission={relax_admission}  sonic_weight_override={sonic_weight_override}"
+    )
+
+    # For SONIC_WEIGHT arm, we need to pass sonic_weight into generate_playlist_ds
+    # directly. _run_one doesn't support this — we use a wrapper approach.
+    if sonic_weight_override is not None:
+        off_result = _run_one_with_seeds_and_sonic_weight(
+            seeds=seeds,
+            energy_on=False,
+            mode=mode,
+            relax_admission=relax_admission,
+            sonic_weight_override=sonic_weight_override,
+        )
+        on_result = _run_one_with_seeds_and_sonic_weight(
+            seeds=seeds,
+            energy_on=True,
+            mode=mode,
+            relax_admission=relax_admission,
+            sonic_weight_override=sonic_weight_override,
+        )
+    else:
+        off_result = _run_one_with_seeds(
+            seeds=seeds,
+            energy_on=False,
+            mode=mode,
+            relax_admission=relax_admission,
+        )
+        on_result = _run_one_with_seeds(
+            seeds=seeds,
+            energy_on=True,
+            mode=mode,
+            relax_admission=relax_admission,
+        )
+
+    off_ids, off_m, off_bpm, off_t = off_result
+    on_ids, on_m, on_bpm, on_t = on_result
+    pos_diff = _diff_count(off_ids, on_ids)
+    arc_delta = on_m["arc_dev"] - off_m["arc_dev"]
+    unblocks = (pos_diff > 0) and (arc_delta < 0)
+
+    print(f"  BPM status (OFF): {off_bpm}")
+    print(f"  BPM status (ON) : {on_bpm}")
+    print(f"  OFF arousal: {off_m['arousal_curve']}")
+    print(f"  ON  arousal: {on_m['arousal_curve']}")
+    print(f"  pos_diff : {pos_diff}/{PLAYLIST_LENGTH}")
+    print(f"  arc_dev  OFF={off_m['arc_dev']:.4f}  ON={on_m['arc_dev']:.4f}  Δ={arc_delta:+.4f}")
+    print(f"  max_step OFF={off_m['max_step']:.4f}  ON={on_m['max_step']:.4f}")
+    print(f"  VERDICT  : {'UNBLOCKS ENERGY ✓' if unblocks else 'INERT'}")
+    print(f"  time: OFF={off_t:.0f}s  ON={on_t:.0f}s")
+
+    pool_spread: Optional[dict] = None
+    if measure_pool_spread:
+        print(f"\n  [pool-spread] measuring for {arm_name} at mode={mode}...")
+        t0_ps = time.time()
+        pool_spread = _measure_pool_arousal_spread(
+            seeds=seeds,
+            mode=mode,
+            relax_admission=relax_admission,
+            sonic_weight_override=sonic_weight_override,
+        )
+        elapsed_ps = time.time() - t0_ps
+        print(
+            f"  [pool-spread] n_segments={pool_spread['n_segments']} "
+            f"global_std={pool_spread['pool_arousal_std_global']:.3f} "
+            f"global_mean={pool_spread['pool_arousal_mean_global']:.3f} "
+            f"({elapsed_ps:.0f}s)"
+        )
+        print(f"  [pool-spread] per_seg_std={pool_spread['pool_arousal_std_per_segment']}")
+
+    return {
+        "arm": arm_name,
+        "mode": mode,
+        "seeds": seeds,
+        "pos_diff": pos_diff,
+        "off_arc_dev": off_m["arc_dev"],
+        "on_arc_dev": on_m["arc_dev"],
+        "arc_delta": arc_delta,
+        "off_max_step": off_m["max_step"],
+        "on_max_step": on_m["max_step"],
+        "unblocks": unblocks,
+        "off_curve": off_m["arousal_curve"],
+        "on_curve": on_m["arousal_curve"],
+        "off_ids": off_ids,
+        "on_ids": on_ids,
+        "bpm_status_off": off_bpm,
+        "bpm_status_on": on_bpm,
+        "off_wall": off_t,
+        "on_wall": on_t,
+        "pool_spread": pool_spread,
+        "sonic_weight_override": sonic_weight_override,
+        "relax_admission": relax_admission,
+    }
+
+
+def _run_one_with_seeds(
+    seeds: list[str],
+    *,
+    energy_on: bool,
+    mode: str,
+    relax_admission: bool = False,
+) -> tuple[list[str], dict, str, float]:
+    """Like _run_one but takes an explicit seeds list."""
+    from tests.support.gui_fidelity import resolve_gui_overrides, gui_ui_state
+
+    ui = gui_ui_state(
+        genre_mode=mode, sonic_mode=mode, pace_mode=mode, cohesion_mode=mode
+    )
+    ds_overrides = resolve_gui_overrides(ui, config_path=CONFIG_PATH)
+    ds_overrides.setdefault("library", {})["database_path"] = DB_PATH
+
+    if relax_admission:
+        ds_overrides.setdefault("candidate_pool", {})["min_sonic_similarity"] = None
+
+    if energy_on:
+        ds_overrides.setdefault("pier_bridge", {}).update(ENERGY_ON)
+
+    import src.playlist.pipeline.core as _core_mod
+    from src.playlist.mode_presets import resolve_pace_mode as _real_resolve_pace_mode
+    _core_mod.resolve_pace_mode = _real_resolve_pace_mode  # type: ignore[assignment]
+
+    bpm_handler = _BpmCapture()
+    bpm_logger = logging.getLogger("src.playlist.pipeline.core")
+    bpm_logger.addHandler(bpm_handler)
+    _orig_level = bpm_logger.level
+    if bpm_logger.level == logging.NOTSET or bpm_logger.level > logging.INFO:
+        bpm_logger.setLevel(logging.INFO)
+
+    t0 = time.time()
+    try:
+        from src.playlist.genre_ds_params import resolve_genre_ds_params
+        from src.playlist_gui.policy import derive_runtime_config, merge_overrides
+        from src.playlist_gui.worker import load_config_with_overrides
+        from src.playlist.ds_pipeline_runner import generate_playlist_ds
+
+        decisions = derive_runtime_config(ui)
+        raw_overrides = merge_overrides({}, decisions.overrides)
+        merged = load_config_with_overrides(CONFIG_PATH, raw_overrides)
+        playlists_cfg = merged.get("playlists", {}) or {}
+        genre_params = resolve_genre_ds_params(playlists_cfg, ui.cohesion_mode)
+
+        result = generate_playlist_ds(
+            artifact_path=ARTIFACT_PATH,
+            seed_track_id=seeds[0],
+            anchor_seed_ids=seeds,
+            mode=ui.cohesion_mode,
+            pace_mode=ui.pace_mode,
+            length=PLAYLIST_LENGTH,
+            random_seed=0,
+            overrides=ds_overrides,
+            artist_style_enabled=False,
+            artist_playlist=False,
+            **genre_params,
+        )
+    finally:
+        bpm_logger.removeHandler(bpm_handler)
+        bpm_logger.setLevel(_orig_level)
+
+    elapsed = time.time() - t0
+
+    if bpm_handler.failed:
+        bpm_status = "BPM LOAD FAILED"
+    elif bpm_handler.loaded_msg:
+        bpm_status = f"BPM active: {bpm_handler.loaded_msg}"
+    else:
+        bpm_status = "BPM status unknown (no log captured)"
+
+    track_ids = list(result.track_ids)
+    metrics = compute_pace_metrics(track_ids, sidecar_path=SIDECAR_PATH)
+    return track_ids, metrics, bpm_status, elapsed
+
+
+def _run_one_with_seeds_and_sonic_weight(
+    seeds: list[str],
+    *,
+    energy_on: bool,
+    mode: str,
+    relax_admission: bool = False,
+    sonic_weight_override: float,
+) -> tuple[list[str], dict, str, float]:
+    """Like _run_one_with_seeds but overrides genre_params sonic_weight.
+
+    DIAGNOSTIC ONLY: lowering sonic_weight raises genre_weight in the hybrid
+    (sonic+genre are complementary in generate_playlist_ds). This is NOT a clean
+    'cede sonic keep genre' lever — it boosts genre weight alongside. Flag any
+    result that shows genre impact.
+    """
+    from tests.support.gui_fidelity import resolve_gui_overrides, gui_ui_state
+
+    ui = gui_ui_state(
+        genre_mode=mode, sonic_mode=mode, pace_mode=mode, cohesion_mode=mode
+    )
+    ds_overrides = resolve_gui_overrides(ui, config_path=CONFIG_PATH)
+    ds_overrides.setdefault("library", {})["database_path"] = DB_PATH
+
+    if relax_admission:
+        ds_overrides.setdefault("candidate_pool", {})["min_sonic_similarity"] = None
+
+    if energy_on:
+        ds_overrides.setdefault("pier_bridge", {}).update(ENERGY_ON)
+
+    import src.playlist.pipeline.core as _core_mod
+    from src.playlist.mode_presets import resolve_pace_mode as _real_resolve_pace_mode
+    _core_mod.resolve_pace_mode = _real_resolve_pace_mode  # type: ignore[assignment]
+
+    bpm_handler = _BpmCapture()
+    bpm_logger = logging.getLogger("src.playlist.pipeline.core")
+    bpm_logger.addHandler(bpm_handler)
+    _orig_level = bpm_logger.level
+    if bpm_logger.level == logging.NOTSET or bpm_logger.level > logging.INFO:
+        bpm_logger.setLevel(logging.INFO)
+
+    t0 = time.time()
+    try:
+        from src.playlist.genre_ds_params import resolve_genre_ds_params
+        from src.playlist_gui.policy import derive_runtime_config, merge_overrides
+        from src.playlist_gui.worker import load_config_with_overrides
+        from src.playlist.ds_pipeline_runner import generate_playlist_ds
+
+        decisions = derive_runtime_config(ui)
+        raw_overrides = merge_overrides({}, decisions.overrides)
+        merged = load_config_with_overrides(CONFIG_PATH, raw_overrides)
+        playlists_cfg = merged.get("playlists", {}) or {}
+        genre_params = resolve_genre_ds_params(playlists_cfg, ui.cohesion_mode)
+        genre_params["sonic_weight"] = sonic_weight_override
+
+        result = generate_playlist_ds(
+            artifact_path=ARTIFACT_PATH,
+            seed_track_id=seeds[0],
+            anchor_seed_ids=seeds,
+            mode=ui.cohesion_mode,
+            pace_mode=ui.pace_mode,
+            length=PLAYLIST_LENGTH,
+            random_seed=0,
+            overrides=ds_overrides,
+            artist_style_enabled=False,
+            artist_playlist=False,
+            **genre_params,
+        )
+    finally:
+        bpm_logger.removeHandler(bpm_handler)
+        bpm_logger.setLevel(_orig_level)
+
+    elapsed = time.time() - t0
+
+    if bpm_handler.failed:
+        bpm_status = "BPM LOAD FAILED"
+    elif bpm_handler.loaded_msg:
+        bpm_status = f"BPM active: {bpm_handler.loaded_msg}"
+    else:
+        bpm_status = "BPM status unknown (no log captured)"
+
+    track_ids = list(result.track_ids)
+    metrics = compute_pace_metrics(track_ids, sidecar_path=SIDECAR_PATH)
+    return track_ids, metrics, bpm_status, elapsed
+
+
+def _diverse_seeds_verdict(results_by_seedset: dict[str, dict[str, list[dict]]]) -> str:
+    """Synthesize the A-vs-B verdict from diverse-seeds results.
+
+    results_by_seedset: {"HIGH_AROUSAL": {"strict": [...], "narrow": [...]}, ...}
+    """
+    lines = []
+    for seed_name, by_mode in results_by_seedset.items():
+        for mode, arms in by_mode.items():
+            by_arm = {r["arm"]: r for r in arms}
+            baseline = by_arm.get("BASELINE", {})
+            admission = by_arm.get("ADMISSION", {})
+            sw = by_arm.get("SONIC_WEIGHT", {})
+
+            baseline_ok = baseline.get("unblocks", False)
+            admission_ok = admission.get("unblocks", False)
+            sw_ok = sw.get("unblocks", False)
+
+            # Pool spread from BASELINE arm (measure_pool_spread=True there)
+            ps = baseline.get("pool_spread") or {}
+            spread = ps.get("pool_arousal_std_global", float("nan"))
+            spread_str = f"{spread:.3f}" if np.isfinite(spread) else "n/a"
+
+            baseline_str = "UNBLOCKS" if baseline_ok else "INERT"
+            admission_str = "UNBLOCKS" if admission_ok else "INERT"
+            sw_str = "UNBLOCKS (DIAGNOSTIC)" if sw_ok else "INERT"
+
+            # A/B verdict for narrow
+            if mode == "narrow":
+                if spread < 0.3 and not np.isnan(spread):
+                    ab = "(A) SEED-ARTIFACT: pool arousal spread low (< 0.3); pool starved by constraints"
+                elif np.isnan(spread):
+                    ab = "? SPREAD UNMEASURED"
+                elif not baseline_ok and not admission_ok:
+                    ab = "(B) LEVER-GAP: spread is substantial but ADMISSION still inert"
+                elif admission_ok:
+                    ab = "ADMISSION WORKS: spread was there; admission cede unlocked it"
+                else:
+                    ab = "INCONCLUSIVE"
+                lines.append(
+                    f"{seed_name}/{mode}: pool_spread={spread_str}; "
+                    f"BASELINE={baseline_str}; ADMISSION={admission_str}; A/B={ab}"
+                )
+            else:
+                lines.append(
+                    f"{seed_name}/{mode}: pool_spread={spread_str}; "
+                    f"BASELINE={baseline_str}; ADMISSION={admission_str}"
+                )
+
+    return "\n".join(lines) if lines else "No results."
+
+
+def _append_diverse_seeds_report(
+    results_by_seedset: dict[str, dict[str, list[dict]]],
+    *,
+    out_dir: str,
+) -> str:
+    """Append 'Diverse-seed ablation' section to ABLATION.md; return path."""
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, "ABLATION.md")
+
+    verdict = _diverse_seeds_verdict(results_by_seedset)
+
+    seed_labels = {
+        "HIGH_AROUSAL": "Parquet Courts / Minor Threat / The Hives (z ≈ +2.8..+3.3)",
+        "WIDE_SWING": "Ryuichi Sakamoto (z≈-2.66) / The Hives (z≈+2.83) / Parquet Courts (z≈+3.34)",
+    }
+
+    lines = [
+        "",
+        "---",
+        "",
+        "# Diverse-seed ablation (HIGH-AROUSAL + WIDE-SWING)",
+        "",
+        "**Generated by**: `scripts/research/pace_cede_eval.py --diverse-seeds`",
+        "**Hypothesis test**: (A) narrow's inertness = seed-artifact (low pool arousal spread)",
+        "  OR (B) real lever gap (spread present but admission cede still inert).",
+        "**Energy**: strong (`arc_strength=10, arc_band=0.1, step_strength=10, step_cap=0.1`)",
+        "**BPM gates**: ACTIVE (injected via absolute db path override)",
+        "**Playlist length**: 12",
+        "",
+        "## Seed sets",
+        "",
+    ]
+    for name, label in seed_labels.items():
+        lines.append(f"- **{name}**: {label}")
+
+    lines += [
+        "",
+        "## Per-arm results",
+        "",
+        "| Seed set | Mode | Arm | pos_diff/12 | arc_dev OFF | arc_dev ON | Δ arc_dev "
+        "| pool_spread (std) | wall OFF | wall ON | VERDICT |",
+        "|----------|------|-----|-------------|-------------|------------|-----------|"
+        "-------------------|----------|---------|---------|",
+    ]
+
+    for seed_name, by_mode in results_by_seedset.items():
+        for mode, arms in by_mode.items():
+            for r in arms:
+                v = "UNBLOCKS" if r["unblocks"] else "INERT"
+                ps = r.get("pool_spread") or {}
+                spread = ps.get("pool_arousal_std_global", float("nan"))
+                spread_str = f"{spread:.3f}" if np.isfinite(spread) else "—"
+                off_w = r.get("off_wall", 0.0)
+                on_w = r.get("on_wall", 0.0)
+                arm_label = r["arm"]
+                if r.get("sonic_weight_override") is not None:
+                    arm_label += f"(sw={r['sonic_weight_override']})"
+                lines.append(
+                    f"| {seed_name} | {mode} | {arm_label} | {r['pos_diff']}/12 "
+                    f"| {r['off_arc_dev']:.4f} | {r['on_arc_dev']:.4f} | {r['arc_delta']:+.4f} "
+                    f"| {spread_str} | {off_w:.0f}s | {on_w:.0f}s | {v} |"
+                )
+
+    lines += ["", "## BPM confirmation", ""]
+    for seed_name, by_mode in results_by_seedset.items():
+        for mode, arms in by_mode.items():
+            for r in arms:
+                lines.append(f"- {seed_name}/{mode}/{r['arm']}: {r.get('bpm_status_on', 'N/A')}")
+
+    lines += ["", "## Pool arousal spread (decisive A-vs-B measurement)", ""]
+    for seed_name, by_mode in results_by_seedset.items():
+        lines.append(f"### {seed_name}")
+        lines.append("")
+        for mode, arms in by_mode.items():
+            lines.append(f"#### {mode}")
+            for r in arms:
+                ps = r.get("pool_spread")
+                if ps is None:
+                    continue
+                spread = ps.get("pool_arousal_std_global", float("nan"))
+                spread_str = f"{spread:.3f}" if np.isfinite(spread) else "n/a"
+                lines.append(
+                    f"- {r['arm']}: global_std={spread_str}  "
+                    f"n_segments={ps.get('n_segments', '?')}  "
+                    f"pool_sizes={ps.get('pool_sizes', [])}  "
+                    f"per_seg={ps.get('pool_arousal_std_per_segment', [])}"
+                )
+            lines.append("")
+
+    lines += [
+        "## Arousal curves",
+        "",
+    ]
+    for seed_name, by_mode in results_by_seedset.items():
+        for mode, arms in by_mode.items():
+            lines.append(f"### {seed_name} / {mode}")
+            lines.append("")
+            for r in arms:
+                arm_label = r["arm"]
+                if r.get("sonic_weight_override") is not None:
+                    arm_label += f"(sw={r['sonic_weight_override']})"
+                lines += [
+                    f"#### {arm_label}",
+                    f"- OFF: {r['off_curve']}",
+                    f"- ON : {r['on_curve']}",
+                    "",
+                ]
+
+    lines += [
+        "## A-vs-B verdict",
+        "",
+        verdict,
+        "",
+        "## Interpretation",
+        "",
+        "- **pool_spread < 0.3 AND ADMISSION inert** → (A) seed-artifact: the pool is arousal-homogeneous",
+        "  at this mode for this seed set. Energy has nowhere to steer. NOT a lever-gap.",
+        "- **pool_spread ≥ 0.3 AND ADMISSION INERT** → (B) lever-gap: spread is present but the",
+        "  admission cede (min_sonic_similarity→None) still does not let energy act. Different lever needed.",
+        "- **pool_spread ≥ 0.3 AND ADMISSION UNBLOCKS** → admission cede is sufficient when spread is real.",
+        "  Narrow's mellow-trio inertness was seed-artifact; diverse seeds confirm the lever works.",
+        "- **SONIC_WEIGHT UNBLOCKS** (diagnostic): lower sonic_weight in the hybrid raises genre weight.",
+        "  This may help or hurt genre coherence — treat as diagnostic only, not a production lever.",
+    ]
+
+    append_mode = "a" if os.path.exists(path) else "w"
+    with open(path, append_mode, encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    print(f"\n[report] appended -> {path}")
+    return path
+
+
+def run_diverse_seeds_ablation(*, out_dir: str) -> dict[str, dict[str, list[dict]]]:
+    """Run BASELINE/ADMISSION/SONIC_WEIGHT + pool-spread for HIGH-AROUSAL and WIDE-SWING seeds.
+
+    For each seed set × mode (strict, narrow):
+      - BASELINE: energy off/on, pool spread measured
+      - ADMISSION: energy off/on, min_sonic_similarity→None
+      - SONIC_WEIGHT: energy off/on, sonic_weight→0.20 (diagnostic — flags genre impact)
+
+    Returns results_by_seedset: {"HIGH_AROUSAL": {"strict": [...], "narrow": [...]}, ...}
+    """
+    print(f"\n{'='*60}")
+    print("PACE-CEDES-SONIC: Diverse-seeds ablation (A vs B hypothesis test)")
+    print(f"  config: {CONFIG_PATH}")
+    print(f"  artifact: {ARTIFACT_PATH}")
+    print(f"  sidecar: {SIDECAR_PATH}")
+    print(f"  HIGH_AROUSAL seeds: {SEEDS_HIGH_AROUSAL}")
+    print(f"  WIDE_SWING seeds:   {SEEDS_WIDE_SWING}")
+
+    _self_test()
+
+    results_by_seedset: dict[str, dict[str, list[dict]]] = {}
+    t_total = time.time()
+
+    for seed_name, seeds in DIVERSE_SEED_SETS.items():
+        print(f"\n{'*'*60}")
+        print(f"*** Seed set: {seed_name} ***")
+        results_by_seedset[seed_name] = {}
+
+        for mode in ("strict", "narrow"):
+            print(f"\n{'*'*60}")
+            print(f"*** {seed_name} / pace_mode={mode} ***")
+            mode_results: list[dict] = []
+
+            # BASELINE: pool spread measured here (decisive A-vs-B measurement)
+            r = _run_diverse_arm(
+                "BASELINE",
+                seeds,
+                mode=mode,
+                measure_pool_spread=True,
+            )
+            mode_results.append(r)
+
+            # Check budget: if BASELINE alone took too long, skip remaining arms
+            total_so_far = r["off_wall"] + r["on_wall"]
+            budget_ok = total_so_far < 60  # leave room for 2 more arms within 90s budget
+
+            if budget_ok:
+                # ADMISSION: relax min_sonic_similarity
+                r2 = _run_diverse_arm(
+                    "ADMISSION",
+                    seeds,
+                    mode=mode,
+                    relax_admission=True,
+                    measure_pool_spread=False,
+                )
+                mode_results.append(r2)
+            else:
+                print(
+                    f"  [budget] BASELINE wall={total_so_far:.0f}s > 60s; "
+                    f"skipping ADMISSION+SONIC_WEIGHT for {seed_name}/{mode}"
+                )
+
+            # SONIC_WEIGHT (diagnostic): lower sonic_weight to 0.20 (from default ~0.50)
+            # NOTE: this raises genre_weight proportionally — pure diagnostic
+            # Only run if we still have budget
+            total_so_far2 = sum(
+                r.get("off_wall", 0) + r.get("on_wall", 0) for r in mode_results
+            )
+            if total_so_far2 < 70:
+                r3 = _run_diverse_arm(
+                    "SONIC_WEIGHT",
+                    seeds,
+                    mode=mode,
+                    sonic_weight_override=0.20,
+                    measure_pool_spread=False,
+                )
+                mode_results.append(r3)
+            else:
+                print(
+                    f"  [budget] cumulative wall={total_so_far2:.0f}s > 70s; "
+                    f"skipping SONIC_WEIGHT for {seed_name}/{mode}"
+                )
+
+            results_by_seedset[seed_name][mode] = mode_results
+
+    total_wall = time.time() - t_total
+    print(f"\nTotal diverse-seeds ablation time: {total_wall:.0f}s")
+    print(f"\n{'='*60}")
+    print("DIVERSE-SEEDS A/B VERDICT:")
+    print(_diverse_seeds_verdict(results_by_seedset))
+    print(f"{'='*60}\n")
+
+    _append_diverse_seeds_report(results_by_seedset, out_dir=out_dir)
+    return results_by_seedset
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ablation", action="store_true", default=False,
                         help="Run full ablation at pace=dynamic")
     parser.add_argument("--strict-narrow", action="store_true", default=False,
                         help="Run BASELINE/ADMISSION/BPM_BRIDGE/ONSET_BRIDGE at strict and narrow")
+    parser.add_argument("--diverse-seeds", action="store_true", default=False,
+                        help="Run HIGH-AROUSAL + WIDE-SWING ablation at strict/narrow (A-vs-B)")
     parser.add_argument("--self-test", action="store_true",
                         help="Run only the compute_pace_metrics self-test")
     parser.add_argument(
@@ -923,6 +1675,10 @@ def main() -> None:
 
     if args.strict_narrow:
         run_strict_narrow_ablation(out_dir=args.out_dir)
+        return
+
+    if args.diverse_seeds:
+        run_diverse_seeds_ablation(out_dir=args.out_dir)
         return
 
     # Default: run the original dynamic ablation
