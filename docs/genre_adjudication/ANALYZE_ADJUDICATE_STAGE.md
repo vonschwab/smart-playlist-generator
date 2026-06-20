@@ -28,7 +28,7 @@ Results are written to the `adjudications` table in `data/ai_genre_enrichment.db
 `status='complete'`. The stage is **incremental** — albums that already have a `complete`
 checkpoint are skipped on re-runs.
 
-The stage pauses automatically after 5 consecutive API failures (likely a usage-limit wall). Re-run
+The stage pauses automatically after 8 consecutive API failures (likely a usage-limit wall). Re-run
 `analyze_library.py` to resume.
 
 ### `apply`
@@ -36,7 +36,7 @@ The stage pauses automatically after 5 consecutive API failures (likely a usage-
 Deterministic, no LLM calls. Reads every `status='complete'` row from the adjudications table and
 either:
 
-- **Materializes** to the sidecar (`enriched_genres` / `enriched_genre_signatures`) — for
+- **Materializes** to the sidecar (`genre_graph_release_genre_assignments` — the layered assignments that `publish()` reads into `release_effective_genres`) — for
   non-escalated results; or
 - **Enqueues** to the `adjudication_escalations` table — for results where `escalate=true`.
 
