@@ -1548,18 +1548,20 @@ def stage_adjudicate(ctx: Dict) -> Dict:
         album_ids = album_ids[:limit]
     store = AdjudicationStore(str(ENRICHMENT_DB_PATH))
     pv = effective_prompt_version(thorough=False)
-    todo = build_todo(store, conn, id2name, album_ids, prompt_version=pv)
-    conn.close()
-    if not todo:
-        logger.info("Skipping adjudicate stage (no new/changed albums)")
-        return {"skipped": True, "reason": "nothing_pending", "adjudicated": 0}
-    model = getattr(args, "adjudicate_model", None) or "sonnet"
-    client = getattr(args, "adjudicate_client", None) or ClaudeCodeEnrichmentClient(model=model)
-    adapter = load_graph_adapter()
-    summary = run_adjudication(
-        store, todo, model=model, instructions=ADJUDICATOR_INSTRUCTIONS,
-        prompt_version=pv, adapter=adapter, client=client)
-    store.close()
+    try:
+        todo = build_todo(store, conn, id2name, album_ids, prompt_version=pv)
+        conn.close()
+        if not todo:
+            logger.info("Skipping adjudicate stage (no new/changed albums)")
+            return {"skipped": True, "reason": "nothing_pending", "adjudicated": 0}
+        model = getattr(args, "adjudicate_model", None) or "sonnet"
+        client = getattr(args, "adjudicate_client", None) or ClaudeCodeEnrichmentClient(model=model)
+        adapter = load_graph_adapter()
+        summary = run_adjudication(
+            store, todo, model=model, instructions=ADJUDICATOR_INSTRUCTIONS,
+            prompt_version=pv, adapter=adapter, client=client)
+    finally:
+        store.close()
     if summary.paused:
         return {"paused": True, "pause_reason": summary.pause_reason,
                 "adjudicated": summary.adjudicated, "failed": summary.failed}
@@ -1588,19 +1590,23 @@ def stage_apply(ctx: Dict) -> Dict:
         logger.info("Skipping apply stage (no complete adjudications)")
         return {"skipped": True, "reason": "no_adjudications", "materialized": 0, "escalated": 0}
     conn = sqlite3.connect(ctx["db_path"])
-    id2name = {r[0]: r[1] for r in conn.execute(
-        "SELECT genre_id, name FROM genre_graph_canonical_genres")}
-    taxonomy = load_default_layered_taxonomy()
-    adapter = load_graph_adapter()
+    # SidecarStore has no close() — it opens a fresh connection per operation
+    # (context-managed) and closes it automatically after each call.
     store = SidecarStore(str(ENRICHMENT_DB_PATH))
     store.initialize()
     queue = EscalationQueue(ENRICHMENT_DB_PATH)
-    summary = apply_adjudications(
-        rows=rows, thorough_pv=tho_pv, std_pv=std_pv, meta_conn=conn, id2name=id2name,
-        taxonomy=taxonomy, adapter=adapter, sidecar_store=store, queue=queue,
-        model=getattr(args, "adjudicate_model", None) or "sonnet")
-    conn.close()
-    queue.close()
+    try:
+        id2name = {r[0]: r[1] for r in conn.execute(
+            "SELECT genre_id, name FROM genre_graph_canonical_genres")}
+        taxonomy = load_default_layered_taxonomy()
+        adapter = load_graph_adapter()
+        summary = apply_adjudications(
+            rows=rows, thorough_pv=tho_pv, std_pv=std_pv, meta_conn=conn, id2name=id2name,
+            taxonomy=taxonomy, adapter=adapter, sidecar_store=store, queue=queue,
+            model=getattr(args, "adjudicate_model", None) or "sonnet")
+    finally:
+        conn.close()
+        queue.close()
     return {"materialized": summary.materialized, "escalated": summary.escalated,
             "total": summary.materialized}
 
