@@ -8,7 +8,11 @@ from typing import Any, Dict, Optional, Sequence, Tuple
 import numpy as np
 
 from .config import CandidatePoolConfig
+from .energy_rescue import select_energy_rescue
 from .genre_compatibility import compute_raw_genre_compatibility
+
+# Alias so callers can import as CandidateConfig from this module
+CandidateConfig = CandidatePoolConfig
 from .layered_genre_scoring import (
     layered_decision_to_diagnostics,
     score_layered_candidate,
@@ -527,6 +531,7 @@ def build_candidate_pool(
     perceptual_bpm: Optional[np.ndarray] = None,
     tempo_stability: Optional[np.ndarray] = None,
     onset_rate: Optional[np.ndarray] = None,
+    X_energy: Optional[np.ndarray] = None,
     genre_admission_percentile: Optional[float] = None,
     genre_admission_aggregate: str = "centroid",
     layered_genre_diagnostics: bool = False,
@@ -629,6 +634,11 @@ def build_candidate_pool(
         sonic_seed_sim = np.max(sonic_seed_sim_matrix, axis=1)
         sonic_seed_sim[seed_mask] = -1.0
 
+    # ── Rhythm-fail accumulator (for energy rescue) ──────────────────────────
+    # Tracks which candidates were rejected by rhythm bands so rescue can re-admit
+    # the genre+sonic-OK subset.  Initialized to all-False (no-op when rescue is off).
+    rhythm_fail = np.zeros(len(seed_sim_all), dtype=bool)
+
     # ── BPM admission gate (Tier 1) ──────────────────────────────────────────
     bpm_seed_min_dist: Optional[np.ndarray] = None
     below_bpm_floor = 0
@@ -652,6 +662,7 @@ def build_candidate_pool(
 
         bpm_fail = ~bypass & (bpm_seed_min_dist > max_log)
         bpm_fail[seed_list] = False  # seeds never self-rejected
+        rhythm_fail = rhythm_fail | bpm_fail
 
         count_bpm_rejected = int(np.sum(bpm_fail))
         below_bpm_floor = count_bpm_rejected
@@ -679,6 +690,7 @@ def build_candidate_pool(
         onset_bypass = np.isnan(onset_rate)  # NaN bypass only; no stability bypass
         onset_fail = ~onset_bypass & (onset_seed_min_dist > max_log_onset)
         onset_fail[seed_list] = False  # seeds never self-rejected
+        rhythm_fail = rhythm_fail | onset_fail
 
         seed_sim_all[onset_fail] = -2.0
         logger.info(
@@ -948,6 +960,43 @@ def build_candidate_pool(
                 below_genre_count, mode
             )
         # For "discover" mode, we compute genre_sim but don't exclude (soft penalty later if needed)
+
+    # ── Energy admission-rescue (pace as a co-equal axis) ────────────────────
+    # Re-admit tracks rejected ONLY by the rhythm bands (onset/BPM) that still
+    # clear the genre AND sonic floors, choosing an arousal-spanning subset so
+    # the pool carries on-arc-energy candidates even in tight modes. Additive;
+    # never removes. Genre + sonic floors fully respected. No-op when k_energy=0.
+    k_energy = int(getattr(cfg, "pace_rescue_k_energy", 0))
+    if k_energy > 0 and X_energy is not None and np.any(rhythm_fail):
+        eligible_set = set(eligible)
+        sonic_ok = (
+            sonic_seed_sim is not None and sonic_floor is not None
+        )
+        source = []
+        for i in np.nonzero(rhythm_fail)[0]:
+            i = int(i)
+            if i in eligible_set or seed_mask[i]:
+                continue
+            if sonic_ok and (sonic_seed_sim[i] + epsilon) < sonic_floor:
+                continue  # sonic safety floor — never rescue a disconnected track
+            if (
+                genre_sim_all is not None
+                and effective_genre_floor is not None
+                and genre_sim_all[i] < effective_genre_floor
+            ):
+                continue  # genre authority preserved
+            source.append(i)
+        rescued = select_energy_rescue(np.asarray(X_energy, dtype=float), source, k_energy)
+        for i in rescued:
+            # Restore a genuine rank score so the track survives similarity_floor
+            # and ranks sensibly (it was set to the rhythm sentinel -2.0).
+            seed_sim_all[i] = float(sonic_seed_sim[i]) if sonic_ok else float(cfg.similarity_floor)
+            eligible.append(i)
+        if rescued:
+            logger.info(
+                "Energy rescue: admitted=%d from rhythm-rejected (k_energy=%d, source=%d)",
+                len(rescued), k_energy, len(source),
+            )
 
     layered_ready, layered_reason = _validate_layered_matrices(
         row_count=len(seed_sim_all),
