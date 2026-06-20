@@ -2655,15 +2655,17 @@ def handle_apply_escalation_decision(cmd_data: Dict[str, Any]) -> None:
         genres = cmd_data.get("genres") or None
         store = SidecarStore(SIDECAR_DB_PATH)
         queue = EscalationQueue(SIDECAR_DB_PATH)
-        if decision == "revert":
-            queue.revert(album_id, sidecar_store=store)
-            status = "pending"
-        else:
-            taxonomy = load_default_layered_taxonomy()
-            queue.record_decision(album_id, decision, genres=genres,
-                                  sidecar_store=store, taxonomy=taxonomy)
-            status = {"accept": "accepted", "edit": "edited", "reject": "rejected"}[decision]
-        queue.close()
+        try:
+            if decision == "revert":
+                queue.revert(album_id, sidecar_store=store)
+                status = "pending"
+            else:
+                taxonomy = load_default_layered_taxonomy()
+                queue.record_decision(album_id, decision, genres=genres,
+                                      sidecar_store=store, taxonomy=taxonomy)
+                status = {"accept": "accepted", "edit": "edited", "reject": "rejected"}[decision]
+        finally:
+            queue.close()
         emit_event({"type": "result", "result_type": "escalation_decision",
                     "album_id": album_id, "status": status,
                     "request_id": rid, "job_id": None})

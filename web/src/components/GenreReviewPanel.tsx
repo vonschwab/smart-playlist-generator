@@ -191,7 +191,7 @@ export function GenreReviewPanel() {
             )}
             {sel?.album_id === esc.album_id && view === "completed" && (
               <div className="ml-1 mb-2 px-2 py-1 text-[10px] text-muted flex items-center gap-2">
-                <span className="flex-1">decided: {(esc.proposed_genres.map((g) => g.term)).join(", ") || "—"}</span>
+                <span className="flex-1">decided: {(esc.decision_genres ?? esc.proposed_genres.map((g) => g.term)).join(", ") || "—"}</span>
                 <button onClick={async () => {
                   await api.reviewDecision({ album_id: esc.album_id, decision: "revert" });
                   load(search, view);

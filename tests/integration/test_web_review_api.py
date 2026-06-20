@@ -25,6 +25,22 @@ def test_decision_round_trip():
         assert r.json()["ok"] is True
 
 
+def test_completed_returns_escalations():
+    """Guard that /api/review/completed is wired and returns the right shape.
+
+    Untracked commands bypass the BridgeBusy gate entirely (bridge.command with
+    untracked=True skips the busy check), so this route can never return 409
+    while a long job is running.  The test confirms the route returns 200 with
+    the expected fields regardless of bridge state.
+    """
+    with _client() as c:
+        r = c.get("/api/review/completed")
+        assert r.status_code == 200
+        body = r.json()
+        assert "escalations" in body and "decided_albums" in body
+        assert body["escalations"][0]["decision_genres"] == ["shoegaze"]
+
+
 def test_publish_returns_job_id():
     with _client() as c:
         r = c.post("/api/review/publish")

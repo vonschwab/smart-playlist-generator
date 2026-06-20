@@ -118,13 +118,18 @@ def main():
                                    "prior_observed_leaf": ["indie rock"],
                                    "proposed_genres": [{"term": "shoegaze", "confidence": 0.9}],
                                    "escalate_reason": "sparse", "dropped_file_tags": [],
-                                   "status": "pending"}],
+                                   "status": "pending", "decision_genres": None}],
                   "pending_albums": 1, "decided_albums": 0, "request_id": rid, "job_id": None})
             emit({"type": "done", "cmd": "get_escalation_queue", "ok": True,
                   "request_id": rid, "job_id": None})
         elif name == "get_escalation_completed":
             emit({"type": "result", "result_type": "escalation_completed",
-                  "escalations": [], "pending_albums": 1, "decided_albums": 0,
+                  "escalations": [{"album_id": "a1", "artist": "Slowdive", "album": "Souvlaki",
+                                   "prior_observed_leaf": ["indie rock"],
+                                   "proposed_genres": [{"term": "shoegaze", "confidence": 0.9}],
+                                   "escalate_reason": "sparse", "dropped_file_tags": [],
+                                   "status": "accepted", "decision_genres": ["shoegaze"]}],
+                  "pending_albums": 0, "decided_albums": 1,
                   "request_id": rid, "job_id": None})
             emit({"type": "done", "cmd": "get_escalation_completed", "ok": True,
                   "request_id": rid, "job_id": None})

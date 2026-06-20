@@ -6,6 +6,7 @@ from src.ai_genre_enrichment.escalation_queue import EscalationQueue
 from src.ai_genre_enrichment.storage import SidecarStore
 from src.playlist_gui.worker import (
     handle_apply_escalation_decision,
+    handle_get_escalation_completed,
     handle_get_escalation_queue,
 )
 
@@ -56,6 +57,22 @@ def test_apply_escalation_decision_accept_materializes(tmp_path, monkeypatch, ca
         "WHERE release_id='slowdive::souvlaki' AND assignment_layer='observed_leaf'").fetchone()[0]
     assert n >= 1
     assert EscalationQueue(sidecar).get("a1")["status"] == "accepted"
+
+
+def test_get_escalation_completed_emits_result(tmp_path, monkeypatch, capsys):
+    sidecar = _seed(tmp_path, monkeypatch)
+    # Mark a1 decided so it shows in the completed view
+    q = EscalationQueue(sidecar)
+    q._mark("a1", status="accepted", decision_genres=["shoegaze"])
+    q.close()
+    handle_get_escalation_completed({"cmd": "get_escalation_completed", "request_id": "r4"})
+    events = _events(capsys)
+    result = next(e for e in events if e["type"] == "result")
+    done = next(e for e in events if e["type"] == "done")
+    assert result["result_type"] == "escalation_completed"
+    assert result["decided_albums"] == 1
+    assert result["job_id"] is None
+    assert done["ok"] is True
 
 
 def test_publish_decided_backs_up_and_publishes(tmp_path, monkeypatch, capsys):

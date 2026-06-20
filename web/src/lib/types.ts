@@ -166,6 +166,7 @@ export interface EscalationOut {
   escalate_reason: string;
   dropped_file_tags: string[];
   status: "pending" | "accepted" | "edited" | "rejected";
+  decision_genres: string[] | null;
 }
 
 export interface EscalationQueueResponse {
