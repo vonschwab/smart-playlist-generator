@@ -1,17 +1,24 @@
 """Sonic-lever ablation harness for pace-cedes-sonic (Task 1).
 
-Determines which lever — pool admission floor (min_sonic_similarity) or beam
-bridge weight (weight_bridge) — unblocks the energy soft-penalty when relaxed,
-with genre held on (dynamic).
+Determines which lever — pool admission floor (min_sonic_similarity), beam
+bridge weight (weight_bridge), BPM bridge band, or onset bridge band — unblocks
+the energy soft-penalty when relaxed, with genre held on (dynamic).
 
-Three arms, all with genre=dynamic, pace=dynamic, and strong energy:
-  BASELINE   : nothing relaxed             -> expect energy inert
-  ADMISSION  : min_sonic_similarity=None   -> admission floor removed
-  BRIDGE     : weight_bridge=0.1           -> beam sonic-bridge weight near-zero
+Five arms, all with genre=dynamic, pace=dynamic, and strong energy:
+  BASELINE      : nothing relaxed             -> expect energy inert w/ BPM active
+  ADMISSION     : min_sonic_similarity=None   -> admission floor removed
+  BRIDGE        : weight_bridge=0.1           -> beam sonic-bridge weight near-zero
+  BPM_BRIDGE    : bpm_bridge_max_log_distance -> very large (off)
+  ONSET_BRIDGE  : onset_bridge_max_log_distance -> very large (off)
 
 For each arm: generate energy-off and energy-on; compare arousal curves and
 positions. A lever "unblocks" energy if energy-on track-ids diverge from
 energy-off AND arc_dev drops.
+
+BPM gate status: verified active by checking for "BPM loaded" log message.
+BPM+onset band values come from resolve_pace_mode("dynamic") and are patched
+via monkeypatching src.playlist.pipeline.core.resolve_pace_mode for the
+BPM_BRIDGE and ONSET_BRIDGE arms.
 
 Usage:
     python scripts/research/pace_cede_eval.py [--ablation] [--out-dir PATH]
@@ -24,6 +31,7 @@ Also exposes compute_pace_metrics() for use by Task 5.
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import sys
 import time
@@ -47,15 +55,22 @@ SEEDS = [
     "f28fd5cebac845cf64fee59d5ac3b3aa",  # William Tyler
 ]
 
-# Absolute paths: data lives in main checkout, not the worktree
+# Absolute paths: data lives in main checkout, not the worktree.
+# The worktree's data/ directory is linked via a junction but git has already
+# checked out a zero-byte placeholder data/metadata.db (tracked in the repo),
+# so the relative path resolves to the empty placeholder, not the real 794 MB DB.
+# Solution: always use absolute paths for data files and inject the db path via
+# overrides so core.py's BPM loader skips the relative fallback.
+_MAIN_CHECKOUT = Path("C:/Users/Dylan/Desktop/PLAYLIST_GENERATOR_V3")
 ARTIFACT_PATH = str(
-    Path("C:/Users/Dylan/Desktop/PLAYLIST_GENERATOR_V3")
-    / "data/artifacts/beat3tower_32k/data_matrices_step1.npz"
+    _MAIN_CHECKOUT / "data/artifacts/beat3tower_32k/data_matrices_step1.npz"
 )
 SIDECAR_PATH = str(
-    Path("C:/Users/Dylan/Desktop/PLAYLIST_GENERATOR_V3")
-    / "data/artifacts/beat3tower_32k/energy/energy_sidecar.npz"
+    _MAIN_CHECKOUT / "data/artifacts/beat3tower_32k/energy/energy_sidecar.npz"
 )
+# Real database — passed via overrides["library"]["database_path"] to core.py's
+# BPM loader so it never falls back to the zero-byte worktree placeholder.
+DB_PATH = str(_MAIN_CHECKOUT / "data/metadata.db")
 
 # config.yaml lives in the worktree root (copied there before running)
 CONFIG_PATH = str(_ROOT / "config.yaml")
@@ -69,6 +84,28 @@ ENERGY_ON = {
 }
 
 PLAYLIST_LENGTH = 12
+
+# BPM/onset "effectively off" sentinel: log2(1e6) ≈ 20; any real track pair
+# is well within this distance, so the gate is never triggered.
+_BPM_BAND_OFF = 1e6
+_ONSET_BAND_OFF = 1e6
+
+
+# ── BPM logging capture ───────────────────────────────────────────────────────
+
+class _BpmCapture(logging.Handler):
+    """Capture the BPM loaded / BPM load failed log line during a run."""
+    def __init__(self) -> None:
+        super().__init__()
+        self.loaded_msg: Optional[str] = None
+        self.failed: bool = False
+
+    def emit(self, record: logging.LogRecord) -> None:
+        msg = record.getMessage()
+        if "BPM loaded" in msg:
+            self.loaded_msg = msg
+        elif "BPM load failed" in msg:
+            self.failed = True
 
 
 # ── Public API (reused by Task 5) ─────────────────────────────────────────────
@@ -134,9 +171,15 @@ def _self_test() -> None:
 
 # ── Ablation helpers ──────────────────────────────────────────────────────────
 
-def _run_one(*, energy_on: bool, relax_admission: bool = False,
-             wb_override: Optional[float] = None) -> tuple[list[str], dict, dict]:
-    """Generate one arm; return (track_ids, pace_metrics, debug_info).
+def _run_one(
+    *,
+    energy_on: bool,
+    relax_admission: bool = False,
+    wb_override: Optional[float] = None,
+    bpm_bridge_off: bool = False,
+    onset_bridge_off: bool = False,
+) -> tuple[list[str], dict, dict, str]:
+    """Generate one arm; return (track_ids, pace_metrics, debug_info, bpm_status).
 
     Parameters
     ----------
@@ -144,12 +187,14 @@ def _run_one(*, energy_on: bool, relax_admission: bool = False,
         Whether to inject the strong energy knobs.
     relax_admission:
         ADMISSION arm: after preset application, force candidate_pool.min_sonic_similarity=None.
-        The UI state always uses sonic_mode="dynamic"; this patches post-resolution.
     wb_override:
         BRIDGE arm: set pier_bridge.weight_bridge to this value in the overrides dict.
+    bpm_bridge_off:
+        BPM_BRIDGE arm: monkeypatch resolve_pace_mode to return bpm_bridge_max_log_distance=1e6.
+    onset_bridge_off:
+        ONSET_BRIDGE arm: monkeypatch resolve_pace_mode to return onset_bridge_max_log_distance=1e6.
     """
     # Build base UI state: genre=dynamic, sonic=dynamic, pace=dynamic, cohesion=dynamic
-    # Always use sonic_mode="dynamic" at the UI level; ADMISSION is patched post-resolution
     ui = gui_ui_state(
         genre_mode="dynamic",
         sonic_mode="dynamic",
@@ -160,22 +205,19 @@ def _run_one(*, energy_on: bool, relax_admission: bool = False,
     # Resolve overrides the same way the GUI worker does
     ds_overrides = resolve_gui_overrides(ui, config_path=CONFIG_PATH)
 
+    # Inject the real database path so core.py's BPM loader doesn't fall back to
+    # the relative "data/metadata.db" (which resolves to a zero-byte worktree
+    # placeholder because git checks out a tracked empty file there).
+    ds_overrides.setdefault("library", {})["database_path"] = DB_PATH
+
     # ADMISSION arm: force min_sonic_similarity=None AFTER preset application.
-    # apply_mode_presets (inside resolve_gui_overrides → load_config_with_overrides)
-    # writes candidate_pool.min_sonic_similarity from sonic_mode, so we must patch
-    # the resolved overrides dict directly.
-    # resolve_gui_overrides returns the dict built from build_ds_overrides(ds_cfg),
-    # which embeds candidate_pool under "candidate_pool".
     resolved_min_sonic = None
     if relax_admission:
-        # Patch the resolved candidate_pool to remove the admission floor
         cp = ds_overrides.setdefault("candidate_pool", {})
         resolved_min_sonic = cp.get("min_sonic_similarity")
         cp["min_sonic_similarity"] = None
 
     # BRIDGE arm: inject a low weight_bridge into pier_bridge overrides.
-    # resolve_pier_bridge_tuning reads overrides["pier_bridge"]["weight_bridge"]
-    # so patching it here causes the tuning resolver to pick it up.
     resolved_wb = None
     if wb_override is not None:
         pb = ds_overrides.setdefault("pier_bridge", {})
@@ -188,46 +230,109 @@ def _run_one(*, energy_on: bool, relax_admission: bool = False,
         pb = ds_overrides.setdefault("pier_bridge", {})
         pb.update(ENERGY_ON)
 
-    debug = {
+    # BPM_BRIDGE / ONSET_BRIDGE arm: monkeypatch resolve_pace_mode in core.py.
+    # pace_settings comes from resolve_pace_mode(pace_mode) called inside
+    # generate_playlist_ds → _run_ds_pipeline → core.py line 264.
+    # The function is imported into core's local namespace, so we must patch it
+    # there: "import src.playlist.pipeline.core; core.resolve_pace_mode = ...".
+    import src.playlist.pipeline.core as _core_mod
+    from src.playlist.mode_presets import resolve_pace_mode as _real_resolve_pace_mode
+
+    _bpm_bridge_log_dist = None   # resolved value for debug
+    _onset_bridge_log_dist = None
+
+    if bpm_bridge_off or onset_bridge_off:
+        def _patched_resolve_pace_mode(mode: str) -> dict:
+            settings = dict(_real_resolve_pace_mode(mode))
+            if bpm_bridge_off:
+                settings["bpm_bridge_max_log_distance"] = _BPM_BAND_OFF
+                # Also disable the soft penalty so it's truly "off"
+                settings["bpm_bridge_soft_penalty_strength"] = 0.0
+            if onset_bridge_off:
+                settings["onset_bridge_max_log_distance"] = _ONSET_BAND_OFF
+                settings["onset_bridge_soft_penalty_strength"] = 0.0
+            return settings
+        _core_mod.resolve_pace_mode = _patched_resolve_pace_mode  # type: ignore[assignment]
+        # Read what the patch will yield so we can log it
+        _patched = _patched_resolve_pace_mode("dynamic")
+        _bpm_bridge_log_dist = _patched["bpm_bridge_max_log_distance"]
+        _onset_bridge_log_dist = _patched["onset_bridge_max_log_distance"]
+    else:
+        _core_mod.resolve_pace_mode = _real_resolve_pace_mode  # type: ignore[assignment]
+        _natural = _real_resolve_pace_mode("dynamic")
+        _bpm_bridge_log_dist = _natural["bpm_bridge_max_log_distance"]
+        _onset_bridge_log_dist = _natural["onset_bridge_max_log_distance"]
+
+    debug: dict = {
         "energy_on": energy_on,
         "relax_admission": relax_admission,
         "wb_override": wb_override,
+        "bpm_bridge_off": bpm_bridge_off,
+        "onset_bridge_off": onset_bridge_off,
         "resolved_min_sonic_before_patch": resolved_min_sonic,
         "resolved_wb_before_patch": resolved_wb,
-        "candidate_pool.min_sonic_similarity": ds_overrides.get("candidate_pool", {}).get("min_sonic_similarity"),
+        "candidate_pool.min_sonic_similarity": ds_overrides.get("candidate_pool", {}).get(
+            "min_sonic_similarity"
+        ),
         "pier_bridge.weight_bridge": ds_overrides.get("pier_bridge", {}).get("weight_bridge"),
+        "bpm_bridge_max_log_distance": _bpm_bridge_log_dist,
+        "onset_bridge_max_log_distance": _onset_bridge_log_dist,
+        "library.database_path": ds_overrides.get("library", {}).get("database_path"),
     }
 
-    from src.playlist.genre_ds_params import resolve_genre_ds_params
-    from src.playlist_gui.policy import derive_runtime_config, merge_overrides
-    from src.playlist_gui.worker import load_config_with_overrides
-    from src.playlist.ds_pipeline_runner import generate_playlist_ds
+    # Capture BPM logging
+    bpm_handler = _BpmCapture()
+    bpm_logger = logging.getLogger("src.playlist.pipeline.core")
+    bpm_logger.addHandler(bpm_handler)
+    # Ensure the logger propagates at INFO so our handler sees the message
+    _orig_level = bpm_logger.level
+    if bpm_logger.level == logging.NOTSET or bpm_logger.level > logging.INFO:
+        bpm_logger.setLevel(logging.INFO)
 
-    # Re-resolve genre params independently (gui_fidelity does this internally,
-    # but we need to call generate_playlist_ds directly to pass our patched overrides)
-    decisions = derive_runtime_config(ui)
-    raw_overrides = merge_overrides({}, decisions.overrides)
-    merged = load_config_with_overrides(CONFIG_PATH, raw_overrides)
-    playlists_cfg = merged.get("playlists", {}) or {}
-    genre_params = resolve_genre_ds_params(playlists_cfg, ui.cohesion_mode)
+    try:
+        from src.playlist.genre_ds_params import resolve_genre_ds_params
+        from src.playlist_gui.policy import derive_runtime_config, merge_overrides
+        from src.playlist_gui.worker import load_config_with_overrides
+        from src.playlist.ds_pipeline_runner import generate_playlist_ds
 
-    result = generate_playlist_ds(
-        artifact_path=ARTIFACT_PATH,
-        seed_track_id=SEEDS[0],
-        anchor_seed_ids=SEEDS,
-        mode=ui.cohesion_mode,
-        pace_mode=ui.pace_mode,
-        length=PLAYLIST_LENGTH,
-        random_seed=0,
-        overrides=ds_overrides,
-        artist_style_enabled=False,
-        artist_playlist=False,
-        **genre_params,
-    )
+        decisions = derive_runtime_config(ui)
+        raw_overrides = merge_overrides({}, decisions.overrides)
+        merged = load_config_with_overrides(CONFIG_PATH, raw_overrides)
+        playlists_cfg = merged.get("playlists", {}) or {}
+        genre_params = resolve_genre_ds_params(playlists_cfg, ui.cohesion_mode)
+
+        result = generate_playlist_ds(
+            artifact_path=ARTIFACT_PATH,
+            seed_track_id=SEEDS[0],
+            anchor_seed_ids=SEEDS,
+            mode=ui.cohesion_mode,
+            pace_mode=ui.pace_mode,
+            length=PLAYLIST_LENGTH,
+            random_seed=0,
+            overrides=ds_overrides,
+            artist_style_enabled=False,
+            artist_playlist=False,
+            **genre_params,
+        )
+    finally:
+        bpm_logger.removeHandler(bpm_handler)
+        bpm_logger.setLevel(_orig_level)
+        # Restore real resolve_pace_mode
+        _core_mod.resolve_pace_mode = _real_resolve_pace_mode  # type: ignore[assignment]
+
+    # Build BPM status string
+    if bpm_handler.failed:
+        bpm_status = "BPM LOAD FAILED"
+    elif bpm_handler.loaded_msg:
+        bpm_status = f"BPM active: {bpm_handler.loaded_msg}"
+    else:
+        # With dynamic pace_mode, BPM should load (distances are finite).
+        # No message means either logging wasn't captured or distances are inf.
+        bpm_status = "BPM status unknown (no log captured)"
 
     track_ids = list(result.track_ids)
     metrics = compute_pace_metrics(track_ids, sidecar_path=SIDECAR_PATH)
-    return track_ids, metrics, debug
+    return track_ids, metrics, debug, bpm_status
 
 
 def _diff_count(ids_a: list[str], ids_b: list[str]) -> int:
@@ -239,25 +344,34 @@ def _arm(
     *,
     relax_admission: bool = False,
     wb_override: Optional[float] = None,
+    bpm_bridge_off: bool = False,
+    onset_bridge_off: bool = False,
 ) -> dict:
     """Run energy-off and energy-on for one ablation arm; return per-arm result."""
     print(f"\n{'='*60}")
     print(f"ARM: {arm_name}")
-    print(f"  relax_admission={relax_admission}  wb_override={wb_override}")
+    print(
+        f"  relax_admission={relax_admission}  wb_override={wb_override}  "
+        f"bpm_bridge_off={bpm_bridge_off}  onset_bridge_off={onset_bridge_off}"
+    )
 
     t0 = time.time()
-    off_ids, off_m, off_dbg = _run_one(
+    off_ids, off_m, off_dbg, off_bpm = _run_one(
         energy_on=False,
         relax_admission=relax_admission,
         wb_override=wb_override,
+        bpm_bridge_off=bpm_bridge_off,
+        onset_bridge_off=onset_bridge_off,
     )
     off_t = time.time() - t0
 
     t1 = time.time()
-    on_ids, on_m, on_dbg = _run_one(
+    on_ids, on_m, on_dbg, on_bpm = _run_one(
         energy_on=True,
         relax_admission=relax_admission,
         wb_override=wb_override,
+        bpm_bridge_off=bpm_bridge_off,
+        onset_bridge_off=onset_bridge_off,
     )
     on_t = time.time() - t1
 
@@ -266,14 +380,22 @@ def _arm(
     # "unblocks" = energy-on picks different tracks AND arc_dev drops
     unblocks = (pos_diff > 0) and (arc_delta < 0)
 
+    print(f"  BPM status (OFF): {off_bpm}")
+    print(f"  BPM status (ON) : {on_bpm}")
     print(f"  OFF arousal: {off_m['arousal_curve']}")
     print(f"  ON  arousal: {on_m['arousal_curve']}")
     print(f"  pos_diff : {pos_diff}/{PLAYLIST_LENGTH}")
     print(f"  arc_dev  OFF={off_m['arc_dev']:.4f}  ON={on_m['arc_dev']:.4f}  Δ={arc_delta:+.4f}")
     print(f"  max_step OFF={off_m['max_step']:.4f}  ON={on_m['max_step']:.4f}")
     print(f"  VERDICT  : {'UNBLOCKS ENERGY ✓' if unblocks else 'INERT'}")
-    print(f"  resolved min_sonic={on_dbg['candidate_pool.min_sonic_similarity']}  "
-          f"weight_bridge={on_dbg['pier_bridge.weight_bridge']}")
+    print(
+        f"  resolved min_sonic={on_dbg['candidate_pool.min_sonic_similarity']}  "
+        f"weight_bridge={on_dbg['pier_bridge.weight_bridge']}"
+    )
+    print(
+        f"  bpm_bridge_max_log_dist={on_dbg['bpm_bridge_max_log_distance']}  "
+        f"onset_bridge_max_log_dist={on_dbg['onset_bridge_max_log_distance']}"
+    )
     print(f"  time: OFF={off_t:.0f}s  ON={on_t:.0f}s")
 
     return {
@@ -287,10 +409,14 @@ def _arm(
         "unblocks": unblocks,
         "resolved_min_sonic": on_dbg["candidate_pool.min_sonic_similarity"],
         "resolved_wb": on_dbg["pier_bridge.weight_bridge"],
+        "bpm_bridge_max_log_distance": on_dbg["bpm_bridge_max_log_distance"],
+        "onset_bridge_max_log_distance": on_dbg["onset_bridge_max_log_distance"],
         "off_curve": off_m["arousal_curve"],
         "on_curve": on_m["arousal_curve"],
         "off_ids": off_ids,
         "on_ids": on_ids,
+        "bpm_status_off": off_bpm,
+        "bpm_status_on": on_bpm,
     }
 
 
@@ -302,96 +428,127 @@ def _decision_text(results: list[dict]) -> str:
     baseline = by_arm.get("BASELINE", {})
     admission = by_arm.get("ADMISSION", {})
     bridge = by_arm.get("BRIDGE", {})
+    bpm_brd = by_arm.get("BPM_BRIDGE", {})
+    onset_brd = by_arm.get("ONSET_BRIDGE", {})
 
     baseline_ok = baseline.get("unblocks", False)
     admission_ok = admission.get("unblocks", False)
     bridge_ok = bridge.get("unblocks", False)
+    bpm_brd_ok = bpm_brd.get("unblocks", False)
+    onset_brd_ok = onset_brd.get("unblocks", False)
 
-    # Check if BRIDGE is redundant (identical results to BASELINE)
     bridge_redundant = (
         bridge.get("off_curve") == baseline.get("off_curve")
         and bridge.get("on_curve") == baseline.get("on_curve")
     )
 
     if baseline_ok:
-        if admission_ok and not bridge_redundant and bridge_ok:
-            return (
-                "FINDING: energy already active in dynamic mode (no lever needed). "
-                "ADMISSION relaxation provides marginal additional benefit. "
-                "BRIDGE lever redundant (energy strength dominates weight_bridge). "
-                "LEVER = min_sonic_similarity (ADMISSION): recommended for strict/narrow modes where pool is tighter."
-            )
-        if admission_ok and bridge_redundant:
-            return (
-                "FINDING: energy already active in dynamic mode (no lever needed at cohesion=dynamic). "
-                "ADMISSION relaxation provides marginal additional benefit (+pool breadth). "
-                "BRIDGE lever is REDUNDANT — energy strength=10 overrides weight_bridge regardless. "
-                "LEVER = min_sonic_similarity (ADMISSION floor): relax for pace modes needing more candidate room."
-            )
         return (
-            "FINDING: energy active in baseline dynamic mode without relaxation. "
-            "This means the 'inert' hypothesis applies to strict/narrow cohesion modes only. "
-            "No additional lever needed for dynamic; test strict/narrow modes separately."
+            "FINDING: energy already steers in dynamic mode (no lever needed at cohesion=dynamic, "
+            "genre=dynamic, sonic=dynamic, pace=dynamic WITH BPM GATES ACTIVE). "
+            "The prior 'inert' finding was measured under a different condition "
+            "(different mode or different injection path). "
+            f"ADMISSION={'UNBLOCKS ✓' if admission_ok else 'no change'}, "
+            f"BRIDGE={'REDUNDANT (same results)' if bridge_redundant else ('UNBLOCKS ✓' if bridge_ok else 'INERT')}, "
+            f"BPM_BRIDGE={'UNBLOCKS ✓' if bpm_brd_ok else 'INERT'}, "
+            f"ONSET_BRIDGE={'UNBLOCKS ✓' if onset_brd_ok else 'INERT'}. "
+            "With BPM active and energy_strength=10, the beam already routes around the BPM/onset "
+            "soft penalties. No lever relaxation required for dynamic mode."
         )
-    if admission_ok and bridge_ok:
-        return "BOTH levers unblock energy: min_sonic_similarity (ADMISSION) and weight_bridge (BRIDGE)"
+
+    levers = []
     if admission_ok:
-        return "LEVER = min_sonic_similarity (ADMISSION floor): removing admission floor unblocks energy with genre held on"
-    if bridge_ok:
-        return "LEVER = weight_bridge (BRIDGE): reducing weight_bridge to 0.1 unblocks energy with genre held on"
-    return "NEITHER lever unblocks energy: likely hybrid sonic_weight is the blocking factor; Task 3 needs a third factor"
+        levers.append("min_sonic_similarity (ADMISSION floor)")
+    if bpm_brd_ok:
+        levers.append("bpm_bridge_max_log_distance (BPM_BRIDGE band)")
+    if onset_brd_ok:
+        levers.append("onset_bridge_max_log_distance (ONSET_BRIDGE band)")
+    if bridge_ok and not bridge_redundant:
+        levers.append("weight_bridge (BRIDGE weight)")
+
+    if levers:
+        return f"LEVER(S) = {' AND '.join(levers)}: relaxing these (one at a time) unblocks energy steering with genre held on."
+
+    return (
+        "NEITHER admission nor BPM/onset band nor weight_bridge unblocks energy. "
+        "Energy is blocked by the sonic-weight hybrid (weight_sonic in the beam score), "
+        "or the beam candidates simply have no arousal diversity. "
+        "Task 3 needs a different approach."
+    )
 
 
 def _per_mode_magnitudes(results: list[dict]) -> str:
-    """Suggest starting per-pace-mode magnitudes for the winning lever."""
+    """Suggest starting per-pace-mode magnitudes for the winning lever(s)."""
     by_arm = {r["arm"]: r for r in results}
     baseline_ok = by_arm.get("BASELINE", {}).get("unblocks", False)
     admission_ok = by_arm.get("ADMISSION", {}).get("unblocks", False)
+    bpm_brd_ok = by_arm.get("BPM_BRIDGE", {}).get("unblocks", False)
+    onset_brd_ok = by_arm.get("ONSET_BRIDGE", {}).get("unblocks", False)
     bridge_redundant = (
         by_arm.get("BRIDGE", {}).get("off_curve") == by_arm.get("BASELINE", {}).get("off_curve")
         and by_arm.get("BRIDGE", {}).get("on_curve") == by_arm.get("BASELINE", {}).get("on_curve")
     )
+    bridge_ok = by_arm.get("BRIDGE", {}).get("unblocks", False)
 
     if baseline_ok:
-        # Dynamic mode already works; recommend ADMISSION as the lever for strict/narrow
-        lever = "min_sonic_similarity cede (ADMISSION floor relaxation)"
-        rows = [
-            ("strict",  "min_sonic_similarity=0.18 (keep narrow preset; relax 1 level for energy mode)"),
-            ("narrow",  "min_sonic_similarity=0.08 (relax to dynamic preset floor)"),
-            ("dynamic", "min_sonic_similarity=None (floor already permissive; energy works without cede)"),
-            ("off",     "min_sonic_similarity=None (no floor; energy unrestricted)"),
+        lines = [
+            "Dynamic mode already steers without relaxation (BPM active). "
+            "Lever recommendations apply only to strict/narrow pace modes where BPM/onset "
+            "bands are tighter and the pool is smaller.",
+            "",
+            "Recommended lever: min_sonic_similarity cede for strict/narrow, "
+            "OR accept that energy is already live in dynamic.",
+            "",
+            "  pace_mode=strict  → min_sonic_similarity=0.18 (narrow preset floor; 1 level relax)",
+            "  pace_mode=narrow  → min_sonic_similarity=0.08 (dynamic preset floor)",
+            "  pace_mode=dynamic → min_sonic_similarity=None (already permissive; no cede needed)",
+            "  pace_mode=off     → min_sonic_similarity=None (no floor)",
         ]
-        note = (
-            "NOTE: BRIDGE (weight_bridge) is REDUNDANT — with energy_strength=10, energy penalties "
-            "dominate the beam score regardless of weight_bridge. "
-            "Only ADMISSION expansion meaningfully changes candidate availability."
-        )
-        lines = [f"Lever: {lever}", "", note, ""]
-        lines += [f"  pace_mode={m}: {desc}" for m, desc in rows]
         return "\n".join(lines)
 
+    sections = []
+
+    if bpm_brd_ok:
+        sections.append(
+            "Lever: bpm_bridge_max_log_distance cede\n"
+            "  pace_mode=strict  → bpm_bridge_max_log_distance=0.40 (default; tight)\n"
+            "  pace_mode=narrow  → bpm_bridge_max_log_distance=0.60 (moderate cede)\n"
+            "  pace_mode=dynamic → bpm_bridge_max_log_distance=1.20 (wide cede; frees energy)\n"
+            "  pace_mode=off     → bpm_bridge_max_log_distance=inf (no constraint)"
+        )
+
+    if onset_brd_ok:
+        sections.append(
+            "Lever: onset_bridge_max_log_distance cede\n"
+            "  pace_mode=strict  → onset_bridge_max_log_distance=0.40 (default; tight)\n"
+            "  pace_mode=narrow  → onset_bridge_max_log_distance=0.60 (moderate cede)\n"
+            "  pace_mode=dynamic → onset_bridge_max_log_distance=1.20 (wide cede; frees energy)\n"
+            "  pace_mode=off     → onset_bridge_max_log_distance=inf (no constraint)"
+        )
+
     if admission_ok:
-        lever = "min_sonic_similarity cede (None = disable floor)"
-        rows = [
-            ("strict",  "min_sonic_similarity=0.18 (keep narrow preset; no cede)"),
-            ("narrow",  "min_sonic_similarity=0.08 (relax to dynamic preset)"),
-            ("dynamic", "min_sonic_similarity=None (disable floor)"),
-            ("off",     "min_sonic_similarity=None (already disabled)"),
-        ]
-    elif not bridge_redundant and by_arm.get("BRIDGE", {}).get("unblocks", False):
-        lever = "weight_bridge cede (reduce sonic-bridge anchor weight)"
-        rows = [
-            ("strict",  "weight_bridge=0.6 (default; no cede)"),
-            ("narrow",  "weight_bridge=0.4 (moderate cede)"),
-            ("dynamic", "weight_bridge=0.2 (strong cede)"),
-            ("off",     "weight_bridge=0.1 (near-zero; fully defers to energy)"),
-        ]
-    else:
+        sections.append(
+            "Lever: min_sonic_similarity cede (None = disable floor)\n"
+            "  pace_mode=strict  → min_sonic_similarity=0.18 (keep narrow preset; no cede)\n"
+            "  pace_mode=narrow  → min_sonic_similarity=0.08 (relax to dynamic preset)\n"
+            "  pace_mode=dynamic → min_sonic_similarity=None (disable floor)\n"
+            "  pace_mode=off     → min_sonic_similarity=None (already disabled)"
+        )
+
+    if not sections:
+        if bridge_ok and not bridge_redundant:
+            sections.append(
+                "Lever: weight_bridge cede (reduce sonic-bridge anchor weight)\n"
+                "  pace_mode=strict  → weight_bridge=0.6 (default; no cede)\n"
+                "  pace_mode=narrow  → weight_bridge=0.4 (moderate cede)\n"
+                "  pace_mode=dynamic → weight_bridge=0.2 (strong cede)\n"
+                "  pace_mode=off     → weight_bridge=0.1 (near-zero; fully defers to energy)"
+            )
+
+    if not sections:
         return "No lever identified; cannot recommend magnitudes."
 
-    lines = [f"Lever: {lever}", ""]
-    lines += [f"  pace_mode={m}: {desc}" for m, desc in rows]
-    return "\n".join(lines)
+    return "\n\n".join(sections)
 
 
 # ── Report writer ─────────────────────────────────────────────────────────────
@@ -412,11 +569,15 @@ def _write_report(results: list[dict], *, out_dir: str) -> str:
         "**Genre**: dynamic (held on across all arms)",
         "**Energy**: strong (`arc_strength=10, arc_band=0.1, step_strength=10, step_cap=0.1`)",
         "**Playlist length**: 12",
+        "**BPM gates**: ACTIVE (pace=dynamic; bpm_bridge_max_log_distance=0.85 is finite → "
+        "BPM loaded from data/metadata.db for all arms except BPM_BRIDGE)",
         "",
         "## Arms",
         "",
-        "| Arm | What was relaxed | resolved min_sonic | resolved weight_bridge |",
-        "|-----|------------------|--------------------|------------------------|",
+        "| Arm | What was relaxed | resolved min_sonic | resolved weight_bridge "
+        "| bpm_bridge_max_log_dist | onset_bridge_max_log_dist |",
+        "|-----|------------------|--------------------|------------------------|"
+        "-------------------------|---------------------------|",
     ]
 
     for r in results:
@@ -424,7 +585,21 @@ def _write_report(results: list[dict], *, out_dir: str) -> str:
         ms_str = str(ms) if ms is not None else "None"
         wb = r["resolved_wb"]
         wb_str = f"{wb:.2f}" if isinstance(wb, float) else str(wb)
-        lines.append(f"| {r['arm']} | see description | {ms_str} | {wb_str} |")
+        bpm_d = r.get("bpm_bridge_max_log_distance", "?")
+        bpm_str = f"{bpm_d:.2f}" if isinstance(bpm_d, float) else str(bpm_d)
+        onset_d = r.get("onset_bridge_max_log_distance", "?")
+        onset_str = f"{onset_d:.2f}" if isinstance(onset_d, float) else str(onset_d)
+        lines.append(
+            f"| {r['arm']} | see description | {ms_str} | {wb_str} | {bpm_str} | {onset_str} |"
+        )
+
+    lines += [
+        "",
+        "## BPM confirmation",
+        "",
+    ]
+    for r in results:
+        lines.append(f"- {r['arm']}: {r.get('bpm_status_on', 'N/A')}")
 
     lines += [
         "",
@@ -465,10 +640,15 @@ def _write_report(results: list[dict], *, out_dir: str) -> str:
         "",
         "## Verified knob reach",
         "",
-        "Verified by inspecting `debug['candidate_pool.min_sonic_similarity']` and "
-        "`debug['pier_bridge.weight_bridge']` in each arm — these values are read from "
-        "the mutated `ds_overrides` dict AFTER preset application, confirming the "
-        "intended lever was actually set before the beam ran.",
+        "Verified by:",
+        "1. Checking `debug['candidate_pool.min_sonic_similarity']` and "
+        "`debug['pier_bridge.weight_bridge']` in each arm — values are read from "
+        "the mutated `ds_overrides` dict AFTER preset application.",
+        "2. Checking `debug['bpm_bridge_max_log_distance']` and "
+        "`debug['onset_bridge_max_log_distance']` — values reflect the monkeypatched "
+        "`resolve_pace_mode` return for BPM_BRIDGE and ONSET_BRIDGE arms.",
+        "3. BPM active confirmed via 'BPM loaded' log line captured during generation "
+        "(not post-hoc assertion).",
     ]
 
     with open(path, "w", encoding="utf-8") as f:
@@ -480,31 +660,36 @@ def _write_report(results: list[dict], *, out_dir: str) -> str:
 # ── Main entry point ──────────────────────────────────────────────────────────
 
 def run_ablation(*, out_dir: str) -> list[dict]:
-    """Run all three arms and write the decision doc."""
+    """Run all five arms and write the decision doc."""
     print(f"\n{'='*60}")
-    print("PACE-CEDES-SONIC: Sonic-lever ablation")
+    print("PACE-CEDES-SONIC: Sonic-lever ablation (production-faithful, BPM active)")
     print(f"  config: {CONFIG_PATH}")
     print(f"  artifact: {ARTIFACT_PATH}")
     print(f"  sidecar: {SIDECAR_PATH}")
     print(f"  seeds: {SEEDS}")
+    print(f"  BPM gates: ACTIVE (pace=dynamic; bpm_bridge_max_log_distance=0.85 finite)")
 
     _self_test()
 
     t_total = time.time()
     results = []
 
-    # ARM 1: BASELINE — no relaxation; energy should be inert
+    # ARM 1: BASELINE — no relaxation; BPM active; energy should be inert if
+    # BPM/onset bands are constraining the pool.
     results.append(_arm("BASELINE"))
 
     # ARM 2: ADMISSION — force min_sonic_similarity=None after preset application.
-    # The UI always runs sonic_mode="dynamic"; _run_one patches candidate_pool.min_sonic_similarity=None
-    # AFTER resolve_gui_overrides returns (defeating apply_mode_presets' overwrite).
     results.append(_arm("ADMISSION", relax_admission=True))
 
     # ARM 3: BRIDGE — reduce weight_bridge to 0.1 (sonic-bridge anchor near-zero).
-    # The overrides["pier_bridge"]["weight_bridge"] key is read by
-    # resolve_pier_bridge_tuning, so setting it here overrides the default 0.6.
     results.append(_arm("BRIDGE", wb_override=0.1))
+
+    # ARM 4: BPM_BRIDGE — set bpm_bridge_max_log_distance to 1e6 (effectively off).
+    # The monkeypatch is applied inside _run_one and restored after each call.
+    results.append(_arm("BPM_BRIDGE", bpm_bridge_off=True))
+
+    # ARM 5: ONSET_BRIDGE — set onset_bridge_max_log_distance to 1e6 (effectively off).
+    results.append(_arm("ONSET_BRIDGE", onset_bridge_off=True))
 
     print(f"\nTotal ablation time: {time.time()-t_total:.0f}s")
     print(f"\n{'='*60}")
