@@ -148,7 +148,7 @@ export function GenerateControls({
       cohesion_mode: cohesion as "strict" | "narrow" | "dynamic" | "discover",
       genre_mode: axes.genre_mode as AxisValue,
       sonic_mode: axes.sonic_mode as AxisValue,
-      pace_mode: axes.pace_mode as "strict" | "narrow" | "dynamic",
+      pace_mode: axes.pace_mode as "strict" | "narrow" | "dynamic" | "off",
       recency_enabled: recencyEnabled,
       recency_days: recencyDays,
       recency_plays_threshold: recencyPlays,
@@ -340,7 +340,7 @@ export function GenerateControls({
           <Lbl title="How closely the rhythmic feel must match. Strict = very similar BPM and groove; Dynamic = allows more variation.">pace</Lbl>
           <select value={axes.pace_mode} onChange={(e) => setAxes({ ...axes, pace_mode: e.target.value })} className={SEL}
             title="How closely the rhythmic feel must match. Strict = very similar BPM and groove; Dynamic = allows more variation.">
-            {["dynamic", "narrow", "strict"].map((v) => <option key={v} value={v}>{v}</option>)}
+            {["off", "dynamic", "narrow", "strict"].map((v) => <option key={v} value={v}>{v}</option>)}
           </select>
         </Cell>
       </div>
