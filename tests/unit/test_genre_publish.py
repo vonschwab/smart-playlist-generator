@@ -393,7 +393,8 @@ def test_escalated_album_retains_prior_assignments(tmp_path):
         def node(self, n): return None
 
     side = tmp_path / "side.db"
-    store = SidecarStore(str(side)); store.initialize()
+    store = SidecarStore(str(side))
+    store.initialize()
     meta = sqlite3.connect(tmp_path / "m.db")
     meta.executescript(
         """
@@ -415,10 +416,12 @@ def test_escalated_album_retains_prior_assignments(tmp_path):
     apply_adjudications(rows=rows1, thorough_pv="tho", std_pv="std", meta_conn=meta,
                         id2name={}, taxonomy=taxonomy, adapter=FakeAdapter(),
                         sidecar_store=store, queue=queue)
-    before = sqlite3.connect(side).execute(
+    _conn = sqlite3.connect(side)
+    before = _conn.execute(
         "SELECT COUNT(*) FROM genre_graph_release_genre_assignments "
         "WHERE release_id='slowdive::souvlaki' AND assignment_layer='observed_leaf'"
     ).fetchone()[0]
+    _conn.close()
     assert before >= 1
 
     # Second apply: same album now ESCALATED -> must NOT clear prior assignments.
@@ -428,9 +431,11 @@ def test_escalated_album_retains_prior_assignments(tmp_path):
     apply_adjudications(rows=rows2, thorough_pv="tho", std_pv="std", meta_conn=meta,
                         id2name={}, taxonomy=taxonomy, adapter=FakeAdapter(),
                         sidecar_store=store, queue=queue)
-    after = sqlite3.connect(side).execute(
+    _conn = sqlite3.connect(side)
+    after = _conn.execute(
         "SELECT COUNT(*) FROM genre_graph_release_genre_assignments "
         "WHERE release_id='slowdive::souvlaki' AND assignment_layer='observed_leaf'"
     ).fetchone()[0]
+    _conn.close()
     meta.close()
     assert after == before  # prior assignments preserved; nothing cleared
