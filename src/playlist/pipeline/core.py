@@ -334,10 +334,7 @@ def generate_playlist_ds(
                     "energy_features", ["arousal_p50"]
                 )
             )
-            _sidecar = str(
-                ((overrides or {}).get("energy", {}) or {}).get("sidecar_path")
-                or (Path(artifact_path).parent / "energy" / "energy_sidecar.npz")
-            )
+            _sidecar = str(Path(artifact_path).parent / "energy" / "energy_sidecar.npz")
             energy_matrix = load_energy_matrix(
                 bundle.track_ids, sidecar_path=_sidecar, features=_energy_feats
             )
@@ -699,7 +696,7 @@ def generate_playlist_ds(
             one_each_candidate_relaxation: Optional[Dict[str, Any]] = None
             pb_result: PierBridgeResult = _run_pier_bridge(pool_indices)
             if not pb_result.success and getattr(pb_cfg, "max_non_seed_tracks_per_artist", None) == 1:
-                for relaxation in _relaxed_one_each_candidate_attempts(cfg.candidate, min_genre_similarity):
+                for relaxation in _relaxed_one_each_candidate_attempts(_candidate_cfg, min_genre_similarity):
                     summary = dict(relaxation.summary)
                     logger.info(
                         "One Each candidate fallback attempt %d: similarity_floor %.3f -> %.3f, sonic_floor %s -> %s, genre_gate %s -> %s",
