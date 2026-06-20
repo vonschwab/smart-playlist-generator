@@ -320,6 +320,33 @@ def generate_playlist_ds(
         except Exception:
             logger.warning("BPM load failed; BPM gates disabled for this run", exc_info=True)
 
+    energy_matrix: Optional[np.ndarray] = None
+    _energy_active = any(
+        float(pace_settings.get(k, 0.0)) > 0.0
+        or float(pb_overrides.get(k, 0.0)) > 0.0
+        for k in ("energy_step_strength", "energy_arc_strength")
+    )
+    if _energy_active:
+        try:
+            from src.playlist.energy_loader import load_energy_matrix
+            _energy_feats = tuple(
+                ((overrides or {}).get("analyze", {}).get("pace", {}) or {}).get(
+                    "energy_features", ["arousal_p50"]
+                )
+            )
+            _sidecar = str(Path(artifact_path).parent / "energy" / "energy_sidecar.npz")
+            energy_matrix = load_energy_matrix(
+                bundle.track_ids, sidecar_path=_sidecar, features=_energy_feats
+            )
+            logger.info(
+                "energy loaded: %d/%d tracks",
+                int(np.sum(np.all(np.isfinite(energy_matrix), axis=1))),
+                energy_matrix.shape[0],
+            )
+        except Exception:
+            logger.warning("energy load failed; pace energy terms disabled", exc_info=True)
+            energy_matrix = None
+
     if single_artist:
         # Disable artist cap for single-artist runs
         cfg = replace(cfg, construct=replace(cfg.construct, max_artist_fraction_final=1.0))
@@ -497,7 +524,21 @@ def generate_playlist_ds(
                 onset_bridge_soft_penalty_strength=float(pace_settings.get("onset_bridge_soft_penalty_strength", 0.0)),
                 rhythm_soft_penalty_threshold=float(pace_settings.get("rhythm_soft_penalty_threshold", 0.0)),
                 rhythm_soft_penalty_strength=float(pace_settings.get("rhythm_soft_penalty_strength", 0.0)),
+                energy_step_cap=float(pace_settings.get("energy_step_cap", 0.0)),
+                energy_step_strength=float(pace_settings.get("energy_step_strength", 0.0)),
+                energy_arc_band=float(pace_settings.get("energy_arc_band", 0.0)),
+                energy_arc_strength=float(pace_settings.get("energy_arc_strength", 0.0)),
             )
+            # Apply config.yaml pier_bridge energy overrides on top of preset defaults.
+            # Keys: energy_step_cap, energy_step_strength, energy_arc_band, energy_arc_strength.
+            # These override the preset values (all 0.0) so users can opt-in via config.yaml
+            # without defining a custom pace_mode preset.
+            _energy_overrides: dict = {}
+            for _ek in ("energy_step_cap", "energy_step_strength", "energy_arc_band", "energy_arc_strength"):
+                if isinstance(pb_overrides.get(_ek), (int, float)):
+                    _energy_overrides[_ek] = float(pb_overrides[_ek])
+            if _energy_overrides:
+                pb_cfg = replace(pb_cfg, **_energy_overrides)
 
             # Tower-knob guard: tower-style transition_weights cannot act on a
             # no-tower sonic variant (e.g. mert). Non-default weights raise
@@ -643,6 +684,7 @@ def generate_playlist_ds(
                     perceptual_bpm=perceptual_bpm,
                     tempo_stability_arr=tempo_stability_bpm,
                     onset_rate=onset_rate_arr,
+                    energy_matrix=energy_matrix,
                     min_gap=int(getattr(cfg.construct, "min_gap", 1) or 1),
                 )
 

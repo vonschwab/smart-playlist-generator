@@ -242,6 +242,7 @@ def _beam_search_segment(
     tempo_stability: Optional[np.ndarray] = None,
     onset_rate: Optional[np.ndarray] = None,
     pair_sim_provider: Optional[Any] = None,
+    energy_matrix: Optional[np.ndarray] = None,
 ) -> Tuple[Optional[List[int]], int, int, Optional[str]]:
     """
     Constrained beam search to find path from pier_a to pier_b.
@@ -1130,6 +1131,20 @@ def _beam_search_segment(
                                 _pace_penalty += _onset_soft * _onset_excess
                             else:
                                 continue
+
+                # Energy (arousal) soft penalty — purely additive, never excludes.
+                if energy_matrix is not None:
+                    from src.playlist.pier_bridge.pace_gate import compute_energy_pace_penalty
+                    _pace_penalty += compute_energy_pace_penalty(
+                        energy_matrix,
+                        current=int(current), cand=int(cand),
+                        pier_a=int(pier_a), pier_b=int(pier_b),
+                        step=step, segment_length=interior_length,
+                        step_cap=float(getattr(cfg, "energy_step_cap", 0.0)),
+                        step_strength=float(getattr(cfg, "energy_step_strength", 0.0)),
+                        arc_band=float(getattr(cfg, "energy_arc_band", 0.0)),
+                        arc_strength=float(getattr(cfg, "energy_arc_strength", 0.0)),
+                    )
 
                 # Artist diversity: check if candidate artist already used
                 if artist_key_by_idx is not None:

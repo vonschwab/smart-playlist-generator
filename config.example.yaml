@@ -11,6 +11,8 @@ analyze:
     python: "/opt/ess/bin/python" # interpreter inside that distro
     models_dir: "/opt/ess/models" # Essentia model dir (preflight checks it)
     workers: 14                   # parallel decode workers (--energy-workers overrides)
+  pace:
+    energy_features: ["arousal_p50"]   # configurable; danceability/arousal_p10/p90 available
 discogs:
   token: ''
 lastfm:
@@ -576,6 +578,14 @@ playlists:
       # - To override in any run, you can set:
       #   disallow_seed_artist_in_interiors: false   # allow seed artist inside segments
       #   disallow_pier_artists_in_interiors: true   # disallow endpoint artists inside segments
+
+      # Energy steering (opt-in: set >0 to enable; requires energy sidecar).
+      # Soft penalties that guide the beam toward a pier-to-pier energy arc without
+      # hard-gating any candidate. Both terms are 0.0 (disabled) by default.
+      # energy_step_strength: 0.0   # penalty weight for adjacent-step energy jump > cap
+      # energy_step_cap: 0.0        # max z-std energy jump between adjacent tracks (ignored when step_strength=0)
+      # energy_arc_strength: 0.0    # penalty weight for deviation from the pier->pier energy arc
+      # energy_arc_band: 0.0        # z-std dead-band around arc target (ignored when arc_strength=0)
 
       # Optional: segment infeasibility handling (default OFF).
       # If a segment is infeasible under the current bridge_floor + allowed pool,
