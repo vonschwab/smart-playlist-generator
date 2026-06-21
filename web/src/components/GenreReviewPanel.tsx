@@ -129,6 +129,13 @@ export function GenreReviewPanel() {
 
   function onKeyDown(e: React.KeyboardEvent) {
     if (view !== "pending" || !sel) return;
+    // Don't hijack keystrokes meant for typing/editing. Keydown bubbles up
+    // from the search box and the card's genre-edit input, so ignore events
+    // originating in an editable element, and ignore any modifier combo
+    // (e.g. Ctrl+A / Cmd+A to select text) — only a bare "a"/"r" is a shortcut.
+    const t = e.target as HTMLElement;
+    if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
     const k = e.key.toLowerCase();
     if (k === "a") { e.preventDefault(); decide(sel, "accept"); }
     else if (k === "r") { e.preventDefault(); decide(sel, "reject"); }
@@ -179,13 +186,24 @@ export function GenreReviewPanel() {
       <div className="flex-1 overflow-auto flex flex-col gap-1">
         {escalations.map((esc) => (
           <div key={esc.album_id}>
-            <button onClick={() => setSelected(sel?.album_id === esc.album_id ? null : esc.album_id)}
-              className={["w-full text-left px-2 py-1 rounded flex items-center gap-2",
+            <div className={["w-full px-2 py-1 rounded flex items-center gap-2",
                 sel?.album_id === esc.album_id ? "bg-panel2 text-text" : "text-muted hover:text-text"].join(" ")}>
-              <span className="text-xs flex-1 truncate">{esc.artist} – {esc.album}</span>
-              {esc.dropped_file_tags.length > 0 && <span className="text-danger text-[10px]">⚠</span>}
+              <button onClick={() => setSelected(sel?.album_id === esc.album_id ? null : esc.album_id)}
+                className="text-left flex-1 min-w-0 flex items-center gap-2">
+                <span className="text-xs flex-1 truncate select-text">{esc.artist} – {esc.album}</span>
+                {esc.dropped_file_tags.length > 0 && <span className="text-danger text-[10px]">⚠</span>}
+              </button>
               <span className="text-faint text-[10px] capitalize">{view === "completed" ? esc.status : ""}</span>
-            </button>
+              <button
+                title="Copy artist – album"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const text = `${esc.artist} – ${esc.album}`;
+                  navigator.clipboard?.writeText(text);
+                  setFlash(`copied ✓ ${text}`);
+                }}
+                className="shrink-0 text-faint hover:text-text text-[11px] px-1 leading-none">⧉</button>
+            </div>
             {sel?.album_id === esc.album_id && view === "pending" && (
               <AlbumCard esc={esc} onDecide={(d, g) => decide(esc, d, g)} />
             )}
