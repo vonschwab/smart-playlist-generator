@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import math
+import time
 from pathlib import Path
 from dataclasses import replace
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -139,6 +140,20 @@ from src.playlist.transition_metrics import TransitionMetricContext, score_trans
 
 
 logger = logging.getLogger(__name__)
+
+# Hard wall-clock ceiling for the per-segment floor-relaxation tiers (transition
+# floor + genre-arc floor). On a starved/infeasible pool these tiers sweep a large
+# transition x genre-arc cross-product that can run for minutes (observed 274s on
+# a narrow+narrow Charli XCX run) and blow the 90s generation budget. Once the
+# segment-build phase has spent this long cumulatively, stop entering/continuing
+# relaxation tiers and fall through to the guaranteed-fill fallback placement,
+# which still produces a valid playlist. Set generously above healthy build times
+# (good MERT runs complete segment-build well under this) so only pathological
+# grinds are cut. Kept well below the 90s hard ceiling to leave room for the
+# pre-loop overhead (Last.fm recency, candidate pool, seed-order permutations)
+# that this anchor does not count. TODO: promote to a config knob
+# (playlists.pier_bridge.*).
+_SEGMENT_RELAXATION_BUDGET_S = 40.0
 
 
 def _compute_edge_scores(
@@ -1536,6 +1551,10 @@ def build_pier_bridge_playlist(
             "edge_components": list(last_edge_components),
         }
 
+    # Wall-clock anchor for the relaxation-tier budget (see
+    # _SEGMENT_RELAXATION_BUDGET_S). Cumulative across all segments so the total
+    # build cannot blow the generation budget on a pathological relaxation grind.
+    _pb_build_start = time.monotonic()
     for seg_idx in range(num_segments):
         pier_a = ordered_seeds[seg_idx]
         pier_b = ordered_seeds[seg_idx + 1]
@@ -1665,6 +1684,20 @@ def build_pier_bridge_playlist(
                 max_steps=int(cfg.dj_ladder_max_steps),
             )
 
+        # Log the "steering enabled but no usable targets" condition ONCE per
+        # segment here. The per-beam-call site in beam.py is demoted to debug so
+        # the relaxation cascade does not flood the log with identical warnings.
+        if (
+            bool(cfg.genre_steering_enabled)
+            and segment_g_targets_dense is None
+            and segment_g_targets is None
+        ):
+            logger.warning(
+                "Segment %d: genre steering enabled (source=%s) but no usable genre "
+                "targets — genre arc inactive this segment",
+                seg_idx, _steering_source,
+            )
+
         segment_allow_detours = bool(cfg.dj_allow_detours_when_far) and segment_is_far
 
         relaxation_enabled = (
@@ -1750,11 +1783,48 @@ def build_pier_bridge_playlist(
         cfg = cfg_base
         segment_allow_detours = segment_allow_detours_base
 
+        # If the segment pool itself is too small to fill the interior, the
+        # relaxation tiers below cannot help: they relax beam SCORING floors
+        # (transition_floor / genre_arc_floor), not pool ADMISSION, so they would
+        # re-run the beam across the whole transition x genre-arc cross-product
+        # against the same too-small pool — the "endless cascade" symptom on a
+        # starved pool. Skip them and fall straight to the guaranteed-fill
+        # fallback placement below.
+        pool_too_small_for_segment = (
+            segment_path is None
+            and len(last_segment_candidates) < int(interior_len)
+        )
+        if pool_too_small_for_segment:
+            logger.info(
+                "Segment %d: pool too small (%d < interior_len %d) after bridge-floor "
+                "backoff; floor-relaxation tiers cannot grow the pool — skipping to "
+                "fallback placement",
+                seg_idx, len(last_segment_candidates), int(interior_len),
+            )
+
+        # Wall-clock budget guard: an infeasible-but-nonempty pool makes the beam
+        # fail without the floor-relaxation tiers being able to help, and the
+        # transition x genre-arc cross-product below can then grind for minutes.
+        # Once cumulative build time exceeds the budget, skip the relaxation tiers
+        # for this and every later segment and use the fallback placement instead.
+        over_relaxation_budget = (
+            time.monotonic() - _pb_build_start
+        ) > _SEGMENT_RELAXATION_BUDGET_S
+        if segment_path is None and over_relaxation_budget and not pool_too_small_for_segment:
+            logger.warning(
+                "Segment %d: floor-relaxation budget (%.0fs) exceeded — skipping "
+                "relaxation tiers, using fallback placement to stay within the "
+                "generation time budget",
+                seg_idx, _SEGMENT_RELAXATION_BUDGET_S,
+            )
+
         # Transition-floor relaxation tier: if all bridge_floor backoffs exhausted,
         # progressively lower transition_floor before declaring infeasibility.
-        if segment_path is None:
+        if segment_path is None and not pool_too_small_for_segment and not over_relaxation_budget:
             _t_attempts = _transition_floor_attempts(float(cfg_base.transition_floor))
             for _t_floor in _t_attempts[1:]:  # first value already tried in relax loop above
+                if (time.monotonic() - _pb_build_start) > _SEGMENT_RELAXATION_BUDGET_S:
+                    break
                 for _relax in relaxation_attempts:
                     _t_result = _run_segment_backoff_attempts(
                         cfg_attempt_base=_relax["cfg"],
@@ -1800,7 +1870,9 @@ def build_pier_bridge_playlist(
         # percentile toward infeasible_handling.min_genre_arc_percentile so
         # genre-sparse seeds don't go infeasible. Gated on steering +
         # infeasible_handling + genre_arc_relaxation.
-        if segment_path is None and bool(getattr(cfg_base, "genre_steering_enabled", False)) \
+        if segment_path is None and not pool_too_small_for_segment \
+           and not over_relaxation_budget \
+           and bool(getattr(cfg_base, "genre_steering_enabled", False)) \
            and infeasible_handling and infeasible_handling.enabled \
            and infeasible_handling.genre_arc_relaxation_enabled:
             _gfloors = relax_percentile(
@@ -1815,6 +1887,12 @@ def build_pier_bridge_playlist(
             # so sweep transition_floor inside the arc-floor loop here.
             _t_attempts_arc = _transition_floor_attempts(float(cfg_base.transition_floor))
             for _gf in _gfloors[1:]:  # first value already tried in the relax loop above
+                if (time.monotonic() - _pb_build_start) > _SEGMENT_RELAXATION_BUDGET_S:
+                    logger.warning(
+                        "Segment %d: relaxation budget exceeded mid genre-arc tier — "
+                        "bailing to fallback placement", seg_idx,
+                    )
+                    break
                 for _t_floor in _t_attempts_arc:
                     for _relax in relaxation_attempts:
                         _g_result = _run_segment_backoff_attempts(

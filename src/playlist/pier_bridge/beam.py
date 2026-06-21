@@ -473,7 +473,10 @@ def _beam_search_segment(
     if _steering_cfg and g_targets_override is not None and len(g_targets_override) == int(interior_length):
         arc_g_targets = g_targets_override
     if _steering_cfg and arc_g_targets is None:
-        logger.warning(
+        # Demoted to debug: the beam is invoked many times per segment (relaxation
+        # cascade), so warning here floods the log. The segment builder logs this
+        # condition once per segment at WARNING (see pier_bridge_builder.py).
+        logger.debug(
             "genre_steering_enabled but no usable g_targets (interior_length=%d) — "
             "genre arc inactive for this segment",
             int(interior_length),
