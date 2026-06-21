@@ -31,7 +31,7 @@ export function EditGenresDialog(props: EditGenresDialogProps) {
   const save = async () => {
     setSaving(true); setErr(null);
     try {
-      await api.editGenres({ artist: props.artist, album: props.album, genres });
+      await api.editGenres({ artist: props.artist, album: props.album, genres, base_genres: props.initialGenres });
       props.onSaved(props.artist, props.album, genres);
       props.onOpenChange(false);
     } catch (e) { setErr(String(e)); } finally { setSaving(false); }

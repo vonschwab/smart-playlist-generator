@@ -37,6 +37,7 @@ def test_edit_genres_handler_writes_override(tmp_path, monkeypatch):
         "artist": "Autechre",
         "album": "Amber",
         "genres": ["idm", "glitch", "modular synthesizer"],
+        "base_genres": ["idm", "glitch", "warp"],
     }
     handle_edit_genres(cmd)
 
@@ -48,6 +49,35 @@ def test_edit_genres_handler_writes_override(tmp_path, monkeypatch):
     resolver = EnrichedGenreResolver(str(sidecar))
     new_genres = set(resolver.get_enriched_genres(artist="Autechre", album="Amber"))
     assert new_genres == {"idm", "glitch", "modular synthesizer"}
+
+
+def test_edit_genres_removes_graph_genre_against_client_baseline(tmp_path, monkeypatch):
+    """Regression: a genre shown only via the graph authority (no sidecar
+    signature) must still be removable. The diff uses the client-sent
+    base_genres — what the GUI actually displayed — not the sidecar resolver,
+    which returns nothing for a graph-only album and would silently drop the
+    removal."""
+    sidecar = tmp_path / "sidecar.db"
+    store = SidecarStore(str(sidecar))
+    store.initialize()
+    # Deliberately NO enriched_genre_signatures row: the resolver sees nothing,
+    # mirroring an album whose displayed chips come from release_effective_genres.
+    monkeypatch.setattr("src.playlist_gui.worker.SIDECAR_DB_PATH", str(sidecar))
+
+    cmd = {
+        "cmd": "edit_genres",
+        "request_id": "r1",
+        "artist": "Low",
+        "album": "Hey What",
+        "genres": ["slowcore"],                     # user removed "dream pop"
+        "base_genres": ["slowcore", "dream pop"],   # the displayed graph genres
+    }
+    handle_edit_genres(cmd)
+
+    override = store.get_user_override("low::hey what")
+    assert override is not None
+    assert "dream pop" in override["genres_remove"]
+    assert override["genres_add"] == []
 
 
 def test_edit_genres_no_artist_is_error(tmp_path, monkeypatch, capsys):

@@ -118,6 +118,9 @@ export interface EditGenresRequest {
   artist: string;
   album: string;
   genres: string[];
+  // What the dialog displayed when opened (graph authority). The backend
+  // diffs `genres` against this to compute the add/remove override.
+  base_genres: string[];
 }
 
 export interface PlexExportRequest {

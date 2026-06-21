@@ -2384,8 +2384,10 @@ def _subprocess_error_excerpt(completed: subprocess.CompletedProcess) -> str:
 def handle_edit_genres(cmd_data: Dict[str, Any]) -> None:
     """Write a user genre override for (artist, album) computed from a target list.
 
-    Diffs the target list against the current resolved genres so the override
-    stores the minimal add/remove set rather than the full signature.
+    Diffs the target list against ``base_genres`` — the genres the GUI actually
+    displayed (the graph authority) — so the override stores the minimal
+    add/remove set. Diffing against the old sidecar resolver instead silently
+    dropped removals of graph-sourced genres the resolver never knew about.
     """
     try:
         artist = (cmd_data.get("artist") or "").strip()
@@ -2397,19 +2399,22 @@ def handle_edit_genres(cmd_data: Dict[str, Any]) -> None:
             raise ValueError("artist and album are required")
 
         from src.ai_genre_enrichment.storage import SidecarStore
-        from src.ai_genre_enrichment.genre_resolver import EnrichedGenreResolver
         from src.ai_genre_enrichment.normalization import (
             make_release_key,
             normalize_release_artist,
             normalize_release_name,
         )
 
-        resolver = EnrichedGenreResolver(SIDECAR_DB_PATH)
-        current = set(resolver.get_enriched_genres(artist=artist, album=album) or [])
+        # Baseline = the genres the GUI displayed (graph authority), passed by the
+        # client. The legacy resolver only knows bandcamp signatures, so diffing
+        # against it dropped removals of graph-sourced genres it never had.
+        base_genres = [
+            str(g).strip() for g in (cmd_data.get("base_genres") or []) if str(g).strip()
+        ]
+        base_lower = {g.casefold() for g in base_genres}
         target = {g.casefold() for g in target_genres}
-        current_lower = {g.casefold() for g in current}
-        add = target - current_lower
-        remove = current_lower - target
+        add = target - base_lower
+        remove = base_lower - target
 
         store = SidecarStore(SIDECAR_DB_PATH)
         store.initialize()

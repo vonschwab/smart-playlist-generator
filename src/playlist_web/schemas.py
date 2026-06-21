@@ -213,6 +213,10 @@ class EditGenresRequest(BaseModel):
     artist: str
     album: str
     genres: list[str] = Field(default_factory=list)
+    # The genres the GUI displayed when the edit dialog opened (the graph
+    # authority). The worker diffs `genres` against this to compute the
+    # add/remove override — see handle_edit_genres.
+    base_genres: list[str] = Field(default_factory=list)
 
 
 class PlexExportRequest(BaseModel):

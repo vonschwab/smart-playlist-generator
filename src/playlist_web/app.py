@@ -527,6 +527,7 @@ def create_app(
                 "artist": body.artist,
                 "album": body.album,
                 "genres": body.genres,
+                "base_genres": body.base_genres,
             })
         except BridgeBusy:
             raise HTTPException(status_code=409, detail="A generation is in progress — try again when it finishes.")
