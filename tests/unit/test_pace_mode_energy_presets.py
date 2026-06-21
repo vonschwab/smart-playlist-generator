@@ -6,7 +6,7 @@ Worst-edge-sonic gate: on >= off - 0.05; wall < 90s.
 Calibration results:
   strict:  k=20 PASS (2 feasible seed sets; HIGH_AROUSAL infeasible at strict BPM bands)
   narrow:  k=5 PASS (k=10 FAIL: WIDE_SWING wes dropped -0.064, beyond -0.05 gate)
-  dynamic: k=0 (pool not starved at dynamic BPM bands; arc strengths from task brief)
+  dynamic: k=0 (pool not starved; arc strengths 0.0 — unevaluated, pending full eval-gate)
   off:     k=0 (BPM gate off; no rescue needed; arc disabled)
 """
 from src.playlist.mode_presets import PACE_MODE_PRESETS
