@@ -325,7 +325,7 @@ def generate_playlist_ds(
         float(pace_settings.get(k, 0.0)) > 0.0
         or float(pb_overrides.get(k, 0.0)) > 0.0
         for k in ("energy_step_strength", "energy_arc_strength")
-    )
+    ) or int(pace_settings.get("pace_rescue_k_energy", 0)) > 0
     if _energy_active:
         try:
             from src.playlist.energy_loader import load_energy_matrix
@@ -443,6 +443,7 @@ def generate_playlist_ds(
             perceptual_bpm=perceptual_bpm,
             tempo_stability=tempo_stability_bpm,
             onset_rate=onset_rate_arr,
+            X_energy=(energy_matrix.reshape(-1) if energy_matrix is not None else None),
             genre_admission_percentile=_genre_admission_percentile,
             genre_admission_aggregate=_genre_admission_aggregate,
             layered_genre_diagnostics=layered_genre_shadow_available and genre_graph_source in {"layered_shadow", "layered"},
@@ -457,7 +458,11 @@ def generate_playlist_ds(
             genre_graph_source=genre_graph_source,
         )
 
-    pool = _build_pool(cfg.candidate, min_genre_similarity)
+    _candidate_cfg = replace(
+        cfg.candidate,
+        pace_rescue_k_energy=int(pace_settings.get("pace_rescue_k_energy", 0)),
+    )
+    pool = _build_pool(_candidate_cfg, min_genre_similarity)
     pool.stats["target_length"] = num_tracks
 
     max_per_artist = max(1, math.ceil(playlist_len * cfg.construct.max_artist_fraction_final))
@@ -691,7 +696,7 @@ def generate_playlist_ds(
             one_each_candidate_relaxation: Optional[Dict[str, Any]] = None
             pb_result: PierBridgeResult = _run_pier_bridge(pool_indices)
             if not pb_result.success and getattr(pb_cfg, "max_non_seed_tracks_per_artist", None) == 1:
-                for relaxation in _relaxed_one_each_candidate_attempts(cfg.candidate, min_genre_similarity):
+                for relaxation in _relaxed_one_each_candidate_attempts(_candidate_cfg, min_genre_similarity):
                     summary = dict(relaxation.summary)
                     logger.info(
                         "One Each candidate fallback attempt %d: similarity_floor %.3f -> %.3f, sonic_floor %s -> %s, genre_gate %s -> %s",

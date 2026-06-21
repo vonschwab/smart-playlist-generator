@@ -11,7 +11,7 @@ export interface GenerateRequestBody {
   cohesion_mode?: "strict" | "narrow" | "dynamic" | "discover";
   genre_mode?: AxisValue;
   sonic_mode?: AxisValue;
-  pace_mode?: "strict" | "narrow" | "dynamic";
+  pace_mode?: AxisValue;
   include_collaborations?: boolean;
   exclude_seed_tracks_from_recency?: boolean;
   recency_enabled?: boolean;

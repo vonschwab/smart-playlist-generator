@@ -63,6 +63,7 @@ class CandidatePoolConfig:
     bpm_admission_max_log_distance: float = float("inf")  # inf = disabled
     bpm_stability_min: float = 0.5  # tracks below this skip BPM gate
     onset_admission_max_log_distance: float = float("inf")  # inf = disabled
+    pace_rescue_k_energy: int = 0  # number of arousal-spanning rescues; 0 = disabled
 
 
 @dataclass(frozen=True)
