@@ -1,4 +1,5 @@
-import sys, warnings
+import sys
+import warnings
 warnings.filterwarnings("ignore")
 import numpy as np
 import essentia
@@ -32,7 +33,9 @@ for i, (tid, flow, reg, path) in enumerate(rows, 1):
     try:
         audio = es.MonoLoader(filename=path, sampleRate=16000, resampleQuality=4)()
         if len(audio) == 0:
-            out.write(f"{tid}" + "\tERR" * len(HEADS) + "\t0\n"); out.flush(); continue
+            out.write(f"{tid}" + "\tERR" * len(HEADS) + "\t0\n")
+            out.flush()
+            continue
         emb = emb_model(audio)  # (n,200) — computed ONCE, reused by all heads
         vals = []
         for k, (_, _, idx) in HEADS.items():
@@ -42,7 +45,8 @@ for i, (tid, flow, reg, path) in enumerate(rows, 1):
         out.flush()
         print(f"[{i}/{len(rows)}] {tid} ok", file=sys.stderr, flush=True)
     except Exception as e:
-        out.write(f"{tid}" + "\tERR" * len(HEADS) + "\t0\n"); out.flush()
+        out.write(f"{tid}" + "\tERR" * len(HEADS) + "\t0\n")
+        out.flush()
         print(f"[{i}/{len(rows)}] {tid} ERR {e!r}", file=sys.stderr, flush=True)
 out.close()
 print("DONE", file=sys.stderr, flush=True)

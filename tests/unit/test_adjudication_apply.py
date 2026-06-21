@@ -48,7 +48,8 @@ def test_best_results_prefers_thorough():
 def test_apply_materializes_nonescalated_and_enqueues_escalated(tmp_path):
     conn = _meta(tmp_path)
     side = tmp_path / "side.db"
-    store = SidecarStore(str(side)); store.initialize()
+    store = SidecarStore(str(side))
+    store.initialize()
     queue = EscalationQueue(side)
     rows = [
         ("a1", "std", _resp(["shoegaze"])),                       # non-escalated -> materialize

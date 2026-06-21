@@ -80,10 +80,12 @@ def main():
                   "genres": sorted(genres), "added": sorted(genres), "removed": []})
             emit({"type": "done", "cmd": name, "ok": True, "detail": "ok", "request_id": rid, "job_id": jid})
         elif name == "analyze_library":
+            # Mirrors STAGE_ORDER_DEFAULT in scripts/analyze_library.py — the
+            # real default pipeline the worker runs when no stage subset is given.
             stages = cmd.get("stages") or [
                 "scan", "genres", "discogs", "lastfm", "sonic", "mert",
-                "enrich", "publish", "genre-sim", "artifacts", "energy",
-                "genre-embedding", "verify",
+                "adjudicate", "apply", "publish", "genre-sim", "artifacts",
+                "energy", "genre-embedding", "verify",
             ]
             emit({"type": "log", "level": "INFO", "msg": "fake: analyze starting",
                   "request_id": rid, "job_id": jid})

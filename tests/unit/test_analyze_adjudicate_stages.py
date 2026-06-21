@@ -34,7 +34,8 @@ def _metadata_db(tmp_path: Path) -> str:
         INSERT INTO albums VALUES ('a2','X','Y',2000,NULL);
         """
     )
-    conn.commit(); conn.close()
+    conn.commit()
+    conn.close()
     return str(db)
 
 

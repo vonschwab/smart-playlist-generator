@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sqlite3
 
 from scripts.research.import_backfill_adjudications import import_adjudications
 from src.ai_genre_enrichment.adjudication_store import AdjudicationStore

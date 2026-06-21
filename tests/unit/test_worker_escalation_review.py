@@ -17,7 +17,8 @@ def _events(capsys):
 
 def _seed(tmp_path, monkeypatch):
     sidecar = tmp_path / "sidecar.db"
-    store = SidecarStore(str(sidecar)); store.initialize()
+    store = SidecarStore(str(sidecar))
+    store.initialize()
     q = EscalationQueue(sidecar)
     q.enqueue(album_id="a1", release_key="slowdive::souvlaki", artist="Slowdive",
               album="Souvlaki", prior_observed_leaf=["indie rock"],
@@ -90,7 +91,8 @@ def test_publish_decided_backs_up_and_publishes(tmp_path, monkeypatch, capsys):
         CREATE TABLE album_genres (album_id TEXT, genre TEXT, source TEXT);
         CREATE TABLE artist_genres (artist TEXT, genre TEXT, source TEXT);
     """)
-    c.commit(); c.close()
+    c.commit()
+    c.close()
     side = tmp_path / "sidecar.db"
     from src.ai_genre_enrichment.storage import SidecarStore
     SidecarStore(str(side)).initialize()

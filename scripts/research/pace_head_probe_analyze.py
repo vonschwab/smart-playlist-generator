@@ -7,7 +7,6 @@ distance-correlation vs MERT (high = MERT already captures it). Corpus-scoped z-
 """
 from __future__ import annotations
 
-import os
 import sqlite3
 import sys
 
