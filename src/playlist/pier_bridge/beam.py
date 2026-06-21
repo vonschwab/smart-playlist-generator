@@ -242,6 +242,7 @@ def _beam_search_segment(
     tempo_stability: Optional[np.ndarray] = None,
     onset_rate: Optional[np.ndarray] = None,
     pair_sim_provider: Optional[Any] = None,
+    energy_matrix: Optional[np.ndarray] = None,
 ) -> Tuple[Optional[List[int]], int, int, Optional[str]]:
     """
     Constrained beam search to find path from pier_a to pier_b.
@@ -960,6 +961,20 @@ def _beam_search_segment(
     chosen_waypoint_sims: List[float] = []    # Raw sims per step (for context)
     chosen_waypoint_sim0s: List[float] = []   # Baselines per step (for debugging)
 
+    # BPM-trust gate (onset-based). BPM is meaningless on beatless audio; if either
+    # pier is beatless its BPM target is garbage, so disable the BPM band for the
+    # whole segment. (Candidate-level trust is checked per-candidate below.) The
+    # onset band stays active — it is the reliable beat-presence signal.
+    _bpm_trust_min_onset = float(getattr(cfg, "bpm_trust_min_onset_rate", 0.0))
+    _bpm_band_pier_trusted = True
+    if _bpm_trust_min_onset > 0.0 and onset_rate is not None:
+        _oa = float(onset_rate[int(pier_a)])
+        _ob = float(onset_rate[int(pier_b)])
+        _bpm_band_pier_trusted = (
+            (not np.isnan(_oa)) and (not np.isnan(_ob))
+            and _oa >= _bpm_trust_min_onset and _ob >= _bpm_trust_min_onset
+        )
+
     for step in range(interior_length):
         next_beam: List[BeamState] = []
         target_t = _step_fraction(step, interior_length)
@@ -1033,6 +1048,9 @@ def _beam_search_segment(
             for cand in candidates:
                 if cand in state.used:
                     continue
+                # Pace bridge bands (BPM/onset): demote out-of-band candidates when a
+                # soft-penalty strength is configured; otherwise legacy hard reject.
+                _pace_penalty = 0.0
                 pace_sim_for_penalty = None
                 if rhythm_matrix is not None:
                     from src.playlist.pier_bridge.pace_gate import compute_step_rhythm_target
@@ -1048,9 +1066,10 @@ def _beam_search_segment(
                         axis_cosine_similarity(rhythm_matrix[int(cand)], _pace_target).reshape(-1)[0]
                     )
 
-                # BPM bridge gate
+                # BPM bridge gate (skipped when a pier is beatless — garbage target)
                 if (
-                    float(getattr(cfg, "bpm_bridge_max_log_distance", float("inf"))) < float("inf")
+                    _bpm_band_pier_trusted
+                    and float(getattr(cfg, "bpm_bridge_max_log_distance", float("inf"))) < float("inf")
                     and perceptual_bpm is not None
                 ):
                     from src.playlist.pier_bridge.pace_gate import (
@@ -1070,14 +1089,26 @@ def _beam_search_segment(
                         else 1.0
                     )
                     _stab_min = float(getattr(cfg, "bpm_stability_min", 0.5))
+                    # Beatless candidate -> its BPM is meaningless, bypass the band.
+                    _cand_bpm_trusted = True
+                    if _bpm_trust_min_onset > 0.0 and onset_rate is not None:
+                        _co = float(onset_rate[int(cand)])
+                        _cand_bpm_trusted = (not np.isnan(_co)) and _co >= _bpm_trust_min_onset
                     if (
                         not np.isnan(_cand_bpm)
                         and _cand_stab >= _stab_min
+                        and _cand_bpm_trusted
                     ):
-                        if float(_bld(_cand_bpm, _bpm_target)) > float(cfg.bpm_bridge_max_log_distance):
-                            continue
+                        _bpm_excess = float(_bld(_cand_bpm, _bpm_target)) - float(cfg.bpm_bridge_max_log_distance)
+                        if _bpm_excess > 0.0:
+                            _bpm_soft = float(getattr(cfg, "bpm_bridge_soft_penalty_strength", 0.0))
+                            if _bpm_soft > 0.0:
+                                _pace_penalty += _bpm_soft * _bpm_excess
+                            else:
+                                continue
 
-                # Onset-rate bridge band (hard; embedding-independent)
+                # Onset-rate bridge band (embedding-independent). Soft penalty when
+                # onset_bridge_soft_penalty_strength > 0, else legacy hard reject.
                 if (
                     float(getattr(cfg, "onset_bridge_max_log_distance", float("inf"))) < float("inf")
                     and onset_rate is not None
@@ -1093,8 +1124,27 @@ def _beam_search_segment(
                     )
                     _cand_onset = float(onset_rate[int(cand)])
                     if not np.isnan(_cand_onset):
-                        if float(_old_dist(_cand_onset, _onset_target)) > float(cfg.onset_bridge_max_log_distance):
-                            continue
+                        _onset_excess = float(_old_dist(_cand_onset, _onset_target)) - float(cfg.onset_bridge_max_log_distance)
+                        if _onset_excess > 0.0:
+                            _onset_soft = float(getattr(cfg, "onset_bridge_soft_penalty_strength", 0.0))
+                            if _onset_soft > 0.0:
+                                _pace_penalty += _onset_soft * _onset_excess
+                            else:
+                                continue
+
+                # Energy (arousal) soft penalty — purely additive, never excludes.
+                if energy_matrix is not None:
+                    from src.playlist.pier_bridge.pace_gate import compute_energy_pace_penalty
+                    _pace_penalty += compute_energy_pace_penalty(
+                        energy_matrix,
+                        current=int(current), cand=int(cand),
+                        pier_a=int(pier_a), pier_b=int(pier_b),
+                        step=step, segment_length=interior_length,
+                        step_cap=float(getattr(cfg, "energy_step_cap", 0.0)),
+                        step_strength=float(getattr(cfg, "energy_step_strength", 0.0)),
+                        arc_band=float(getattr(cfg, "energy_arc_band", 0.0)),
+                        arc_strength=float(getattr(cfg, "energy_arc_strength", 0.0)),
+                    )
 
                 # Artist diversity: check if candidate artist already used
                 if artist_key_by_idx is not None:
@@ -1160,6 +1210,9 @@ def _beam_search_segment(
                     cfg.weight_bridge * bridge_score +
                     cfg.weight_transition * trans_score
                 )
+                # Pace bridge soft penalty (out-of-band BPM/onset demotion).
+                if _pace_penalty > 0.0:
+                    combined_score -= _pace_penalty
                 if progress_active and progress_weight > 0:
                     combined_score -= progress_weight * abs(float(cand_t) - target_t)
                 if progress_active and progress_arc_enabled and progress_arc_effective_weight > 0:

@@ -43,9 +43,30 @@ class PierBridgeConfig:
     pace_bridge_floor: float = 0.0  # rhythm-axis moving-target floor; 0 disables
     bpm_bridge_max_log_distance: float = float("inf")  # inf = disabled
     bpm_stability_min: float = 0.5
+    # BPM is meaningless on beatless audio (drone/ambient) — librosa still emits a
+    # confident garbage tempo and tempo_stability is fooled (reads ~0.96 even for
+    # drone). onset_rate is the reliable beat-presence signal. When > 0, the BPM
+    # bridge band is bypassed for any track whose onset_rate is below this threshold:
+    # a beatless PIER disables the band for the segment (its BPM can't set a target),
+    # a beatless CANDIDATE skips it (its BPM can't be judged). 0.0 = off (legacy:
+    # trust all BPMs). The onset band is unaffected — it is the trustworthy signal.
+    bpm_trust_min_onset_rate: float = 0.0
     onset_bridge_max_log_distance: float = float("inf")  # inf = disabled
+    # Pace bridge bands as SOFT penalties instead of hard gates. When strength > 0,
+    # an out-of-band candidate is demoted by strength * (log_distance - max_log_distance)
+    # rather than rejected — so an onset/BPM-outlier pier (e.g. a near-silent ambient
+    # track) can't strand a segment and detonate the relaxation cascade. 0.0 = legacy
+    # hard gate (reject), preserving backward-compatible behavior.
+    bpm_bridge_soft_penalty_strength: float = 0.0
+    onset_bridge_soft_penalty_strength: float = 0.0
     rhythm_soft_penalty_threshold: float = 0.0  # below this rhythm cosine, demote
     rhythm_soft_penalty_strength: float = 0.0   # multiplicative penalty (0 = off)
+    # Energy (arousal) steering: soft penalty terms (never hard gates).
+    # All default to 0.0 (disabled/no-op); presets enable per-mode.
+    energy_step_cap: float = 0.0  # max z-std jump between adjacent tracks (soft cap)
+    energy_step_strength: float = 0.0  # strength of step penalty (0 = disabled)
+    energy_arc_band: float = 0.0  # z-std target band for segment arc (soft floor/ceiling)
+    energy_arc_strength: float = 0.0  # strength of arc penalty (0 = disabled)
     center_transitions: bool = False  # if True, mean-center transition mats and rescale sims to [0,1]
     transition_weights: Optional[tuple[float, float, float]] = None  # (rhythm, timbre, harmony)
     sonic_variant: Optional[str] = None  # sonic sim space for bridge gating/endpoint sims

@@ -82,7 +82,7 @@ def main():
         elif name == "analyze_library":
             stages = cmd.get("stages") or [
                 "scan", "genres", "discogs", "lastfm", "sonic", "mert",
-                "enrich", "publish", "genre-sim", "artifacts",
+                "enrich", "publish", "genre-sim", "artifacts", "energy",
                 "genre-embedding", "verify",
             ]
             emit({"type": "log", "level": "INFO", "msg": "fake: analyze starting",

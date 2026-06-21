@@ -14,6 +14,7 @@ ANALYZE_LIBRARY_ACTION_LABELS: dict[str, str] = {
     "sonic": "Update sonic features",
     "genre-sim": "Build genre similarity",
     "artifacts": "Build DS artifacts",
+    "energy": "Energy scan",
     "genre-embedding": "Build genre embedding",
     "verify": "Verify outputs",
 }

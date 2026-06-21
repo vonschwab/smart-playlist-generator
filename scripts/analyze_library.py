@@ -59,7 +59,7 @@ from src.genre.graph_adapter import load_graph_adapter
 
 DEFAULT_OUT_DIR = ROOT_DIR / "data" / "artifacts" / "beat3tower_32k"
 ENRICHMENT_DB_PATH = ROOT_DIR / "data" / "ai_genre_enrichment.db"
-STAGE_ORDER_DEFAULT = ["scan", "genres", "discogs", "lastfm", "sonic", "mert", "adjudicate", "apply", "publish", "genre-sim", "artifacts", "genre-embedding", "verify"]
+STAGE_ORDER_DEFAULT = ["scan", "genres", "discogs", "lastfm", "sonic", "mert", "adjudicate", "apply", "publish", "genre-sim", "artifacts", "energy", "genre-embedding", "verify"]
 
 # Substrings that identify a TRANSIENT Claude failure (rate limit / usage window).
 # These are resumable: the cache already persists whatever was adjudicated before
@@ -338,6 +338,14 @@ def compute_stage_fingerprint(ctx: Dict, stage: str) -> str:
         key = {"stage": stage, "track_ids": track_ids}
         return _hash_obj(key)
 
+    if stage == "energy":
+        from src.analyze.energy_runner import pending_energy, load_energy_config
+        pending, total = pending_energy(Path(ctx["out_dir"]))
+        cfg = load_energy_config(ctx["config_path"])
+        key = {"stage": stage, "pending": pending, "total": total,
+               "workers": cfg.workers, "distro": cfg.distro, "python": cfg.python}
+        return _hash_obj(key)
+
     if stage == "enrich":
         source_pages = _sidecar_count("SELECT COUNT(*) FROM ai_genre_source_pages")
         signatures = _sidecar_count("SELECT COUNT(*) FROM enriched_genre_signatures")
@@ -534,6 +542,10 @@ def estimate_stage_units(ctx: Dict, stage: str) -> Tuple[Optional[int], Optional
                 conn, "SELECT COUNT(*) FROM tracks WHERE sonic_features IS NOT NULL"
             )
             return tracks_with_features, "tracks with sonic features for artifacts"
+        if stage == "energy":
+            from src.analyze.energy_runner import pending_energy
+            pending, _total = pending_energy(Path(ctx["out_dir"]))
+            return pending, "tracks needing energy descriptors"
     except Exception:
         return None, None
     return None, None
@@ -2098,6 +2110,58 @@ def stage_mert(ctx: Dict) -> Dict:
     }
 
 
+def _energy_pending(out_dir):
+    from src.analyze.energy_runner import pending_energy
+    return pending_energy(out_dir)
+
+
+def _energy_preflight(cfg):
+    from src.analyze.energy_runner import preflight_wsl
+    preflight_wsl(cfg)
+
+
+def _energy_run(cfg, *, force, cancellation_check):
+    from src.analyze.energy_runner import run_energy_scan
+    return run_energy_scan(
+        cfg, repo_root=ROOT_DIR, force=force, logger=logger,
+        cancellation_check=cancellation_check,
+    )
+
+
+def stage_energy(ctx: Dict) -> Dict:
+    """Run the WSL-only Essentia energy scan into <artifact>/energy/energy_sidecar.npz.
+
+    Default-on; skip-fast when up-to-date (like MERT). Hard-fail (RuntimeError)
+    if WSL/Essentia is unreachable. Standalone pace-axis sidecar — never folded
+    into the sonic blend, never writes metadata.db.
+    """
+    from src.analyze.energy_runner import load_energy_config, energy_paths
+
+    args = ctx["args"]
+    out_dir = Path(ctx["out_dir"])
+    cfg = load_energy_config(ctx["config_path"])
+    energy_workers = getattr(args, "energy_workers", None)
+    if energy_workers is not None:
+        cfg.workers = int(energy_workers)
+
+    artifact_npz, _ckpt, _sidecar = energy_paths(out_dir)
+    if not artifact_npz.exists():
+        logger.info("stage_energy: artifact missing; skipping (build artifacts first)")
+        return {"skipped": True, "pending": 0, "reason": "no_artifact"}
+
+    pending, total = _energy_pending(out_dir)
+    if pending == 0 and not args.force:
+        logger.info("stage_energy: nothing pending (sidecar complete); skipping")
+        return {"skipped": True, "pending": 0}
+
+    logger.info("stage_energy: %d/%d track(s) pending (workers=%d, distro=%s)",
+                pending, total, cfg.workers, cfg.distro)
+    _energy_preflight(cfg)  # raises RuntimeError if WSL/venv/models missing
+    res = _energy_run(cfg, force=bool(args.force),
+                      cancellation_check=ctx.get("cancellation_check"))
+    return {"skipped": False, "pending": pending, **res}
+
+
 STAGE_FUNCS = {
     "scan": stage_scan,
     "mbid": stage_mbid,
@@ -2112,6 +2176,7 @@ STAGE_FUNCS = {
     "mert": stage_mert,
     "genre-sim": stage_genre_sim,
     "artifacts": stage_artifacts,
+    "energy": stage_energy,
     "genre-embedding": stage_genre_embedding,
     "verify": stage_verify,
 }
@@ -2132,6 +2197,12 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         "--workers",
         default="auto",
         help="Workers for sonic stage (int or 'auto'; default: auto)",
+    )
+    parser.add_argument(
+        "--energy-workers",
+        type=int,
+        default=None,
+        help="Workers for the WSL energy stage (overrides analyze.energy.workers)",
     )
     parser.add_argument("--limit", type=int, help="Limit tracks for sonic/artifacts")
     parser.add_argument("--max-tracks", type=int, default=0, help="Cap tracks for artifact build (0=all)")
@@ -2240,6 +2311,8 @@ def run_pipeline(
     def _check_cancelled() -> None:
         if cancellation_check is not None:
             cancellation_check()
+
+    ctx["cancellation_check"] = _check_cancelled
 
     ensure_analyze_state_schema(conn)
 

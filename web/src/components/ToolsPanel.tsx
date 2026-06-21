@@ -6,7 +6,7 @@ import type { AnalyzeToolRequest, EnrichToolRequest, WsEvent } from "../lib/type
 
 const ALL_STAGES = [
   "scan", "genres", "discogs", "lastfm", "sonic", "mert",
-  "enrich", "publish", "genre-sim", "artifacts",
+  "enrich", "publish", "genre-sim", "artifacts", "energy",
   "genre-embedding", "verify",
 ] as const;
 

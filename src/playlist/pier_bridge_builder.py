@@ -344,6 +344,7 @@ def build_pier_bridge_playlist(
     perceptual_bpm: Optional[np.ndarray] = None,
     tempo_stability_arr: Optional[np.ndarray] = None,
     onset_rate: Optional[np.ndarray] = None,
+    energy_matrix: Optional[np.ndarray] = None,
     min_gap: int = 1,
 ) -> PierBridgeResult:
     """
@@ -1371,6 +1372,7 @@ def build_pier_bridge_playlist(
                         onset_rate=onset_rate,
                         rhythm_matrix=rhythm_matrix,
                         pair_sim_provider=pair_sim_provider,
+                        energy_matrix=energy_matrix,
                     )
                     last_failure_reason = beam_failure_reason
                     if segment_path is not None:
