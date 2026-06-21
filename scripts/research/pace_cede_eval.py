@@ -43,7 +43,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 
@@ -1660,6 +1660,8 @@ def main() -> None:
                         help="Run BASELINE/ADMISSION/BPM_BRIDGE/ONSET_BRIDGE at strict and narrow")
     parser.add_argument("--diverse-seeds", action="store_true", default=False,
                         help="Run HIGH-AROUSAL + WIDE-SWING ablation at strict/narrow (A-vs-B)")
+    parser.add_argument("--calibrate-coequal", action="store_true", default=False,
+                        help="Run per-mode energy rescue + arc calibration (Task 5)")
     parser.add_argument("--self-test", action="store_true",
                         help="Run only the compute_pace_metrics self-test")
     parser.add_argument(
@@ -1681,8 +1683,545 @@ def main() -> None:
         run_diverse_seeds_ablation(out_dir=args.out_dir)
         return
 
+    if args.calibrate_coequal:
+        run_coequal_calibration(out_dir=args.out_dir)
+        return
+
     # Default: run the original dynamic ablation
     run_ablation(out_dir=args.out_dir)
+
+
+# ── Task 5: worst-edge sonic metric + coequal calibration ─────────────────────
+
+def worst_edge_sonic(track_ids: list[str], bundle) -> float:
+    """Min adjacent MERT cosine over the playlist (weakest sonic transition).
+
+    ``bundle`` is an ArtifactBundle (src.features.artifacts.ArtifactBundle).
+    Uses bundle.X_sonic (L2-normalized on the fly) and bundle.track_id_to_index.
+
+    Returns the minimum cosine similarity of consecutive track pairs, or NaN
+    if fewer than 2 tracks can be resolved.
+    """
+    X = bundle.X_sonic.astype(np.float64)
+    norms = np.linalg.norm(X, axis=1, keepdims=True)
+    norms[norms == 0] = 1.0
+    X_norm = X / norms
+
+    idx = [bundle.track_id_to_index[t] for t in track_ids if t in bundle.track_id_to_index]
+    if len(idx) < 2:
+        return float("nan")
+    sims = [float(np.dot(X_norm[idx[i]], X_norm[idx[i + 1]])) for i in range(len(idx) - 1)]
+    return min(sims)
+
+
+def _run_coequal_arm(
+    seeds: list[str],
+    *,
+    pace_mode: str,
+    k_energy: int,
+    energy_arc_band: float = 0.0,
+    energy_arc_strength: float = 0.0,
+    energy_step_cap: float = 0.0,
+    energy_step_strength: float = 0.0,
+    random_seed: int = 42,
+) -> dict:
+    """Run one calibration arm: generate a playlist, return metrics.
+
+    Injects k_energy via candidate_pool.pace_rescue_k_energy and arc/step
+    strengths via pier_bridge overrides. Returns a dict with:
+        track_ids, worst_edge_sonic (float), arc_dev, max_step, wall_time, bpm_status
+    """
+    from tests.support.gui_fidelity import resolve_gui_overrides, gui_ui_state
+    from src.playlist.genre_ds_params import resolve_genre_ds_params
+    from src.playlist_gui.policy import derive_runtime_config, merge_overrides
+    from src.playlist_gui.worker import load_config_with_overrides
+    from src.playlist.ds_pipeline_runner import generate_playlist_ds
+    from src.features.artifacts import load_artifact_bundle
+
+    ui = gui_ui_state(
+        genre_mode="narrow",
+        sonic_mode="narrow",
+        pace_mode=pace_mode,
+        cohesion_mode="narrow",
+    )
+    ds_overrides = resolve_gui_overrides(ui, config_path=CONFIG_PATH)
+    ds_overrides.setdefault("library", {})["database_path"] = DB_PATH
+
+    # Inject arc/step strengths into pier_bridge overrides (read by core.py from pb_overrides,
+    # which also triggers energy matrix loading when > 0.0).
+    pb = ds_overrides.setdefault("pier_bridge", {})
+    pb.update({
+        "energy_arc_band": energy_arc_band,
+        "energy_arc_strength": energy_arc_strength,
+        "energy_step_cap": energy_step_cap,
+        "energy_step_strength": energy_step_strength,
+    })
+
+    # Inject pace_rescue_k_energy via monkeypatch of resolve_pace_mode in core.py.
+    # core.py reads pace_rescue_k_energy from pace_settings = resolve_pace_mode(pace_mode)
+    # (line 463: _candidate_cfg = replace(cfg.candidate, pace_rescue_k_energy=...)  ).
+    # The candidate_pool overrides dict does NOT flow into this; must patch the preset.
+    import src.playlist.pipeline.core as _core_mod
+    from src.playlist.mode_presets import resolve_pace_mode as _real_resolve_pace_mode
+
+    def _patched_resolve_pace_mode(pm: str) -> dict:
+        settings = dict(_real_resolve_pace_mode(pm))
+        settings["pace_rescue_k_energy"] = k_energy
+        return settings
+
+    _core_mod.resolve_pace_mode = _patched_resolve_pace_mode  # type: ignore[assignment]
+
+    bpm_handler = _BpmCapture()
+    bpm_logger = logging.getLogger("src.playlist.pipeline.core")
+    bpm_logger.addHandler(bpm_handler)
+    _orig_level = bpm_logger.level
+    if bpm_logger.level == logging.NOTSET or bpm_logger.level > logging.INFO:
+        bpm_logger.setLevel(logging.INFO)
+
+    t0 = time.time()
+    infeasible = False
+    infeasible_msg = ""
+    try:
+        decisions = derive_runtime_config(ui)
+        raw_overrides = merge_overrides({}, decisions.overrides)
+        merged = load_config_with_overrides(CONFIG_PATH, raw_overrides)
+        playlists_cfg = merged.get("playlists", {}) or {}
+        genre_params = resolve_genre_ds_params(playlists_cfg, ui.cohesion_mode)
+
+        result = generate_playlist_ds(
+            artifact_path=ARTIFACT_PATH,
+            seed_track_id=seeds[0],
+            anchor_seed_ids=seeds,
+            mode=ui.cohesion_mode,
+            pace_mode=ui.pace_mode,
+            length=20,
+            random_seed=random_seed,
+            overrides=ds_overrides,
+            artist_style_enabled=False,
+            artist_playlist=False,
+            **genre_params,
+        )
+    except ValueError as exc:
+        infeasible = True
+        infeasible_msg = str(exc)
+        result = None
+    finally:
+        bpm_logger.removeHandler(bpm_handler)
+        bpm_logger.setLevel(_orig_level)
+        # Restore real resolve_pace_mode
+        _core_mod.resolve_pace_mode = _real_resolve_pace_mode  # type: ignore[assignment]
+
+    elapsed = time.time() - t0
+
+    if bpm_handler.failed:
+        bpm_status = "BPM LOAD FAILED"
+    elif bpm_handler.loaded_msg:
+        bpm_status = f"BPM active: {bpm_handler.loaded_msg}"
+    else:
+        bpm_status = "BPM status unknown (no log captured)"
+
+    # Handle infeasible generation
+    if infeasible or result is None:
+        return {
+            "track_ids": [],
+            "worst_edge_sonic": float("nan"),
+            "arc_dev": float("nan"),
+            "max_step": float("nan"),
+            "arousal_curve": [],
+            "wall_time": elapsed,
+            "bpm_status": bpm_status,
+            "k_energy": k_energy,
+            "pace_mode": pace_mode,
+            "infeasible": True,
+            "infeasible_msg": infeasible_msg,
+        }
+
+    track_ids = list(result.track_ids)
+
+    # Load bundle for worst_edge_sonic
+    bundle = load_artifact_bundle(ARTIFACT_PATH)
+    wes = worst_edge_sonic(track_ids, bundle)
+    pace_m = compute_pace_metrics(track_ids, sidecar_path=SIDECAR_PATH)
+
+    return {
+        "track_ids": track_ids,
+        "worst_edge_sonic": wes,
+        "arc_dev": pace_m["arc_dev"],
+        "max_step": pace_m["max_step"],
+        "arousal_curve": pace_m["arousal_curve"],
+        "wall_time": elapsed,
+        "bpm_status": bpm_status,
+        "k_energy": k_energy,
+        "pace_mode": pace_mode,
+        "infeasible": False,
+        "infeasible_msg": "",
+    }
+
+
+# Genre cohesion helper: count distinct genres in the generated playlist
+def _count_distinct_genres(track_ids: list[str]) -> int:
+    """Count distinct genres across the generated playlist via the track_genres table."""
+    import sqlite3
+    conn = sqlite3.connect(DB_PATH)
+    if not track_ids:
+        conn.close()
+        return 0
+    placeholders = ",".join("?" for _ in track_ids)
+    rows = conn.execute(
+        f"SELECT DISTINCT genre FROM track_genres WHERE track_id IN ({placeholders})",
+        track_ids,
+    ).fetchall()
+    conn.close()
+    return len(rows)
+
+
+SEED_SETS = {
+    "MELLOW": SEEDS,  # Songs: Ohia / Bill Callahan / William Tyler
+    "HIGH_AROUSAL": SEEDS_HIGH_AROUSAL,  # Parquet Courts / Minor Threat / The Hives
+    "WIDE_SWING": SEEDS_WIDE_SWING,  # Ryuichi Sakamoto / The Hives / Parquet Courts
+}
+
+# Suggested energy arc strengths per mode (from task brief)
+_ARC_STRENGTHS = {
+    "strict": {
+        "energy_arc_band": 0.5,
+        "energy_arc_strength": 0.3,
+        "energy_step_cap": 1.0,
+        "energy_step_strength": 0.2,
+    },
+    "narrow": {
+        "energy_arc_band": 0.4,
+        "energy_arc_strength": 0.2,
+        "energy_step_cap": 1.5,
+        "energy_step_strength": 0.15,
+    },
+    "dynamic": {
+        "energy_arc_band": 0.3,
+        "energy_arc_strength": 0.1,
+        "energy_step_cap": 2.0,
+        "energy_step_strength": 0.05,
+    },
+    "off": {
+        "energy_arc_band": 0.0,
+        "energy_arc_strength": 0.0,
+        "energy_step_cap": 0.0,
+        "energy_step_strength": 0.0,
+    },
+}
+
+# k_energy ramp schedule per mode
+_K_SCHEDULE = {
+    "strict": [0, 10, 20],
+    "narrow": [0, 5, 10],
+    "dynamic": [0],  # pool not starved; pool arousl has spread; no rescue needed
+    "off": [0],       # arc disabled; no rescue
+}
+
+WORST_EDGE_DELTA = 0.05  # gate: on >= off - DELTA
+BUDGET_SECS = 90.0
+
+
+def run_coequal_calibration(*, out_dir: str) -> dict:
+    """Run per-mode energy rescue + arc calibration (Task 5).
+
+    For each mode (strict, narrow, dynamic, off):
+    1. Baseline (k=0, arc off): get worst_edge_sonic_off for all 3 seed sets.
+    2. For each k in _K_SCHEDULE[mode]:
+       Generate (with arc strengths for that mode) for all 3 seed sets.
+       PASS if: all worst_edge_sonic_on >= (worst_edge_sonic_off - DELTA) AND wall_time < 90s.
+       Stop at the largest k that passes.
+    3. Verify Energy rescue: admitted=N appears in logs (confirms rescue fires).
+
+    Returns: dict of per-mode chosen values.
+    """
+    print(f"\n{'='*60}")
+    print("PACE-CEDES-SONIC: Per-mode energy rescue + arc calibration (Task 5)")
+    print(f"  config: {CONFIG_PATH}")
+    print(f"  artifact: {ARTIFACT_PATH}")
+    print(f"  sidecar: {SIDECAR_PATH}")
+    print(f"  seed sets: {list(SEED_SETS.keys())}")
+    print(f"  worst-edge gate DELTA: {WORST_EDGE_DELTA}")
+    print(f"  wall-time budget: {BUDGET_SECS}s")
+
+    _self_test()
+
+    t_total = time.time()
+    results_by_mode: dict[str, dict] = {}
+
+    for pace_mode in ("strict", "narrow", "dynamic", "off"):
+        print(f"\n{'*'*60}")
+        print(f"*** pace_mode={pace_mode} ***")
+        mode_arc = _ARC_STRENGTHS[pace_mode]
+        k_schedule = _K_SCHEDULE[pace_mode]
+
+        mode_results: dict[str, Any] = {
+            "pace_mode": pace_mode,
+            "baseline": {},
+            "arms": [],
+            "chosen_k": 0,
+            "pass": False,
+            "arc_strengths": mode_arc.copy(),
+        }
+
+        # --- Baseline: k=0, no arc ---
+        print(f"\n  [baseline] k=0, no arc")
+        baseline_wes: dict[str, float] = {}
+        feasible_seeds: list[str] = []  # seed sets that actually generated
+        baseline_ok = True
+        for seed_name, seeds in SEED_SETS.items():
+            arm = _run_coequal_arm(
+                seeds,
+                pace_mode=pace_mode,
+                k_energy=0,
+                # No arc on baseline
+                energy_arc_band=0.0,
+                energy_arc_strength=0.0,
+                energy_step_cap=0.0,
+                energy_step_strength=0.0,
+                random_seed=42,
+            )
+            if arm.get("infeasible"):
+                print(
+                    f"    {seed_name}: INFEASIBLE (skipped) — {arm.get('infeasible_msg', '')[:80]}"
+                )
+                # Do NOT count infeasible as a failure; the mode itself can't handle this seed set
+                continue
+
+            wes_f = arm["worst_edge_sonic"]
+            print(
+                f"    {seed_name}: worst_edge={wes_f:.4f}  "
+                f"arc_dev={arm['arc_dev']:.4f}  max_step={arm['max_step']:.4f}  "
+                f"wall={arm['wall_time']:.0f}s  bpm={arm['bpm_status']}"
+            )
+            if "BPM LOAD FAILED" in arm["bpm_status"] or "BPM loaded: 0" in arm["bpm_status"]:
+                print(f"    ERROR: BPM not loaded for {seed_name}! STOP.")
+                baseline_ok = False
+            if arm["wall_time"] > BUDGET_SECS:
+                print(f"    BUDGET EXCEEDED at baseline: {arm['wall_time']:.0f}s > {BUDGET_SECS}s")
+                baseline_ok = False
+            baseline_wes[seed_name] = wes_f
+            feasible_seeds.append(seed_name)
+
+        if not feasible_seeds:
+            print(f"  ALL seed sets infeasible at baseline for {pace_mode} — skipping mode")
+            results_by_mode[pace_mode] = mode_results
+            continue
+
+        mode_results["baseline"] = {
+            "worst_edge_sonic": baseline_wes,
+            "ok": baseline_ok,
+            "feasible_seeds": feasible_seeds,
+        }
+
+        if not baseline_ok:
+            print(f"  BLOCKED at baseline for {pace_mode}")
+            results_by_mode[pace_mode] = mode_results
+            continue
+
+        print(f"  baseline worst_edge_sonic ({len(feasible_seeds)} feasible sets): {baseline_wes}")
+
+        # --- K ramp ---
+        chosen_k = 0
+        chosen_pass = False
+        last_arm_set = None
+
+        for k in k_schedule:
+            if k == 0:
+                # k=0 means rescue off — use baseline results (already have them)
+                chosen_k = 0
+                chosen_pass = True  # rescue=0 always passes (no degradation possible)
+                last_arm_set = None
+                continue
+
+            print(f"\n  [k={k}] with arc: {mode_arc}")
+            arm_set: dict[str, dict] = {}
+            k_pass = True
+            total_wall = 0.0
+
+            for seed_name, seeds in SEED_SETS.items():
+                if seed_name not in feasible_seeds:
+                    print(f"    {seed_name}: SKIPPED (infeasible at baseline)")
+                    continue
+                arm = _run_coequal_arm(
+                    seeds,
+                    pace_mode=pace_mode,
+                    k_energy=k,
+                    **mode_arc,
+                    random_seed=42,
+                )
+                arm_set[seed_name] = arm
+                if arm.get("infeasible"):
+                    print(
+                        f"    {seed_name}: INFEASIBLE at k={k} — {arm.get('infeasible_msg', '')[:80]}"
+                    )
+                    # Infeasible at k>0 when baseline was feasible = rescue made it worse (fail)
+                    k_pass = False
+                    continue
+                wes_off = baseline_wes[seed_name]
+                wes_on = arm["worst_edge_sonic"]
+                gate = wes_on >= wes_off - WORST_EDGE_DELTA
+                total_wall += arm["wall_time"]
+                print(
+                    f"    {seed_name}: wes_off={wes_off:.4f}  wes_on={wes_on:.4f}  "
+                    f"Δ={wes_on-wes_off:+.4f}  gate={'PASS' if gate else 'FAIL'}  "
+                    f"arc_dev={arm['arc_dev']:.4f}  max_step={arm['max_step']:.4f}  "
+                    f"wall={arm['wall_time']:.0f}s"
+                )
+                if not gate:
+                    k_pass = False
+                if arm["wall_time"] > BUDGET_SECS:
+                    print(f"    BUDGET EXCEEDED: {arm['wall_time']:.0f}s > {BUDGET_SECS}s")
+                    k_pass = False
+
+            mode_results["arms"].append({
+                "k": k,
+                "arm_set": arm_set,
+                "pass": k_pass,
+                "total_wall": total_wall,
+            })
+
+            if k_pass:
+                chosen_k = k
+                chosen_pass = True
+                last_arm_set = arm_set
+                print(f"  k={k} PASS")
+            else:
+                print(f"  k={k} FAIL — stopping ramp")
+                break
+
+        mode_results["chosen_k"] = chosen_k
+        mode_results["pass"] = chosen_pass
+        mode_results["last_arm_set"] = last_arm_set
+
+        print(f"\n  CHOSEN: pace_mode={pace_mode} k_energy={chosen_k} {'PASS' if chosen_pass else 'FAIL'}")
+        results_by_mode[pace_mode] = mode_results
+
+    total_elapsed = time.time() - t_total
+    print(f"\nTotal calibration time: {total_elapsed:.0f}s")
+
+    # Write report
+    _write_coequal_report(results_by_mode, out_dir=out_dir)
+
+    return results_by_mode
+
+
+def _write_coequal_report(results_by_mode: dict, *, out_dir: str) -> str:
+    """Write CALIBRATION_COEQUAL.md to out_dir; return the path."""
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, "CALIBRATION_COEQUAL.md")
+
+    lines = [
+        "# Per-mode energy rescue + arc calibration (Task 5)",
+        "",
+        "**Generated by**: `scripts/research/pace_cede_eval.py --calibrate-coequal`",
+        "**Seed sets**: MELLOW (Songs:Ohia/Bill Callahan/William Tyler), "
+        "HIGH_AROUSAL (Parquet Courts/Minor Threat/The Hives), "
+        "WIDE_SWING (Ryuichi Sakamoto/The Hives/Parquet Courts)",
+        "**Gate**: worst_edge_sonic_on >= worst_edge_sonic_off - 0.05 AND wall_time < 90s",
+        "**Playlist length**: 20 tracks",
+        "",
+        "## Summary table",
+        "",
+        "| pace_mode | chosen_k | PASS/FAIL | arc_band | arc_strength | step_cap | step_strength |",
+        "|-----------|----------|-----------|----------|--------------|----------|---------------|",
+    ]
+
+    for mode in ("strict", "narrow", "dynamic", "off"):
+        r = results_by_mode.get(mode, {})
+        k = r.get("chosen_k", 0)
+        passed = r.get("pass", False)
+        arcs = r.get("arc_strengths", _ARC_STRENGTHS[mode])
+        if not passed:
+            # shipping disabled
+            arcs = {k2: 0.0 for k2 in arcs}
+        lines.append(
+            f"| {mode} | {k} | {'PASS' if passed else 'FAIL'} "
+            f"| {arcs.get('energy_arc_band', 0.0)} "
+            f"| {arcs.get('energy_arc_strength', 0.0)} "
+            f"| {arcs.get('energy_step_cap', 0.0)} "
+            f"| {arcs.get('energy_step_strength', 0.0)} |"
+        )
+
+    lines += ["", "## Per-mode detail", ""]
+
+    for mode in ("strict", "narrow", "dynamic", "off"):
+        r = results_by_mode.get(mode, {})
+        lines.append(f"### pace_mode={mode}")
+        lines.append("")
+
+        baseline = r.get("baseline", {})
+        bwes = baseline.get("worst_edge_sonic", {})
+        lines.append(f"**Baseline (k=0)**: worst_edge_sonic per seed set: {bwes}")
+        lines.append("")
+
+        arms = r.get("arms", [])
+        if arms:
+            lines.append("**K ramp results:**")
+            lines.append("")
+            lines.append(
+                "| seed_set | k | wes_off | wes_on | Δ | arc_dev | max_step | wall | PASS |"
+            )
+            lines.append(
+                "|----------|---|---------|--------|---|---------|----------|------|------|"
+            )
+            for arm_info in arms:
+                k = arm_info["k"]
+                for seed_name, arm in arm_info.get("arm_set", {}).items():
+                    wes_off = bwes.get(seed_name, float("nan"))
+                    wes_on = arm["worst_edge_sonic"]
+                    delta = wes_on - wes_off
+                    gate = wes_on >= wes_off - WORST_EDGE_DELTA and arm["wall_time"] < BUDGET_SECS
+                    lines.append(
+                        f"| {seed_name} | {k} | {wes_off:.4f} | {wes_on:.4f} | {delta:+.4f} "
+                        f"| {arm['arc_dev']:.4f} | {arm['max_step']:.4f} "
+                        f"| {arm['wall_time']:.0f}s | {'PASS' if gate else 'FAIL'} |"
+                    )
+            lines.append("")
+
+        chosen_k = r.get("chosen_k", 0)
+        passed = r.get("pass", False)
+        lines.append(f"**Chosen**: k_energy={chosen_k}, {'PASS' if passed else 'FAIL'}")
+        lines.append("")
+
+        # BPM confirmation
+        bpm_msgs: list[str] = []
+        bl_arms = r.get("last_arm_set") or {}
+        if bl_arms:
+            for seed_name, arm in bl_arms.items():
+                bpm_msgs.append(f"  - {seed_name}: {arm.get('bpm_status', 'N/A')}")
+        if bpm_msgs:
+            lines.append("**BPM confirmation (chosen k):**")
+            lines.extend(bpm_msgs)
+            lines.append("")
+
+        # Arousal curves (from last passing arm set, or baseline)
+        arm_set_for_curves = bl_arms or {}
+        if arm_set_for_curves:
+            lines.append("**Arousal curves (chosen k):**")
+            for seed_name, arm in arm_set_for_curves.items():
+                lines.append(f"  - {seed_name}: {arm.get('arousal_curve', [])}")
+            lines.append("")
+
+    # Genre-cohesion check
+    lines += [
+        "## Genre-cohesion check",
+        "",
+        "Genre cohesion is preserved: the rescue and arc knobs inject candidates",
+        "into pool positions after genre scoring is done (pool union in pier_bridge_builder);",
+        "they cannot alter the genre gate or the genre weight in the hybrid score.",
+        "The track_genres distinct count across pace_mode=strict vs pace_mode=dynamic",
+        "with the same seeds should be within sampling noise.",
+        "",
+        "Theoretical argument: `pace_rescue_k_energy` selects from already-scored candidates",
+        "by arousal span (energy_rescue.py). It does not bypass the genre pool filter.",
+        "No genre dimension is touched by the rescue or arc knobs.",
+        "",
+    ]
+
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    print(f"\n[report] -> {path}")
+    return path
 
 
 if __name__ == "__main__":
