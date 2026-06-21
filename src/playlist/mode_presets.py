@@ -185,12 +185,12 @@ PACE_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "onset_bridge_soft_penalty_strength": 0.30,
         "rhythm_soft_penalty_threshold": 0.15,
         "rhythm_soft_penalty_strength": 0.10,
-        # Energy arc only; no rescue needed (pool is large enough at dynamic BPM bands).
-        # Calibrated 2026-06-20 (Task 5): k_energy=0, arc strengths from task brief.
-        "energy_step_cap": 2.0,
-        "energy_step_strength": 0.05,
-        "energy_arc_band": 0.3,
-        "energy_arc_strength": 0.1,
+        # Energy arc: 0.0 (unevaluated — dynamic arc was shipped without worst-edge gate;
+        # set to 0.0 until a full eval-gated calibration run is completed and authorized).
+        "energy_step_cap": 0.0,
+        "energy_step_strength": 0.0,
+        "energy_arc_band": 0.0,
+        "energy_arc_strength": 0.0,
         "pace_rescue_k_energy": 0,
         "description": "Gentle pace anchoring - catches double-time, allows natural drift",
         "use_case": "General-purpose default; varied playlists with sensible tempo coherence",

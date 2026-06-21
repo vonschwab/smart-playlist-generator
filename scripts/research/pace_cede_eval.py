@@ -1896,10 +1896,12 @@ _ARC_STRENGTHS = {
         "energy_step_strength": 0.15,
     },
     "dynamic": {
-        "energy_arc_band": 0.3,
-        "energy_arc_strength": 0.1,
-        "energy_step_cap": 2.0,
-        "energy_step_strength": 0.05,
+        # Set to 0.0: dynamic arc was unevaluated (no worst-edge gate run completed);
+        # reverted to no-op baseline until a full eval-gated calibration is done.
+        "energy_arc_band": 0.0,
+        "energy_arc_strength": 0.0,
+        "energy_step_cap": 0.0,
+        "energy_step_strength": 0.0,
     },
     "off": {
         "energy_arc_band": 0.0,

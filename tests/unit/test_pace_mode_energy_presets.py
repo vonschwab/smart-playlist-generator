@@ -51,13 +51,13 @@ def test_narrow_energy_values_calibrated():
 
 
 def test_dynamic_energy_values():
-    """dynamic: k=0 (pool not starved; arc steering from task brief)."""
+    """dynamic: all arc values 0.0 (unevaluated; reverted pending full eval-gate run)."""
     p = PACE_MODE_PRESETS["dynamic"]
     assert p["pace_rescue_k_energy"] == 0
-    assert p["energy_arc_band"] == 0.3
-    assert p["energy_arc_strength"] == 0.1
-    assert p["energy_step_cap"] == 2.0
-    assert p["energy_step_strength"] == 0.05
+    assert p["energy_arc_band"] == 0.0
+    assert p["energy_arc_strength"] == 0.0
+    assert p["energy_step_cap"] == 0.0
+    assert p["energy_step_strength"] == 0.0
 
 
 def test_off_energy_values_disabled():
