@@ -64,6 +64,11 @@ class CandidatePoolConfig:
     bpm_stability_min: float = 0.5  # tracks below this skip BPM gate
     onset_admission_max_log_distance: float = float("inf")  # inf = disabled
     pace_rescue_k_energy: int = 0  # number of arousal-spanning rescues; 0 = disabled
+    # Per-seed adaptive sonic admission floor (Task 1: sonic percentile).
+    # When > 0, replaces min_sonic_similarity with the p-th quantile of the
+    # seed's own sonic similarity distribution (admits ~top 1-p fraction).
+    # 0.0 / None → legacy absolute-floor behavior unchanged.
+    sonic_admission_percentile: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -120,6 +125,7 @@ class PierBridgeTuning:
     genre_arc_floor: float = 0.0
     genre_arc_floor_percentile: float = 0.0
     genre_admission_percentile: float = 0.0
+    sonic_admission_percentile: float = 0.0
     genre_pair_floor: float = 0.0
     genre_pair_penalty: float = 0.5
     segment_pool_genre_weight: float = 0.0
@@ -351,6 +357,10 @@ def resolve_pier_bridge_tuning(
         pier_raw, "genre_admission_percentile", mode_s, 0.0, source_prefix="pier_bridge"
     )
     sources["genre_admission_percentile"] = src
+    sonic_admission_percentile, src = _resolve_mode_number_with_source(
+        pier_raw, "sonic_admission_percentile", mode_s, 0.0, source_prefix="pier_bridge"
+    )
+    sources["sonic_admission_percentile"] = src
     genre_pair_floor, src = _resolve_mode_number_with_source(
         pier_raw, "genre_pair_floor", mode_s, 0.0, source_prefix="pier_bridge"
     )
@@ -411,6 +421,7 @@ def resolve_pier_bridge_tuning(
         genre_arc_floor=float(genre_arc_floor),
         genre_arc_floor_percentile=float(genre_arc_floor_percentile),
         genre_admission_percentile=float(genre_admission_percentile),
+        sonic_admission_percentile=float(sonic_admission_percentile),
         genre_pair_floor=float(genre_pair_floor),
         genre_pair_penalty=float(genre_pair_penalty),
         segment_pool_genre_weight=float(segment_pool_genre_weight),

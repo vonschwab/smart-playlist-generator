@@ -634,6 +634,26 @@ def build_candidate_pool(
         sonic_seed_sim = np.max(sonic_seed_sim_matrix, axis=1)
         sonic_seed_sim[seed_mask] = -1.0
 
+        # Per-seed adaptive sonic floor: replaces min_sonic_similarity when
+        # sonic_admission_percentile is set and > 0.  Admits ~top (1-p) fraction
+        # of the seed's own sonic similarity distribution (distribution-relative,
+        # so it survives embedding rebuilds and adapts to sparse vs dense seeds).
+        _sap = getattr(cfg, "sonic_admission_percentile", None)
+        if _sap is not None and float(_sap) > 0.0:
+            from src.playlist.pier_bridge.percentiles import floor_at_percentile
+            _sdist = np.asarray(sonic_seed_sim, dtype=np.float64).copy()
+            for _si in seed_list:
+                if 0 <= int(_si) < _sdist.shape[0]:
+                    _sdist[int(_si)] = np.nan
+            _sfin = _sdist[np.isfinite(_sdist)]
+            sonic_floor = floor_at_percentile(_sfin, float(_sap))
+            logger.info(
+                "Sonic admission percentile active: p=%.2f -> effective sonic_floor=%.3f (was abs=%s)",
+                float(_sap),
+                float(sonic_floor),
+                cfg.min_sonic_similarity,
+            )
+
     # ── Rhythm-fail accumulator (for energy rescue) ──────────────────────────
     # Tracks which candidates were rejected by rhythm bands so rescue can re-admit
     # the genre+sonic-OK subset.  Initialized to all-False (no-op when rescue is off).

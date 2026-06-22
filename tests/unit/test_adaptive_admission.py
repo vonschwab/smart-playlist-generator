@@ -1,0 +1,76 @@
+"""Unit tests for adaptive (percentile) sonic admission floor.
+
+Task 1: sonic_admission_percentile replaces fixed min_sonic_similarity
+when set and > 0.  When None / 0 -> legacy absolute-floor behavior unchanged.
+"""
+from __future__ import annotations
+
+import numpy as np
+from dataclasses import replace as _replace
+from src.playlist.candidate_pool import build_candidate_pool, CandidateConfig
+
+
+def _toy(n: int = 60, seed: int = 0):
+    rng = np.random.default_rng(seed)
+    X_sonic = rng.normal(size=(n, 8)).astype(np.float64)
+    track_ids = np.array([f"t{i}" for i in range(n)])
+    artist_keys = np.array([f"a{i}" for i in range(n)])
+    return X_sonic, track_ids, artist_keys
+
+
+def _base_cfg(**overrides):
+    """Minimal CandidateConfig with sensible defaults for unit tests."""
+    defaults = dict(
+        similarity_floor=-1.0,
+        min_sonic_similarity=0.99,  # absolute floor would reject almost all
+        max_pool_size=10_000,
+        target_artists=10_000,
+        candidates_per_artist=10_000,
+        seed_artist_bonus=0,
+        max_artist_fraction_final=1.0,
+        duration_penalty_enabled=False,
+    )
+    defaults.update(overrides)
+    return CandidateConfig(**defaults)
+
+
+def test_sonic_percentile_admits_top_fraction():
+    """With sonic_admission_percentile=0.80, ~top 20% by sonic sim to the seed
+    are admitted, regardless of any absolute floor.  Adapts to the distribution.
+    """
+    X_sonic, track_ids, artist_keys = _toy()
+    cfg = _base_cfg(sonic_admission_percentile=0.80)
+    res = build_candidate_pool(
+        seed_idx=0,
+        seed_indices=[0],
+        embedding=X_sonic,
+        artist_keys=artist_keys,
+        track_ids=track_ids,
+        cfg=cfg,
+        random_seed=0,
+        X_sonic=X_sonic,
+    )
+    n_admitted = len(res.pool_indices)
+    # ~20% of 59 non-seed ≈ 12; assert it's in a sane band and NOT gutted by the 0.99 floor
+    assert 6 <= n_admitted <= 20, (
+        f"Expected 6-20 admitted (top ~20% of 59), got {n_admitted}. "
+        "Likely the absolute floor (0.99) was applied instead of the percentile."
+    )
+
+
+def test_sonic_percentile_none_uses_absolute_floor():
+    """Default (no percentile) preserves legacy absolute-floor behavior."""
+    X_sonic, track_ids, artist_keys = _toy()
+    # floor=0.0 -> admit everything (legacy path)
+    cfg = _base_cfg(min_sonic_similarity=0.0, sonic_admission_percentile=None)
+    res = build_candidate_pool(
+        seed_idx=0,
+        seed_indices=[0],
+        embedding=X_sonic,
+        artist_keys=artist_keys,
+        track_ids=track_ids,
+        cfg=cfg,
+        random_seed=0,
+        X_sonic=X_sonic,
+    )
+    assert len(res.pool_indices) > 0

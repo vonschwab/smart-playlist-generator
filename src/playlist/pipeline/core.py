@@ -412,6 +412,19 @@ def generate_playlist_ds(
         except (TypeError, ValueError):
             pass
 
+    # Per-seed adaptive sonic admission percentile (Task 1).
+    # Mode-specific key (e.g. sonic_admission_percentile_narrow) takes priority
+    # over the base key — mirrors the _resolve_mode_number_with_source priority.
+    _sonic_admission_percentile: Optional[float] = None
+    _raw_sonic_pct = pb_overrides.get(f"sonic_admission_percentile_{mode}") or pb_overrides.get(
+        "sonic_admission_percentile"
+    )
+    if _raw_sonic_pct is not None:
+        try:
+            _sonic_admission_percentile = float(_raw_sonic_pct)
+        except (TypeError, ValueError):
+            pass
+
     # Genre admission aggregate mode: "centroid" (default) | "per_seed".
     _genre_admission_aggregate = str(pb_overrides.get("genre_admission_aggregate", "centroid")).strip().lower()
     if _genre_admission_aggregate not in {"centroid", "per_seed"}:
@@ -458,10 +471,12 @@ def generate_playlist_ds(
             genre_graph_source=genre_graph_source,
         )
 
-    _candidate_cfg = replace(
-        cfg.candidate,
+    _candidate_cfg_kwargs: dict = dict(
         pace_rescue_k_energy=int(pace_settings.get("pace_rescue_k_energy", 0)),
     )
+    if _sonic_admission_percentile is not None:
+        _candidate_cfg_kwargs["sonic_admission_percentile"] = _sonic_admission_percentile
+    _candidate_cfg = replace(cfg.candidate, **_candidate_cfg_kwargs)
     pool = _build_pool(_candidate_cfg, min_genre_similarity)
     pool.stats["target_length"] = num_tracks
 

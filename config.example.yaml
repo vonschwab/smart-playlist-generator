@@ -306,6 +306,14 @@ playlists:
       genre_admission_percentile_narrow: 0.90
       genre_admission_percentile_dynamic: 0.85
       genre_admission_percentile_discover: 0.70
+      # Adaptive sonic admission floor (Task 1): admits top (1-p) fraction of
+      # the seed's sonic similarity distribution.  Replaces min_sonic_similarity
+      # when active (> 0).  Initial conservative values — calibration eval-gate
+      # sets finals.  0.0 = off (legacy absolute-floor behavior unchanged).
+      sonic_admission_percentile_strict: 0.75
+      sonic_admission_percentile_narrow: 0.60
+      sonic_admission_percentile_dynamic: 0.40
+      sonic_admission_percentile_discover: 0.20
       genre_arc_floor_percentile_strict: 0.90
       genre_arc_floor_percentile_narrow: 0.85
       genre_arc_floor_percentile_dynamic: 0.70
