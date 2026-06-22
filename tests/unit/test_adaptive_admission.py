@@ -59,18 +59,32 @@ def test_sonic_percentile_admits_top_fraction():
 
 
 def test_sonic_percentile_none_uses_absolute_floor():
-    """Default (no percentile) preserves legacy absolute-floor behavior."""
+    """Default (no percentile) respects the absolute floor: a tighter floor admits strictly fewer."""
     X_sonic, track_ids, artist_keys = _toy()
-    # floor=0.0 -> admit everything (legacy path)
-    cfg = _base_cfg(min_sonic_similarity=0.0, sonic_admission_percentile=None)
-    res = build_candidate_pool(
+    # loose: floor=-1.0 -> admits essentially everything
+    loose = build_candidate_pool(
         seed_idx=0,
         seed_indices=[0],
         embedding=X_sonic,
         artist_keys=artist_keys,
         track_ids=track_ids,
-        cfg=cfg,
+        cfg=_base_cfg(min_sonic_similarity=-1.0, sonic_admission_percentile=None),
         random_seed=0,
         X_sonic=X_sonic,
     )
-    assert len(res.pool_indices) > 0
+    # tight: floor=0.3 -> admits only tracks with cosine sim >= 0.3 to the seed
+    tight = build_candidate_pool(
+        seed_idx=0,
+        seed_indices=[0],
+        embedding=X_sonic,
+        artist_keys=artist_keys,
+        track_ids=track_ids,
+        cfg=_base_cfg(min_sonic_similarity=0.3, sonic_admission_percentile=None),
+        random_seed=0,
+        X_sonic=X_sonic,
+    )
+    assert len(tight.pool_indices) < len(loose.pool_indices), (
+        f"Expected tighter absolute floor (0.3) to admit fewer than loose (-1.0), "
+        f"got tight={len(tight.pool_indices)} loose={len(loose.pool_indices)}. "
+        "Likely the absolute floor is not operative when sonic_admission_percentile=None."
+    )

@@ -405,7 +405,9 @@ def generate_playlist_ds(
     # Check both the base key and the mode-specific key (e.g. genre_admission_percentile_narrow)
     # because resolve_pier_bridge_tuning isn't called until after the pool is built.
     _genre_admission_percentile: Optional[float] = None
-    _raw_pct = pb_overrides.get("genre_admission_percentile") or pb_overrides.get(f"genre_admission_percentile_{mode}")
+    _raw_pct = pb_overrides.get(f"genre_admission_percentile_{mode}")
+    if _raw_pct is None:
+        _raw_pct = pb_overrides.get("genre_admission_percentile")
     if _raw_pct is not None:
         try:
             _genre_admission_percentile = float(_raw_pct)
@@ -416,9 +418,9 @@ def generate_playlist_ds(
     # Mode-specific key (e.g. sonic_admission_percentile_narrow) takes priority
     # over the base key — mirrors the _resolve_mode_number_with_source priority.
     _sonic_admission_percentile: Optional[float] = None
-    _raw_sonic_pct = pb_overrides.get(f"sonic_admission_percentile_{mode}") or pb_overrides.get(
-        "sonic_admission_percentile"
-    )
+    _raw_sonic_pct = pb_overrides.get(f"sonic_admission_percentile_{mode}")
+    if _raw_sonic_pct is None:
+        _raw_sonic_pct = pb_overrides.get("sonic_admission_percentile")
     if _raw_sonic_pct is not None:
         try:
             _sonic_admission_percentile = float(_raw_sonic_pct)
