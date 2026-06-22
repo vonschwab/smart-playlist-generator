@@ -47,7 +47,7 @@ States: ✅ LIVE · 🟢 FIXED (this session, verified) · 🔴 BROKEN (configur
 ### Pier-bridge / infra
 | Component | State | Evidence / Notes | Action |
 |---|---|---|---|
-| Relaxation-cascade bound (empty-pool short-circuit + 40s wall-clock budget) | 🟢 FIXED | `bc942d5`. Charli XCX repro 274s→58s; budget bails logged; suite green. | — |
+| Relaxation-cascade bound (empty-pool short-circuit + wall-clock budget) | 🟡 PARTIAL | `bc942d5` bounds ONLY the floor-relaxation tiers (2-3). INCOMPLETE: tier-1 base beam (`max_expansion_attempts` × bridge-floor backoff), micro-pier, and `core.py` One-Each retries (each resets the budget anchor) are unbounded → **strict/hyperpop = ~23 min, 15× the 90s ceiling** (found 2026-06-22 during Plan-1 calibration; pre-existing master bug). | Implement a single shared **total-generation deadline** through all loops + retries: `docs/superpowers/plans/2026-06-22-total-generation-budget-fix.md` |
 | `no usable g_targets` warning flood | 🟢 FIXED | Demoted to debug in beam; logged once/segment in builder (`bc942d5`). Confirm on real artist-mode run. | Confirm in GUI. |
 | Generation **cancellation** | 🟢 INTEGRATED | Cherry-picked `87401b9` (from `fix/generation-cancellation`) 2026-06-21. Process-global hook + `OperationCancelled(BaseException)` (not swallowed by `except Exception`); checkpoints at segment boundary / expansion attempt / beam step (verified in valid loops); 6 unit tests pass; full suite green. Composes with the cascade budget. | Confirm click-cancel end-to-end in the GUI. |
 | Never-fail greedy fallback (term-pool) | ✅ LIVE / 🤝 | Fills segments when the beam can't; genre-aware version in-flight `worktree-genre-aware-greedy-fallback` (`0b028d4`). | Coordinate before editing the fallback. |
