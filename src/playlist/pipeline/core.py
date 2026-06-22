@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import math
+import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
@@ -704,6 +705,14 @@ def generate_playlist_ds(
                             "style_summary": style_summary,
                     },
                 )
+            # Compute a single shared generation deadline so all One-Each retries
+            # and all segment loops inside build_pier_bridge_playlist share one
+            # budget rather than each call resetting its own start anchor.
+            # Default 70s (headroom under the 90s hard ceiling for pool-build/Last.fm
+            # overhead). Configurable via playlists.pier_bridge.generation_budget_s.
+            _budget_s = float(pb_overrides.get("generation_budget_s", 70.0))
+            _generation_deadline: Optional[float] = time.monotonic() + _budget_s
+
             def _run_pier_bridge(candidate_pool_indices: list[int]) -> PierBridgeResult:
                 return build_pier_bridge_playlist(
                     seed_track_ids=seed_track_ids_for_pier,
@@ -724,12 +733,23 @@ def generate_playlist_ds(
                     onset_rate=onset_rate_arr,
                     energy_matrix=energy_matrix,
                     min_gap=int(getattr(cfg.construct, "min_gap", 1) or 1),
+                    deadline=_generation_deadline,
                 )
 
             one_each_candidate_relaxation: Optional[Dict[str, Any]] = None
             pb_result: PierBridgeResult = _run_pier_bridge(pool_indices)
             if not pb_result.success and getattr(pb_cfg, "max_non_seed_tracks_per_artist", None) == 1:
                 for relaxation in _relaxed_one_each_candidate_attempts(_candidate_cfg, min_genre_similarity):
+                    # Reuse the shared generation deadline — do NOT reset it per
+                    # retry. Each retry re-runs the entire pier-bridge build, which
+                    # was the root cause of the 23-min strict+hyperpop grind.
+                    if _generation_deadline is not None and time.monotonic() > _generation_deadline:
+                        logger.warning(
+                            "One-Each candidate retry %d skipped — generation deadline "
+                            "exceeded; using result from previous attempt",
+                            int(relaxation.attempt),
+                        )
+                        break
                     summary = dict(relaxation.summary)
                     logger.info(
                         "One Each candidate fallback attempt %d: similarity_floor %.3f -> %.3f, sonic_floor %s -> %s, genre_gate %s -> %s",
