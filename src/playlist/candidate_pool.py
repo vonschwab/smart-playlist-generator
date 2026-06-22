@@ -829,7 +829,10 @@ def build_candidate_pool(
             mode,
         )
 
-    elif min_genre_similarity is not None and (X_genre_raw is not None or X_genre_smoothed is not None):
+    elif (
+        min_genre_similarity is not None
+        or (genre_admission_percentile is not None and float(genre_admission_percentile) > 0.0)
+    ) and (X_genre_raw is not None or X_genre_smoothed is not None):
         # Choose matrix based on method
         if genre_method == "weighted_jaccard" and genre_raw_matrix is not None:
             genre_matrix = genre_raw_matrix
@@ -861,8 +864,11 @@ def build_candidate_pool(
         )
         genre_sim_all[seed_idx] = 1.0  # seed matches itself perfectly
         logger.info(
-            "Candidate pool genre gating: method=%s, min_threshold=%.3f, mode=%s, idf=%s",
-            genre_method, min_genre_similarity, mode, "on" if idf_weights is not None else "off",
+            "Candidate pool genre gating: method=%s, min_threshold=%s, mode=%s, idf=%s",
+            genre_method,
+            f"{float(min_genre_similarity):.3f}" if min_genre_similarity is not None else "None",
+            mode,
+            "on" if idf_weights is not None else "off",
         )
         # Adaptive percentile floor on the sparse distribution.
         # Mirrors the dense centroid path: NaN-mask seed rows, drop non-finite, floor_at_percentile.

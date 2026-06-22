@@ -133,3 +133,64 @@ def test_genre_percentile_runs_without_dense():
         "res.stats['effective_genre_floor'] must be set when genre_admission_percentile is active. "
         "Got None — likely the percentile was not applied on the sparse path."
     )
+    # Strengthen: the percentile path must have derived the floor from the data, not passed through
+    # the fixed 0.4.  With 5-dim one-hot, genre sims are 0.0 or 1.0; p50 of a mostly-zero
+    # distribution is 0.0 — never 0.4 — so this is always robust.
+    assert res.stats["effective_genre_floor"] != 0.4, (
+        f"effective_genre_floor is exactly 0.4 — the percentile path was bypassed and the "
+        f"legacy absolute floor was used instead. Got {res.stats['effective_genre_floor']!r}"
+    )
+
+
+def test_genre_percentile_runs_without_absolute_floor():
+    """genre_admission_percentile fires on the SPARSE path when min_genre_similarity=None
+    (percentile-primary mode — no absolute floor companion).
+
+    Before the fix, the sparse elif guard checked ``min_genre_similarity is not None``,
+    so this call silently skipped genre admission entirely.  After the fix, the guard
+    uses OR semantics and the branch runs.
+
+    Assertions:
+    - res.stats['effective_genre_floor'] is not None (data-derived floor was computed)
+    - fewer than all non-seed tracks were admitted (the floor actually gated something)
+    """
+    n = 60
+    rng = np.random.default_rng(2)
+    X_sonic = rng.normal(size=(n, 8)).astype(np.float64)
+    # Continuous genre vectors: random uniform in [0, 1].
+    # Cosine sims to the seed will be spread across (0, 1); p50 > 0 so the floor
+    # actually cuts the lower half of candidates.
+    X_genre = rng.random(size=(n, 10)).astype(np.float64)
+    tids = np.array([f"t{i}" for i in range(n)])
+    aks = np.array([f"a{i}" for i in range(n)])
+    cfg = _base_cfg(
+        similarity_floor=-1.0,
+        min_sonic_similarity=None,
+        duration_penalty_enabled=False,
+    )
+    res = build_candidate_pool(
+        seed_idx=0,
+        seed_indices=[0],
+        embedding=X_sonic,
+        artist_keys=aks,
+        track_ids=tids,
+        cfg=_replace(cfg, sonic_admission_percentile=None),
+        random_seed=0,
+        X_sonic=X_sonic,
+        X_genre_raw=X_genre,
+        X_genre_smoothed=X_genre,
+        X_genre_dense=None,
+        min_genre_similarity=None,  # no absolute floor — percentile is the sole gate
+        genre_admission_percentile=0.50,
+    )
+    # The percentile block must have produced a real floor.
+    assert res.stats.get("effective_genre_floor") is not None, (
+        "res.stats['effective_genre_floor'] must not be None when genre_admission_percentile=0.50 "
+        "and min_genre_similarity=None. Likely the sparse elif guard still blocks entry."
+    )
+    # The floor must have actually gated candidates: fewer than all 59 non-seed tracks admitted.
+    n_non_seed = n - 1  # seed_idx=0 excluded
+    assert len(res.pool_indices) < n_non_seed, (
+        f"Expected percentile-floor (p=0.50) to admit fewer than all {n_non_seed} non-seed tracks, "
+        f"but got {len(res.pool_indices)}. The floor may not have been applied."
+    )
