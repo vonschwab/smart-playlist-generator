@@ -1127,6 +1127,10 @@ def build_candidate_pool(
 
     pool_indices = list(dict.fromkeys(pool_indices))  # dedupe, preserve order
 
+    # Capture pool size before backstop so artist_cap_excluded reflects the normal
+    # walk only (not inflated/deflated by backfill).
+    _pool_size_before_backstop = len(pool_indices)
+
     # Never-starve backstop (Task 3): if the pool is below the minimum target,
     # backfill from the highest-sonic-sim candidates not yet admitted.
     # Per-artist cap is respected; seeds are never admitted.
@@ -1143,6 +1147,8 @@ def build_candidate_pool(
         _ranked = sorted(
             (i for i in range(len(track_ids))
              if i not in _already and i not in _seed_set),
+            # When no sonic embedding is present, admission order falls back to
+            # index order (arbitrary but bounded + still artist-cap-respecting).
             key=lambda i: float(sonic_seed_sim[i]) if sonic_seed_sim is not None else 0.0,
             reverse=True,
         )
@@ -1156,6 +1162,7 @@ def build_candidate_pool(
             pool_indices.append(int(i))
             _already.add(int(i))
             _per_artist[_ak] += 1
+            pool_artists.add(_ak)  # keep distinct_artists accurate after backfill
             _added += 1
         if _added:
             logger.info(
@@ -1172,8 +1179,9 @@ def build_candidate_pool(
         else None
     )
 
-    # Count how many were excluded due to artist cap (those not taken from eligible artists)
-    artist_cap_excluded = len(eligible) - len(pool_indices)
+    # Count how many were excluded due to artist cap during the normal walk only.
+    # Uses _pool_size_before_backstop so backfill doesn't make this go negative.
+    artist_cap_excluded = len(eligible) - _pool_size_before_backstop
 
     params_effective = {
         "similarity_floor": cfg.similarity_floor,

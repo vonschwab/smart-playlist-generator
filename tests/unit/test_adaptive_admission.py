@@ -223,6 +223,11 @@ def test_min_pool_guarantee_never_starves():
     assert len(res.pool_indices) >= 15, (
         f"Expected min_pool_size backstop to ensure >= 15 pool entries, got {len(res.pool_indices)}"
     )
+    # seeds must never be admitted by the backstop
+    assert 0 not in res.pool_indices, (
+        f"Seed index 0 must not appear in pool_indices (never-admit-seeds invariant), "
+        f"but pool contains: {res.pool_indices[:20]!r}"
+    )
     # diversity respected: not a single-artist pool
     pooled_artists = {aks[i] for i in res.pool_indices}
     assert len(pooled_artists) >= 2, (
