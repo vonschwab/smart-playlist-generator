@@ -1126,6 +1126,45 @@ def build_candidate_pool(
             break
 
     pool_indices = list(dict.fromkeys(pool_indices))  # dedupe, preserve order
+
+    # Never-starve backstop (Task 3): if the pool is below the minimum target,
+    # backfill from the highest-sonic-sim candidates not yet admitted.
+    # Per-artist cap is respected; seeds are never admitted.
+    # Default min_pool_size=0 disables this → byte-identical legacy behavior.
+    _min_pool_size = int(getattr(cfg, "min_pool_size", 0) or 0)
+    if _min_pool_size > 0 and len(pool_indices) < _min_pool_size:
+        from collections import Counter
+        _already = set(int(i) for i in pool_indices)
+        _per_artist: Counter = Counter(
+            str(artist_keys[i]) for i in pool_indices
+        )
+        _cap = int(getattr(cfg, "candidates_per_artist", 6) or 6)
+        _seed_set = set(int(i) for i in seed_list)
+        _ranked = sorted(
+            (i for i in range(len(track_ids))
+             if i not in _already and i not in _seed_set),
+            key=lambda i: float(sonic_seed_sim[i]) if sonic_seed_sim is not None else 0.0,
+            reverse=True,
+        )
+        _added = 0
+        for i in _ranked:
+            if len(pool_indices) >= _min_pool_size:
+                break
+            _ak = str(artist_keys[i])
+            if _per_artist[_ak] >= _cap:
+                continue
+            pool_indices.append(int(i))
+            _already.add(int(i))
+            _per_artist[_ak] += 1
+            _added += 1
+        if _added:
+            logger.info(
+                "Min-pool backstop: pool %d below min %d; admitted %d more (top sonic-sim, artist-cap respected)",
+                len(pool_indices) - _added,
+                _min_pool_size,
+                _added,
+            )
+
     seed_sim_pool = np.array([seed_sim_all[i] for i in pool_indices], dtype=float)
     sonic_sim_pool = (
         np.array([sonic_seed_sim[i] for i in pool_indices], dtype=float)

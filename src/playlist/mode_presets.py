@@ -89,6 +89,9 @@ SONIC_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         # the seed's sonic similarity distribution.  Initial conservative values —
         # calibration eval-gate sets finals.  0.0 = off (legacy absolute floor).
         "sonic_admission_percentile": 0.75,
+        # Never-starve backstop (Task 3): lower bound on pool size after all
+        # admission filters.  Initial values — calibration eval-gate sets finals.
+        "min_pool_size": 12,
         "description": "Ultra-tight sonic matching - very similar sound",
         "use_case": "Extremely cohesive sound with minimal variation",
     },
@@ -98,6 +101,7 @@ SONIC_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "candidate_pool_multiplier": 0.8,
         "min_sonic_similarity": 0.18,  # MERT p50 (recalibrated 2026-06; see FLOOR_RECALIBRATION_DISTRIBUTIONS.md)
         "sonic_admission_percentile": 0.60,
+        "min_pool_size": 16,
         "description": "Strict sonic coherence - familiar sound",
         "use_case": "Cohesive playlists with consistent sonic character",
     },
@@ -107,6 +111,7 @@ SONIC_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "candidate_pool_multiplier": 1.0,
         "min_sonic_similarity": 0.08,  # MERT p25 (recalibrated 2026-06; see FLOOR_RECALIBRATION_DISTRIBUTIONS.md)
         "sonic_admission_percentile": 0.40,
+        "min_pool_size": 20,
         "description": "Balanced sonic flow (default)",
         "use_case": "Standard playlists with moderate sonic variation",
     },
@@ -116,6 +121,7 @@ SONIC_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "candidate_pool_multiplier": 1.2,
         "min_sonic_similarity": 0.00,  # MERT p10 ≈ 0 (recalibrated 2026-06; see FLOOR_RECALIBRATION_DISTRIBUTIONS.md)
         "sonic_admission_percentile": 0.20,
+        "min_pool_size": 24,
         "description": "Broader sonic palette - varied textures",
         "use_case": "Exploratory playlists with diverse sonic textures",
     },
@@ -125,6 +131,7 @@ SONIC_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "candidate_pool_multiplier": None,
         "min_sonic_similarity": None,
         "sonic_admission_percentile": 0.0,  # off = no percentile gate
+        "min_pool_size": 0,  # off = no backstop
         "description": "Genre-only mode - ignore sonic similarity",
         "use_case": "Match by genre tags only, disregard audio features",
     },
@@ -438,6 +445,15 @@ def apply_mode_presets(playlists_cfg: Dict[str, Any]) -> None:
             # Only write if not already explicitly overridden by the user.
             if "sonic_admission_percentile" not in pier_bridge_cfg:
                 pier_bridge_cfg["sonic_admission_percentile"] = float(_sap_preset)
+
+        # Write min_pool_size preset value to pier_bridge config so
+        # pipeline/core.py picks it up via pb_overrides (same pattern as
+        # sonic_admission_percentile above).
+        _mps_preset = sonic_settings.get("min_pool_size", 0)
+        if _mps_preset is not None:
+            pier_bridge_cfg = ds_cfg.setdefault("pier_bridge", {})
+            if "min_pool_size" not in pier_bridge_cfg:
+                pier_bridge_cfg["min_pool_size"] = int(_mps_preset)
 
     if genre_mode and not genre_enabled:
         genre_weight = 0.0

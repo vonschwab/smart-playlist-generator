@@ -194,3 +194,37 @@ def test_genre_percentile_runs_without_absolute_floor():
         f"Expected percentile-floor (p=0.50) to admit fewer than all {n_non_seed} non-seed tracks, "
         f"but got {len(res.pool_indices)}. The floor may not have been applied."
     )
+
+
+def test_min_pool_guarantee_never_starves():
+    """With a very tight percentile (0.98) that admits only ~2% of candidates,
+    min_pool_size=15 must backfill using top sonic-sim, respecting per-artist cap.
+    """
+    import numpy as np
+    from dataclasses import replace as _replace
+    from src.playlist.candidate_pool import build_candidate_pool, CandidateConfig
+    n = 40
+    rng = np.random.default_rng(2)
+    X_sonic = rng.normal(size=(n, 8)).astype(np.float64)
+    tids = [f"t{i}" for i in range(n)]
+    aks = [f"a{i%6}" for i in range(n)]  # 6 distinct artists
+    # Tight percentile would admit very few; min_pool_size must backfill.
+    cfg = CandidateConfig(similarity_floor=-1.0, min_sonic_similarity=None,
+                          max_pool_size=10_000, target_artists=10_000,
+                          candidates_per_artist=10_000, seed_artist_bonus=0,
+                          max_artist_fraction_final=1.0, duration_penalty_enabled=False)
+    res = build_candidate_pool(
+        seed_idx=0, seed_indices=[0], embedding=X_sonic, artist_keys=np.array(aks),
+        track_ids=np.array(tids),
+        cfg=_replace(cfg, sonic_admission_percentile=0.98, min_pool_size=15),
+        random_seed=0,
+        X_sonic=X_sonic,
+    )
+    assert len(res.pool_indices) >= 15, (
+        f"Expected min_pool_size backstop to ensure >= 15 pool entries, got {len(res.pool_indices)}"
+    )
+    # diversity respected: not a single-artist pool
+    pooled_artists = {aks[i] for i in res.pool_indices}
+    assert len(pooled_artists) >= 2, (
+        f"Expected at least 2 distinct artists in pool, got {pooled_artists!r}"
+    )
