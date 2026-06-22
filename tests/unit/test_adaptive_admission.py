@@ -88,3 +88,48 @@ def test_sonic_percentile_none_uses_absolute_floor():
         f"got tight={len(tight.pool_indices)} loose={len(loose.pool_indices)}. "
         "Likely the absolute floor is not operative when sonic_admission_percentile=None."
     )
+
+
+def test_genre_percentile_runs_without_dense():
+    """genre_admission_percentile must compute an effective genre floor from the SPARSE
+    genre vectors (X_genre_dense=None), not fall back to the absolute min_genre_similarity.
+
+    When active, res.stats['effective_genre_floor'] must be set (data-derived, not None),
+    and the pool must be non-empty.
+    """
+    n = 60
+    rng = np.random.default_rng(1)
+    X_sonic = rng.normal(size=(n, 8)).astype(np.float64)
+    # sparse genre: 5-dim one-hot
+    X_genre = np.zeros((n, 5), dtype=np.float64)
+    for i in range(n):
+        X_genre[i, rng.integers(0, 5)] = 1.0
+    tids = [f"t{i}" for i in range(n)]
+    aks = [f"a{i}" for i in range(n)]
+    cfg = _base_cfg(
+        similarity_floor=-1.0,
+        min_sonic_similarity=None,
+        duration_penalty_enabled=False,
+    )
+    res = build_candidate_pool(
+        seed_idx=0,
+        seed_indices=[0],
+        embedding=X_sonic,
+        artist_keys=np.array(aks),
+        track_ids=np.array(tids),
+        cfg=_replace(cfg, sonic_admission_percentile=None),
+        random_seed=0,
+        X_sonic=X_sonic,
+        X_genre_raw=X_genre,
+        X_genre_smoothed=X_genre,
+        X_genre_dense=None,
+        min_genre_similarity=0.4,
+        genre_admission_percentile=0.50,
+    )
+    # With percentile active on sparse vectors, the effective floor is data-derived, NOT the abs 0.4.
+    # Assert the pool reflects percentile admission (not the degenerate all-or-nothing of abs 0.4).
+    assert len(res.pool_indices) > 0, "Pool must be non-empty with genre_admission_percentile=0.50"
+    assert res.stats.get("effective_genre_floor") is not None, (
+        "res.stats['effective_genre_floor'] must be set when genre_admission_percentile is active. "
+        "Got None — likely the percentile was not applied on the sparse path."
+    )

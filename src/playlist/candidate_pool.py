@@ -864,6 +864,23 @@ def build_candidate_pool(
             "Candidate pool genre gating: method=%s, min_threshold=%.3f, mode=%s, idf=%s",
             genre_method, min_genre_similarity, mode, "on" if idf_weights is not None else "off",
         )
+        # Adaptive percentile floor on the sparse distribution.
+        # Mirrors the dense centroid path: NaN-mask seed rows, drop non-finite, floor_at_percentile.
+        # When genre_admission_percentile is None/0, effective_genre_floor stays = min_genre_similarity
+        # (legacy, golden-safe).
+        if genre_admission_percentile is not None and float(genre_admission_percentile) > 0.0:
+            from src.playlist.pier_bridge.percentiles import floor_at_percentile
+            _gdist = np.asarray(genre_sim_all, dtype=np.float64).copy()
+            for _si in seed_list:
+                if 0 <= int(_si) < _gdist.shape[0]:
+                    _gdist[int(_si)] = np.nan
+            _gfin = _gdist[np.isfinite(_gdist)]
+            effective_genre_floor = floor_at_percentile(_gfin, float(genre_admission_percentile))
+            logger.info(
+                "Genre admission percentile (sparse) active: p=%.2f -> effective_genre_floor=%.3f",
+                float(genre_admission_percentile),
+                float(effective_genre_floor),
+            )
 
     genre_compatibility_result = None
     if (
@@ -1159,6 +1176,9 @@ def build_candidate_pool(
         "below_bpm_floor": below_bpm_floor,
         "artist_cap_excluded": max(0, artist_cap_excluded),
         "eligible_count": len(eligible),
+        # Effective genre floor after percentile compute (or fixed absolute floor when
+        # genre_admission_percentile is None/0).  None when genre gating is off entirely.
+        "effective_genre_floor": float(effective_genre_floor) if effective_genre_floor is not None else None,
     }
     if duration_penalty_active:
         stats["duration_penalty_applied"] = duration_penalty_count
