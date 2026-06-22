@@ -708,9 +708,10 @@ def generate_playlist_ds(
             # Compute a single shared generation deadline so all One-Each retries
             # and all segment loops inside build_pier_bridge_playlist share one
             # budget rather than each call resetting its own start anchor.
-            # Default 70s (headroom under the 90s hard ceiling for pool-build/Last.fm
-            # overhead). Configurable via playlists.pier_bridge.generation_budget_s.
-            _budget_s = float(pb_overrides.get("generation_budget_s", 70.0))
+            # Read from the typed pb_cfg (already absorbed pb_overrides via
+            # apply_pier_bridge_overrides) so a programmatic caller passing a
+            # typed config without a raw overrides dict is honored.
+            _budget_s = float(pb_cfg.generation_budget_s)
             _generation_deadline: Optional[float] = time.monotonic() + _budget_s
 
             def _run_pier_bridge(candidate_pool_indices: list[int]) -> PierBridgeResult:

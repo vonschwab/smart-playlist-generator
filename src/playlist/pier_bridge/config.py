@@ -283,10 +283,11 @@ class PierBridgeConfig:
     edge_repair_variety_guard_threshold: float = 0.85
     # Total-generation wall-clock budget (seconds). When a shared deadline is
     # threaded in from core.py, this is the default budget used to compute it.
-    # 70s leaves headroom under the 90s hard ceiling for pre-build overhead
-    # (pool build, Last.fm recency). Expose as playlists.pier_bridge.generation_budget_s
-    # in config.yaml.
-    generation_budget_s: float = 70.0
+    # 60s leaves a comfortable margin under the 90s hard ceiling for pre-build
+    # overhead (pool build, Last.fm recency); the killer cell measured 87.8s
+    # at 70s which was only ~2s under the ceiling. Expose as
+    # playlists.pier_bridge.generation_budget_s in config.yaml.
+    generation_budget_s: float = 60.0
 
 
 @dataclass

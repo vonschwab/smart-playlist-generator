@@ -88,7 +88,7 @@
   "experiment_bridge_balance_weight": 0.15,
   "experiment_bridge_min_weight": 0.25,
   "experiment_bridge_scoring_enabled": false,
-  "generation_budget_s": 70.0,
+  "generation_budget_s": 60.0,
   "genre_admission_percentile": 0.0,
   "genre_arc_floor": 0.0,
   "genre_arc_floor_percentile": 0.0,

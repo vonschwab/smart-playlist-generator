@@ -250,10 +250,11 @@ playlists:
       # Total-generation wall-clock budget (seconds). A single shared deadline is
       # computed once at generation start (before any One-Each retries) and threaded
       # into all segment loops and relaxation tiers so NO path can collectively exceed
-      # this budget. 70s leaves headroom under the 90s hard ceiling for pool-build +
-      # Last.fm overhead. Raise if you have a large library and many seeds; lower if
-      # you need tighter latency guarantees.
-      # generation_budget_s: 70.0
+      # this budget. 60s leaves a comfortable margin under the 90s hard ceiling for
+      # pool-build + Last.fm overhead (killer cell measured 87.8s at 70s, only ~2s
+      # under). Raise if you have a large library and many seeds; lower for tighter
+      # latency guarantees.
+      # generation_budget_s: 60.0
       # Bridge-local gate: require min(sim_to_pier_A, sim_to_pier_B) >= floor
       bridge_floor_strict: 0.10   # Ultra-cohesive (Phase 1)
       bridge_floor_narrow: 0.05   # Relaxed from 0.08 (Phase 3A)
