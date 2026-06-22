@@ -49,7 +49,7 @@ States: ✅ LIVE · 🟢 FIXED (this session, verified) · 🔴 BROKEN (configur
 |---|---|---|---|
 | Relaxation-cascade bound (empty-pool short-circuit + 40s wall-clock budget) | 🟢 FIXED | `bc942d5`. Charli XCX repro 274s→58s; budget bails logged; suite green. | — |
 | `no usable g_targets` warning flood | 🟢 FIXED | Demoted to debug in beam; logged once/segment in builder (`bc942d5`). Confirm on real artist-mode run. | Confirm in GUI. |
-| Generation **cancellation** | 🔴 MISSING on master / 🤝 IN-FLIGHT | No cancel hook in the generation path. Branch `fix/generation-cancellation` (`6a8bd28`) implements it. | Coordinate/integrate that branch — do NOT rebuild. |
+| Generation **cancellation** | 🟢 INTEGRATED | Cherry-picked `87401b9` (from `fix/generation-cancellation`) 2026-06-21. Process-global hook + `OperationCancelled(BaseException)` (not swallowed by `except Exception`); checkpoints at segment boundary / expansion attempt / beam step (verified in valid loops); 6 unit tests pass; full suite green. Composes with the cascade budget. | Confirm click-cancel end-to-end in the GUI. |
 | Never-fail greedy fallback (term-pool) | ✅ LIVE / 🤝 | Fills segments when the beam can't; genre-aware version in-flight `worktree-genre-aware-greedy-fallback` (`0b028d4`). | Coordinate before editing the fallback. |
 | dj_bridging | ✅ LIVE (when enabled) | Ladder route + waypoints fire when `dj_bridging_enabled`. | — |
 
@@ -63,7 +63,7 @@ States: ✅ LIVE · 🟢 FIXED (this session, verified) · 🔴 BROKEN (configur
 ## Other sessions' in-flight branches (coordinate — do not merge blindly)
 | Branch | Commit | Overlaps our scope? |
 |---|---|---|
-| `fix/generation-cancellation` | `6a8bd28` | YES — the cancel gap. Integrate rather than rebuild. |
+| `fix/generation-cancellation` | `6a8bd28` | ✅ INTEGRATED to master (`87401b9`, 2026-06-21). Owner can delete the branch. |
 | `worktree-genre-aware-greedy-fallback` | `0b028d4` | YES — pier-bridge fallback quality (#3). |
 | `wip-gui-logging-genre-vocab` | `f9ec957` | Maybe — genre vocab/logging. |
 | `worktree-phase1-album-adjudicator` | — | Genre adjudication (longer-horizon). |
