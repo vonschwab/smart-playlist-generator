@@ -56,10 +56,14 @@ from src.ai_genre_enrichment.album_adjudicator import (
 from src.ai_genre_enrichment.claude_client import ClaudeCodeEnrichmentClient
 from src.ai_genre_enrichment.layered_taxonomy import load_default_layered_taxonomy
 from src.genre.graph_adapter import load_graph_adapter
+from src.playlist.request_models import ANALYZE_LIBRARY_STAGE_ORDER
 
 DEFAULT_OUT_DIR = ROOT_DIR / "data" / "artifacts" / "beat3tower_32k"
 ENRICHMENT_DB_PATH = ROOT_DIR / "data" / "ai_genre_enrichment.db"
-STAGE_ORDER_DEFAULT = ["scan", "genres", "discogs", "lastfm", "sonic", "mert", "adjudicate", "apply", "publish", "genre-sim", "artifacts", "energy", "genre-embedding", "verify"]
+# Single source of truth for the default stage order, shared with the GUI/web
+# worker via request_models. `enrich` stays runnable via `--stages enrich` but is
+# not in the default run (the Sonnet `adjudicate`+`apply` path replaced it).
+STAGE_ORDER_DEFAULT = list(ANALYZE_LIBRARY_STAGE_ORDER)
 
 # Substrings that identify a TRANSIENT Claude failure (rate limit / usage window).
 # These are resumable: the cache already persists whatever was adjudicated before
@@ -119,6 +123,29 @@ def _configured_genre_source(ctx: Dict) -> str:
         return "legacy"
     value = ((cfg.get("playlists") or {}).get("ds_pipeline") or {}).get("genre_source")
     return str(value or "legacy").strip().lower()
+
+
+def _mert_fold_settings(config_path: str) -> Tuple[bool, str]:
+    """(fold_enabled, active_variant) for the post-artifact MERT fold.
+
+    - ``analyze.mert.fold_into_artifact`` (default True) toggles the auto-fold
+      that runs at the end of the artifacts stage. Set it False to keep the tower
+      rollback active without a code change.
+    - ``artifacts.sonic_variant_override`` (default 'mert') chooses the active
+      variant the fold writes — set to 'tower_weighted' for the documented rollback.
+    """
+    import yaml
+
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+    except Exception:
+        cfg = {}
+    mert_cfg = (cfg.get("analyze") or {}).get("mert") or {}
+    enabled = bool(mert_cfg.get("fold_into_artifact", True))
+    override = ((cfg.get("artifacts") or {}).get("sonic_variant_override") or "mert")
+    variant = str(override).strip() or "mert"
+    return enabled, variant
 
 
 def _sidecar_count(query: str, params: tuple = ()) -> int:
@@ -328,11 +355,17 @@ def compute_stage_fingerprint(ctx: Dict, stage: str) -> str:
         return _hash_obj(key)
 
     if stage == "mert":
-        artifact_path = Path(ctx["out_dir"]) / "data_matrices_step1.npz"
+        # Universe = DB tracks with a file_path (what stage_mert actually embeds).
+        # Keyed off the DB, not the artifact, so a freshly-scanned track flips this
+        # fingerprint and the orchestrator re-runs MERT in the same pass — before
+        # the artifact rebuild that would otherwise hide the new track.
         try:
             track_ids = sorted(
-                str(t) for t in np.load(artifact_path, allow_pickle=True)["track_ids"]
-            ) if artifact_path.exists() else []
+                str(r[0]) for r in conn.execute(
+                    "SELECT track_id FROM tracks "
+                    "WHERE file_path IS NOT NULL AND file_path != ''"
+                ).fetchall()
+            )
         except Exception:
             track_ids = []
         key = {"stage": stage, "track_ids": track_ids}
@@ -1873,6 +1906,34 @@ def stage_artifacts(ctx: Dict) -> Dict:
         except Exception as exc:
             logger.warning("2DFTM fold failed (artifact left as-is): %s", exc)
 
+    # Fold the MERT sidecar back in. A fresh build (and the 2DFTM fold above) leave
+    # X_sonic_variant on the tower blend; without this, every artifacts rebuild
+    # silently reverts the production sonic space from the learned MERT embedding to
+    # the tower rollback. This is the auto-fold that replaces the manual
+    # `fold_mert_into_artifact.py` step the old pipeline relied on.
+    fold_enabled, active_variant = _mert_fold_settings(ctx["config_path"])
+    mert_sidecar = out_dir / "mert_sidecar.npz"
+    if fold_enabled and mert_sidecar.exists():
+        logger.info("Folding MERT sidecar into rebuilt artifact (X_sonic_variant=%s)...", active_variant)
+        try:
+            from scripts.fold_mert_into_artifact import fold_mert
+            fold_mert(
+                out_path, mert_sidecar, set_active=active_variant, no_backup=True,
+                log_fn=lambda msg="", **kw: logger.info("%s", msg),
+            )
+            logger.info("MERT fold complete; X_sonic_variant=%s", active_variant)
+        except Exception as exc:
+            # Loud: a failed fold leaves generation on the tower rollback space.
+            logger.error(
+                "MERT fold FAILED after artifact rebuild — generation will use the WRONG "
+                "sonic space (tower rollback) until re-folded: %s", exc
+            )
+    elif fold_enabled:
+        logger.warning(
+            "MERT sidecar not found (%s); artifact left on the tower variant. "
+            "Run the mert stage to build the sidecar.", mert_sidecar
+        )
+
     fingerprint = compute_stage_fingerprint(ctx, "artifacts")
     manifest_path = _write_artifact_manifest(out_dir, fingerprint, ctx.get("config_hash", ""), {})
     # Signal the genre-embedding stage that the artifact changed and its dense
@@ -1968,6 +2029,27 @@ def stage_verify(ctx: Dict) -> Dict:
         except Exception as exc:
             logger.warning("Verify: could not read genre embedding sidecar: %s", exc)
             issues.append("genre_embedding_unreadable")
+    # Sonic-variant guard: when the MERT sidecar exists and folding is enabled, the
+    # active sonic variant MUST be the learned embedding. A mismatch means an
+    # artifacts rebuild clobbered the variant and the fold did not restore it —
+    # generation would silently run on the tower rollback space. Fail loudly.
+    try:
+        fold_enabled, active_variant = _mert_fold_settings(ctx["config_path"])
+        mert_sidecar = artifact_path.parent / "mert_sidecar.npz"
+        if fold_enabled and mert_sidecar.exists():
+            with np.load(artifact_path, allow_pickle=True) as _z:
+                current_variant = (
+                    str(_z["X_sonic_variant"]) if "X_sonic_variant" in _z else ""
+                )
+            if current_variant != active_variant:
+                logger.error(
+                    "Verify: X_sonic_variant=%r but expected %r — MERT fold missing or "
+                    "clobbered; generation would use the wrong sonic space.",
+                    current_variant, active_variant,
+                )
+                issues.append("sonic_variant_mismatch")
+    except Exception as exc:
+        logger.warning("Verify: could not check X_sonic_variant: %s", exc)
     return {
         "skipped": False,
         "tracks": int(bundle.track_ids.size),
@@ -2000,7 +2082,6 @@ def stage_mert(ctx: Dict) -> Dict:
     import yaml
     from scripts.extract_mert_sidecar import (
         ShardStore,
-        load_artifact_track_ids,
         load_paths,
         merge_shards,
         MODEL_NAME,
@@ -2028,16 +2109,23 @@ def stage_mert(ctx: Dict) -> Dict:
     except Exception:
         pass
 
-    # Determine artifact track_ids and shard directory.
-    artifact_path = out_dir / "data_matrices_step1.npz"
+    # Determine the shard directory and merged-sidecar path.
     shard_dir = out_dir / "mert_shards"
     sidecar_path = out_dir / "mert_sidecar.npz"
 
+    # Universe = every track with a file_path in the DB (read-only). Keyed off the
+    # DB rather than the existing artifact so newly-scanned tracks are embedded in
+    # THIS run, before the artifact is rebuilt — otherwise a fresh file would not
+    # enter the MERT sidecar until a second pass (it is not yet in the stale
+    # artifact's track_ids). stage_artifacts folds the sidecar into the rebuilt
+    # artifact afterwards, aligning to the canonical track order.
+    db_paths: Dict[str, str] = {}
     try:
-        artifact_track_ids: List[str] = load_artifact_track_ids(artifact_path)
+        db_paths = load_paths(ctx["db_path"])
     except Exception as exc:
-        logger.warning("stage_mert: cannot load artifact track_ids: %s", exc)
+        logger.warning("stage_mert: cannot load file paths from db: %s", exc)
         return {"skipped": True, "pending": 0, "reason": str(exc)}
+    universe_ids: List[str] = list(db_paths.keys())
 
     # Build the skip set from the existing manifest (if any).
     skip_ids: set = set()
@@ -2054,28 +2142,16 @@ def stage_mert(ctx: Dict) -> Dict:
         except Exception as exc:
             logger.warning("stage_mert: manifest read failed, treating as empty: %s", exc)
 
-    pending_ids = [t for t in artifact_track_ids if t not in skip_ids]
+    # Force re-extracts the whole DB universe; otherwise only what isn't done yet.
+    pending_ids = list(universe_ids) if force else [t for t in universe_ids if t not in skip_ids]
     if limit is not None:
         pending_ids = pending_ids[:limit]
 
-    if not pending_ids and not force:
+    if not pending_ids:
         logger.info("stage_mert: nothing pending (manifest complete); skipping")
         return {"skipped": True, "pending": 0}
 
-    # Force re-extracts everything in the artifact.
-    if force:
-        pending_ids = artifact_track_ids
-        if limit is not None:
-            pending_ids = pending_ids[:limit]
-
     logger.info("stage_mert: %d track(s) pending (device=%s)", len(pending_ids), device)
-
-    # Load file paths for the pending tracks only.
-    db_paths: Dict[str, str] = {}
-    try:
-        db_paths = load_paths(ctx["db_path"])
-    except Exception as exc:
-        logger.warning("stage_mert: cannot load file paths from db: %s", exc)
 
     items: List[Tuple[str, Optional[str]]] = [
         (tid, db_paths.get(tid)) for tid in pending_ids

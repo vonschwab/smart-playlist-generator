@@ -104,6 +104,22 @@ def _seed_done(out_dir: Path, track_ids: list[str]) -> None:
     store.flush()
 
 
+def _write_mert_sidecar(out_dir: Path, track_ids: list[str], dim: int = 8) -> Path:
+    """Minimal merged MERT sidecar (non-degenerate embeddings so whiten fits)."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    n = len(track_ids)
+    path = out_dir / "mert_sidecar.npz"
+    np.savez(
+        path,
+        track_ids=np.array(track_ids, dtype=object),
+        emb_start=np.random.RandomState(0).randn(n, dim).astype(np.float32),
+        emb_mid=np.random.RandomState(1).randn(n, dim).astype(np.float32),
+        emb_end=np.random.RandomState(2).randn(n, dim).astype(np.float32),
+        model_revision=np.array("testrev"),
+    )
+    return path
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage behavior
 # ─────────────────────────────────────────────────────────────────────────────
@@ -217,11 +233,17 @@ def test_mert_stage_failure_does_not_crash_run(tmp_path, monkeypatch):
 def test_mert_fingerprint_changes_on_new_track(tmp_path):
     out_dir = tmp_path / "artifacts"
     _write_artifact(out_dir, ["t1", "t2"])
-    db = _metadata_db(tmp_path, {"t1": "x", "t2": "x"})
+    db = _metadata_db(tmp_path, {"t1": "p1", "t2": "p2"})
 
     ctx = _ctx(tmp_path, db, out_dir)
     fp_before = al.compute_stage_fingerprint(ctx, "mert")
-    _write_artifact(out_dir, ["t1", "t2", "t3"])  # new track lands in the artifact
+    # A newly-scanned track in the DB (not yet in the artifact) must flip the
+    # fingerprint, so the orchestrator re-runs MERT in the same pass and embeds it
+    # BEFORE the artifact rebuild — the L2 single-pass new-file fix.
+    ctx["conn"].execute(
+        "INSERT INTO tracks VALUES (?, 'Artist', 'Album', 'alb1', ?, ?)",
+        ("t3", "t3", "p3"),
+    )
     fp_after = al.compute_stage_fingerprint(ctx, "mert")
     ctx["conn"].close()
 
@@ -235,3 +257,87 @@ def test_mert_stage_registered_after_sonic():
     # sonic populates first; MERT is a separate sidecar consumed at fold time
     assert order.index("mert") == order.index("sonic") + 1
     assert order.index("mert") < order.index("artifacts")
+
+
+def test_mert_stage_embeds_db_tracks_absent_from_artifact(tmp_path, monkeypatch):
+    """L2: new files (in the DB, not yet in the stale artifact) are embedded now.
+
+    Before the fix the stage keyed off the artifact's track_ids, so a freshly
+    scanned file was invisible until a second pass. Now it keys off the DB.
+    """
+    out_dir = tmp_path / "artifacts"
+    _write_artifact(out_dir, ["t1"])  # stale artifact carries only t1
+    files = {tid: _write_wav(tmp_path / f"{tid}.wav") for tid in ("t1", "t2", "t3")}
+    db = _metadata_db(tmp_path, files)  # DB has t1, t2, t3
+    emb = _install_fake_embedder(monkeypatch)
+
+    ctx = _ctx(tmp_path, db, out_dir)
+    result = al.stage_mert(ctx)
+    ctx["conn"].close()
+
+    assert result["skipped"] is False
+    assert result["pending"] == 3  # all DB tracks, not just the artifact's t1
+    assert emb.calls == 3
+    sidecar = np.load(result["sidecar"], allow_pickle=True)
+    assert sorted(str(t) for t in sidecar["track_ids"]) == ["t1", "t2", "t3"]
+
+
+def test_artifacts_stage_folds_mert_and_sets_variant(tmp_path, monkeypatch):
+    """L1: stage_artifacts auto-folds the MERT sidecar and restores variant=mert."""
+    out_dir = tmp_path / "artifacts"
+    out_dir.mkdir(parents=True)
+    track_ids = ["t1", "t2", "t3"]
+    _write_mert_sidecar(out_dir, track_ids)
+
+    def _fake_build(args_ns):
+        # Simulate the builder leaving the tower variant active (the clobber).
+        np.savez(
+            Path(args_ns.output),
+            track_ids=np.array(track_ids, dtype=object),
+            X_sonic=np.zeros((3, 4), np.float32),
+            X_genre_raw=np.zeros((3, 2), np.float32),
+            X_sonic_variant=np.array("tower_weighted"),
+        )
+
+    monkeypatch.setattr(
+        "scripts.build_beat3tower_artifacts.build_artifacts", _fake_build
+    )
+
+    db = _metadata_db(tmp_path, {t: "x" for t in track_ids})
+    ctx = _ctx(tmp_path, db, out_dir)
+    result = al.stage_artifacts(ctx)
+    ctx["conn"].close()
+
+    assert result["skipped"] is False
+    with np.load(out_dir / "data_matrices_step1.npz", allow_pickle=True) as z:
+        assert str(z["X_sonic_variant"]) == "mert"
+        assert "X_sonic_mert" in z
+        assert z["X_sonic_mert"].shape[0] == 3
+
+
+def test_verify_flags_sonic_variant_mismatch(tmp_path):
+    """verify guard: tower variant + a MERT sidecar present is a loud failure."""
+    out_dir = tmp_path / "artifacts"
+    out_dir.mkdir(parents=True)
+    track_ids = ["t1", "t2"]
+    np.savez(
+        out_dir / "data_matrices_step1.npz",
+        track_ids=np.array(track_ids, dtype=object),
+        artist_keys=np.array(["a", "a"]),
+        track_artists=np.array(["a", "a"]),
+        track_titles=np.array(["x", "y"]),
+        X_sonic=np.zeros((2, 3), np.float32),
+        X_sonic_raw=np.zeros((2, 3), np.float32),
+        X_genre_raw=np.zeros((2, 1), np.float32),
+        X_genre_smoothed=np.zeros((2, 1), np.float32),
+        genre_vocab=np.array(["rock"]),
+        X_sonic_variant=np.array("tower_weighted"),
+    )
+    _write_mert_sidecar(out_dir, track_ids)
+    db = _metadata_db(tmp_path, {"t1": "x", "t2": "x"})
+
+    ctx = _ctx(tmp_path, db, out_dir)
+    result = al.stage_verify(ctx)
+    ctx["conn"].close()
+
+    assert "sonic_variant_mismatch" in result["issues"]

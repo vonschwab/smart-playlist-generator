@@ -23,6 +23,8 @@ AnalyzeLibraryStage = Literal[
     "lastfm",
     "sonic",
     "mert",
+    "adjudicate",
+    "apply",
     "enrich",
     "publish",
     "genre-sim",
@@ -32,6 +34,12 @@ AnalyzeLibraryStage = Literal[
     "verify",
 ]
 
+# Canonical default stage order — the single source of truth shared by the CLI
+# (scripts/analyze_library.STAGE_ORDER_DEFAULT imports this) and the GUI/web
+# worker. The album-grain Claude (Sonnet) adjudicator (`adjudicate` + `apply`)
+# is the genre-production path; the legacy tag-grain `enrich` stage is opt-in
+# only (still a valid stage for `--stages enrich`, but never in the default run).
+# Keep these in sync — a past divergence silently left the GUI on `enrich`.
 ANALYZE_LIBRARY_STAGE_ORDER: tuple[AnalyzeLibraryStage, ...] = (
     "scan",
     "genres",
@@ -39,7 +47,8 @@ ANALYZE_LIBRARY_STAGE_ORDER: tuple[AnalyzeLibraryStage, ...] = (
     "lastfm",
     "sonic",
     "mert",
-    "enrich",
+    "adjudicate",
+    "apply",
     "publish",
     "genre-sim",
     "artifacts",
