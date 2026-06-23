@@ -60,7 +60,12 @@ def _artifact_track_ids() -> list[str]:
 
 
 def _paths_for(track_ids: list[str]) -> dict[str, str]:
-    con = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
+    # immutable=1: read metadata.db as a fixed snapshot of the MAIN file, ignoring the
+    # WAL/-shm. Over the /mnt/c (DrvFs) boundary WAL's shared-memory index can't be
+    # coordinated with the Windows side, which raised "disk I/O error" under mode=ro.
+    # The analyze pipeline checkpoints the WAL into the main file before invoking this,
+    # so the immutable snapshot is complete and current.
+    con = sqlite3.connect(f"file:{DB}?immutable=1", uri=True)
     con.row_factory = sqlite3.Row
     cur = con.cursor()
     out: dict[str, str] = {}
