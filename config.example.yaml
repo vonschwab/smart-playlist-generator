@@ -277,14 +277,17 @@ playlists:
       # genre_arc_floor_percentile / genre_admission_percentile use distribution-relative
       # floors: Task 8 calibrates the values below.
       genre_steering_enabled: true
-      # Steering space (opt-in; default "dense" preserves legacy behavior):
-      #   dense    — interpolate the 64-dim PMI-SVD genre embedding (corpus co-occurrence).
-      #   taxonomy — route the arc through the SP3a taxonomy graph (twee pop -> jangle pop
-      #              -> indie pop -> synth-pop) and score with the hub-damped taxonomy
-      #              similarity, so broad genres connect the arc without collapsing it.
-      #              Needs no per-track taxonomy assignments. Uncovered piers fall back to
-      #              no genre arc for that segment (sonic-only).
-      genre_steering_source: dense    # dense | taxonomy
+      # Steering space (default "taxonomy"):
+      #   taxonomy — (DEFAULT) route the arc through the SP3a taxonomy graph (twee pop ->
+      #              jangle pop -> indie pop -> synth-pop) and score with the hub-damped
+      #              taxonomy similarity, so broad genres connect the arc without collapsing
+      #              it. Uses the in-artifact X_genre_raw (rebuild-robust); needs no per-track
+      #              taxonomy assignments. Uncovered piers fall back to sonic-only.
+      #   dense    — legacy 64-dim PMI-SVD genre embedding (corpus co-occurrence). Opt-in
+      #              only; requires the dim64 sidecar. If its X_genre_dense is unavailable
+      #              (sidecar vocab mismatch) generation RAISES rather than silently steering
+      #              on nothing — rebuild via scripts/build_genre_embedding.py to use it.
+      genre_steering_source: taxonomy    # taxonomy | dense
       # genre_admission_aggregate: centroid | per_seed (default: centroid)
       #   centroid: one mean-of-seeds centroid for the global admission gate (legacy)
       #   per_seed: union of per-seed neighborhoods — admits tracks near ANY seed, not

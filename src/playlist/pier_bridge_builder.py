@@ -403,6 +403,29 @@ def _greedy_terminal_path(
     return _order_avoiding_adjacent_artist(selected, artist_key_fn, blocked_artist_keys)
 
 
+def _require_usable_genre_steering(
+    cfg: "PierBridgeConfig", X_genre_dense: Optional[np.ndarray]
+) -> None:
+    """Fail loudly when a configured genre-steering source cannot act — a configured
+    knob that can't act is an error, not a silently dead segment.
+
+    'taxonomy' (the canonical default) steers on the in-artifact X_genre_raw and can
+    always act. 'dense' requires the dim64 sidecar embedding (X_genre_dense), which is
+    absent when the sidecar vocabulary does not match the artifact; the old code then
+    silently produced zero arc targets on every segment ("no usable g_targets").
+    """
+    if not bool(getattr(cfg, "genre_steering_enabled", False)):
+        return
+    source = str(getattr(cfg, "genre_steering_source", "taxonomy"))
+    if source == "dense" and X_genre_dense is None:
+        raise ValueError(
+            "genre_steering_source='dense' but the dense genre embedding is unavailable "
+            "(X_genre_dense is None — the dim64 sidecar vocabulary does not match the "
+            "artifact). Use genre_steering_source='taxonomy' (the default) or rebuild "
+            "the dense sidecar via scripts/build_genre_embedding.py."
+        )
+
+
 def build_pier_bridge_playlist(
     *,
     seed_track_ids: List[str],
@@ -650,6 +673,9 @@ def build_pier_bridge_playlist(
     if X_genre_smoothed is None:
         X_genre_smoothed = getattr(bundle, "X_genre_smoothed", None)
 
+    # No silent no-op: a configured steering source that cannot act must fail loudly.
+    _require_usable_genre_steering(cfg, X_genre_dense)
+
     # Per-genre track counts for taxonomy waypoint mass filter (routing fix)
     _genre_vocab_list = list(np.asarray(bundle.genre_vocab, dtype=object)) if getattr(bundle, "genre_vocab", None) is not None else []
     genre_track_counts: Optional[dict[str, int]] = None
@@ -667,7 +693,7 @@ def build_pier_bridge_playlist(
     pair_sim_provider = None
     if (
         bool(cfg.genre_steering_enabled)
-        and str(getattr(cfg, "genre_steering_source", "dense")) == "taxonomy"
+        and str(getattr(cfg, "genre_steering_source", "taxonomy")) == "taxonomy"
         and float(getattr(cfg, "genre_pair_floor", 0.0)) > 0.0
     ):
         if X_genre_raw is not None and _genre_vocab_list:
@@ -1720,7 +1746,7 @@ def build_pier_bridge_playlist(
         #   - "dense" (legacy): interpolate the 64-dim dense PMI-SVD vectors (beam scores
         #     against X_genre_dense). Kept SEPARATE from segment_g_targets (dj-bridging
         #     pooling) to avoid dimension clashes.
-        _steering_source = str(getattr(cfg, "genre_steering_source", "dense"))
+        _steering_source = str(getattr(cfg, "genre_steering_source", "taxonomy"))
         if (
             bool(cfg.genre_steering_enabled)
             and _steering_source == "taxonomy"

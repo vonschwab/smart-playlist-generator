@@ -101,9 +101,11 @@ class PierBridgeConfig:
     # below genre_arc_floor (absolute fallback), and adds weight_genre * genre_sim
     # as a third term (bridge/transition/genre weights are pre-renormalized to sum to 1).
     genre_steering_enabled: bool = False
-    # Steering space: "dense" (legacy PMI-SVD embedding) | "taxonomy" (SP3a graph
-    # arc routing + hub-damped similarity). Opt-in; default preserves behavior.
-    genre_steering_source: str = "dense"
+    # Steering space: "taxonomy" (SP3a graph arc routing + hub-damped similarity —
+    # the canonical default; uses in-artifact X_genre_raw, rebuild-robust) | "dense"
+    # (legacy PMI-SVD sidecar, opt-in only; build_pier_bridge_playlist raises if its
+    # X_genre_dense is unavailable rather than silently steering on nothing).
+    genre_steering_source: str = "taxonomy"
     # Per-segment pool genre blend: blends genre harmonic-mean with sonic bridge
     # score during segment pool re-ranking. 0.0 = pure sonic (default, no change).
     segment_pool_genre_weight: float = 0.0
@@ -328,7 +330,7 @@ def resolve_pier_bridge_tuning(
         "genre_penalty_threshold": float(tuning.genre_penalty_threshold),
         "genre_penalty_strength": float(tuning.genre_penalty_strength),
         "genre_steering_enabled": bool(tuning.genre_steering_enabled),
-        "genre_steering_source": str(getattr(tuning, "genre_steering_source", "dense")),
+        "genre_steering_source": str(getattr(tuning, "genre_steering_source", "taxonomy")),
         "segment_pool_genre_weight": float(getattr(tuning, "segment_pool_genre_weight", 0.0)),
         "weight_genre": float(tuning.weight_genre),
         "genre_arc_floor": float(tuning.genre_arc_floor),

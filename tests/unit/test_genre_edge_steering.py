@@ -24,7 +24,7 @@ def test_beam_floor_rejects_off_genre_candidate():
     Xn, dense = _diag4()
     cfg = PierBridgeConfig(
         bridge_floor=-1.0, transition_floor=-1.0, progress_enabled=False,
-        genre_steering_enabled=True, weight_genre=0.2, genre_arc_floor=0.5,
+        genre_steering_enabled=True, genre_steering_source="dense", weight_genre=0.2, genre_arc_floor=0.5,
         weight_bridge=0.5, weight_transition=0.3,
     )
     # Arc target == piers' genre; cand 1 is on-arc (sim 1.0), cand 2 off (sim 0.0).
@@ -42,7 +42,7 @@ def test_beam_steering_prefers_higher_genre_when_sonic_tied():
     # No floor (0.0) so cand 2 is allowed; steering weight should still rank cand 1 first.
     cfg = PierBridgeConfig(
         bridge_floor=-1.0, transition_floor=-1.0, progress_enabled=False,
-        genre_steering_enabled=True, weight_genre=0.3, genre_arc_floor=0.0,
+        genre_steering_enabled=True, genre_steering_source="dense", weight_genre=0.3, genre_arc_floor=0.0,
         weight_bridge=0.4, weight_transition=0.3,
     )
     # Arc target == piers' genre; cand 1 (sim 1.0) outranks cand 2 (sim 0.0).
@@ -177,7 +177,7 @@ def test_arc_vote_is_first_class_and_uses_waypoint_target():
     ])
     g_targets = [np.array([0.0, 1.0, 0.0])]  # step-0 target == cand 1's genre
     cfg = PierBridgeConfig(bridge_floor=-1.0, transition_floor=-1.0, progress_enabled=False,
-                           genre_steering_enabled=True, weight_genre=0.4,
+                           genre_steering_enabled=True, genre_steering_source="dense", weight_genre=0.4,
                            genre_arc_floor_percentile=0.0, weight_bridge=0.4, weight_transition=0.2)
     path, *_ = _beam_search_segment(0, 3, 1, [2, 1], Xn, Xn, None, None, None, None, cfg, 5,
                                     X_genre_dense=dense, g_targets_override=g_targets)

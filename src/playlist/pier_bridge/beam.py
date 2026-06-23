@@ -814,7 +814,7 @@ def _beam_search_segment(
     # Steering space: dense PMI-SVD embedding (legacy) vs taxonomy genre-vocab.
     # In taxonomy mode the arc targets are genre-vocab vectors, so the arc vote must
     # score in the SAME genre-vocab space (X_genre_norm), not the 64-dim dense space.
-    _steering_source = str(getattr(cfg, "genre_steering_source", "dense"))
+    _steering_source = str(getattr(cfg, "genre_steering_source", "taxonomy"))
     if _steering and _steering_source != "taxonomy" and X_genre_dense is not None:
         X_genre_for_sim = X_genre_dense  # rows already L2-normalized
         genre_present = np.linalg.norm(X_genre_dense, axis=1) > 1e-9

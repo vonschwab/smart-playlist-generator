@@ -125,7 +125,7 @@ class PierBridgeTuning:
     genre_penalty_threshold: float
     genre_penalty_strength: float
     genre_steering_enabled: bool = False
-    genre_steering_source: str = "dense"
+    genre_steering_source: str = "taxonomy"
     weight_genre: float = 0.0
     genre_arc_floor: float = 0.0
     genre_arc_floor_percentile: float = 0.0
@@ -339,9 +339,9 @@ def resolve_pier_bridge_tuning(
     genre_penalty_strength = float(max(0.0, min(1.0, float(genre_penalty_strength))))
 
     genre_steering_enabled = bool(pier_raw.get("genre_steering_enabled", False))
-    genre_steering_source = str(pier_raw.get("genre_steering_source", "dense")).strip().lower()
+    genre_steering_source = str(pier_raw.get("genre_steering_source", "taxonomy")).strip().lower()
     if genre_steering_source not in {"dense", "taxonomy"}:
-        genre_steering_source = "dense"
+        genre_steering_source = "taxonomy"
     sources["genre_steering_source"] = (
         "pier_bridge.genre_steering_source"
         if "genre_steering_source" in pier_raw

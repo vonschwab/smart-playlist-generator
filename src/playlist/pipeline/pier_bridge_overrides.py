@@ -105,7 +105,7 @@ def apply_pier_bridge_overrides(
         genre_penalty_threshold=float(tuning.genre_penalty_threshold),
         genre_penalty_strength=float(tuning.genre_penalty_strength),
         genre_steering_enabled=bool(tuning.genre_steering_enabled),
-        genre_steering_source=str(getattr(tuning, "genre_steering_source", "dense")),
+        genre_steering_source=str(getattr(tuning, "genre_steering_source", "taxonomy")),
         segment_pool_genre_weight=float(getattr(tuning, "segment_pool_genre_weight", 0.0)),
         weight_genre=float(tuning.weight_genre),
         genre_arc_floor=float(tuning.genre_arc_floor),

@@ -97,7 +97,7 @@
   "genre_penalty_strength": 0.12,
   "genre_penalty_threshold": 0.25,
   "genre_steering_enabled": false,
-  "genre_steering_source": "dense",
+  "genre_steering_source": "taxonomy",
   "genre_tie_break_band": 0.025,
   "genre_tiebreak_weight": 0.06,
   "initial_beam_width": 20,
