@@ -1,3 +1,4 @@
+import sqlite3
 import types
 
 import numpy as np
@@ -67,3 +68,45 @@ def test_energy_registered_and_ordered():
     assert "energy" in al.STAGE_FUNCS
     assert "energy" in al.STAGE_ORDER_DEFAULT
     assert al.STAGE_ORDER_DEFAULT.index("energy") == al.STAGE_ORDER_DEFAULT.index("artifacts") + 1
+
+
+def test_checkpoint_metadata_for_wsl_flushes_wal(tmp_path):
+    """After checkpoint, an immutable (main-file-only) read sees the committed data —
+    proving the WSL extractor's snapshot read will be complete."""
+    db = tmp_path / "metadata.db"
+    con = sqlite3.connect(db)
+    con.execute("PRAGMA journal_mode=WAL")
+    con.execute("CREATE TABLE t (id INTEGER)")
+    con.execute("INSERT INTO t VALUES (1)")
+    con.commit()  # committed into the WAL, not yet folded into the main file
+    con.close()
+
+    al._checkpoint_metadata_for_wsl(str(db))  # must not raise
+
+    ro = sqlite3.connect(f"file:{db}?immutable=1", uri=True)  # main file only, ignores WAL
+    assert ro.execute("SELECT COUNT(*) FROM t").fetchone()[0] == 1
+    ro.close()
+
+
+def test_checkpoint_metadata_for_wsl_best_effort(tmp_path):
+    al._checkpoint_metadata_for_wsl(None)                        # no-op, no raise
+    al._checkpoint_metadata_for_wsl(str(tmp_path / "nope.db"))   # no raise
+
+
+def test_stage_energy_checkpoints_before_extract(tmp_path, monkeypatch):
+    _make_artifact(tmp_path)
+    db = tmp_path / "metadata.db"
+    sqlite3.connect(db).close()
+    order = []
+    monkeypatch.setattr(al, "_energy_pending", lambda out_dir: (2, 2))
+    monkeypatch.setattr(al, "_energy_preflight", lambda cfg: None)
+    monkeypatch.setattr(al, "_checkpoint_metadata_for_wsl", lambda p: order.append(("checkpoint", p)))
+    monkeypatch.setattr(
+        al, "_energy_run",
+        lambda cfg, *, force, cancellation_check: order.append(("run",)) or {
+            "ok": 2, "missing": 0, "error": 0, "total": 2, "sidecar": "/x.npz"},
+    )
+    ctx = _ctx(tmp_path)
+    ctx["db_path"] = str(db)
+    al.stage_energy(ctx)
+    assert order == [("checkpoint", str(db)), ("run",)]  # checkpoint BEFORE the WSL extract

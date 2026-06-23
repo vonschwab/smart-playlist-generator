@@ -2250,6 +2250,28 @@ def _energy_run(cfg, *, force, cancellation_check):
     )
 
 
+def _checkpoint_metadata_for_wsl(db_path) -> None:
+    """Fold metadata.db's WAL into the main file before the WSL energy extractor reads it.
+
+    The extractor opens metadata.db as an immutable snapshot over /mnt/c; WAL's -shm
+    index can't be coordinated across the Windows<->WSL boundary, so data still only in
+    the WAL would be invisible (and mode=ro raised "disk I/O error"). Checkpointing here
+    makes the main file complete and current for that snapshot. Best-effort: even a busy
+    checkpoint flushes committed frames, which is all the immutable read needs.
+    """
+    if not db_path:
+        return
+    try:
+        conn = sqlite3.connect(str(db_path), timeout=30.0)
+        try:
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        finally:
+            conn.close()
+        logger.info("stage_energy: checkpointed metadata.db (WAL flushed for WSL immutable read)")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("stage_energy: metadata.db checkpoint failed (continuing): %s", exc)
+
+
 def stage_energy(ctx: Dict) -> Dict:
     """Run the WSL-only Essentia energy scan into <artifact>/energy/energy_sidecar.npz.
 
@@ -2279,6 +2301,8 @@ def stage_energy(ctx: Dict) -> Dict:
     logger.info("stage_energy: %d/%d track(s) pending (workers=%d, distro=%s)",
                 pending, total, cfg.workers, cfg.distro)
     _energy_preflight(cfg)  # raises RuntimeError if WSL/venv/models missing
+    # Flush metadata.db's WAL so the WSL extractor's immutable snapshot read is complete.
+    _checkpoint_metadata_for_wsl(ctx.get("db_path"))
     res = _energy_run(cfg, force=bool(args.force),
                       cancellation_check=ctx.get("cancellation_check"))
     return {"skipped": False, "pending": pending, **res}
