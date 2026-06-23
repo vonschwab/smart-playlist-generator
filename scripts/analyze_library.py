@@ -148,6 +148,45 @@ def _mert_fold_settings(config_path: str) -> Tuple[bool, str]:
     return enabled, variant
 
 
+def _assert_dbs_not_aliased(*db_paths: str) -> None:
+    """Refuse to run if a SQLite DB (or its parent dir) is reached via a symlink/junction.
+
+    Opening ONE SQLite DB through two different path strings (e.g. the real path AND a
+    worktree symlink) creates two independent WAL/SHM sets that checkpoint over each
+    other and corrupt the B-tree. This corrupted the genre sidecar on 2026-06-22. The
+    pipeline hardcodes its data paths to ROOT_DIR, so a symlinked DB only happens when
+    someone aliased it to run from a git worktree — fail loudly here instead of silently
+    corrupting. Run analyze from the MAIN checkout. See the project memory
+    `feedback_worktree_sqlite_wal_aliasing`.
+    """
+    import stat as _stat
+
+    def _is_reparse(p: Path) -> bool:
+        try:
+            st = os.lstat(p)
+        except OSError:
+            return False
+        if _stat.S_ISLNK(st.st_mode):
+            return True
+        attrs = getattr(st, "st_file_attributes", 0)  # Windows junction / dir-symlink
+        return bool(attrs & 0x400)  # FILE_ATTRIBUTE_REPARSE_POINT
+
+    offenders: List[str] = []
+    for raw in db_paths:
+        p = Path(raw)
+        if _is_reparse(p):
+            offenders.append(str(p))
+        elif _is_reparse(p.parent):
+            offenders.append(f"{p}  (via symlinked dir {p.parent})")
+    if offenders:
+        raise RuntimeError(
+            "Refusing to run analyze: SQLite DB reached through a symlink/junction -> "
+            f"{'; '.join(offenders)}. This causes WAL-aliasing corruption (two -wal files "
+            "for one DB). Run the analyze pipeline from the MAIN checkout, not a git "
+            "worktree. See memory feedback_worktree_sqlite_wal_aliasing."
+        )
+
+
 def _sidecar_count(query: str, params: tuple = ()) -> int:
     """COUNT(*) against the enrichment sidecar, 0 if absent/unreadable."""
     try:
@@ -793,7 +832,10 @@ def stage_scan(ctx: Dict) -> Dict:
     except sqlite3.OperationalError:
         file_genres_before = None
 
-    scanner = LibraryScanner(config_path=ctx["config_path"])
+    # Honor the orchestrator's resolved db_path (from --db-path / config) instead of
+    # letting LibraryScanner fall back to its ROOT_DIR/data/metadata.db default —
+    # that default ignored --db-path entirely (a silent "looks-wired-but-isn't" gap).
+    scanner = LibraryScanner(config_path=ctx["config_path"], db_path=ctx["db_path"])
     scan_stats = scanner.run(
         quick=quick,
         limit=limit,
@@ -2355,6 +2397,9 @@ def run_pipeline(
 
     cfg = Config(args.config)
     db_path = args.db_path or cfg.library_database_path
+    # Hard stop before opening anything: a symlinked/aliased DB means a worktree run
+    # that would WAL-corrupt the DB (the 2026-06-22 incident). Fail loudly instead.
+    _assert_dbs_not_aliased(db_path, str(ENRICHMENT_DB_PATH))
     config_hash = compute_config_hash(cfg, args)
     git_commit = _get_git_commit()
 

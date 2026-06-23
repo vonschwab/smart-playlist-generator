@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from argparse import Namespace
 from pathlib import Path
 
 import numpy as np
+import pytest
 import soundfile as sf
 
 import scripts.analyze_library as al
@@ -341,3 +343,19 @@ def test_verify_flags_sonic_variant_mismatch(tmp_path):
     ctx["conn"].close()
 
     assert "sonic_variant_mismatch" in result["issues"]
+
+
+def test_guard_refuses_symlinked_db(tmp_path):
+    """A SQLite DB reached via a symlink must hard-stop (WAL-aliasing corruption guard)."""
+    real = tmp_path / "real.db"
+    real.write_bytes(b"")
+    link = tmp_path / "alias.db"
+    try:
+        os.symlink(real, link)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlink creation not permitted in this environment")
+
+    with pytest.raises(RuntimeError, match="symlink"):
+        al._assert_dbs_not_aliased(str(link))
+    # A normal real file (and a non-existent path) must NOT raise.
+    al._assert_dbs_not_aliased(str(real), str(tmp_path / "does_not_exist.db"))
