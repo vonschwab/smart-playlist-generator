@@ -362,6 +362,7 @@ def build_pier_bridge_playlist(
     onset_rate: Optional[np.ndarray] = None,
     energy_matrix: Optional[np.ndarray] = None,
     min_gap: int = 1,
+    deadline: Optional[float] = None,
 ) -> PierBridgeResult:
     """
     Build playlist using pier + bridge strategy.
@@ -964,6 +965,15 @@ def build_pier_bridge_playlist(
         last_edge_components: List[dict] = []
 
         for floor_attempt_idx, bridge_floor in enumerate(backoff_attempts):
+            # Shared generation deadline: if a deadline was passed from core.py,
+            # stop further relaxation attempts and bail to fallback placement.
+            if deadline is not None and time.monotonic() > deadline:
+                logger.warning(
+                    "Generation deadline exceeded in bridge-floor backoff "
+                    "(floor_attempt=%d) — bailing to fallback placement",
+                    floor_attempt_idx,
+                )
+                break
             backoff_used_count = floor_attempt_idx + 1
             widened = bool(
                 infeasible_handling
@@ -1028,6 +1038,15 @@ def build_pier_bridge_playlist(
             last_beam_width = int(beam_width)
 
             for attempt in range(max_expansion_attempts):
+                # Shared generation deadline: bail this expansion attempt loop if
+                # the total generation budget has been exceeded.
+                if deadline is not None and time.monotonic() > deadline:
+                    logger.warning(
+                        "Generation deadline exceeded in expansion attempt %d "
+                        "(bridge_floor=%.3f) — bailing to fallback placement",
+                        attempt, float(bridge_floor),
+                    )
+                    break
                 # Cooperative cancellation: poll between beam-run attempts so a
                 # narrow-mode backoff/expansion cascade cannot grind on after the
                 # user requests cancel. raise_if_cancelled() is a no-op unless a
@@ -1563,6 +1582,20 @@ def build_pier_bridge_playlist(
     _pb_build_start = time.monotonic()
     for seg_idx in range(num_segments):
         raise_if_cancelled()  # cooperative cancellation at each segment boundary
+        # Shared generation deadline: if the caller passed a deadline (computed
+        # once before all One-Each retries in core.py), mark this segment as
+        # over-budget so all relaxation tiers are skipped and the segment goes
+        # straight to guaranteed-fill fallback. Without this the segment loop
+        # can grind past the deadline on starved pools.
+        _deadline_exceeded_at_segment_start = (
+            deadline is not None and time.monotonic() > deadline
+        )
+        if _deadline_exceeded_at_segment_start:
+            logger.warning(
+                "Generation deadline exceeded at segment %d start — "
+                "forcing remaining segments to fallback placement",
+                seg_idx,
+            )
         pier_a = ordered_seeds[seg_idx]
         pier_b = ordered_seeds[seg_idx + 1]
         interior_len = segment_lengths[seg_idx]
@@ -1738,8 +1771,16 @@ def build_pier_bridge_playlist(
         soft_genre_penalty_hits_segment = 0
         soft_genre_penalty_edges_scored_segment = 0
         local_sonic_stats_segment: Dict[str, Any] = {}
+        # Pre-initialize variables that are set inside the relax loop so that
+        # an early break (e.g. deadline exceeded before the loop body runs)
+        # doesn't leave them unbound for the downstream diagnostics code.
+        last_waypoint_stats: Dict[str, Any] = {}
+        last_pool_diag: Dict[str, Any] = {}
+        segment_edge_components: List[dict] = []
 
         for relax_idx, relax in enumerate(relaxation_attempts):
+            if _deadline_exceeded_at_segment_start:
+                break  # skip all beam attempts; fall through to guaranteed-fill
             cfg = relax["cfg"]
             cfg_used_for_segment = cfg
             attempt_allow_detours = segment_allow_detours_base or bool(relax.get("force_allow_detours"))
@@ -1814,9 +1855,14 @@ def build_pier_bridge_playlist(
         # transition x genre-arc cross-product below can then grind for minutes.
         # Once cumulative build time exceeds the budget, skip the relaxation tiers
         # for this and every later segment and use the fallback placement instead.
+        # The shared generation deadline (passed from core.py) takes priority when
+        # set; otherwise fall back to the legacy per-build anchor check.
+        _now = time.monotonic()
         over_relaxation_budget = (
-            time.monotonic() - _pb_build_start
-        ) > _SEGMENT_RELAXATION_BUDGET_S
+            _deadline_exceeded_at_segment_start
+            or (deadline is not None and _now > deadline)
+            or (_now - _pb_build_start) > _SEGMENT_RELAXATION_BUDGET_S
+        )
         if segment_path is None and over_relaxation_budget and not pool_too_small_for_segment:
             logger.warning(
                 "Segment %d: floor-relaxation budget (%.0fs) exceeded — skipping "
@@ -1830,7 +1876,8 @@ def build_pier_bridge_playlist(
         if segment_path is None and not pool_too_small_for_segment and not over_relaxation_budget:
             _t_attempts = _transition_floor_attempts(float(cfg_base.transition_floor))
             for _t_floor in _t_attempts[1:]:  # first value already tried in relax loop above
-                if (time.monotonic() - _pb_build_start) > _SEGMENT_RELAXATION_BUDGET_S:
+                _now2 = time.monotonic()
+                if (deadline is not None and _now2 > deadline) or (_now2 - _pb_build_start) > _SEGMENT_RELAXATION_BUDGET_S:
                     break
                 for _relax in relaxation_attempts:
                     _t_result = _run_segment_backoff_attempts(
@@ -1894,7 +1941,8 @@ def build_pier_bridge_playlist(
             # so sweep transition_floor inside the arc-floor loop here.
             _t_attempts_arc = _transition_floor_attempts(float(cfg_base.transition_floor))
             for _gf in _gfloors[1:]:  # first value already tried in the relax loop above
-                if (time.monotonic() - _pb_build_start) > _SEGMENT_RELAXATION_BUDGET_S:
+                _now3 = time.monotonic()
+                if (deadline is not None and _now3 > deadline) or (_now3 - _pb_build_start) > _SEGMENT_RELAXATION_BUDGET_S:
                     logger.warning(
                         "Segment %d: relaxation budget exceeded mid genre-arc tier — "
                         "bailing to fallback placement", seg_idx,
@@ -1956,7 +2004,10 @@ def build_pier_bridge_playlist(
             })
 
         if segment_path is None:
-            if _should_attempt_micro_pier(relaxation_enabled=relaxation_enabled, segment_path=segment_path):
+            # Skip the micro-pier attempt if the shared generation deadline has passed —
+            # go directly to the guaranteed-fill term-pool fallback below.
+            _micro_deadline_ok = (deadline is None or time.monotonic() <= deadline)
+            if _micro_deadline_ok and _should_attempt_micro_pier(relaxation_enabled=relaxation_enabled, segment_path=segment_path):
                 if bool(cfg.dj_micro_piers_enabled):
                     candidates = _micro_pier_candidate_pool(
                         cfg.dj_micro_piers_candidate_source,

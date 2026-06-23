@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import math
+import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
@@ -405,10 +406,39 @@ def generate_playlist_ds(
     # Check both the base key and the mode-specific key (e.g. genre_admission_percentile_narrow)
     # because resolve_pier_bridge_tuning isn't called until after the pool is built.
     _genre_admission_percentile: Optional[float] = None
-    _raw_pct = pb_overrides.get("genre_admission_percentile") or pb_overrides.get(f"genre_admission_percentile_{mode}")
+    _raw_pct = pb_overrides.get(f"genre_admission_percentile_{mode}")
+    if _raw_pct is None:
+        _raw_pct = pb_overrides.get("genre_admission_percentile")
     if _raw_pct is not None:
         try:
             _genre_admission_percentile = float(_raw_pct)
+        except (TypeError, ValueError):
+            pass
+
+    # Per-seed adaptive sonic admission percentile (Task 1).
+    # Mode-specific key (e.g. sonic_admission_percentile_narrow) takes priority
+    # over the base key — mirrors the _resolve_mode_number_with_source priority.
+    _sonic_admission_percentile: Optional[float] = None
+    _raw_sonic_pct = pb_overrides.get(f"sonic_admission_percentile_{mode}")
+    if _raw_sonic_pct is None:
+        _raw_sonic_pct = pb_overrides.get("sonic_admission_percentile")
+    if _raw_sonic_pct is not None:
+        try:
+            _sonic_admission_percentile = float(_raw_sonic_pct)
+        except (TypeError, ValueError):
+            pass
+
+    # Never-starve backstop (Task 3): min_pool_size lower bound on pool size.
+    # Mode-specific key (e.g. min_pool_size_narrow) takes priority over base key.
+    _min_pool_size: Optional[int] = None
+    _raw_mps = pb_overrides.get(f"min_pool_size_{mode}")
+    if _raw_mps is None:
+        _raw_mps = pb_overrides.get("min_pool_size")
+    if _raw_mps is not None:
+        try:
+            _v = int(_raw_mps)
+            if _v >= 0:
+                _min_pool_size = _v
         except (TypeError, ValueError):
             pass
 
@@ -458,10 +488,14 @@ def generate_playlist_ds(
             genre_graph_source=genre_graph_source,
         )
 
-    _candidate_cfg = replace(
-        cfg.candidate,
+    _candidate_cfg_kwargs: dict = dict(
         pace_rescue_k_energy=int(pace_settings.get("pace_rescue_k_energy", 0)),
     )
+    if _sonic_admission_percentile is not None:
+        _candidate_cfg_kwargs["sonic_admission_percentile"] = _sonic_admission_percentile
+    if _min_pool_size is not None:
+        _candidate_cfg_kwargs["min_pool_size"] = _min_pool_size
+    _candidate_cfg = replace(cfg.candidate, **_candidate_cfg_kwargs)
     pool = _build_pool(_candidate_cfg, min_genre_similarity)
     pool.stats["target_length"] = num_tracks
 
@@ -671,6 +705,15 @@ def generate_playlist_ds(
                             "style_summary": style_summary,
                     },
                 )
+            # Compute a single shared generation deadline so all One-Each retries
+            # and all segment loops inside build_pier_bridge_playlist share one
+            # budget rather than each call resetting its own start anchor.
+            # Read from the typed pb_cfg (already absorbed pb_overrides via
+            # apply_pier_bridge_overrides) so a programmatic caller passing a
+            # typed config without a raw overrides dict is honored.
+            _budget_s = float(pb_cfg.generation_budget_s)
+            _generation_deadline: Optional[float] = time.monotonic() + _budget_s
+
             def _run_pier_bridge(candidate_pool_indices: list[int]) -> PierBridgeResult:
                 return build_pier_bridge_playlist(
                     seed_track_ids=seed_track_ids_for_pier,
@@ -691,12 +734,23 @@ def generate_playlist_ds(
                     onset_rate=onset_rate_arr,
                     energy_matrix=energy_matrix,
                     min_gap=int(getattr(cfg.construct, "min_gap", 1) or 1),
+                    deadline=_generation_deadline,
                 )
 
             one_each_candidate_relaxation: Optional[Dict[str, Any]] = None
             pb_result: PierBridgeResult = _run_pier_bridge(pool_indices)
             if not pb_result.success and getattr(pb_cfg, "max_non_seed_tracks_per_artist", None) == 1:
                 for relaxation in _relaxed_one_each_candidate_attempts(_candidate_cfg, min_genre_similarity):
+                    # Reuse the shared generation deadline — do NOT reset it per
+                    # retry. Each retry re-runs the entire pier-bridge build, which
+                    # was the root cause of the 23-min strict+hyperpop grind.
+                    if _generation_deadline is not None and time.monotonic() > _generation_deadline:
+                        logger.warning(
+                            "One-Each candidate retry %d skipped — generation deadline "
+                            "exceeded; using result from previous attempt",
+                            int(relaxation.attempt),
+                        )
+                        break
                     summary = dict(relaxation.summary)
                     logger.info(
                         "One Each candidate fallback attempt %d: similarity_floor %.3f -> %.3f, sonic_floor %s -> %s, genre_gate %s -> %s",

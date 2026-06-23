@@ -634,6 +634,26 @@ def build_candidate_pool(
         sonic_seed_sim = np.max(sonic_seed_sim_matrix, axis=1)
         sonic_seed_sim[seed_mask] = -1.0
 
+        # Per-seed adaptive sonic floor: replaces min_sonic_similarity when
+        # sonic_admission_percentile is set and > 0.  Admits ~top (1-p) fraction
+        # of the seed's own sonic similarity distribution (distribution-relative,
+        # so it survives embedding rebuilds and adapts to sparse vs dense seeds).
+        _sap = getattr(cfg, "sonic_admission_percentile", None)
+        if _sap is not None and float(_sap) > 0.0:
+            from src.playlist.pier_bridge.percentiles import floor_at_percentile
+            _sdist = np.asarray(sonic_seed_sim, dtype=np.float64).copy()
+            for _si in seed_list:
+                if 0 <= int(_si) < _sdist.shape[0]:
+                    _sdist[int(_si)] = np.nan
+            _sfin = _sdist[np.isfinite(_sdist)]
+            sonic_floor = floor_at_percentile(_sfin, float(_sap))
+            logger.info(
+                "Sonic admission percentile active: p=%.2f -> effective sonic_floor=%.3f (was abs=%s)",
+                float(_sap),
+                float(sonic_floor),
+                cfg.min_sonic_similarity,
+            )
+
     # ── Rhythm-fail accumulator (for energy rescue) ──────────────────────────
     # Tracks which candidates were rejected by rhythm bands so rescue can re-admit
     # the genre+sonic-OK subset.  Initialized to all-False (no-op when rescue is off).
@@ -809,7 +829,10 @@ def build_candidate_pool(
             mode,
         )
 
-    elif min_genre_similarity is not None and (X_genre_raw is not None or X_genre_smoothed is not None):
+    elif (
+        min_genre_similarity is not None
+        or (genre_admission_percentile is not None and float(genre_admission_percentile) > 0.0)
+    ) and (X_genre_raw is not None or X_genre_smoothed is not None):
         # Choose matrix based on method
         if genre_method == "weighted_jaccard" and genre_raw_matrix is not None:
             genre_matrix = genre_raw_matrix
@@ -841,9 +864,29 @@ def build_candidate_pool(
         )
         genre_sim_all[seed_idx] = 1.0  # seed matches itself perfectly
         logger.info(
-            "Candidate pool genre gating: method=%s, min_threshold=%.3f, mode=%s, idf=%s",
-            genre_method, min_genre_similarity, mode, "on" if idf_weights is not None else "off",
+            "Candidate pool genre gating: method=%s, min_threshold=%s, mode=%s, idf=%s",
+            genre_method,
+            f"{float(min_genre_similarity):.3f}" if min_genre_similarity is not None else "None",
+            mode,
+            "on" if idf_weights is not None else "off",
         )
+        # Adaptive percentile floor on the sparse distribution.
+        # Mirrors the dense centroid path: NaN-mask seed rows, drop non-finite, floor_at_percentile.
+        # When genre_admission_percentile is None/0, effective_genre_floor stays = min_genre_similarity
+        # (legacy, golden-safe).
+        if genre_admission_percentile is not None and float(genre_admission_percentile) > 0.0:
+            from src.playlist.pier_bridge.percentiles import floor_at_percentile
+            _gdist = np.asarray(genre_sim_all, dtype=np.float64).copy()
+            for _si in seed_list:
+                if 0 <= int(_si) < _gdist.shape[0]:
+                    _gdist[int(_si)] = np.nan
+            _gfin = _gdist[np.isfinite(_gdist)]
+            effective_genre_floor = floor_at_percentile(_gfin, float(genre_admission_percentile))
+            logger.info(
+                "Genre admission percentile (sparse) active: p=%.2f -> effective_genre_floor=%.3f",
+                float(genre_admission_percentile),
+                float(effective_genre_floor),
+            )
 
     genre_compatibility_result = None
     if (
@@ -1083,6 +1126,52 @@ def build_candidate_pool(
             break
 
     pool_indices = list(dict.fromkeys(pool_indices))  # dedupe, preserve order
+
+    # Capture pool size before backstop so artist_cap_excluded reflects the normal
+    # walk only (not inflated/deflated by backfill).
+    _pool_size_before_backstop = len(pool_indices)
+
+    # Never-starve backstop (Task 3): if the pool is below the minimum target,
+    # backfill from the highest-sonic-sim candidates not yet admitted.
+    # Per-artist cap is respected; seeds are never admitted.
+    # Default min_pool_size=0 disables this → byte-identical legacy behavior.
+    _min_pool_size = int(getattr(cfg, "min_pool_size", 0) or 0)
+    if _min_pool_size > 0 and len(pool_indices) < _min_pool_size:
+        from collections import Counter
+        _already = set(int(i) for i in pool_indices)
+        _per_artist: Counter = Counter(
+            str(artist_keys[i]) for i in pool_indices
+        )
+        _cap = int(getattr(cfg, "candidates_per_artist", 6) or 6)
+        _seed_set = set(int(i) for i in seed_list)
+        _ranked = sorted(
+            (i for i in range(len(track_ids))
+             if i not in _already and i not in _seed_set),
+            # When no sonic embedding is present, admission order falls back to
+            # index order (arbitrary but bounded + still artist-cap-respecting).
+            key=lambda i: float(sonic_seed_sim[i]) if sonic_seed_sim is not None else 0.0,
+            reverse=True,
+        )
+        _added = 0
+        for i in _ranked:
+            if len(pool_indices) >= _min_pool_size:
+                break
+            _ak = str(artist_keys[i])
+            if _per_artist[_ak] >= _cap:
+                continue
+            pool_indices.append(int(i))
+            _already.add(int(i))
+            _per_artist[_ak] += 1
+            pool_artists.add(_ak)  # keep distinct_artists accurate after backfill
+            _added += 1
+        if _added:
+            logger.info(
+                "Min-pool backstop: pool %d below min %d; admitted %d more (top sonic-sim, artist-cap respected)",
+                len(pool_indices) - _added,
+                _min_pool_size,
+                _added,
+            )
+
     seed_sim_pool = np.array([seed_sim_all[i] for i in pool_indices], dtype=float)
     sonic_sim_pool = (
         np.array([sonic_seed_sim[i] for i in pool_indices], dtype=float)
@@ -1090,8 +1179,9 @@ def build_candidate_pool(
         else None
     )
 
-    # Count how many were excluded due to artist cap (those not taken from eligible artists)
-    artist_cap_excluded = len(eligible) - len(pool_indices)
+    # Count how many were excluded due to artist cap during the normal walk only.
+    # Uses _pool_size_before_backstop so backfill doesn't make this go negative.
+    artist_cap_excluded = len(eligible) - _pool_size_before_backstop
 
     params_effective = {
         "similarity_floor": cfg.similarity_floor,
@@ -1139,6 +1229,9 @@ def build_candidate_pool(
         "below_bpm_floor": below_bpm_floor,
         "artist_cap_excluded": max(0, artist_cap_excluded),
         "eligible_count": len(eligible),
+        # Effective genre floor after percentile compute (or fixed absolute floor when
+        # genre_admission_percentile is None/0).  None when genre gating is off entirely.
+        "effective_genre_floor": float(effective_genre_floor) if effective_genre_floor is not None else None,
     }
     if duration_penalty_active:
         stats["duration_penalty_applied"] = duration_penalty_count
