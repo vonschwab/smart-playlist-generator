@@ -25,7 +25,7 @@ import math
 import time
 from pathlib import Path
 from dataclasses import replace
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 from src.features.artifacts import ArtifactBundle
@@ -281,10 +281,38 @@ def _enforce_min_gap_global(
     return output, dropped
 
 
+def _order_avoiding_adjacent_artist(
+    entries: list[tuple[int, float, float]],
+    artist_key_fn: "Callable[[int], Set[str]]",
+    blocked_artist_keys: Optional[Set[str]],
+) -> list[int]:
+    """Greedily order (idx, score, sb) tuples (already in progress order) so that no
+    two adjacent tracks share an artist identity key, including against the previous
+    segment's boundary artists (``blocked_artist_keys`` seeds the "previous" slot).
+    Best-effort and never-fail: if a same-artist pick is unavoidable it is placed
+    anyway — a track is never dropped."""
+    remaining = list(entries)
+    result: list[int] = []
+    prev_keys: Set[str] = set(blocked_artist_keys or ())
+    while remaining:
+        pick = 0
+        for j, entry in enumerate(remaining):
+            ks = artist_key_fn(entry[0]) or set()
+            if not (ks & prev_keys):
+                pick = j
+                break
+        chosen = remaining.pop(pick)
+        result.append(chosen[0])
+        prev_keys = artist_key_fn(chosen[0]) or set()
+    return result
+
+
 def _greedy_terminal_path(
     candidates: list[int], global_used: "Set[int]", pier_a: int, pier_b: int,
     interior_len: int, X_full_norm: np.ndarray,
     X_genre_norm: Optional[np.ndarray] = None, genre_weight: float = 0.0,
+    artist_key_fn: "Optional[Callable[[int], Set[str]]]" = None,
+    blocked_artist_keys: Optional[Set[str]] = None,
 ) -> Optional[list[int]]:
     """Last-resort placement that cannot fail while >= interior_len usable tracks exist.
 
@@ -298,6 +326,14 @@ def _greedy_terminal_path(
     never-fail guarantee (selection never drops candidates, only reweights them).
     Excludes already-used tracks, the piers, duplicates, out-of-range, and NaN/inf-scored
     candidates (zero-vector rows) so the sort can never raise.
+
+    When ``artist_key_fn`` is given, selection enforces artist DIVERSITY — diversity is
+    a hard constraint, so the terminal fallback must honor it too: a per-artist cap is
+    applied (starting at 1) and escalated only as far as needed to fill interior_len,
+    and the result is ordered to avoid adjacent same-artist tracks (and against the
+    previous segment's ``blocked_artist_keys``). This is what stops the fallback from
+    clustering e.g. three tracks by one artist back-to-back. With ``artist_key_fn=None``
+    the legacy top-score ordering is preserved exactly.
     """
     if interior_len <= 0:
         return []
@@ -334,9 +370,37 @@ def _greedy_terminal_path(
     if len(pool) < interior_len:
         return None
     pool.sort(key=lambda t: t[1], reverse=True)
-    chosen = pool[:interior_len]
-    chosen.sort(key=lambda t: t[2])  # ascending sonic sim-to-pier_b = progress toward B
-    return [t[0] for t in chosen]
+
+    if artist_key_fn is None:
+        # Legacy: top-interior_len by score, ordered by progress toward B.
+        chosen = pool[:interior_len]
+        chosen.sort(key=lambda t: t[2])  # ascending sonic sim-to-pier_b = progress toward B
+        return [t[0] for t in chosen]
+
+    # Artist-diverse selection: apply a per-artist cap (diversity is a hard
+    # constraint), escalating it only as far as needed to fill interior_len so the
+    # never-fail guarantee holds even when too few distinct artists exist.
+    selected: list[tuple[int, float, float]] = []
+    for cap in range(1, interior_len + 1):
+        picked: list[tuple[int, float, float]] = []
+        counts: Dict[str, int] = {}
+        for entry in pool:
+            ks = artist_key_fn(entry[0]) or set()
+            if ks and any(counts.get(k, 0) >= cap for k in ks):
+                continue
+            picked.append(entry)
+            for k in ks:
+                counts[k] = counts.get(k, 0) + 1
+            if len(picked) >= interior_len:
+                break
+        if len(picked) >= interior_len:
+            selected = picked
+            break
+    if len(selected) < interior_len:
+        selected = pool[:interior_len]  # diversity unsatisfiable -> never-fail
+
+    selected.sort(key=lambda t: t[2])  # progress toward B, then break same-artist adjacency
+    return _order_avoiding_adjacent_artist(selected, artist_key_fn, blocked_artist_keys)
 
 
 def build_pier_bridge_playlist(
@@ -2092,14 +2156,20 @@ def build_pier_bridge_playlist(
             if segment_path is None and infeasible_handling and infeasible_handling.guarantee_feasible:
                 _term_pool = last_segment_candidates or list(universe)
                 _greedy_genre_w = float(getattr(infeasible_handling, "greedy_genre_weight", 0.0))
+                # Diversity is a hard constraint even in the last-resort fallback: pass
+                # the identity-key resolver + the boundary artists so the terminal
+                # placement cannot cluster same-artist tracks (e.g. 3 in a row).
+                _greedy_blocked = set(_recent_artists_for_segment(seg_idx) or [])
                 _greedy = _greedy_terminal_path(
                     _term_pool, global_used, int(pier_a), int(pier_b), int(interior_len), X_full_norm,
                     X_genre_norm=X_genre_norm, genre_weight=_greedy_genre_w,
+                    artist_key_fn=_artist_keys_for_cap, blocked_artist_keys=_greedy_blocked,
                 )
                 if _greedy is None:
                     _greedy = _greedy_terminal_path(
                         list(universe), global_used, int(pier_a), int(pier_b), int(interior_len), X_full_norm,
                         X_genre_norm=X_genre_norm, genre_weight=_greedy_genre_w,
+                        artist_key_fn=_artist_keys_for_cap, blocked_artist_keys=_greedy_blocked,
                     )
                 if _greedy is not None:
                     segment_path = _greedy

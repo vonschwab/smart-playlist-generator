@@ -66,3 +66,60 @@ def test_genre_weight_without_vectors_falls_back_to_sonic():
     assert _greedy_terminal_path(
         [2, 3], set(), 0, 1, 1, _SONIC, X_genre_norm=None, genre_weight=0.7
     ) == [2]
+
+
+# --- artist diversity in terminal placement (the hard constraint the fallback
+#     was violating: 3 same-artist tracks placed adjacent) ----------------------
+# pier_a=0, pier_b=1 (orthogonal). idx 2,3,4 = artist "edm" (highest sonic blend),
+# idx 5="a", 6="b" (clearly lower blend). interior_len=3.
+_DIV = _rows([
+    [1.0, 0.0],   # 0 pier_a
+    [0.0, 1.0],   # 1 pier_b
+    [1.0, 1.00],  # 2 edm (best)
+    [1.0, 0.95],  # 3 edm
+    [1.0, 0.90],  # 4 edm
+    [1.0, 0.20],  # 5 a  (lower blend)
+    [0.9, 0.20],  # 6 b  (lower blend)
+])
+_DIV_KEYS = {2: {"edm"}, 3: {"edm"}, 4: {"edm"}, 5: {"a"}, 6: {"b"}}
+
+
+def _keys(idx):
+    return _DIV_KEYS.get(int(idx), set())
+
+
+def test_legacy_clusters_same_artist_without_keys():
+    # No artist_key_fn -> legacy behavior picks the 3 top-scored, all "edm" (the bug).
+    path = _greedy_terminal_path([2, 3, 4, 5, 6], set(), 0, 1, 3, _DIV)
+    assert sorted(path) == [2, 3, 4]
+
+
+def test_artist_key_fn_prevents_same_artist_clustering():
+    path = _greedy_terminal_path(
+        [2, 3, 4, 5, 6], set(), 0, 1, 3, _DIV, artist_key_fn=_keys
+    )
+    assert path is not None and len(path) == 3
+    for x, y in zip(path, path[1:]):
+        assert not (_keys(x) & _keys(y)), f"adjacent same-artist at {x},{y}"
+    # 3 distinct artists available for 3 slots -> "edm" appears at most once
+    assert sum(1 for i in path if _keys(i) == {"edm"}) == 1
+
+
+def test_never_fail_when_only_one_artist():
+    # All candidates one artist -> still fills interior_len (best-effort, never-fail).
+    path = _greedy_terminal_path(
+        [2, 3, 4], set(), 0, 1, 3, _DIV, artist_key_fn=lambda idx: {"edm"}
+    )
+    assert path is not None and sorted(path) == [2, 3, 4]
+
+
+def test_blocked_boundary_artist_not_placed_first():
+    # Previous segment ended on "edm" -> the fallback must not lead with edm.
+    path = _greedy_terminal_path(
+        [2, 3, 4, 5, 6], set(), 0, 1, 3, _DIV,
+        artist_key_fn=_keys, blocked_artist_keys={"edm"},
+    )
+    assert path is not None and len(path) == 3
+    assert _keys(path[0]) != {"edm"}
+    for x, y in zip(path, path[1:]):
+        assert not (_keys(x) & _keys(y))
