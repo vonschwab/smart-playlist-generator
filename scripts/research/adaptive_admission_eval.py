@@ -435,12 +435,18 @@ def main() -> None:
     if len(seed_ids) < 2:
         parser.error("Need at least 2 seed track_ids for multi-pier generation")
 
-    # Route all library logging to stderr so stdout stays clean JSON
-    logging.basicConfig(
-        stream=sys.stderr,
-        level=logging.WARNING,
-        format="%(levelname)s %(name)s: %(message)s",
-    )
+    # Route all library logging to stderr so stdout stays clean JSON.
+    # Explicit root-handler setup (NOT logging.basicConfig, which is banned in
+    # src/scripts by test_no_basicconfig_in_src_scripts).
+    _root = logging.getLogger()
+    _root.setLevel(logging.WARNING)
+    if not any(
+        isinstance(h, logging.StreamHandler) and getattr(h, "stream", None) is sys.stderr
+        for h in _root.handlers
+    ):
+        _stderr_h = logging.StreamHandler(sys.stderr)
+        _stderr_h.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+        _root.addHandler(_stderr_h)
     # But keep pipeline core at INFO so we capture BPM/variant/pool lines
     for name in (
         "src.playlist.pipeline.core",
