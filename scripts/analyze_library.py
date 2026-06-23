@@ -1621,10 +1621,13 @@ def stage_enrich(ctx: Dict) -> Dict:
 
 
 def stage_adjudicate(ctx: Dict) -> Dict:
-    """Album-grain Sonnet adjudication. One call per new/changed album -> sidecar checkpoint.
+    """Album-grain Sonnet adjudication. One call per new album -> sidecar checkpoint.
 
-    Incremental: skips albums already complete (is_done by input_hash). Returns a `paused`
-    result on the rate wall (resumable). Writes only the sidecar `adjudications` table.
+    Scan-each-release-once: skips albums already complete under the current prompt_version
+    (NOT keyed on input_hash — apply/publish drift the evidence and would otherwise re-run
+    the whole backlog every cycle). A prompt-contract change bumps prompt_version and re-runs;
+    `--force` re-adjudicates everything. Returns a `paused` result on the rate wall
+    (resumable). Writes only the sidecar `adjudications` table.
     """
     args = ctx["args"]
     conn = sqlite3.connect(ctx["db_path"])
@@ -1637,7 +1640,8 @@ def stage_adjudicate(ctx: Dict) -> Dict:
         limit = getattr(args, "limit", None)
         if limit and limit > 0:
             album_ids = album_ids[:limit]
-        todo = build_todo(store, conn, id2name, album_ids, prompt_version=pv)
+        todo = build_todo(store, conn, id2name, album_ids, prompt_version=pv,
+                          force=bool(getattr(args, "force", False)))
         if not todo:
             logger.info("Skipping adjudicate stage (no new/changed albums)")
             return {"skipped": True, "reason": "nothing_pending", "adjudicated": 0}

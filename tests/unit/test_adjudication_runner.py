@@ -75,6 +75,33 @@ def test_run_adjudication_skips_already_done(tmp_path):
     assert todo2 == []  # both already complete -> nothing to do
 
 
+def test_build_todo_skips_complete_album_despite_evidence_drift(tmp_path):
+    """Scan-each-release-once: an album complete under the prompt_version is skipped even
+    when its evidence (input_hash) has drifted — the apply/publish feedback-loop fix.
+
+    With the old input_hash gate, a1 would be re-included here (stored hash 'OLD' != the
+    hash build_todo computes from current evidence); the fix skips it regardless.
+    """
+    conn = _meta(tmp_path)
+    store = AdjudicationStore(tmp_path / "side.db")
+    store.save(album_id="a1", prompt_version="pv", status="complete",
+               input_hash="OLD", model="haiku", response=_resp(["shoegaze"]))
+
+    todo_ids = [it["album_id"] for it in build_todo(store, conn, {}, ["a1", "a2"], prompt_version="pv")]
+    assert "a1" not in todo_ids   # already complete under pv -> skipped despite drift
+    assert "a2" in todo_ids       # never adjudicated -> included
+
+
+def test_build_todo_force_readjudicates_complete_albums(tmp_path):
+    conn = _meta(tmp_path)
+    store = AdjudicationStore(tmp_path / "side.db")
+    store.save(album_id="a1", prompt_version="pv", status="complete",
+               input_hash="h", model="sonnet", response=_resp(["shoegaze"]))
+    todo_ids = {it["album_id"] for it in
+                build_todo(store, conn, {}, ["a1", "a2"], prompt_version="pv", force=True)}
+    assert todo_ids == {"a1", "a2"}   # force re-includes complete albums
+
+
 def test_run_adjudication_pauses_after_fail_streak(tmp_path):
     conn = _meta(tmp_path)
     # 8 albums that all fail -> pause (use b-prefix to avoid PK collision with a1/a2 in _meta)

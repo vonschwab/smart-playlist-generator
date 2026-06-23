@@ -33,17 +33,27 @@ class _StopRun(Exception):
     pass
 
 
-def build_todo(store, conn, id2name, album_ids, *, prompt_version) -> list[dict]:
+def build_todo(store, conn, id2name, album_ids, *, prompt_version, force=False) -> list[dict]:
+    """To-do = albums with no COMPLETE adjudication under ``prompt_version``.
+
+    Scan-each-release-once: an album already complete under this prompt_version is
+    skipped regardless of ``input_hash``. The old gate keyed on input_hash, which the
+    apply/publish stages drift by rewriting ``current_observed_leaf`` — so every publish
+    cycle silently re-adjudicated the whole backlog. Failed albums still retry (they are
+    not ``complete``); a deliberate prompt-contract change bumps ``prompt_version`` and so
+    re-runs everything; ``force=True`` re-adjudicates regardless.
+    """
+    done = set() if force else store.complete_album_ids(prompt_version)
     todo: list[dict] = []
     for album_id in album_ids:
+        if album_id in done:
+            continue
         evidence = build_evidence(conn, album_id, id2name)
         payload = build_adjudicator_payload(evidence)
-        ih = stable_input_hash(payload)
-        if store.is_done(album_id, prompt_version, ih):
-            continue
         todo.append({
             "album_id": album_id, "release_key": None, "payload": payload,
-            "prompt": build_adjudicator_prompt(payload), "input_hash": ih,
+            "prompt": build_adjudicator_prompt(payload),
+            "input_hash": stable_input_hash(payload),
             "file_tags": payload["user_file_tags"],
         })
     return todo
