@@ -215,7 +215,9 @@ Mirror the Generate button at `GenerateControls.tsx:303`.
 
 ### Component 4 — Config & backward-compat
 
-New knobs under `playlists.artist_style` (kept with the clustering they modify):
+New knobs under `playlists.ds_pipeline.artist_style` (kept with the clustering they
+modify; this is the real path — `ArtistStyleConfig` is built from
+`ds_cfg.get("artist_style")` at `playlist_generator.py:1625` and `:2554`):
 
 ```yaml
 medoid_energy_weight: 0.0       # w_energy — spread term (set >0 to enable, once calibrated)
