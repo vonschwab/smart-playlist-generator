@@ -1,3 +1,6 @@
+import types
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -12,6 +15,7 @@ from src.playlist.artist_style import (
     _slot_targets_by_rank,
     _slot_proximity,
     _medoids_for_cluster,
+    load_artist_energy_values,
 )
 
 
@@ -1042,3 +1046,62 @@ def test_medoid_energy_weight_zero_is_regression_safe():
         0.0, np.array([1.0, 0.0, 0.0]),   # weight 0 => proximity ignored
     )
     assert with_zero == base
+
+
+def _write_energy_sidecar(tmp_path, track_ids, arousal):
+    energy_dir = Path(tmp_path) / "energy"
+    energy_dir.mkdir(parents=True, exist_ok=True)
+    np.savez(
+        energy_dir / "energy_sidecar.npz",
+        track_ids=np.array(track_ids, dtype=object),
+        arousal_p50=np.array(arousal, dtype=np.float32),
+    )
+
+
+def test_load_artist_energy_values_returns_zscored():
+    import tempfile
+    import shutil
+    tmp_path = tempfile.mkdtemp()
+    try:
+        track_ids = ["a", "b", "c"]
+        _write_energy_sidecar(tmp_path, track_ids, [1.0, 3.0, 5.0])
+        bundle = types.SimpleNamespace(
+            track_ids=np.array(track_ids), artifact_path=Path(tmp_path) / "artifact.npz"
+        )
+        cfg = ArtistStyleConfig(medoid_energy_weight=1.0, energy_feature="arousal_p50")
+        vals = load_artist_energy_values(bundle, cfg)
+        assert vals is not None and vals.shape == (3,)
+        assert vals[0] < vals[1] < vals[2]            # preserves ordering
+        assert abs(float(np.mean(vals))) < 1e-6        # z-scored => ~zero mean
+    finally:
+        shutil.rmtree(tmp_path)
+
+
+def test_load_artist_energy_values_inert_when_weight_zero():
+    import tempfile
+    import shutil
+    tmp_path = tempfile.mkdtemp()
+    try:
+        bundle = types.SimpleNamespace(
+            track_ids=np.array(["a"]), artifact_path=Path(tmp_path) / "artifact.npz"
+        )
+        assert load_artist_energy_values(bundle, ArtistStyleConfig()) is None
+    finally:
+        shutil.rmtree(tmp_path)
+
+
+def test_load_artist_energy_values_warns_when_sidecar_missing(caplog):
+    import tempfile
+    import shutil
+    import logging
+    tmp_path = tempfile.mkdtemp()
+    try:
+        bundle = types.SimpleNamespace(
+            track_ids=np.array(["a"]), artifact_path=Path(tmp_path) / "artifact.npz"
+        )
+        cfg = ArtistStyleConfig(medoid_energy_weight=0.5)
+        with caplog.at_level(logging.WARNING):
+            assert load_artist_energy_values(bundle, cfg) is None
+        assert any("energy sidecar missing" in r.message for r in caplog.records)
+    finally:
+        shutil.rmtree(tmp_path)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -84,6 +85,43 @@ class ArtistStyleConfig:
     energy_feature: str = "arousal_p50"    # which energy sidecar column defines the slots
     energy_slot_lo_pct: float = 10.0       # robust span low percentile of artist z-arousal
     energy_slot_hi_pct: float = 90.0       # robust span high percentile
+
+
+def load_artist_energy_values(bundle, cfg: "ArtistStyleConfig") -> Optional[np.ndarray]:
+    """Load z-scored energy aligned to bundle.track_ids for energy-aware spread.
+
+    Returns None (inert) when the energy term is off or the sidecar is unavailable.
+    Per the configured-knob-must-act rule, a >0 weight with no usable energy WARNs.
+    """
+    if cfg.medoid_energy_weight <= 0:
+        return None
+    artifact_path = getattr(bundle, "artifact_path", None)
+    if artifact_path is None:
+        logger.warning(
+            "artist_style: medoid_energy_weight=%.3f but bundle has no artifact_path; "
+            "energy spread inert", cfg.medoid_energy_weight,
+        )
+        return None
+    sidecar = Path(artifact_path).parent / "energy" / "energy_sidecar.npz"
+    if not sidecar.exists():
+        logger.warning(
+            "artist_style: medoid_energy_weight=%.3f but energy sidecar missing at %s; "
+            "energy spread inert", cfg.medoid_energy_weight, sidecar,
+        )
+        return None
+    from src.playlist.energy_loader import load_energy_matrix
+
+    matrix = load_energy_matrix(
+        bundle.track_ids, sidecar_path=str(sidecar), features=(cfg.energy_feature,)
+    )
+    vals = np.asarray(matrix[:, 0], dtype=float)
+    if not np.any(np.isfinite(vals)):
+        logger.warning(
+            "artist_style: energy sidecar has no finite %s values; energy spread inert",
+            cfg.energy_feature,
+        )
+        return None
+    return vals
 
 
 def _select_k(track_count: int, cfg: ArtistStyleConfig) -> int:
