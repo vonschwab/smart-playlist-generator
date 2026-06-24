@@ -33,6 +33,7 @@ from src.playlist.pier_bridge.genre import (
     _extract_top_genres,
 )
 from src.playlist.pier_bridge.percentiles import floor_at_percentile
+from src.playlist.pier_bridge.corridors import corridor_penalty
 from src.playlist.pier_bridge.metrics import (
     _progress_arc_loss_value,
     _progress_target_curve,
@@ -244,6 +245,9 @@ def _beam_search_segment(
     onset_rate: Optional[np.ndarray] = None,
     pair_sim_provider: Optional[Any] = None,
     energy_matrix: Optional[np.ndarray] = None,
+    roam_detour_sonic: Optional[np.ndarray] = None,
+    roam_dev_genre: Optional[np.ndarray] = None,
+    roam_dev_energy: Optional[np.ndarray] = None,
 ) -> Tuple[Optional[List[int]], int, int, Optional[str]]:
     """
     Constrained beam search to find path from pier_a to pier_b.
@@ -769,6 +773,22 @@ def _beam_search_segment(
             }
         )
 
+    # ── Roam corridors: precompute per-track soft penalties once (flag-gated). ──
+    # Each array is indexed by global track index; the penalty is 0 inside the
+    # corridor width and grows linearly beyond it (corridors.corridor_penalty).
+    _roam_pen_sonic = (
+        corridor_penalty(roam_detour_sonic, cfg.roam_width_sonic, slope=cfg.roam_penalty_slope)
+        if (cfg.roam_corridors_enabled and roam_detour_sonic is not None) else None
+    )
+    _roam_pen_genre = (
+        corridor_penalty(roam_dev_genre, cfg.roam_width_genre, slope=cfg.roam_penalty_slope)
+        if (cfg.roam_corridors_enabled and roam_dev_genre is not None) else None
+    )
+    _roam_pen_energy = (
+        corridor_penalty(roam_dev_energy, cfg.roam_width_energy, slope=cfg.roam_penalty_slope)
+        if (cfg.roam_corridors_enabled and roam_dev_energy is not None) else None
+    )
+
     vec_b_full = X_full_norm[pier_b]
     sim_to_a = np.dot(X_full_norm, X_full_norm[pier_a])
     sim_to_b = np.dot(X_full_norm, X_full_norm[pier_b])
@@ -1270,6 +1290,17 @@ def _beam_search_segment(
 
                 layered_delta, layered_diag = _layered_transition_delta(int(current), int(cand), edge_metric)
                 combined_score += layered_delta
+
+                # ── Roam corridors: subtract the per-dimension corridor penalty
+                # (flag-gated; arrays precomputed above, indexed by track index). ──
+                _roam_pen = 0.0
+                if _roam_pen_sonic is not None:
+                    _roam_pen += float(_roam_pen_sonic[int(cand)])
+                if _roam_pen_genre is not None:
+                    _roam_pen += float(_roam_pen_genre[int(cand)])
+                if _roam_pen_energy is not None:
+                    _roam_pen += float(_roam_pen_energy[int(cand)])
+                combined_score -= _roam_pen
 
                 combined_score_after_sonic = _apply_local_sonic_edge_policy(
                     combined_score,
