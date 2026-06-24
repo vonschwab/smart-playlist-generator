@@ -178,6 +178,17 @@ class PierBridgeConfig:
     progress_arc_autoscale_min_distance: float = 0.05
     progress_arc_autoscale_distance_scale: float = 0.50
     progress_arc_autoscale_per_step_scale: bool = False
+    # ── Roam corridors (Phase-1, opt-in; default off = identical to legacy) ──
+    # Per-dimension soft corridor around an on-manifold kNN-graph reference path
+    # between piers. width 0 = no roam allowed (hug the geodesic); larger = wider.
+    roam_corridors_enabled: bool = False
+    roam_knn_k: int = 25                    # kNN graph degree (corridor width primitive)
+    roam_mutual_proximity: bool = True      # hubness-correct the sonic kNN distances
+    roam_width_sonic: float = 0.0
+    roam_width_genre: float = 0.0
+    roam_width_energy: float = 0.0
+    roam_penalty_slope: float = 1.0         # soft-penalty steepness beyond the width
+    worst_edge_minimax_weight: float = 0.0  # >0 turns on the min-bottleneck guard
     # Optional genre tie-break band for penalty application (default off).
     genre_tie_break_band: Optional[float] = None
     # DJ-style genre bridging (opt-in; default disabled).

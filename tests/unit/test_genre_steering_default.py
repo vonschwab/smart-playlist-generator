@@ -59,3 +59,11 @@ def test_taxonomy_steering_without_dense_data_ok():
 def test_disabled_steering_never_raises():
     cfg = PierBridgeConfig(genre_steering_enabled=False, genre_steering_source="dense")
     _require_usable_genre_steering(cfg, None)
+
+
+def test_roam_corridor_defaults_are_noop():
+    c = PierBridgeConfig()
+    assert c.roam_corridors_enabled is False
+    assert c.roam_width_sonic == 0.0 and c.roam_width_genre == 0.0 and c.roam_width_energy == 0.0
+    assert c.worst_edge_minimax_weight == 0.0
+    assert c.roam_knn_k == 25 and c.roam_mutual_proximity is True and c.roam_penalty_slope == 1.0
