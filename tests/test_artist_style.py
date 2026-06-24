@@ -220,6 +220,62 @@ def test_seed_artist_disallowed_in_interiors_when_enabled():
     assert result.track_ids[1] == "other_cand"
 
 
+def test_builder_wires_roam_detour_when_enabled(monkeypatch):
+    # Roam corridors (Phase 1): when the flag is on, the builder must compute the
+    # per-segment on-manifold sonic detour and pass it to the beam; when off, the
+    # beam gets None. Both must still produce a valid playlist (never-fail).
+    import src.playlist.pier_bridge_builder as pbb
+
+    X = np.array([
+        [1.0, 0.0],
+        [0.0, 1.0],
+        [np.sqrt(0.5), np.sqrt(0.5)],
+        [0.6, 0.8],
+    ])
+    bundle = DummyBundle(
+        X_sonic=X,
+        artist_keys=np.array(["a", "b", "c", "d"]),
+        track_ids=np.array(["a0", "b0", "c0", "d0"]),
+        track_artists=np.array(["A", "B", "C", "D"]),
+        track_titles=np.array(["A", "B", "C", "D"]),
+    )
+    captured = {}
+    real_beam = pbb._beam_search_segment
+
+    def _spy(*args, **kwargs):
+        captured["roam"] = kwargs.get("roam_detour_sonic")
+        return real_beam(*args, **kwargs)
+
+    monkeypatch.setattr(pbb, "_beam_search_segment", _spy)
+
+    def _run(enabled):
+        captured.clear()
+        return pbb.build_pier_bridge_playlist(
+            seed_track_ids=["a0", "b0"],
+            total_tracks=3,
+            bundle=bundle,
+            candidate_pool_indices=[2, 3],
+            cfg=pbb.PierBridgeConfig(
+                transition_floor=0.0,
+                bridge_floor=0.0,
+                weight_bridge=1.0,
+                weight_transition=0.0,
+                eta_destination_pull=0.0,
+                roam_corridors_enabled=enabled,
+                roam_width_sonic=0.0,
+                roam_penalty_slope=5.0,
+            ),
+            allowed_track_ids_set={"a0", "b0", "c0", "d0"},
+        )
+
+    res_on = _run(enabled=True)
+    assert res_on.success
+    assert captured["roam"] is not None          # detour wired through when enabled
+    res_off = _run(enabled=False)
+    assert res_off.success
+    assert captured["roam"] is None              # not computed when disabled
+
+
 def test_one_artist_per_segment_collapses_feat_with_variants():
     from src.playlist.pier_bridge_builder import _build_segment_candidate_pool_scored
 

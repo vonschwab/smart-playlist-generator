@@ -137,6 +137,10 @@ from src.playlist.pier_bridge.beam import (  # noqa: F401  (re-exported for test
     _beam_search_segment,
     _compute_duration_penalty,
 )
+from src.playlist.pier_bridge.roam import (
+    segment_sonic_detour as _segment_sonic_detour,
+    energy_band_deviation as _energy_band_deviation,
+)
 from src.playlist.transition_metrics import TransitionMetricContext, score_transition_edge
 
 
@@ -862,10 +866,12 @@ def build_pier_bridge_playlist(
                 weight_sonic=float(cfg.dj_seed_ordering_weight_sonic),
                 weight_genre=float(cfg.dj_seed_ordering_weight_genre),
                 weight_bridge=float(cfg.dj_seed_ordering_weight_bridge),
+                min_bottleneck=bool(cfg.roam_corridors_enabled),
             )
         else:
             ordered_seeds = _order_seeds_by_bridgeability(
-                seed_indices, X_full_norm, X_start_norm, X_end_norm
+                seed_indices, X_full_norm, X_start_norm, X_end_norm,
+                min_bottleneck=bool(cfg.roam_corridors_enabled),
             )
 
     logger.info("Pier+Bridge: seed order = %s",
@@ -1457,6 +1463,16 @@ def build_pier_bridge_playlist(
                     pool_size_final = 0
                 else:
                     _edge_components_buf: Dict[str, Any] = {}
+                    # ── Roam corridors: per-segment on-manifold deviations (flag-gated). ──
+                    _roam_detour_sonic = None
+                    _roam_dev_energy = None
+                    if cfg_attempt.roam_corridors_enabled:
+                        _roam_detour_sonic = _segment_sonic_detour(
+                            pier_a, pier_b, segment_candidates, X_full_norm,
+                            k=int(cfg_attempt.roam_knn_k),
+                            mutual_proximity=bool(cfg_attempt.roam_mutual_proximity),
+                        )
+                        _roam_dev_energy = _energy_band_deviation(energy_matrix, [pier_a, pier_b])
                     segment_path, soft_genre_penalty_hits_segment, soft_genre_penalty_edges_scored_segment, beam_failure_reason = _beam_search_segment(
                         pier_a,
                         pier_b,
@@ -1503,8 +1519,30 @@ def build_pier_bridge_playlist(
                         rhythm_matrix=rhythm_matrix,
                         pair_sim_provider=pair_sim_provider,
                         energy_matrix=energy_matrix,
+                        roam_detour_sonic=_roam_detour_sonic,
+                        roam_dev_energy=_roam_dev_energy,
                     )
                     last_failure_reason = beam_failure_reason
+                    # ── Roam corridors: log realized sonic roam of the chosen interior. ──
+                    if (
+                        cfg_attempt.roam_corridors_enabled
+                        and segment_path is not None
+                        and _roam_detour_sonic is not None
+                    ):
+                        _dets = [
+                            float(_roam_detour_sonic[int(t)])
+                            for t in segment_path
+                            if math.isfinite(float(_roam_detour_sonic[int(t)]))
+                        ]
+                        if _dets:
+                            logger.info(
+                                "Roam[seg %d]: sonic detour mean=%.3f max=%.3f "
+                                "(width_sonic=%.3f width_energy=%.3f k=%d)",
+                                seg_idx, float(np.mean(_dets)), float(np.max(_dets)),
+                                float(cfg_attempt.roam_width_sonic),
+                                float(cfg_attempt.roam_width_energy),
+                                int(cfg_attempt.roam_knn_k),
+                            )
                     if segment_path is not None:
                         last_edge_components = list(_edge_components_buf.get("components") or [])
                         # Capture waypoint stats for successful path
