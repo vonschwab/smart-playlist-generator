@@ -681,6 +681,36 @@ class LastFMClient:
 
         return similar_artists
 
+    def get_artist_top_tracks(self, artist_name: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """Fetch an artist's most-popular tracks (artist.gettoptracks), ranked.
+
+        Returns a list of {name, playcount, listeners, mbid, rank}; rank is the
+        0-based position (0 = most popular). [] on missing/empty response.
+        """
+        data = self._make_request('artist.gettoptracks', {
+            'artist': artist_name,
+            'limit': limit,
+            'autocorrect': 1,
+        })
+        if not data or 'toptracks' not in data:
+            return []
+        tracks = data['toptracks'].get('track', [])
+        if not isinstance(tracks, list):
+            tracks = [tracks]
+        out: List[Dict[str, Any]] = []
+        for rank, t in enumerate(tracks):
+            name = str(t.get('name', '')).strip()
+            if not name:
+                continue
+            out.append({
+                'name': name,
+                'playcount': int(t.get('playcount', 0) or 0),
+                'listeners': int(t.get('listeners', 0) or 0),
+                'mbid': str(t.get('mbid', '') or ''),
+                'rank': rank,
+            })
+        return out
+
 
 # Example usage
 if __name__ == "__main__":
