@@ -42,7 +42,7 @@ import logging
 import time
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, FIRST_COMPLETED, wait
 import multiprocessing
 
 # Ensure project root is on sys.path so `src` imports work even when run from scripts/
@@ -106,6 +106,110 @@ def analyze_track_worker(track_data: Tuple[str, str, str, str, bool, bool]) -> O
         sys.stderr.write(f"[worker] Failed to analyze track {track_id}: {e}\n")
         sys.stderr.flush()
         return None
+
+
+# Default watchdog tuning for the sonic pool. Generous because the first
+# completion in each pool includes worker spawn + heavy import + first track.
+POOL_NO_PROGRESS_TIMEOUT_S = 180.0
+
+
+def run_pool_with_watchdog(
+    items,
+    worker_fn,
+    *,
+    workers,
+    on_result,
+    no_progress_timeout=POOL_NO_PROGRESS_TIMEOUT_S,
+    poll_interval=0.5,
+    min_workers=1,
+    cancel_check=None,
+    log=logger,
+):
+    """Run ``worker_fn`` over ``items`` in a process pool with a no-progress watchdog.
+
+    Each completed item is delivered to ``on_result(item, result)`` (result is
+    None if the worker returned None or raised). If the pool makes NO progress
+    for ``no_progress_timeout`` seconds, the stuck worker processes are killed and
+    the remaining items are retried with fewer workers, finally falling back to
+    SERIAL in-process execution (no spawn, so it cannot hit the Windows spawn
+    import deadlock that this guards against). Always processes every item.
+
+    Returns a dict: ``{"completed", "stalls", "serial_fallback"}``.
+    """
+    remaining = list(items)
+    info = {"completed": 0, "stalls": 0, "serial_fallback": False}
+    cur_workers = max(1, int(workers))
+
+    while remaining:
+        executor = ProcessPoolExecutor(max_workers=cur_workers)
+        future_to_item = {executor.submit(worker_fn, item): item for item in remaining}
+        pending = set(future_to_item)
+        completed_futures = set()
+        last_progress = time.monotonic()
+        stalled = False
+        try:
+            while pending:
+                if cancel_check is not None:
+                    cancel_check()
+                done, pending = wait(pending, timeout=poll_interval, return_when=FIRST_COMPLETED)
+                if done:
+                    last_progress = time.monotonic()
+                    for fut in done:
+                        completed_futures.add(fut)
+                        item = future_to_item[fut]
+                        try:
+                            result = fut.result()
+                        except Exception as exc:  # worker raised
+                            log.error("sonic worker raised for %r: %s", item, exc)
+                            result = None
+                        on_result(item, result)
+                        info["completed"] += 1
+                elif (time.monotonic() - last_progress) > no_progress_timeout:
+                    stalled = True
+                    info["stalls"] += 1
+                    log.error(
+                        "Sonic pool made no progress for %.0fs with %d worker(s); "
+                        "killing stuck workers and recovering (likely the Windows spawn "
+                        "import deadlock).",
+                        no_progress_timeout,
+                        cur_workers,
+                    )
+                    break
+        finally:
+            if stalled:
+                # shutdown() would block joining deadlocked children, so kill first.
+                for proc in list((getattr(executor, "_processes", None) or {}).values()):
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+            executor.shutdown(wait=False, cancel_futures=True)
+
+        if not stalled:
+            return info
+
+        remaining = [future_to_item[f] for f in future_to_item if f not in completed_futures]
+        if cur_workers > min_workers:
+            cur_workers = max(min_workers, cur_workers // 2)
+            log.warning("Retrying %d sonic track(s) with %d worker(s).", len(remaining), cur_workers)
+            continue
+
+        # Floor reached: run the rest serially in-process. No spawn => no deadlock.
+        log.warning("Falling back to SERIAL in-process sonic analysis for %d track(s).", len(remaining))
+        info["serial_fallback"] = True
+        for item in remaining:
+            if cancel_check is not None:
+                cancel_check()
+            try:
+                result = worker_fn(item)
+            except Exception as exc:
+                log.error("sonic worker raised (serial) for %r: %s", item, exc)
+                result = None
+            on_result(item, result)
+            info["completed"] += 1
+        return info
+
+    return info
 
 
 class SonicFeaturePipeline:
@@ -516,63 +620,62 @@ class SonicFeaturePipeline:
             verbose_each=verbose_each,
         ) if progress else None
 
-        # Process tracks in parallel
-        with ProcessPoolExecutor(max_workers=workers) as executor:
-            future_to_index = {
-                executor.submit(analyze_track_worker, track_data): i
-                for i, track_data in enumerate(track_data_list)
-            }
+        # Process tracks in parallel, guarded by a no-progress watchdog that
+        # recovers from a stalled pool (retry with fewer workers, then serial
+        # in-process) so the run can never hang forever on the Windows spawn
+        # import deadlock. See run_pool_with_watchdog.
+        def _handle_result(track_data, result):
+            nonlocal completed
+            completed += 1
+            track_id, file_path, artist, title = track_data[:4]
+            try:
+                if result:
+                    track_id, features, artist, title = result
 
-            # Process results as they complete
-            for future in as_completed(future_to_index):
-                completed += 1
-                idx = future_to_index[future]
-                track_data = track_data_list[idx]
-                track_id, file_path, artist, title = track_data[:4]
+                    # Store in database (batch commits)
+                    commit_now = (completed % batch_size == 0) or (completed == total)
+                    self.store_features(track_id, features, commit=commit_now)
+                    stats['analyzed'] += 1
 
-                try:
-                    result = future.result()
+                    # Track source
+                    source = features.get('source')
+                    if source is None:
+                        metadata = features.get('metadata', {}) if isinstance(features.get('metadata'), dict) else {}
+                        source = metadata.get('sonic_source', 'unknown')
 
-                    if result:
-                        track_id, features, artist, title = result
+                    if source == 'beat3tower_beats':
+                        stats['beat3tower_beats'] += 1
+                    elif source == 'beat3tower_timegrid':
+                        stats['beat3tower_timegrid'] += 1
+                    elif source == 'beat3tower_stats':
+                        stats['beat3tower_stats'] += 1
+                    elif source == 'librosa':
+                        stats['librosa'] += 1
 
-                        # Store in database (batch commits)
-                        commit_now = (completed % batch_size == 0) or (completed == total)
-                        self.store_features(track_id, features, commit=commit_now)
-                        stats['analyzed'] += 1
-
-                        # Track source
-                        source = features.get('source')
-                        if source is None:
-                            metadata = features.get('metadata', {}) if isinstance(features.get('metadata'), dict) else {}
-                            source = metadata.get('sonic_source', 'unknown')
-
-                        if source == 'beat3tower_beats':
-                            stats['beat3tower_beats'] += 1
-                        elif source == 'beat3tower_timegrid':
-                            stats['beat3tower_timegrid'] += 1
-                        elif source == 'beat3tower_stats':
-                            stats['beat3tower_stats'] += 1
-                        elif source == 'librosa':
-                            stats['librosa'] += 1
-
-                        # Only log individual tracks on failure or debug mode
-                        logger.debug(f"[{completed}/{total}] OK {artist} - {title} ({source})")
-                    else:
-                        stats['failed'] += 1
-                        if self.use_beat3tower:
-                            stats['beat3tower_failed'] += 1
-                        logger.warning(f"[{completed}/{total}] FAIL {artist} - {title}")
-                        # Mark track as failed to prevent repeated analysis attempts
-                        commit_now = (completed % batch_size == 0) or (completed == total)
-                        self.mark_track_failed(track_id, commit=commit_now)
-
-                    if prog:
-                        prog.update(detail=f"{artist} - {title}")
-
-                except Exception as e:
-                    logger.error(f"Error processing result for {artist} - {title}: {e}")
+                    # Only log individual tracks on failure or debug mode
+                    logger.debug(f"[{completed}/{total}] OK {artist} - {title} ({source})")
+                else:
                     stats['failed'] += 1
+                    if self.use_beat3tower:
+                        stats['beat3tower_failed'] += 1
+                    logger.warning(f"[{completed}/{total}] FAIL {artist} - {title}")
+                    # Mark track as failed to prevent repeated analysis attempts
+                    commit_now = (completed % batch_size == 0) or (completed == total)
+                    self.mark_track_failed(track_id, commit=commit_now)
+
+                if prog:
+                    prog.update(detail=f"{artist} - {title}")
+
+            except Exception as e:
+                logger.error(f"Error processing result for {artist} - {title}: {e}")
+                stats['failed'] += 1
+
+        run_pool_with_watchdog(
+            track_data_list,
+            analyze_track_worker,
+            workers=workers,
+            on_result=_handle_result,
+        )
 
         # Final commit to catch any remaining
         self.conn.commit()

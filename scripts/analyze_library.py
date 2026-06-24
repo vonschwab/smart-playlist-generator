@@ -36,6 +36,7 @@ from src.genre.artifact_identity import dense_sidecar_mismatch_reason_from_paths
 from scripts.update_genres_v3_normalized import NormalizedGenreUpdater
 from scripts.update_sonic import SonicFeaturePipeline
 from scripts.scan_library import LibraryScanner
+from src.playlist.subprocess_stream import run_streaming_subprocess
 from scripts.update_discogs_genres import DiscogsClient, iter_albums, upsert_album_genres, best_match, fetch_genres, normalize_tag, discogs_status, load_config_token
 from src.logging_utils import ProgressLogger
 from src.ai_genre_enrichment.storage import SidecarStore
@@ -1772,6 +1773,70 @@ def stage_publish(ctx: Dict) -> Dict:
             "errors": 0 if validation_ok else 1}
 
 
+def _run_sonic_in_process(ctx: Dict, *, workers, force, limit) -> None:
+    """Run the sonic pool in-process (fallback). The pool's watchdog in
+    ``update_sonic.run`` still guarantees completion (serial fallback) even if
+    the in-process pool stalls."""
+    args = ctx["args"]
+    pipeline = SonicFeaturePipeline(
+        db_path=ctx["db_path"],
+        use_beat_sync=False,
+        use_beat3tower=True,
+    )
+    try:
+        pipeline.run(
+            limit=limit,
+            workers=workers,
+            force=force,
+            progress=getattr(args, "progress", True),
+            progress_interval=getattr(args, "progress_interval", 15.0),
+            progress_every=getattr(args, "progress_every", 500),
+            verbose_each=bool(getattr(args, "verbose", False)),
+        )
+    finally:
+        pipeline.close()
+
+
+def _run_sonic_analysis(ctx: Dict, *, workers, force, limit) -> None:
+    """Run the sonic pool in a separate, import-light process.
+
+    The pool's children re-import scripts/run_sonic_pool.py (numpy-free at module
+    scope), so the Windows spawn ``prepare()`` re-import can't deadlock loading
+    numpy's C extension -- the root cause of the Analyze Library hang
+    (project_analyze_pool_deadlock). Output is streamed to the analyze logger;
+    cancellation propagates (kills the child). A non-zero exit falls back to
+    in-process analysis (whose own watchdog still guarantees completion)."""
+    args = ctx["args"]
+    cancel = ctx.get("cancellation_check")
+    entry = str(ROOT_DIR / "scripts" / "run_sonic_pool.py")
+    argv = [sys.executable, entry, "--db-path", str(ctx["db_path"])]
+    if workers is not None:
+        argv += ["--workers", str(workers)]
+    if limit is not None:
+        argv += ["--limit", str(limit)]
+    if force:
+        argv += ["--force"]
+    argv += [
+        "--progress-interval", str(getattr(args, "progress_interval", 15.0)),
+        "--progress-every", str(getattr(args, "progress_every", 500)),
+    ]
+    if bool(getattr(args, "verbose", False)):
+        argv += ["--verbose"]
+
+    # A raised exception here is cancellation -> propagate (do NOT fall back).
+    rc = run_streaming_subprocess(
+        argv,
+        on_line=lambda line: logger.info(line) if line else None,
+        cancellation_check=cancel,
+    )
+    if rc != 0:
+        logger.error(
+            "Sonic subprocess exited with code %s; falling back to in-process analysis.",
+            rc,
+        )
+        _run_sonic_in_process(ctx, workers=workers, force=force, limit=limit)
+
+
 def stage_sonic(ctx: Dict) -> Dict:
     args = ctx["args"]
     force = args.force
@@ -1781,31 +1846,28 @@ def stage_sonic(ctx: Dict) -> Dict:
         workers = None
     else:
         workers = int(workers_arg)
-    pipeline = SonicFeaturePipeline(
+    # Short-lived read-only pre-check; release the connection before analysis runs.
+    pre = SonicFeaturePipeline(
         db_path=ctx["db_path"],
         use_beat_sync=False,
         use_beat3tower=True,
     )
     try:
-        pending = pipeline.get_pending_tracks(limit, force=force)
-    except sqlite3.OperationalError as exc:
-        logger.warning("Skipping sonic stage; schema missing required columns (%s)", exc)
-        return {"pending": None, "skipped": True, "reason": "schema_missing"}
-    if not force and len(pending) == 0:
-        logger.info("Skipping sonic stage (no pending tracks; use --force to re-run)")
-        return {"pending": 0, "skipped": True}
+        try:
+            pending = pre.get_pending_tracks(limit, force=force)
+        except sqlite3.OperationalError as exc:
+            logger.warning("Skipping sonic stage; schema missing required columns (%s)", exc)
+            return {"pending": None, "skipped": True, "reason": "schema_missing"}
+        if not force and len(pending) == 0:
+            logger.info("Skipping sonic stage (no pending tracks; use --force to re-run)")
+            return {"pending": 0, "skipped": True}
+        pending_count = len(pending)
+    finally:
+        pre.close()
     mode = "beat3tower"
     logger.info(f"Running sonic stage in {mode} mode")
     start_ts = int(time.time())
-    pipeline.run(
-        limit=limit,
-        workers=workers,
-        force=force,
-        progress=getattr(args, "progress", True),
-        progress_interval=getattr(args, "progress_interval", 15.0),
-        progress_every=getattr(args, "progress_every", 500),
-        verbose_each=bool(getattr(args, "verbose", False)),
-    )
+    _run_sonic_analysis(ctx, workers=workers, force=force, limit=limit)
     updated = 0
     try:
         cursor = ctx["conn"].cursor()
@@ -1820,8 +1882,8 @@ def stage_sonic(ctx: Dict) -> Dict:
         )
         updated = cursor.fetchone()["c"]
     except sqlite3.OperationalError:
-        updated = len(pending)
-    return {"pending": len(pending), "skipped": False, "mode": mode, "updated": updated}
+        updated = pending_count
+    return {"pending": pending_count, "skipped": False, "mode": mode, "updated": updated}
 
 
 def stage_genre_sim(ctx: Dict) -> Dict:
