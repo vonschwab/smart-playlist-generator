@@ -195,6 +195,71 @@ def _duration_outlier_score(duration_sec: float, stats: Dict[str, float]) -> flo
     return min(1.0, outlier_magnitude / 2.0)  # Divided by 2 so 3*IQR below = 1.0
 
 
+_ENERGY_SPAN_EPS = 1e-6
+
+
+def _finite_median(values: np.ndarray) -> float:
+    """Median of finite entries; NaN if there are none."""
+    arr = np.asarray(values, dtype=float)
+    finite = arr[np.isfinite(arr)]
+    return float(np.median(finite)) if finite.size else float("nan")
+
+
+def _robust_energy_span(
+    values: np.ndarray, lo_pct: float, hi_pct: float
+) -> Optional[Tuple[float, float]]:
+    """Robust (lo, hi) energy span from finite percentiles, or None if degenerate."""
+    arr = np.asarray(values, dtype=float)
+    finite = arr[np.isfinite(arr)]
+    if finite.size < 2:
+        return None
+    lo = float(np.percentile(finite, lo_pct))
+    hi = float(np.percentile(finite, hi_pct))
+    if (hi - lo) < _ENERGY_SPAN_EPS:
+        return None
+    return (lo, hi)
+
+
+def _slot_targets_by_rank(
+    cluster_medians: Sequence[float], span: Tuple[float, float]
+) -> List[float]:
+    """Evenly-spaced energy targets across `span`, one per cluster, by median-energy rank.
+
+    Clusters with a NaN median get a NaN target (their energy term is inert).
+    Single cluster -> midpoint. Targets are returned aligned to the input order.
+    """
+    lo, hi = span
+    medians = list(cluster_medians)
+    n = len(medians)
+    targets = [float("nan")] * n
+    finite_idx = [i for i, m in enumerate(medians) if np.isfinite(m)]
+    k = len(finite_idx)
+    if k == 0:
+        return targets
+    if k == 1:
+        targets[finite_idx[0]] = (lo + hi) / 2.0
+        return targets
+    # rank finite clusters by ascending median energy, space targets across [lo, hi]
+    ordered = sorted(finite_idx, key=lambda i: medians[i])
+    for rank, i in enumerate(ordered):
+        targets[i] = lo + (rank / (k - 1)) * (hi - lo)
+    return targets
+
+
+def _slot_proximity(z: np.ndarray, target: float, span_width: float) -> np.ndarray:
+    """Per-member proximity to a slot target in [0,1]; 0 for non-finite members.
+
+    Inert (all zeros) if the target is non-finite or span_width <= 0.
+    """
+    arr = np.asarray(z, dtype=float)
+    if not np.isfinite(target) or span_width <= 0:
+        return np.zeros_like(arr)
+    dist = np.abs(arr - target) / span_width
+    prox = 1.0 - np.clip(dist, 0.0, 1.0)
+    prox[~np.isfinite(arr)] = 0.0
+    return prox
+
+
 def _medoids_for_cluster(
     X: np.ndarray,
     indices: List[int],

@@ -7,6 +7,10 @@ from src.playlist.artist_style import (
     build_genre_neighbor_candidate_pool,
     cluster_artist_tracks,
     order_clusters,
+    _finite_median,
+    _robust_energy_span,
+    _slot_targets_by_rank,
+    _slot_proximity,
 )
 
 
@@ -941,3 +945,53 @@ def test_run_audit_writer_creates_markdown_report(tmp_path):
     assert "## 4) Segment Diagnostics" in text
     assert "### Segment 0" in text
     assert "#### Attempt 1" in text
+
+
+def test_finite_median_ignores_nan():
+    assert _finite_median(np.array([1.0, np.nan, 3.0])) == 2.0
+    assert np.isnan(_finite_median(np.array([np.nan, np.nan])))
+
+
+def test_robust_energy_span_uses_percentiles():
+    vals = np.arange(10, dtype=float)  # 0..9
+    span = _robust_energy_span(vals, 10.0, 90.0)
+    assert span is not None
+    lo, hi = span
+    assert lo == pytest.approx(0.9)
+    assert hi == pytest.approx(8.1)
+
+
+def test_robust_energy_span_none_when_flat_or_sparse():
+    assert _robust_energy_span(np.array([5.0, 5.0, 5.0]), 10.0, 90.0) is None  # zero span
+    assert _robust_energy_span(np.array([np.nan, 1.0]), 10.0, 90.0) is None     # <2 finite
+
+
+def test_slot_targets_even_spacing_by_rank():
+    # medians in input order: cluster0=2.0 (highest), cluster1=0.0 (lowest), cluster2=1.0 (mid)
+    targets = _slot_targets_by_rank([2.0, 0.0, 1.0], (0.0, 10.0))
+    assert targets[1] == pytest.approx(0.0)    # lowest-energy cluster -> low slot
+    assert targets[2] == pytest.approx(5.0)    # mid
+    assert targets[0] == pytest.approx(10.0)   # highest-energy cluster -> high slot
+
+
+def test_slot_targets_single_cluster_is_midpoint():
+    assert _slot_targets_by_rank([3.0], (0.0, 10.0)) == [pytest.approx(5.0)]
+
+
+def test_slot_targets_nan_median_stays_nan():
+    targets = _slot_targets_by_rank([np.nan, 1.0], (0.0, 10.0))
+    assert np.isnan(targets[0])
+
+
+def test_slot_proximity_peaks_at_target_and_zeros_for_nan():
+    z = np.array([5.0, 0.0, 10.0, np.nan])
+    prox = _slot_proximity(z, target=5.0, span_width=10.0)
+    assert prox[0] == pytest.approx(1.0)     # at target
+    assert prox[1] == pytest.approx(0.5)     # half a span away
+    assert prox[2] == pytest.approx(0.5)
+    assert prox[3] == 0.0                     # NaN energy -> neutral (no bonus)
+
+
+def test_slot_proximity_inert_when_target_nan():
+    z = np.array([1.0, 2.0])
+    assert np.all(_slot_proximity(z, target=np.nan, span_width=10.0) == 0.0)
