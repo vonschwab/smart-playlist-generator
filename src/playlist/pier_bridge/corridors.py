@@ -15,7 +15,9 @@ def geodesic_detour(d_a: np.ndarray, d_b: np.ndarray, pier_b: int) -> np.ndarray
 
     `d_a`/`d_b` are single-source shortest-path distances from pier_a / pier_b over
     the kNN graph. detour = d_a[c] + d_b[c] - geodesic(a,b); 0 on the path, larger
-    off it, +inf if unreachable from either pier.
+    off it. +inf if a candidate is unreachable from a pier; and if pier_a and pier_b
+    are themselves disconnected (geodesic = inf) EVERY entry becomes +inf, so the
+    corridor goes inert (uniform penalty) for that segment rather than starving it.
     """
     geo = float(d_a[int(pier_b)])
     det = np.asarray(d_a, dtype=np.float64) + np.asarray(d_b, dtype=np.float64) - geo

@@ -162,5 +162,5 @@
   "weight_genre": 0.0,
   "weight_mid_mid": 0.15,
   "weight_transition": 0.35,
-  "worst_edge_minimax_weight": 0.0
+  "worst_edge_minimax_enabled": false
 }

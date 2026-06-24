@@ -51,7 +51,7 @@ def segment_sonic_detour(
         out[int(pier_b)] = 0.0
         return out
     local = {g: i for i, g in enumerate(nodes)}
-    graph = build_knn_graph(X_full_norm[nodes], int(k), mutual_proximity=bool(mutual_proximity))
+    graph = build_knn_graph(X_full_norm[nodes], int(k), mutual_proximity_approx=bool(mutual_proximity))
     d_a = geodesic_from_source(graph, local[int(pier_a)])
     d_b = geodesic_from_source(graph, local[int(pier_b)])
     det_local = geodesic_detour(d_a, d_b, local[int(pier_b)])

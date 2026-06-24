@@ -38,8 +38,15 @@ def mutual_proximity(dist: np.ndarray) -> np.ndarray:
     return mp
 
 
-def build_knn_graph(X: np.ndarray, k: int, *, mutual_proximity: bool = True) -> sp.csr_matrix:
-    """Distance-weighted, symmetrized kNN graph (cosine distance) over rows of X."""
+def build_knn_graph(X: np.ndarray, k: int, *, mutual_proximity_approx: bool = True) -> sp.csr_matrix:
+    """Distance-weighted, symmetrized kNN graph (cosine distance) over rows of X.
+
+    ``mutual_proximity_approx`` applies a CHEAP degree-based hubness rescale on the
+    realised sparse edges — NOT the exact Flexer/Schnitzer transform in
+    ``mutual_proximity()`` above (which is O(N^2) dense). The approximation inflates
+    edges incident to hub nodes; for a small per-segment graph the exact dense form
+    is also affordable if higher fidelity is ever needed.
+    """
     Xn = _l2(np.asarray(X, dtype=np.float64))
     n = Xn.shape[0]
     k = int(max(1, min(k, n - 1)))
@@ -52,14 +59,14 @@ def build_knn_graph(X: np.ndarray, k: int, *, mutual_proximity: bool = True) -> 
     d = 1.0 - sims[rows, cols]                       # cosine distance >= 0
     d = np.clip(d, 0.0, 2.0)
     g = sp.csr_matrix((d, (rows, cols)), shape=(n, n))
-    g = g.maximum(g.T)                                # symmetrize (keep the larger edge)
-    if mutual_proximity:
-        # MP-correct only the realised edges (sparse), using a local dense block is
-        # too costly library-wide; here we rescale edge weights by endpoint hubness.
+    g = g.maximum(g.T)                                # symmetrize: union of directed edges (max distance)
+    if mutual_proximity_approx:
+        # Cheap hubness rescale on the realised edges (the exact dense MP is O(N^2)).
+        # A hub appears in many nodes' kNN => high degree => large SUMMED edge distance
+        # => inv > 1 => its incident edges are inflated, demoting hub shortcuts.
         deg_dist = np.asarray(g.sum(axis=1)).ravel()
         med = np.median(deg_dist[deg_dist > 0]) or 1.0
         coo = g.tocoo()
-        # hubs = many short edges => small summed distance => inflate.
         inv = (deg_dist + 1e-12) / med
         w = coo.data * np.sqrt(inv[coo.row] * inv[coo.col])
         g = sp.csr_matrix((w, (coo.row, coo.col)), shape=(n, n))

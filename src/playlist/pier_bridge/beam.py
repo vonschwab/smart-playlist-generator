@@ -1624,7 +1624,7 @@ def _beam_search_segment(
 
         # Keep top beam_width states. Roam corridors: when the minimax guard is on,
         # protect the weakest edge first (lexicographic), then total score.
-        if float(getattr(cfg, "worst_edge_minimax_weight", 0.0)) > 0.0:
+        if bool(getattr(cfg, "worst_edge_minimax_enabled", False)):
             next_beam.sort(key=lambda s: (_state_min_edge(s), s.score), reverse=True)
         else:
             next_beam.sort(key=lambda s: s.score, reverse=True)
@@ -1895,7 +1895,7 @@ def _beam_search_segment(
         final_candidates,
         objective=(
             "min_edge"
-            if float(getattr(cfg, "worst_edge_minimax_weight", 0.0)) > 0.0
+            if bool(getattr(cfg, "worst_edge_minimax_enabled", False))
             else str(getattr(cfg, "min_edge_objective", "total_score") or "total_score")
         ),
     )

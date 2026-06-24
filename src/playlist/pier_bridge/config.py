@@ -188,7 +188,9 @@ class PierBridgeConfig:
     roam_width_genre: float = 0.0
     roam_width_energy: float = 0.0
     roam_penalty_slope: float = 1.0         # soft-penalty steepness beyond the width
-    worst_edge_minimax_weight: float = 0.0  # >0 turns on the min-bottleneck guard
+    # Min-bottleneck guard: BINARY (lexicographic worst-edge-first), not a blend
+    # weight. True => protect the single weakest edge before total score.
+    worst_edge_minimax_enabled: bool = False
     # Optional genre tie-break band for penalty application (default off).
     genre_tie_break_band: Optional[float] = None
     # DJ-style genre bridging (opt-in; default disabled).

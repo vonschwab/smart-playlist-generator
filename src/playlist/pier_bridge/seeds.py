@@ -143,7 +143,9 @@ def _order_seeds_by_bridgeability(
                    math.factorial(n), best_score)
         return best_order or seed_indices
     else:
-        # Greedy nearest-neighbor for larger seed counts
+        # Greedy nearest-neighbor for larger seed counts.
+        # min_bottleneck has no separate path here: per-step max-pair locally
+        # approximates both the sum and the min-bottleneck objective.
         remaining = set(seed_indices)
         # Start with the first seed
         ordered = [seed_indices[0]]

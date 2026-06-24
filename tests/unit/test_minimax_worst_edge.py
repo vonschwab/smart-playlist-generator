@@ -35,8 +35,8 @@ def test_min_edge_objective_prefers_higher_worst_edge():
 def test_minimax_wiring_runs_end_to_end_and_off_is_unaffected():
     X = np.array([[1.0, 0.0, 0.0], [0.3, 0.95, 0.0], [0.8, 0.6, 0.0], [0.6, 0.8, 0.0]])
     XN = X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-12)
-    on = PierBridgeConfig(transition_floor=0.0, bridge_floor=0.0, worst_edge_minimax_weight=1.0)
-    off = PierBridgeConfig(transition_floor=0.0, bridge_floor=0.0, worst_edge_minimax_weight=0.0)
+    on = PierBridgeConfig(transition_floor=0.0, bridge_floor=0.0, worst_edge_minimax_enabled=True)
+    off = PierBridgeConfig(transition_floor=0.0, bridge_floor=0.0, worst_edge_minimax_enabled=False)
     p_on, _h1, _e1, err_on = _beam_search_segment(0, 1, 2, [2, 3], XN, XN, None, None, None, None, on, 5)
     p_off, _h2, _e2, err_off = _beam_search_segment(0, 1, 2, [2, 3], XN, XN, None, None, None, None, off, 5)
     assert err_on is None and p_on is not None and len(p_on) == 2
