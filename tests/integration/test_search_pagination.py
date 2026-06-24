@@ -30,6 +30,14 @@ def _make_db(tmp: Path) -> Path:
             "INSERT INTO tracks VALUES (?,?,?,?,?,?)",
             (f"t{i}", f"Song {i}", "Beach House", "Bloom", 200000, f"/m/{i}.flac"),
         )
+    # Extra library artists to exercise the autocomplete source:
+    #  - Beck + a "beck" case variant (dedup)
+    #  - Bedouine: present in tracks but NOT in the `artists` table (the REX case)
+    for tid, art in [("t6", "Beck"), ("t7", "Bedouine"), ("t8", "beck")]:
+        conn.execute(
+            "INSERT INTO tracks VALUES (?,?,?,?,?,?)",
+            (tid, f"Track {tid}", art, "X", 200000, f"/m/{tid}.flac"),
+        )
     conn.execute("INSERT INTO track_effective_genres VALUES ('t0','dream pop','x',1,1.0)")
     conn.execute("INSERT INTO track_effective_genres VALUES ('t0','shoegaze','x',2,1.0)")
     conn.execute("INSERT INTO track_genres VALUES ('t1','indie','x',0.9)")
@@ -86,6 +94,20 @@ def test_track_search_rejects_out_of_range_params(monkeypatch, params):
             assert resp.status_code == 422
 
 
+def test_autocomplete_reads_library_not_stale_artists_table(monkeypatch):
+    with tempfile.TemporaryDirectory() as d:
+        db = _make_db(Path(d))
+        with _client(monkeypatch, db) as client:
+            r = client.get("/api/autocomplete", params={"q": "be", "limit": 30}).json()
+            # Reads the library (tracks), case-deduped, alphabetical:
+            #  - Beach House once (5 tracks); Beck once ("Beck"+"beck" collapse)
+            #  - Bedouine: in tracks but NOT in the `artists` table -> now appears (the fix)
+            #  - Beirut / Bell Orchestre / Belle & Sebastian are ONLY in `artists`,
+            #    not in the library -> must NOT appear.
+            assert r["items"] == ["Beach House", "Beck", "Bedouine"]
+            assert r["has_more"] is False
+
+
 def test_autocomplete_paginates(monkeypatch):
     with tempfile.TemporaryDirectory() as d:
         db = _make_db(Path(d))
@@ -93,9 +115,9 @@ def test_autocomplete_paginates(monkeypatch):
             r0 = client.get("/api/autocomplete", params={"q": "be", "offset": 0, "limit": 2}).json()
             assert r0["items"] == ["Beach House", "Beck"]  # alphabetical
             assert r0["has_more"] is True
-            r2 = client.get("/api/autocomplete", params={"q": "be", "offset": 4, "limit": 2}).json()
-            assert r2["items"] == ["Belle & Sebastian"]
-            assert r2["has_more"] is False
+            r1 = client.get("/api/autocomplete", params={"q": "be", "offset": 2, "limit": 2}).json()
+            assert r1["items"] == ["Bedouine"]
+            assert r1["has_more"] is False
 
 
 def test_autocomplete_empty_query(monkeypatch):

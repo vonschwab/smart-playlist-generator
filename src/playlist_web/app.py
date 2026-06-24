@@ -417,8 +417,14 @@ def create_app(
             conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
             try:
                 rows = conn.execute(
-                    "SELECT artist_name FROM artists WHERE artist_name LIKE ? "
-                    "ORDER BY artist_name LIMIT ? OFFSET ?",
+                    # Read the actual library (tracks), not the separate `artists` table:
+                    # that table lags the scanner (689 scanned artists were missing from
+                    # it, e.g. "REX"), so newly-scanned artists never autocompleted.
+                    # GROUP BY LOWER(artist) collapses case variants (Charli XCX / Charli
+                    # Xcx); MIN() picks a stable representative casing.
+                    "SELECT MIN(artist) AS name FROM tracks "
+                    "WHERE artist LIKE ? AND artist IS NOT NULL AND TRIM(artist) <> '' "
+                    "GROUP BY LOWER(artist) ORDER BY name LIMIT ? OFFSET ?",
                     (q + "%", limit + 1, offset),
                 ).fetchall()
             finally:
