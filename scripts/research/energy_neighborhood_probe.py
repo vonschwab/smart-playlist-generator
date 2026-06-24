@@ -95,10 +95,13 @@ def main() -> None:
         )
         mz = energy[medoids]
         c = _counts(mz, band)
-        spread = ", ".join(f"{z:+.2f}({band(z)[0]})" for z in sorted(mz))
+        titles = getattr(bundle, "track_titles", None)
         print(f"\nseeds {label}: {len(medoids)} anchors")
         print(f"  by band: aggressive {c['aggressive']}  mid {c['mid']}  soft {c['soft']}  n/a {c['n/a']}")
-        print(f"  anchor intensities: {spread}")
+        for j in sorted(range(len(medoids)), key=lambda k: mz[k]):
+            m = medoids[j]
+            title = str(titles[m]) if titles is not None else str(bundle.track_ids[m])
+            print(f"    {mz[j]:+.2f} ({band(mz[j])[0]})  {title[:52]}")
 
 
 if __name__ == "__main__":

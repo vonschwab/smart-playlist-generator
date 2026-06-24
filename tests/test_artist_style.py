@@ -15,6 +15,7 @@ from src.playlist.artist_style import (
     _slot_targets_by_quantile,
     _slot_proximity,
     _medoids_for_cluster,
+    _dedupe_artist_indices,
     load_artist_energy_values,
 )
 
@@ -1076,6 +1077,31 @@ def test_slot_proximity_inert_when_target_nan():
     assert np.all(_slot_proximity(z, target=np.nan, span_width=10.0) == 0.0)
     # span_width <= 0 is also inert (all zeros)
     assert np.all(_slot_proximity(z, target=5.0, span_width=0.0) == 0.0)
+
+
+def test_dedupe_artist_indices_prefers_studio_and_collapses_dupes():
+    # 0 studio "On a Plain" | 1 live version | 2 duplicate studio (lowercase)
+    # | 3 unique song | 4 a song that exists ONLY as a live cut
+    titles = np.array([
+        "On a Plain",
+        "On A Plain (Live In Tokyo)",
+        "On a plain",
+        "About a Girl",
+        "Scoff (Live at Pine Street)",
+    ])
+    durations = np.array([200000, 210000, 200000, 150000, 180000], dtype=float)
+    kept = _dedupe_artist_indices([0, 1, 2, 3, 4], titles, durations)
+    assert 1 not in kept            # live "On a Plain" demoted (studio present)
+    assert 2 not in kept            # duplicate studio collapsed
+    assert 0 in kept                # one canonical studio "On a Plain" survives
+    assert 3 in kept                # unique song kept
+    assert 4 in kept                # sole-version live cut kept
+    assert kept == sorted(kept)
+
+
+def test_dedupe_artist_indices_no_titles_passthrough():
+    # No titles -> can't group -> every index passes through unchanged.
+    assert _dedupe_artist_indices([0, 1, 2], None, None) == [0, 1, 2]
 
 
 def _centroid_for(X, indices):

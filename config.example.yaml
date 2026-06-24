@@ -216,6 +216,10 @@ playlists:
       energy_feature: arousal_p50      # arousal_p10 | arousal_p50 | arousal_p90 | danceability
       energy_slot_lo_pct: 10.0         # robust arousal-span percentiles for slot targets
       energy_slot_hi_pct: 90.0
+      # Reduce the artist to one canonical version per song before clustering
+      # (studio/remaster preferred over live/demo/alt) so live takes and duplicate
+      # releases don't become seeds. A live cut is kept only if it's the sole version.
+      dedupe_versions: true
 
     # Construction scoring weights
     # score = alpha*seed_sim + beta*transition_sim + gamma*diversity - penalty

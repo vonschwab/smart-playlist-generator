@@ -85,6 +85,11 @@ class ArtistStyleConfig:
     energy_feature: str = "arousal_p50"    # which energy sidecar column defines the slots
     energy_slot_lo_pct: float = 10.0       # robust span low percentile of artist z-arousal
     energy_slot_hi_pct: float = 90.0       # robust span high percentile
+    # Version de-dup: before clustering, reduce the artist to one canonical version
+    # per song (studio/remaster preferred over live/demo/alt) so live takes and
+    # duplicate releases don't become seeds. A live cut is kept only if it's the
+    # song's sole version. Reuses src/title_dedupe.py.
+    dedupe_versions: bool = True
 
 
 def load_artist_energy_values(bundle, cfg: "ArtistStyleConfig") -> Optional[np.ndarray]:
@@ -312,6 +317,48 @@ def _slot_proximity(z: np.ndarray, target: float, span_width: float) -> np.ndarr
     return prox
 
 
+def _dedupe_artist_indices(
+    indices: List[int],
+    track_titles: Optional[Sequence[str]],
+    durations_ms: Optional[np.ndarray],
+) -> List[int]:
+    """Reduce an artist's track indices to one canonical version per song.
+
+    Groups by loose-normalized title (strips live/remaster/edition suffixes) and
+    keeps the highest version-preference version per song (studio/remaster beat
+    live/demo/alt; remaster is barely penalized). Ties break to the longer
+    duration, then the lower index, for determinism. A live cut survives only if
+    it is the song's sole version. Tracks with no usable title pass through
+    unchanged. Returns indices sorted ascending.
+    """
+    if track_titles is None or len(indices) < 2:
+        return list(indices)
+    from src.title_dedupe import (
+        calculate_version_preference_score,
+        normalize_title_for_dedupe,
+    )
+
+    groups: Dict[str, List[int]] = {}
+    kept: List[int] = []
+    for idx in indices:
+        title = str(track_titles[idx]) if track_titles[idx] is not None else ""
+        norm = normalize_title_for_dedupe(title, mode="loose") if title else ""
+        if not norm:
+            kept.append(idx)  # untitled -> can't group; keep as-is
+            continue
+        groups.setdefault(norm, []).append(idx)
+
+    def _rank(i: int) -> tuple:
+        title = str(track_titles[i]) if track_titles[i] is not None else ""
+        score = calculate_version_preference_score(title)
+        dur = float(durations_ms[i]) if durations_ms is not None else 0.0
+        return (score, dur, -i)  # highest score, then longest, then stable
+
+    for members in groups.values():
+        kept.append(members[0] if len(members) == 1 else max(members, key=_rank))
+    return sorted(kept)
+
+
 def _medoids_for_cluster(
     X: np.ndarray,
     indices: List[int],
@@ -460,6 +507,16 @@ def cluster_artist_tracks(
             artist_name, len(solo_only), len(artist_indices) - len(solo_only),
             len(artist_indices),
         )
+    if cfg.dedupe_versions:
+        before = len(artist_indices)
+        artist_indices = _dedupe_artist_indices(
+            artist_indices, getattr(bundle, "track_titles", None), bundle.durations_ms
+        )
+        if before != len(artist_indices):
+            logger.info(
+                "Artist style version-dedup: %s %d -> %d tracks (one canonical version per song)",
+                artist_name, before, len(artist_indices),
+            )
     if len(artist_indices) < max(3, cfg.cluster_k_min):
         raise ValueError(f"Not enough tracks to cluster for artist {artist_name}")
 
