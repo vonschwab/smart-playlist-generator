@@ -84,11 +84,18 @@ def _order_seeds_by_bridgeability(
     weight_sonic: float = 0.0,
     weight_genre: float = 0.0,
     weight_bridge: float = 1.0,
+    min_bottleneck: bool = False,
 ) -> List[int]:
     """
-    Order seed indices to maximize total bridgeability.
+    Order seed indices to maximize bridgeability.
     For <=6 seeds, evaluates all permutations.
     For >6 seeds, uses greedy nearest-neighbor heuristic.
+
+    objective: when ``min_bottleneck`` is False (default, legacy) a permutation is
+    scored by the SUM of consecutive pair scores. When True (roam corridors) it is
+    scored by the MIN consecutive pair score (the weakest link) — the smoothest
+    sequence, so one bad seam can't be averaged away. The greedy path (n>6) is
+    nearest-neighbour either way (per-step max approximates both objectives).
     """
     n = len(seed_indices)
     if n <= 1:
@@ -126,9 +133,8 @@ def _order_seeds_by_bridgeability(
         best_score = -float('inf')
 
         for perm in itertools.permutations(seed_indices):
-            total_score = 0.0
-            for i in range(len(perm) - 1):
-                total_score += _pair_score(perm[i], perm[i + 1])
+            pair_scores = [_pair_score(perm[i], perm[i + 1]) for i in range(len(perm) - 1)]
+            total_score = min(pair_scores) if min_bottleneck else sum(pair_scores)
             if total_score > best_score:
                 best_score = total_score
                 best_order = list(perm)
