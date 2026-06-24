@@ -11,6 +11,7 @@ from src.playlist.artist_style import (
     _robust_energy_span,
     _slot_targets_by_rank,
     _slot_proximity,
+    _medoids_for_cluster,
 )
 
 
@@ -995,3 +996,49 @@ def test_slot_proximity_peaks_at_target_and_zeros_for_nan():
 def test_slot_proximity_inert_when_target_nan():
     z = np.array([1.0, 2.0])
     assert np.all(_slot_proximity(z, target=np.nan, span_width=10.0) == 0.0)
+
+
+def _centroid_for(X, indices):
+    c = X[indices].mean(axis=0)
+    return c / (np.linalg.norm(c) + 1e-12)
+
+
+def test_medoid_energy_term_pulls_to_slot():
+    # 3 candidates, near-identical sonic centrality; energy proximity favors index 1.
+    X = np.array([[1.0, 0.0], [0.98, 0.02], [0.99, 0.01]])
+    X = X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-12)
+    indices = [0, 1, 2]
+    centroid = _centroid_for(X, indices)
+    rng = np.random.default_rng(0)
+
+    # Baseline (no energy): pick by sonic alone, top_k=1 => deterministic argmax.
+    base = _medoids_for_cluster(
+        X, indices, centroid, ["t0", "t1", "t2"], 1, rng, 1,
+        None, None, 0.7, 0.3,
+    )
+    # Energy strongly favors index 1.
+    rng2 = np.random.default_rng(0)
+    energized = _medoids_for_cluster(
+        X, indices, centroid, ["t0", "t1", "t2"], 1, rng2, 1,
+        None, None, 0.7, 0.3,
+        10.0, np.array([0.0, 1.0, 0.0]),   # energy_weight, energy_proximity
+    )
+    assert energized == [1]
+    assert energized != base or base == [1]  # energy moved (or already was) the pick
+
+
+def test_medoid_energy_weight_zero_is_regression_safe():
+    X = np.array([[1.0, 0.0], [0.5, 0.5], [0.0, 1.0]])
+    X = X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-12)
+    indices = [0, 1, 2]
+    centroid = _centroid_for(X, indices)
+    base = _medoids_for_cluster(
+        X, indices, centroid, ["t0", "t1", "t2"], 1, np.random.default_rng(3), 1,
+        None, None, 0.7, 0.3,
+    )
+    with_zero = _medoids_for_cluster(
+        X, indices, centroid, ["t0", "t1", "t2"], 1, np.random.default_rng(3), 1,
+        None, None, 0.7, 0.3,
+        0.0, np.array([1.0, 0.0, 0.0]),   # weight 0 => proximity ignored
+    )
+    assert with_zero == base

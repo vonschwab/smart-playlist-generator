@@ -272,6 +272,8 @@ def _medoids_for_cluster(
     track_durations_ms: Optional[np.ndarray] = None,
     similarity_weight: float = 0.7,
     duration_weight: float = 0.3,
+    energy_weight: float = 0.0,
+    energy_proximity: Optional[np.ndarray] = None,
 ) -> List[int]:
     """
     Select medoids using weighted scoring that penalizes duration outliers.
@@ -304,6 +306,17 @@ def _medoids_for_cluster(
 
     # Combined weighted score (configurable weights)
     scores = sims * similarity_weight + duration_weights * duration_weight
+
+    # Energy-aware spread: pull the medoid toward this cluster's arousal slot.
+    if energy_proximity is not None and energy_weight > 0:
+        prox = np.asarray(energy_proximity, dtype=float)
+        if prox.shape[0] == len(indices):
+            scores = scores + prox * energy_weight
+        else:  # defensive: misaligned proximity must never silently corrupt scores
+            logger.warning(
+                "artist_style: energy_proximity len %d != cluster size %d; skipping energy term",
+                prox.shape[0], len(indices),
+            )
 
     # Select from top-k by combined score
     order = np.argsort(-scores)
