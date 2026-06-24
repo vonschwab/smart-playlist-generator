@@ -21,6 +21,7 @@ def test_get_artist_top_tracks_parses_ranked_list():
         out = _client().get_artist_top_tracks("Nirvana", limit=50)
     assert [t["name"] for t in out] == ["Smells Like Teen Spirit", "Come as You Are"]
     assert out[0]["playcount"] == 9000000 and out[0]["mbid"] == "mbid-slts"
+    assert out[0]["listeners"] == 2000000
     assert out[0]["rank"] == 0 and out[1]["rank"] == 1
 
 
@@ -33,3 +34,15 @@ def test_get_artist_top_tracks_handles_single_and_empty():
         assert _client().get_artist_top_tracks("A") == []
     with patch.object(LastFMClient, "_make_request", return_value={"toptracks": {}}):
         assert _client().get_artist_top_tracks("A") == []
+
+
+def test_get_artist_top_tracks_ranks_are_contiguous_when_a_track_is_skipped():
+    fake = {"toptracks": {"track": [
+        {"name": "A", "playcount": "3", "mbid": ""},
+        {"name": "", "playcount": "2", "mbid": ""},   # empty name -> skipped
+        {"name": "B", "playcount": "1", "mbid": ""},
+    ]}}
+    with patch.object(LastFMClient, "_make_request", return_value=fake):
+        out = _client().get_artist_top_tracks("A")
+    assert [t["name"] for t in out] == ["A", "B"]
+    assert [t["rank"] for t in out] == [0, 1]   # contiguous despite the skip

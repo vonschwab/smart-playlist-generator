@@ -685,7 +685,8 @@ class LastFMClient:
         """Fetch an artist's most-popular tracks (artist.gettoptracks), ranked.
 
         Returns a list of {name, playcount, listeners, mbid, rank}; rank is the
-        0-based position (0 = most popular). [] on missing/empty response.
+        contiguous 0-based position in the returned list (0 = most popular),
+        not the index in the raw API response. [] on missing/empty response.
         """
         data = self._make_request('artist.gettoptracks', {
             'artist': artist_name,
@@ -698,7 +699,7 @@ class LastFMClient:
         if not isinstance(tracks, list):
             tracks = [tracks]
         out: List[Dict[str, Any]] = []
-        for rank, t in enumerate(tracks):
+        for t in tracks:
             name = str(t.get('name', '')).strip()
             if not name:
                 continue
@@ -707,7 +708,7 @@ class LastFMClient:
                 'playcount': int(t.get('playcount', 0) or 0),
                 'listeners': int(t.get('listeners', 0) or 0),
                 'mbid': str(t.get('mbid', '') or ''),
-                'rank': rank,
+                'rank': len(out),
             })
         return out
 
