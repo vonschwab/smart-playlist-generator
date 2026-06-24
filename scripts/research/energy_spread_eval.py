@@ -17,7 +17,7 @@ from typing import Sequence
 
 import numpy as np
 
-from src.features.artifacts import load_artifact_bundle
+from src.features.artifacts import load_artifact_bundle, set_sonic_variant_override
 from src.playlist.artist_style import ArtistStyleConfig, cluster_artist_tracks
 from src.playlist.energy_loader import load_energy_matrix
 
@@ -56,9 +56,19 @@ def main() -> None:
         "--artifact",
         default="data/artifacts/beat3tower_32k/data_matrices_step1.npz",
     )
+    ap.add_argument(
+        "--sonic-variant",
+        default="mert",
+        help="Sonic space to cluster in. MERT is the production authority; "
+        "the 'beat3tower_32k' dir name is historical.",
+    )
     args = ap.parse_args()
 
+    # Force the production sonic authority (MERT) so the eval can never silently
+    # cluster in the legacy towers/raw keys. Raises loudly if the key is absent.
+    set_sonic_variant_override(args.sonic_variant)
     bundle = load_artifact_bundle(Path(args.artifact))
+    print(f"sonic space: variant={args.sonic_variant} X_sonic.shape={bundle.X_sonic.shape}")
     sidecar = Path(args.artifact).parent / "energy" / "energy_sidecar.npz"
     energy = load_energy_matrix(
         list(bundle.track_ids), sidecar_path=str(sidecar), features=("arousal_p50",)
