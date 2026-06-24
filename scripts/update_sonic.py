@@ -108,9 +108,10 @@ def analyze_track_worker(track_data: Tuple[str, str, str, str, bool, bool]) -> O
         return None
 
 
-# Default watchdog tuning for the sonic pool. Generous because the first
-# completion in each pool includes worker spawn + heavy import + first track.
-POOL_NO_PROGRESS_TIMEOUT_S = 180.0
+# No-progress watchdog timeout for the sonic pool. Long enough that a healthy
+# pool's first completion (worker spawn + heavy import + first track, ~15-60s)
+# never false-triggers; short enough that a deadlocked pool recovers quickly.
+POOL_NO_PROGRESS_TIMEOUT_S = 90.0
 
 
 def run_pool_with_watchdog(
@@ -121,94 +122,88 @@ def run_pool_with_watchdog(
     on_result,
     no_progress_timeout=POOL_NO_PROGRESS_TIMEOUT_S,
     poll_interval=0.5,
-    min_workers=1,
     cancel_check=None,
     log=logger,
 ):
-    """Run ``worker_fn`` over ``items`` in a process pool with a no-progress watchdog.
+    """Run ``worker_fn`` over ``items`` in a process pool, guarded by a no-progress watchdog.
 
     Each completed item is delivered to ``on_result(item, result)`` (result is
-    None if the worker returned None or raised). If the pool makes NO progress
-    for ``no_progress_timeout`` seconds, the stuck worker processes are killed and
-    the remaining items are retried with fewer workers, finally falling back to
-    SERIAL in-process execution (no spawn, so it cannot hit the Windows spawn
-    import deadlock that this guards against). Always processes every item.
+    None if the worker returned None or raised). ONE parallel attempt is made; if
+    the pool makes no progress for ``no_progress_timeout`` seconds (the Windows
+    spawn import deadlock, where pool children wedge re-importing a heavy
+    ``__main__``), the stuck workers are killed and the remaining items are
+    finished SERIALLY in-process -- no spawn, so it cannot deadlock. Retrying with
+    fewer workers is deliberately avoided: it re-imports the same heavy module and
+    re-deadlocks, wasting another timeout. Always processes every item.
 
     Returns a dict: ``{"completed", "stalls", "serial_fallback"}``.
     """
-    remaining = list(items)
+    items = list(items)
     info = {"completed": 0, "stalls": 0, "serial_fallback": False}
     cur_workers = max(1, int(workers))
 
-    while remaining:
-        executor = ProcessPoolExecutor(max_workers=cur_workers)
-        future_to_item = {executor.submit(worker_fn, item): item for item in remaining}
-        pending = set(future_to_item)
-        completed_futures = set()
-        last_progress = time.monotonic()
-        stalled = False
-        try:
-            while pending:
-                if cancel_check is not None:
-                    cancel_check()
-                done, pending = wait(pending, timeout=poll_interval, return_when=FIRST_COMPLETED)
-                if done:
-                    last_progress = time.monotonic()
-                    for fut in done:
-                        completed_futures.add(fut)
-                        item = future_to_item[fut]
-                        try:
-                            result = fut.result()
-                        except Exception as exc:  # worker raised
-                            log.error("sonic worker raised for %r: %s", item, exc)
-                            result = None
-                        on_result(item, result)
-                        info["completed"] += 1
-                elif (time.monotonic() - last_progress) > no_progress_timeout:
-                    stalled = True
-                    info["stalls"] += 1
-                    log.error(
-                        "Sonic pool made no progress for %.0fs with %d worker(s); "
-                        "killing stuck workers and recovering (likely the Windows spawn "
-                        "import deadlock).",
-                        no_progress_timeout,
-                        cur_workers,
-                    )
-                    break
-        finally:
-            if stalled:
-                # shutdown() would block joining deadlocked children, so kill first.
-                for proc in list((getattr(executor, "_processes", None) or {}).values()):
-                    try:
-                        proc.kill()
-                    except Exception:
-                        pass
-            executor.shutdown(wait=False, cancel_futures=True)
-
-        if not stalled:
-            return info
-
-        remaining = [future_to_item[f] for f in future_to_item if f not in completed_futures]
-        if cur_workers > min_workers:
-            cur_workers = max(min_workers, cur_workers // 2)
-            log.warning("Retrying %d sonic track(s) with %d worker(s).", len(remaining), cur_workers)
-            continue
-
-        # Floor reached: run the rest serially in-process. No spawn => no deadlock.
-        log.warning("Falling back to SERIAL in-process sonic analysis for %d track(s).", len(remaining))
-        info["serial_fallback"] = True
-        for item in remaining:
+    # --- Single parallel attempt ---
+    executor = ProcessPoolExecutor(max_workers=cur_workers)
+    future_to_item = {executor.submit(worker_fn, item): item for item in items}
+    pending = set(future_to_item)
+    completed_futures = set()
+    last_progress = time.monotonic()
+    stalled = False
+    try:
+        while pending:
             if cancel_check is not None:
                 cancel_check()
-            try:
-                result = worker_fn(item)
-            except Exception as exc:
-                log.error("sonic worker raised (serial) for %r: %s", item, exc)
-                result = None
-            on_result(item, result)
-            info["completed"] += 1
+            done, pending = wait(pending, timeout=poll_interval, return_when=FIRST_COMPLETED)
+            if done:
+                last_progress = time.monotonic()
+                for fut in done:
+                    completed_futures.add(fut)
+                    item = future_to_item[fut]
+                    try:
+                        result = fut.result()
+                    except Exception as exc:  # worker raised
+                        log.error("sonic worker raised for %r: %s", item, exc)
+                        result = None
+                    on_result(item, result)
+                    info["completed"] += 1
+            elif (time.monotonic() - last_progress) > no_progress_timeout:
+                stalled = True
+                info["stalls"] += 1
+                log.error(
+                    "Sonic pool made no progress for %.0fs with %d worker(s); killing "
+                    "stuck workers and finishing serially in-process (Windows spawn "
+                    "import deadlock).",
+                    no_progress_timeout,
+                    cur_workers,
+                )
+                break
+    finally:
+        if stalled:
+            # shutdown() would block joining deadlocked children, so kill first.
+            for proc in list((getattr(executor, "_processes", None) or {}).values()):
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+        executor.shutdown(wait=False, cancel_futures=True)
+
+    if not stalled:
         return info
 
+    # --- Serial fallback: finish whatever the stalled pool didn't complete ---
+    remaining = [future_to_item[f] for f in future_to_item if f not in completed_futures]
+    info["serial_fallback"] = True
+    log.warning("Falling back to SERIAL in-process sonic analysis for %d track(s).", len(remaining))
+    for item in remaining:
+        if cancel_check is not None:
+            cancel_check()
+        try:
+            result = worker_fn(item)
+        except Exception as exc:
+            log.error("sonic worker raised (serial) for %r: %s", item, exc)
+            result = None
+        on_result(item, result)
+        info["completed"] += 1
     return info
 
 
