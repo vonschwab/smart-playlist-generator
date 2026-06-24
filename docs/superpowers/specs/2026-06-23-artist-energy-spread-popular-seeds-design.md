@@ -152,14 +152,32 @@ Mirrors the energy-sidecar precedent end-to-end; generation never touches the ne
    - New table (illustrative): `lastfm_artist_top_tracks(artist, rank, track_name,
      playcount, listeners, fetched_at)`.
 3. **Build step → `popularity_sidecar.npz`** (`track_ids → popularity` in [0,1]).
-   Resolution matches Last.fm names to local `track_id`s by **normalized title,
-   within the artist**. Score basis = **per-artist rank** (not raw playcount),
-   because we only ever rank within one artist's clusters and rank is robust
-   across artists of wildly different global popularity (e.g. `score = 1 −
-   (rank−1)/N` or a rank decay).
-   - **Live/remaster handled for free:** a live/remaster cut's title won't match
-     the canonical top-track name, so it stays unmatched → no popularity bonus →
-     it naturally loses to the studio hit. (The *Molly's Lips (Live)* problem.)
+   The hard part is **one canonical Last.fm name → many local versions** (studio,
+   remaster, live, demo can all be present for the same song). We must resolve the
+   canonical name back to the *right* local `track_id`, not just "a match." Two
+   stages, reusing existing infra:
+   - **Gather version-candidates.** Loose-normalize **both** the Last.fm name and
+     the local titles via `title_dedupe.normalize_title_for_dedupe(mode="loose")`
+     (strips `remaster / live / edition / year` suffixes), and group, *within the
+     artist*, every local track that collapses to the same canonical title.
+     Opportunistically match by **mbid first** — Last.fm top-tracks carry an mbid
+     and `track_matcher.TrackMatcher` already indexes `_tracks_by_mbid` /
+     `_tracks_by_norm`; fall back to loose-title + fuzzy `SequenceMatcher`.
+   - **Resolve to the canonical bearer.** Among the grouped candidates, attach the
+     hit's popularity to the single track with the highest
+     `title_dedupe.calculate_version_preference_score` — the project's existing,
+     deliberate stance: `live −30 / demo −25 / remix −20 / acoustic −15` are
+     demoted, but **`remaster` is only −5 — never penalized** ("often better
+     quality," per the code comment). Other versions in the group get 0.
+     Consequences (the cases discussed):
+       - A remaster that is the *only* local copy is the top candidate → it
+         carries the full popularity. **No remaster penalty.**
+       - A live cut next to the studio version loses to it (studio 100 > live 70).
+       - The "penalty" is a *version-preference rank among real matches*, not a
+         title-match failure — remasters rank with the studio cut, not the live takes.
+   - Score basis = per-artist **rank** (not raw playcount), because we only ever
+     rank within one artist's clusters and rank is robust across artists of wildly
+     different global popularity (e.g. `score = 1 − (rank−1)/N` or a rank decay).
    - Sidecar lives alongside the artifact (e.g.
      `data/artifacts/beat3tower_32k/popularity/popularity_sidecar.npz`).
 4. **Runtime `src/playlist/popularity_loader.py`** mirrors `energy_loader.py`:
@@ -238,9 +256,10 @@ the qualitative sanity confirmation, but the gate is the measured panel A/B.
 - **Danceability/valence as additional energy features.** Start with
   `arousal_p50` only; `energy_feature` is a config knob so a blend can be tried
   later without code change.
-- **Fuzzy title matching** beyond normalized-title-within-artist. The exact-ish
-  match is deliberately conservative (demotes live/remaster); a fuzzy fallback can
-  be added if coverage proves too sparse.
+- **Tuning the version-preference cutoffs** in `calculate_version_preference_score`
+  (e.g. should `radio edit` / `single version` rank above or below the album cut?).
+  The two-stage mbid → loose-title → version-preference resolution is *in scope*;
+  only the exact preference weights are a later calibration pass.
 - **Final weight calibration** (`w_energy`, `w_pop`, slot spacing). Sensible
   defaults ship off; calibration is a separate eval-driven pass.
 - **Legacy DS caller** (`playlist_generator.py:2626`) — confirm whether it needs
@@ -253,7 +272,13 @@ the qualitative sanity confirmation, but the gate is the measured panel A/B.
   not a divide-by-zero.
 - **Last.fm coverage / matching sparsity.** Artists missing from Last.fm or with
   unmatched titles get neutral popularity → feature dormant for them (acceptable,
-  but measure coverage during the build step and log it).
+  but the build step must **log match coverage** — fraction of top-tracks resolved
+  to a local `track_id`, and how many hits had >1 version-candidate — so we can see
+  if resolution is silently dropping hits).
+- **Canonical-version resolution is the riskiest matching step.** A wrong group
+  (two different songs collapsing to one canonical title, or the canonical bearer
+  resolving to a live cut) attaches popularity to the wrong seed. Mitigate with
+  mbid-first matching and by logging multi-candidate groups for spot-checking.
 - **Stage cost.** One `artist.gettoptracks` call per qualifying artist; rate-limited
   + resumable, so a one-time-ish offline cost. The `toptracks_min_artist_tracks`
   floor bounds it.
