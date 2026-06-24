@@ -28,6 +28,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from src.playlist.config import DSPipelineConfig, resolve_pier_bridge_tuning
 from src.playlist.pier_bridge_builder import PierBridgeConfig
+from src.playlist.pier_bridge.config import roam_kwargs_from_dict
 
 logger = logging.getLogger(__name__)
 
@@ -808,24 +809,8 @@ def apply_pier_bridge_overrides(
     #   enabled, knn_k, mutual_proximity, width_sonic/genre/energy,
     #   penalty_slope, worst_edge_minimax }. Absent => PierBridgeConfig defaults
     #   (off; identical to legacy).
-    roam_raw = pb_overrides.get("roam")
-    if isinstance(roam_raw, dict):
-        _roam_kwargs: Dict[str, Any] = {}
-        if isinstance(roam_raw.get("enabled"), bool):
-            _roam_kwargs["roam_corridors_enabled"] = bool(roam_raw["enabled"])
-        if isinstance(roam_raw.get("knn_k"), int) and not isinstance(roam_raw.get("knn_k"), bool):
-            _roam_kwargs["roam_knn_k"] = int(roam_raw["knn_k"])
-        if isinstance(roam_raw.get("mutual_proximity"), bool):
-            _roam_kwargs["roam_mutual_proximity"] = bool(roam_raw["mutual_proximity"])
-        for _dim in ("sonic", "genre", "energy"):
-            _v = roam_raw.get(f"width_{_dim}")
-            if isinstance(_v, (int, float)) and not isinstance(_v, bool):
-                _roam_kwargs[f"roam_width_{_dim}"] = float(_v)
-        if isinstance(roam_raw.get("penalty_slope"), (int, float)) and not isinstance(roam_raw.get("penalty_slope"), bool):
-            _roam_kwargs["roam_penalty_slope"] = float(roam_raw["penalty_slope"])
-        if isinstance(roam_raw.get("worst_edge_minimax"), bool):
-            _roam_kwargs["worst_edge_minimax_enabled"] = bool(roam_raw["worst_edge_minimax"])
-        if _roam_kwargs:
-            pb_cfg = replace(pb_cfg, **_roam_kwargs)
+    _roam_kwargs = roam_kwargs_from_dict(pb_overrides.get("roam"))
+    if _roam_kwargs:
+        pb_cfg = replace(pb_cfg, **_roam_kwargs)
 
     return pb_cfg, tuning, tuning_sources, transition_weights

@@ -406,3 +406,34 @@ def _compute_transition_score_raw_and_transformed(
         weight_mid_mid=float(cfg.weight_mid_mid),
         weight_full_full=float(cfg.weight_full_full),
     )
+
+
+def roam_kwargs_from_dict(roam_raw: Optional[dict]) -> Dict[str, Any]:
+    """Parse a user/config roam override dict into PierBridgeConfig kwargs.
+
+    Shared by the seeds/DS override path (apply_pier_bridge_overrides) and the
+    artist path (which builds PierBridgeConfig explicitly, so it must apply roam
+    itself). Absent/empty => {}, so ``replace(cfg, **roam_kwargs_from_dict(None))``
+    is a safe no-op. Keys: enabled, knn_k, mutual_proximity,
+    width_sonic/genre/energy, penalty_slope, worst_edge_minimax.
+    """
+    if not isinstance(roam_raw, dict):
+        return {}
+    out: Dict[str, Any] = {}
+    if isinstance(roam_raw.get("enabled"), bool):
+        out["roam_corridors_enabled"] = bool(roam_raw["enabled"])
+    k = roam_raw.get("knn_k")
+    if isinstance(k, int) and not isinstance(k, bool):
+        out["roam_knn_k"] = int(k)
+    if isinstance(roam_raw.get("mutual_proximity"), bool):
+        out["roam_mutual_proximity"] = bool(roam_raw["mutual_proximity"])
+    for _dim in ("sonic", "genre", "energy"):
+        v = roam_raw.get(f"width_{_dim}")
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            out[f"roam_width_{_dim}"] = float(v)
+    ps = roam_raw.get("penalty_slope")
+    if isinstance(ps, (int, float)) and not isinstance(ps, bool):
+        out["roam_penalty_slope"] = float(ps)
+    if isinstance(roam_raw.get("worst_edge_minimax"), bool):
+        out["worst_edge_minimax_enabled"] = bool(roam_raw["worst_edge_minimax"])
+    return out
