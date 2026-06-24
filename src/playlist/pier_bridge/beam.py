@@ -104,6 +104,22 @@ def _coerce_edge_score(value: Any, *, fallback: Any, default: float) -> float:
     return max(0.0, min(1.0, float(raw)))
 
 
+def _state_min_edge(s) -> float:
+    """The weakest single-edge transition score along a beam state's path.
+
+    Reads each edge's beam transition score (``T``, falling back to
+    ``trans_score_in_beam``); returns -1e18 for an edge-less state. Shared by the
+    final min-edge selection and the roam-corridors per-step minimax prune.
+    """
+    edges = getattr(s, "edge_components", None) or []
+    vals = [
+        float(e.get("T", e.get("trans_score_in_beam", -1e18)))
+        for e in edges
+        if e is not None
+    ]
+    return min(vals) if vals else -1e18
+
+
 def _select_best_beam_state(states, *, objective: str = "total_score"):
     """Pick the winning beam state from a (possibly empty) list.
 
@@ -115,16 +131,7 @@ def _select_best_beam_state(states, *, objective: str = "total_score"):
     if not states:
         return None
     if str(objective).strip().lower() == "min_edge":
-        def _key(s):
-            edges = getattr(s, "edge_components", None) or []
-            vals = [
-                float(e.get("T", e.get("trans_score_in_beam", -1e18)))
-                for e in edges
-                if e is not None
-            ]
-            min_v = min(vals) if vals else -1e18
-            return (min_v, float(getattr(s, "score", 0.0)))
-        return max(states, key=_key)
+        return max(states, key=lambda s: (_state_min_edge(s), float(getattr(s, "score", 0.0))))
     return max(states, key=lambda s: float(getattr(s, "score", 0.0)))
 
 
@@ -1615,8 +1622,12 @@ def _beam_search_segment(
             _record_local_sonic_stats()
             return None, genre_penalty_hits, edges_scored, f"no valid continuations at step={step}"
 
-        # Keep top beam_width states
-        next_beam.sort(key=lambda s: s.score, reverse=True)
+        # Keep top beam_width states. Roam corridors: when the minimax guard is on,
+        # protect the weakest edge first (lexicographic), then total score.
+        if float(getattr(cfg, "worst_edge_minimax_weight", 0.0)) > 0.0:
+            next_beam.sort(key=lambda s: (_state_min_edge(s), s.score), reverse=True)
+        else:
+            next_beam.sort(key=lambda s: s.score, reverse=True)
         beam = next_beam[:beam_width]
 
         # Phase 3 fix: Track waypoint info for the chosen candidate (top beam state's last track)
@@ -1882,7 +1893,11 @@ def _beam_search_segment(
 
     best_final = _select_best_beam_state(
         final_candidates,
-        objective=str(getattr(cfg, "min_edge_objective", "total_score") or "total_score"),
+        objective=(
+            "min_edge"
+            if float(getattr(cfg, "worst_edge_minimax_weight", 0.0)) > 0.0
+            else str(getattr(cfg, "min_edge_objective", "total_score") or "total_score")
+        ),
     )
 
     # Compute waypoint diagnostics for chosen path
