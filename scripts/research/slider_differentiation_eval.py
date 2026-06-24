@@ -32,7 +32,8 @@ from typing import Any
 
 import numpy as np
 
-ROOT = Path("C:/Users/Dylan/Desktop/PLAYLIST_GENERATOR_V3")
+ROOT = Path("C:/Users/Dylan/Desktop/PLAYLIST_GENERATOR_V3")  # DATA anchor (artifact/DB/config live here)
+CODE_ROOT = Path(__file__).resolve().parents[2]  # CODE anchor: THIS script's repo root (worktree) — test this tree's src, not MAIN's
 ARTIFACT = ROOT / "data/artifacts/beat3tower_32k/data_matrices_step1.npz"
 DB = ROOT / "data/metadata.db"
 ENERGY = ROOT / "data/artifacts/beat3tower_32k/energy/energy_sidecar.npz"
@@ -107,7 +108,7 @@ _IMP: dict[str, Any] = {}
 
 def _imp() -> dict[str, Any]:
     if not _IMP:
-        sys.path.insert(0, str(ROOT))
+        sys.path.insert(0, str(CODE_ROOT))
         from src.playlist_gui.ui_state import UIStateModel
         from src.playlist_gui.policy import derive_runtime_config, merge_overrides
         from src.playlist_gui.worker import load_config_with_overrides
@@ -124,9 +125,14 @@ def _imp() -> dict[str, Any]:
     return _IMP
 
 
-def policy_config(genre_m: str, sonic_m: str, pace_m: str, cohesion_m: str) -> dict:
+def policy_config(genre_m: str, sonic_m: str, pace_m: str, cohesion_m: str, roam: dict | None = None) -> dict:
     """Translate the four slider modes into a merged config exactly as the worker
-    does (this is the step the broken first draft skipped)."""
+    does (this is the step the broken first draft skipped).
+
+    ``roam`` (optional) injects the Phase-1 roam-corridor override at
+    playlists.ds_pipeline.pier_bridge.roam, which build_ds_overrides surfaces as
+    overrides["pier_bridge"]["roam"] -> apply_pier_bridge_overrides -> PierBridgeConfig.
+    """
     I = _imp()
     ui = replace(
         I["UIStateModel"](mode="seeds"),
@@ -136,6 +142,8 @@ def policy_config(genre_m: str, sonic_m: str, pace_m: str, cohesion_m: str) -> d
     decisions = I["derive_runtime_config"](ui, seed_artist_keys=None)
     ov = I["merge_overrides"]({}, decisions.overrides)
     ov = I["merge_overrides"](ov, MAIN_OV)  # MAIN data paths win
+    if roam:
+        ov = I["merge_overrides"](ov, {"playlists": {"ds_pipeline": {"pier_bridge": {"roam": roam}}}})
     return I["load_config_with_overrides"](str(CONFIG), ov)
 
 
@@ -180,8 +188,8 @@ def build_generator(merged_cfg: dict):
     return I["PlaylistGenerator"](lib, mc, lastfm_client=None, track_matcher=matcher, metadata_client=meta)
 
 
-def run_artist_cell(artist: str, genre_m: str, sonic_m: str, pace_m: str, cohesion_m: str, length: int = 30) -> dict[str, Any]:
-    merged = policy_config(genre_m, sonic_m, pace_m, cohesion_m)
+def run_artist_cell(artist: str, genre_m: str, sonic_m: str, pace_m: str, cohesion_m: str, length: int = 30, roam: dict | None = None) -> dict[str, Any]:
+    merged = policy_config(genre_m, sonic_m, pace_m, cohesion_m, roam=roam)
     g = build_generator(merged)
     open(LOGF, "w").close()
     fh = logging.FileHandler(LOGF, encoding="utf-8", mode="a")
@@ -223,6 +231,11 @@ def run_artist_cell(artist: str, genre_m: str, sonic_m: str, pace_m: str, cohesi
         "genre_pct": grp(r"Genre admission percentile.*?p=([\d.]+)", float),
         "min_genre_sim": grp(r"min_genre_sim=([\d.]+)", float),
     }
+    # Roam diagnostics (Phase-1): per-segment "Roam[seg N]: sonic detour mean=.. max=.."
+    _rl = re.findall(r"Roam\[seg \d+\]: sonic detour mean=([\d.]+) max=([\d.]+)", log)
+    out["roam_segs"] = len(_rl)
+    out["roam_detour_mean"] = round(float(np.mean([float(x[0]) for x in _rl])), 3) if _rl else None
+    out["min_transition"] = grp(r'"min_transition": ([0-9.]+)', float)  # worst edge
     if not err:
         out.update(playlist_metrics(track_ids))
     return out
@@ -256,12 +269,35 @@ def sweep_artist_axis(artist: str, axis: str, length: int = 30) -> None:
         print(f"  {m:8s} {c.get('n',0):>3d} {ov:>11.3f} {str(c.get('sonic_mean')):>9} {str(c.get('sonic_worst')):>10} {str(c.get('bpm_std')):>6} {c.get('distinct_artists',0):>7d} {c['wall']:>5} {'ok' if c['bpm_ok'] else 'NOBPM':3s} | {','.join(c.get('genre_top',[])[:4])}")
 
 
+def sweep_artist_roam(artist: str, length: int = 30) -> None:
+    """Roam Corridors proof-of-life: baseline (roam off) vs a sonic-corridor width
+    sweep (genre/energy widths 0). Does opening the sonic corridor MOVE the playlist
+    (overlap drops) while the worst edge (minT) holds? Are the Roam[seg] diagnostics
+    firing? All other dials = dynamic; modes routed through the real policy layer.
+    """
+    print(f"\n=== ARTIST-MODE ROAM  {artist}  | sonic-corridor sweep (width_genre=width_energy=0) ===")
+    cells: dict[str, dict[str, Any]] = {}
+    cells["off"] = run_artist_cell(artist, "dynamic", "dynamic", "dynamic", "dynamic", length, roam=None)
+    for w in (0.5, 1.0, 2.0):
+        roam = {"enabled": True, "width_sonic": float(w), "width_genre": 0.0, "width_energy": 0.0}
+        cells[f"w{w}"] = run_artist_cell(artist, "dynamic", "dynamic", "dynamic", "dynamic", length, roam=roam)
+    base = cells["off"].get("track_ids", [])
+    print(f"  {'cell':6s} {'n':>3s} {'overlapVoff':>11s} {'sonicMean':>9s} {'sonicWorst':>10s} {'minT':>5s} {'roamSegs':>8s} {'detourMu':>8s} {'wall':>5s} bpm")
+    for k, c in cells.items():
+        if c.get("err"):
+            print(f"  {k:6s} ERR {c['err'][:90]}")
+            continue
+        ov = jaccard(c.get("track_ids", []), base)
+        print(f"  {k:6s} {c.get('n', 0):>3d} {ov:>11.3f} {str(c.get('sonic_mean')):>9} {str(c.get('sonic_worst')):>10} {str(c.get('min_transition')):>5} {c.get('roam_segs', 0):>8d} {str(c.get('roam_detour_mean')):>8} {c['wall']:>5} {'ok' if c['bpm_ok'] else 'NOBPM'}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--artist", default="Codeine")
     ap.add_argument("--axis", default="genre", choices=["genre", "sonic", "pace"])
     ap.add_argument("--length", type=int, default=30)
     ap.add_argument("--grid", choices=["artist"], default=None)
+    ap.add_argument("--roam", action="store_true", help="Roam-corridor sonic-width sweep (proof-of-life)")
     args = ap.parse_args()
     bc = np.load(ARTIFACT, allow_pickle=True)
     variant = str(bc["X_sonic_variant"]) if "X_sonic_variant" in bc.files else "?"
@@ -270,7 +306,9 @@ def main():
     if variant != "mert":
         print(f"ABORT: live sonic variant is {variant!r}, not 'mert' — re-fold before calibrating.")
         return
-    if args.grid == "artist":
+    if args.roam:
+        sweep_artist_roam(args.artist, args.length)
+    elif args.grid == "artist":
         for a in ARTIST_CORPUS:
             for ax in ("genre", "sonic", "pace"):
                 sweep_artist_axis(a, ax, args.length)
