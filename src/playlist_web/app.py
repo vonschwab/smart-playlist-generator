@@ -420,12 +420,22 @@ def create_app(
                     # Read the actual library (tracks), not the separate `artists` table:
                     # that table lags the scanner (689 scanned artists were missing from
                     # it, e.g. "REX"), so newly-scanned artists never autocompleted.
-                    # GROUP BY LOWER(artist) collapses case variants (Charli XCX / Charli
-                    # Xcx); MIN() picks a stable representative casing.
+                    # Match the query as a SUBSTRING (so "radio" finds "The Radio Dept."),
+                    # not just a leading prefix. Relevance tiers: name starts with the
+                    # query (0) > query starts a word, e.g. after "The " (1) > query is a
+                    # mid-word substring (2); alphabetical within a tier. GROUP BY
+                    # LOWER(artist) collapses case variants; MIN() is a stable casing.
                     "SELECT MIN(artist) AS name FROM tracks "
-                    "WHERE artist LIKE ? AND artist IS NOT NULL AND TRIM(artist) <> '' "
-                    "GROUP BY LOWER(artist) ORDER BY name LIMIT ? OFFSET ?",
-                    (q + "%", limit + 1, offset),
+                    "WHERE artist LIKE '%' || :q || '%' "
+                    "  AND artist IS NOT NULL AND TRIM(artist) <> '' "
+                    "GROUP BY LOWER(artist) "
+                    "ORDER BY CASE "
+                    "    WHEN name LIKE :q || '%' THEN 0 "
+                    "    WHEN name LIKE '% ' || :q || '%' THEN 1 "
+                    "    ELSE 2 END, "
+                    "  name "
+                    "LIMIT :lim OFFSET :off",
+                    {"q": q, "lim": limit + 1, "off": offset},
                 ).fetchall()
             finally:
                 conn.close()

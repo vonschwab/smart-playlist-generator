@@ -33,7 +33,8 @@ def _make_db(tmp: Path) -> Path:
     # Extra library artists to exercise the autocomplete source:
     #  - Beck + a "beck" case variant (dedup)
     #  - Bedouine: present in tracks but NOT in the `artists` table (the REX case)
-    for tid, art in [("t6", "Beck"), ("t7", "Bedouine"), ("t8", "beck")]:
+    for tid, art in [("t6", "Beck"), ("t7", "Bedouine"), ("t8", "beck"),
+                     ("t9", "Radiohead"), ("t10", "The Radio Dept.")]:
         conn.execute(
             "INSERT INTO tracks VALUES (?,?,?,?,?,?)",
             (tid, f"Track {tid}", art, "X", 200000, f"/m/{tid}.flac"),
@@ -118,6 +119,16 @@ def test_autocomplete_paginates(monkeypatch):
             r1 = client.get("/api/autocomplete", params={"q": "be", "offset": 2, "limit": 2}).json()
             assert r1["items"] == ["Bedouine"]
             assert r1["has_more"] is False
+
+
+def test_autocomplete_matches_words_not_just_prefix(monkeypatch):
+    with tempfile.TemporaryDirectory() as d:
+        db = _make_db(Path(d))
+        with _client(monkeypatch, db) as client:
+            items = client.get("/api/autocomplete", params={"q": "radio", "limit": 30}).json()["items"]
+            # "The Radio Dept." appears even though it starts with "The"; name-prefix
+            # matches ("Radiohead") rank above word-start matches.
+            assert items == ["Radiohead", "The Radio Dept."]
 
 
 def test_autocomplete_empty_query(monkeypatch):
