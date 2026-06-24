@@ -1105,3 +1105,26 @@ def test_load_artist_energy_values_warns_when_sidecar_missing(caplog):
         assert any("energy sidecar missing" in r.message for r in caplog.records)
     finally:
         shutil.rmtree(tmp_path)
+
+
+def test_load_artist_energy_values_warns_when_no_finite(caplog):
+    # Sidecar exists but its track_ids do NOT overlap the bundle's track_ids,
+    # so load_energy_matrix returns an all-NaN column. This is the production
+    # "configured-knob-must-act" path: an artist whose tracks aren't in the
+    # sidecar. Must return None AND log a "no finite" WARNING.
+    import tempfile
+    import shutil
+    import logging
+    tmp_path = tempfile.mkdtemp()
+    try:
+        _write_energy_sidecar(tmp_path, ["x", "y", "z"], [1.0, 3.0, 5.0])
+        bundle = types.SimpleNamespace(
+            track_ids=np.array(["a", "b", "c"]),  # disjoint from sidecar ids
+            artifact_path=Path(tmp_path) / "artifact.npz",
+        )
+        cfg = ArtistStyleConfig(medoid_energy_weight=0.5, energy_feature="arousal_p50")
+        with caplog.at_level(logging.WARNING):
+            assert load_artist_energy_values(bundle, cfg) is None
+        assert any("no finite" in r.message for r in caplog.records)
+    finally:
+        shutil.rmtree(tmp_path)
