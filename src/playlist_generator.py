@@ -1649,6 +1649,10 @@ class PlaylistGenerator:
             ),
             genre_neighbor_compatible_threshold=float(style_cfg_raw.get("genre_neighbor_compatible_threshold", 0.35)),
             genre_neighbor_conflict_threshold=float(style_cfg_raw.get("genre_neighbor_conflict_threshold", 0.15)),
+            medoid_energy_weight=float(style_cfg_raw.get("medoid_energy_weight", 0.0)),
+            energy_feature=str(style_cfg_raw.get("energy_feature", "arousal_p50")),
+            energy_slot_lo_pct=float(style_cfg_raw.get("energy_slot_lo_pct", 10.0)),
+            energy_slot_hi_pct=float(style_cfg_raw.get("energy_slot_hi_pct", 90.0)),
         )
         playlists_cfg = self.config.config.get("playlists", {}) or {}
         cohesion_mode_effective = cohesion_mode_override or ("dynamic" if dynamic else resolve_cohesion_mode(playlists_cfg))
@@ -2577,6 +2581,10 @@ class PlaylistGenerator:
                 ),
                 genre_neighbor_compatible_threshold=float(style_cfg_raw.get("genre_neighbor_compatible_threshold", 0.35)),
                 genre_neighbor_conflict_threshold=float(style_cfg_raw.get("genre_neighbor_conflict_threshold", 0.15)),
+                medoid_energy_weight=float(style_cfg_raw.get("medoid_energy_weight", 0.0)),
+                energy_feature=str(style_cfg_raw.get("energy_feature", "arousal_p50")),
+                energy_slot_lo_pct=float(style_cfg_raw.get("energy_slot_lo_pct", 10.0)),
+                energy_slot_hi_pct=float(style_cfg_raw.get("energy_slot_hi_pct", 90.0)),
             )
             playlists_cfg = self.config.config.get("playlists", {}) or {}
             cohesion_mode_effective = cohesion_mode_override or ("dynamic" if dynamic else resolve_cohesion_mode(playlists_cfg))

@@ -209,6 +209,13 @@ playlists:
           bridge: 0.7
           transition: 0.3
       genre_tiebreak_weight: 0.05
+      # Energy-aware spread (artist mode): pull each cluster's medoid toward an
+      # evenly-spaced arousal slot so the piers tile the artist's energy range.
+      # 0.0 = off (default, identical to legacy). Calibrate upward after A/B.
+      medoid_energy_weight: 0.0
+      energy_feature: arousal_p50      # arousal_p10 | arousal_p50 | arousal_p90 | danceability
+      energy_slot_lo_pct: 10.0         # robust arousal-span percentiles for slot targets
+      energy_slot_hi_pct: 90.0
 
     # Construction scoring weights
     # score = alpha*seed_sim + beta*transition_sim + gamma*diversity - penalty

@@ -29,6 +29,14 @@ class DummyBundle:
         self.genre_vocab = None
 
 
+def test_artist_style_config_has_energy_defaults():
+    cfg = ArtistStyleConfig()
+    assert cfg.medoid_energy_weight == 0.0          # opt-in: off by default
+    assert cfg.energy_feature == "arousal_p50"
+    assert cfg.energy_slot_lo_pct == 10.0
+    assert cfg.energy_slot_hi_pct == 90.0
+
+
 def test_selects_multiple_clusters_and_medoids():
     # Two clear clusters on unit vectors
     artist_keys = np.array(["a"] * 6)

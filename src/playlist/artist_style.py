@@ -77,6 +77,13 @@ class ArtistStyleConfig:
     # Medoid selection weighting (to avoid interludes/outliers)
     medoid_similarity_weight: float = 0.7  # Weight for sonic similarity to cluster centroid
     medoid_duration_weight: float = 0.3    # Weight for duration typicality (avoid outliers)
+    # Energy-aware spread (set-level): pull each cluster's medoid toward an
+    # evenly-spaced arousal slot so the pier set tiles the artist's energy range.
+    # 0.0 => inert (today's behavior). See spec 2026-06-23-artist-energy-spread.
+    medoid_energy_weight: float = 0.0
+    energy_feature: str = "arousal_p50"    # which energy sidecar column defines the slots
+    energy_slot_lo_pct: float = 10.0       # robust span low percentile of artist z-arousal
+    energy_slot_hi_pct: float = 90.0       # robust span high percentile
 
 
 def _select_k(track_count: int, cfg: ArtistStyleConfig) -> int:
