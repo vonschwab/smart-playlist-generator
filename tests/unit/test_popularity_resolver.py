@@ -33,3 +33,20 @@ def test_resolver_keeps_higher_score_on_collision_and_handles_empty():
     pop = resolve_top_tracks_to_popularity(top, local)
     assert pop["t1"] == 1.0   # both ranks map to t1; keep the higher (rank 0)
     assert resolve_top_tracks_to_popularity([], local) == {}
+
+
+def test_resolver_remaster_only_via_title_path_carries_popularity():
+    # Remaster with NO mbid -> must still match the canonical hit via loose-title
+    # normalization (which strips "(... Remaster)") and carry full popularity.
+    top = [{"name": "Heart-Shaped Box", "mbid": "", "rank": 0}]
+    local = [
+        {"track_id": "t_hsb_remaster", "title": "Heart-Shaped Box (2021 Remaster)", "musicbrainz_id": ""},
+        {"track_id": "t_other", "title": "Milk It", "musicbrainz_id": ""},
+    ]
+    pop = resolve_top_tracks_to_popularity(top, local)
+    assert pop.get("t_hsb_remaster") == 1.0   # remaster matched via title, NOT penalized
+    assert "t_other" not in pop
+
+
+def test_resolver_empty_local_returns_empty():
+    assert resolve_top_tracks_to_popularity([{"name": "X", "mbid": "", "rank": 0}], []) == {}

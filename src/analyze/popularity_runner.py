@@ -80,6 +80,7 @@ def resolve_top_tracks_to_popularity(
     for lt in local_tracks:
         mbid = str(lt.get("musicbrainz_id") or "")
         if mbid:
+            # first local track wins if two share an mbid (rare)
             by_mbid.setdefault(mbid, str(lt["track_id"]))
         norm = normalize_title_for_dedupe(str(lt.get("title") or ""), mode="loose")
         if norm:
