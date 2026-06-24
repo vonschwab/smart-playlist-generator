@@ -319,6 +319,8 @@ def _medoids_for_cluster(
     Weighting strategy (configurable):
     - similarity_weight (default 70%): similarity to cluster centroid (sonic cohesion)
     - duration_weight (default 30%): duration typicality (avoid extreme outliers)
+    - energy_weight (default 0.0): pull toward this cluster's energy slot (set-level spread)
+    - energy_proximity: per-member proximity in [0,1] to the cluster's energy slot, aligned to `indices`
 
     This ensures we pick representative tracks that are sonically central
     but not weird interludes/outros. The weights adapt to each artist's catalog,

@@ -72,6 +72,8 @@ def main() -> None:
         if np.isfinite(off) and np.isfinite(on):
             deltas.append(on - off)
             print(f"{artist:30s} {off:8.3f} {on:8.3f} {on - off:+8.3f}")
+        else:
+            print(f"{artist:30s} {'skip':>8s} {'skip':>8s} {'—':>8s}")
 
     if deltas:
         print(f"\nmean span delta (on - off): {np.mean(deltas):+.3f}  (n={len(deltas)})")

@@ -1054,6 +1054,8 @@ def test_slot_proximity_peaks_at_target_and_zeros_for_nan():
 def test_slot_proximity_inert_when_target_nan():
     z = np.array([1.0, 2.0])
     assert np.all(_slot_proximity(z, target=np.nan, span_width=10.0) == 0.0)
+    # span_width <= 0 is also inert (all zeros)
+    assert np.all(_slot_proximity(z, target=5.0, span_width=0.0) == 0.0)
 
 
 def _centroid_for(X, indices):
@@ -1082,7 +1084,6 @@ def test_medoid_energy_term_pulls_to_slot():
         10.0, np.array([0.0, 1.0, 0.0]),   # energy_weight, energy_proximity
     )
     assert energized == [1]
-    assert energized != base or base == [1]  # energy moved (or already was) the pick
 
 
 def test_medoid_energy_weight_zero_is_regression_safe():
