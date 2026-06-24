@@ -45,19 +45,20 @@ def test_normal_path_runs_in_pool_without_fallback():
     assert info["stalls"] == 0
 
 
-def test_stalled_pool_falls_back_to_serial_and_completes():
+def test_stalled_pool_falls_back_to_serial_after_one_stall():
     items = [1, 2, 3]
     results = {}
 
     info = run_pool_with_watchdog(
         items,
         _hang_in_pool_ok_serial,
-        workers=1,
+        workers=2,
         on_result=lambda item, result: results.__setitem__(item, result),
         no_progress_timeout=1.0,
     )
 
-    # Every item is processed despite the pool hanging.
+    # Every item is processed despite the pool hanging, and recovery is fast:
+    # exactly ONE stall, then straight to serial (no slow per-worker retries).
     assert results == {1: 2, 2: 4, 3: 6}
     assert info["serial_fallback"] is True
-    assert info["stalls"] >= 1
+    assert info["stalls"] == 1
