@@ -281,6 +281,11 @@ def sweep_artist_roam(artist: str, length: int = 30) -> None:
     for w in (0.5, 1.0, 2.0):
         roam = {"enabled": True, "width_sonic": float(w), "width_genre": 0.0, "width_energy": 0.0}
         cells[f"w{w}"] = run_artist_cell(artist, "dynamic", "dynamic", "dynamic", "dynamic", length, roam=roam)
+    # Same corridors WITH the min-bottleneck worst-edge guard: does it recover minT?
+    for w in (0.5, 1.0):
+        roam = {"enabled": True, "width_sonic": float(w), "width_genre": 0.0, "width_energy": 0.0,
+                "worst_edge_minimax": True}
+        cells[f"w{w}+mm"] = run_artist_cell(artist, "dynamic", "dynamic", "dynamic", "dynamic", length, roam=roam)
     base = cells["off"].get("track_ids", [])
     print(f"  {'cell':6s} {'n':>3s} {'overlapVoff':>11s} {'sonicMean':>9s} {'sonicWorst':>10s} {'minT':>5s} {'roamSegs':>8s} {'detourMu':>8s} {'wall':>5s} bpm")
     for k, c in cells.items():
