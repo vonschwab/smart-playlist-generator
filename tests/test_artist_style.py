@@ -687,6 +687,60 @@ def test_local_sonic_edge_floor_applies_to_final_destination_edge():
     assert local_stats["local_sonic_gate_rejected"] == 1
 
 
+# ---------------------------------------------------------------------------
+# Task 5: energy-slot wiring in cluster_artist_tracks
+# ---------------------------------------------------------------------------
+
+def _two_cluster_bundle():
+    artist_keys = np.array(["a"] * 6)
+    track_ids = np.array([str(i) for i in range(6)])
+    X = np.array([
+        [1.0, 0.0], [0.9, 0.1], [0.95, -0.05],   # cluster 1 (indices 0,1,2)
+        [0.0, 1.0], [0.1, 0.9], [-0.05, 0.95],   # cluster 2 (indices 3,4,5)
+    ])
+    return DummyBundle(X_sonic=X, artist_keys=artist_keys, track_ids=track_ids)
+
+
+def test_cluster_artist_tracks_energy_weight_zero_matches_none():
+    bundle = _two_cluster_bundle()
+    cfg_off = ArtistStyleConfig(cluster_k_min=2, cluster_k_max=2, enabled=True)
+    cfg_zero = ArtistStyleConfig(
+        cluster_k_min=2, cluster_k_max=2, enabled=True, medoid_energy_weight=0.0
+    )
+    energy = np.array([2.0, -2.0, 0.0, 2.0, -2.0, 0.0])
+    base = cluster_artist_tracks(bundle=bundle, artist_name="A", cfg=cfg_off, random_seed=0)
+    zeroed = cluster_artist_tracks(
+        bundle=bundle, artist_name="A", cfg=cfg_zero, random_seed=0, energy_values=energy
+    )
+    assert sorted(base[1]) == sorted(zeroed[1])   # identical medoids
+
+
+def test_cluster_artist_tracks_energy_runs_and_returns_medoids():
+    bundle = _two_cluster_bundle()
+    cfg = ArtistStyleConfig(
+        cluster_k_min=2, cluster_k_max=2, enabled=True, medoid_energy_weight=5.0
+    )
+    energy = np.array([2.0, -2.0, 0.0, 2.0, -2.0, 0.0])
+    clusters, medoids, by_cluster, X_norm = cluster_artist_tracks(
+        bundle=bundle, artist_name="A", cfg=cfg, random_seed=0, energy_values=energy
+    )
+    assert len(clusters) == 2
+    assert len(medoids) == 2
+
+
+def test_cluster_artist_tracks_inert_on_flat_energy():
+    bundle = _two_cluster_bundle()
+    cfg = ArtistStyleConfig(
+        cluster_k_min=2, cluster_k_max=2, enabled=True, medoid_energy_weight=5.0
+    )
+    flat = np.zeros(6)   # zero span => energy term inert, must not crash
+    base = cluster_artist_tracks(bundle=bundle, artist_name="A", cfg=cfg, random_seed=0)
+    flatted = cluster_artist_tracks(
+        bundle=bundle, artist_name="A", cfg=cfg, random_seed=0, energy_values=flat
+    )
+    assert sorted(base[1]) == sorted(flatted[1])
+
+
 def test_transition_floor_config_override_per_mode():
     from src.playlist.config import default_ds_config
 

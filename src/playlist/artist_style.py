@@ -408,6 +408,7 @@ def cluster_artist_tracks(
     medoid_top_k: int = 1,
     include_collaborations: bool = False,
     excluded_track_ids: Optional[set[str]] = None,
+    energy_values: Optional[np.ndarray] = None,
 ) -> Tuple[List[List[int]], List[int], List[List[int]], np.ndarray]:
     """Cluster artist tracks in sonic space and return clusters + medoids."""
     track_ids = bundle.track_ids
@@ -445,6 +446,18 @@ def cluster_artist_tracks(
         )
     if len(artist_indices) < max(3, cfg.cluster_k_min):
         raise ValueError(f"Not enough tracks to cluster for artist {artist_name}")
+
+    # Energy-aware spread: load energy if not injected, then derive the artist's
+    # robust arousal span (slots are spaced across it). None => term stays inert.
+    if energy_values is None:
+        energy_values = load_artist_energy_values(bundle, cfg)
+    energy_span: Optional[Tuple[float, float]] = None
+    if energy_values is not None and cfg.medoid_energy_weight > 0:
+        artist_energy = np.asarray(energy_values, dtype=float)[artist_indices]
+        energy_span = _robust_energy_span(
+            artist_energy, cfg.energy_slot_lo_pct, cfg.energy_slot_hi_pct
+        )
+
     k = _select_k(len(artist_indices), cfg)
     rng = np.random.default_rng(random_seed)
 
@@ -472,26 +485,49 @@ def cluster_artist_tracks(
                 continue
             raise ValueError(f"Clustering degenerate for artist {artist_name} after retries")
         break
+    # First pass: gather non-empty clusters, preserving their centroid index.
+    nonempty: List[Tuple[int, List[int]]] = []
+    for c in range(centroids.shape[0]):
+        members_local = [artist_indices[i] for i, lab in enumerate(labels) if lab == c]
+        if members_local:
+            nonempty.append((c, members_local))
+
+    # Energy slots: rank clusters by median arousal, space targets across the span.
+    slot_targets: Optional[List[float]] = None
+    if energy_span is not None:
+        ev = np.asarray(energy_values, dtype=float)
+        cluster_medians = [_finite_median(ev[members]) for _c, members in nonempty]
+        slot_targets = _slot_targets_by_rank(cluster_medians, energy_span)
+        logger.info(
+            "Artist style energy spread: artist=%s span=(%.3f,%.3f) targets=%s",
+            artist_name, energy_span[0], energy_span[1],
+            [round(t, 3) if np.isfinite(t) else None for t in slot_targets],
+        )
+
     clusters: List[List[int]] = []
     medoids: List[int] = []
     medoids_by_cluster: List[List[int]] = []
-    for c in range(centroids.shape[0]):
-        members_local = [artist_indices[i] for i, lab in enumerate(labels) if lab == c]
-        if not members_local:
-            continue
+    span_width = (energy_span[1] - energy_span[0]) if energy_span is not None else 0.0
+    for ci, (c, members_local) in enumerate(nonempty):
         clusters.append(members_local)
+        energy_prox: Optional[np.ndarray] = None
+        if slot_targets is not None:
+            member_energy = np.asarray(energy_values, dtype=float)[members_local]
+            energy_prox = _slot_proximity(member_energy, slot_targets[ci], span_width)
         medoid_list = _medoids_for_cluster(
             X_norm,
             members_local,
             centroids[c],
             track_ids,
-            medoid_top_k,  # Use calculated medoid_top_k based on presence, not cfg.piers_per_cluster
+            medoid_top_k,
             rng,
             medoid_top_k,
             artist_duration_stats,
             bundle.durations_ms,
             cfg.medoid_similarity_weight,
             cfg.medoid_duration_weight,
+            cfg.medoid_energy_weight,
+            energy_prox,
         )
         medoids_by_cluster.append(medoid_list)
         medoids.extend(medoid_list)
