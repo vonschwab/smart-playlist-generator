@@ -258,29 +258,43 @@ def _robust_energy_span(
     return (lo, hi)
 
 
-def _slot_targets_by_rank(
-    cluster_medians: Sequence[float], span: Tuple[float, float]
+def _slot_targets_by_quantile(
+    cluster_medians: Sequence[float],
+    artist_energy: np.ndarray,
+    lo_pct: float,
+    hi_pct: float,
 ) -> List[float]:
-    """Evenly-spaced energy targets across `span`, one per cluster, by median-energy rank.
+    """Energy target per cluster at evenly-spaced *population quantiles* of the
+    artist's energy, assigned by the cluster's median-energy rank.
+
+    Spacing by quantile (not by raw value) makes the anchor counts follow the
+    band's density: dense intensity regions get more targets, sparse regions
+    fewer (e.g. an 81%-aggressive catalog => ~81% of targets land aggressive),
+    instead of tiling the value range uniformly (which over-fills sparse ends).
 
     Clusters with a NaN median get a NaN target (their energy term is inert).
-    Single cluster -> midpoint. Targets are returned aligned to the input order.
+    Single cluster -> the midpoint quantile. Aligned to the input order.
     """
-    lo, hi = span
+    finite = np.asarray(artist_energy, dtype=float)
+    finite = finite[np.isfinite(finite)]
     medians = list(cluster_medians)
     n = len(medians)
     targets = [float("nan")] * n
+    if finite.size < 2:
+        return targets
     finite_idx = [i for i, m in enumerate(medians) if np.isfinite(m)]
     k = len(finite_idx)
     if k == 0:
         return targets
     if k == 1:
-        targets[finite_idx[0]] = (lo + hi) / 2.0
+        targets[finite_idx[0]] = float(np.percentile(finite, (lo_pct + hi_pct) / 2.0))
         return targets
-    # rank finite clusters by ascending median energy, space targets across [lo, hi]
+    # rank finite clusters by ascending median energy; place each at an evenly
+    # spaced quantile so target *counts* follow the band's energy density.
     ordered = sorted(finite_idx, key=lambda i: medians[i])
     for rank, i in enumerate(ordered):
-        targets[i] = lo + (rank / (k - 1)) * (hi - lo)
+        q = lo_pct + (rank / (k - 1)) * (hi_pct - lo_pct)
+        targets[i] = float(np.percentile(finite, q))
     return targets
 
 
@@ -494,12 +508,17 @@ def cluster_artist_tracks(
         if members_local:
             nonempty.append((c, members_local))
 
-    # Energy slots: rank clusters by median arousal, space targets across the span.
+    # Energy slots: rank clusters by median arousal, then place each target at an
+    # evenly-spaced *population quantile* of the artist's energy, so anchor counts
+    # follow the band's density (representative) rather than tiling the value range.
     slot_targets: Optional[List[float]] = None
     if energy_span is not None:
         ev = np.asarray(energy_values, dtype=float)
+        artist_energy = ev[artist_indices]
         cluster_medians = [_finite_median(ev[members]) for _c, members in nonempty]
-        slot_targets = _slot_targets_by_rank(cluster_medians, energy_span)
+        slot_targets = _slot_targets_by_quantile(
+            cluster_medians, artist_energy, cfg.energy_slot_lo_pct, cfg.energy_slot_hi_pct
+        )
         logger.info(
             "Artist style energy spread: artist=%s span=(%.3f,%.3f) targets=%s",
             artist_name, energy_span[0], energy_span[1],

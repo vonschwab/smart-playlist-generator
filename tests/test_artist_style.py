@@ -12,7 +12,7 @@ from src.playlist.artist_style import (
     order_clusters,
     _finite_median,
     _robust_energy_span,
-    _slot_targets_by_rank,
+    _slot_targets_by_quantile,
     _slot_proximity,
     _medoids_for_cluster,
     load_artist_energy_values,
@@ -1025,21 +1025,41 @@ def test_robust_energy_span_none_when_flat_or_sparse():
     assert _robust_energy_span(np.array([np.nan, 1.0]), 10.0, 90.0) is None     # <2 finite
 
 
-def test_slot_targets_even_spacing_by_rank():
-    # medians in input order: cluster0=2.0 (highest), cluster1=0.0 (lowest), cluster2=1.0 (mid)
-    targets = _slot_targets_by_rank([2.0, 0.0, 1.0], (0.0, 10.0))
-    assert targets[1] == pytest.approx(0.0)    # lowest-energy cluster -> low slot
-    assert targets[2] == pytest.approx(5.0)    # mid
-    assert targets[0] == pytest.approx(10.0)   # highest-energy cluster -> high slot
+def test_slot_targets_quantile_uniform_is_evenly_spaced():
+    # Uniform distribution: quantiles map ~linearly to values, so quantile-spacing
+    # reduces to even value-spacing. medians order: cluster0 high, cluster1 low, cluster2 mid.
+    energy = np.linspace(0.0, 10.0, 101)
+    targets = _slot_targets_by_quantile([2.0, 0.0, 1.0], energy, 10.0, 90.0)
+    assert targets[1] == pytest.approx(1.0, abs=0.2)    # lowest cluster -> p10 -> ~1.0
+    assert targets[2] == pytest.approx(5.0, abs=0.2)    # mid -> p50 -> ~5.0
+    assert targets[0] == pytest.approx(9.0, abs=0.2)    # highest cluster -> p90 -> ~9.0
 
 
-def test_slot_targets_single_cluster_is_midpoint():
-    assert _slot_targets_by_rank([3.0], (0.0, 10.0)) == [pytest.approx(5.0)]
+def test_slot_targets_quantile_follows_density_not_range():
+    # 8 high-energy tracks, 2 low: evenly-spaced quantiles land mostly in the dense
+    # high mass, NOT evenly across the 0..5 value range (the representativeness fix).
+    energy = np.array([0.0, 0.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0])
+    # 4 clusters ranked low->high by median energy
+    targets = _slot_targets_by_quantile([0.0, 2.5, 5.0, 5.0], energy, 10.0, 90.0)
+    assert targets[0] < 1.0                              # only the lowest reaches the sparse low end
+    assert all(t == pytest.approx(5.0) for t in targets[1:])  # the rest follow the dense mass
+    # (even value-spacing would have put a target at ~1.67 in the sparse middle)
 
 
-def test_slot_targets_nan_median_stays_nan():
-    targets = _slot_targets_by_rank([np.nan, 1.0], (0.0, 10.0))
+def test_slot_targets_quantile_single_cluster_is_mid_quantile():
+    energy = np.linspace(0.0, 10.0, 101)
+    assert _slot_targets_by_quantile([3.0], energy, 10.0, 90.0) == [pytest.approx(5.0, abs=0.2)]
+
+
+def test_slot_targets_quantile_nan_median_stays_nan():
+    energy = np.linspace(0.0, 10.0, 101)
+    targets = _slot_targets_by_quantile([np.nan, 1.0], energy, 10.0, 90.0)
     assert np.isnan(targets[0])
+
+
+def test_slot_targets_quantile_sparse_energy_is_inert():
+    targets = _slot_targets_by_quantile([0.0, 5.0], np.array([1.0]), 10.0, 90.0)
+    assert all(np.isnan(t) for t in targets)   # <2 finite values -> all NaN (inert)
 
 
 def test_slot_proximity_peaks_at_target_and_zeros_for_nan():
