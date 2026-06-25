@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -162,3 +163,41 @@ def build_popularity_sidecar(
     logger.info("popularity sidecar: %d tracks, %d matched, %d artists resolved -> %s",
                 len(tids), matched, artists_resolved, out_path)
     return {"tracks": len(tids), "matched": matched, "artists_resolved": artists_resolved}
+
+
+def _fetched_at_iso(db_path: str, artist_key: str) -> Optional[str]:
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT fetched_at FROM artist_top_tracks_cache WHERE artist_key = ?",
+            (artist_key,),
+        ).fetchone()
+    return row[0] if row else None
+
+
+def get_artist_top_tracks_cached_or_fetch(
+    artist_key: str, artist_name: str, *, client, db_path: str,
+    limit: int = 50, max_age_days: int = 30, now_iso: str,
+) -> List[dict]:
+    """Cache-first per-artist top tracks. Fresh cache -> no network. Miss/stale ->
+    one fetch + cache. Fetch failure -> stale cache if any, else []. Never raises."""
+    init_top_tracks_cache(db_path)
+    cached = get_artist_top_tracks_cached(db_path, artist_key)
+    fetched_at = _fetched_at_iso(db_path, artist_key)
+    fresh = False
+    if fetched_at is not None:
+        try:
+            age = datetime.fromisoformat(now_iso) - datetime.fromisoformat(fetched_at)
+            fresh = age.total_seconds() <= max_age_days * 86400
+        except ValueError:
+            fresh = False
+    if fetched_at is not None and fresh:
+        return cached
+    try:
+        rows = client.get_artist_top_tracks(artist_name, limit=limit)
+        upsert_artist_top_tracks(db_path, artist_key, now_iso, rows)
+        return rows
+    except Exception as exc:  # network/parse — never gate generation
+        logger.warning(
+            "popularity lazy fetch failed for %s: %s; using stale/empty", artist_name, exc
+        )
+        return cached  # stale cache if present, else []
