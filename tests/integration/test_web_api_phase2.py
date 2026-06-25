@@ -140,7 +140,7 @@ def test_edit_genres():
         assert resp.status_code == 200
         body = resp.json()
         assert body["ok"] is True
-        assert "post-punk" in body["genres"]
+        assert "post-punk" in body["resolved"]
 
 
 def test_edit_genres_requires_artist_album():
