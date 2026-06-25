@@ -90,6 +90,10 @@ class ArtistStyleConfig:
     # duplicate releases don't become seeds. A live cut is kept only if it's the
     # song's sole version. Reuses src/title_dedupe.py.
     dedupe_versions: bool = True
+    # Popularity (Last.fm) bias on the within-slot medoid pick. Activated by the
+    # "Popular Seeds" checkbox (overrides this to popular_seeds_weight). Keep
+    # below medoid_energy_weight so energy-spread keeps the slot structure.
+    medoid_popularity_weight: float = 0.0
 
 
 def load_artist_energy_values(bundle, cfg: "ArtistStyleConfig") -> Optional[np.ndarray]:
@@ -373,6 +377,8 @@ def _medoids_for_cluster(
     duration_weight: float = 0.3,
     energy_weight: float = 0.0,
     energy_proximity: Optional[np.ndarray] = None,
+    popularity_weight: float = 0.0,
+    popularity_values: Optional[np.ndarray] = None,
 ) -> List[int]:
     """
     Select medoids using weighted scoring that penalizes duration outliers.
@@ -418,6 +424,17 @@ def _medoids_for_cluster(
                 "artist_style: energy_proximity len %d != cluster size %d; skipping energy term",
                 prox.shape[0], len(indices),
             )
+
+    # Popularity bias: prefer the recognizable hit WITHIN this cluster's slot.
+    if popularity_values is not None and popularity_weight > 0:
+        pv = np.asarray(popularity_values, dtype=float)
+        if pv.shape[0] == len(indices):
+            pv = np.where(np.isfinite(pv), pv, 0.0)   # unknown -> neutral, no bonus
+            scores = scores + pv * popularity_weight
+        else:
+            logger.warning(
+                "artist_style: popularity_values len %d != cluster size %d; skipping",
+                pv.shape[0], len(indices))
 
     # Select from top-k by combined score
     order = np.argsort(-scores)
@@ -472,6 +489,7 @@ def cluster_artist_tracks(
     include_collaborations: bool = False,
     excluded_track_ids: Optional[set[str]] = None,
     energy_values: Optional[np.ndarray] = None,
+    popularity_values: Optional[np.ndarray] = None,
 ) -> Tuple[List[List[int]], List[int], List[List[int]], np.ndarray]:
     """Cluster artist tracks in sonic space and return clusters + medoids."""
     track_ids = bundle.track_ids
@@ -592,6 +610,9 @@ def cluster_artist_tracks(
         if slot_targets is not None:
             member_energy = np.asarray(energy_values, dtype=float)[members_local]
             energy_prox = _slot_proximity(member_energy, slot_targets[ci], span_width)
+        pop_slice = None
+        if popularity_values is not None and cfg.medoid_popularity_weight > 0:
+            pop_slice = np.asarray(popularity_values, dtype=float)[members_local]
         medoid_list = _medoids_for_cluster(
             X_norm,
             members_local,
@@ -606,6 +627,8 @@ def cluster_artist_tracks(
             cfg.medoid_duration_weight,
             cfg.medoid_energy_weight,
             energy_prox,
+            cfg.medoid_popularity_weight,
+            pop_slice,
         )
         medoids_by_cluster.append(medoid_list)
         medoids.extend(medoid_list)

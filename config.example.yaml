@@ -222,6 +222,9 @@ playlists:
       # (studio/remaster preferred over live/demo/alt) so live takes and duplicate
       # releases don't become seeds. A live cut is kept only if it's the sole version.
       dedupe_versions: true
+      medoid_popularity_weight: 0.0    # within-slot bias toward Last.fm-popular tracks; keep < medoid_energy_weight
+      popular_seeds_weight: 0.5        # weight applied when the "Popular Seeds" checkbox is ON
+      popularity_max_age_days: 30      # refetch an artist's top tracks if the cache entry is older
 
     # Construction scoring weights
     # score = alpha*seed_sim + beta*transition_sim + gamma*diversity - penalty
