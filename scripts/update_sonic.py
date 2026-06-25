@@ -42,7 +42,7 @@ import logging
 import time
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
-from concurrent.futures import ProcessPoolExecutor, FIRST_COMPLETED, wait
+from concurrent.futures import ThreadPoolExecutor, FIRST_COMPLETED, wait
 import multiprocessing
 
 # Ensure project root is on sys.path so `src` imports work even when run from scripts/
@@ -108,9 +108,10 @@ def analyze_track_worker(track_data: Tuple[str, str, str, str, bool, bool]) -> O
         return None
 
 
-# No-progress watchdog timeout for the sonic pool. Long enough that a healthy
-# pool's first completion (worker spawn + heavy import + first track, ~15-60s)
-# never false-triggers; short enough that a deadlocked pool recovers quickly.
+# No-progress heartbeat for the sonic thread pool. With threads there is no
+# import-deadlock to recover from, so this only emits a diagnostic warning if a
+# single pathological track stalls the pool; long enough that a healthy first
+# completion (~15-60s on a cold cache) never false-triggers.
 POOL_NO_PROGRESS_TIMEOUT_S = 90.0
 
 
@@ -125,30 +126,37 @@ def run_pool_with_watchdog(
     cancel_check=None,
     log=logger,
 ):
-    """Run ``worker_fn`` over ``items`` in a process pool, guarded by a no-progress watchdog.
+    """Run ``worker_fn`` over ``items`` in a THREAD pool, guarded by a no-progress heartbeat.
+
+    Uses threads, not processes. On Windows the process-pool start method is
+    spawn, and every child re-imports the heavy ``worker.py`` ``__main__``,
+    loading numpy's C-extension in all children at once -- a loader-lock race
+    that deadlocked the run forever (root-caused 2026-06-23, reliably triggered
+    under heavy concurrent load). Threads share the already-imported modules, so
+    that deadlock cannot occur, while the librosa/numba DSP (audio load, STFT,
+    beat tracking) releases the GIL, so analysis still parallelizes (~2.4x on 6
+    workers, measured 2026-06-24). ``on_result`` runs in this (the calling)
+    thread, keeping the sqlite writes single-threaded.
 
     Each completed item is delivered to ``on_result(item, result)`` (result is
-    None if the worker returned None or raised). ONE parallel attempt is made; if
-    the pool makes no progress for ``no_progress_timeout`` seconds (the Windows
-    spawn import deadlock, where pool children wedge re-importing a heavy
-    ``__main__``), the stuck workers are killed and the remaining items are
-    finished SERIALLY in-process -- no spawn, so it cannot deadlock. Retrying with
-    fewer workers is deliberately avoided: it re-imports the same heavy module and
-    re-deadlocks, wasting another timeout. Always processes every item.
+    None if the worker returned None or raised). A no-progress heartbeat logs a
+    diagnostic warning if the pool stalls for ``no_progress_timeout`` seconds
+    (e.g. a single pathological track) but does NOT kill threads or fall back --
+    threads have no import-deadlock to recover from, and a stuck thread cannot be
+    killed anyway. Always processes every item.
 
     Returns a dict: ``{"completed", "stalls", "serial_fallback"}``.
+    ``serial_fallback`` is retained for call-site/back-compat and is always False
+    under the thread pool.
     """
     items = list(items)
     info = {"completed": 0, "stalls": 0, "serial_fallback": False}
     cur_workers = max(1, int(workers))
 
-    # --- Single parallel attempt ---
-    executor = ProcessPoolExecutor(max_workers=cur_workers)
+    executor = ThreadPoolExecutor(max_workers=cur_workers)
     future_to_item = {executor.submit(worker_fn, item): item for item in items}
     pending = set(future_to_item)
-    completed_futures = set()
     last_progress = time.monotonic()
-    stalled = False
     try:
         while pending:
             if cancel_check is not None:
@@ -157,7 +165,6 @@ def run_pool_with_watchdog(
             if done:
                 last_progress = time.monotonic()
                 for fut in done:
-                    completed_futures.add(fut)
                     item = future_to_item[fut]
                     try:
                         result = fut.result()
@@ -167,43 +174,18 @@ def run_pool_with_watchdog(
                     on_result(item, result)
                     info["completed"] += 1
             elif (time.monotonic() - last_progress) > no_progress_timeout:
-                stalled = True
                 info["stalls"] += 1
-                log.error(
-                    "Sonic pool made no progress for %.0fs with %d worker(s); killing "
-                    "stuck workers and finishing serially in-process (Windows spawn "
-                    "import deadlock).",
+                last_progress = time.monotonic()  # re-arm so we don't warn every poll
+                log.warning(
+                    "Sonic thread pool made no progress for %.0fs (%d/%d done); still "
+                    "waiting (threads cannot import-deadlock).",
                     no_progress_timeout,
-                    cur_workers,
+                    info["completed"],
+                    len(items),
                 )
-                break
     finally:
-        if stalled:
-            # shutdown() would block joining deadlocked children, so kill first.
-            for proc in list((getattr(executor, "_processes", None) or {}).values()):
-                try:
-                    proc.kill()
-                except Exception:
-                    pass
         executor.shutdown(wait=False, cancel_futures=True)
 
-    if not stalled:
-        return info
-
-    # --- Serial fallback: finish whatever the stalled pool didn't complete ---
-    remaining = [future_to_item[f] for f in future_to_item if f not in completed_futures]
-    info["serial_fallback"] = True
-    log.warning("Falling back to SERIAL in-process sonic analysis for %d track(s).", len(remaining))
-    for item in remaining:
-        if cancel_check is not None:
-            cancel_check()
-        try:
-            result = worker_fn(item)
-        except Exception as exc:
-            log.error("sonic worker raised (serial) for %r: %s", item, exc)
-            result = None
-        on_result(item, result)
-        info["completed"] += 1
     return info
 
 
@@ -615,10 +597,10 @@ class SonicFeaturePipeline:
             verbose_each=verbose_each,
         ) if progress else None
 
-        # Process tracks in parallel, guarded by a no-progress watchdog that
-        # recovers from a stalled pool (retry with fewer workers, then serial
-        # in-process) so the run can never hang forever on the Windows spawn
-        # import deadlock. See run_pool_with_watchdog.
+        # Process tracks in parallel via a THREAD pool (no Windows spawn, so the
+        # numpy C-extension loader-lock deadlock that hung the process pool
+        # cannot occur), guarded by a no-progress heartbeat. See
+        # run_pool_with_watchdog.
         def _handle_result(track_data, result):
             nonlocal completed
             completed += 1

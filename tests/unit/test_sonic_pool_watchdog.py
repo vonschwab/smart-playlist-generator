@@ -1,17 +1,21 @@
-"""Watchdog for the sonic-analysis process pool.
+"""Thread pool for sonic analysis.
 
-Regression guard for the Analyze Library hang root-caused 2026-06-23: pool
-children deadlocked re-importing the heavy ``__main__`` during Windows spawn,
-and the run hung forever. ``run_pool_with_watchdog`` must (a) run normally when
-workers behave, and (b) when the pool makes no progress, kill the stuck workers
-and fall back to serial in-process execution so the run always completes.
+Regression guard for the Analyze Library hang root-caused 2026-06-23: a *process*
+pool's children deadlocked re-importing the heavy ``__main__`` during Windows
+spawn (numpy C-extension loader-lock race), hanging the run forever. The fix
+(2026-06-24) runs the workers in a THREAD pool instead: threads share the
+already-imported modules, so that import deadlock cannot occur, while the
+librosa/numba DSP releases the GIL so analysis still parallelizes (measured
+~2.4x on 6 workers).
 
-These tests use REAL process pools (no mocks). The "hang" worker stalls only
-when running inside a spawned child (``parent_process() is not None``) and
-completes normally in-process, faithfully modelling the spawn-only deadlock.
-All sleeps are bounded so a failed kill cannot hang the suite.
+``run_pool_with_watchdog`` must therefore (a) process every item, (b) run the
+items concurrently (not serially), and (c) isolate a worker that raises so one
+bad track does not sink the run. A no-progress heartbeat may still log a
+diagnostic warning, but there is no kill/serial-fallback recovery -- threads
+have nothing to deadlock on.
+
+These tests use a REAL thread pool (no mocks). All sleeps are short and bounded.
 """
-import multiprocessing
 import time
 
 from scripts.update_sonic import run_pool_with_watchdog
@@ -21,14 +25,18 @@ def _ok_worker(x):
     return x * 2
 
 
-def _hang_in_pool_ok_serial(x):
-    # Mirrors the real bug: wedges in a spawned pool child, but works in-process.
-    if multiprocessing.parent_process() is not None:
-        time.sleep(30)  # bounded so a missed kill can't hang the suite
+def _sleep_worker(x):
+    time.sleep(0.4)  # releases the GIL -> concurrent threads overlap this wait
     return x * 2
 
 
-def test_normal_path_runs_in_pool_without_fallback():
+def _raise_on_two(x):
+    if x == 2:
+        raise ValueError("boom")
+    return x * 2
+
+
+def test_thread_pool_processes_all_items():
     items = [1, 2, 3, 4]
     results = {}
 
@@ -41,24 +49,46 @@ def test_normal_path_runs_in_pool_without_fallback():
     )
 
     assert results == {1: 2, 2: 4, 3: 6, 4: 8}
-    assert info["serial_fallback"] is False
+    assert info["completed"] == 4
     assert info["stalls"] == 0
+    assert info["serial_fallback"] is False
 
 
-def test_stalled_pool_falls_back_to_serial_after_one_stall():
+def test_thread_pool_runs_concurrently():
+    # 4 items x 0.4s each = 1.6s if serial. With 4 worker threads they overlap,
+    # so wall time must be well under the serial sum -- proves real concurrency.
+    items = [1, 2, 3, 4]
+    results = {}
+
+    start = time.monotonic()
+    info = run_pool_with_watchdog(
+        items,
+        _sleep_worker,
+        workers=4,
+        on_result=lambda item, result: results.__setitem__(item, result),
+        no_progress_timeout=5.0,
+    )
+    elapsed = time.monotonic() - start
+
+    assert results == {1: 2, 2: 4, 3: 6, 4: 8}
+    assert info["completed"] == 4
+    assert elapsed < 1.0, f"expected concurrent (<1.0s), got {elapsed:.2f}s"
+
+
+def test_worker_exception_is_isolated():
+    # A worker that raises must not sink the run: that item yields None, the
+    # rest succeed, and every item is still delivered to on_result.
     items = [1, 2, 3]
     results = {}
 
     info = run_pool_with_watchdog(
         items,
-        _hang_in_pool_ok_serial,
+        _raise_on_two,
         workers=2,
         on_result=lambda item, result: results.__setitem__(item, result),
-        no_progress_timeout=1.0,
+        no_progress_timeout=5.0,
     )
 
-    # Every item is processed despite the pool hanging, and recovery is fast:
-    # exactly ONE stall, then straight to serial (no slow per-worker retries).
-    assert results == {1: 2, 2: 4, 3: 6}
-    assert info["serial_fallback"] is True
-    assert info["stalls"] == 1
+    assert results == {1: 2, 2: None, 3: 6}
+    assert info["completed"] == 3
+    assert info["serial_fallback"] is False
