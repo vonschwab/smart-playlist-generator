@@ -747,6 +747,31 @@ python scripts/analyze_library.py --stages popularity
 
 Then **validate the resolution with the probe lens** — confirm Nirvana's resolved popular tracks are the studio hits (Smells Like Teen Spirit, Come as You Are, In Bloom, Heart-Shaped Box), not live takes; check the sidecar's `matched` count is reasonable; spot-check that remasters carried popularity. Only once the sidecar resolves cleanly does plan 2b (the `w_pop` medoid term + "Popular Seeds" checkbox + "New Seeds" button) become meaningful.
 
+## Two consumption paths (decided 2026-06-24) — why the eager sidecar is retained
+
+This data path feeds **two** features with different needs:
+
+- **"Popular Seeds"** (plan 2b) needs popularity for only the **seed artist's own tracks**
+  (the piers). The seed artist is known at generation → fetch it **lazily, cache-first**
+  (read the per-artist cache; on miss/stale fetch one artist + cache; on failure →
+  neutral). This mirrors how `get_recent_tracks` history already works
+  (`playlist_generator.py:1211`). It needs **no batch run** — generate Nirvana, fetch
+  Nirvana, done. So Popular Seeds does NOT depend on the `popularity` stage or the
+  library-wide sidecar.
+
+- **"Oops, All Bangers"** (future plan) optimizes **every** track — including the bridge
+  tracks, which come from *other* artists not known in advance — toward each artist's
+  top-N hits. You cannot lazily fetch the top-tracks of every candidate's artist
+  mid-generation, so this mode needs popularity **precomputed library-wide** = exactly
+  what the eager `popularity` stage + `popularity_sidecar.npz` + `popularity_loader`
+  produce (every track → its rank among its own artist's hits). **This is why the eager
+  stage/sidecar/loader are retained** even though Popular Seeds doesn't use them.
+
+Both paths SHARE the per-artist cache + the resolver, and both use per-artist rank, so
+values are consistent; the only difference is freshness (seed artist always fresh via
+lazy; All-Bangers bridges as-of-last-batch via the sidecar). Plan 2b adds the lazy
+`load_artist_popularity(seed_artist)` path; it does not remove anything here.
+
 ## Out of scope (plan 2b)
 
 - `medoid_popularity_weight` config + `load_artist_popularity_values` + the popularity term in `_medoids_for_cluster` (mirrors the energy term; `w_pop < w_energy` so energy-spread wins, popularity picks the recognizable track within each slot — which also resolves the energy-pulls-in-a-rehearsal residue found in plan 1).
