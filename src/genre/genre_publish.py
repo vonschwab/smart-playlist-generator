@@ -252,14 +252,18 @@ def resolve_release_key_to_album_id(
     #    Tracks carry the real album_id; an album row may never have been
     #    created (e.g. a double-space artist string). Genre edits on these
     #    must still publish, so derive their release_key -> album_id here.
-    for album_id, artist, album in conn.execute(
-        "SELECT DISTINCT album_id, artist, album FROM tracks "
-        "WHERE album_id IS NOT NULL AND album_id != ''"
-    ):
-        key = f"{normalize_release_artist(artist)}::{normalize_release_name(album)}"
-        if not key or key == "::":
-            continue
-        mapping.setdefault(key, album_id)
+    #    Best-effort: a reduced `tracks` schema without artist/album columns
+    #    (some test fixtures) just skips orphan recovery rather than failing.
+    track_cols = {row[1] for row in conn.execute("PRAGMA table_info(tracks)")}
+    if {"album", "artist", "album_id"} <= track_cols:
+        for album_id, artist, album in conn.execute(
+            "SELECT DISTINCT album_id, artist, album FROM tracks "
+            "WHERE album_id IS NOT NULL AND album_id != ''"
+        ):
+            key = f"{normalize_release_artist(artist)}::{normalize_release_name(album)}"
+            if not key or key == "::":
+                continue
+            mapping.setdefault(key, album_id)
 
     return mapping, collisions
 
