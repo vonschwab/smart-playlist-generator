@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -77,6 +78,59 @@ class ArtistStyleConfig:
     # Medoid selection weighting (to avoid interludes/outliers)
     medoid_similarity_weight: float = 0.7  # Weight for sonic similarity to cluster centroid
     medoid_duration_weight: float = 0.3    # Weight for duration typicality (avoid outliers)
+    # Energy-aware spread (set-level): pull each cluster's medoid toward an
+    # evenly-spaced arousal slot so the pier set tiles the artist's energy range.
+    # 0.0 => inert (today's behavior). See spec 2026-06-23-artist-energy-spread.
+    medoid_energy_weight: float = 0.0
+    energy_feature: str = "arousal_p50"    # which energy sidecar column defines the slots
+    energy_slot_lo_pct: float = 10.0       # robust span low percentile of artist z-arousal
+    energy_slot_hi_pct: float = 90.0       # robust span high percentile
+    # Version de-dup: before clustering, reduce the artist to one canonical version
+    # per song (studio/remaster preferred over live/demo/alt) so live takes and
+    # duplicate releases don't become seeds. A live cut is kept only if it's the
+    # song's sole version. Reuses src/title_dedupe.py.
+    dedupe_versions: bool = True
+    # Popularity (Last.fm) bias on the within-slot medoid pick. Activated by the
+    # "Popular Seeds" checkbox (overrides this to popular_seeds_weight). Keep
+    # below medoid_energy_weight so energy-spread keeps the slot structure.
+    medoid_popularity_weight: float = 0.0
+
+
+def load_artist_energy_values(bundle, cfg: "ArtistStyleConfig") -> Optional[np.ndarray]:
+    """Load z-scored energy aligned to bundle.track_ids for energy-aware spread.
+
+    Returns None (inert) when the energy term is off or the sidecar is unavailable.
+    Per the configured-knob-must-act rule, a >0 weight with no usable energy WARNs.
+    """
+    if cfg.medoid_energy_weight <= 0:
+        return None
+    artifact_path = getattr(bundle, "artifact_path", None)
+    if artifact_path is None:
+        logger.warning(
+            "artist_style: medoid_energy_weight=%.3f but bundle has no artifact_path; "
+            "energy spread inert", cfg.medoid_energy_weight,
+        )
+        return None
+    sidecar = Path(artifact_path).parent / "energy" / "energy_sidecar.npz"
+    if not sidecar.exists():
+        logger.warning(
+            "artist_style: medoid_energy_weight=%.3f but energy sidecar missing at %s; "
+            "energy spread inert", cfg.medoid_energy_weight, sidecar,
+        )
+        return None
+    from src.playlist.energy_loader import load_energy_matrix
+
+    matrix = load_energy_matrix(
+        bundle.track_ids, sidecar_path=str(sidecar), features=(cfg.energy_feature,)
+    )
+    vals = np.asarray(matrix[:, 0], dtype=float)
+    if not np.any(np.isfinite(vals)):
+        logger.warning(
+            "artist_style: energy sidecar has no finite %s values; energy spread inert",
+            cfg.energy_feature,
+        )
+        return None
+    return vals
 
 
 def _select_k(track_count: int, cfg: ArtistStyleConfig) -> int:
@@ -188,6 +242,127 @@ def _duration_outlier_score(duration_sec: float, stats: Dict[str, float]) -> flo
     return min(1.0, outlier_magnitude / 2.0)  # Divided by 2 so 3*IQR below = 1.0
 
 
+_ENERGY_SPAN_EPS = 1e-6
+
+
+def _finite_median(values: np.ndarray) -> float:
+    """Median of finite entries; NaN if there are none."""
+    arr = np.asarray(values, dtype=float)
+    finite = arr[np.isfinite(arr)]
+    return float(np.median(finite)) if finite.size else float("nan")
+
+
+def _robust_energy_span(
+    values: np.ndarray, lo_pct: float, hi_pct: float
+) -> Optional[Tuple[float, float]]:
+    """Robust (lo, hi) energy span from finite percentiles, or None if degenerate."""
+    arr = np.asarray(values, dtype=float)
+    finite = arr[np.isfinite(arr)]
+    if finite.size < 2:
+        return None
+    lo = float(np.percentile(finite, lo_pct))
+    hi = float(np.percentile(finite, hi_pct))
+    if (hi - lo) < _ENERGY_SPAN_EPS:
+        return None
+    return (lo, hi)
+
+
+def _slot_targets_by_quantile(
+    cluster_medians: Sequence[float],
+    artist_energy: np.ndarray,
+    lo_pct: float,
+    hi_pct: float,
+) -> List[float]:
+    """Energy target per cluster at evenly-spaced *population quantiles* of the
+    artist's energy, assigned by the cluster's median-energy rank.
+
+    Spacing by quantile (not by raw value) makes the anchor counts follow the
+    band's density: dense intensity regions get more targets, sparse regions
+    fewer (e.g. an 81%-aggressive catalog => ~81% of targets land aggressive),
+    instead of tiling the value range uniformly (which over-fills sparse ends).
+
+    Clusters with a NaN median get a NaN target (their energy term is inert).
+    Single cluster -> the midpoint quantile. Aligned to the input order.
+    """
+    finite = np.asarray(artist_energy, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    medians = list(cluster_medians)
+    n = len(medians)
+    targets = [float("nan")] * n
+    if finite.size < 2:
+        return targets
+    finite_idx = [i for i, m in enumerate(medians) if np.isfinite(m)]
+    k = len(finite_idx)
+    if k == 0:
+        return targets
+    if k == 1:
+        targets[finite_idx[0]] = float(np.percentile(finite, (lo_pct + hi_pct) / 2.0))
+        return targets
+    # rank finite clusters by ascending median energy; place each at an evenly
+    # spaced quantile so target *counts* follow the band's energy density.
+    ordered = sorted(finite_idx, key=lambda i: medians[i])
+    for rank, i in enumerate(ordered):
+        q = lo_pct + (rank / (k - 1)) * (hi_pct - lo_pct)
+        targets[i] = float(np.percentile(finite, q))
+    return targets
+
+
+def _slot_proximity(z: np.ndarray, target: float, span_width: float) -> np.ndarray:
+    """Per-member proximity to a slot target in [0,1]; 0 for non-finite members.
+
+    Inert (all zeros) if the target is non-finite or span_width <= 0.
+    """
+    arr = np.asarray(z, dtype=float)
+    if not np.isfinite(target) or span_width <= 0:
+        return np.zeros_like(arr)
+    dist = np.abs(arr - target) / span_width
+    prox = 1.0 - np.clip(dist, 0.0, 1.0)
+    prox[~np.isfinite(arr)] = 0.0
+    return prox
+
+
+def _dedupe_artist_indices(
+    indices: List[int],
+    track_titles: Optional[Sequence[str]],
+    durations_ms: Optional[np.ndarray],
+) -> List[int]:
+    """Reduce an artist's track indices to one canonical version per song.
+
+    Groups by loose-normalized title (strips live/remaster/edition suffixes) and
+    keeps the highest version-preference version per song (studio/remaster beat
+    live/demo/alt; remaster is barely penalized). Ties break to the longer
+    duration, then the lower index, for determinism. A live cut survives only if
+    it is the song's sole version. Tracks with no usable title pass through
+    unchanged. Returns indices sorted ascending.
+    """
+    if track_titles is None or len(indices) < 2:
+        return list(indices)
+    from src.title_dedupe import (
+        calculate_version_preference_score,
+        normalize_title_for_dedupe,
+    )
+
+    groups: Dict[str, List[int]] = {}
+    kept: List[int] = []
+    for idx in indices:
+        title = str(track_titles[idx]) if track_titles[idx] is not None else ""
+        norm = normalize_title_for_dedupe(title, mode="loose") if title else ""
+        if not norm:
+            kept.append(idx)  # untitled -> can't group; keep as-is
+            continue
+        groups.setdefault(norm, []).append(idx)
+
+    def _rank(i: int) -> tuple:
+        title = str(track_titles[i]) if track_titles[i] is not None else ""
+        score = calculate_version_preference_score(title)
+        dur = float(durations_ms[i]) if durations_ms is not None else 0.0
+        return (score, dur, -i)  # highest score, then longest, then stable
+
+    for members in groups.values():
+        kept.append(members[0] if len(members) == 1 else max(members, key=_rank))
+    return sorted(kept)
+
+
 def _medoids_for_cluster(
     X: np.ndarray,
     indices: List[int],
@@ -200,6 +375,10 @@ def _medoids_for_cluster(
     track_durations_ms: Optional[np.ndarray] = None,
     similarity_weight: float = 0.7,
     duration_weight: float = 0.3,
+    energy_weight: float = 0.0,
+    energy_proximity: Optional[np.ndarray] = None,
+    popularity_weight: float = 0.0,
+    popularity_values: Optional[np.ndarray] = None,
 ) -> List[int]:
     """
     Select medoids using weighted scoring that penalizes duration outliers.
@@ -207,6 +386,8 @@ def _medoids_for_cluster(
     Weighting strategy (configurable):
     - similarity_weight (default 70%): similarity to cluster centroid (sonic cohesion)
     - duration_weight (default 30%): duration typicality (avoid extreme outliers)
+    - energy_weight (default 0.0): pull toward this cluster's energy slot (set-level spread)
+    - energy_proximity: per-member proximity in [0,1] to the cluster's energy slot, aligned to `indices`
 
     This ensures we pick representative tracks that are sonically central
     but not weird interludes/outros. The weights adapt to each artist's catalog,
@@ -232,6 +413,28 @@ def _medoids_for_cluster(
 
     # Combined weighted score (configurable weights)
     scores = sims * similarity_weight + duration_weights * duration_weight
+
+    # Energy-aware spread: pull the medoid toward this cluster's arousal slot.
+    if energy_proximity is not None and energy_weight > 0:
+        prox = np.asarray(energy_proximity, dtype=float)
+        if prox.shape[0] == len(indices):
+            scores = scores + prox * energy_weight
+        else:  # defensive: misaligned proximity must never silently corrupt scores
+            logger.warning(
+                "artist_style: energy_proximity len %d != cluster size %d; skipping energy term",
+                prox.shape[0], len(indices),
+            )
+
+    # Popularity bias: prefer the recognizable hit WITHIN this cluster's slot.
+    if popularity_values is not None and popularity_weight > 0:
+        pv = np.asarray(popularity_values, dtype=float)
+        if pv.shape[0] == len(indices):
+            pv = np.where(np.isfinite(pv), pv, 0.0)   # unknown -> neutral, no bonus
+            scores = scores + pv * popularity_weight
+        else:
+            logger.warning(
+                "artist_style: popularity_values len %d != cluster size %d; skipping",
+                pv.shape[0], len(indices))
 
     # Select from top-k by combined score
     order = np.argsort(-scores)
@@ -285,6 +488,8 @@ def cluster_artist_tracks(
     medoid_top_k: int = 1,
     include_collaborations: bool = False,
     excluded_track_ids: Optional[set[str]] = None,
+    energy_values: Optional[np.ndarray] = None,
+    popularity_values: Optional[np.ndarray] = None,
 ) -> Tuple[List[List[int]], List[int], List[List[int]], np.ndarray]:
     """Cluster artist tracks in sonic space and return clusters + medoids."""
     track_ids = bundle.track_ids
@@ -320,8 +525,30 @@ def cluster_artist_tracks(
             artist_name, len(solo_only), len(artist_indices) - len(solo_only),
             len(artist_indices),
         )
+    if cfg.dedupe_versions:
+        before = len(artist_indices)
+        artist_indices = _dedupe_artist_indices(
+            artist_indices, getattr(bundle, "track_titles", None), bundle.durations_ms
+        )
+        if before != len(artist_indices):
+            logger.info(
+                "Artist style version-dedup: %s %d -> %d tracks (one canonical version per song)",
+                artist_name, before, len(artist_indices),
+            )
     if len(artist_indices) < max(3, cfg.cluster_k_min):
         raise ValueError(f"Not enough tracks to cluster for artist {artist_name}")
+
+    # Energy-aware spread: load energy if not injected, then derive the artist's
+    # robust arousal span (slots are spaced across it). None => term stays inert.
+    if energy_values is None:
+        energy_values = load_artist_energy_values(bundle, cfg)
+    energy_span: Optional[Tuple[float, float]] = None
+    if energy_values is not None and cfg.medoid_energy_weight > 0:
+        artist_energy = np.asarray(energy_values, dtype=float)[artist_indices]
+        energy_span = _robust_energy_span(
+            artist_energy, cfg.energy_slot_lo_pct, cfg.energy_slot_hi_pct
+        )
+
     k = _select_k(len(artist_indices), cfg)
     rng = np.random.default_rng(random_seed)
 
@@ -349,26 +576,59 @@ def cluster_artist_tracks(
                 continue
             raise ValueError(f"Clustering degenerate for artist {artist_name} after retries")
         break
+    # First pass: gather non-empty clusters, preserving their centroid index.
+    nonempty: List[Tuple[int, List[int]]] = []
+    for c in range(centroids.shape[0]):
+        members_local = [artist_indices[i] for i, lab in enumerate(labels) if lab == c]
+        if members_local:
+            nonempty.append((c, members_local))
+
+    # Energy slots: rank clusters by median arousal, then place each target at an
+    # evenly-spaced *population quantile* of the artist's energy, so anchor counts
+    # follow the band's density (representative) rather than tiling the value range.
+    slot_targets: Optional[List[float]] = None
+    if energy_span is not None:
+        ev = np.asarray(energy_values, dtype=float)
+        artist_energy = ev[artist_indices]
+        cluster_medians = [_finite_median(ev[members]) for _c, members in nonempty]
+        slot_targets = _slot_targets_by_quantile(
+            cluster_medians, artist_energy, cfg.energy_slot_lo_pct, cfg.energy_slot_hi_pct
+        )
+        logger.info(
+            "Artist style energy spread: artist=%s span=(%.3f,%.3f) targets=%s",
+            artist_name, energy_span[0], energy_span[1],
+            [round(t, 3) if np.isfinite(t) else None for t in slot_targets],
+        )
+
     clusters: List[List[int]] = []
     medoids: List[int] = []
     medoids_by_cluster: List[List[int]] = []
-    for c in range(centroids.shape[0]):
-        members_local = [artist_indices[i] for i, lab in enumerate(labels) if lab == c]
-        if not members_local:
-            continue
+    span_width = (energy_span[1] - energy_span[0]) if energy_span is not None else 0.0
+    for ci, (c, members_local) in enumerate(nonempty):
         clusters.append(members_local)
+        energy_prox: Optional[np.ndarray] = None
+        if slot_targets is not None:
+            member_energy = np.asarray(energy_values, dtype=float)[members_local]
+            energy_prox = _slot_proximity(member_energy, slot_targets[ci], span_width)
+        pop_slice = None
+        if popularity_values is not None and cfg.medoid_popularity_weight > 0:
+            pop_slice = np.asarray(popularity_values, dtype=float)[members_local]
         medoid_list = _medoids_for_cluster(
             X_norm,
             members_local,
             centroids[c],
             track_ids,
-            medoid_top_k,  # Use calculated medoid_top_k based on presence, not cfg.piers_per_cluster
+            medoid_top_k,
             rng,
             medoid_top_k,
             artist_duration_stats,
             bundle.durations_ms,
             cfg.medoid_similarity_weight,
             cfg.medoid_duration_weight,
+            cfg.medoid_energy_weight,
+            energy_prox,
+            cfg.medoid_popularity_weight,
+            pop_slice,
         )
         medoids_by_cluster.append(medoid_list)
         medoids.extend(medoid_list)

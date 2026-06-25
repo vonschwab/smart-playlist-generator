@@ -1278,6 +1278,7 @@ class PlaylistGenerator:
         num_tracks: Optional[int] = None,
         mode: Optional[str] = None,
         random_seed: Optional[int] = None,
+        popular_seeds: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """
         Create a single playlist for a specific artist without requiring listening history
@@ -1651,6 +1652,12 @@ class PlaylistGenerator:
             ),
             genre_neighbor_compatible_threshold=float(style_cfg_raw.get("genre_neighbor_compatible_threshold", 0.35)),
             genre_neighbor_conflict_threshold=float(style_cfg_raw.get("genre_neighbor_conflict_threshold", 0.15)),
+            medoid_energy_weight=float(style_cfg_raw.get("medoid_energy_weight", 0.0)),
+            energy_feature=str(style_cfg_raw.get("energy_feature", "arousal_p50")),
+            energy_slot_lo_pct=float(style_cfg_raw.get("energy_slot_lo_pct", 10.0)),
+            energy_slot_hi_pct=float(style_cfg_raw.get("energy_slot_hi_pct", 90.0)),
+            dedupe_versions=bool(style_cfg_raw.get("dedupe_versions", True)),
+            medoid_popularity_weight=float(style_cfg_raw.get("medoid_popularity_weight", 0.0)),
         )
         playlists_cfg = self.config.config.get("playlists", {}) or {}
         cohesion_mode_effective = cohesion_mode_override or ("dynamic" if dynamic else resolve_cohesion_mode(playlists_cfg))
@@ -1711,6 +1718,29 @@ class PlaylistGenerator:
                     max_artist_fraction, target_pier_count, predicted_k, medoid_top_k, track_count
                 )
 
+                # Popular-seeds activation: when enabled and a Last.fm client exists,
+                # override the medoid popularity weight and load per-track popularity
+                # values aligned to the bundle. Default path: popularity_values=None
+                # (cluster_artist_tracks treats None as no-op, byte-identical to today).
+                popularity_values = None
+                if popular_seeds and getattr(self, "lastfm", None) is not None:
+                    from dataclasses import replace
+                    from datetime import datetime, timezone
+                    from src.analyze.popularity_runner import (
+                        enrichment_db_path,
+                        load_artist_popularity_values,
+                    )
+                    pop_w = float(style_cfg_raw.get("popular_seeds_weight", 0.5))
+                    style_cfg = replace(style_cfg, medoid_popularity_weight=pop_w)
+                    popularity_values = load_artist_popularity_values(
+                        bundle, artist_name, client=self.lastfm,
+                        db_path=enrichment_db_path(),
+                        limit=int((self.config.config.get("lastfm", {}) or {}).get("artist_top_tracks_limit", 50)),
+                        max_age_days=int(style_cfg_raw.get("popularity_max_age_days", 30)),
+                        now_iso=datetime.now(timezone.utc).isoformat(),
+                        include_collaborations=include_collaborations,
+                    )
+
                 clusters, medoids, medoids_by_cluster, X_norm = cluster_artist_tracks(
                     bundle=bundle,
                     artist_name=artist_name,
@@ -1720,6 +1750,7 @@ class PlaylistGenerator:
                     medoid_top_k=medoid_top_k,
                     include_collaborations=include_collaborations,
                     excluded_track_ids=seed_recency_excluded_ids if exclude_seed_tracks_from_recency else None,
+                    popularity_values=popularity_values,
                 )
                 if not medoids:
                     raise ValueError("Style clustering returned no medoids")
@@ -2584,6 +2615,12 @@ class PlaylistGenerator:
                 ),
                 genre_neighbor_compatible_threshold=float(style_cfg_raw.get("genre_neighbor_compatible_threshold", 0.35)),
                 genre_neighbor_conflict_threshold=float(style_cfg_raw.get("genre_neighbor_conflict_threshold", 0.15)),
+                medoid_energy_weight=float(style_cfg_raw.get("medoid_energy_weight", 0.0)),
+                energy_feature=str(style_cfg_raw.get("energy_feature", "arousal_p50")),
+                energy_slot_lo_pct=float(style_cfg_raw.get("energy_slot_lo_pct", 10.0)),
+                energy_slot_hi_pct=float(style_cfg_raw.get("energy_slot_hi_pct", 90.0)),
+                dedupe_versions=bool(style_cfg_raw.get("dedupe_versions", True)),
+                medoid_popularity_weight=float(style_cfg_raw.get("medoid_popularity_weight", 0.0)),
             )
             playlists_cfg = self.config.config.get("playlists", {}) or {}
             cohesion_mode_effective = cohesion_mode_override or ("dynamic" if dynamic else resolve_cohesion_mode(playlists_cfg))

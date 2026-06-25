@@ -1,0 +1,250 @@
+"""Build side of the Last.fm popularity sidecar.
+
+Fetches each artist's top tracks (cached in ai_genre_enrichment.db so re-runs
+skip), resolves each Last.fm track to the *canonical* local track per song
+(mbid-first, then loose-title + version-preference), and writes
+data/artifacts/beat3tower_32k/popularity/popularity_sidecar.npz aligned to the
+artifact's track_ids. Mirrors the energy sidecar. Reads metadata.db read-only.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import sqlite3
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional
+
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+ENRICHMENT_DB_DEFAULT = "data/ai_genre_enrichment.db"
+
+
+def enrichment_db_path() -> str:
+    """ROOT-anchored absolute path to the enrichment DB (the per-artist cache)."""
+    return str(Path(__file__).resolve().parents[2] / "data" / "ai_genre_enrichment.db")
+
+
+def init_top_tracks_cache(db_path: str) -> None:
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS artist_top_tracks_cache ("
+            "artist_key TEXT PRIMARY KEY, fetched_at TEXT NOT NULL, "
+            "track_count INTEGER NOT NULL DEFAULT 0, payload_json TEXT NOT NULL)"
+        )
+
+
+def cached_artist_keys(db_path: str) -> set:
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute("SELECT artist_key FROM artist_top_tracks_cache")
+        return {r[0] for r in rows}
+
+
+def upsert_artist_top_tracks(
+    db_path: str, artist_key: str, fetched_at: str, top_tracks: List[dict]
+) -> None:
+    payload = json.dumps(top_tracks)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO artist_top_tracks_cache (artist_key, fetched_at, track_count, payload_json) "
+            "VALUES (?, ?, ?, ?) ON CONFLICT(artist_key) DO UPDATE SET "
+            "fetched_at=excluded.fetched_at, track_count=excluded.track_count, "
+            "payload_json=excluded.payload_json",
+            (artist_key, fetched_at, len(top_tracks), payload),
+        )
+
+
+def get_artist_top_tracks_cached(db_path: str, artist_key: str) -> List[dict]:
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT payload_json FROM artist_top_tracks_cache WHERE artist_key = ?",
+            (artist_key,),
+        ).fetchone()
+    return json.loads(row[0]) if row else []
+
+
+def resolve_top_tracks_to_popularity(
+    top_tracks: List[dict], local_tracks: List[dict]
+) -> Dict[str, float]:
+    """Map one artist's ranked Last.fm top tracks to local track_ids + popularity.
+
+    mbid-first, else loose-normalized-title grouping with version-preference
+    (studio/remaster beat live/demo/alt). Score = 1 - rank/N. On collision keep
+    the higher score. Returns {track_id: popularity in [0,1]}.
+    """
+    if not top_tracks or not local_tracks:
+        return {}
+    from src.title_dedupe import (
+        calculate_version_preference_score,
+        normalize_title_for_dedupe,
+    )
+
+    by_mbid: Dict[str, str] = {}
+    by_norm: Dict[str, List[dict]] = {}
+    for lt in local_tracks:
+        mbid = str(lt.get("musicbrainz_id") or "")
+        if mbid:
+            # first local track wins if two share an mbid (rare)
+            by_mbid.setdefault(mbid, str(lt["track_id"]))
+        norm = normalize_title_for_dedupe(str(lt.get("title") or ""), mode="loose")
+        if norm:
+            by_norm.setdefault(norm, []).append(lt)
+
+    n = len(top_tracks)
+    out: Dict[str, float] = {}
+    for t in top_tracks:
+        rank = int(t.get("rank", 0))
+        score = 1.0 - rank / n
+        tid: Optional[str] = None
+        mbid = str(t.get("mbid") or "")
+        if mbid and mbid in by_mbid:
+            tid = by_mbid[mbid]
+        else:
+            norm = normalize_title_for_dedupe(str(t.get("name") or ""), mode="loose")
+            cands = by_norm.get(norm, [])
+            if cands:
+                best = max(
+                    cands,
+                    key=lambda lt: (
+                        calculate_version_preference_score(str(lt.get("title") or "")),
+                        str(lt["track_id"]),
+                    ),
+                )
+                tid = str(best["track_id"])
+        if tid is not None and score > out.get(tid, -1.0):
+            out[tid] = score
+    return out
+
+
+def _local_tracks_by_artist(metadata_db: str, min_artist_tracks: int) -> Dict[str, List[dict]]:
+    by_artist: Dict[str, List[dict]] = {}
+    with sqlite3.connect(f"file:{metadata_db}?mode=ro", uri=True) as conn:
+        conn.row_factory = sqlite3.Row
+        for r in conn.execute(
+            "SELECT track_id, title, musicbrainz_id, artist_key FROM tracks "
+            "WHERE artist_key IS NOT NULL AND artist_key <> ''"
+        ):
+            by_artist.setdefault(str(r["artist_key"]), []).append({
+                "track_id": str(r["track_id"]),
+                "title": str(r["title"] or ""),
+                "musicbrainz_id": str(r["musicbrainz_id"] or ""),
+            })
+    return {k: v for k, v in by_artist.items() if len(v) >= min_artist_tracks}
+
+
+def build_popularity_sidecar(
+    *, artifact_npz: str, metadata_db: str, enrichment_db: str,
+    out_path: str, min_artist_tracks: int,
+) -> dict:
+    """Resolve cached Last.fm top tracks to local track_ids and write the sidecar."""
+    tids = [str(t) for t in np.load(artifact_npz, allow_pickle=True)["track_ids"]]
+    pos = {t: i for i, t in enumerate(tids)}
+    popularity = np.full(len(tids), np.nan, dtype=np.float32)
+
+    by_artist = _local_tracks_by_artist(metadata_db, min_artist_tracks)
+    cached = cached_artist_keys(enrichment_db)
+    matched = artists_resolved = 0
+    for artist_key, local_tracks in by_artist.items():
+        if artist_key not in cached:
+            continue
+        top = get_artist_top_tracks_cached(enrichment_db, artist_key)
+        if not top:
+            continue
+        artists_resolved += 1
+        for tid, score in resolve_top_tracks_to_popularity(top, local_tracks).items():
+            j = pos.get(tid)
+            if j is not None:
+                popularity[j] = score
+                matched += 1
+
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(
+        out_path, track_ids=np.array(tids, dtype=object), popularity=popularity,
+    )
+    logger.info("popularity sidecar: %d tracks, %d matched, %d artists resolved -> %s",
+                len(tids), matched, artists_resolved, out_path)
+    return {"tracks": len(tids), "matched": matched, "artists_resolved": artists_resolved}
+
+
+def load_artist_popularity_values(
+    bundle, artist_name: str, *, client, db_path: str, limit: int,
+    max_age_days: int, now_iso: str, include_collaborations: bool = False,
+) -> Optional[np.ndarray]:
+    """Per-track popularity for the seed artist, aligned to bundle.track_ids.
+
+    Lazy cache-first fetch of the seed artist's top tracks + resolve to the
+    artist's local tracks (title-based; mbid blank from the bundle). None if no
+    client. NaN for non-matched / other-artist tracks (neutral)."""
+    if client is None:
+        return None
+    from src.playlist.artist_style import _artist_indices_in_bundle
+    from src.string_utils import normalize_artist_key
+
+    indices = _artist_indices_in_bundle(
+        bundle, artist_name, include_collaborations=include_collaborations)
+    if not indices:
+        return None
+    titles = getattr(bundle, "track_titles", None)
+    local_tracks = [{
+        "track_id": str(bundle.track_ids[i]),
+        "title": str(titles[i]) if titles is not None else "",
+        "musicbrainz_id": "",
+    } for i in indices]
+    artist_key = normalize_artist_key(artist_name)
+    top = get_artist_top_tracks_cached_or_fetch(
+        artist_key, artist_name, client=client, db_path=db_path,
+        limit=limit, max_age_days=max_age_days, now_iso=now_iso)
+    pop = resolve_top_tracks_to_popularity(top, local_tracks)
+    if not pop:
+        return None
+    out = np.full(len(bundle.track_ids), np.nan, dtype=float)
+    pos = {str(t): i for i, t in enumerate(bundle.track_ids)}
+    for tid, score in pop.items():
+        j = pos.get(tid)
+        if j is not None:
+            out[j] = score
+    return out
+
+
+def _fetched_at_iso(db_path: str, artist_key: str) -> Optional[str]:
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT fetched_at FROM artist_top_tracks_cache WHERE artist_key = ?",
+            (artist_key,),
+        ).fetchone()
+    return row[0] if row else None
+
+
+def get_artist_top_tracks_cached_or_fetch(
+    artist_key: str, artist_name: str, *, client, db_path: str,
+    limit: int = 50, max_age_days: int = 30, now_iso: str,
+) -> List[dict]:
+    """Cache-first per-artist top tracks. Fresh cache -> no network. Miss/stale ->
+    one fetch + cache. Fetch failure -> stale cache if any, else []. Never raises."""
+    init_top_tracks_cache(db_path)
+    cached = get_artist_top_tracks_cached(db_path, artist_key)
+    fetched_at = _fetched_at_iso(db_path, artist_key)
+    fresh = False
+    if fetched_at is not None:
+        try:
+            age = datetime.fromisoformat(now_iso) - datetime.fromisoformat(fetched_at)
+            fresh = age.total_seconds() <= max_age_days * 86400
+        except (ValueError, TypeError):
+            # Bad/unparseable timestamp OR aware-vs-naive mismatch -> treat as stale
+            # and refetch. This block must never raise (never gate generation).
+            fresh = False
+    if fetched_at is not None and fresh:
+        return cached
+    try:
+        rows = client.get_artist_top_tracks(artist_name, limit=limit)
+        upsert_artist_top_tracks(db_path, artist_key, now_iso, rows)
+        return rows
+    except Exception as exc:  # network/parse — never gate generation
+        logger.warning(
+            "popularity lazy fetch failed for %s: %s; using stale/empty", artist_name, exc
+        )
+        return cached  # stale cache if present, else []

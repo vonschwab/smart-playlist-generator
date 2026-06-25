@@ -30,6 +30,7 @@ AnalyzeLibraryStage = Literal[
     "genre-sim",
     "artifacts",
     "energy",
+    "popularity",
     "genre-embedding",
     "verify",
 ]
@@ -53,6 +54,7 @@ ANALYZE_LIBRARY_STAGE_ORDER: tuple[AnalyzeLibraryStage, ...] = (
     "genre-sim",
     "artifacts",
     "energy",
+    "popularity",
     "genre-embedding",
     "verify",
 )
@@ -99,6 +101,8 @@ class GeneratePlaylistRequest:
     include_collaborations: bool = False
     exclude_seed_tracks_from_recency: bool = False
     artist_only: bool = False
+    popular_seeds: bool = False
+    seed_epoch: int = 0
 
     @classmethod
     def from_ui_state(
@@ -148,6 +152,8 @@ class GeneratePlaylistRequest:
             include_collaborations=bool(args.get("include_collaborations", False)),
             exclude_seed_tracks_from_recency=bool(args.get("exclude_seed_tracks_from_recency", False)),
             artist_only=bool(args.get("artist_only", False)),
+            popular_seeds=bool(args.get("popular_seeds", False)),
+            seed_epoch=int(args.get("seed_epoch", 0)),
         )
 
     @classmethod
@@ -221,6 +227,10 @@ class GeneratePlaylistRequest:
             args["exclude_seed_tracks_from_recency"] = True
         if self.artist_only:
             args["artist_only"] = True
+        if self.popular_seeds:
+            args["popular_seeds"] = True
+        if self.seed_epoch:
+            args["seed_epoch"] = int(self.seed_epoch)
         return args
 
     def validation_error(self) -> Optional[str]:

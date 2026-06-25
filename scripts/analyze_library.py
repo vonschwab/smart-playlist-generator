@@ -2315,6 +2315,72 @@ def stage_energy(ctx: Dict) -> Dict:
     return {"skipped": False, "pending": pending, **res}
 
 
+def stage_popularity(ctx: Dict) -> Dict:
+    """Fetch each qualifying artist's Last.fm top tracks (cached, resumable) and
+    build the popularity sidecar. Offline only; never touched at generation."""
+    from src.analyze.popularity_runner import (
+        init_top_tracks_cache, cached_artist_keys,
+        upsert_artist_top_tracks, build_popularity_sidecar,
+    )
+    from src.lastfm_client import LastFMClient
+    import sqlite3 as _sqlite
+    import time as _time
+    import yaml
+    from datetime import datetime, timezone
+
+    args = ctx["args"]
+    out_dir = Path(ctx["out_dir"])
+    artifact_npz = out_dir / "data_matrices_step1.npz"
+    if not artifact_npz.exists():
+        logger.info("stage_popularity: artifact missing; skipping (build artifacts first)")
+        return {"skipped": True, "reason": "no_artifact"}
+    api_key = _resolve_lastfm_api_key(ctx)
+    if not api_key:
+        raise RuntimeError("stage_popularity requires a Last.fm API key (config lastfm.api_key / LASTFM_API_KEY)")
+
+    with open(ctx["config_path"], "r", encoding="utf-8") as _fh:
+        cfg = yaml.safe_load(_fh) or {}
+    limit = int(((cfg.get("lastfm") or {}).get("artist_top_tracks_limit", 50)))
+    min_tracks = int((((cfg.get("playlists") or {}).get("ds_pipeline") or {}).get("artist_style") or {})
+                     .get("toptracks_min_artist_tracks", 8))
+    username = (cfg.get("lastfm") or {}).get("username", "")
+
+    enrich_db = str(ENRICHMENT_DB_PATH)
+    init_top_tracks_cache(enrich_db)
+    # qualifying artists: >= min_tracks local tracks, not already cached
+    with _sqlite.connect(f"file:{ctx['db_path']}?mode=ro", uri=True) as conn:
+        rows = conn.execute(
+            "SELECT artist_key, MIN(artist) AS name, COUNT(*) c FROM tracks "
+            "WHERE artist_key IS NOT NULL AND artist_key <> '' "
+            "GROUP BY artist_key HAVING c >= ?", (min_tracks,),
+        ).fetchall()
+    already = cached_artist_keys(enrich_db)
+    pending = [(r[0], r[1]) for r in rows if args.force or r[0] not in already]
+
+    client = LastFMClient(api_key=api_key, username=username)
+    fetched = failed = 0
+    for artist_key, name in pending:
+        try:
+            top = client.get_artist_top_tracks(name, limit=limit)
+            upsert_artist_top_tracks(
+                enrich_db, artist_key,
+                datetime.now(timezone.utc).isoformat(), top,
+            )
+            fetched += 1
+        except Exception as exc:  # network/parse — log and continue
+            failed += 1
+            logger.warning("popularity fetch failed for %s: %s", name, exc)
+        _time.sleep(0.2)  # ~5 req/s courtesy
+
+    stats = build_popularity_sidecar(
+        artifact_npz=str(artifact_npz), metadata_db=str(ctx["db_path"]),
+        enrichment_db=enrich_db, out_path=str(out_dir / "popularity" / "popularity_sidecar.npz"),
+        min_artist_tracks=min_tracks,
+    )
+    return {"skipped": False, "fetched": fetched, "failed": failed,
+            "pending": len(pending), **stats}
+
+
 STAGE_FUNCS = {
     "scan": stage_scan,
     "mbid": stage_mbid,
@@ -2330,6 +2396,7 @@ STAGE_FUNCS = {
     "genre-sim": stage_genre_sim,
     "artifacts": stage_artifacts,
     "energy": stage_energy,
+    "popularity": stage_popularity,
     "genre-embedding": stage_genre_embedding,
     "verify": stage_verify,
 }

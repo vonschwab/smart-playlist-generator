@@ -23,6 +23,7 @@ lastfm:
   api_key: ''
   username: ''
   history_days: 90
+  artist_top_tracks_limit: 50      # how many top tracks to fetch per artist (popularity stage)
 plex:
   enabled: false
   base_url: http://localhost:32400
@@ -189,6 +190,7 @@ playlists:
     # Artist style-aware pier-bridge (applies to --artist playlists)
     artist_style:
       enabled: false           # Enable style-aware pier-bridge for artist playlists
+      toptracks_min_artist_tracks: 8   # min local tracks to fetch Last.fm top-tracks (popularity stage); independent of artist_style.enabled
       cluster_k_min: 3
       cluster_k_max: 6
       cluster_k_heuristic_enabled: true
@@ -209,6 +211,20 @@ playlists:
           bridge: 0.7
           transition: 0.3
       genre_tiebreak_weight: 0.05
+      # Energy-aware spread (artist mode): pull each cluster's medoid toward an
+      # evenly-spaced arousal slot so the piers tile the artist's energy range.
+      # 0.0 = off (default, identical to legacy). Calibrate upward after A/B.
+      medoid_energy_weight: 0.0
+      energy_feature: arousal_p50      # arousal_p10 | arousal_p50 | arousal_p90 | danceability
+      energy_slot_lo_pct: 10.0         # robust arousal-span percentiles for slot targets
+      energy_slot_hi_pct: 90.0
+      # Reduce the artist to one canonical version per song before clustering
+      # (studio/remaster preferred over live/demo/alt) so live takes and duplicate
+      # releases don't become seeds. A live cut is kept only if it's the sole version.
+      dedupe_versions: true
+      medoid_popularity_weight: 0.0    # within-slot bias toward Last.fm-popular tracks; keep < medoid_energy_weight
+      popular_seeds_weight: 0.5        # weight applied when the "Popular Seeds" checkbox is ON
+      popularity_max_age_days: 30      # refetch an artist's top tracks if the cache entry is older
 
     # Construction scoring weights
     # score = alpha*seed_sim + beta*transition_sim + gamma*diversity - penalty

@@ -33,6 +33,8 @@ class GenerateRequestBody(BaseModel):
     artist_diversity_mode: str = "weighted"
     artist_presence: str = "medium"
     artist_variety: str = "balanced"
+    popular_seeds: bool = False
+    seed_epoch: int = 0
 
     def to_request(self) -> GeneratePlaylistRequest:
         """Convert to internal GeneratePlaylistRequest for worker processing."""
@@ -48,6 +50,8 @@ class GenerateRequestBody(BaseModel):
             pace_mode=self.pace_mode,
             include_collaborations=self.include_collaborations,
             exclude_seed_tracks_from_recency=self.exclude_seed_tracks_from_recency,
+            popular_seeds=self.popular_seeds,
+            seed_epoch=self.seed_epoch,
         )
 
 

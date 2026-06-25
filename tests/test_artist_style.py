@@ -1,3 +1,6 @@
+import types
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -7,6 +10,13 @@ from src.playlist.artist_style import (
     build_genre_neighbor_candidate_pool,
     cluster_artist_tracks,
     order_clusters,
+    _finite_median,
+    _robust_energy_span,
+    _slot_targets_by_quantile,
+    _slot_proximity,
+    _medoids_for_cluster,
+    _dedupe_artist_indices,
+    load_artist_energy_values,
 )
 
 
@@ -27,6 +37,14 @@ class DummyBundle:
         self.X_genre_raw = None
         self.X_genre_smoothed = None
         self.genre_vocab = None
+
+
+def test_artist_style_config_has_energy_defaults():
+    cfg = ArtistStyleConfig()
+    assert cfg.medoid_energy_weight == 0.0          # opt-in: off by default
+    assert cfg.energy_feature == "arousal_p50"
+    assert cfg.energy_slot_lo_pct == 10.0
+    assert cfg.energy_slot_hi_pct == 90.0
 
 
 def test_selects_multiple_clusters_and_medoids():
@@ -726,6 +744,60 @@ def test_local_sonic_edge_floor_applies_to_final_destination_edge():
     assert local_stats["local_sonic_gate_rejected"] == 1
 
 
+# ---------------------------------------------------------------------------
+# Task 5: energy-slot wiring in cluster_artist_tracks
+# ---------------------------------------------------------------------------
+
+def _two_cluster_bundle():
+    artist_keys = np.array(["a"] * 6)
+    track_ids = np.array([str(i) for i in range(6)])
+    X = np.array([
+        [1.0, 0.0], [0.9, 0.1], [0.95, -0.05],   # cluster 1 (indices 0,1,2)
+        [0.0, 1.0], [0.1, 0.9], [-0.05, 0.95],   # cluster 2 (indices 3,4,5)
+    ])
+    return DummyBundle(X_sonic=X, artist_keys=artist_keys, track_ids=track_ids)
+
+
+def test_cluster_artist_tracks_energy_weight_zero_matches_none():
+    bundle = _two_cluster_bundle()
+    cfg_off = ArtistStyleConfig(cluster_k_min=2, cluster_k_max=2, enabled=True)
+    cfg_zero = ArtistStyleConfig(
+        cluster_k_min=2, cluster_k_max=2, enabled=True, medoid_energy_weight=0.0
+    )
+    energy = np.array([2.0, -2.0, 0.0, 2.0, -2.0, 0.0])
+    base = cluster_artist_tracks(bundle=bundle, artist_name="A", cfg=cfg_off, random_seed=0)
+    zeroed = cluster_artist_tracks(
+        bundle=bundle, artist_name="A", cfg=cfg_zero, random_seed=0, energy_values=energy
+    )
+    assert sorted(base[1]) == sorted(zeroed[1])   # identical medoids
+
+
+def test_cluster_artist_tracks_energy_runs_and_returns_medoids():
+    bundle = _two_cluster_bundle()
+    cfg = ArtistStyleConfig(
+        cluster_k_min=2, cluster_k_max=2, enabled=True, medoid_energy_weight=5.0
+    )
+    energy = np.array([2.0, -2.0, 0.0, 2.0, -2.0, 0.0])
+    clusters, medoids, by_cluster, X_norm = cluster_artist_tracks(
+        bundle=bundle, artist_name="A", cfg=cfg, random_seed=0, energy_values=energy
+    )
+    assert len(clusters) == 2
+    assert len(medoids) == 2
+
+
+def test_cluster_artist_tracks_inert_on_flat_energy():
+    bundle = _two_cluster_bundle()
+    cfg = ArtistStyleConfig(
+        cluster_k_min=2, cluster_k_max=2, enabled=True, medoid_energy_weight=5.0
+    )
+    flat = np.zeros(6)   # zero span => energy term inert, must not crash
+    base = cluster_artist_tracks(bundle=bundle, artist_name="A", cfg=cfg, random_seed=0)
+    flatted = cluster_artist_tracks(
+        bundle=bundle, artist_name="A", cfg=cfg, random_seed=0, energy_values=flat
+    )
+    assert sorted(base[1]) == sorted(flatted[1])
+
+
 def test_transition_floor_config_override_per_mode():
     from src.playlist.config import default_ds_config
 
@@ -989,3 +1061,252 @@ def test_run_audit_writer_creates_markdown_report(tmp_path):
     assert "## 4) Segment Diagnostics" in text
     assert "### Segment 0" in text
     assert "#### Attempt 1" in text
+
+
+def test_finite_median_ignores_nan():
+    assert _finite_median(np.array([1.0, np.nan, 3.0])) == 2.0
+    assert np.isnan(_finite_median(np.array([np.nan, np.nan])))
+
+
+def test_robust_energy_span_uses_percentiles():
+    vals = np.arange(10, dtype=float)  # 0..9
+    span = _robust_energy_span(vals, 10.0, 90.0)
+    assert span is not None
+    lo, hi = span
+    assert lo == pytest.approx(0.9)
+    assert hi == pytest.approx(8.1)
+
+
+def test_robust_energy_span_none_when_flat_or_sparse():
+    assert _robust_energy_span(np.array([5.0, 5.0, 5.0]), 10.0, 90.0) is None  # zero span
+    assert _robust_energy_span(np.array([np.nan, 1.0]), 10.0, 90.0) is None     # <2 finite
+
+
+def test_slot_targets_quantile_uniform_is_evenly_spaced():
+    # Uniform distribution: quantiles map ~linearly to values, so quantile-spacing
+    # reduces to even value-spacing. medians order: cluster0 high, cluster1 low, cluster2 mid.
+    energy = np.linspace(0.0, 10.0, 101)
+    targets = _slot_targets_by_quantile([2.0, 0.0, 1.0], energy, 10.0, 90.0)
+    assert targets[1] == pytest.approx(1.0, abs=0.2)    # lowest cluster -> p10 -> ~1.0
+    assert targets[2] == pytest.approx(5.0, abs=0.2)    # mid -> p50 -> ~5.0
+    assert targets[0] == pytest.approx(9.0, abs=0.2)    # highest cluster -> p90 -> ~9.0
+
+
+def test_slot_targets_quantile_follows_density_not_range():
+    # 8 high-energy tracks, 2 low: evenly-spaced quantiles land mostly in the dense
+    # high mass, NOT evenly across the 0..5 value range (the representativeness fix).
+    energy = np.array([0.0, 0.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0])
+    # 4 clusters ranked low->high by median energy
+    targets = _slot_targets_by_quantile([0.0, 2.5, 5.0, 5.0], energy, 10.0, 90.0)
+    assert targets[0] < 1.0                              # only the lowest reaches the sparse low end
+    assert all(t == pytest.approx(5.0) for t in targets[1:])  # the rest follow the dense mass
+    # (even value-spacing would have put a target at ~1.67 in the sparse middle)
+
+
+def test_slot_targets_quantile_single_cluster_is_mid_quantile():
+    energy = np.linspace(0.0, 10.0, 101)
+    assert _slot_targets_by_quantile([3.0], energy, 10.0, 90.0) == [pytest.approx(5.0, abs=0.2)]
+
+
+def test_slot_targets_quantile_nan_median_stays_nan():
+    energy = np.linspace(0.0, 10.0, 101)
+    targets = _slot_targets_by_quantile([np.nan, 1.0], energy, 10.0, 90.0)
+    assert np.isnan(targets[0])
+
+
+def test_slot_targets_quantile_sparse_energy_is_inert():
+    targets = _slot_targets_by_quantile([0.0, 5.0], np.array([1.0]), 10.0, 90.0)
+    assert all(np.isnan(t) for t in targets)   # <2 finite values -> all NaN (inert)
+
+
+def test_slot_proximity_peaks_at_target_and_zeros_for_nan():
+    z = np.array([5.0, 0.0, 10.0, np.nan])
+    prox = _slot_proximity(z, target=5.0, span_width=10.0)
+    assert prox[0] == pytest.approx(1.0)     # at target
+    assert prox[1] == pytest.approx(0.5)     # half a span away
+    assert prox[2] == pytest.approx(0.5)
+    assert prox[3] == 0.0                     # NaN energy -> neutral (no bonus)
+
+
+def test_slot_proximity_inert_when_target_nan():
+    z = np.array([1.0, 2.0])
+    assert np.all(_slot_proximity(z, target=np.nan, span_width=10.0) == 0.0)
+    # span_width <= 0 is also inert (all zeros)
+    assert np.all(_slot_proximity(z, target=5.0, span_width=0.0) == 0.0)
+
+
+def test_dedupe_artist_indices_prefers_studio_and_collapses_dupes():
+    # 0 studio "On a Plain" | 1 live version | 2 duplicate studio (lowercase)
+    # | 3 unique song | 4 a song that exists ONLY as a live cut
+    titles = np.array([
+        "On a Plain",
+        "On A Plain (Live In Tokyo)",
+        "On a plain",
+        "About a Girl",
+        "Scoff (Live at Pine Street)",
+    ])
+    durations = np.array([200000, 210000, 200000, 150000, 180000], dtype=float)
+    kept = _dedupe_artist_indices([0, 1, 2, 3, 4], titles, durations)
+    assert 1 not in kept            # live "On a Plain" demoted (studio present)
+    assert 2 not in kept            # duplicate studio collapsed
+    assert 0 in kept                # one canonical studio "On a Plain" survives
+    assert 3 in kept                # unique song kept
+    assert 4 in kept                # sole-version live cut kept
+    assert kept == sorted(kept)
+
+
+def test_dedupe_artist_indices_no_titles_passthrough():
+    # No titles -> can't group -> every index passes through unchanged.
+    assert _dedupe_artist_indices([0, 1, 2], None, None) == [0, 1, 2]
+
+
+def _centroid_for(X, indices):
+    c = X[indices].mean(axis=0)
+    return c / (np.linalg.norm(c) + 1e-12)
+
+
+def test_medoid_energy_term_pulls_to_slot():
+    # 3 candidates, near-identical sonic centrality; energy proximity favors index 1.
+    X = np.array([[1.0, 0.0], [0.98, 0.02], [0.99, 0.01]])
+    X = X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-12)
+    indices = [0, 1, 2]
+    centroid = _centroid_for(X, indices)
+    rng = np.random.default_rng(0)
+
+    # Baseline (no energy): pick by sonic alone, top_k=1 => deterministic argmax.
+    base = _medoids_for_cluster(
+        X, indices, centroid, ["t0", "t1", "t2"], 1, rng, 1,
+        None, None, 0.7, 0.3,
+    )
+    # Energy strongly favors index 1.
+    rng2 = np.random.default_rng(0)
+    energized = _medoids_for_cluster(
+        X, indices, centroid, ["t0", "t1", "t2"], 1, rng2, 1,
+        None, None, 0.7, 0.3,
+        10.0, np.array([0.0, 1.0, 0.0]),   # energy_weight, energy_proximity
+    )
+    assert energized == [1]
+
+
+def test_medoid_energy_weight_zero_is_regression_safe():
+    X = np.array([[1.0, 0.0], [0.5, 0.5], [0.0, 1.0]])
+    X = X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-12)
+    indices = [0, 1, 2]
+    centroid = _centroid_for(X, indices)
+    base = _medoids_for_cluster(
+        X, indices, centroid, ["t0", "t1", "t2"], 1, np.random.default_rng(3), 1,
+        None, None, 0.7, 0.3,
+    )
+    with_zero = _medoids_for_cluster(
+        X, indices, centroid, ["t0", "t1", "t2"], 1, np.random.default_rng(3), 1,
+        None, None, 0.7, 0.3,
+        0.0, np.array([1.0, 0.0, 0.0]),   # weight 0 => proximity ignored
+    )
+    assert with_zero == base
+
+
+def _write_energy_sidecar(tmp_path, track_ids, arousal):
+    energy_dir = Path(tmp_path) / "energy"
+    energy_dir.mkdir(parents=True, exist_ok=True)
+    np.savez(
+        energy_dir / "energy_sidecar.npz",
+        track_ids=np.array(track_ids, dtype=object),
+        arousal_p50=np.array(arousal, dtype=np.float32),
+    )
+
+
+def test_load_artist_energy_values_returns_zscored():
+    import tempfile
+    import shutil
+    tmp_path = tempfile.mkdtemp()
+    try:
+        track_ids = ["a", "b", "c"]
+        _write_energy_sidecar(tmp_path, track_ids, [1.0, 3.0, 5.0])
+        bundle = types.SimpleNamespace(
+            track_ids=np.array(track_ids), artifact_path=Path(tmp_path) / "artifact.npz"
+        )
+        cfg = ArtistStyleConfig(medoid_energy_weight=1.0, energy_feature="arousal_p50")
+        vals = load_artist_energy_values(bundle, cfg)
+        assert vals is not None and vals.shape == (3,)
+        assert vals[0] < vals[1] < vals[2]            # preserves ordering
+        assert abs(float(np.mean(vals))) < 1e-6        # z-scored => ~zero mean
+    finally:
+        shutil.rmtree(tmp_path)
+
+
+def test_load_artist_energy_values_inert_when_weight_zero():
+    import tempfile
+    import shutil
+    tmp_path = tempfile.mkdtemp()
+    try:
+        bundle = types.SimpleNamespace(
+            track_ids=np.array(["a"]), artifact_path=Path(tmp_path) / "artifact.npz"
+        )
+        assert load_artist_energy_values(bundle, ArtistStyleConfig()) is None
+    finally:
+        shutil.rmtree(tmp_path)
+
+
+def test_load_artist_energy_values_warns_when_sidecar_missing(caplog):
+    import tempfile
+    import shutil
+    import logging
+    tmp_path = tempfile.mkdtemp()
+    try:
+        bundle = types.SimpleNamespace(
+            track_ids=np.array(["a"]), artifact_path=Path(tmp_path) / "artifact.npz"
+        )
+        cfg = ArtistStyleConfig(medoid_energy_weight=0.5)
+        with caplog.at_level(logging.WARNING):
+            assert load_artist_energy_values(bundle, cfg) is None
+        assert any("energy sidecar missing" in r.message for r in caplog.records)
+    finally:
+        shutil.rmtree(tmp_path)
+
+
+def test_load_artist_energy_values_warns_when_no_finite(caplog):
+    # Sidecar exists but its track_ids do NOT overlap the bundle's track_ids,
+    # so load_energy_matrix returns an all-NaN column. This is the production
+    # "configured-knob-must-act" path: an artist whose tracks aren't in the
+    # sidecar. Must return None AND log a "no finite" WARNING.
+    import tempfile
+    import shutil
+    import logging
+    tmp_path = tempfile.mkdtemp()
+    try:
+        _write_energy_sidecar(tmp_path, ["x", "y", "z"], [1.0, 3.0, 5.0])
+        bundle = types.SimpleNamespace(
+            track_ids=np.array(["a", "b", "c"]),  # disjoint from sidecar ids
+            artifact_path=Path(tmp_path) / "artifact.npz",
+        )
+        cfg = ArtistStyleConfig(medoid_energy_weight=0.5, energy_feature="arousal_p50")
+        with caplog.at_level(logging.WARNING):
+            assert load_artist_energy_values(bundle, cfg) is None
+        assert any("no finite" in r.message for r in caplog.records)
+    finally:
+        shutil.rmtree(tmp_path)
+
+
+def test_medoid_popularity_term_breaks_tie_toward_popular():
+    X = np.array([[1.0, 0.0], [0.98, 0.02], [0.99, 0.01]])
+    X = X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-12)
+    indices = [0, 1, 2]; centroid = _centroid_for(X, indices)
+    base = _medoids_for_cluster(X, indices, centroid, ["t0","t1","t2"], 1,
+        np.random.default_rng(0), 1, None, None, 0.7, 0.3)
+    pop = _medoids_for_cluster(X, indices, centroid, ["t0","t1","t2"], 1,
+        np.random.default_rng(0), 1, None, None, 0.7, 0.3, 0.0, None,
+        5.0, np.array([0.0, 1.0, 0.0]))   # popularity_weight, popularity_values
+    assert pop == [1]                       # strong popularity on index 1 wins the pick
+    del base                                # baseline computed only to mirror the call shape
+
+
+def test_medoid_popularity_weight_zero_is_regression_safe():
+    X = np.array([[1.0, 0.0], [0.5, 0.5], [0.0, 1.0]])
+    X = X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-12)
+    indices = [0, 1, 2]; centroid = _centroid_for(X, indices)
+    base = _medoids_for_cluster(X, indices, centroid, ["t0","t1","t2"], 1,
+        np.random.default_rng(3), 1, None, None, 0.7, 0.3)
+    z = _medoids_for_cluster(X, indices, centroid, ["t0","t1","t2"], 1,
+        np.random.default_rng(3), 1, None, None, 0.7, 0.3, 0.0, None,
+        0.0, np.array([1.0, 0.0, 0.0]))   # popularity weight 0 -> ignored
+    assert z == base
