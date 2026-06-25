@@ -2402,56 +2402,49 @@ def _subprocess_error_excerpt(completed: subprocess.CompletedProcess) -> str:
 
 
 def handle_edit_genres(cmd_data: Dict[str, Any]) -> None:
-    """Write a user genre override for (artist, album) computed from a target list.
+    """Apply a user genre edit: durable override + surgical authority write.
 
-    Diffs the target list against ``base_genres`` — the genres the GUI actually
-    displayed (the graph authority) — so the override stores the minimal
-    add/remove set. Diffing against the old sidecar resolver instead silently
-    dropped removals of graph-sourced genres the resolver never knew about.
+    Resolves typed genres to canonical taxonomy ids (unknowns reported, not
+    saved), then writes both the durable ai_genre_user_overrides diff and the
+    release_effective_genres rows for the album via the shared publish
+    materializer. base for the diff is read server-side from the authority.
     """
     try:
         artist = (cmd_data.get("artist") or "").strip()
         album = (cmd_data.get("album") or "").strip()
-        target_genres = [
+        target_names = [
             str(g).strip() for g in (cmd_data.get("genres") or []) if str(g).strip()
         ]
         if not artist or not album:
             raise ValueError("artist and album are required")
 
+        import sqlite3
+        from src.ai_genre_enrichment.layered_taxonomy import load_default_layered_taxonomy
         from src.ai_genre_enrichment.storage import SidecarStore
-        from src.ai_genre_enrichment.normalization import (
-            make_release_key,
-            normalize_release_artist,
-            normalize_release_name,
-        )
+        from src.genre.genre_edit import apply_user_genre_edit
 
-        # Baseline = the genres the GUI displayed (graph authority), passed by the
-        # client. The legacy resolver only knows bandcamp signatures, so diffing
-        # against it dropped removals of graph-sourced genres it never had.
-        base_genres = [
-            str(g).strip() for g in (cmd_data.get("base_genres") or []) if str(g).strip()
-        ]
-        base_lower = {g.casefold() for g in base_genres}
-        target = {g.casefold() for g in target_genres}
-        add = target - base_lower
-        remove = base_lower - target
+        base_path = cmd_data.get("base_config_path", "config.yaml")
+        config = load_config_with_overrides(base_path, cmd_data.get("overrides", {}))
+        db_path = config.get("library", {}).get("database_path", "data/metadata.db")
 
-        store = SidecarStore(SIDECAR_DB_PATH)
-        store.initialize()
-        # Key the override exactly as the resolver reads it (make_release_key),
-        # or punctuated albums silently never see their edits applied.
-        store.set_user_override(
-            release_key=make_release_key(artist, album),
-            normalized_artist=normalize_release_artist(artist),
-            normalized_album=normalize_release_name(album),
-            genres_add=sorted(add),
-            genres_remove=sorted(remove),
-        )
+        meta_conn = sqlite3.connect(db_path)
+        meta_conn.row_factory = sqlite3.Row
+        try:
+            store = SidecarStore(SIDECAR_DB_PATH)
+            store.initialize()
+            taxonomy = load_default_layered_taxonomy()
+            result = apply_user_genre_edit(
+                meta_conn, store, taxonomy,
+                artist=artist, album=album, target_names=target_names,
+            )
+        finally:
+            meta_conn.close()
 
         emit_result("edit_genres", {
             "artist": artist, "album": album,
-            "genres": sorted(target),
-            "added": sorted(add), "removed": sorted(remove),
+            "resolved": result.resolved, "unknown": result.unknown,
+            "added": result.added, "removed": result.removed,
+            "no_change": result.no_change,
         })
         emit_done("edit_genres", True, "ok")
     except Exception as e:
