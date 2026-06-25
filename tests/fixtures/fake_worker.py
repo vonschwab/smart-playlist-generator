@@ -77,7 +77,12 @@ def main():
             genres = cmd.get("genres", []) or []
             emit({"type": "result", "result_type": "edit_genres", "request_id": rid, "job_id": jid,
                   "artist": cmd.get("artist"), "album": cmd.get("album"),
-                  "genres": sorted(genres), "added": sorted(genres), "removed": []})
+                  "resolved": sorted(genres), "unknown": [],
+                  "added": sorted(genres), "removed": [], "no_change": False})
+            emit({"type": "done", "cmd": name, "ok": True, "detail": "ok", "request_id": rid, "job_id": jid})
+        elif name == "refresh_genre_artifact":
+            emit({"type": "result", "result_type": "refresh_genre_artifact", "request_id": rid, "job_id": jid,
+                  "n_tracks": 1, "n_genres": 1, "backup": "x.npz.bak"})
             emit({"type": "done", "cmd": name, "ok": True, "detail": "ok", "request_id": rid, "job_id": jid})
         elif name == "analyze_library":
             # Mirrors STAGE_ORDER_DEFAULT in scripts/analyze_library.py — the

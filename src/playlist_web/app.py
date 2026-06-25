@@ -580,6 +580,7 @@ def create_app(
         try:
             result = await bridge.command({
                 "cmd": "edit_genres",
+                "base_config_path": config_path,
                 "artist": body.artist,
                 "album": body.album,
                 "genres": body.genres,
@@ -590,6 +591,20 @@ def create_app(
         except WorkerCommandError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
         return {"ok": True, **result}
+
+    @app.post("/api/refresh_genre_artifact")
+    async def refresh_genre_artifact() -> dict:
+        """Re-bake the genre matrices in the artifact so generation sees edits."""
+        job_id = registry.create(request_params={"tool": "refresh_genre_artifact"})
+        try:
+            await bridge.submit({
+                "cmd": "refresh_genre_artifact",
+                "job_id": job_id,
+                "base_config_path": config_path,
+            })
+        except BridgeBusy:
+            raise HTTPException(status_code=409, detail="A job is in progress — try again when it finishes.")
+        return {"job_id": job_id}
 
     @app.post("/api/export/plex")
     async def export_plex(body: PlexExportRequest) -> dict:
