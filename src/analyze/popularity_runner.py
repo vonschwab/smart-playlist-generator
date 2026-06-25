@@ -233,7 +233,9 @@ def get_artist_top_tracks_cached_or_fetch(
         try:
             age = datetime.fromisoformat(now_iso) - datetime.fromisoformat(fetched_at)
             fresh = age.total_seconds() <= max_age_days * 86400
-        except ValueError:
+        except (ValueError, TypeError):
+            # Bad/unparseable timestamp OR aware-vs-naive mismatch -> treat as stale
+            # and refetch. This block must never raise (never gate generation).
             fresh = False
     if fetched_at is not None and fresh:
         return cached
