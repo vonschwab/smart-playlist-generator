@@ -2453,6 +2453,52 @@ def handle_edit_genres(cmd_data: Dict[str, Any]) -> None:
         emit_done("edit_genres", False, str(e))
 
 
+def handle_refresh_genre_artifact(cmd_data: Dict[str, Any]) -> None:
+    """Re-bake only the genre matrices in the artifact NPZ from the authority."""
+    emit_log("INFO", "Refreshing genre matrices in artifact")
+    emit_progress("refresh_genre", 0, 100, "Loading artifact")
+    try:
+        import shutil
+        from datetime import datetime
+        from scripts.build_beat3tower_artifacts import refresh_genre_matrices
+
+        base_path = cmd_data.get("base_config_path", "config.yaml")
+        config = load_config_with_overrides(base_path, cmd_data.get("overrides", {}))
+        ds = config.get("playlists", {}).get("ds_pipeline", {})
+        artifact_path = ds.get(
+            "artifact_path", "data/artifacts/beat3tower_32k/data_matrices_step1.npz"
+        )
+        db_path = config.get("library", {}).get("database_path", "data/metadata.db")
+        genre_sim_path = ds.get("genre_sim_path") or "data/genre_similarity_graph.npz"
+
+        art = Path(artifact_path)
+        if not art.exists():
+            raise FileNotFoundError(
+                f"artifact not found: {artifact_path} — build artifacts first"
+            )
+        # Timestamped backup before overwrite (artifact is rebuildable; cheap insurance).
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup = art.with_suffix(art.suffix + f".genrebak_{ts}")
+        shutil.copy2(art, backup)
+        emit_progress("refresh_genre", 30, 100, "Re-baking genre matrices")
+
+        result = refresh_genre_matrices(
+            str(art), db_path,
+            genre_sim_path=genre_sim_path if Path(genre_sim_path).exists() else None,
+            sidecar_db=SIDECAR_DB_PATH, config_path=base_path,
+        )
+        emit_progress("refresh_genre", 100, 100, "Done")
+        emit_result("refresh_genre_artifact", {**result, "backup": str(backup)})
+        emit_done(
+            "refresh_genre_artifact", True,
+            f"Re-baked {result['n_genres']} genres across {result['n_tracks']} tracks",
+        )
+    except Exception as e:
+        tb = traceback.format_exc()
+        emit_error(str(e), tb)
+        emit_done("refresh_genre_artifact", False, str(e))
+
+
 def handle_scan_genre_review(cmd_data: Dict[str, Any]) -> None:
     """Scan all releases for hybrid review terms and persist the queue."""
     try:
@@ -2749,6 +2795,7 @@ TRACKED_COMMAND_HANDLERS = {
     "enrich_artist": handle_enrich_artist_cmd,
     "enrich_genres": handle_enrich_genres_cmd,
     "edit_genres": handle_edit_genres,
+    "refresh_genre_artifact": handle_refresh_genre_artifact,
     "scan_genre_review": handle_scan_genre_review,
     "publish_decided": handle_publish_decided,
 }
