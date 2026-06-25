@@ -34,3 +34,20 @@ def test_canonical_genre_search_empty_query():
     conn.row_factory = sqlite3.Row
     _canon(conn)
     assert authority.canonical_genre_search(conn, "  ", limit=10) == []
+
+
+def test_album_id_for_release_exact_and_orphan():
+    from src.genre import genre_edit
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute("CREATE TABLE tracks (track_id TEXT, artist TEXT, album TEXT, album_id TEXT)")
+    conn.executemany(
+        "INSERT INTO tracks VALUES (?,?,?,?)",
+        [("t1", "The  Radio Dept.", "Pet Grief", "ORPH1"),
+         ("t2", "The  Radio Dept.", "Pet Grief", "ORPH1"),
+         ("t3", "Acetone", "York Blvd.", "A1")],
+    )
+    assert genre_edit.album_id_for_release(conn, "The  Radio Dept.", "Pet Grief") == "ORPH1"
+    # normalized fallback: double-space vs single-space artist still resolves
+    assert genre_edit.album_id_for_release(conn, "The Radio Dept.", "Pet Grief") == "ORPH1"
+    assert genre_edit.album_id_for_release(conn, "Nobody", "Nothing") is None
