@@ -125,7 +125,7 @@ def _imp() -> dict[str, Any]:
     return _IMP
 
 
-def policy_config(genre_m: str, sonic_m: str, pace_m: str, cohesion_m: str, roam: dict | None = None) -> dict:
+def policy_config(genre_m: str, sonic_m: str, pace_m: str, cohesion_m: str, roam: dict | None = None, extra_ov: dict | None = None) -> dict:
     """Translate the four slider modes into a merged config exactly as the worker
     does (this is the step the broken first draft skipped).
 
@@ -144,6 +144,8 @@ def policy_config(genre_m: str, sonic_m: str, pace_m: str, cohesion_m: str, roam
     ov = I["merge_overrides"](ov, MAIN_OV)  # MAIN data paths win
     if roam:
         ov = I["merge_overrides"](ov, {"playlists": {"ds_pipeline": {"pier_bridge": {"roam": roam}}}})
+    if extra_ov:
+        ov = I["merge_overrides"](ov, extra_ov)
     return I["load_config_with_overrides"](str(CONFIG), ov)
 
 
@@ -188,8 +190,8 @@ def build_generator(merged_cfg: dict):
     return I["PlaylistGenerator"](lib, mc, lastfm_client=None, track_matcher=matcher, metadata_client=meta)
 
 
-def run_artist_cell(artist: str, genre_m: str, sonic_m: str, pace_m: str, cohesion_m: str, length: int = 30, roam: dict | None = None) -> dict[str, Any]:
-    merged = policy_config(genre_m, sonic_m, pace_m, cohesion_m, roam=roam)
+def run_artist_cell(artist: str, genre_m: str, sonic_m: str, pace_m: str, cohesion_m: str, length: int = 30, roam: dict | None = None, extra_ov: dict | None = None) -> dict[str, Any]:
+    merged = policy_config(genre_m, sonic_m, pace_m, cohesion_m, roam=roam, extra_ov=extra_ov)
     g = build_generator(merged)
     open(LOGF, "w").close()
     fh = logging.FileHandler(LOGF, encoding="utf-8", mode="a")
@@ -236,6 +238,11 @@ def run_artist_cell(artist: str, genre_m: str, sonic_m: str, pace_m: str, cohesi
     out["roam_segs"] = len(_rl)
     out["roam_detour_mean"] = round(float(np.mean([float(x[0]) for x in _rl])), 3) if _rl else None
     out["min_transition"] = grp(r'"min_transition": ([0-9.]+)', float)  # worst edge
+    _A = art()
+    out["artists"] = (
+        sorted({_A["artists"][_A["id2idx"][t]].strip().lower() for t in track_ids if t in _A["id2idx"]})
+        if _A.get("artists") else []
+    )
     if not err:
         out.update(playlist_metrics(track_ids))
     return out
@@ -296,6 +303,42 @@ def sweep_artist_roam(artist: str, length: int = 30) -> None:
         print(f"  {k:6s} {c.get('n', 0):>3d} {ov:>11.3f} {str(c.get('sonic_mean')):>9} {str(c.get('sonic_worst')):>10} {str(c.get('min_transition')):>5} {c.get('roam_segs', 0):>8d} {str(c.get('roam_detour_mean')):>8} {c['wall']:>5} {'ok' if c['bpm_ok'] else 'NOBPM'}")
 
 
+def sweep_genre_broad(artist: str, targets: list[str], length: int = 30) -> None:
+    """Genre is squishy: does relaxing the genre gate + the sonic corridor let
+    sonically-valid but differently-tagged neighbors (The Radio Dept <-> The
+    Embassy) co-occur while the worst edge holds? Compares off / roam+minimax
+    (genre gate on) / roam+minimax with the genre gate OFF (broad, sonic-led pool).
+    """
+    roam = {"enabled": True, "width_sonic": 1.0, "width_genre": 0.0, "width_energy": 0.0,
+            "worst_edge_minimax": True}
+    # Genre-broad: disable the DENSE per-seed genre gate (genre_admission_percentile)
+    # + the beam genre floors. Sonic-broad: also drop the sonic admission percentile.
+    gate_off = {"playlists": {"ds_pipeline": {"pier_bridge": {
+        "genre_admission_percentile": 0.0, "genre_arc_floor": 0.0, "genre_pair_floor": 0.0,
+    }}, "genre_similarity": {"enabled": False}}}
+    sonic_off = {"playlists": {"ds_pipeline": {"pier_bridge": {
+        "genre_admission_percentile": 0.0, "genre_arc_floor": 0.0, "genre_pair_floor": 0.0,
+        "sonic_admission_percentile": 0.0,
+    }}, "genre_similarity": {"enabled": False}}}
+    cells: dict[str, dict[str, Any]] = {}
+    cells["off"] = run_artist_cell(artist, "dynamic", "dynamic", "dynamic", "dynamic", length)
+    cells["roam+mm"] = run_artist_cell(artist, "dynamic", "dynamic", "dynamic", "dynamic", length, roam=roam)
+    cells["roam+genreBroad"] = run_artist_cell(artist, "dynamic", "dynamic", "dynamic", "dynamic", length, roam=roam, extra_ov=gate_off)
+    cells["roam+sonicBroad"] = run_artist_cell(artist, "dynamic", "dynamic", "dynamic", "dynamic", length, roam=roam, extra_ov=sonic_off)
+    base = cells["off"].get("track_ids", [])
+    tnorm = [t.strip().lower() for t in targets]
+    print(f"\n=== GENRE-BROAD PROBE  {artist}  | targets={targets} ===")
+    print(f"  {'cell':16s} {'n':>3s} {'ovVoff':>7s} {'sonicWorst':>10s} {'minT':>5s} {'rejG':>5s} {'adm':>5s} {'wall':>5s} | targets_present")
+    for k, c in cells.items():
+        if c.get("err"):
+            print(f"  {k:16s} ERR {c['err'][:80]}")
+            continue
+        ov = jaccard(c.get("track_ids", []), base)
+        arts = set(c.get("artists", []))
+        present = [t for t, tn in zip(targets, tnorm) if tn in arts]
+        print(f"  {k:16s} {c.get('n', 0):>3d} {ov:>7.3f} {str(c.get('sonic_worst')):>10} {str(c.get('min_transition')):>5} {str(c.get('rej_genre')):>5} {str(c.get('admitted')):>5} {c['wall']:>5} | {present}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--artist", default="Codeine")
@@ -303,6 +346,8 @@ def main():
     ap.add_argument("--length", type=int, default=30)
     ap.add_argument("--grid", choices=["artist"], default=None)
     ap.add_argument("--roam", action="store_true", help="Roam-corridor sonic-width sweep (proof-of-life)")
+    ap.add_argument("--genre-broad", action="store_true", help="genre-gate-off broad-pool probe")
+    ap.add_argument("--targets", default="", help="comma-separated target artists to check for presence")
     args = ap.parse_args()
     bc = np.load(ARTIFACT, allow_pickle=True)
     variant = str(bc["X_sonic_variant"]) if "X_sonic_variant" in bc.files else "?"
@@ -311,7 +356,9 @@ def main():
     if variant != "mert":
         print(f"ABORT: live sonic variant is {variant!r}, not 'mert' — re-fold before calibrating.")
         return
-    if args.roam:
+    if args.genre_broad:
+        sweep_genre_broad(args.artist, [t.strip() for t in args.targets.split(",") if t.strip()], args.length)
+    elif args.roam:
         sweep_artist_roam(args.artist, args.length)
     elif args.grid == "artist":
         for a in ARTIST_CORPUS:
