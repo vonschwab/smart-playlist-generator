@@ -121,3 +121,46 @@ def test_apply_edit_no_op_when_unchanged(tmp_path):
         target_names=["dream pop"])
     assert res2.no_change is True
     assert res2.added == [] and res2.removed == []
+
+
+def test_apply_edit_removes_graph_genre(tmp_path):
+    """Removing a graph-sourced genre drops it from the authority and records a
+    remove override (diffed against the non-user base, so publish reproduces it)."""
+    from src.genre import genre_edit, genre_publish
+    from src.ai_genre_enrichment.layered_taxonomy import load_default_layered_taxonomy
+    from src.ai_genre_enrichment.storage import SidecarStore
+
+    meta = _edit_dbs(tmp_path)
+    store = SidecarStore(str(tmp_path / "s.db"))
+    store.initialize()
+    taxonomy = load_default_layered_taxonomy()
+
+    slow_id = genre_publish._term_to_genre_id(taxonomy, "slowcore")
+    dream_id = genre_publish._term_to_genre_id(taxonomy, "dream pop")
+    assert slow_id and dream_id and slow_id != dream_id
+
+    # ORPH1 currently has two GRAPH genres (mirrors a prior publish): graph
+    # assignments are the materializer's source, release_effective_genres the base.
+    for gid in (slow_id, dream_id):
+        meta.execute(
+            "INSERT INTO genre_graph_release_genre_assignments "
+            "VALUES ('ORPH1', ?, 'observed_leaf', 0.9)", (gid,))
+        meta.execute(
+            "INSERT INTO release_effective_genres "
+            "VALUES ('ORPH1','k', ?, 'observed_leaf', 0.9, 'graph')", (gid,))
+    meta.commit()
+
+    res = genre_edit.apply_user_genre_edit(
+        meta, store, taxonomy, artist="The  Radio Dept.", album="Pet Grief",
+        target_names=["slowcore"])  # keep slowcore, drop dream pop
+
+    assert res.no_change is False
+    remaining = {r[0] for r in meta.execute(
+        "SELECT genre_id FROM release_effective_genres WHERE album_id='ORPH1'")}
+    assert slow_id in remaining
+    assert dream_id not in remaining
+
+    ov = store.get_user_override("the radio dept::pet grief")
+    assert ov is not None
+    assert ov["genres_add"] == []
+    assert len(ov["genres_remove"]) == 1
