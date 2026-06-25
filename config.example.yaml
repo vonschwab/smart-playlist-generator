@@ -190,7 +190,7 @@ playlists:
     # Artist style-aware pier-bridge (applies to --artist playlists)
     artist_style:
       enabled: false           # Enable style-aware pier-bridge for artist playlists
-      toptracks_min_artist_tracks: 8   # only fetch Last.fm top-tracks for artists with >= N local tracks
+      toptracks_min_artist_tracks: 8   # min local tracks to fetch Last.fm top-tracks (popularity stage); independent of artist_style.enabled
       cluster_k_min: 3
       cluster_k_max: 6
       cluster_k_heuristic_enabled: true

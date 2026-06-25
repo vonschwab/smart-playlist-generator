@@ -2312,7 +2312,7 @@ def stage_popularity(ctx: Dict) -> Dict:
     """Fetch each qualifying artist's Last.fm top tracks (cached, resumable) and
     build the popularity sidecar. Offline only; never touched at generation."""
     from src.analyze.popularity_runner import (
-        ENRICHMENT_DB_DEFAULT, init_top_tracks_cache, cached_artist_keys,
+        init_top_tracks_cache, cached_artist_keys,
         upsert_artist_top_tracks, build_popularity_sidecar,
     )
     from src.lastfm_client import LastFMClient
@@ -2338,7 +2338,7 @@ def stage_popularity(ctx: Dict) -> Dict:
                      .get("toptracks_min_artist_tracks", 8))
     username = (cfg.get("lastfm") or {}).get("username", "")
 
-    enrich_db = str(ENRICHMENT_DB_DEFAULT)
+    enrich_db = str(ENRICHMENT_DB_PATH)
     init_top_tracks_cache(enrich_db)
     # qualifying artists: >= min_tracks local tracks, not already cached
     with _sqlite.connect(f"file:{ctx['db_path']}?mode=ro", uri=True) as conn:
