@@ -1,6 +1,7 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
+import type { CanonicalGenre } from "../lib/types";
 
 export interface EditGenresDialogProps {
   open: boolean;
@@ -16,24 +17,57 @@ export function EditGenresDialog(props: EditGenresDialogProps) {
   const [input, setInput] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [suggestions, setSuggestions] = useState<CanonicalGenre[]>([]);
+  const [unknown, setUnknown] = useState<string[]>([]);
 
+  // On open, seed chips from the props, then refresh from the live authority.
   useEffect(() => {
-    if (props.open) { setGenres([...props.initialGenres]); setInput(""); setErr(null); }
-  }, [props.open, props.initialGenres]);
+    if (!props.open) return;
+    setInput(""); setErr(null); setUnknown([]); setSuggestions([]);
+    setGenres([...props.initialGenres]);
+    api.albumGenres(props.artist, props.album)
+      .then((r) => { if (r.genres.length) setGenres(r.genres); })
+      .catch(() => {});
+  }, [props.open, props.artist, props.album, props.initialGenres]);
 
-  const addGenre = () => {
-    const g = input.trim();
-    if (g && !genres.some((x) => x.toLowerCase() === g.toLowerCase())) setGenres([...genres, g]);
-    setInput("");
+  // Debounced autocomplete over the canonical taxonomy vocabulary.
+  useEffect(() => {
+    const q = input.trim();
+    if (!q) { setSuggestions([]); return; }
+    const h = setTimeout(() => {
+      api.genresSearch(q, 8).then((r) => setSuggestions(r.items)).catch(() => setSuggestions([]));
+    }, 150);
+    return () => clearTimeout(h);
+  }, [input]);
+
+  const addGenre = (raw?: string) => {
+    const g = (raw ?? input).trim();
+    if (g && !genres.some((x) => x.toLowerCase() === g.toLowerCase())) {
+      setGenres([...genres, g]);
+    }
+    setInput(""); setSuggestions([]);
   };
   const removeGenre = (g: string) => setGenres(genres.filter((x) => x !== g));
 
   const save = async () => {
-    setSaving(true); setErr(null);
+    // Flush a typed-but-not-committed genre so it isn't silently dropped.
+    const pending = input.trim();
+    const finalGenres = pending && !genres.some((x) => x.toLowerCase() === pending.toLowerCase())
+      ? [...genres, pending] : genres;
+    setSaving(true); setErr(null); setUnknown([]);
     try {
-      await api.editGenres({ artist: props.artist, album: props.album, genres, base_genres: props.initialGenres });
-      props.onSaved(props.artist, props.album, genres);
-      props.onOpenChange(false);
+      const res = await api.editGenres({
+        artist: props.artist, album: props.album,
+        genres: finalGenres, base_genres: props.initialGenres,
+      });
+      props.onSaved(props.artist, props.album, res.resolved);
+      if (res.unknown.length) {
+        setUnknown(res.unknown);
+        // Keep only the genres that were actually saved.
+        setGenres(res.resolved);
+      } else {
+        props.onOpenChange(false);
+      }
     } catch (e) { setErr(String(e)); } finally { setSaving(false); }
   };
 
@@ -71,12 +105,27 @@ export function EditGenresDialog(props: EditGenresDialogProps) {
                 className="bg-transparent outline-none text-text text-[11px] min-w-[100px] px-1"
               />
             </div>
-            <div className="text-faint text-[9px] mt-1.5">Type a genre and press Enter · applies to all tracks on this album</div>
+            {suggestions.length > 0 && (
+              <div data-testid="genre-suggestions" className="mt-1 bg-panel2 border border-border rounded-md max-h-40 overflow-auto">
+                {suggestions.map((s) => (
+                  <div key={s.genre_id} onClick={() => addGenre(s.name)}
+                       className="px-2.5 py-1 text-[11px] text-text hover:bg-border cursor-pointer">
+                    {s.name}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="text-faint text-[9px] mt-1.5">Pick from the list (Enter to add) · applies to all tracks on this album</div>
+            {unknown.length > 0 && (
+              <div className="text-danger text-[11px] mt-2">
+                Not in the genre vocabulary (not saved): {unknown.join(", ")}
+              </div>
+            )}
             {err && <div className="text-danger text-xs mt-2">{err}</div>}
           </div>
 
           <div className="px-5 py-3 border-t border-border flex items-center justify-between bg-panel2">
-            <div className="text-faint text-[10px]">Saves a user override · does not affect source tags</div>
+            <div className="text-faint text-[10px]">Saved to the genre authority · run “Refresh genres” to affect generation</div>
             <div className="flex gap-2">
               <Dialog.Close className="border border-border text-muted text-xs px-3.5 py-1.5 rounded">Cancel</Dialog.Close>
               <button onClick={save} disabled={saving} className="bg-accent text-bg font-semibold text-xs px-3.5 py-1.5 rounded disabled:opacity-50">
