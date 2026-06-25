@@ -165,6 +165,46 @@ def build_popularity_sidecar(
     return {"tracks": len(tids), "matched": matched, "artists_resolved": artists_resolved}
 
 
+def load_artist_popularity_values(
+    bundle, artist_name: str, *, client, db_path: str, limit: int,
+    max_age_days: int, now_iso: str, include_collaborations: bool = False,
+) -> Optional[np.ndarray]:
+    """Per-track popularity for the seed artist, aligned to bundle.track_ids.
+
+    Lazy cache-first fetch of the seed artist's top tracks + resolve to the
+    artist's local tracks (title-based; mbid blank from the bundle). None if no
+    client. NaN for non-matched / other-artist tracks (neutral)."""
+    if client is None:
+        return None
+    from src.playlist.artist_style import _artist_indices_in_bundle
+    from src.string_utils import normalize_artist_key
+
+    indices = _artist_indices_in_bundle(
+        bundle, artist_name, include_collaborations=include_collaborations)
+    if not indices:
+        return None
+    titles = getattr(bundle, "track_titles", None)
+    local_tracks = [{
+        "track_id": str(bundle.track_ids[i]),
+        "title": str(titles[i]) if titles is not None else "",
+        "musicbrainz_id": "",
+    } for i in indices]
+    artist_key = normalize_artist_key(artist_name)
+    top = get_artist_top_tracks_cached_or_fetch(
+        artist_key, artist_name, client=client, db_path=db_path,
+        limit=limit, max_age_days=max_age_days, now_iso=now_iso)
+    pop = resolve_top_tracks_to_popularity(top, local_tracks)
+    if not pop:
+        return None
+    out = np.full(len(bundle.track_ids), np.nan, dtype=float)
+    pos = {str(t): i for i, t in enumerate(bundle.track_ids)}
+    for tid, score in pop.items():
+        j = pos.get(tid)
+        if j is not None:
+            out[j] = score
+    return out
+
+
 def _fetched_at_iso(db_path: str, artist_key: str) -> Optional[str]:
     with sqlite3.connect(db_path) as conn:
         row = conn.execute(
