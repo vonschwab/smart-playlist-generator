@@ -23,6 +23,7 @@ lastfm:
   api_key: ''
   username: ''
   history_days: 90
+  artist_top_tracks_limit: 50      # how many top tracks to fetch per artist (popularity stage)
 plex:
   enabled: false
   base_url: http://localhost:32400
@@ -189,6 +190,7 @@ playlists:
     # Artist style-aware pier-bridge (applies to --artist playlists)
     artist_style:
       enabled: false           # Enable style-aware pier-bridge for artist playlists
+      toptracks_min_artist_tracks: 8   # only fetch Last.fm top-tracks for artists with >= N local tracks
       cluster_k_min: 3
       cluster_k_max: 6
       cluster_k_heuristic_enabled: true

@@ -30,6 +30,7 @@ AnalyzeLibraryStage = Literal[
     "genre-sim",
     "artifacts",
     "energy",
+    "popularity",
     "genre-embedding",
     "verify",
 ]
@@ -53,6 +54,7 @@ ANALYZE_LIBRARY_STAGE_ORDER: tuple[AnalyzeLibraryStage, ...] = (
     "genre-sim",
     "artifacts",
     "energy",
+    "popularity",
     "genre-embedding",
     "verify",
 )

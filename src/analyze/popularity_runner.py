@@ -14,6 +14,8 @@ import sqlite3
 from pathlib import Path
 from typing import Dict, List, Optional
 
+import numpy as np
+
 logger = logging.getLogger(__name__)
 
 ENRICHMENT_DB_DEFAULT = "data/ai_genre_enrichment.db"
@@ -110,3 +112,53 @@ def resolve_top_tracks_to_popularity(
         if tid is not None and score > out.get(tid, -1.0):
             out[tid] = score
     return out
+
+
+def _local_tracks_by_artist(metadata_db: str, min_artist_tracks: int) -> Dict[str, List[dict]]:
+    by_artist: Dict[str, List[dict]] = {}
+    with sqlite3.connect(f"file:{metadata_db}?mode=ro", uri=True) as conn:
+        conn.row_factory = sqlite3.Row
+        for r in conn.execute(
+            "SELECT track_id, title, musicbrainz_id, artist_key FROM tracks "
+            "WHERE artist_key IS NOT NULL AND artist_key <> ''"
+        ):
+            by_artist.setdefault(str(r["artist_key"]), []).append({
+                "track_id": str(r["track_id"]),
+                "title": str(r["title"] or ""),
+                "musicbrainz_id": str(r["musicbrainz_id"] or ""),
+            })
+    return {k: v for k, v in by_artist.items() if len(v) >= min_artist_tracks}
+
+
+def build_popularity_sidecar(
+    *, artifact_npz: str, metadata_db: str, enrichment_db: str,
+    out_path: str, min_artist_tracks: int,
+) -> dict:
+    """Resolve cached Last.fm top tracks to local track_ids and write the sidecar."""
+    tids = [str(t) for t in np.load(artifact_npz, allow_pickle=True)["track_ids"]]
+    pos = {t: i for i, t in enumerate(tids)}
+    popularity = np.full(len(tids), np.nan, dtype=np.float32)
+
+    by_artist = _local_tracks_by_artist(metadata_db, min_artist_tracks)
+    cached = cached_artist_keys(enrichment_db)
+    matched = artists_resolved = 0
+    for artist_key, local_tracks in by_artist.items():
+        if artist_key not in cached:
+            continue
+        top = get_artist_top_tracks_cached(enrichment_db, artist_key)
+        if not top:
+            continue
+        artists_resolved += 1
+        for tid, score in resolve_top_tracks_to_popularity(top, local_tracks).items():
+            j = pos.get(tid)
+            if j is not None:
+                popularity[j] = score
+                matched += 1
+
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(
+        out_path, track_ids=np.array(tids, dtype=object), popularity=popularity,
+    )
+    logger.info("popularity sidecar: %d tracks, %d matched, %d artists resolved -> %s",
+                len(tids), matched, artists_resolved, out_path)
+    return {"tracks": len(tids), "matched": matched, "artists_resolved": artists_resolved}
