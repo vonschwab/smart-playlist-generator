@@ -123,6 +123,20 @@ export interface EditGenresRequest {
   base_genres: string[];
 }
 
+export interface CanonicalGenre {
+  genre_id: string;
+  name: string;
+}
+
+export interface EditGenresResponse {
+  ok: boolean;
+  resolved: string[];
+  unknown: string[];
+  added: string[];
+  removed: string[];
+  no_change: boolean;
+}
+
 export interface PlexExportRequest {
   title: string;
   tracks: TrackOut[];

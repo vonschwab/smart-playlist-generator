@@ -2,7 +2,9 @@ import type {
   AnalyzeToolRequest,
   BlacklistFetchResponse,
   BlacklistRequest,
+  CanonicalGenre,
   EditGenresRequest,
+  EditGenresResponse,
   EnrichToolRequest,
   GenerateRequestBody,
   JobOut,
@@ -78,12 +80,23 @@ export const api = {
   async cancelJob(jobId: string): Promise<{ ok: boolean }> {
     return jsonOrThrow(await fetch(`/api/jobs/${jobId}/cancel`, { method: "POST" }));
   },
-  async editGenres(req: EditGenresRequest): Promise<{ ok: boolean; genres: string[] }> {
+  async editGenres(req: EditGenresRequest): Promise<EditGenresResponse> {
     return jsonOrThrow(await fetch("/api/edit_genres", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(req),
     }));
+  },
+  async genresSearch(q: string, limit = 20): Promise<{ items: CanonicalGenre[] }> {
+    const params = new URLSearchParams({ q, limit: String(limit) });
+    return jsonOrThrow(await fetch(`/api/genres/search?${params}`));
+  },
+  async albumGenres(artist: string, album: string): Promise<{ genres: string[] }> {
+    const params = new URLSearchParams({ artist, album });
+    return jsonOrThrow(await fetch(`/api/genres/for_album?${params}`));
+  },
+  async refreshGenreArtifact(): Promise<{ job_id: string }> {
+    return jsonOrThrow(await fetch("/api/refresh_genre_artifact", { method: "POST" }));
   },
   async exportPlex(req: PlexExportRequest): Promise<{ ok: boolean; playlist_key: string }> {
     return jsonOrThrow(await fetch("/api/export/plex", {
