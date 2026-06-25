@@ -248,6 +248,19 @@ def resolve_release_key_to_album_id(
     for key, album_id in computed.items():
         mapping.setdefault(key, album_id)
 
+    # 3) recompute from tracks for album_ids absent from `albums` (orphans).
+    #    Tracks carry the real album_id; an album row may never have been
+    #    created (e.g. a double-space artist string). Genre edits on these
+    #    must still publish, so derive their release_key -> album_id here.
+    for album_id, artist, album in conn.execute(
+        "SELECT DISTINCT album_id, artist, album FROM tracks "
+        "WHERE album_id IS NOT NULL AND album_id != ''"
+    ):
+        key = f"{normalize_release_artist(artist)}::{normalize_release_name(album)}"
+        if not key or key == "::":
+            continue
+        mapping.setdefault(key, album_id)
+
     return mapping, collisions
 
 
@@ -287,44 +300,59 @@ def populate_authority(conn: sqlite3.Connection, key_to_album: dict[str, str]) -
         )
 
 
-def legacy_genres_by_album(conn: sqlite3.Connection) -> dict[str, list[tuple[str, float]]]:
+def legacy_genres_by_album(
+    conn: sqlite3.Connection, album_id: str | None = None
+) -> dict[str, list[tuple[str, float]]]:
     """Album-grain legacy genres: track(1.0)+album(0.8)+artist(0.5), max weight/token.
 
     Mirrors the weighting scheme from ``load_genres_for_tracks`` and normalises
     raw genre strings via ``normalize_and_split_genre``.  Returns a mapping of
     ``album_id`` → sorted list of ``(token, weight)`` pairs.  Albums whose only
     genre data is the ``__EMPTY__`` sentinel are excluded from the result.
+
+    When ``album_id`` is given, the scan is restricted to that one album (used
+    by the single-release edit path); otherwise the whole library is scanned.
     """
     acc: dict[str, dict[str, float]] = defaultdict(dict)
 
-    def add(album_id: str, raw: str, base_weight: float) -> None:
+    def add(aid: str, raw: str, base_weight: float) -> None:
         tokens = _split(raw)
         if not tokens:
             return
         per = base_weight / len(tokens)
         for tok in tokens:
-            if per > acc[album_id].get(tok, 0.0):
-                acc[album_id][tok] = per
+            if per > acc[aid].get(tok, 0.0):
+                acc[aid][tok] = per
 
-    for album_id, genre in conn.execute(
+    track_sql = (
         "SELECT t.album_id, tg.genre FROM tracks t "
         "JOIN track_genres tg ON tg.track_id = t.track_id "
         "WHERE t.album_id IS NOT NULL AND t.album_id != ''"
-    ):
-        add(album_id, genre, _WEIGHT_TRACK)
-
-    for album_id, genre in conn.execute(
+    )
+    album_sql = (
         "SELECT album_id, genre FROM album_genres "
         "WHERE album_id IS NOT NULL AND album_id != '' AND genre != '__EMPTY__'"
-    ):
-        add(album_id, genre, _WEIGHT_ALBUM)
-
-    for album_id, genre in conn.execute(
+    )
+    artist_sql = (
         "SELECT a.album_id, ag.genre FROM albums a "
         "JOIN artist_genres ag ON ag.artist = a.artist "
         "WHERE a.album_id IS NOT NULL AND a.album_id != '' AND ag.genre != '__EMPTY__'"
-    ):
-        add(album_id, genre, _WEIGHT_ARTIST)
+    )
+    track_params: tuple = ()
+    album_params: tuple = ()
+    artist_params: tuple = ()
+    if album_id is not None:
+        track_sql += " AND t.album_id = ?"
+        album_sql += " AND album_id = ?"
+        artist_sql += " AND a.album_id = ?"
+        track_params = album_params = artist_params = (album_id,)
+
+    for aid, genre in conn.execute(track_sql, track_params):
+        add(aid, genre, _WEIGHT_TRACK)
+    for aid, genre in conn.execute(album_sql, album_params):
+        add(aid, genre, _WEIGHT_ALBUM)
+    for aid, genre in conn.execute(artist_sql, artist_params):
+        add(aid, genre, _WEIGHT_ARTIST)
 
     return {aid: sorted(toks.items()) for aid, toks in acc.items() if toks}
 
@@ -436,7 +464,9 @@ def build_resolved_table(conn, key_to_album: dict[str, str], taxonomy) -> None:
 
     all_album_ids = [
         r[0] for r in conn.execute(
-            "SELECT album_id FROM albums WHERE album_id IS NOT NULL AND album_id != ''"
+            "SELECT album_id FROM albums WHERE album_id IS NOT NULL AND album_id != '' "
+            "UNION "
+            "SELECT DISTINCT album_id FROM tracks WHERE album_id IS NOT NULL AND album_id != ''"
         )
     ]
 
