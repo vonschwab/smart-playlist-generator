@@ -116,3 +116,45 @@ def families_for(conn: sqlite3.Connection, genre_id: str) -> list[str]:
 
 def is_facet(conn: sqlite3.Connection, genre_id: str) -> bool:
     return _taxonomy().facet_by_id(genre_id) is not None
+
+
+def canonical_genre_search(
+    conn: sqlite3.Connection, query: str, limit: int = 20
+) -> list[tuple[str, str]]:
+    """Active canonical genres whose name contains ``query`` (case-insensitive).
+
+    Returns ``(genre_id, name)`` ordered most-specific first. Used by the genre
+    edit autocomplete so only real taxonomy genres can be added.
+    """
+    q = (query or "").strip()
+    if not q:
+        return []
+    rows = conn.execute(
+        "SELECT genre_id, name FROM genre_graph_canonical_genres "
+        "WHERE status = 'active' AND LOWER(name) LIKE '%' || LOWER(?) || '%' "
+        "ORDER BY specificity_score DESC, name ASC LIMIT ?",
+        (q, limit),
+    ).fetchall()
+    return [(r[0], r[1]) for r in rows]
+
+
+def display_genre_names_for_album(conn: sqlite3.Connection, album_id: str) -> list[str]:
+    """Published genres for an album_id as deduped display names.
+
+    Mirrors ``display_genre_names_for_track`` but keyed directly by album_id
+    (the edit dialog seeds its chips from this).
+    """
+    rows = conn.execute(
+        "SELECT reg.genre_id, COALESCE(g.name, reg.genre_id) "
+        "FROM release_effective_genres reg "
+        "LEFT JOIN genre_graph_canonical_genres g ON g.genre_id = reg.genre_id "
+        "WHERE reg.album_id = ? ORDER BY reg.assignment_layer, reg.genre_id",
+        (str(album_id),),
+    ).fetchall()
+    out: list[str] = []
+    seen: set[str] = set()
+    for _gid, name in rows:
+        if name not in seen:
+            seen.add(name)
+            out.append(name)
+    return out
