@@ -51,3 +51,73 @@ def test_album_id_for_release_exact_and_orphan():
     # normalized fallback: double-space vs single-space artist still resolves
     assert genre_edit.album_id_for_release(conn, "The Radio Dept.", "Pet Grief") == "ORPH1"
     assert genre_edit.album_id_for_release(conn, "Nobody", "Nothing") is None
+
+
+def _edit_dbs(tmp_path):
+    """A metadata.db with the tables the edit path reads/writes."""
+    meta = sqlite3.connect(tmp_path / "m.db")
+    meta.row_factory = sqlite3.Row
+    meta.executescript(
+        "CREATE TABLE tracks (track_id TEXT, artist TEXT, album TEXT, album_id TEXT);"
+        "CREATE TABLE albums (album_id TEXT PRIMARY KEY, title TEXT, artist TEXT);"
+        "CREATE TABLE track_genres (track_id TEXT, genre TEXT);"
+        "CREATE TABLE album_genres (album_id TEXT, genre TEXT);"
+        "CREATE TABLE artist_genres (artist TEXT, genre TEXT);"
+        "CREATE TABLE genre_graph_release_genre_assignments "
+        "(album_id TEXT, genre_id TEXT, assignment_layer TEXT, confidence REAL);"
+        "CREATE TABLE genre_graph_canonical_genres "
+        "(genre_id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL, "
+        " specificity_score REAL NOT NULL, status TEXT NOT NULL, taxonomy_version TEXT NOT NULL);"
+        "CREATE TABLE release_effective_genres "
+        "(album_id TEXT NOT NULL, release_key TEXT, genre_id TEXT NOT NULL, "
+        " assignment_layer TEXT NOT NULL, confidence REAL NOT NULL, source TEXT NOT NULL, "
+        " PRIMARY KEY (album_id, genre_id, assignment_layer));"
+    )
+    meta.execute("INSERT INTO tracks VALUES ('t1','The  Radio Dept.','Pet Grief','ORPH1')")
+    meta.commit()
+    return meta
+
+
+def test_apply_edit_orphan_zero_to_two(tmp_path):
+    from src.genre import genre_edit
+    from src.ai_genre_enrichment.layered_taxonomy import load_default_layered_taxonomy
+    from src.ai_genre_enrichment.storage import SidecarStore
+
+    meta = _edit_dbs(tmp_path)
+    store = SidecarStore(str(tmp_path / "s.db"))
+    store.initialize()
+    taxonomy = load_default_layered_taxonomy()
+
+    res = genre_edit.apply_user_genre_edit(
+        meta, store, taxonomy,
+        artist="The  Radio Dept.", album="Pet Grief",
+        target_names=["dream pop", "shoegaze"],
+    )
+    assert res.no_change is False
+    user_rows = meta.execute(
+        "SELECT genre_id FROM release_effective_genres "
+        "WHERE album_id='ORPH1' AND source='user'"
+    ).fetchall()
+    assert len(user_rows) == len(res.added) == 2
+    ov = store.get_user_override("the radio dept::pet grief")
+    assert ov is not None and len(ov["genres_add"]) == 2
+
+
+def test_apply_edit_no_op_when_unchanged(tmp_path):
+    from src.genre import genre_edit
+    from src.ai_genre_enrichment.layered_taxonomy import load_default_layered_taxonomy
+    from src.ai_genre_enrichment.storage import SidecarStore
+
+    meta = _edit_dbs(tmp_path)
+    store = SidecarStore(str(tmp_path / "s.db"))
+    store.initialize()
+    taxonomy = load_default_layered_taxonomy()
+    genre_edit.apply_user_genre_edit(
+        meta, store, taxonomy, artist="The  Radio Dept.", album="Pet Grief",
+        target_names=["dream pop"])
+    # Re-apply identical target → no change.
+    res2 = genre_edit.apply_user_genre_edit(
+        meta, store, taxonomy, artist="The  Radio Dept.", album="Pet Grief",
+        target_names=["dream pop"])
+    assert res2.no_change is True
+    assert res2.added == [] and res2.removed == []
