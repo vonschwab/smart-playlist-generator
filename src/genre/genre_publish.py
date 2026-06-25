@@ -372,6 +372,51 @@ def _overrides_by_album(conn, key_to_album, taxonomy):
     return out
 
 
+def materialize_album_genres(
+    conn,
+    album_id: str,
+    *,
+    graph_album_ids: set[str],
+    legacy: dict[str, list[tuple[str, float]]],
+    overrides: dict[str, tuple[list[str], set[str]]],
+    album_to_key: dict[str, str],
+) -> None:
+    """Write release_effective_genres rows for one album. Idempotent per album.
+
+    Graph-where-present else legacy, then apply the album's override (drop
+    remove_match genre_ids, add user observed_leaf rows). Shared by the full
+    publish loop and the single-release edit path so both produce identical
+    rows.
+    """
+    rows: dict[tuple[str, str], tuple[float, str]] = {}
+    if album_id in graph_album_ids:
+        for genre_id, layer, conf in conn.execute(
+            "SELECT genre_id, assignment_layer, confidence "
+            "FROM genre_graph_release_genre_assignments WHERE album_id = ?",
+            (album_id,),
+        ):
+            rows[(genre_id, layer)] = (conf, "graph")
+    elif album_id in legacy:
+        for genre_id, weight in legacy[album_id]:
+            rows[(genre_id, "legacy")] = (weight, "legacy")
+
+    if album_id in overrides:
+        add_ids, remove_match = overrides[album_id]
+        rows = {k: v for k, v in rows.items() if k[0] not in remove_match}
+        for gid in add_ids:
+            rows[(gid, "observed_leaf")] = (1.0, "user")
+
+    release_key = album_to_key.get(album_id)
+    conn.execute("DELETE FROM release_effective_genres WHERE album_id = ?", (album_id,))
+    for (genre_id, layer), (conf, source) in rows.items():
+        conn.execute(
+            "INSERT OR REPLACE INTO release_effective_genres "
+            "(album_id, release_key, genre_id, assignment_layer, confidence, source) "
+            "VALUES (?,?,?,?,?,?)",
+            (album_id, release_key, genre_id, layer, conf, source),
+        )
+
+
 def build_resolved_table(conn, key_to_album: dict[str, str], taxonomy) -> None:
     """Build release_effective_genres: graph-where-present else legacy, + overrides."""
     conn.execute("DELETE FROM release_effective_genres")
@@ -396,32 +441,11 @@ def build_resolved_table(conn, key_to_album: dict[str, str], taxonomy) -> None:
     ]
 
     for album_id in all_album_ids:
-        rows: dict[tuple[str, str], tuple[float, str]] = {}
-        if album_id in graph_album_ids:
-            for genre_id, layer, conf in conn.execute(
-                "SELECT genre_id, assignment_layer, confidence "
-                "FROM genre_graph_release_genre_assignments WHERE album_id = ?",
-                (album_id,),
-            ):
-                rows[(genre_id, layer)] = (conf, "graph")
-        elif album_id in legacy:
-            for genre_id, weight in legacy[album_id]:
-                rows[(genre_id, "legacy")] = (weight, "legacy")
-
-        if album_id in overrides:
-            add_ids, remove_match = overrides[album_id]
-            rows = {k: v for k, v in rows.items() if k[0] not in remove_match}
-            for gid in add_ids:
-                rows[(gid, "observed_leaf")] = (1.0, "user")
-
-        release_key = album_to_key.get(album_id)
-        for (genre_id, layer), (conf, source) in rows.items():
-            conn.execute(
-                "INSERT OR REPLACE INTO release_effective_genres "
-                "(album_id, release_key, genre_id, assignment_layer, confidence, source) "
-                "VALUES (?,?,?,?,?,?)",
-                (album_id, release_key, genre_id, layer, conf, source),
-            )
+        materialize_album_genres(
+            conn, album_id,
+            graph_album_ids=graph_album_ids, legacy=legacy,
+            overrides=overrides, album_to_key=album_to_key,
+        )
 
 
 @dataclass
