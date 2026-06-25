@@ -55,6 +55,7 @@ export default function App() {
   const [editGenresOpen, setEditGenresOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<{ artist: string; album: string; genres: string[] }>({ artist: "", album: "", genres: [] });
   const [plexOpen, setPlexOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Persist slim job history (no playlist payload) across server restarts.
   useEffect(() => {
@@ -164,6 +165,14 @@ export default function App() {
     });
   }, []);
 
+  const refreshGenres = useCallback(async () => {
+    setRefreshing(true);
+    setError(null);
+    try { await api.refreshGenreArtifact(); }
+    catch (e) { setError(String(e)); }
+    finally { setRefreshing(false); }
+  }, []);
+
   const defaultPlexName = useCallback(() => {
     const date = new Date().toISOString().slice(0, 10);
     const seed = playlist?.tracks[0]?.artist ?? "Playlist";
@@ -263,6 +272,18 @@ export default function App() {
                 onExportPlex={() => setPlexOpen(true)}
               />
               <RelaxationNotice relaxations={playlist?.relaxations ?? []} />
+              {playlist && (
+                <div className="px-1 pb-1">
+                  <button
+                    onClick={refreshGenres}
+                    disabled={refreshing}
+                    title="Re-bake genre vectors so generation reflects your genre edits"
+                    className="border border-border text-muted text-[11px] px-3 py-1 rounded disabled:opacity-50"
+                  >
+                    {refreshing ? "Refreshing genres…" : "Refresh genres for generation"}
+                  </button>
+                </div>
+              )}
               <div className="flex-1 overflow-auto">
                 <TrackTable
                   tracks={playlist?.tracks ?? []}
