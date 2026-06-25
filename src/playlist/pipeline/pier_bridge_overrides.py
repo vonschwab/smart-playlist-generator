@@ -28,6 +28,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from src.playlist.config import DSPipelineConfig, resolve_pier_bridge_tuning
 from src.playlist.pier_bridge_builder import PierBridgeConfig
+from src.playlist.pier_bridge.config import roam_kwargs_from_dict
 
 logger = logging.getLogger(__name__)
 
@@ -803,5 +804,13 @@ def apply_pier_bridge_overrides(
             dj_bridging_enabled=False,
             dj_pooling_k_genre=0,
         )
+
+    # Roam corridors (Phase-1, opt-in). overrides["pier_bridge"]["roam"] = {
+    #   enabled, knn_k, mutual_proximity, width_sonic/genre/energy,
+    #   penalty_slope, worst_edge_minimax }. Absent => PierBridgeConfig defaults
+    #   (off; identical to legacy).
+    _roam_kwargs = roam_kwargs_from_dict(pb_overrides.get("roam"))
+    if _roam_kwargs:
+        pb_cfg = replace(pb_cfg, **_roam_kwargs)
 
     return pb_cfg, tuning, tuning_sources, transition_weights

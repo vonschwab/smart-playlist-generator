@@ -415,6 +415,19 @@ def generate_playlist_ds(
         except (TypeError, ValueError):
             pass
 
+    # Roam broad-pool (calibrated 2026-06-24): when roam corridors are on, sonic is
+    # the North Star and the graph-smoothed genre-neighbor pool keeps it honest, so
+    # relax the tag-literal dense PMI-SVD percentile gate — it over-narrows single-
+    # artist pools (300-372 -> 554-678) and worsens the worst edge, and is moot for
+    # already-broad diverse seeds (~2394). Tunable via roam.genre_gate_percentile
+    # (default 0.0 = off; e.g. 0.5 for a light gate); keeps sonic admission + graph.
+    _roam = pb_overrides.get("roam") or {}
+    if bool(_roam.get("enabled")):
+        try:
+            _genre_admission_percentile = float(_roam.get("genre_gate_percentile", 0.0))
+        except (TypeError, ValueError):
+            _genre_admission_percentile = 0.0
+
     # Per-seed adaptive sonic admission percentile (Task 1).
     # Mode-specific key (e.g. sonic_admission_percentile_narrow) takes priority
     # over the base key — mirrors the _resolve_mode_number_with_source priority.

@@ -3,6 +3,7 @@ Playlist Generator - Core logic for creating Data Science-powered playlists
 """
 from typing import List, Dict, Any, Optional, Set, Sequence
 from collections import Counter
+from dataclasses import replace
 import random
 import logging
 import os
@@ -21,6 +22,7 @@ from src.playlist.artist_style import (
     _artist_indices_in_bundle,
 )
 from src.playlist.pier_bridge_builder import PierBridgeConfig, resolve_pier_bridge_tuning
+from src.playlist.pier_bridge.config import roam_kwargs_from_dict
 from src.playlist.config import default_ds_config, get_min_sonic_similarity, resolve_cohesion_mode
 from src.playlist.genre_ds_params import resolve_genre_ds_params
 # Phase 2: Import utilities from refactored module
@@ -1886,6 +1888,11 @@ class PlaylistGenerator:
                     genre_arc_floor_percentile=float(pb_tuning.get("genre_arc_floor_percentile", 0.0)),
                     genre_admission_percentile=float(pb_tuning.get("genre_admission_percentile", 0.0)),
                 )
+                # Roam corridors (Phase-1): the artist path builds PierBridgeConfig
+                # explicitly, so it must apply the roam override itself (no-op if absent).
+                pier_cfg = replace(
+                    pier_cfg, **roam_kwargs_from_dict((ds_cfg.get("pier_bridge") or {}).get("roam"))
+                )
 
                 using_artist_style = True
                 pool_source = "artist_style"
@@ -2760,6 +2767,11 @@ class PlaylistGenerator:
                         genre_arc_floor=float(pb_tuning.get("genre_arc_floor", 0.0)),
                         genre_arc_floor_percentile=float(pb_tuning.get("genre_arc_floor_percentile", 0.0)),
                         genre_admission_percentile=float(pb_tuning.get("genre_admission_percentile", 0.0)),
+                    )
+                    # Roam corridors (Phase-1): apply the roam override on the explicit
+                    # artist-path PierBridgeConfig (no-op if absent).
+                    pier_cfg = replace(
+                        pier_cfg, **roam_kwargs_from_dict((ds_cfg.get("pier_bridge") or {}).get("roam"))
                     )
                     using_artist_style = True
                     pool_source = "artist_style"
