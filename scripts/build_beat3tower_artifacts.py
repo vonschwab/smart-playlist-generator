@@ -746,6 +746,52 @@ def build_genre_matrices(
     return X_genre_raw, X_genre_smoothed
 
 
+def refresh_genre_matrices(
+    artifact_path: str,
+    db_path: str,
+    *,
+    genre_sim_path: Optional[str],
+    sidecar_db: str,
+    config_path: str,
+) -> dict:
+    """Re-bake ONLY the genre matrices in an existing artifact from the authority.
+
+    Loads the NPZ, recomputes X_genre_raw/smoothed + genre_vocab for the
+    artifact's track order using the same loaders as a full build, and re-saves
+    with every other array (sonic/MERT, metadata) written back unchanged.
+    """
+    from src.ai_genre_enrichment.artifact_modes import GenreArtifactSource, make_resolver
+    from src.config_loader import Config
+
+    npz = np.load(artifact_path, allow_pickle=True)
+    data = {k: npz[k] for k in npz.files}
+    track_ids = [str(t) for t in data["track_ids"].tolist()]
+
+    config_genre_source = (
+        Config(config_path).config.get("playlists", {}).get("ds_pipeline", {}).get("genre_source")
+    )
+    genre_source = GenreArtifactSource.resolve(config_genre_source)
+    resolver = make_resolver(genre_source, sidecar_db)
+
+    tracks_meta, _features = load_tracks_with_beat3tower(db_path)
+    by_id = {t["track_id"]: t for t in tracks_meta}
+    tracks_metadata = [by_id[tid] for tid in track_ids if tid in by_id]
+
+    genre_lists, vocab, _stats = load_genres_for_tracks(
+        db_path, track_ids, normalize_genres=True,
+        tracks_metadata=tracks_metadata, enriched_resolver=resolver,
+        use_graph_genres=(genre_source is GenreArtifactSource.GRAPH),
+    )
+    X_genre_raw, X_genre_smoothed = build_genre_matrices(genre_lists, vocab, genre_sim_path)
+
+    data["X_genre_raw"] = X_genre_raw
+    data["X_genre_smoothed"] = X_genre_smoothed
+    data["genre_vocab"] = np.array(vocab, dtype=object)
+    np.savez(artifact_path, **data)
+    logger.info("Re-baked genre matrices: %d tracks, %d genres", len(track_ids), len(vocab))
+    return {"n_tracks": len(track_ids), "n_genres": len(vocab)}
+
+
 def build_artifacts(args: argparse.Namespace, enriched_resolver: Optional[Any] = None) -> None:
     """Main artifact building workflow.
 
