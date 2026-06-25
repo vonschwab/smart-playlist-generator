@@ -313,12 +313,16 @@ def sweep_genre_broad(artist: str, targets: list[str], length: int = 30) -> None
             "worst_edge_minimax": True}
     # Genre-broad: disable the DENSE per-seed genre gate (genre_admission_percentile)
     # + the beam genre floors. Sonic-broad: also drop the sonic admission percentile.
+    # core.py reads the MODE-specific key (genre_admission_percentile_<mode>) first,
+    # so the base key alone is ignored — set both. mode is dynamic here.
     gate_off = {"playlists": {"ds_pipeline": {"pier_bridge": {
-        "genre_admission_percentile": 0.0, "genre_arc_floor": 0.0, "genre_pair_floor": 0.0,
+        "genre_admission_percentile": 0.0, "genre_admission_percentile_dynamic": 0.0,
+        "genre_arc_floor": 0.0, "genre_pair_floor": 0.0,
     }}, "genre_similarity": {"enabled": False}}}
     sonic_off = {"playlists": {"ds_pipeline": {"pier_bridge": {
-        "genre_admission_percentile": 0.0, "genre_arc_floor": 0.0, "genre_pair_floor": 0.0,
-        "sonic_admission_percentile": 0.0,
+        "genre_admission_percentile": 0.0, "genre_admission_percentile_dynamic": 0.0,
+        "genre_arc_floor": 0.0, "genre_pair_floor": 0.0,
+        "sonic_admission_percentile": 0.0, "sonic_admission_percentile_dynamic": 0.0,
     }}, "genre_similarity": {"enabled": False}}}
     cells: dict[str, dict[str, Any]] = {}
     cells["off"] = run_artist_cell(artist, "dynamic", "dynamic", "dynamic", "dynamic", length)
