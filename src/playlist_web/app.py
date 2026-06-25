@@ -404,6 +404,46 @@ def create_app(
             return {}
         return out
 
+    @app.get("/api/genres/search")
+    async def genres_search(q: str = "", limit: int = Query(20, ge=1, le=100)) -> dict:
+        """Autocomplete over the canonical taxonomy vocabulary (active genres)."""
+        q = q.strip()
+        if not q or not DB_PATH.exists():
+            return {"items": []}
+        from src.genre.authority import canonical_genre_search
+        try:
+            conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
+            try:
+                return {"items": [
+                    {"genre_id": gid, "name": name}
+                    for gid, name in canonical_genre_search(conn, q, limit)
+                ]}
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            return {"items": []}
+
+    @app.get("/api/genres/for_album")
+    async def genres_for_album(artist: str = "", album: str = "") -> dict:
+        """Current authoritative genres for a release (seeds the edit dialog)."""
+        if not artist.strip() or not album.strip() or not DB_PATH.exists():
+            return {"genres": []}
+        from src.genre.authority import display_genre_names_for_album
+        from src.genre.genre_edit import album_id_for_release
+        from src.genre.granularity import order_genres_for_display
+        try:
+            conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
+            try:
+                album_id = album_id_for_release(conn, artist, album)
+                if not album_id:
+                    return {"genres": []}
+                names = display_genre_names_for_album(conn, album_id)
+                return {"genres": order_genres_for_display(names)}
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            return {"genres": []}
+
     @app.get("/api/autocomplete")
     async def autocomplete(
         q: str = "",
