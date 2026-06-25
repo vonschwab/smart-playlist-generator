@@ -22,6 +22,11 @@ logger = logging.getLogger(__name__)
 ENRICHMENT_DB_DEFAULT = "data/ai_genre_enrichment.db"
 
 
+def enrichment_db_path() -> str:
+    """ROOT-anchored absolute path to the enrichment DB (the per-artist cache)."""
+    return str(Path(__file__).resolve().parents[2] / "data" / "ai_genre_enrichment.db")
+
+
 def init_top_tracks_cache(db_path: str) -> None:
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(db_path) as conn:
