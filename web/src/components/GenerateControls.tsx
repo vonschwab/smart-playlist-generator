@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
 import { useInfiniteSearch } from "../lib/useInfiniteSearch";
 import { useLocalStorage } from "../lib/useLocalStorage";
@@ -85,6 +85,8 @@ export function GenerateControls({
   const [artistPresence, setArtistPresence] = useLocalStorage("pg_artist_presence", "medium");
   const [artistVariety, setArtistVariety] = useLocalStorage("pg_artist_variety", "balanced");
   const [includeCollabs, setIncludeCollabs] = useLocalStorage("pg_include_collabs", false);
+  const [popularSeeds, setPopularSeeds] = useLocalStorage("pg_popular_seeds", false);
+  const [seedEpoch, setSeedEpoch] = useState(0);
 
   // Autocomplete (artist mode) — bounded-page infinite scroll
   const artistSearch = useInfiniteSearch<string>({ fetchPage: api.autocomplete, pageSize: 30 });
@@ -137,7 +139,7 @@ export function GenerateControls({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seed, mode]);
 
-  function submit() {
+  function submit(epoch: number = seedEpoch) {
     const body: GenerateRequestBody = {
       mode,
       tracks,
@@ -159,6 +161,8 @@ export function GenerateControls({
       artist_presence: artistPresence,
       artist_variety: artistVariety,
       include_collaborations: includeCollabs,
+      popular_seeds: popularSeeds,
+      seed_epoch: epoch,
     };
     onSubmit(body);
   }
@@ -296,19 +300,38 @@ export function GenerateControls({
                 <Lbl>include collaborations</Lbl>
               </label>
             </Cell>
+            <Cell>
+              <label className="flex items-center gap-1.5 cursor-pointer select-none"
+                title="Bias the seed tracks toward this artist's most popular (Last.fm) songs.">
+                <input type="checkbox" checked={popularSeeds}
+                  onChange={(e) => setPopularSeeds(e.target.checked)}
+                  className="accent-[#5eead4] cursor-pointer" />
+                <Lbl>popular seeds</Lbl>
+              </label>
+            </Cell>
           </>
         )}
 
         {/* Generate */}
         <Cell push>
           <button
-            onClick={submit}
+            onClick={() => submit()}
             disabled={busy}
             className="bg-[#5eead4] text-[#0f1115] font-bold text-[11px] px-4 py-[4px] rounded disabled:opacity-50 whitespace-nowrap"
           >
             {busy ? "Generating…" : "▸ Generate"}
           </button>
         </Cell>
+        {mode === "artist" && (
+          <Cell>
+            <button onClick={() => { setSeedEpoch((e) => e + 1); submit(seedEpoch + 1); }}
+              disabled={busy}
+              className="border border-[#5eead4] text-[#5eead4] text-[11px] px-3 py-[4px] rounded disabled:opacity-50 whitespace-nowrap"
+              title="Re-roll: same settings, fresh seed tracks.">
+              ↻ New Seeds
+            </button>
+          </Cell>
+        )}
       </div>
 
       {/* ── ROW 2: cohesion + matching ──────────────────────────────────────── */}
