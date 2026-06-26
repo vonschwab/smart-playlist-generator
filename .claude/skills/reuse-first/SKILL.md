@@ -32,7 +32,7 @@ read the generation logs / grep before answering.)
 ## Rung 2 — Hotspot rule
 
 If the change lands in a god-class — `src/playlist/pier_bridge_builder.py`,
-`src/playlist_generator.py`, `src/playlist/pipeline.py`,
+`src/playlist_generator.py`, `src/playlist/pipeline/` (package),
 `src/playlist_gui/worker.py` — extract a helper. Do not grow the monolith
 (CLAUDE.md Hotspots).
 
