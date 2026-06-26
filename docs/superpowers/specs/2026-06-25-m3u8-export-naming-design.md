@@ -1,7 +1,7 @@
 # M3U8 export naming + rename-before-export
 
 **Date:** 2026-06-25
-**Status:** Design — awaiting approval
+**Status:** Implemented 2026-06-25 (commit f9a08fe)
 **Scope:** Front-end only (`web/src`). No Python/worker/API change.
 
 ## Problem
