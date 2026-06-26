@@ -268,10 +268,54 @@ def resolve_release_key_to_album_id(
     return mapping, collisions
 
 
+def release_key_to_album_ids(conn: sqlite3.Connection) -> dict[str, list[str]]:
+    """Build release_key -> ALL album_ids that share it (1:many).
+
+    A logical release is frequently fragmented across multiple album_ids: feat./
+    collaboration variants ("Flying Lotus" vs "Flying Lotus feat. X") and duplicate
+    imports all normalize to one release_key. Graph genres are computed once per
+    release_key, so every fragment must receive them — the single-winner mapping in
+    ``resolve_release_key_to_album_id`` reconnects only one album_id and silently drops
+    the siblings to legacy (root cause of the fragmented "un-enriched" albums,
+    2026-06-25 audit). Requires sidecar attached as `side`.
+    """
+    acc: dict[str, set[str]] = defaultdict(set)
+
+    for release_key, album_id in conn.execute(
+        "SELECT release_key, album_id FROM side.enriched_genre_signatures "
+        "WHERE album_id IS NOT NULL AND album_id != ''"
+    ):
+        if release_key:
+            acc[release_key].add(album_id)
+
+    for album_id, title, artist in conn.execute(
+        "SELECT album_id, title, artist FROM albums "
+        "WHERE album_id IS NOT NULL AND album_id != ''"
+    ):
+        key = f"{normalize_release_artist(artist)}::{normalize_release_name(title)}"
+        if key and key != "::":
+            acc[key].add(album_id)
+
+    track_cols = {row[1] for row in conn.execute("PRAGMA table_info(tracks)")}
+    if {"album", "artist", "album_id"} <= track_cols:
+        for album_id, artist, album in conn.execute(
+            "SELECT DISTINCT album_id, artist, album FROM tracks "
+            "WHERE album_id IS NOT NULL AND album_id != ''"
+        ):
+            key = f"{normalize_release_artist(artist)}::{normalize_release_name(album)}"
+            if key and key != "::":
+                acc[key].add(album_id)
+
+    return {key: sorted(aids) for key, aids in acc.items()}
+
+
 def populate_authority(conn: sqlite3.Connection, key_to_album: dict[str, str]) -> None:
     """Copy graph genre + facet assignments into metadata.db, stamping album_id.
 
-    Requires sidecar attached as `side`. Pure graph (no overrides here).
+    The published assignment table is keyed by ``release_id`` (one row per
+    release/genre/layer), so it carries a single representative album_id. The 1:many
+    fan-out to every fragment of a release happens downstream in ``build_resolved_table``
+    via release_key. Requires sidecar attached as `side`. Pure graph (no overrides here).
     """
     conn.execute("DELETE FROM genre_graph_release_genre_assignments")
     conn.execute("DELETE FROM genre_graph_release_facet_assignments")
@@ -421,11 +465,15 @@ def materialize_album_genres(
     rows.
     """
     rows: dict[tuple[str, str], tuple[float, str]] = {}
+    release_key = album_to_key.get(album_id)
+    # Graph genres are stored once per release (keyed by release_id == release_key);
+    # read them by release_key so every fragment of a release (feat./collab variants
+    # that share the key) resolves to graph — not just the stamped album_id.
     if album_id in graph_album_ids:
         for genre_id, layer, conf in conn.execute(
             "SELECT genre_id, assignment_layer, confidence "
-            "FROM genre_graph_release_genre_assignments WHERE album_id = ?",
-            (album_id,),
+            "FROM genre_graph_release_genre_assignments WHERE release_id = ?",
+            (release_key,),
         ):
             rows[(genre_id, layer)] = (conf, "graph")
     elif album_id in legacy:
@@ -438,7 +486,6 @@ def materialize_album_genres(
         for gid in add_ids:
             rows[(gid, "observed_leaf")] = (1.0, "user")
 
-    release_key = album_to_key.get(album_id)
     conn.execute("DELETE FROM release_effective_genres WHERE album_id = ?", (album_id,))
     for (genre_id, layer), (conf, source) in rows.items():
         conn.execute(
@@ -453,15 +500,21 @@ def build_resolved_table(conn, key_to_album: dict[str, str], taxonomy) -> None:
     """Build release_effective_genres: graph-where-present else legacy, + overrides."""
     conn.execute("DELETE FROM release_effective_genres")
 
+    # Complete album_id -> release_key for EVERY fragment of a release (feat./collab
+    # variants, duplicate imports), not just the single winner in key_to_album, so the
+    # graph genres computed once per release_key reach all album_ids that share it.
     album_to_key: dict[str, str] = {}
-    for key, aid in key_to_album.items():
-        album_to_key.setdefault(aid, key)
+    for key, aids in release_key_to_album_ids(conn).items():
+        for aid in aids:
+            album_to_key.setdefault(aid, key)
 
-    graph_album_ids = {
+    assignment_keys = {
         r[0] for r in conn.execute(
-            "SELECT DISTINCT album_id FROM genre_graph_release_genre_assignments "
-            "WHERE album_id IS NOT NULL"
+            "SELECT DISTINCT release_id FROM genre_graph_release_genre_assignments"
         )
+    }
+    graph_album_ids = {
+        aid for aid, key in album_to_key.items() if key in assignment_keys
     }
     legacy = legacy_genres_by_album(conn)
     overrides = _overrides_by_album(conn, key_to_album, taxonomy)

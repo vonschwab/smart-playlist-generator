@@ -64,7 +64,7 @@ def _edit_dbs(tmp_path):
         "CREATE TABLE album_genres (album_id TEXT, genre TEXT);"
         "CREATE TABLE artist_genres (artist TEXT, genre TEXT);"
         "CREATE TABLE genre_graph_release_genre_assignments "
-        "(album_id TEXT, genre_id TEXT, assignment_layer TEXT, confidence REAL);"
+        "(release_id TEXT, album_id TEXT, genre_id TEXT, assignment_layer TEXT, confidence REAL);"
         "CREATE TABLE genre_graph_canonical_genres "
         "(genre_id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL, "
         " specificity_score REAL NOT NULL, status TEXT NOT NULL, taxonomy_version TEXT NOT NULL);"
@@ -144,7 +144,7 @@ def test_apply_edit_removes_graph_genre(tmp_path):
     for gid in (slow_id, dream_id):
         meta.execute(
             "INSERT INTO genre_graph_release_genre_assignments "
-            "VALUES ('ORPH1', ?, 'observed_leaf', 0.9)", (gid,))
+            "VALUES ('the radio dept::pet grief', 'ORPH1', ?, 'observed_leaf', 0.9)", (gid,))
         meta.execute(
             "INSERT INTO release_effective_genres "
             "VALUES ('ORPH1','k', ?, 'observed_leaf', 0.9, 'graph')", (gid,))
