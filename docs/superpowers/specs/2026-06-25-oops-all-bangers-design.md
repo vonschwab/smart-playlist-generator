@@ -208,6 +208,20 @@ hits). It is always additive and bounded — it lowers a score, never removes a 
 
 ## Calibration & open questions (resolve during/after implementation)
 
+- **Calibration is mandatory after implementation, against a deliberately diverse artist
+  panel** — not one or two seeds. The panel must span the axes that stress this signal
+  differently:
+  - **Legacy vs. active** — legacy catalogs have stable, well-separated top-N; *active*
+    artists' recent releases under-rank (Last.fm playcount accrues with time), so a genuine new
+    banger can score low. Verify OOPS doesn't wrongly bury current hits.
+  - **Niche vs. popular** — popular artists have a deep, cleanly-ranked top-50; *niche* artists
+    have sparse, noisy ranks (near-tied low playcounts) and far more NaN (often sub-8-track, so
+    un-batched). Verify ON/OOPS don't gut niche playlists by over-demoting the NaN tail.
+  - **High vs. low sidecar coverage** — how much of the seed's pool already carries a score.
+  Reuse the multi-pier `slider_differentiation_eval.py` harness (route modes through the policy
+  layer). Per-panel-artist, confirm: ON demotes deep cuts vs OFF, OOPS more so, while
+  distinct-artist count + worst-edge + ≤90s hold. A finding that one global strength can't serve
+  all artist types (e.g. niche needs a gentler NaN penalty) is an expected calibration output.
 - Exact `s_on` / `s_oops` strengths (start ~0.10 / ~0.30; tune on real playlists).
 - `max_age_days` TTL for the pool-scan (start 30; popularity drifts slowly — 60–90 may fetch
   less without much staleness cost).
