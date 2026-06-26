@@ -137,12 +137,17 @@ For each candidate bridge track `t` with popularity score `p(t) ∈ [0,1]` (1 = 
 →0 = bottom of its top-N), or NaN if not charting/unknown:
 
 ```
-demotion d(t)  = 1 − (p(t) if finite else 0.0)     # NaN → d = 1.0  (ruthless)
-penalty(t)     = strength × d(t)                    # strength ∈ {0.0, s_on, s_oops}
+demotion d(t)  = 1 − (p(t) if finite else 0.0)      # NaN → d = 1.0  (ruthless)
+factor(t)      = 1 − strength × d(t)                 # strength ∈ {0.0, s_on, s_oops}, in [0,1)
+combined_score(t) *= factor(t)
 ```
 
-`penalty(t)` is subtracted from the candidate's per-candidate beam objective, alongside the
-existing `genre_penalty` / `duration_penalty` family (same units, same soft-penalty pattern).
+This **mirrors the beam's existing soft genre penalty** — `combined_score *= (1 − strength)` at
+`pier_bridge/beam.py:1368` (and the tie-break path at `:1485`), applied per-candidate on the
+loop index `cand` — but is **graded in popularity** (continuous in `p`) rather than the genre
+penalty's binary below-threshold cliff, consistent with "continuous gradients beat hard cliffs."
+It is multiplicative and bounded in `(0,1]`: it scales a candidate's score down, never below
+zero, and never removes the candidate.
 
 - Banger (`p = 1.0`) → `d = 0` → no demotion.
 - Mid cut (`p = 0.4`) → `d = 0.6` → moderate demotion.
