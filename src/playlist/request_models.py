@@ -102,6 +102,7 @@ class GeneratePlaylistRequest:
     exclude_seed_tracks_from_recency: bool = False
     artist_only: bool = False
     popular_seeds: bool = False
+    popularity_mode: str = "off"  # Oops All Bangers: off / on / oops
     seed_epoch: int = 0
 
     @classmethod
@@ -153,6 +154,7 @@ class GeneratePlaylistRequest:
             exclude_seed_tracks_from_recency=bool(args.get("exclude_seed_tracks_from_recency", False)),
             artist_only=bool(args.get("artist_only", False)),
             popular_seeds=bool(args.get("popular_seeds", False)),
+            popularity_mode=str(args.get("popularity_mode") or "off"),
             seed_epoch=int(args.get("seed_epoch", 0)),
         )
 
@@ -229,6 +231,8 @@ class GeneratePlaylistRequest:
             args["artist_only"] = True
         if self.popular_seeds:
             args["popular_seeds"] = True
+        if self.popularity_mode and self.popularity_mode != "off":
+            args["popularity_mode"] = str(self.popularity_mode)
         if self.seed_epoch:
             args["seed_epoch"] = int(self.seed_epoch)
         return args

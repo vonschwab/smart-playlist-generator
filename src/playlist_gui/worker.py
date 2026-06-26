@@ -1310,6 +1310,7 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                 include_collaborations=include_collaborations,
                 exclude_seed_tracks_from_recency=exclude_seed_tracks_from_recency,
                 popular_seeds=request.popular_seeds,
+                popularity_mode=request.popularity_mode,
                 seed_epoch=request.seed_epoch,
             )
         elif mode == "seeds" and seed_tracks:

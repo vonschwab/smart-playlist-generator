@@ -34,6 +34,7 @@ class GenerateRequestBody(BaseModel):
     artist_presence: str = "medium"
     artist_variety: str = "balanced"
     popular_seeds: bool = False
+    popularity_mode: str = "off"  # Oops All Bangers: off / on / oops
     seed_epoch: int = 0
 
     def to_request(self) -> GeneratePlaylistRequest:
@@ -51,6 +52,7 @@ class GenerateRequestBody(BaseModel):
             include_collaborations=self.include_collaborations,
             exclude_seed_tracks_from_recency=self.exclude_seed_tracks_from_recency,
             popular_seeds=self.popular_seeds,
+            popularity_mode=self.popularity_mode,
             seed_epoch=self.seed_epoch,
         )
 

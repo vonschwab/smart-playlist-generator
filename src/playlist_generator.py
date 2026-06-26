@@ -1279,6 +1279,7 @@ class PlaylistGenerator:
         mode: Optional[str] = None,
         random_seed: Optional[int] = None,
         popular_seeds: bool = False,
+        popularity_mode: str = "off",
     ) -> Optional[Dict[str, Any]]:
         """
         Create a single playlist for a specific artist without requiring listening history
