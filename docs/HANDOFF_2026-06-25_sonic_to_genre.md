@@ -9,16 +9,16 @@
 
 ## BLUF — readiness
 
-**Not fully unblocked yet — hold for the "verified under roam" signal below (short runway).**
+**✅ UNBLOCKED — T8 GREEN (roam generation verified 2026-06-25). Calibrate away.**
 
-- ✅ The **blocker in substance is fixed**: the sonic transition objective now discriminates. The `(x+1)/2` rescale that compressed `T` (good-vs-bad gap 8%) is replaced by a calibrated sigmoid (gap **88%**, offline). This is the discriminating objective your calibration needs.
-- ⏳ **But the generation *path* you calibrate against is still moving** on two counts, so calibrating *now* would re-introduce the moving-target trap:
-  1. The **`transition_floor` hard gate is being removed** (roam-only direction) — this changes which edges generation accepts.
-  2. The objective is **not yet verified in real roam generation** (corridors + worst-edge minimax) — only in unit tests + the offline probe.
+The full sonic fix has landed on this branch and is verified in real roam generation:
+- ✅ Objective discriminates: the `(x+1)/2` rescale (good-vs-bad gap 8%) is replaced by a calibrated sigmoid (gap **88%** offline).
+- ✅ Generation **path is final**: the `transition_floor` hard gate is **removed** (roam-only — roam shapes via corridor + worst-edge minimax, no elimination).
+- ✅ **Verified in a real roam generation** (`scripts/research/verify_roam_transition.py`): 3-pier narrow run, `BPM 40812/40812`, beam-built, roam corridors active, **23.0s** (< 90s ceiling). Selected-edge `T` **de-compressed to 0.13 → 0.78** (p10 0.31 / p50 0.51 / p90 0.67), vs the old metric parking every edge at ~0.52–0.77. The worst edge (T=0.126, a fixed-pier transition) is now correctly surfaced where the old metric hid it ~0.56.
 
-**Recommendation:** wait for the signal "**T8 green: roam generation verified**" (I'll post it / ping you). At that point the sonic objective AND the generation path are final, and you calibrate once, cleanly.
+**Calibrate with roam enabled** (it already is in `config.yaml`: `pier_bridge.roam.enabled=true`, `worst_edge_minimax=true`). Playlist quality is no longer confounded by a washed-out sonic objective — your `genre_pair_floor`/penalty changes now reflect genre, not sonic noise.
 
-If you want to start *prep* now (reading the objective, wiring your harness), everything below is stable. Just don't fit floor/strength until the signal.
+Only remaining manual item on the sonic side: a **perceptual audition** (human ears on a few seeds' worst edge) — does not block your calibration.
 
 ## What is delivered (committed, won't change materially)
 
