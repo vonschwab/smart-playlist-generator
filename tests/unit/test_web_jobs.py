@@ -42,3 +42,25 @@ def test_recent_is_capped_and_newest_first():
     recent = reg.recent()
     assert len(recent) == 2
     assert recent[0].job_id == ids[-1]
+
+
+def test_clear_removes_finished_but_keeps_running():
+    reg = JobRegistry()
+    done_id = reg.create()
+    for e in _gen_events(done_id):
+        reg.apply_event(e)
+    running_id = reg.create()  # still "running", no done event
+
+    cleared = reg.clear()
+
+    assert cleared == 1
+    remaining = [j.job_id for j in reg.recent()]
+    assert remaining == [running_id]
+
+
+def test_clear_all_drops_running_when_keep_running_false():
+    reg = JobRegistry()
+    reg.create()
+    reg.create()
+    assert reg.clear(keep_running=False) == 2
+    assert reg.recent() == []

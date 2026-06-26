@@ -82,3 +82,32 @@ def test_cancel_completed_job_409():
             _t.sleep(0.05)
         resp = client.post(f"/api/jobs/{job_id}/cancel")
         assert resp.status_code == 409
+
+
+def test_clear_jobs_removes_finished():
+    with TestClient(create_app(worker_cmd=FAKE)) as client:
+        job_id = client.post("/api/generate", json={"mode": "artist", "artist": "Acetone"}).json()["job_id"]
+        import time as _t
+        for _ in range(50):
+            if client.get(f"/api/jobs/{job_id}").json()["status"] != "running":
+                break
+            _t.sleep(0.05)
+        resp = client.delete("/api/jobs")
+        assert resp.status_code == 200
+        assert resp.json()["cleared"] == 1
+        assert client.get("/api/jobs").json() == []
+
+
+def test_clear_jobs_removes_dead_running_when_bridge_idle():
+    # A job whose worker died mid-run stays "running" in the registry while the
+    # bridge is idle (no active request). Clear must sweep it — the bug the
+    # status-only filter left behind.
+    app = create_app(worker_cmd=FAKE)
+    with TestClient(app) as client:
+        zombie = app.state.registry.create()  # status defaults to "running"
+        assert client.get(f"/api/jobs/{zombie}").json()["status"] == "running"
+        assert app.state.bridge.busy is False
+        resp = client.delete("/api/jobs")
+        assert resp.status_code == 200
+        assert resp.json()["cleared"] == 1
+        assert client.get("/api/jobs").json() == []
