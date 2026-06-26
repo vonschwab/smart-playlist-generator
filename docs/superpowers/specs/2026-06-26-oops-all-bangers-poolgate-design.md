@@ -59,6 +59,11 @@ cohesion *and* its starvation fallback follow one fixed priority order:
   culturally) and is respected as OOPS's resting genre tightness. Only starvation widens genre past it.
 - **ON owns nothing.** Normal cohesion exactly as the user set it; it only adds the popularity gate.
 
+**Piers, too (artist mode only).** The gate makes the *bridges* hits; for the whole playlist to be
+bangers, the *piers* must be hits too. So in **artist mode**, OOPS also forces popular-seed pier
+selection (piers → the seed artist's hits). In **seed mode**, the user's chosen seeds are the piers and
+are **never overridden** — only the bridge gate applies (see §3.8).
+
 **Starvation policy: relax-to-fill, not ship-shorter.** A thin banger pool starves the pier-bridge
 beam (bridges can't form → the infeasible-handling cascade fires → risk of blowing the 90s ceiling or
 failing). Bangers is a *soft* axis like sonic/genre/pace (diversity is the only hard constraint), so it
@@ -177,20 +182,34 @@ rung remains the *only* path by which a non-banger enters.
 `_popularity_factor` + `playlists.bangers.strength_on` / `strength_oops` stay as-is. Within the now
 banger-only pool, the beam still prefers the bigger banger. It uses the existing **score** loader.
 
-### 3.8 Scope: bridges vs. piers
+### 3.8 Piers: OOPS implies popular-seed piers (artist mode only)
 
-The gate governs **bridge candidates** (the candidate pool). **Piers** are seed-artist tracks chosen by
-pier selection and are never gated here. Making the *piers* hits is the **Popular Seeds** program's job
-(`w_pop` / `popular_seeds`), which is orthogonal and already works. For a truly end-to-end "all bangers"
-result, OOPS pairs with Popular Seeds (piers = hits, bridges = hits). Whether OOPS should *auto-enable*
-Popular Seeds is raised in §10 (recommended, but a separate decision).
+The gate governs **bridge candidates** (the candidate pool). **Piers** are the anchor tracks. For a
+truly end-to-end "all bangers" result the piers must be hits too, not just the bridges — otherwise OOPS
+anchors on deep-cut piers with banger bridges. Making piers hits is the **Popular Seeds** program's job
+(`popular_seeds` / `popular_seeds_weight`), already merged and wired (`playlist_generator.py:1281`,
+consumed at the medoid term `:1727` and logged `:1816`).
+
+**Decision:** when `popularity_mode == "oops"`, **force `popular_seeds = True`** so pier selection steers
+to the seed artist's hits. This lives **inside `create_playlist_for_artist` (the artist-mode entry)**, so
+it is **artist-mode-only by construction**:
+
+- **Artist mode** synthesizes piers from the seed artist → OOPS steers them to hits (force `popular_seeds`).
+- **Seed mode** uses the **user's explicitly chosen seed tracks as piers → never overridden.** Seed mode
+  does not call `create_playlist_for_artist`, so the override cannot touch it. The **bridge gate still
+  applies in both modes** (it operates on the candidate pool, independent of how piers were chosen).
+
+ON and OFF do not force `popular_seeds` (the user's own checkbox still applies). `popular_seeds_weight`
+(default 0.5) stays the tunable pier-popularity strength; a dedicated stronger OOPS weight is a §10
+calibration knob, not v1 scope.
 
 ## 4. Data flow
 
 ```
 GUI dropdown (Off/On/Oops)
   → GenerateRequestBody.popularity_mode
-  → worker → create_playlist_for_artist(popularity_mode=...)
+  → worker → create_playlist_for_artist(popularity_mode=...)        # ARTIST MODE only
+        if oops: force popular_seeds = True   (piers → hits; seed mode never reaches here)
   → derive_runtime_config:  if oops → override sonic/pace thresholds to OOPS baseline (genre untouched)
   → core.generate_playlist_ds:
         ranks = load_pool_popularity_ranks_cached(bundle, allowed_indices, db_path)   # once, if on/oops
@@ -252,6 +271,9 @@ GUI (rebuild `web/dist`, restart `serve_web` from the main checkout, which has r
   gated; runs after energy rescue (rescued non-bangers excluded).
 - **Policy override** — `popularity_mode=oops` overrides sonic/pace thresholds to the OOPS baseline and
   leaves `genre_mode` untouched; `on`/`off` override nothing.
+- **OOPS pier steering (mode-scoped)** — in artist mode, `popularity_mode=oops` forces
+  `popular_seeds=True`; `on`/`off` do not. Seed-mode piers (user-chosen seeds) are never overridden —
+  the force lives on the artist-mode path only.
 - **Cascade ordering** — a starved synthetic pool relaxes in `sonic → pace → genre → popularity` order,
   stops as soon as the fill target is met, and logs each notch.
 - **Backstop reconciliation** — with the gate active, `min_pool_size` backfill never admits a non-banger.
@@ -275,7 +297,8 @@ artist-mode seeds via the `gui_fidelity` harness — never hand-built single-see
 - OOPS sonic/pace resting baseline (`dynamic` start) and the exact notch values per ladder step.
 - `min_banger_pool_size` derivation from target length.
 - Cutoffs (ON 50 / OOPS 10).
-- **OOPS ↔ Popular Seeds:** recommend OOPS auto-enabling Popular-Seed pier selection so piers are hits
-  too (otherwise deep-cut piers with banger bridges). Flagged for the user; not in v1 scope unless chosen.
+- **OOPS pier-popularity strength:** OOPS *enabling* popular-seed piers (artist mode) is now v1 scope
+  (§3.8). `popular_seeds_weight` (default 0.5) governs how hard piers are pulled toward hits; a dedicated
+  stronger OOPS pier weight is a calibration knob to tune once behavior is observed.
 ```
 
