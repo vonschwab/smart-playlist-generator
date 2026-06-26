@@ -6,7 +6,7 @@ Runs a multi-pier generation through the production harness with roam enabled
 (no worktree-stub confound), roam active, generation < 90s, and the edge-T
 distribution is DE-COMPRESSED (the fix is live, not inert).
 """
-import sys, time, logging
+import sys, time
 from pathlib import Path
 import numpy as np
 
@@ -15,8 +15,8 @@ MAIN = Path("C:/Users/Dylan/Desktop/PLAYLIST_GENERATOR_V3")
 sys.path.insert(0, str(WT / "tests"))   # support.gui_fidelity
 sys.path.insert(0, str(WT))             # worktree code (must win)
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s",
-                    handlers=[logging.StreamHandler(sys.stdout)])
+from src.logging_utils import configure_logging  # noqa: E402
+configure_logging(level="INFO", force=True)
 
 from support.gui_fidelity import resolve_gui_overrides, resolve_gui_genre_params, gui_ui_state  # noqa: E402
 from src.playlist.ds_pipeline_runner import generate_playlist_ds  # noqa: E402
