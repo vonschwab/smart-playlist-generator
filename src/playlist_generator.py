@@ -1916,6 +1916,11 @@ class PlaylistGenerator:
                 elif isinstance(bridge_floor_raw, (int, float)):
                     bridge_floor = float(bridge_floor_raw)
 
+                # Oops, All Bangers: three-stop popularity mode -> beam penalty strength.
+                # 0.10 / 0.30 are calibration placeholders (see the design spec).
+                _pop_strength = {"off": 0.0, "on": 0.10, "oops": 0.30}.get(
+                    str(popularity_mode or "off"), 0.0)
+
                 pier_cfg = PierBridgeConfig(
                     transition_floor=float(ds_defaults.construct.transition_floor),
                     bridge_floor=bridge_floor,
@@ -1927,6 +1932,7 @@ class PlaylistGenerator:
                     genre_tiebreak_weight=genre_tiebreak_weight,
                     genre_penalty_threshold=float(pb_tuning["genre_penalty_threshold"]),
                     genre_penalty_strength=float(pb_tuning["genre_penalty_strength"]),
+                    popularity_penalty_strength=_pop_strength,
                     genre_steering_enabled=bool(pb_tuning.get("genre_steering_enabled", False)),
                     genre_steering_source=str(pb_tuning.get("genre_steering_source", "taxonomy")),
                     weight_genre=float(pb_tuning.get("weight_genre", 0.0)),

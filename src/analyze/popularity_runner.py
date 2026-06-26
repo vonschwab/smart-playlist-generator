@@ -319,6 +319,47 @@ def load_pool_popularity_values(
     return out
 
 
+def load_pool_popularity_values_cached(
+    bundle, pool_indices, *, db_path: str
+) -> np.ndarray:
+    """Cache-ONLY per-track popularity for the given bundle pool indices.
+
+    Reads the warm `artist_top_tracks_cache` (no Last.fm fetch — usable where no
+    client is in scope, e.g. deep in the pipeline). Artists not in the cache stay
+    NaN (and are thus ruthlessly demoted at any positive strength). Returns a
+    vector aligned to bundle.track_ids. Never raises."""
+    track_ids = bundle.track_ids
+    out = np.full(len(track_ids), np.nan, dtype=float)
+    keys = getattr(bundle, "artist_keys", None)
+    titles = getattr(bundle, "track_titles", None)
+    if keys is None:
+        return out
+    rows_by_key: Dict[str, List[int]] = {}
+    for i in pool_indices:
+        i = int(i)
+        rows_by_key.setdefault(str(keys[i]), []).append(i)
+    for key, idxs in rows_by_key.items():
+        try:
+            top = get_artist_top_tracks_cached(db_path, key)
+        except Exception:  # never gate generation
+            top = []
+        if not top:
+            continue
+        local = [{
+            "track_id": str(track_ids[i]),
+            "title": str(titles[i]) if titles is not None else "",
+            "musicbrainz_id": "",
+        } for i in idxs]
+        ranks = resolve_top_tracks_to_rank(top, local)
+        n = len(top)
+        pos = {str(track_ids[i]): i for i in idxs}
+        for tid, rank in ranks.items():
+            j = pos.get(tid)
+            if j is not None:
+                out[j] = 1.0 - rank / n
+    return out
+
+
 def _fetched_at_iso(db_path: str, artist_key: str) -> Optional[str]:
     with sqlite3.connect(db_path) as conn:
         row = conn.execute(

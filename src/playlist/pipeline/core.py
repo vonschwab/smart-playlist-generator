@@ -728,6 +728,17 @@ def generate_playlist_ds(
             _generation_deadline: Optional[float] = time.monotonic() + _budget_s
 
             def _run_pier_bridge(candidate_pool_indices: list[int]) -> PierBridgeResult:
+                # Oops, All Bangers: cache-only popularity for the gated pool (no Last.fm
+                # fetch here — the eager batch warms the cache; sub-8 artists stay NaN ->
+                # ruthlessly demoted). Inert unless a positive strength is configured.
+                popularity_values = None
+                if float(getattr(pb_cfg, "popularity_penalty_strength", 0.0)) > 0.0:
+                    from src.analyze.popularity_runner import (
+                        enrichment_db_path,
+                        load_pool_popularity_values_cached,
+                    )
+                    popularity_values = load_pool_popularity_values_cached(
+                        bundle, candidate_pool_indices, db_path=enrichment_db_path())
                 return build_pier_bridge_playlist(
                     seed_track_ids=seed_track_ids_for_pier,
                     total_tracks=playlist_len,
@@ -746,6 +757,7 @@ def generate_playlist_ds(
                     tempo_stability_arr=tempo_stability_bpm,
                     onset_rate=onset_rate_arr,
                     energy_matrix=energy_matrix,
+                    popularity_values=popularity_values,
                     min_gap=int(getattr(cfg.construct, "min_gap", 1) or 1),
                     deadline=_generation_deadline,
                 )

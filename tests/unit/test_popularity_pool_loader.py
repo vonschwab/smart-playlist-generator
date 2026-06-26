@@ -61,3 +61,32 @@ def test_pool_loader_fetch_failure_is_graceful(tmp_path):
         client=client, db_path=db, now_iso="2026-06-25T00:00:00+00:00")
     assert vec[0] == 1.0          # cached artist still resolved
     assert np.isnan(vec[1])       # failed-fetch artist -> NaN, no crash
+
+
+def test_pool_loader_cached_reads_cache_only(tmp_path):
+    from src.analyze.popularity_runner import load_pool_popularity_values_cached
+    db = str(tmp_path / "e.db")
+    init_top_tracks_cache(db)
+    upsert_artist_top_tracks(db, "nirvana", "2026-06-25T00:00:00+00:00",
+                             [{"name": "In Bloom", "mbid": "", "rank": 0}])
+    b = _bundle(
+        ["n_hit", "n_deep", "u_track"],
+        ["In Bloom", "Endless Nameless", "X"],
+        ["nirvana", "nirvana", "uncached"],
+    )
+    vec = load_pool_popularity_values_cached(b, [0, 1, 2], db_path=db)
+    assert vec[0] == 1.0          # cached hit
+    assert np.isnan(vec[1])       # cached artist, not a top track
+    assert np.isnan(vec[2])       # uncached artist -> NaN (no fetch)
+
+
+def test_pool_loader_cached_only_scans_given_indices(tmp_path):
+    from src.analyze.popularity_runner import load_pool_popularity_values_cached
+    db = str(tmp_path / "e.db")
+    init_top_tracks_cache(db)
+    upsert_artist_top_tracks(db, "nirvana", "2026-06-25T00:00:00+00:00",
+                             [{"name": "In Bloom", "mbid": "", "rank": 0}])
+    b = _bundle(["n_hit", "n_hit2"], ["In Bloom", "In Bloom"], ["nirvana", "nirvana"])
+    vec = load_pool_popularity_values_cached(b, [0], db_path=db)  # only index 0 in the pool
+    assert vec[0] == 1.0
+    assert np.isnan(vec[1])       # index 1 not in pool_indices -> untouched
