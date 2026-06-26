@@ -3,9 +3,12 @@
 Tests extracted scoring functions from pier_bridge_builder.py (Phase 3.1).
 
 Coverage:
-- Transition scoring
 - Bridge scoring
 - Constraint validation
+
+(Transition scoring lives in src/playlist/transition_metrics.py; its behaviour
+is covered by tests/unit/test_transition_calibration.py. The legacy
+src/playlist/scoring/transition_scoring.py duplicate was removed.)
 """
 
 import sys
@@ -18,133 +21,11 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from src.playlist.scoring import (
-    compute_transition_score,
-    compute_transition_score_raw_and_transformed,
     compute_bridgeability_score,
     TransitionWeights,
     ScoringConstraints,
     SeedOrderingConfig,
 )
-
-
-# =============================================================================
-# Transition Scoring Tests
-# =============================================================================
-
-class TestTransitionScoring:
-    """Test transition quality scoring."""
-
-    def test_basic_transition_score(self):
-        """Test basic transition scoring with full matrices only."""
-        # Create simple L2-normalized vectors
-        X_full = np.array([
-            [1.0, 0.0],
-            [0.0, 1.0],
-            [0.707, 0.707],  # 45-degree angle
-        ])
-
-        # Perfect similarity (same vector)
-        score = compute_transition_score(
-            idx_a=0, idx_b=0,
-            X_full=X_full, X_start=None, X_mid=None, X_end=None,
-            weight_end_start=0.4, weight_mid_mid=0.3, weight_full_full=0.3,
-            center_transitions=False
-        )
-        assert abs(score - 1.0) < 0.01
-
-        # Orthogonal vectors (no similarity)
-        score = compute_transition_score(
-            idx_a=0, idx_b=1,
-            X_full=X_full, X_start=None, X_mid=None, X_end=None,
-            weight_end_start=0.4, weight_mid_mid=0.3, weight_full_full=0.3,
-            center_transitions=False
-        )
-        assert abs(score - 0.0) < 0.01
-
-        # 45-degree angle (cos(45°) ≈ 0.707)
-        score = compute_transition_score(
-            idx_a=0, idx_b=2,
-            X_full=X_full, X_start=None, X_mid=None, X_end=None,
-            weight_end_start=0.4, weight_mid_mid=0.3, weight_full_full=0.3,
-            center_transitions=False
-        )
-        assert abs(score - 0.707) < 0.01
-
-    def test_transition_with_centering(self):
-        """Test transition scoring with centering enabled."""
-        X_full = np.array([
-            [1.0, 0.0],
-            [-1.0, 0.0],  # Opposite direction
-        ])
-
-        # Without centering: cos(180°) = -1.0
-        score_no_center = compute_transition_score(
-            idx_a=0, idx_b=1,
-            X_full=X_full, X_start=None, X_mid=None, X_end=None,
-            weight_end_start=0.0, weight_mid_mid=0.0, weight_full_full=1.0,
-            center_transitions=False
-        )
-        assert abs(score_no_center - (-1.0)) < 0.01
-
-        # With centering: rescale [-1, 1] → [0, 1], so -1 → 0
-        score_centered = compute_transition_score(
-            idx_a=0, idx_b=1,
-            X_full=X_full, X_start=None, X_mid=None, X_end=None,
-            weight_end_start=0.0, weight_mid_mid=0.0, weight_full_full=1.0,
-            center_transitions=True
-        )
-        assert abs(score_centered - 0.0) < 0.01
-
-    def test_transition_with_segments(self):
-        """Test transition with start/mid/end segments."""
-        # Create segment matrices
-        X_full = np.array([[1.0, 0.0], [0.8, 0.6]])  # L2-normalized
-        X_start = np.array([[1.0, 0.0], [1.0, 0.0]])  # Perfect start alignment
-        X_mid = np.array([[0.6, 0.8], [0.6, 0.8]])    # Perfect mid alignment
-        X_end = np.array([[0.0, 1.0], [1.0, 0.0]])    # Orthogonal end-start
-
-        score = compute_transition_score(
-            idx_a=0, idx_b=1,
-            X_full=X_full, X_start=X_start, X_mid=X_mid, X_end=X_end,
-            weight_end_start=0.5, weight_mid_mid=0.3, weight_full_full=0.2,
-            center_transitions=False
-        )
-
-        # Expected: 0.5 * 0.0 (end-start) + 0.3 * 1.0 (mid) + 0.2 * 0.8 (full)
-        # Note: [1,0]·[0.8,0.6] = 0.8, not 0.96
-        expected = 0.5 * 0.0 + 0.3 * 1.0 + 0.2 * 0.8
-        assert abs(score - expected) < 0.01
-
-    def test_raw_and_transformed_scores(self):
-        """Test raw vs transformed scoring."""
-        X_full = np.array([
-            [1.0, 0.0],
-            [-1.0, 0.0],  # Opposite
-        ])
-
-        raw, transformed = compute_transition_score_raw_and_transformed(
-            idx_a=0, idx_b=1,
-            X_full=X_full, X_start=None, X_mid=None, X_end=None,
-            weight_end_start=0.0, weight_mid_mid=0.0, weight_full_full=1.0,
-            center_transitions=True
-        )
-
-        # Raw should be -1.0, transformed should be 0.0
-        assert abs(raw - (-1.0)) < 0.01
-        assert abs(transformed - 0.0) < 0.01
-
-    def test_raw_equals_transformed_without_centering(self):
-        """Without centering, raw and transformed should be identical."""
-        X_full = np.array([[1.0, 0.0], [0.707, 0.707]])
-
-        raw, transformed = compute_transition_score_raw_and_transformed(
-            idx_a=0, idx_b=1,
-            X_full=X_full, X_start=None, X_mid=None, X_end=None,
-            weight_end_start=0.4, weight_mid_mid=0.3, weight_full_full=0.3,
-            center_transitions=False
-        )
-
-        assert abs(raw - transformed) < 0.001
 
 
 # =============================================================================
@@ -298,40 +179,3 @@ class TestSeedOrderingConfig:
         """max_exhaustive_search must be >= 1."""
         with pytest.raises(ValueError, match="max_exhaustive_search"):
             SeedOrderingConfig(max_exhaustive_search=0)
-
-
-# =============================================================================
-# Edge Cases
-# =============================================================================
-
-class TestEdgeCases:
-    """Test edge cases and unusual inputs."""
-
-    def test_zero_vectors(self):
-        """Test scoring with zero vectors (edge case)."""
-        # In practice, vectors should be L2-normalized, but test robustness
-        X_full = np.array([[0.0, 0.0], [1.0, 0.0]])
-
-        score = compute_transition_score(
-            idx_a=0, idx_b=1,
-            X_full=X_full, X_start=None, X_mid=None, X_end=None,
-            weight_end_start=0.0, weight_mid_mid=0.0, weight_full_full=1.0,
-            center_transitions=False
-        )
-
-        # Dot product with zero vector is 0
-        assert score == 0.0
-
-    def test_single_dimension(self):
-        """Test with 1D vectors."""
-        X_full = np.array([[1.0], [-1.0]])
-
-        score = compute_transition_score(
-            idx_a=0, idx_b=1,
-            X_full=X_full, X_start=None, X_mid=None, X_end=None,
-            weight_end_start=0.0, weight_mid_mid=0.0, weight_full_full=1.0,
-            center_transitions=False
-        )
-
-        # Opposite directions: cos(180°) = -1
-        assert abs(score - (-1.0)) < 0.01
