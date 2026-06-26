@@ -231,11 +231,21 @@ def is_broken_transition(
     transition_floor: float,
     centered_cos_floor: Optional[float] = None,
 ) -> bool:
-    """Return True when an edge is below the shared floor or catastrophically anti-aligned."""
+    """Return True only when an edge is catastrophically anti-aligned.
 
-    t_val = edge.get("T")
-    if _finite(t_val) and float(t_val) < float(transition_floor):
-        return True
+    Roam-only: the ``transition_floor`` HARD GATE is removed. With a
+    discriminating ``T`` (the calibrated sigmoid), the beam objective and roam's
+    worst-edge minimax already prefer good edges by *optimization* — eliminating
+    candidates on a `T` floor only adds cascade/budget risk (north star #5 +
+    the 90 s ceiling). The ``transition_floor`` parameter is retained for the
+    legacy-cascade callers that still pass it; it no longer gates. (The cascade
+    plumbing itself is swept by the roam-promotion, not here.)
+
+    The ``-0.5`` ``centered_cos_floor`` safety stays: it gates the *raw*
+    end→start cosine (`T_centered_cos`), catching an edge that is actively
+    *opposite* (essentially never fires in the anisotropic MERT space).
+    """
+
     if centered_cos_floor is not None:
         centered = edge.get("T_centered_cos")
         if _finite(centered) and float(centered) < float(centered_cos_floor):

@@ -6,7 +6,7 @@ calibrated logistic spreads that band across (0,1) and restores discrimination.
 """
 import math
 
-from src.playlist.transition_metrics import _calibrate_transition_cos
+from src.playlist.transition_metrics import _calibrate_transition_cos, is_broken_transition
 
 # Provisional params (band midpoint center, gain/scale = 16 → p1→~0.05, p99→~0.95).
 P = dict(center=0.32, scale=0.0625, gain=1.0)
@@ -35,3 +35,26 @@ def test_monotonic_and_finite():
 
 def test_nan_passthrough():
     assert math.isnan(_calibrate_transition_cos(float("nan"), **P))
+
+
+# --- transition hard-gate removal (roam-only) -----------------------------
+# Roam shapes via soft corridor penalty + worst-edge minimax, never elimination.
+# is_broken_transition must NOT reject on a low T anymore; only the -0.5
+# catastrophic anti-alignment safety remains.
+
+def test_low_T_is_not_broken():
+    # A weak (but not anti-aligned) edge: under the old gate this was rejected
+    # (T < transition_floor); under roam it must pass — the score, not a gate,
+    # demotes it.
+    edge = {"T": 0.05, "T_centered_cos": 0.30}
+    assert is_broken_transition(edge, transition_floor=0.20, centered_cos_floor=-0.5) is False
+
+
+def test_anti_alignment_still_gates():
+    edge = {"T": 0.40, "T_centered_cos": -0.6}
+    assert is_broken_transition(edge, transition_floor=0.20, centered_cos_floor=-0.5) is True
+
+
+def test_within_anti_alignment_safety_passes():
+    edge = {"T": 0.05, "T_centered_cos": -0.3}
+    assert is_broken_transition(edge, transition_floor=0.20, centered_cos_floor=-0.5) is False
