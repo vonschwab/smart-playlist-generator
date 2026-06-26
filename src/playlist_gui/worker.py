@@ -1376,7 +1376,7 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
 
             formatted_tracks = []
 
-            for i, track in enumerate(tracks, 1):
+            for i, track in enumerate(tracks):
                 rating_key = track.get('rating_key') or track.get('id') or track.get('track_id')
 
                 def _raw_genres(_track=track, _rk=rating_key) -> List[str]:
