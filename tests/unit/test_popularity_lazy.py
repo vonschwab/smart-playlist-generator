@@ -122,3 +122,30 @@ def test_load_artist_popularity_none_without_client(tmp_path):
     assert load_artist_popularity_values(
         b, "X", client=None, db_path=str(tmp_path / "e.db"),
         limit=50, max_age_days=30, now_iso="2026-06-24T00:00:00+00:00") is None
+
+
+def test_log_seed_popularity_reports_ranks(tmp_path, caplog):
+    import logging
+    from src.analyze.popularity_runner import log_seed_popularity
+    db = str(tmp_path / "e.db")
+    init_top_tracks_cache(db)
+    upsert_artist_top_tracks(db, "nirvana", "2026-06-25T00:00:00+00:00", [
+        {"name": "In Bloom", "mbid": "", "rank": 0},
+        {"name": "Polly", "mbid": "", "rank": 1},
+    ])
+    with caplog.at_level(logging.INFO):
+        log_seed_popularity(
+            "Nirvana", ["t_inbloom", "t_deep"], ["In Bloom", "Some Deep Cut"], db_path=db)
+    msgs = " ".join(r.message for r in caplog.records)
+    assert "Last.fm #1" in msgs and "In Bloom" in msgs    # pier matched rank 0 -> #1
+    assert "not in top" in msgs                            # deep cut not on the top-2 list
+
+
+def test_log_seed_popularity_no_cache_is_graceful(tmp_path, caplog):
+    import logging
+    from src.analyze.popularity_runner import log_seed_popularity
+    db = str(tmp_path / "e.db")
+    init_top_tracks_cache(db)
+    with caplog.at_level(logging.INFO):
+        log_seed_popularity("Unknown Artist", ["a"], ["T"], db_path=db)
+    assert any("no cached Last.fm top tracks" in r.message for r in caplog.records)

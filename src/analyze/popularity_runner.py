@@ -13,7 +13,7 @@ import logging
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 
@@ -67,14 +67,14 @@ def get_artist_top_tracks_cached(db_path: str, artist_key: str) -> List[dict]:
     return json.loads(row[0]) if row else []
 
 
-def resolve_top_tracks_to_popularity(
+def resolve_top_tracks_to_rank(
     top_tracks: List[dict], local_tracks: List[dict]
-) -> Dict[str, float]:
-    """Map one artist's ranked Last.fm top tracks to local track_ids + popularity.
+) -> Dict[str, int]:
+    """Map one artist's ranked Last.fm top tracks to local track_ids -> 0-based rank.
 
     mbid-first, else loose-normalized-title grouping with version-preference
-    (studio/remaster beat live/demo/alt). Score = 1 - rank/N. On collision keep
-    the higher score. Returns {track_id: popularity in [0,1]}.
+    (studio/remaster beat live/demo/alt). On collision keep the LOWER rank (more
+    popular). Returns {track_id: 0-based Last.fm rank}.
     """
     if not top_tracks or not local_tracks:
         return {}
@@ -94,11 +94,9 @@ def resolve_top_tracks_to_popularity(
         if norm:
             by_norm.setdefault(norm, []).append(lt)
 
-    n = len(top_tracks)
-    out: Dict[str, float] = {}
+    out: Dict[str, int] = {}
     for t in top_tracks:
         rank = int(t.get("rank", 0))
-        score = 1.0 - rank / n
         tid: Optional[str] = None
         mbid = str(t.get("mbid") or "")
         if mbid and mbid in by_mbid:
@@ -115,9 +113,65 @@ def resolve_top_tracks_to_popularity(
                     ),
                 )
                 tid = str(best["track_id"])
-        if tid is not None and score > out.get(tid, -1.0):
-            out[tid] = score
+        if tid is not None and (tid not in out or rank < out[tid]):
+            out[tid] = rank
     return out
+
+
+def resolve_top_tracks_to_popularity(
+    top_tracks: List[dict], local_tracks: List[dict]
+) -> Dict[str, float]:
+    """track_id -> popularity in [0,1] (= 1 - rank/N). See resolve_top_tracks_to_rank."""
+    if not top_tracks:
+        return {}
+    n = len(top_tracks)
+    return {
+        tid: 1.0 - rank / n
+        for tid, rank in resolve_top_tracks_to_rank(top_tracks, local_tracks).items()
+    }
+
+
+def log_seed_popularity(
+    artist_name: str,
+    pier_track_ids: Sequence[str],
+    pier_titles: Sequence[str],
+    *,
+    db_path: str,
+) -> None:
+    """Log each chosen pier's Last.fm popularity rank (diagnostic for Popular Seeds).
+
+    Reads the warm per-artist cache (populated by the lazy fetch during this run)
+    and reports where each pier sits on the artist's Last.fm top-N, or that it
+    isn't on the list. Never raises.
+    """
+    from src.string_utils import normalize_artist_key
+
+    try:
+        top = get_artist_top_tracks_cached(db_path, normalize_artist_key(artist_name))
+    except Exception:  # diagnostics must never break generation
+        top = []
+    if not top:
+        logger.info(
+            "Popular Seeds: no cached Last.fm top tracks for %s — piers picked without popularity",
+            artist_name,
+        )
+        return
+    n = len(top)
+    local = [
+        {"track_id": str(tid), "title": str(title or ""), "musicbrainz_id": ""}
+        for tid, title in zip(pier_track_ids, pier_titles)
+    ]
+    ranks = resolve_top_tracks_to_rank(top, local)
+    logger.info(
+        "Popular Seeds: %d/%d piers on %s's Last.fm top-%d (#1 = most popular):",
+        len(ranks), len(pier_track_ids), artist_name, n,
+    )
+    for tid, title in zip(pier_track_ids, pier_titles):
+        r = ranks.get(str(tid))
+        if r is not None:
+            logger.info("    Last.fm #%-3d %s", r + 1, title)
+        else:
+            logger.info("    (not in top %-4d) %s", n, title)
 
 
 def _local_tracks_by_artist(metadata_db: str, min_artist_tracks: int) -> Dict[str, List[dict]]:
