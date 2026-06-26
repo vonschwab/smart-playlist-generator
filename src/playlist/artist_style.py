@@ -321,19 +321,50 @@ def _slot_proximity(z: np.ndarray, target: float, span_width: float) -> np.ndarr
     return prox
 
 
+def _load_albums_for_indices(bundle, indices: List[int], db_path: str) -> Dict[int, str]:
+    """track index -> album name for the given bundle indices, from metadata.db.
+
+    The artifact bundle does not carry album names, but version-preference needs
+    them to catch album-based live recordings (clean track title, live album).
+    Best-effort: returns {} on any error. Reads metadata.db read-only."""
+    import sqlite3
+
+    track_ids = getattr(bundle, "track_ids", None)
+    if track_ids is None or not indices or not db_path:
+        return {}
+    idx_by_tid = {str(track_ids[i]): i for i in indices}
+    out: Dict[int, str] = {}
+    try:
+        ph = ",".join("?" * len(idx_by_tid))
+        with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
+            for tid, album in conn.execute(
+                f"SELECT track_id, album FROM tracks WHERE track_id IN ({ph})",
+                list(idx_by_tid.keys()),
+            ):
+                i = idx_by_tid.get(str(tid))
+                if i is not None and album:
+                    out[i] = str(album)
+    except Exception:
+        return {}
+    return out
+
+
 def _dedupe_artist_indices(
     indices: List[int],
     track_titles: Optional[Sequence[str]],
     durations_ms: Optional[np.ndarray],
+    albums_by_index: Optional[Dict[int, str]] = None,
 ) -> List[int]:
     """Reduce an artist's track indices to one canonical version per song.
 
     Groups by loose-normalized title (strips live/remaster/edition suffixes) and
     keeps the highest version-preference version per song (studio/remaster beat
-    live/demo/alt; remaster is barely penalized). Ties break to the longer
-    duration, then the lower index, for determinism. A live cut survives only if
-    it is the song's sole version. Tracks with no usable title pass through
-    unchanged. Returns indices sorted ascending.
+    live/demo/alt; remaster is barely penalized). `albums_by_index` (track index ->
+    album name) lets version-preference catch album-based live recordings with
+    clean titles ("Polly" on "MTV Unplugged"). Ties break to the longer duration,
+    then the lower index, for determinism. A live cut survives only if it is the
+    song's sole version. Tracks with no usable title pass through unchanged.
+    Returns indices sorted ascending.
     """
     if track_titles is None or len(indices) < 2:
         return list(indices)
@@ -354,7 +385,8 @@ def _dedupe_artist_indices(
 
     def _rank(i: int) -> tuple:
         title = str(track_titles[i]) if track_titles[i] is not None else ""
-        score = calculate_version_preference_score(title)
+        album = albums_by_index.get(i, "") if albums_by_index else ""
+        score = calculate_version_preference_score(title, album)
         dur = float(durations_ms[i]) if durations_ms is not None else 0.0
         return (score, dur, -i)  # highest score, then longest, then stable
 
@@ -490,6 +522,7 @@ def cluster_artist_tracks(
     excluded_track_ids: Optional[set[str]] = None,
     energy_values: Optional[np.ndarray] = None,
     popularity_values: Optional[np.ndarray] = None,
+    metadata_db_path: Optional[str] = None,
 ) -> Tuple[List[List[int]], List[int], List[List[int]], np.ndarray]:
     """Cluster artist tracks in sonic space and return clusters + medoids."""
     track_ids = bundle.track_ids
@@ -527,8 +560,13 @@ def cluster_artist_tracks(
         )
     if cfg.dedupe_versions:
         before = len(artist_indices)
+        albums_by_index = (
+            _load_albums_for_indices(bundle, artist_indices, metadata_db_path)
+            if metadata_db_path else None
+        )
         artist_indices = _dedupe_artist_indices(
-            artist_indices, getattr(bundle, "track_titles", None), bundle.durations_ms
+            artist_indices, getattr(bundle, "track_titles", None), bundle.durations_ms,
+            albums_by_index,
         )
         if before != len(artist_indices):
             logger.info(

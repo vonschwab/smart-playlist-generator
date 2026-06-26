@@ -314,30 +314,6 @@ export function GenerateControls({
           </>
         )}
 
-        {/* Oops, All Bangers: popularity steering (all modes) */}
-        <Cell>
-          <div className="flex items-center gap-1.5"
-            title="Bias bridge tracks toward each artist's most popular (Last.fm) songs. Off = today; On = lean popular; OOPS = library greatest-hits.">
-            <Lbl>bangers</Lbl>
-            <div className="flex rounded overflow-hidden border border-[#23262d]">
-              {(["off", "on", "oops"] as const).map((val) => (
-                <button
-                  key={val}
-                  type="button"
-                  onClick={() => setPopularityMode(val)}
-                  className={`text-[11px] px-2 py-[4px] ${
-                    popularityMode === val
-                      ? "bg-[#5eead4] text-[#0f1115] font-bold"
-                      : "bg-transparent text-[#9aa0a6]"
-                  }`}
-                >
-                  {val === "oops" ? "OOPS" : val === "on" ? "On" : "Off"}
-                </button>
-              ))}
-            </div>
-          </div>
-        </Cell>
-
         {/* Generate */}
         <Cell push>
           <button
@@ -390,6 +366,15 @@ export function GenerateControls({
           <select value={axes.pace_mode} onChange={(e) => setAxes({ ...axes, pace_mode: e.target.value })} className={SEL}
             title="How closely the rhythmic feel must match. Strict = very similar BPM and groove; Dynamic = allows more variation.">
             {["off", "dynamic", "narrow", "strict"].map((v) => <option key={v} value={v}>{v}</option>)}
+          </select>
+        </Cell>
+        <Cell>
+          <Lbl title="Oops, All Bangers — bias the bridge tracks toward each artist's most popular (Last.fm) songs. Off = today; On = lean popular; Oops, All Bangers = library greatest-hits.">bangers</Lbl>
+          <select value={popularityMode} onChange={(e) => setPopularityMode(e.target.value as "off" | "on" | "oops")} className={SEL}
+            title="Bias the bridge tracks toward each artist's most popular (Last.fm) songs.">
+            <option value="off">Off</option>
+            <option value="on">On</option>
+            <option value="oops">Oops, All Bangers</option>
           </select>
         </Cell>
       </div>

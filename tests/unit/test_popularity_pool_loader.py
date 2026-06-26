@@ -90,3 +90,26 @@ def test_pool_loader_cached_only_scans_given_indices(tmp_path):
     vec = load_pool_popularity_values_cached(b, [0], db_path=db)  # only index 0 in the pool
     assert vec[0] == 1.0
     assert np.isnan(vec[1])       # index 1 not in pool_indices -> untouched
+
+
+def test_annotate_and_log_playlist_popularity(tmp_path, caplog):
+    import logging
+    from src.analyze.popularity_runner import annotate_and_log_playlist_popularity
+    db = str(tmp_path / "e.db")
+    init_top_tracks_cache(db)
+    upsert_artist_top_tracks(db, "nirvana", "2026-06-26T00:00:00+00:00", [
+        {"name": "In Bloom", "mbid": "", "rank": 0},
+        {"name": "Polly", "mbid": "", "rank": 4},
+    ])
+    tracks = [
+        {"artist": "Nirvana", "title": "In Bloom"},
+        {"artist": "Nirvana", "title": "Endless Nameless"},  # real deep cut, not on top list
+        {"artist": "Unknown Band", "title": "Whatever"},     # uncached artist
+    ]
+    with caplog.at_level(logging.INFO):
+        annotate_and_log_playlist_popularity(tracks, db_path=db)
+    assert tracks[0]["popularity_rank"] == 1      # rank 0 -> #1 (1-based)
+    assert tracks[1]["popularity_rank"] is None   # not on the artist's top-50
+    assert tracks[2]["popularity_rank"] is None   # uncached -> None
+    msgs = " ".join(r.message for r in caplog.records)
+    assert "Last.fm #1" in msgs and "In Bloom" in msgs

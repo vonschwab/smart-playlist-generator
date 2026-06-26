@@ -70,6 +70,7 @@ class TrackOut(BaseModel):
     sonic_similarity: Optional[float] = None
     genre_similarity: Optional[float] = None
     transition_score: Optional[float] = None
+    popularity_rank: Optional[int] = None  # Oops All Bangers: Last.fm rank (1-based), or null
     genres: list[str] = Field(default_factory=list)
 
 
@@ -109,6 +110,7 @@ class PlaylistOut(BaseModel):
                 sonic_similarity=t.get("sonic_similarity"),
                 genre_similarity=t.get("genre_similarity"),
                 transition_score=t.get("transition_score"),
+                popularity_rank=t.get("popularity_rank"),
                 genres=t.get("genres", []),
             )
             for t in tracks_raw

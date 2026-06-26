@@ -24,6 +24,7 @@ export function TrackTable({ tracks, blacklisted, onContextAction }: TrackTableP
   const [sorting, setSorting] = useState<SortingState>([]);
   const player = usePlayer();
 
+  const hasPopularity = tracks.some((t) => t.popularity_rank != null);
   const col = createColumnHelper<TrackOut>();
   const columns = [
     col.display({
@@ -86,6 +87,24 @@ export function TrackTable({ tracks, blacklisted, onContextAction }: TrackTableP
       header: "T",
       cell: (c) => <span className="font-mono text-accent text-[11px]">{fmt(c.getValue())}</span>,
     }),
+    ...(hasPopularity
+      ? [
+          col.accessor("popularity_rank", {
+            header: "Last.fm",
+            cell: (c) => {
+              const r = c.getValue();
+              return (
+                <span
+                  className="font-mono text-[11px] text-faint"
+                  title="Last.fm popularity rank within the artist's top tracks (lower = more popular)"
+                >
+                  {r == null ? "—" : `#${r}`}
+                </span>
+              );
+            },
+          }),
+        ]
+      : []),
     col.display({
       id: "kebab",
       header: "",
