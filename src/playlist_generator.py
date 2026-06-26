@@ -1752,6 +1752,7 @@ class PlaylistGenerator:
                     include_collaborations=include_collaborations,
                     excluded_track_ids=seed_recency_excluded_ids if exclude_seed_tracks_from_recency else None,
                     popularity_values=popularity_values,
+                    metadata_db_path=self.config.get("library", "database_path", default="data/metadata.db"),
                 )
                 if not medoids:
                     raise ValueError("Style clustering returned no medoids")
@@ -1917,9 +1918,15 @@ class PlaylistGenerator:
                     bridge_floor = float(bridge_floor_raw)
 
                 # Oops, All Bangers: three-stop popularity mode -> beam penalty strength.
-                # 0.10 / 0.30 are calibration placeholders (see the design spec).
-                _pop_strength = {"off": 0.0, "on": 0.10, "oops": 0.30}.get(
-                    str(popularity_mode or "off"), 0.0)
+                # Config-tunable (not in the GUI): playlists.bangers.strength_{on,oops}.
+                # NOTE: this is the beam-penalty lever (re-ranks within the pool); the real
+                # "only bangers" lever is the popularity admission gate (separate work).
+                _bangers_cfg = self.config.get("playlists", "bangers", default={}) or {}
+                _pop_strength = {
+                    "off": 0.0,
+                    "on": float(_bangers_cfg.get("strength_on", 0.25)),
+                    "oops": float(_bangers_cfg.get("strength_oops", 0.60)),
+                }.get(str(popularity_mode or "off"), 0.0)
 
                 pier_cfg = PierBridgeConfig(
                     transition_floor=float(ds_defaults.construct.transition_floor),
