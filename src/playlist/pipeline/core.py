@@ -94,6 +94,33 @@ class _CandidateRelaxationAttempt:
     summary: Dict[str, Any]
 
 
+def _banger_gate_inputs(
+    bundle: Any,
+    pb_cfg: Optional[Any],
+    *,
+    db_path: str,
+) -> tuple[Optional[np.ndarray], Optional[int]]:
+    """Pure helper: resolve (_banger_ranks, _banger_cutoff) for the Oops-All-Bangers gate.
+
+    Returns (None, None) when the gate is inactive (popularity_rank_cutoff is None or
+    pb_cfg is None).  Otherwise loads per-track Last.fm ranks once over the full bundle
+    and returns (rank_array, int_cutoff).  Isolated into a helper so the unit test can
+    monkeypatch the loader without building a real artifact bundle."""
+    cutoff_raw = getattr(pb_cfg, "popularity_rank_cutoff", None) if pb_cfg is not None else None
+    if cutoff_raw is None:
+        return None, None
+    _banger_cutoff = int(cutoff_raw)
+    from src.analyze.popularity_runner import (
+        enrichment_db_path as _edb_path,
+        load_pool_popularity_ranks_cached,
+    )
+    _effective_db = db_path if db_path else _edb_path()
+    _banger_ranks = load_pool_popularity_ranks_cached(
+        bundle, list(range(len(bundle.track_ids))), db_path=_effective_db
+    )
+    return _banger_ranks, _banger_cutoff
+
+
 def _relaxed_one_each_candidate_attempts(
     candidate_cfg: Any,
     min_genre_similarity: Optional[float],
@@ -460,7 +487,16 @@ def generate_playlist_ds(
     if _genre_admission_aggregate not in {"centroid", "per_seed"}:
         _genre_admission_aggregate = "centroid"
 
-    def _build_pool(candidate_cfg: Any, genre_gate: Optional[float]):
+    # Oops, All Bangers: load popularity ranks once over the full bundle before the
+    # _build_pool closure so the closure captures the resolved values.  The closure
+    # captures _banger_ranks / _banger_cutoff; the default-arg trick on
+    # popularity_rank_cutoff lets Task 5's cascade override the cutoff per call.
+    _banger_ranks, _banger_cutoff = _banger_gate_inputs(
+        bundle, pier_bridge_config, db_path=""
+    )
+
+    def _build_pool(candidate_cfg: Any, genre_gate: Optional[float],
+                    popularity_rank_cutoff: Optional[int] = _banger_cutoff):
         return build_candidate_pool(
             seed_idx=seed_idx,
             seed_indices=embedding.seed_indices_for_floor,
@@ -499,6 +535,8 @@ def generate_playlist_ds(
             genre_bridge_vocab=getattr(bundle, "genre_bridge_vocab", None),
             facet_vocab=getattr(bundle, "facet_vocab", None),
             genre_graph_source=genre_graph_source,
+            popularity_ranks=_banger_ranks,
+            popularity_rank_cutoff=popularity_rank_cutoff,
         )
 
     _candidate_cfg_kwargs: dict = dict(
