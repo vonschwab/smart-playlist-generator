@@ -28,6 +28,12 @@ class TransitionMetricContext:
     weight_mid_mid: float = 0.15
     weight_full_full: float = 0.15
     transition_gamma: Optional[float] = None
+    # Calibrated-sigmoid rescale params (used when center_transitions=True).
+    # Fixed constants derived once from the library cosine band; see
+    # docs/superpowers/specs/2026-06-25-sonic-centered-transition-design.md.
+    calib_center: float = 0.32
+    calib_scale: float = 0.0625
+    calib_gain: float = 1.0
 
 
 def _norm_optional(mat: Optional[np.ndarray]) -> Optional[np.ndarray]:
@@ -58,10 +64,25 @@ def _finite(value: Any) -> bool:
         return False
 
 
-def _rescale_centered_cos(value: float) -> float:
+def _calibrate_transition_cos(
+    value: float, *, center: float, scale: float, gain: float
+) -> float:
+    """Calibrated logistic remap of a transition cosine into (0, 1).
+
+    Standardize the cosine to its operating band, then squash with a logistic
+    (Platt-style: ``sigma(gain * (x - center) / scale)``). Replaces the legacy
+    ``(x + 1) / 2``, which wasted its output range on the negative cosines that
+    real edges never produce, compressing the realistic band [~0.14, 0.50] into
+    [~0.57, 0.75]. Monotonic; soft-saturating (no hard clip, no ties).
+    """
     if not _finite(value):
         return float("nan")
-    return float(np.clip((float(value) + 1.0) / 2.0, 0.0, 1.0))
+    z = gain * (float(value) - center) / scale
+    # Numerically stable logistic (avoid overflow for large |z|).
+    if z >= 0:
+        return float(1.0 / (1.0 + math.exp(-z)))
+    ez = math.exp(z)
+    return float(ez / (1.0 + ez))
 
 
 def build_transition_metric_context(
@@ -79,6 +100,9 @@ def build_transition_metric_context(
     weight_end_start: float = 0.70,
     weight_mid_mid: float = 0.15,
     weight_full_full: float = 0.15,
+    calib_center: float = 0.32,
+    calib_scale: float = 0.0625,
+    calib_gain: float = 1.0,
 ) -> TransitionMetricContext:
     """Build the shared transition metric context from raw artifact matrices."""
 
@@ -140,6 +164,9 @@ def build_transition_metric_context(
         weight_mid_mid=float(weight_mid_mid),
         weight_full_full=float(weight_full_full),
         transition_gamma=(float(transition_gamma) if transition_gamma is not None else None),
+        calib_center=float(calib_center),
+        calib_scale=float(calib_scale),
+        calib_gain=float(calib_gain),
     )
 
 
@@ -163,10 +190,18 @@ def score_transition_edge(context: TransitionMetricContext, prev_idx: int, cur_i
         + float(context.weight_full_full) * float(sim_full_raw)
     )
     if context.center_transitions:
+        def _r(x: float) -> float:
+            return _calibrate_transition_cos(
+                x,
+                center=context.calib_center,
+                scale=context.calib_scale,
+                gain=context.calib_gain,
+            )
+
         t_val = (
-            float(context.weight_end_start) * _rescale_centered_cos(sim_end_start_raw)
-            + float(context.weight_mid_mid) * _rescale_centered_cos(sim_mid_raw)
-            + float(context.weight_full_full) * _rescale_centered_cos(sim_full_raw)
+            float(context.weight_end_start) * _r(sim_end_start_raw)
+            + float(context.weight_mid_mid) * _r(sim_mid_raw)
+            + float(context.weight_full_full) * _r(sim_full_raw)
         )
     else:
         t_val = t_raw
