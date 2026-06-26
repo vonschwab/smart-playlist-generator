@@ -214,7 +214,6 @@ def score_transition_edge(context: TransitionMetricContext, prev_idx: int, cur_i
 
     edge = {
         "T": float(t_val),
-        "T_used": float(t_val),
         "T_raw": float(t_raw),
         "T_centered_cos": float(sim_end_start_raw),
         "H": float(h_val),
