@@ -503,6 +503,18 @@ def _apply_layered_genre_admission(
     }
 
 
+def _apply_popularity_gate(
+    eligible: list[int],
+    popularity_ranks: np.ndarray,
+    rank_cutoff: int,
+) -> tuple[list[int], int]:
+    """Oops, All Bangers admission gate: keep only candidates whose 0-based Last.fm
+    rank is in [0, rank_cutoff). -1 (uncached / not in the artist's top-N) and any
+    rank >= cutoff are non-bangers and excluded. Returns (kept, excluded_count)."""
+    kept = [i for i in eligible if 0 <= int(popularity_ranks[i]) < rank_cutoff]
+    return kept, len(eligible) - len(kept)
+
+
 def build_candidate_pool(
     *,
     seed_idx: int,
@@ -545,6 +557,8 @@ def build_candidate_pool(
     facet_vocab: Optional[Sequence[Any]] = None,
     layered_genre_diagnostics_limit: int = 25,
     genre_graph_source: str = "legacy",
+    popularity_ranks: Optional[np.ndarray] = None,
+    popularity_rank_cutoff: Optional[int] = None,
 ) -> CandidatePoolResult:
     """
     Implement current experiments behavior with optional genre gating:
@@ -1091,6 +1105,19 @@ def build_candidate_pool(
             "reason": "shadow_only",
         }
 
+    # ── Oops, All Bangers: popularity admission gate ─────────────────────────
+    # Final eligibility filter so EVERY pooled track is a banger, including any
+    # energy-rescued tracks. NaN/-1 (uncached / not in the artist's top-N) excluded.
+    if popularity_ranks is not None and popularity_rank_cutoff is not None:
+        _before_pop = len(eligible)
+        eligible, _pop_excluded = _apply_popularity_gate(
+            eligible, np.asarray(popularity_ranks), int(popularity_rank_cutoff)
+        )
+        logger.info(
+            "Popularity gate applied: cutoff=top-%d before=%d after=%d excluded=%d",
+            int(popularity_rank_cutoff), _before_pop, len(eligible), _pop_excluded,
+        )
+
     grouped: Dict[str, list[int]] = {}
     for idx in eligible:
         key = _normalize_artist_key(artist_keys[idx])
@@ -1144,9 +1171,11 @@ def build_candidate_pool(
         )
         _cap = int(getattr(cfg, "candidates_per_artist", 6) or 6)
         _seed_set = set(int(i) for i in seed_list)
+        _gate_on = popularity_ranks is not None and popularity_rank_cutoff is not None
         _ranked = sorted(
             (i for i in range(len(track_ids))
-             if i not in _already and i not in _seed_set),
+             if i not in _already and i not in _seed_set
+             and (not _gate_on or 0 <= int(popularity_ranks[i]) < int(popularity_rank_cutoff))),
             # When no sonic embedding is present, admission order falls back to
             # index order (arbitrary but bounded + still artist-cap-respecting).
             key=lambda i: float(sonic_seed_sim[i]) if sonic_seed_sim is not None else 0.0,
