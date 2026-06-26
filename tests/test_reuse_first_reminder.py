@@ -8,6 +8,7 @@ _HOOK = (
     / ".claude" / "hooks" / "reuse_first_reminder.py"
 )
 _spec = importlib.util.spec_from_file_location("reuse_first_reminder", _HOOK)
+assert _spec is not None and _spec.loader is not None, f"hook not found at {_HOOK}"
 hook = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(hook)
 
