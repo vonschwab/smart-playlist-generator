@@ -191,6 +191,7 @@ def _attempt_micro_pier_split(
     X_genre_smoothed: Optional[np.ndarray] = None,
     genre_idf: Optional[np.ndarray] = None,
     transition_metric_context: Optional[TransitionMetricContext] = None,
+    popularity_values: Optional[np.ndarray] = None,
 ) -> Optional[list[int]]:
     if interior_length < 2 or not candidates:
         return None
@@ -293,6 +294,7 @@ def _attempt_micro_pier_split(
             bundle=bundle,
             g_targets_override=left_g_targets,
             transition_metric_context=transition_metric_context,
+            popularity_values=popularity_values,
         )
         if left_path is None:
             continue
@@ -328,6 +330,7 @@ def _attempt_micro_pier_split(
             bundle=bundle,
             g_targets_override=right_g_targets,
             transition_metric_context=transition_metric_context,
+            popularity_values=popularity_values,
         )
         if right_path is None:
             continue
