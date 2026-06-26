@@ -50,3 +50,27 @@ def test_resolver_remaster_only_via_title_path_carries_popularity():
 
 def test_resolver_empty_local_returns_empty():
     assert resolve_top_tracks_to_popularity([{"name": "X", "mbid": "", "rank": 0}], []) == {}
+
+
+def test_resolve_to_rank_mbid_and_version_preference():
+    from src.analyze.popularity_runner import resolve_top_tracks_to_rank
+    top = [
+        {"name": "Smells Like Teen Spirit", "mbid": "mbid-slts", "rank": 0},
+        {"name": "In Bloom", "mbid": "", "rank": 1},
+    ]
+    local = [
+        {"track_id": "t_slts", "title": "Smells Like Teen Spirit (2021 Remaster)", "musicbrainz_id": "mbid-slts"},
+        {"track_id": "t_inbloom_studio", "title": "In Bloom", "musicbrainz_id": ""},
+        {"track_id": "t_inbloom_live", "title": "In Bloom (Live)", "musicbrainz_id": ""},
+    ]
+    ranks = resolve_top_tracks_to_rank(top, local)
+    assert ranks["t_slts"] == 0              # mbid match -> rank 0 (remaster carries it)
+    assert ranks["t_inbloom_studio"] == 1    # studio wins over live
+    assert "t_inbloom_live" not in ranks
+
+
+def test_resolve_to_rank_collision_keeps_lower_rank():
+    from src.analyze.popularity_runner import resolve_top_tracks_to_rank
+    top = [{"name": "Song", "mbid": "", "rank": 0}, {"name": "song", "mbid": "", "rank": 5}]
+    local = [{"track_id": "t1", "title": "Song", "musicbrainz_id": ""}]
+    assert resolve_top_tracks_to_rank(top, local) == {"t1": 0}   # more-popular rank kept

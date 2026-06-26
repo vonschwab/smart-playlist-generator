@@ -1811,6 +1811,20 @@ class PlaylistGenerator:
                 # Internal connectors disabled for Artist mode - seed artist should ONLY appear as piers
                 internal_connector_ids = []
                 pier_ids = [str(bundle.track_ids[m]) for m in ordered_medoids]
+                if popular_seeds:
+                    # Diagnostic: log where each chosen pier sits on the artist's
+                    # Last.fm popularity list (the cache is warm from the lazy fetch).
+                    from src.analyze.popularity_runner import (
+                        enrichment_db_path,
+                        log_seed_popularity,
+                    )
+                    _titles = getattr(bundle, "track_titles", None)
+                    pier_titles = [
+                        str(_titles[m]) if _titles is not None else "" for m in ordered_medoids
+                    ]
+                    log_seed_popularity(
+                        artist_name, pier_ids, pier_titles, db_path=enrichment_db_path()
+                    )
                 style_allowed_track_ids = list(dict.fromkeys(
                     pier_ids + external_pool + genre_neighbor_pool + list(internal_connector_ids or [])
                 ))
