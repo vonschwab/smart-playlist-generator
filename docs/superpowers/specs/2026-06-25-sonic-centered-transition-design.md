@@ -40,9 +40,11 @@ Confirmed it is **offset/scale, not monotonicity**: measured across remaps, the 
 
 ## 3. Goal & success criteria
 
-Replace the rescale so a genuinely bad sonic transition scores meaningfully worse than a good one, while keeping `T ∈ [0,1]` (so floors/thresholds remain meaningful after recalibration). Ship it **activated by default**, and remove the dead/duplicate wiring in the transition-scoring path while we're in it.
+Replace the rescale so a genuinely bad sonic transition scores meaningfully worse than a good one, keeping `T ∈ [0,1]`. **This is designed for roam** (corridors + worst-edge minimax), the target topology: roam's minimax optimizes on this `T`, so a discriminating `T` is exactly what makes the worst-edge guard meaningful. Accordingly we **remove the `transition_floor` hard gate** rather than recalibrate it — roam shapes candidates with a soft corridor penalty and minimizes the worst edge, it does not eliminate. Ship the calibrated score **activated by default**, and remove dead/duplicate wiring while we're in it.
 
-Success = the verification gate in §8 passes: gap restored toward 72%, median off ~0.5, suite green, and a real generation log + audition confirm weak edges are now penalized.
+Success = the verification gate (§7) passes **with roam enabled**: gap restored toward 72%, median off ~0.5, suite green, and a real roam generation log + audition confirm the worst edge improves and is no longer washed out.
+
+**Dependency (locked, structural).** This sonic fix is the blocker for the genre soft-metric calibration: the genre floor/strength tune against *playlist quality*, which is confounded until this `T` discriminates — calibrating sooner fits to noise that is about to change. Order: **sonic fix lands → genre calibration → merge.** Do NOT flip roam to default or delete the legacy beam here; that is a separate roam-promotion effort this *unblocks*, and coupling it would delay the genre dependency.
 
 ## 4. Design — calibrated sigmoid (Platt-style)
 
@@ -80,14 +82,15 @@ Calibration **target**: map the operating band [p1, p99] to ≈ [0.05, 0.95], so
 
 A `scripts/research/` script that computes the library cosine band → emits proposed `center/scale/gain` → sweeps the `T`-consuming floors against the new `T` distribution and reports recommended values. This *is* the tuning recipe (principle #23) and is re-runnable after any re-analysis.
 
-## 5. Floor re-calibration (the real blast radius)
+## 5. Remove the transition hard gate (roam-only)
 
-The remap changes the `T` distribution (field median drops from ~0.5–0.63 depending on pool → ~0.30), so everything that compares against **`T`** must move:
-- `transition_floor` (config; `config.py:665`), `bridge_floor` + per-mode `bridge_floor_<mode>`, and any `weight_bridge`/`weight_transition` interaction in the beam.
+Roam avoids hard gates: it shapes candidates with a soft corridor penalty (`corridor_penalty`, slope-beyond-width) and minimizes the worst edge (`_state_min_edge`), never eliminating. The legacy `transition_floor` is a hard gate (`is_broken_transition`: `T < transition_floor` → broken; `beam.py:679` direct-floor reject) that also triggers the gate-and-expand cascade. With a discriminating `T`, the beam objective *and* roam's worst-edge minimax already prefer good edges by optimization — eliminating candidates only adds cascade/90s-budget risk. And because the rescale changes `T`'s scale, leaving `transition_floor=0.2` would *accidentally* flip a dead floor (rejected ~0% under the old compressed `T`) into a ~28%-rejecting gate — the opposite of intent.
 
-**Unaffected (scope reduction):** `centered_cos_floor` / the `-0.5` catastrophic anti-alignment gate (`beam.py:638`, `is_broken_transition`) gates on `T_centered_cos`, which is the **raw** end→start cosine (`transition_metrics.py:184`, stored unconditionally) — *not* remapped. It stays as-is.
+**So: remove the `transition_floor` hard gate** — drop the `T < transition_floor` check from `is_broken_transition`, the direct-floor reject (`beam.py:679`), and the now-dead `transition_floor` config knob (`config.yaml:99`, `PierBridgeConfig`, the `default_ds_config` resolver). No recalibration. Removing it is strictly *fewer* hard rejections → *fewer* cascade triggers → budget-safe.
 
-Re-tuning method: empirical, not guessed. Use the probe + the `gui_fidelity` harness to set each floor at the same operating percentile of the new `T` distribution (or deliberately tighter, since the floor can finally bite), validated on real generations. The exact consumer list is enumerated in the implementation plan via grep, not from memory.
+**Keep** the `−0.5` catastrophic anti-alignment gate (`centered_cos_floor`, `beam.py:638`) — it gates the **raw** `T_centered_cos`, not the remapped `T`, is essentially inert in the anisotropic MERT space, and is a cheap "edge is actively opposite" safety assertion.
+
+**Out of scope (roam-promotion, deferred):** the other legacy gates (`bridge_floor` on raw pier-sim `beam.py:1209`, the relaxation cascade, pool-size caps) and flipping roam to the default. Removing those + promoting roam is the next effort this unblocks; doing it here couples a calibration-gated migration to the metric fix and delays the genre dependency.
 
 ## 6. Cleanup — wall-scoped (verified live-vs-dead)
 
@@ -101,7 +104,7 @@ Confirmed by a read-only call-graph trace. **Live scorer is `transition_metrics.
    - Delete the production-dead `scoring/transition_scoring.py` module (imported only by `tests/unit/test_scoring.py`); repoint those tests onto `score_transition_edge`.
 3. **Delete the vestigial `T_used` field** (`transition_metrics.py:182` — written, read nowhere).
 4. **Remove `transition_gamma`'s dead local storage in `transition_metrics.py`** (the unused context field + `edge["gamma"]` there). It is never applied in the live scorer.
-5. **Recalibrate floors** (§5) + **regenerate affected goldens** (config goldens + any playlist-`T` goldens), confirming the only diffs are the intended `T`/floor/cleanup changes.
+5. **Remove the `transition_floor` hard gate** (§5) + **regenerate affected goldens** (config goldens + any playlist-`T` goldens), confirming the only diffs are the intended `T`/gate-removal/cleanup changes.
 
 ### 6.2 Preserve (verified load-bearing — do NOT touch)
 - `T_centered_cos` + the `-0.5` anti-alignment gate (raw cosine, independent of the remap).
@@ -112,13 +115,16 @@ Confirmed by a read-only call-graph trace. **Live scorer is `transition_metrics.
 ### 6.3 Deferred (flagged, NOT this PR)
 - Full `transition_gamma` removal end-to-end (config plumbing, worker, reporter, `ds_pipeline_runner`) and the dead single-seed `constructor.py` / `pipeline.py` construction path (`pipeline/core.py:529 "if True: # Always use pier-bridge"`). This belongs to the existing dead-code cleanup program — pulling an entire legacy path on a metric-fix PR is scope creep with regression risk.
 
-## 7. Verification gate (all must pass before "done")
+## 7. Verification gate (all must pass before "done") — with roam enabled
 
-1. **Config sanity:** confirm `center_transitions=True` resolves in a real generation log (`pier_bridge_builder.py` logs it) — cheap insurance against this codebase's "wired but inert" history.
-2. **Probe:** good-vs-bad gap restored toward 72% (target ~88%), median `T` off ~0.5; **rank fidelity** — blended-`T` ordering tracks the raw blended ordering (Spearman); the Yuji edge is demoted/floored.
+Roam is the target path, so judge quality there: enable `roam_corridors_enabled` + `worst_edge_minimax_enabled` (via `overrides[pier_bridge][roam]`) for the generation checks.
+
+1. **Config sanity:** confirm `center_transitions=True` AND the roam flags resolve in a real generation log (`pier_bridge_builder.py` logs them) — insurance against this codebase's "wired but inert" history.
+2. **Probe:** good-vs-bad gap restored toward 72% (measured ~88%), median `T` off ~0.5; **rank fidelity** — blended-`T` ordering tracks the raw blended ordering (Spearman); the Yuji edge is demoted (no longer a top neighbor of the destination).
 3. **Full fast suite green** (`python -m pytest -q -m "not slow"`, run directly, bounded — never piped through `tail`). Goldens regenerated deliberately; diffs confirmed to be only intended changes.
-4. **Real multi-pier generation** through the `gui_fidelity` harness with `pier_bridge.emit_selected_edge_audit: true` — **read the per-edge log** and confirm weak sonic edges are now penalized (a "0 changed" metric can mean a true null, a starved pool, or a knob that didn't apply — only the log distinguishes them).
-5. **Perceptual audition** on a few seeds — does the worst edge actually sound better.
+4. **Real roam generation + READ THE LOG** through the `gui_fidelity` harness with roam enabled and `pier_bridge.emit_selected_edge_audit: true` — confirm from the per-edge audit that the **worst edge** improved and the selected-edge `T` distribution is de-compressed (a summary metric can't distinguish a true null from a knob that didn't apply). Confirm generation < 90s.
+5. **Perceptual audition** on a few seeds (roam) — does the worst edge actually sound better.
+6. **Hand off to the genre session:** a discriminating sonic objective under roam is the result the genre calibration is structurally blocked on.
 
 ## 8. Process
 
@@ -135,6 +141,6 @@ Confirmed by a read-only call-graph trace. **Live scorer is `transition_metrics.
 
 ## 10. Risks
 
-- Floor recalibration is where most of the risk lives — getting it wrong reintroduces either "everything passes" (too low) or "nothing bridges, cascade detonates >90s" (too high). The 90s generation ceiling is a hard constraint; floors are tuned against it.
+- Removing the transition gate is strictly *fewer* hard rejections, so it can only *reduce* cascade triggers — budget-safe. The residual risk is the opposite: with no floor, a sparse segment's best-available edge is accepted as-is; roam's corridor + worst-edge minimax is the intended quality mechanism there, verified under roam (§7). Quality should therefore be judged with roam **on**, not on the legacy beam.
 - Per-component vs shared calibration: if mid/full cosine bands differ materially from end→start, shared params under-serve them. Verification checks this; per-component is the fallback.
 - Goldens: many fixtures encode `center_transitions`/`T`; regeneration must be deliberate and diff-audited.
