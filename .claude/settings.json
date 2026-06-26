@@ -16,6 +16,18 @@
             "statusMessage": "Checking pytest pipe discipline"
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/reuse_first_reminder.py"],
+            "timeout": 15,
+            "statusMessage": "Checking reuse-first discipline"
+          }
+        ]
       }
     ],
     "PostToolUse": [
