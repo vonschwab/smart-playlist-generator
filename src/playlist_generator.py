@@ -175,6 +175,23 @@ def _build_edge_audit_rows(
     return rows
 
 
+def _resolve_popularity_rank_cutoff(popularity_mode: str, bangers_cfg: dict) -> Optional[int]:
+    """Oops, All Bangers admission-gate cutoff. off -> None (gate disabled);
+    on -> rank_cutoff_on (default 50); oops -> rank_cutoff_oops (default 10)."""
+    m = str(popularity_mode or "off").lower()
+    if m == "on":
+        return int((bangers_cfg or {}).get("rank_cutoff_on", 50))
+    if m == "oops":
+        return int((bangers_cfg or {}).get("rank_cutoff_oops", 10))
+    return None
+
+
+def _resolve_popular_seeds(popular_seeds: bool, popularity_mode: str) -> bool:
+    """OOPS forces popular-seed pier selection (piers -> the artist's hits), so the
+    whole playlist is bangers, not just the bridges. Artist-mode-only by construction:
+    this is called on the artist-mode entry point; seed mode never reaches here."""
+    return bool(popular_seeds) or str(popularity_mode or "off").lower() == "oops"
+
 
 class PlaylistGenerator:
     """Generates playlists based on listening history and similarity"""
@@ -1303,6 +1320,10 @@ class PlaylistGenerator:
         if random_seed is not None:
             self.config.config.setdefault("playlists", {}).setdefault("ds_pipeline", {})["random_seed"] = random_seed
 
+        # Oops, All Bangers: OOPS mode forces popular-seed pier selection so piers
+        # are the artist's hits, not just the centroid medoids.
+        popular_seeds = _resolve_popular_seeds(popular_seeds, popularity_mode)
+
         logger.info(f"Creating playlist for artist: {artist_name}")
 
         # Get all tracks by this artist from local library
@@ -1927,6 +1948,7 @@ class PlaylistGenerator:
                     "on": float(_bangers_cfg.get("strength_on", 0.25)),
                     "oops": float(_bangers_cfg.get("strength_oops", 0.60)),
                 }.get(str(popularity_mode or "off"), 0.0)
+                _pop_rank_cutoff = _resolve_popularity_rank_cutoff(popularity_mode, _bangers_cfg)
 
                 pier_cfg = PierBridgeConfig(
                     transition_floor=float(ds_defaults.construct.transition_floor),
@@ -1940,6 +1962,7 @@ class PlaylistGenerator:
                     genre_penalty_threshold=float(pb_tuning["genre_penalty_threshold"]),
                     genre_penalty_strength=float(pb_tuning["genre_penalty_strength"]),
                     popularity_penalty_strength=_pop_strength,
+                    popularity_rank_cutoff=_pop_rank_cutoff,
                     genre_steering_enabled=bool(pb_tuning.get("genre_steering_enabled", False)),
                     genre_steering_source=str(pb_tuning.get("genre_steering_source", "taxonomy")),
                     weight_genre=float(pb_tuning.get("weight_genre", 0.0)),
