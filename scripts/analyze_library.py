@@ -503,6 +503,28 @@ def compute_stage_fingerprint(ctx: Dict, stage: str) -> str:
         }
         return _hash_obj(key)
 
+    if stage == "popularity":
+        # Re-run when the qualifying-artist set or the Last.fm cache changes;
+        # skip when the sidecar is already current. The stage's own pending-list
+        # keeps the fetching incremental (only uncached artists are hit).
+        qualifying = _safe_count(
+            conn,
+            "SELECT COUNT(*) FROM (SELECT artist_key FROM tracks "
+            "WHERE artist_key IS NOT NULL AND artist_key <> '' "
+            "GROUP BY artist_key HAVING COUNT(*) >= 8)",
+        )
+        cached = _sidecar_count("SELECT COUNT(*) FROM artist_top_tracks_cache")
+        sc = Path(ctx["out_dir"]) / "popularity" / "popularity_sidecar.npz"
+        key = {
+            "stage": stage,
+            "qualifying_artists": qualifying,
+            "cached_artists": cached,
+            "sidecar_exists": sc.exists(),
+            "sidecar_mtime": int(sc.stat().st_mtime) if sc.exists() else 0,
+            "config": cfg_hash,
+        }
+        return _hash_obj(key)
+
     if stage == "verify":
         artifact_mtime = 0
         try:
@@ -2352,7 +2374,10 @@ def stage_popularity(ctx: Dict) -> Dict:
 
     client = LastFMClient(api_key=api_key, username=username)
     fetched = failed = 0
-    for artist_key, name in pending:
+    total = len(pending)
+    t0 = _time.monotonic()
+    logger.info("stage_popularity: %d artists to fetch (%d already cached)", total, len(already))
+    for i, (artist_key, name) in enumerate(pending, 1):
         try:
             top = client.get_artist_top_tracks(name, limit=limit)
             upsert_artist_top_tracks(
@@ -2363,6 +2388,14 @@ def stage_popularity(ctx: Dict) -> Dict:
         except Exception as exc:  # network/parse — log and continue
             failed += 1
             logger.warning("popularity fetch failed for %s: %s", name, exc)
+        if i % 50 == 0 or i == total:
+            elapsed = _time.monotonic() - t0
+            rate = i / elapsed if elapsed > 0 else 0.0
+            eta = (total - i) / rate if rate > 0 else 0.0
+            logger.info(
+                "stage_popularity: %d/%d artists (%d ok, %d failed) | %.1f/s | ETA ~%.0fs",
+                i, total, fetched, failed, rate, eta,
+            )
         _time.sleep(0.2)  # ~5 req/s courtesy
 
     stats = build_popularity_sidecar(
