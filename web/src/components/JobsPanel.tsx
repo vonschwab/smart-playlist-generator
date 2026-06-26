@@ -16,15 +16,30 @@ export function JobsPanel({
   onSelect,
   onCancel,
   onRerun,
+  onClear,
 }: {
   jobs: JobOut[];
   onSelect: (j: JobOut) => void;
   onCancel: (j: JobOut) => void;
   onRerun: (params: GenerateRequestBody) => void;
+  onClear: () => void;
 }) {
+  const clearable = jobs.some((j) => j.status !== "running" && j.status !== "pending");
   return (
     <div className="h-full overflow-auto" data-testid="jobs-panel">
-      <div className="px-3 py-2 text-[10px] uppercase tracking-wide text-faint border-b border-border">Jobs</div>
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border">
+        <span className="text-[10px] uppercase tracking-wide text-faint">Jobs</span>
+        {clearable && (
+          <button
+            data-testid="jobs-clear"
+            onClick={onClear}
+            title="Clear finished jobs"
+            className="text-[9px] uppercase tracking-wide text-faint hover:text-danger"
+          >
+            Clear
+          </button>
+        )}
+      </div>
       {jobs.map((j) => {
         const meanT = (j.playlist?.metrics?.mean_transition);
         const tracks = j.playlist?.track_count;
