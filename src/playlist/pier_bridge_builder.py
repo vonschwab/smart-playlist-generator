@@ -452,6 +452,7 @@ def build_pier_bridge_playlist(
     tempo_stability_arr: Optional[np.ndarray] = None,
     onset_rate: Optional[np.ndarray] = None,
     energy_matrix: Optional[np.ndarray] = None,
+    popularity_values: Optional[np.ndarray] = None,
     min_gap: int = 1,
     deadline: Optional[float] = None,
 ) -> PierBridgeResult:
@@ -1521,6 +1522,7 @@ def build_pier_bridge_playlist(
                         energy_matrix=energy_matrix,
                         roam_detour_sonic=_roam_detour_sonic,
                         roam_dev_energy=_roam_dev_energy,
+                        popularity_values=popularity_values,
                     )
                     last_failure_reason = beam_failure_reason
                     # ── Roam corridors: log realized sonic roam of the chosen interior. ──
@@ -2170,6 +2172,7 @@ def build_pier_bridge_playlist(
                         X_genre_smoothed=X_genre_smoothed,
                         genre_idf=genre_idf,
                         transition_metric_context=transition_metric_context,
+                        popularity_values=popularity_values,
                     )
                     if micro_path is not None and len(micro_path) == interior_len:
                         segment_path = micro_path
@@ -2213,6 +2216,7 @@ def build_pier_bridge_playlist(
                     X_genre_smoothed=X_genre_smoothed,
                     genre_idf=genre_idf,
                     transition_metric_context=transition_metric_context,
+                    popularity_values=popularity_values,
                 )
                 if micro_path is not None and len(micro_path) == interior_len:
                     segment_path = micro_path
