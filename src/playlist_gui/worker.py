@@ -1441,6 +1441,20 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                     "transition_score": edge.get("T"),
                 })
 
+            # Oops, All Bangers: annotate each track with its Last.fm popularity rank
+            # (sets track['popularity_rank']) and log it, when Bangers is on.
+            if str(getattr(request, "popularity_mode", "off")) in ("on", "oops"):
+                try:
+                    from src.analyze.popularity_runner import (
+                        annotate_and_log_playlist_popularity,
+                        enrichment_db_path,
+                    )
+                    annotate_and_log_playlist_popularity(
+                        formatted_tracks, db_path=enrichment_db_path())
+                except Exception as _exc:  # diagnostics must never break a generation
+                    logging.getLogger(__name__).warning(
+                        "Bangers popularity annotation failed: %s", _exc)
+
             playlist_result = {
                 "name": playlist_data.get('title', 'Generated Playlist'),
                 "tracks": formatted_tracks,

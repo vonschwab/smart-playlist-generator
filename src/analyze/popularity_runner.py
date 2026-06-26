@@ -360,6 +360,54 @@ def load_pool_popularity_values_cached(
     return out
 
 
+def annotate_and_log_playlist_popularity(tracks, *, db_path: str) -> None:
+    """Annotate each playlist track dict with its Last.fm popularity rank and log it.
+
+    For each track (uses 'artist' + 'title'), looks up the per-artist rank in the
+    warm cache, sets `track['popularity_rank']` (1-based, or None if the track is
+    not on its artist's top-50 / the artist is uncached), and logs a per-track
+    summary. Used when Bangers (popularity_mode) is on. Never raises."""
+    from src.string_utils import normalize_artist_key
+    from src.title_dedupe import normalize_title_for_dedupe
+
+    rank_maps: Dict[str, Dict[str, int]] = {}
+
+    def _ranks_for(artist_key: str) -> Dict[str, int]:
+        if artist_key not in rank_maps:
+            m: Dict[str, int] = {}
+            try:
+                for row in get_artist_top_tracks_cached(db_path, artist_key) or []:
+                    norm = normalize_title_for_dedupe(str(row.get("name") or ""), mode="loose")
+                    r = int(row.get("rank", 0))
+                    if norm and (norm not in m or r < m[norm]):
+                        m[norm] = r
+            except Exception:
+                m = {}
+            rank_maps[artist_key] = m
+        return rank_maps[artist_key]
+
+    matched = 0
+    for t in tracks:
+        artist = str(t.get("artist") or "")
+        title = str(t.get("title") or "")
+        rank: Optional[int] = None
+        if artist and title:
+            r = _ranks_for(normalize_artist_key(artist)).get(
+                normalize_title_for_dedupe(title, mode="loose"))
+            if r is not None:
+                rank = r + 1  # 1-based for display
+        t["popularity_rank"] = rank
+        if rank is not None:
+            matched += 1
+    logger.info(
+        "Bangers: %d/%d playlist tracks on their artist's Last.fm top-50 (#1 = most popular):",
+        matched, len(tracks))
+    for t in tracks:
+        r = t.get("popularity_rank")
+        tag = f"Last.fm #{r}" if r is not None else "(not on top-50)"
+        logger.info("    %-16s %s - %s", tag, str(t.get("artist") or ""), str(t.get("title") or ""))
+
+
 def _fetched_at_iso(db_path: str, artist_key: str) -> Optional[str]:
     with sqlite3.connect(db_path) as conn:
         row = conn.execute(
