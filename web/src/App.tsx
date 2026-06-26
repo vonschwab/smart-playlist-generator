@@ -18,8 +18,9 @@ import { TrackContextMenu, type MenuTarget } from "./components/TrackContextMenu
 import { ReplaceDialog } from "./components/ReplaceDialog";
 import { EditGenresDialog } from "./components/EditGenresDialog";
 import { ExportPlexDialog } from "./components/ExportPlexDialog";
+import { ExportM3U8Dialog } from "./components/ExportM3U8Dialog";
 import { RelaxationNotice } from "./components/RelaxationNotice";
-import { downloadM3U8 } from "./lib/m3u";
+import { defaultPlaylistName } from "./lib/playlistName";
 
 export default function App() {
   const [mode, setMode] = useLocalStorage<Mode>("pg_mode", "artist");
@@ -55,6 +56,7 @@ export default function App() {
   const [editGenresOpen, setEditGenresOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<{ artist: string; album: string; genres: string[] }>({ artist: "", album: "", genres: [] });
   const [plexOpen, setPlexOpen] = useState(false);
+  const [m3u8Open, setM3u8Open] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   // Persist slim job history (no playlist payload) across server restarts.
@@ -173,11 +175,6 @@ export default function App() {
     finally { setRefreshing(false); }
   }, []);
 
-  const defaultPlexName = useCallback(() => {
-    const date = new Date().toISOString().slice(0, 10);
-    const seed = playlist?.tracks[0]?.artist ?? "Playlist";
-    return `${seed} — ${date}`;
-  }, [playlist]);
 
   useWorkerEvents(useCallback((e: WsEvent) => {
     if (e.type === "log") setLogs((l) => [...l, `${e["level"] ?? "INFO"}: ${e["msg"] ?? ""}`].slice(-500));
@@ -268,7 +265,7 @@ export default function App() {
                 metrics={playlist?.metrics}
                 count={playlist?.track_count ?? 0}
                 tracks={playlist?.tracks ?? []}
-                onExportM3U8={() => playlist && downloadM3U8(playlist.tracks)}
+                onExportM3U8={() => setM3u8Open(true)}
                 onExportPlex={() => setPlexOpen(true)}
               />
               <RelaxationNotice relaxations={playlist?.relaxations ?? []} />
@@ -330,7 +327,13 @@ export default function App() {
         open={plexOpen}
         onOpenChange={setPlexOpen}
         tracks={playlist?.tracks ?? []}
-        defaultName={defaultPlexName()}
+        defaultName={defaultPlaylistName(playlist)}
+      />
+      <ExportM3U8Dialog
+        open={m3u8Open}
+        onOpenChange={setM3u8Open}
+        tracks={playlist?.tracks ?? []}
+        defaultName={defaultPlaylistName(playlist)}
       />
     </PlayerProvider>
   );

@@ -11,13 +11,31 @@ export function buildM3U8(tracks: TrackOut[]): string {
   return lines.join("\n") + "\n";
 }
 
-/** Trigger a browser download of the playlist as an .m3u8 file. */
-export function downloadM3U8(tracks: TrackOut[], filename = "playlist.m3u8"): void {
+/**
+ * Turn a user-entered playlist name into a safe download filename, ensuring a
+ * single `.m3u8` extension. Filesystem-illegal characters are stripped; the
+ * em-dash used by the default name is a valid filename character and kept.
+ */
+export function toM3U8Filename(name: string): string {
+  const cleaned = name
+    .replace(/[/\\:*?"<>|]/g, "") // strip filesystem-illegal characters
+    .replace(/\s+/g, " ") // collapse internal whitespace
+    .trim();
+  const base = cleaned || "playlist";
+  return base.toLowerCase().endsWith(".m3u8") ? base : `${base}.m3u8`;
+}
+
+/**
+ * Trigger a browser download of the playlist as an .m3u8 file. `name` is the
+ * user-facing playlist name (e.g. "Alvvays — 2026-06-25"); it is sanitized into
+ * a filename via {@link toM3U8Filename}.
+ */
+export function downloadM3U8(tracks: TrackOut[], name = "playlist"): void {
   const blob = new Blob([buildM3U8(tracks)], { type: "audio/x-mpegurl" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = filename;
+  a.download = toM3U8Filename(name);
   document.body.appendChild(a);
   a.click();
   a.remove();
