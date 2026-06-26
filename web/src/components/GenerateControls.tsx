@@ -86,6 +86,7 @@ export function GenerateControls({
   const [artistVariety, setArtistVariety] = useLocalStorage("pg_artist_variety", "balanced");
   const [includeCollabs, setIncludeCollabs] = useLocalStorage("pg_include_collabs", false);
   const [popularSeeds, setPopularSeeds] = useLocalStorage("pg_popular_seeds", false);
+  const [popularityMode, setPopularityMode] = useLocalStorage<"off" | "on" | "oops">("pg_popularity_mode", "off");
   const [seedEpoch, setSeedEpoch] = useState(0);
 
   // Autocomplete (artist mode) — bounded-page infinite scroll
@@ -162,6 +163,7 @@ export function GenerateControls({
       artist_variety: artistVariety,
       include_collaborations: includeCollabs,
       popular_seeds: popularSeeds,
+      popularity_mode: popularityMode,
       seed_epoch: epoch,
     };
     onSubmit(body);
@@ -311,6 +313,30 @@ export function GenerateControls({
             </Cell>
           </>
         )}
+
+        {/* Oops, All Bangers: popularity steering (all modes) */}
+        <Cell>
+          <div className="flex items-center gap-1.5"
+            title="Bias bridge tracks toward each artist's most popular (Last.fm) songs. Off = today; On = lean popular; OOPS = library greatest-hits.">
+            <Lbl>bangers</Lbl>
+            <div className="flex rounded overflow-hidden border border-[#23262d]">
+              {(["off", "on", "oops"] as const).map((val) => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => setPopularityMode(val)}
+                  className={`text-[11px] px-2 py-[4px] ${
+                    popularityMode === val
+                      ? "bg-[#5eead4] text-[#0f1115] font-bold"
+                      : "bg-transparent text-[#9aa0a6]"
+                  }`}
+                >
+                  {val === "oops" ? "OOPS" : val === "on" ? "On" : "Off"}
+                </button>
+              ))}
+            </div>
+          </div>
+        </Cell>
 
         {/* Generate */}
         <Cell push>
