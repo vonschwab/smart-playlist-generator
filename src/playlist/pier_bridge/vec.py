@@ -10,6 +10,7 @@ config before forwarding.
 """
 from __future__ import annotations
 
+import math
 from typing import Optional
 
 import numpy as np
@@ -31,6 +32,35 @@ def _cosine_sim(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.dot(a, b) / (norm_a * norm_b))
 
 
+def _calibrate_transition_cos(
+    value: float, *, center: float, scale: float, gain: float
+) -> float:
+    """Calibrated logistic remap of a transition cosine into (0, 1).
+
+    SINGLE SOURCE OF TRUTH for the centered-transition rescale (Platt-style:
+    ``sigma(gain * (x - center) / scale)``). Replaces the legacy ``(x + 1) / 2``,
+    which wasted its output range on the negative cosines that real edges never
+    produce, compressing the realistic band [~0.14, 0.50] into [~0.57, 0.75].
+    Monotonic; soft-saturating (no hard clip, no ties).
+
+    Lives in this low-level vec module (no upward imports) so both the live
+    scorer (transition_metrics.score_transition_edge) and the opt-in audit path
+    (_compute_transition_score*) call ONE implementation — no divergence.
+    """
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return float("nan")
+    if not math.isfinite(v):
+        return float("nan")
+    z = gain * (v - center) / scale
+    # Numerically stable logistic (avoid overflow for large |z|).
+    if z >= 0:
+        return float(1.0 / (1.0 + math.exp(-z)))
+    ez = math.exp(z)
+    return float(ez / (1.0 + ez))
+
+
 def _compute_transition_score(
     idx_a: int,
     idx_b: int,
@@ -43,6 +73,9 @@ def _compute_transition_score(
     weight_end_start: float,
     weight_mid_mid: float,
     weight_full_full: float,
+    calib_center: float = 0.32,
+    calib_scale: float = 0.0625,
+    calib_gain: float = 1.0,
 ) -> float:
     """
     Compute multi-segment transition score from track A to track B.
@@ -67,10 +100,10 @@ def _compute_transition_score(
         sim_mid = sim_full
 
     if center_transitions:
-        # When centering is enabled, rescale cosine sims from [-1,1] to [0,1]
-        sim_full = (sim_full + 1.0) / 2.0
-        sim_end_start = (sim_end_start + 1.0) / 2.0
-        sim_mid = (sim_mid + 1.0) / 2.0
+        # Calibrated logistic rescale (single source of truth: _calibrate_transition_cos).
+        sim_full = _calibrate_transition_cos(sim_full, center=calib_center, scale=calib_scale, gain=calib_gain)
+        sim_end_start = _calibrate_transition_cos(sim_end_start, center=calib_center, scale=calib_scale, gain=calib_gain)
+        sim_mid = _calibrate_transition_cos(sim_mid, center=calib_center, scale=calib_scale, gain=calib_gain)
 
     return (
         weight_end_start * sim_end_start
@@ -91,6 +124,9 @@ def _compute_transition_score_raw_and_transformed(
     weight_end_start: float,
     weight_mid_mid: float,
     weight_full_full: float,
+    calib_center: float = 0.32,
+    calib_scale: float = 0.0625,
+    calib_gain: float = 1.0,
 ) -> tuple[float, float]:
     """
     Return (raw, transformed) transition scores where "transformed" matches
@@ -115,9 +151,9 @@ def _compute_transition_score_raw_and_transformed(
     if not center_transitions:
         return raw, raw
 
-    sim_full = (sim_full_raw + 1.0) / 2.0
-    sim_end_start = (sim_end_start_raw + 1.0) / 2.0
-    sim_mid = (sim_mid_raw + 1.0) / 2.0
+    sim_full = _calibrate_transition_cos(sim_full_raw, center=calib_center, scale=calib_scale, gain=calib_gain)
+    sim_end_start = _calibrate_transition_cos(sim_end_start_raw, center=calib_center, scale=calib_scale, gain=calib_gain)
+    sim_mid = _calibrate_transition_cos(sim_mid_raw, center=calib_center, scale=calib_scale, gain=calib_gain)
     transformed = (
         weight_end_start * sim_end_start
         + weight_mid_mid * sim_mid

@@ -7,7 +7,7 @@ from typing import Any, Optional
 
 import numpy as np
 
-from src.playlist.pier_bridge.vec import _l2_normalize_rows
+from src.playlist.pier_bridge.vec import _calibrate_transition_cos, _l2_normalize_rows
 
 logger = logging.getLogger(__name__)
 
@@ -63,26 +63,6 @@ def _finite(value: Any) -> bool:
     except Exception:
         return False
 
-
-def _calibrate_transition_cos(
-    value: float, *, center: float, scale: float, gain: float
-) -> float:
-    """Calibrated logistic remap of a transition cosine into (0, 1).
-
-    Standardize the cosine to its operating band, then squash with a logistic
-    (Platt-style: ``sigma(gain * (x - center) / scale)``). Replaces the legacy
-    ``(x + 1) / 2``, which wasted its output range on the negative cosines that
-    real edges never produce, compressing the realistic band [~0.14, 0.50] into
-    [~0.57, 0.75]. Monotonic; soft-saturating (no hard clip, no ties).
-    """
-    if not _finite(value):
-        return float("nan")
-    z = gain * (float(value) - center) / scale
-    # Numerically stable logistic (avoid overflow for large |z|).
-    if z >= 0:
-        return float(1.0 / (1.0 + math.exp(-z)))
-    ez = math.exp(z)
-    return float(ez / (1.0 + ez))
 
 
 def build_transition_metric_context(

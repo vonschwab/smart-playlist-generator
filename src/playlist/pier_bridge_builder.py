@@ -738,6 +738,9 @@ def build_pier_bridge_playlist(
         weight_end_start=float(cfg.weight_end_start),
         weight_mid_mid=float(cfg.weight_mid_mid),
         weight_full_full=float(cfg.weight_full_full),
+        calib_center=float(cfg.transition_calib_center),
+        calib_scale=float(cfg.transition_calib_scale),
+        calib_gain=float(cfg.transition_calib_gain),
     )
 
     # Compute IDF for genre vector mode (Phase 2)
