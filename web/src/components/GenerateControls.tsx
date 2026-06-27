@@ -196,7 +196,7 @@ export function GenerateControls({
 
         {/* Text input: artist or genre mode */}
         {(mode === "artist" || mode === "genre") && (
-          <Cell grow>
+          <Cell className="flex-1 min-w-[220px]">
             <div ref={dropdownRef} className="relative w-full">
               <input
                 data-testid="seed-input"
