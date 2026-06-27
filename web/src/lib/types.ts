@@ -202,6 +202,67 @@ export interface EscalationDecisionRequest {
   genres?: string[];
 }
 
+// ── Taxonomy term adjudication (vocabulary-level review) ──────────────────────
+export interface TaxonomyParentEdge {
+  target: string;
+  edge_type: string;
+  weight: number;
+  confidence: number;
+}
+
+export interface TaxonomyProposal {
+  name?: string;
+  kind?: string;
+  status?: string;
+  specificity_score?: number;
+  parent_edges?: TaxonomyParentEdge[];
+  similar_to?: string[];
+  alias_variants?: string[];
+  term_kind_confirm?: string;
+  rationale?: string;
+  facet_type?: string | null;
+  canonical_target?: string | null;
+  reject_reason?: string; // present on reject verdicts
+}
+
+export interface TaxonomyStagedDecision {
+  verdict: "add" | "alias" | "reject";
+  status?: string; // pending | applied
+}
+
+export interface TaxonomyQueueItem {
+  term: string;
+  raw_term: string;
+  album_frequency: number;
+  cooccurring_tags: string[];
+  examples: string[];
+  variants: string[];
+  source: string;
+  decision: TaxonomyStagedDecision | null;
+}
+
+export interface TaxonomyQueueResponse {
+  terms: TaxonomyQueueItem[];
+  untriaged_terms: number;
+  decided_terms: number;
+}
+
+export interface TaxonomyVerdict {
+  ok: boolean;
+  verdict: "add" | "alias" | "reject";
+  term: string;
+  proposal: TaxonomyProposal;
+}
+
+export interface TaxonomyDecisionRequest {
+  term: string;
+  raw_term?: string;
+  verdict: "add" | "alias" | "reject" | "revert";
+  proposal?: TaxonomyProposal | null;
+  claude?: TaxonomyProposal | null;
+  human_edited?: boolean;
+}
+
 export interface Page<T> {
   items: T[];
   has_more: boolean;

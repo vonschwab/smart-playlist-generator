@@ -14,6 +14,9 @@ import type {
   EscalationQueueResponse,
   ReplaceSuggestionsResponse,
   SeedTrack,
+  TaxonomyDecisionRequest,
+  TaxonomyQueueResponse,
+  TaxonomyVerdict,
 } from "./types";
 
 async function jsonOrThrow(resp: Response) {
@@ -139,5 +142,30 @@ export const api = {
   },
   async reviewPublish(): Promise<{ job_id: string }> {
     return jsonOrThrow(await fetch("/api/review/publish", { method: "POST" }));
+  },
+  async taxonomyQueue(search = "", limit = 50, offset = 0): Promise<TaxonomyQueueResponse> {
+    const params = new URLSearchParams({ search, limit: String(limit), offset: String(offset) });
+    return jsonOrThrow(await fetch(`/api/taxonomy/queue?${params}`));
+  },
+  async taxonomyCompleted(search = "", limit = 50, offset = 0): Promise<TaxonomyQueueResponse> {
+    const params = new URLSearchParams({ search, limit: String(limit), offset: String(offset) });
+    return jsonOrThrow(await fetch(`/api/taxonomy/completed?${params}`));
+  },
+  async taxonomyAdjudicate(term: string): Promise<TaxonomyVerdict> {
+    return jsonOrThrow(await fetch("/api/taxonomy/adjudicate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ term }),
+    }));
+  },
+  async taxonomyDecision(req: TaxonomyDecisionRequest): Promise<{ ok: boolean; status: string }> {
+    return jsonOrThrow(await fetch("/api/taxonomy/decision", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+    }));
+  },
+  async taxonomyApply(): Promise<{ job_id: string }> {
+    return jsonOrThrow(await fetch("/api/taxonomy/apply", { method: "POST" }));
   },
 };
