@@ -101,7 +101,7 @@ class GeneratePlaylistRequest:
     include_collaborations: bool = False
     exclude_seed_tracks_from_recency: bool = False
     artist_only: bool = False
-    popular_seeds: bool = False
+    popular_seeds_mode: str = "off"
     popularity_mode: str = "off"  # Oops All Bangers: off / on / oops
     seed_epoch: int = 0
 
@@ -153,7 +153,7 @@ class GeneratePlaylistRequest:
             include_collaborations=bool(args.get("include_collaborations", False)),
             exclude_seed_tracks_from_recency=bool(args.get("exclude_seed_tracks_from_recency", False)),
             artist_only=bool(args.get("artist_only", False)),
-            popular_seeds=bool(args.get("popular_seeds", False)),
+            popular_seeds_mode=str(args.get("popular_seeds_mode") or "off"),
             popularity_mode=str(args.get("popularity_mode") or "off"),
             seed_epoch=int(args.get("seed_epoch", 0)),
         )
@@ -229,8 +229,8 @@ class GeneratePlaylistRequest:
             args["exclude_seed_tracks_from_recency"] = True
         if self.artist_only:
             args["artist_only"] = True
-        if self.popular_seeds:
-            args["popular_seeds"] = True
+        if self.popular_seeds_mode and self.popular_seeds_mode != "off":
+            args["popular_seeds_mode"] = str(self.popular_seeds_mode)
         if self.popularity_mode and self.popularity_mode != "off":
             args["popularity_mode"] = str(self.popularity_mode)
         if self.seed_epoch:
