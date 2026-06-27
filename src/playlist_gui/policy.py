@@ -83,6 +83,11 @@ PRESENCE_MAP: Dict[str, float] = {
     "very_high": 0.33,
 }
 
+# Oops, All Bangers OOPS baseline: OOPS owns sonic + pace (loosened "radio" tier),
+# the user still owns genre. Tunable; calibrate by ear (see spec §10).
+_OOPS_SONIC_MODE = "dynamic"
+_OOPS_PACE_MODE = "dynamic"
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PolicyDecisions dataclass
@@ -263,6 +268,13 @@ def derive_runtime_config(
     notes.append(f"Sonic mode: {sonic_mode}")
     notes.append(f"Pace mode: {pace_mode}")
     notes.append(f"Cohesion mode: {cohesion_mode}")
+
+    # Oops, All Bangers: OOPS rests looser on sonic/pace ("FM radio" baseline);
+    # genre_mode is left as the user's umbrella width.
+    if getattr(ui, "popularity_mode", "off") == "oops":
+        _set_nested(overrides, "playlists.sonic_mode", _OOPS_SONIC_MODE)
+        _set_nested(overrides, "playlists.pace_mode", _OOPS_PACE_MODE)
+        notes.append(f"OOPS baseline: sonic_mode->{_OOPS_SONIC_MODE}, pace_mode->{_OOPS_PACE_MODE} (genre untouched)")
 
     # ─────────────────────────────────────────────────────────────────────
     # 2. Track count
