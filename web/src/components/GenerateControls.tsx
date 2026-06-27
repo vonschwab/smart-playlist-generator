@@ -313,9 +313,9 @@ export function GenerateControls({
                 className={SEL}
                 title="Seed piers from this artist's most popular tracks. Off = cluster-medoid selection; On = popularity-weighted medoids; 🔥 Pure Hits = top-N most popular tracks only. Forced 🔥 when Bangers = Oops."
               >
-                <option value="off">Popular Seeds: Off</option>
-                <option value="on">Popular Seeds: On</option>
-                <option value="fire">🔥 Pure Hits</option>
+                <option value="off">Off</option>
+                <option value="on">On</option>
+                <option value="fire">🔥</option>
               </select>
             </Cell>
           </>
