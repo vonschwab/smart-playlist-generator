@@ -16,7 +16,17 @@ from .layered_taxonomy import (
     LayeredTaxonomy, load_layered_taxonomy, normalize_taxonomy_name,
 )
 from .storage import SidecarStore
+from .tag_classification import classify_source_tag
 from .taxonomy_decision_store import list_decisions
+
+# Only these deterministic-classifier buckets warrant graph-level adjudication:
+# `review_only` (genuinely unknown — might be a real new genre or genuine noise
+# Claude should reject) and `genre_style` (a known genre missing from the graph).
+# The other buckets — place, instrument, format, mood_function, descriptor
+# (years, labels) — are non-genres/facets the noise policy already owns at
+# enrichment time; surfacing them here would flood the queue with junk like
+# "new york" / "2016" / "piano" that needs no per-term Claude call.
+_QUEUE_KEEP_CLASSIFICATIONS = frozenset({"review_only", "genre_style"})
 
 
 @dataclass
@@ -51,6 +61,10 @@ def build_candidate_index(
     index: dict[str, TaxonomyCandidate] = {}
     for c in candidates:
         if c.album_frequency < min_album_freq:
+            continue
+        # Apply the deterministic noise policy: drop place/year/instrument/format/
+        # mood/label tags the system already resolves without graph adjudication.
+        if classify_source_tag(c.term).classification not in _QUEUE_KEEP_CLASSIFICATIONS:
             continue
         key = normalize_taxonomy_name(c.term)
         index[key] = TaxonomyCandidate(

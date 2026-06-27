@@ -54,6 +54,23 @@ def test_build_candidate_index_finds_unmapped_terms(tmp_path):
     assert "rock" not in index  # mapped -> excluded
 
 
+def test_build_candidate_index_drops_deterministic_noise(tmp_path):
+    # The deterministic noise policy (classify_source_tag, backed by the real
+    # genre_vocabulary.yaml) already knows these are non-genres/facets — they must
+    # NOT flood the graph-adjudication queue. Only genuine unknowns survive.
+    tax = load_layered_taxonomy(_tiny_taxonomy(tmp_path))
+    rows = []
+    for tag in ["new york", "2016", "piano", "vinyl", "chill", "instrumental"]:
+        rows += [_row(tag, f"{tag}-r{i}") for i in range(3)]  # place/year/instrument/format/mood/descriptor
+    rows += [_row("vaporwave", f"vw-r{i}") for i in range(3)]  # review_only -> genuine candidate
+    rows += [_row("slowcore", f"sc-r{i}") for i in range(3)]   # genre_style -> known genre, keep
+    index = trq.build_candidate_index(_FakeStore(rows), tax, min_album_freq=3)
+    assert "vaporwave" in index
+    assert "slowcore" in index
+    for noise in ["new york", "2016", "piano", "vinyl", "chill", "instrumental"]:
+        assert noise not in index, f"deterministic non-genre leaked into queue: {noise}"
+
+
 def test_build_candidate_index_collapses_spacing_variants(tmp_path):
     tax = load_layered_taxonomy(_tiny_taxonomy(tmp_path))
     rows = [
