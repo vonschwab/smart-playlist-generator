@@ -1321,6 +1321,7 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                 dynamic=(cohesion_mode == "dynamic"),
                 cohesion_mode_override=cohesion_mode,
                 seed_track_ids=seed_track_ids,
+                popularity_mode=request.popularity_mode,
             )
         elif mode == "artist" and seed_tracks:
             # Legacy seeds mode (old UI sent mode="artist" with seed_tracks)
@@ -1330,6 +1331,7 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                 dynamic=(cohesion_mode == "dynamic"),
                 cohesion_mode_override=cohesion_mode,
                 seed_track_ids=seed_track_ids,
+                popularity_mode=request.popularity_mode,
             )
         elif mode == "genre" and genre:
             # Genre mode

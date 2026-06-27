@@ -2973,6 +2973,7 @@ class PlaylistGenerator:
         dynamic: bool = False,
         cohesion_mode_override: Optional[str] = None,
         seed_track_ids: Optional[List[str]] = None,
+        popularity_mode: str = "off",
     ) -> Optional[Dict[str, Any]]:
         """
         Create a playlist from explicit seed tracks without requiring an artist name.
@@ -2981,6 +2982,16 @@ class PlaylistGenerator:
         """
         if not seed_tracks:
             raise ValueError("No seed tracks provided.")
+
+        # Oops, All Bangers: inject the popularity gate cutoff into the DS pipeline
+        # config so core.generate_playlist_ds picks it up via pb_overrides (the seed
+        # path calls _maybe_generate_ds_playlist with pier_bridge_config=None, so the
+        # gate must be read from config). Do NOT force popular_seeds / override piers —
+        # seed-mode piers are the user's explicitly chosen seeds.
+        _bangers_cfg = self.config.get("playlists", "bangers", default={}) or {}
+        _seed_cutoff = _resolve_popularity_rank_cutoff(popularity_mode, _bangers_cfg)
+        self.config.config.setdefault("playlists", {}).setdefault("ds_pipeline", {}) \
+            .setdefault("pier_bridge", {})["popularity_rank_cutoff"] = _seed_cutoff
 
         all_library_tracks = self.library.get_all_tracks()
 

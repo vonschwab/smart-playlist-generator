@@ -96,20 +96,21 @@ class _CandidateRelaxationAttempt:
 
 def _banger_gate_inputs(
     bundle: Any,
-    pb_cfg: Optional[Any],
+    rank_cutoff: Optional[int],
     *,
     db_path: str,
 ) -> tuple[Optional[np.ndarray], Optional[int]]:
     """Pure helper: resolve (_banger_ranks, _banger_cutoff) for the Oops-All-Bangers gate.
 
-    Returns (None, None) when the gate is inactive (popularity_rank_cutoff is None or
-    pb_cfg is None).  Otherwise loads per-track Last.fm ranks once over the full bundle
-    and returns (rank_array, int_cutoff).  Isolated into a helper so the unit test can
-    monkeypatch the loader without building a real artifact bundle."""
-    cutoff_raw = getattr(pb_cfg, "popularity_rank_cutoff", None) if pb_cfg is not None else None
-    if cutoff_raw is None:
+    Takes the already-resolved cutoff int (computed at the call site from either
+    pier_bridge_config.popularity_rank_cutoff for artist mode, or pb_overrides for
+    seed mode). Returns (None, None) when rank_cutoff is None (gate inactive). Otherwise
+    loads per-track Last.fm ranks once over the full bundle and returns
+    (rank_array, int_cutoff). Isolated into a helper so the unit test can monkeypatch
+    the loader without building a real artifact bundle."""
+    if rank_cutoff is None:
         return None, None
-    _banger_cutoff = int(cutoff_raw)
+    _banger_cutoff = int(rank_cutoff)
     from src.analyze.popularity_runner import (
         enrichment_db_path as _edb_path,
         load_pool_popularity_ranks_cached,
@@ -551,12 +552,16 @@ def generate_playlist_ds(
     if _genre_admission_aggregate not in {"centroid", "per_seed"}:
         _genre_admission_aggregate = "centroid"
 
-    # Oops, All Bangers: load popularity ranks once over the full bundle before the
-    # _build_pool closure so the closure captures the resolved values.  The closure
-    # captures _banger_ranks / _banger_cutoff; the default-arg trick on
-    # popularity_rank_cutoff lets Task 5's cascade override the cutoff per call.
+    # Oops, All Bangers: gate cutoff comes from the explicit pier_bridge_config (artist
+    # mode) or from pb_overrides (seed mode injects it via config;
+    # pier_bridge_config is None there). Compute the effective cutoff here, then pass
+    # it to the helper so _banger_gate_inputs stays a pure function on (bundle, cutoff).
+    _cfg_cutoff: Optional[int] = getattr(pier_bridge_config, "popularity_rank_cutoff", None)
+    if _cfg_cutoff is None:
+        _ovr_cutoff = pb_overrides.get("popularity_rank_cutoff")
+        _cfg_cutoff = int(_ovr_cutoff) if _ovr_cutoff is not None else None
     _banger_ranks, _banger_cutoff = _banger_gate_inputs(
-        bundle, pier_bridge_config, db_path=""
+        bundle, _cfg_cutoff, db_path=""
     )
 
     def _build_pool(candidate_cfg: Any, genre_gate: Optional[float],
