@@ -38,7 +38,7 @@ export function MiniPlayer() {
   return (
     <div
       data-testid="mini-player"
-      className="fixed bottom-4 right-4 z-50 flex items-center gap-3 bg-panel border border-accent rounded-lg px-4 py-2 shadow-2xl min-w-[300px]"
+      className="fixed bottom-16 lg:bottom-4 right-4 z-50 flex items-center gap-3 bg-panel border border-accent rounded-lg px-4 py-2 shadow-2xl min-w-[300px]"
     >
       <audio
         ref={audioRef}

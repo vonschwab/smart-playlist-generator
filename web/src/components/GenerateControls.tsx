@@ -95,7 +95,10 @@ export function GenerateControls({
 
   // Autocomplete (artist mode) — bounded-page infinite scroll
   const artistSearch = useInfiniteSearch<string>({ fetchPage: api.autocomplete, pageSize: 30 });
-  const selectedRef = useRef<string | null>(null);
+  // Initialize from the persisted seed so a remount (e.g. mobile tab switch
+  // unmounting this component) treats the stored name as already-selected and
+  // does NOT reopen the autocomplete dropdown.
+  const selectedRef = useRef<string | null>(seed);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
 
@@ -343,6 +346,7 @@ export function GenerateControls({
             type="button"
             data-testid="more-controls"
             aria-expanded={showMore}
+            aria-controls="advanced-controls-region"
             onClick={() => setShowMore((v) => !v)}
             className="@md:hidden border border-[#23262d] text-[#8b939d] text-[11px] px-3 py-[4px] rounded whitespace-nowrap"
           >
@@ -352,7 +356,7 @@ export function GenerateControls({
       </div>
 
       {/* ── Advanced controls: Rows 2–3 (collapse below @md container width) ── */}
-      <div data-testid="advanced-controls" className={showMore ? "" : "@max-md:hidden"}>
+      <div id="advanced-controls-region" data-testid="advanced-controls" className={showMore ? "" : "@max-md:hidden"}>
 
       {/* ── ROW 2: cohesion + matching ──────────────────────────────────────── */}
       <div className="flex flex-wrap items-center bg-[#13151a] border-b border-[#1e2128]">
