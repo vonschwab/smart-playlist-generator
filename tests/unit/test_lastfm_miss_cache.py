@@ -91,3 +91,34 @@ def test_miss_older_than_ttl_is_refetched_and_timestamp_refreshes(tmp_path, monk
         "lastfm_tags", status="miss", newer_than_iso="2020-01-01T00:00:00+00:00"
     )
     assert "old::album" in refreshed
+
+
+def test_estimate_matches_gate_pending(tmp_path, monkeypatch):
+    # The up-front pending estimate must count the same releases the stage would
+    # actually fetch: total releases minus stored pages minus misses within TTL
+    # (aged-out misses count as pending again).
+    db = tmp_path / "enr.db"
+    store = SidecarStore(str(db))
+    store.initialize()
+    store.upsert_source_page(
+        release_key="a::hit", normalized_artist="a", normalized_album="hit",
+        album_id=None, source_url="lastfm://artist/a/album/hit",
+        source_type="lastfm_tags", identity_status="confirmed",
+        identity_confidence=0.9, evidence_summary="t",
+    )
+    store.record_source_attempt("b::recentmiss", "lastfm_tags", "miss")  # now -> within TTL
+    with store.connect() as conn:
+        conn.execute(
+            "INSERT INTO ai_genre_source_attempts "
+            "(release_key, source_type, status, detail, attempted_at) VALUES (?,?,?,?,?)",
+            ("c::oldmiss", "lastfm_tags", "miss", None, "2000-01-01T00:00:00+00:00"),
+        )
+
+    monkeypatch.setattr(al, "ENRICHMENT_DB_PATH", db)
+    releases = [_rel("a::hit"), _rel("b::recentmiss"), _rel("c::oldmiss"), _rel("d::new")]
+    monkeypatch.setattr(al, "discover_releases", lambda *a, **k: releases)
+
+    ctx = {"conn": None, "db_path": "x", "config_path": str(tmp_path / "nope.yaml")}
+    count, label = al.estimate_stage_units(ctx, "lastfm")
+    assert count == 2  # c::oldmiss (TTL expired) + d::new
+    assert label is not None and "Last.fm" in label
