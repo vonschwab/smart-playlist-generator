@@ -49,7 +49,7 @@ def test_gate_inputs_loads_when_cutoff_set(monkeypatch):
     bundle = _make_bundle(2)
     monkeypatch.setattr(
         "src.analyze.popularity_runner.load_pool_popularity_ranks_cached",
-        lambda b, idx, *, db_path: np.array([0, 5]),
+        lambda b, idx, *, db_path, metadata_db_path=None: np.array([0, 5]),
     )
     ranks, cutoff = core._banger_gate_inputs(bundle, 10, db_path="")
     assert cutoff == 10 and ranks is not None and list(ranks) == [0, 5]
@@ -59,7 +59,7 @@ def test_gate_inputs_cutoff_is_int(monkeypatch):
     """The returned cutoff must be a Python int."""
     monkeypatch.setattr(
         "src.analyze.popularity_runner.load_pool_popularity_ranks_cached",
-        lambda b, idx, *, db_path: np.full(len(b.track_ids), -1, dtype=int),
+        lambda b, idx, *, db_path, metadata_db_path=None: np.full(len(b.track_ids), -1, dtype=int),
     )
     _, cutoff = core._banger_gate_inputs(_make_bundle(2), 50, db_path="")
     assert isinstance(cutoff, int)

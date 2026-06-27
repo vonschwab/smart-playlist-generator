@@ -108,7 +108,9 @@ def resolve_top_tracks_to_rank(
                 best = max(
                     cands,
                     key=lambda lt: (
-                        calculate_version_preference_score(str(lt.get("title") or "")),
+                        calculate_version_preference_score(
+                            str(lt.get("title") or ""), str(lt.get("album") or "")
+                        ),
                         str(lt["track_id"]),
                     ),
                 )
@@ -227,6 +229,7 @@ def build_popularity_sidecar(
 def load_artist_popularity_values(
     bundle, artist_name: str, *, client, db_path: str, limit: int,
     max_age_days: int, now_iso: str, include_collaborations: bool = False,
+    metadata_db_path: Optional[str] = None,
 ) -> Optional[np.ndarray]:
     """Per-track popularity for the seed artist, aligned to bundle.track_ids.
 
@@ -235,7 +238,7 @@ def load_artist_popularity_values(
     client. NaN for non-matched / other-artist tracks (neutral)."""
     if client is None:
         return None
-    from src.playlist.artist_style import _artist_indices_in_bundle
+    from src.playlist.artist_style import _artist_indices_in_bundle, _load_albums_for_indices
     from src.string_utils import normalize_artist_key
 
     indices = _artist_indices_in_bundle(
@@ -243,10 +246,14 @@ def load_artist_popularity_values(
     if not indices:
         return None
     titles = getattr(bundle, "track_titles", None)
+    # Album is needed so version-preference can demote a clean-titled track on a live
+    # album (e.g. "Corpse Pose" on "Live Leaves") below the studio version.
+    _albums = _load_albums_for_indices(bundle, indices, metadata_db_path) if metadata_db_path else {}
     local_tracks = [{
         "track_id": str(bundle.track_ids[i]),
         "title": str(titles[i]) if titles is not None else "",
         "musicbrainz_id": "",
+        "album": _albums.get(i, ""),
     } for i in indices]
     artist_key = normalize_artist_key(artist_name)
     top = get_artist_top_tracks_cached_or_fetch(
@@ -320,7 +327,7 @@ def load_pool_popularity_values(
 
 
 def load_pool_popularity_values_cached(
-    bundle, pool_indices, *, db_path: str
+    bundle, pool_indices, *, db_path: str, metadata_db_path: Optional[str] = None
 ) -> np.ndarray:
     """Cache-ONLY per-track popularity for the given bundle pool indices.
 
@@ -334,6 +341,9 @@ def load_pool_popularity_values_cached(
     titles = getattr(bundle, "track_titles", None)
     if keys is None:
         return out
+    # Album so version-preference demotes clean-titled live-album tracks (e.g. "Live Leaves").
+    from src.playlist.artist_style import _load_albums_for_indices
+    _albums = _load_albums_for_indices(bundle, [int(i) for i in pool_indices], metadata_db_path) if metadata_db_path else {}
     rows_by_key: Dict[str, List[int]] = {}
     for i in pool_indices:
         i = int(i)
@@ -349,6 +359,7 @@ def load_pool_popularity_values_cached(
             "track_id": str(track_ids[i]),
             "title": str(titles[i]) if titles is not None else "",
             "musicbrainz_id": "",
+            "album": _albums.get(i, ""),
         } for i in idxs]
         ranks = resolve_top_tracks_to_rank(top, local)
         n = len(top)
@@ -361,7 +372,7 @@ def load_pool_popularity_values_cached(
 
 
 def load_pool_popularity_ranks_cached(
-    bundle, pool_indices, *, db_path: str
+    bundle, pool_indices, *, db_path: str, metadata_db_path: Optional[str] = None
 ) -> np.ndarray:
     """Cache-ONLY per-track Last.fm rank (0-based) for the given bundle pool indices.
 
@@ -376,6 +387,9 @@ def load_pool_popularity_ranks_cached(
     titles = getattr(bundle, "track_titles", None)
     if keys is None:
         return out
+    # Album so version-preference demotes clean-titled live-album tracks (e.g. "Live Leaves").
+    from src.playlist.artist_style import _load_albums_for_indices
+    _albums = _load_albums_for_indices(bundle, [int(i) for i in pool_indices], metadata_db_path) if metadata_db_path else {}
     rows_by_key: Dict[str, List[int]] = {}
     for i in pool_indices:
         i = int(i)
@@ -391,6 +405,7 @@ def load_pool_popularity_ranks_cached(
             "track_id": str(track_ids[i]),
             "title": str(titles[i]) if titles is not None else "",
             "musicbrainz_id": "",
+            "album": _albums.get(i, ""),
         } for i in idxs]
         ranks = resolve_top_tracks_to_rank(top, local)
         pos = {str(track_ids[i]): i for i in idxs}

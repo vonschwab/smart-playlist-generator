@@ -1761,6 +1761,7 @@ class PlaylistGenerator:
                     popularity_values = load_artist_popularity_values(
                         bundle, artist_name, client=self.lastfm,
                         db_path=enrichment_db_path(),
+                        metadata_db_path=self.config.get("library", "database_path", default="data/metadata.db"),
                         limit=int((self.config.config.get("lastfm", {}) or {}).get("artist_top_tracks_limit", 50)),
                         max_age_days=int(style_cfg_raw.get("popularity_max_age_days", 30)),
                         now_iso=datetime.now(timezone.utc).isoformat(),
