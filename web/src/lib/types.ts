@@ -14,6 +14,7 @@ export interface GenerateRequestBody {
   pace_mode?: AxisValue;
   include_collaborations?: boolean;
   popular_seeds?: boolean;
+  popularity_mode?: "off" | "on" | "oops";
   seed_epoch?: number;
   exclude_seed_tracks_from_recency?: boolean;
   recency_enabled?: boolean;
@@ -47,6 +48,7 @@ export interface TrackOut {
   sonic_similarity?: number | null;
   genre_similarity?: number | null;
   transition_score?: number | null;
+  popularity_rank?: number | null;
   genres: string[];
 }
 

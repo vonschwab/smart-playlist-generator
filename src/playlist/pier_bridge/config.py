@@ -96,6 +96,10 @@ class PierBridgeConfig:
     # multiply the edge score by (1 - strength).
     genre_penalty_threshold: float = 0.20
     genre_penalty_strength: float = 0.10
+    # Oops, All Bangers: graded popularity demotion of bridge candidates in the beam.
+    # combined_score *= (1 - popularity_penalty_strength * (1 - popularity)); NaN -> max.
+    # 0.0 = off / today's behavior. Resolved from popularity_mode (off/on/oops).
+    popularity_penalty_strength: float = 0.0
     # Layered genre graph transition scoring (opt-in; default OFF).
     # Uses sidecar-derived leaf/family/bridge/facet matrices when present on
     # the artifact bundle. This is separate from legacy flat genre steering.

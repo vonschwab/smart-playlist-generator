@@ -38,6 +38,9 @@ export const api = {
   async jobs(): Promise<JobOut[]> {
     return jsonOrThrow(await fetch("/api/jobs"));
   },
+  async clearJobs(): Promise<{ cleared: number }> {
+    return jsonOrThrow(await fetch("/api/jobs", { method: "DELETE" }));
+  },
   async autocomplete(q: string, offset = 0, limit = 30): Promise<Page<string>> {
     const params = new URLSearchParams({ q, offset: String(offset), limit: String(limit) });
     return jsonOrThrow(await fetch(`/api/autocomplete?${params}`));

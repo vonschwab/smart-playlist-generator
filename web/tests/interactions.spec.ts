@@ -34,10 +34,18 @@ test("blacklist dims the row", async ({ page }) => {
   await expect(page.getByText("blacklisted").first()).toBeVisible();
 });
 
-test("M3U8 export triggers a download", async ({ page }) => {
+test("M3U8 export opens a rename dialog and downloads with the chosen name", async ({ page }) => {
   await generate(page);
-  const downloadPromise = page.waitForEvent("download");
   await page.getByTestId("export-m3u8").click();
+
+  // A rename dialog appears, pre-filled with "<first track artist> — <YYYY-MM-DD>".
+  await expect(page.getByTestId("export-m3u8-dialog")).toBeVisible();
+  await expect(page.getByTestId("m3u8-name")).toHaveValue(/^Acetone — \d{4}-\d{2}-\d{2}$/);
+
+  // The user can rename before exporting; the download uses the entered name.
+  await page.getByTestId("m3u8-name").fill("My Mix");
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByTestId("m3u8-download").click();
   const download = await downloadPromise;
-  expect(download.suggestedFilename()).toBe("playlist.m3u8");
+  expect(download.suggestedFilename()).toBe("My Mix.m3u8");
 });

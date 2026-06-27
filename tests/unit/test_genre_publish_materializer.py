@@ -13,7 +13,7 @@ def _schema(conn):
     )
     conn.execute(
         "CREATE TABLE genre_graph_release_genre_assignments ("
-        "album_id TEXT, genre_id TEXT, assignment_layer TEXT, confidence REAL)"
+        "release_id TEXT, album_id TEXT, genre_id TEXT, assignment_layer TEXT, confidence REAL)"
     )
 
 
@@ -43,9 +43,9 @@ def test_materialize_graph_minus_remove_plus_add():
     conn.row_factory = sqlite3.Row
     _schema(conn)
     conn.executemany(
-        "INSERT INTO genre_graph_release_genre_assignments VALUES (?,?,?,?)",
-        [("ALB2", "cool_jazz", "observed_leaf", 0.9),
-         ("ALB2", "jazz", "inferred_family", 0.9)],
+        "INSERT INTO genre_graph_release_genre_assignments VALUES (?,?,?,?,?)",
+        [("k", "ALB2", "cool_jazz", "observed_leaf", 0.9),
+         ("k", "ALB2", "jazz", "inferred_family", 0.9)],
     )
     genre_publish.materialize_album_genres(
         conn, "ALB2",
@@ -75,7 +75,7 @@ def _publish_db(tmp_path):
         "CREATE TABLE album_genres (album_id TEXT, genre TEXT);"
         "CREATE TABLE artist_genres (artist TEXT, genre TEXT);"
         "CREATE TABLE genre_graph_release_genre_assignments "
-        "(album_id TEXT, genre_id TEXT, assignment_layer TEXT, confidence REAL);"
+        "(release_id TEXT, album_id TEXT, genre_id TEXT, assignment_layer TEXT, confidence REAL);"
         "CREATE TABLE release_effective_genres ("
         " album_id TEXT NOT NULL, release_key TEXT, genre_id TEXT NOT NULL, "
         " assignment_layer TEXT NOT NULL, confidence REAL NOT NULL, source TEXT NOT NULL, "

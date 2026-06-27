@@ -380,6 +380,41 @@ def test_cli_main_runs_dry_run(tmp_path, capsys):
     assert "graph_albums" in out
 
 
+def test_publish_fans_graph_genres_to_all_album_ids_sharing_release_key(tmp_path):
+    """A release fragmented into multiple album_ids (feat./collab variants that share
+    one normalized release_key) must ALL receive the release's graph genres — not just
+    the single lexicographically-smaller album_id, with the siblings silently falling
+    back to legacy. Root cause of ~23 'un-enriched' albums (2026-06-25 audit)."""
+    from src.ai_genre_enrichment.normalization import (
+        normalize_release_artist, normalize_release_name)
+    meta = _make_metadata(tmp_path)
+    side = _make_sidecar(tmp_path)
+    mconn = sqlite3.connect(meta)
+    mconn.execute("INSERT INTO albums VALUES ('ALB_BASE', 'Flamagra', 'Flying Lotus')")
+    mconn.execute(
+        "INSERT INTO albums VALUES ('ALB_FEAT', 'Flamagra', 'Flying Lotus feat. Anderson Paak')")
+    mconn.commit()
+    mconn.close()
+    key = f"{normalize_release_artist('Flying Lotus')}::{normalize_release_name('Flamagra')}"
+    # precondition: the feat variant collapses to the same normalized release key
+    assert key == (
+        f"{normalize_release_artist('Flying Lotus feat. Anderson Paak')}::"
+        f"{normalize_release_name('Flamagra')}"
+    )
+    _insert_graph_assignment(side, key, "flying lotus", "flamagra",
+                             "alternative_rock", "observed_leaf")
+
+    genre_publish.publish(str(meta), str(side), dry_run=False)
+
+    conn = sqlite3.connect(meta)
+    conn.row_factory = sqlite3.Row
+    src = {r["album_id"]: r["source"] for r in conn.execute(
+        "SELECT album_id, source FROM release_effective_genres WHERE genre_id='alternative_rock'")}
+    conn.close()
+    assert src.get("ALB_BASE") == "graph"
+    assert src.get("ALB_FEAT") == "graph"
+
+
 def test_escalated_album_retains_prior_assignments(tmp_path):
     """An album with prior graph assignments that is later escalated (and therefore NOT
     re-materialized by apply) keeps its prior observed_leaf after publish."""

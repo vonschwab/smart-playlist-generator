@@ -122,6 +122,7 @@
   "onset_bridge_max_log_distance": 0.85,
   "onset_bridge_soft_penalty_strength": 0.3,
   "pace_bridge_floor": 0.0,
+  "popularity_penalty_strength": 0.0,
   "progress_arc_autoscale_distance_scale": 0.45,
   "progress_arc_autoscale_enabled": true,
   "progress_arc_autoscale_min_distance": 0.06,

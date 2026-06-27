@@ -27,10 +27,17 @@ def best_results(rows, *, thorough_pv) -> dict[str, dict]:
     return best
 
 
+# Escalated albums whose proposed genres are materialized as a provisional fallback get
+# their confidence scaled by this factor — present enough to beat legacy raw tags, but
+# weighted below a confirmed adjudication and still flagged in the review queue.
+PROVISIONAL_CONFIDENCE_SCALE = 0.6
+
+
 @dataclass
 class ApplySummary:
     materialized: int
     escalated: int
+    provisional: int = 0
 
 
 def apply_adjudications(*, rows, thorough_pv, std_pv, meta_conn, id2name, taxonomy, adapter,
@@ -38,12 +45,32 @@ def apply_adjudications(*, rows, thorough_pv, std_pv, meta_conn, id2name, taxono
     best = best_results(rows, thorough_pv=thorough_pv)
     materialized = 0
     escalated = 0
+    provisional = 0
     for album_id, resp in best.items():
         ev = build_evidence(meta_conn, album_id, id2name)
         if resp.get("escalate"):
-            canon = canonicalize_proposed(
-                [g["term"] for g in resp.get("genres", [])], adapter.canonicalize_tag)["canonical"]
+            proposed = resp.get("genres", [])
             release_key = f"{normalize_release_artist(ev['artist'])}::{normalize_release_name(ev['album'])}"
+            # Provisional fallback: an escalated album with proposed genres but NO prior
+            # assignment is materialized at reduced confidence so it is never worse than
+            # legacy, while staying queued for human confirmation. Never clobbers an
+            # existing (confirmed) assignment.
+            if proposed and not sidecar_store.has_genre_assignments(release_key):
+                provisional_resp = {
+                    **resp,
+                    "genres": [
+                        {**g, "confidence": float(g.get("confidence", 0.0)) * PROVISIONAL_CONFIDENCE_SCALE}
+                        for g in proposed
+                    ],
+                }
+                materialize_adjudication(
+                    sidecar_store, album_id=album_id, artist=ev["artist"], album=ev["album"],
+                    response=provisional_resp, taxonomy=taxonomy,
+                    prompt_version=std_pv, model="provisional",
+                )
+                provisional += 1
+            canon = canonicalize_proposed(
+                [g["term"] for g in proposed], adapter.canonicalize_tag)["canonical"]
             queue.enqueue(
                 album_id=album_id, release_key=release_key, artist=ev["artist"], album=ev["album"],
                 prior_observed_leaf=ev["current_observed_leaf"],
@@ -59,4 +86,4 @@ def apply_adjudications(*, rows, thorough_pv, std_pv, meta_conn, id2name, taxono
             response=resp, taxonomy=taxonomy, prompt_version=std_pv, model=model,
         )
         materialized += 1
-    return ApplySummary(materialized=materialized, escalated=escalated)
+    return ApplySummary(materialized=materialized, escalated=escalated, provisional=provisional)

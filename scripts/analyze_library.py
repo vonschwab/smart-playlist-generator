@@ -17,7 +17,7 @@ import sys
 import time
 import uuid
 import hashlib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Any, Tuple
 
@@ -503,6 +503,28 @@ def compute_stage_fingerprint(ctx: Dict, stage: str) -> str:
         }
         return _hash_obj(key)
 
+    if stage == "popularity":
+        # Re-run when the qualifying-artist set or the Last.fm cache changes;
+        # skip when the sidecar is already current. The stage's own pending-list
+        # keeps the fetching incremental (only uncached artists are hit).
+        qualifying = _safe_count(
+            conn,
+            "SELECT COUNT(*) FROM (SELECT artist_key FROM tracks "
+            "WHERE artist_key IS NOT NULL AND artist_key <> '' "
+            "GROUP BY artist_key HAVING COUNT(*) >= 8)",
+        )
+        cached = _sidecar_count("SELECT COUNT(*) FROM artist_top_tracks_cache")
+        sc = Path(ctx["out_dir"]) / "popularity" / "popularity_sidecar.npz"
+        key = {
+            "stage": stage,
+            "qualifying_artists": qualifying,
+            "cached_artists": cached,
+            "sidecar_exists": sc.exists(),
+            "sidecar_mtime": int(sc.stat().st_mtime) if sc.exists() else 0,
+            "config": cfg_hash,
+        }
+        return _hash_obj(key)
+
     if stage == "verify":
         artifact_mtime = 0
         try:
@@ -579,11 +601,16 @@ def estimate_stage_units(ctx: Dict, stage: str) -> Tuple[Optional[int], Optional
             )
             return pending, "albums needing Discogs genres"
         if stage == "lastfm":
-            total_albums = _safe_count(conn, "SELECT COUNT(DISTINCT album_id) FROM albums "
-                                            "WHERE album_id IS NOT NULL AND album_id != ''")
-            scraped = _sidecar_count(
-                "SELECT COUNT(*) FROM ai_genre_source_pages WHERE source_type='lastfm_tags'")
-            return max(0, total_albums - scraped), "releases needing Last.fm tags"
+            # Count exactly what the stage would fetch: discover the releases and
+            # subtract the same skip set the gate uses (pages + misses within TTL).
+            # Earlier this compared album_id counts to source-page counts — wrong
+            # granularity, so it could read 0 while the stage went on to fetch 500+.
+            store = SidecarStore(str(ENRICHMENT_DB_PATH))
+            store.initialize()
+            skip = _lastfm_skip_keys(store, _lastfm_recheck_miss_days(ctx))
+            releases = discover_releases(ctx["db_path"])
+            pending = sum(1 for r in releases if r.release_key not in skip)
+            return pending, "releases needing Last.fm tags"
         if stage == "enrich":
             source_pages = _sidecar_count("SELECT COUNT(DISTINCT release_key) "
                                           "FROM ai_genre_source_pages")
@@ -1276,6 +1303,32 @@ def _resolve_lastfm_api_key(ctx: Dict) -> Optional[str]:
         return None
 
 
+def _lastfm_recheck_miss_days(ctx: Dict) -> int:
+    """Days a Last.fm 'miss' is skipped before a retry (config lastfm.recheck_miss_days)."""
+    try:
+        return int(Config(ctx["config_path"]).lastfm_recheck_miss_days)
+    except Exception:
+        return 30
+
+
+def _lastfm_skip_keys(store: SidecarStore, recheck_days: int) -> set:
+    """release_keys the lastfm stage skips: stored pages (hits) + misses within TTL.
+
+    Single source of truth for both the actual stage gate and the up-front
+    pending estimate, so the two can't drift apart. Misses older than
+    ``recheck_days`` are intentionally NOT skipped (they age out and get retried).
+    """
+    skip = store.release_keys_with_source_type("lastfm_tags")
+    if recheck_days > 0:
+        cutoff_iso = (
+            datetime.now(timezone.utc) - timedelta(days=recheck_days)
+        ).replace(microsecond=0).isoformat()
+        skip = skip | store.release_keys_attempted(
+            "lastfm_tags", status="miss", newer_than_iso=cutoff_iso
+        )
+    return skip
+
+
 def stage_lastfm(ctx: Dict) -> Dict:
     """Fetch Last.fm top tags into the sidecar for releases that lack them.
 
@@ -1301,13 +1354,27 @@ def stage_lastfm(ctx: Dict) -> Dict:
     if not releases:
         return {"skipped": True, "reason": "no_releases", "extracted": 0}
 
-    already = store.release_keys_with_source_type("lastfm_tags")
-    pending = [r for r in releases if args.force or r.release_key not in already]
-    skipped_existing = len(releases) - len(pending)
+    # Skip releases we've already handled: those with a stored page (a hit) and
+    # those that returned no tags within the recheck window (a recent miss).
+    # Without the miss-cache, every empty release was re-fetched on every run —
+    # the same ~500 albums, forever. Misses age out after recheck_miss_days so a
+    # release that gets tagged later is still picked up. The estimate uses the
+    # same _lastfm_skip_keys helper, so "pending=N" up front matches what runs.
+    have_pages = store.release_keys_with_source_type("lastfm_tags")
+    recheck_days = _lastfm_recheck_miss_days(ctx)
+    skip = _lastfm_skip_keys(store, recheck_days)
+    pending = [r for r in releases if args.force or r.release_key not in skip]
+    skipped_keys = {r.release_key for r in releases} - {r.release_key for r in pending}
+    skipped_existing = len(skipped_keys & have_pages)
+    skipped_recent_miss = len(skipped_keys - have_pages)
     if not pending:
-        logger.info("Skipping lastfm stage (all %d releases already scraped)", len(releases))
+        logger.info(
+            "Skipping lastfm stage (all %d releases handled: %d scraped, %d recent miss)",
+            len(releases), skipped_existing, skipped_recent_miss,
+        )
         return {"skipped": True, "reason": "all_scraped", "extracted": 0,
-                "skipped_existing": skipped_existing}
+                "skipped_existing": skipped_existing,
+                "skipped_recent_miss": skipped_recent_miss}
 
     prog = (
         ProgressLogger(
@@ -1331,16 +1398,21 @@ def stage_lastfm(ctx: Dict) -> Dict:
                 limit=20,
             )
             if not tags:
+                # Record the miss so reruns skip it for recheck_miss_days instead
+                # of re-fetching it every time. (Exceptions below are NOT recorded
+                # — a network blip should retry, only a real "no tags" answer skips.)
+                store.record_source_attempt(release.release_key, "lastfm_tags", "miss")
                 empty += 1
                 time.sleep(0.25)
                 continue
             album_segment = f"/album/{release.normalized_album}" if release.normalized_album else ""
+            source_url = f"lastfm://artist/{release.normalized_artist}{album_segment}"
             page_id = store.upsert_source_page(
                 release_key=release.release_key,
                 normalized_artist=release.normalized_artist,
                 normalized_album=release.normalized_album,
                 album_id=release.album_id,
-                source_url=f"lastfm://artist/{release.normalized_artist}{album_segment}",
+                source_url=source_url,
                 source_type="lastfm_tags",
                 identity_status="confirmed",
                 identity_confidence=0.9,
@@ -1348,6 +1420,7 @@ def stage_lastfm(ctx: Dict) -> Dict:
             )
             store.replace_source_tags(page_id, tags)
             store.classify_source_tags(page_id, adjudicate=False, model=None)
+            store.record_source_attempt(release.release_key, "lastfm_tags", "hit", source_url)
             extracted += 1
         except Exception as exc:  # network blip / API error — log and continue
             failed += 1
@@ -1356,10 +1429,14 @@ def stage_lastfm(ctx: Dict) -> Dict:
 
     if prog:
         prog.finish(detail=f"lastfm extracted {extracted:,} of {len(pending):,}")
-    logger.info("lastfm stage: extracted=%d empty=%d failed=%d skipped_existing=%d",
-                extracted, empty, failed, skipped_existing)
+    logger.info(
+        "lastfm stage: extracted=%d empty=%d failed=%d skipped_existing=%d "
+        "skipped_recent_miss=%d (recheck_miss_days=%d)",
+        extracted, empty, failed, skipped_existing, skipped_recent_miss, recheck_days,
+    )
     return {"skipped": False, "extracted": extracted, "empty": empty,
             "failed": failed, "skipped_existing": skipped_existing,
+            "skipped_recent_miss": skipped_recent_miss,
             "total": len(pending), "errors": failed}
 
 
@@ -1698,8 +1775,13 @@ def stage_apply(ctx: Dict) -> Dict:
     finally:
         conn.close()
         queue.close()
+    logger.info(
+        "apply stage: materialized=%d escalated=%d provisional=%d (escalated albums with "
+        "proposed genres get a reduced-confidence fallback, still queued for review)",
+        summary.materialized, summary.escalated, summary.provisional,
+    )
     return {"materialized": summary.materialized, "escalated": summary.escalated,
-            "total": summary.materialized}
+            "provisional": summary.provisional, "total": summary.materialized}
 
 
 def _release_effective_genres_exists(db_path: str) -> bool:
@@ -2210,7 +2292,17 @@ def stage_mert(ctx: Dict) -> Dict:
         (tid, db_paths.get(tid)) for tid in pending_ids
     ]
 
+    # Loading the MERT model (download on a cold HF cache, then weights onto the
+    # device) is a multi-second-to-minute step with no output of its own — log
+    # around it so the stage doesn't look hung before track 1.
+    logger.info(
+        "stage_mert: loading MERT model %s on %s (first run / cold cache can take a minute)...",
+        MODEL_NAME, device,
+    )
+    _load_t0 = time.time()
     embedder = _build_mert_embedder(device, torch_threads)
+    logger.info("stage_mert: MERT model loaded in %.1fs; embedding %d track(s)",
+                time.time() - _load_t0, len(pending_ids))
     store = ShardStore(
         shard_dir,
         model_name=MODEL_NAME,
@@ -2359,7 +2451,10 @@ def stage_popularity(ctx: Dict) -> Dict:
 
     client = LastFMClient(api_key=api_key, username=username)
     fetched = failed = 0
-    for artist_key, name in pending:
+    total = len(pending)
+    t0 = _time.monotonic()
+    logger.info("stage_popularity: %d artists to fetch (%d already cached)", total, len(already))
+    for i, (artist_key, name) in enumerate(pending, 1):
         try:
             top = client.get_artist_top_tracks(name, limit=limit)
             upsert_artist_top_tracks(
@@ -2370,6 +2465,14 @@ def stage_popularity(ctx: Dict) -> Dict:
         except Exception as exc:  # network/parse — log and continue
             failed += 1
             logger.warning("popularity fetch failed for %s: %s", name, exc)
+        if i % 50 == 0 or i == total:
+            elapsed = _time.monotonic() - t0
+            rate = i / elapsed if elapsed > 0 else 0.0
+            eta = (total - i) / rate if rate > 0 else 0.0
+            logger.info(
+                "stage_popularity: %d/%d artists (%d ok, %d failed) | %.1f/s | ETA ~%.0fs",
+                i, total, fetched, failed, rate, eta,
+            )
         _time.sleep(0.2)  # ~5 req/s courtesy
 
     stats = build_popularity_sidecar(

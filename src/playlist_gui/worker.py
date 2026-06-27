@@ -1310,6 +1310,7 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                 include_collaborations=include_collaborations,
                 exclude_seed_tracks_from_recency=exclude_seed_tracks_from_recency,
                 popular_seeds=request.popular_seeds,
+                popularity_mode=request.popularity_mode,
                 seed_epoch=request.seed_epoch,
             )
         elif mode == "seeds" and seed_tracks:
@@ -1376,7 +1377,7 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
 
             formatted_tracks = []
 
-            for i, track in enumerate(tracks, 1):
+            for i, track in enumerate(tracks):
                 rating_key = track.get('rating_key') or track.get('id') or track.get('track_id')
 
                 def _raw_genres(_track=track, _rk=rating_key) -> List[str]:
@@ -1439,6 +1440,20 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                     "genres": genres,
                     "transition_score": edge.get("T"),
                 })
+
+            # Oops, All Bangers: annotate each track with its Last.fm popularity rank
+            # (sets track['popularity_rank']) and log it, when Bangers is on.
+            if str(getattr(request, "popularity_mode", "off")) in ("on", "oops"):
+                try:
+                    from src.analyze.popularity_runner import (
+                        annotate_and_log_playlist_popularity,
+                        enrichment_db_path,
+                    )
+                    annotate_and_log_playlist_popularity(
+                        formatted_tracks, db_path=enrichment_db_path())
+                except Exception as _exc:  # diagnostics must never break a generation
+                    logging.getLogger(__name__).warning(
+                        "Bangers popularity annotation failed: %s", _exc)
 
             playlist_result = {
                 "name": playlist_data.get('title', 'Generated Playlist'),

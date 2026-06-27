@@ -11,9 +11,21 @@
           {
             "type": "command",
             "command": "python",
-            "args": [".claude/hooks/pytest_pipe_guard.py"],
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/pytest_pipe_guard.py"],
             "timeout": 15,
             "statusMessage": "Checking pytest pipe discipline"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/reuse_first_reminder.py"],
+            "timeout": 15,
+            "statusMessage": "Checking reuse-first discipline"
           }
         ]
       }
@@ -25,7 +37,7 @@
           {
             "type": "command",
             "command": "python",
-            "args": [".claude/hooks/stale_state_reminder.py"],
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/stale_state_reminder.py"],
             "timeout": 15,
             "statusMessage": "Checking for stale dist/worker state"
           }

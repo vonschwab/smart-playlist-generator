@@ -86,11 +86,19 @@ export function GenerateControls({
   const [artistVariety, setArtistVariety] = useLocalStorage("pg_artist_variety", "balanced");
   const [includeCollabs, setIncludeCollabs] = useLocalStorage("pg_include_collabs", false);
   const [popularSeeds, setPopularSeeds] = useLocalStorage("pg_popular_seeds", false);
+  const [popularityMode, setPopularityMode] = useLocalStorage<"off" | "on" | "oops">("pg_popularity_mode", "off");
   const [seedEpoch, setSeedEpoch] = useState(0);
+
+  // On a narrow *container* (<@md = 448px) Rows 2–3 + artist extras collapse
+  // behind this toggle. At >=448px they are always shown regardless of state.
+  const [showMore, setShowMore] = useState(false);
 
   // Autocomplete (artist mode) — bounded-page infinite scroll
   const artistSearch = useInfiniteSearch<string>({ fetchPage: api.autocomplete, pageSize: 30 });
-  const selectedRef = useRef<string | null>(null);
+  // Initialize from the persisted seed so a remount (e.g. mobile tab switch
+  // unmounting this component) treats the stored name as already-selected and
+  // does NOT reopen the autocomplete dropdown.
+  const selectedRef = useRef<string | null>(seed);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
 
@@ -162,16 +170,17 @@ export function GenerateControls({
       artist_variety: artistVariety,
       include_collaborations: includeCollabs,
       popular_seeds: popularSeeds,
+      popularity_mode: popularityMode,
       seed_epoch: epoch,
     };
     onSubmit(body);
   }
 
   return (
-    <div className="border border-[#23262d] rounded-none border-x-0 border-t-0 overflow-hidden">
+    <div className="@container border border-[#23262d] rounded-none border-x-0 border-t-0 overflow-hidden">
 
       {/* ── ROW 1: mode-specific ──────────────────────────────────────────── */}
-      <div className="flex items-center bg-[#16181d] border-b border-[#1e2128]">
+      <div className="flex flex-wrap items-center bg-[#16181d] border-b border-[#1e2128]">
 
         {/* Mode selector */}
         <Cell>
@@ -190,7 +199,7 @@ export function GenerateControls({
 
         {/* Text input: artist or genre mode */}
         {(mode === "artist" || mode === "genre") && (
-          <Cell grow>
+          <Cell className="flex-1 min-w-[220px]">
             <div ref={dropdownRef} className="relative w-full">
               <input
                 data-testid="seed-input"
@@ -332,10 +341,25 @@ export function GenerateControls({
             </button>
           </Cell>
         )}
+        <Cell>
+          <button
+            type="button"
+            data-testid="more-controls"
+            aria-expanded={showMore}
+            aria-controls="advanced-controls-region"
+            onClick={() => setShowMore((v) => !v)}
+            className="@md:hidden border border-[#23262d] text-[#8b939d] text-[11px] px-3 py-[4px] rounded whitespace-nowrap"
+          >
+            {showMore ? "Less controls ▴" : "More controls ▾"}
+          </button>
+        </Cell>
       </div>
 
+      {/* ── Advanced controls: Rows 2–3 (collapse below @md container width) ── */}
+      <div id="advanced-controls-region" data-testid="advanced-controls" className={showMore ? "" : "@max-md:hidden"}>
+
       {/* ── ROW 2: cohesion + matching ──────────────────────────────────────── */}
-      <div className="flex items-center bg-[#13151a] border-b border-[#1e2128]">
+      <div className="flex flex-wrap items-center bg-[#13151a] border-b border-[#1e2128]">
         <Cell>
           <Lbl title="Overall beam tightness — how strictly the playlist stays within a sonic-genre neighbourhood. Strict = very cohesive; Discover = wide-ranging.">
             cohesion
@@ -366,10 +390,19 @@ export function GenerateControls({
             {["off", "dynamic", "narrow", "strict"].map((v) => <option key={v} value={v}>{v}</option>)}
           </select>
         </Cell>
+        <Cell>
+          <Lbl title="Oops, All Bangers — bias the bridge tracks toward each artist's most popular (Last.fm) songs. Off = today; On = lean popular; Oops, All Bangers = library greatest-hits.">bangers</Lbl>
+          <select value={popularityMode} onChange={(e) => setPopularityMode(e.target.value as "off" | "on" | "oops")} className={SEL}
+            title="Bias the bridge tracks toward each artist's most popular (Last.fm) songs.">
+            <option value="off">Off</option>
+            <option value="on">On</option>
+            <option value="oops">Oops, All Bangers</option>
+          </select>
+        </Cell>
       </div>
 
       {/* ── ROW 3: freshness + spacing ──────────────────────────────────────── */}
-      <div className="flex items-center bg-[#111317]">
+      <div className="flex flex-wrap items-center bg-[#111317]">
         <Cell>
           <label
             className="flex items-center gap-1.5 cursor-pointer select-none"
@@ -437,6 +470,7 @@ export function GenerateControls({
             ))}
           </select>
         </Cell>
+      </div>
       </div>
 
     </div>

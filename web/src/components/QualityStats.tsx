@@ -22,14 +22,14 @@ export function QualityStats({ metrics, count, tracks, onExportM3U8, onExportPle
   );
 
   return (
-    <div className="flex items-center gap-5 px-3 py-2 border-b border-border bg-panel2">
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-3 py-2 border-b border-border bg-panel2">
       {stat("tracks", String(count))}
       {stat("mean T", fmt(metrics.mean_transition))}
       {stat("min T", fmt(metrics.min_transition))}
       {metrics.p10_transition != null && stat("p10", fmt(metrics.p10_transition))}
       {metrics.p90_transition != null && stat("p90", fmt(metrics.p90_transition))}
       {stat("distinct artists", String(metrics.distinct_artists ?? "—"))}
-      <div className="ml-auto flex gap-2">
+      <div className="ml-auto flex gap-2 shrink-0">
         <button
           data-testid="export-m3u8"
           onClick={onExportM3U8}

@@ -1279,6 +1279,7 @@ class PlaylistGenerator:
         mode: Optional[str] = None,
         random_seed: Optional[int] = None,
         popular_seeds: bool = False,
+        popularity_mode: str = "off",
     ) -> Optional[Dict[str, Any]]:
         """
         Create a single playlist for a specific artist without requiring listening history
@@ -1751,6 +1752,7 @@ class PlaylistGenerator:
                     include_collaborations=include_collaborations,
                     excluded_track_ids=seed_recency_excluded_ids if exclude_seed_tracks_from_recency else None,
                     popularity_values=popularity_values,
+                    metadata_db_path=self.config.get("library", "database_path", default="data/metadata.db"),
                 )
                 if not medoids:
                     raise ValueError("Style clustering returned no medoids")
@@ -1915,6 +1917,17 @@ class PlaylistGenerator:
                 elif isinstance(bridge_floor_raw, (int, float)):
                     bridge_floor = float(bridge_floor_raw)
 
+                # Oops, All Bangers: three-stop popularity mode -> beam penalty strength.
+                # Config-tunable (not in the GUI): playlists.bangers.strength_{on,oops}.
+                # NOTE: this is the beam-penalty lever (re-ranks within the pool); the real
+                # "only bangers" lever is the popularity admission gate (separate work).
+                _bangers_cfg = self.config.get("playlists", "bangers", default={}) or {}
+                _pop_strength = {
+                    "off": 0.0,
+                    "on": float(_bangers_cfg.get("strength_on", 0.25)),
+                    "oops": float(_bangers_cfg.get("strength_oops", 0.60)),
+                }.get(str(popularity_mode or "off"), 0.0)
+
                 pier_cfg = PierBridgeConfig(
                     transition_floor=float(ds_defaults.construct.transition_floor),
                     bridge_floor=bridge_floor,
@@ -1926,6 +1939,7 @@ class PlaylistGenerator:
                     genre_tiebreak_weight=genre_tiebreak_weight,
                     genre_penalty_threshold=float(pb_tuning["genre_penalty_threshold"]),
                     genre_penalty_strength=float(pb_tuning["genre_penalty_strength"]),
+                    popularity_penalty_strength=_pop_strength,
                     genre_steering_enabled=bool(pb_tuning.get("genre_steering_enabled", False)),
                     genre_steering_source=str(pb_tuning.get("genre_steering_source", "taxonomy")),
                     weight_genre=float(pb_tuning.get("weight_genre", 0.0)),

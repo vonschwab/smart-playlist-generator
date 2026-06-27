@@ -213,6 +213,19 @@ def _compute_duration_penalty(
     return penalty
 
 
+def _popularity_factor(p: float, strength: float) -> float:
+    """Graded multiplicative popularity demotion for a bridge candidate ("Oops, All Bangers").
+
+    `p` = per-artist Last.fm popularity in [0,1] (1 = the artist's #1 track), or NaN if the
+    track isn't charting / the artist is unknown. Returns a factor in (0, 1] to multiply into
+    the candidate's score: a banger (p=1) -> 1.0 (no demotion); a deep cut or unknown -> the
+    full 1 - strength. NaN is treated as a deep cut (ruthless), graded by `strength`."""
+    if strength <= 0.0:
+        return 1.0
+    d = 1.0 - (p if p == p else 0.0)   # `p == p` is False only for NaN
+    return 1.0 - strength * d
+
+
 def _beam_search_segment(
     pier_a: int,
     pier_b: int,
@@ -255,6 +268,7 @@ def _beam_search_segment(
     roam_detour_sonic: Optional[np.ndarray] = None,
     roam_dev_genre: Optional[np.ndarray] = None,
     roam_dev_energy: Optional[np.ndarray] = None,
+    popularity_values: Optional[np.ndarray] = None,
 ) -> Tuple[Optional[List[int]], int, int, Optional[str]]:
     """
     Constrained beam search to find path from pier_a to pier_b.
@@ -278,6 +292,10 @@ def _beam_search_segment(
     if not math.isfinite(penalty_strength):
         penalty_strength = 0.0
     penalty_strength = float(max(0.0, min(1.0, penalty_strength)))
+    popularity_penalty_strength = float(getattr(cfg, "popularity_penalty_strength", 0.0))
+    if not math.isfinite(popularity_penalty_strength):
+        popularity_penalty_strength = 0.0
+    popularity_penalty_strength = float(max(0.0, min(1.0, popularity_penalty_strength)))
     penalty_threshold = float(cfg.genre_penalty_threshold)
     genre_tie_break_band = cfg.genre_tie_break_band
     if isinstance(genre_tie_break_band, (int, float)) and math.isfinite(float(genre_tie_break_band)):
@@ -1371,6 +1389,9 @@ def _beam_search_segment(
                         if penalty_strength > 0 and genre_sim < penalty_threshold:
                             combined_score *= (1.0 - penalty_strength)
                             genre_penalty_hits += 1
+                    if popularity_penalty_strength > 0.0 and popularity_values is not None:
+                        combined_score *= _popularity_factor(
+                            float(popularity_values[int(cand)]), popularity_penalty_strength)
                     waypoint_delta_val = 0.0
                     if waypoint_enabled:
                         waypoint_delta_val = _waypoint_delta(waypoint_sim, waypoint_sim0)
@@ -1494,6 +1515,9 @@ def _beam_search_segment(
                             if penalty_strength > 0 and genre_sim < penalty_threshold:
                                 combined_score *= (1.0 - penalty_strength)
                                 genre_penalty_hits += 1
+                    if popularity_penalty_strength > 0.0 and popularity_values is not None:
+                        combined_score *= _popularity_factor(
+                            float(popularity_values[int(cand)]), popularity_penalty_strength)
                     waypoint_delta_val = 0.0
                     if waypoint_enabled:
                         # Always apply waypoint scoring (tie-break band removed in Phase 2)

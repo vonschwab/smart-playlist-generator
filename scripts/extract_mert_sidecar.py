@@ -363,6 +363,8 @@ def run_extraction(
     loader: Callable[[str, float, float], np.ndarray] = load_window,
     clip_s: float = CLIP_S,
     log_every: int = 10,
+    heartbeat_s: float = 15.0,
+    clock: Callable[[], float] = time.time,
     cancellation_check: Callable[[], None] | None = None,
 ) -> dict:
     """Embed start/mid/end clips for each (track_id, file_path); never crash on one track.
@@ -375,7 +377,9 @@ def run_extraction(
     resumes cleanly from the manifest.
     """
     n_ok = n_fail = 0
-    t0 = time.time()
+    n = len(items)
+    t0 = clock()
+    last_log = t0
     try:
         for k, (tid, fp) in enumerate(items, 1):
             if cancellation_check is not None:
@@ -401,11 +405,17 @@ def run_extraction(
                 print(f"  WARN {tid}: {reason}", flush=True)
                 store.record_failure(tid, reason)
                 n_fail += 1
-            if k % log_every == 0:
-                rate = (time.time() - t0) / k
-                eta_h = (len(items) - k) * rate / 3600
-                print(f"  {k}/{len(items)}  ok={n_ok} fail={n_fail}  {rate:.1f}s/track  ETA {eta_h:.1f}h",
+            # Progress: on the first and last track, every `log_every`, and at
+            # least every `heartbeat_s` seconds. MERT on CPU is ~20-40s/track, so
+            # the time-based heartbeat is what keeps the run from looking hung
+            # between the (sparse) every-N boundaries.
+            now = clock()
+            if k == 1 or k == n or k % log_every == 0 or (now - last_log) >= heartbeat_s:
+                rate = (now - t0) / k
+                eta_h = (n - k) * rate / 3600
+                print(f"  {k}/{n}  ok={n_ok} fail={n_fail}  {rate:.1f}s/track  ETA {eta_h:.1f}h",
                       flush=True)
+                last_log = now
     finally:
         store.flush()
     return {"ok": n_ok, "failed": n_fail}

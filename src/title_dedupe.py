@@ -296,7 +296,17 @@ class TitleDedupeTracker:
         self._duplicate_count = 0
 
 
-def calculate_version_preference_score(title: str) -> int:
+# Album-name markers that indicate a LIVE recording even when the track title is
+# clean (e.g. "Polly" on "MTV Unplugged", "Lithium" on "Live at Reading"). Kept
+# specific to avoid false positives like Hole's studio LP "Live Through This".
+_LIVE_ALBUM_MARKERS = (
+    "unplugged", "live at", "live in", "live from", "live on", "in concert",
+    "(live", "[live", "live)", "live]", "live album", "live recording",
+    "live bootleg", "bbc session", "peel session", "live session",
+)
+
+
+def calculate_version_preference_score(title: str, album: str = "") -> int:
     """
     Calculate a preference score for a track version.
     Higher score = more preferred (canonical/album version).
@@ -305,12 +315,20 @@ def calculate_version_preference_score(title: str) -> int:
 
     Args:
         title: Track title
+        album: Album/release name (optional). Many live recordings carry a CLEAN
+            track title — the live-ness lives in the album ("MTV Unplugged",
+            "Live at Reading") — so the album is penalized for live markers too.
 
     Returns:
         Preference score (higher = more canonical)
     """
     title_lower = title.lower()
     score = 100  # Base score
+
+    # Album-based live detection: catches live recordings with clean track titles.
+    album_lower = str(album or "").lower()
+    if any(m in album_lower for m in _LIVE_ALBUM_MARKERS):
+        score -= 30
 
     # Penalize version indicators
     penalties = {

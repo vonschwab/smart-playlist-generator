@@ -24,6 +24,9 @@ lastfm:
   username: ''
   history_days: 90
   artist_top_tracks_limit: 50      # how many top tracks to fetch per artist (popularity stage)
+  recheck_miss_days: 30            # an album Last.fm has no tags for is skipped for this
+                                   # many days, then retried once (tags accrue over time).
+                                   # 0 = disable the miss-cache (re-fetch every miss, every run).
 plex:
   enabled: false
   base_url: http://localhost:32400
