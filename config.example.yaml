@@ -223,7 +223,7 @@ playlists:
       # releases don't become seeds. A live cut is kept only if it's the sole version.
       dedupe_versions: true
       medoid_popularity_weight: 0.0    # within-slot bias toward Last.fm-popular tracks; keep < medoid_energy_weight
-      popular_seeds_weight: 0.5        # weight applied when the "Popular Seeds" checkbox is ON
+      popular_seeds_weight: 1.0   # ON-mode medoid popularity weight (was 0.5)
       popularity_max_age_days: 30      # refetch an artist's top tracks if the cache entry is older
 
     # Construction scoring weights

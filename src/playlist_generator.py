@@ -18,6 +18,7 @@ from src.playlist.artist_style import (
     build_genre_neighbor_candidate_pool,
     cluster_artist_tracks,
     order_clusters,
+    select_popular_piers,
     _select_k,
     _artist_indices_in_bundle,
 )
@@ -1298,7 +1299,7 @@ class PlaylistGenerator:
         num_tracks: Optional[int] = None,
         mode: Optional[str] = None,
         random_seed: Optional[int] = None,
-        popular_seeds: bool = False,
+        popular_seeds_mode: str = "off",
         popularity_mode: str = "off",
     ) -> Optional[Dict[str, Any]]:
         """
@@ -1325,7 +1326,7 @@ class PlaylistGenerator:
 
         # Oops, All Bangers: OOPS mode forces popular-seed pier selection so piers
         # are the artist's hits, not just the centroid medoids.
-        popular_seeds = _resolve_popular_seeds(popular_seeds, popularity_mode)
+        popular_seeds_mode = _resolve_popular_seeds_mode(popular_seeds_mode, popularity_mode)
 
         logger.info(f"Creating playlist for artist: {artist_name}")
 
@@ -1748,14 +1749,14 @@ class PlaylistGenerator:
                 # values aligned to the bundle. Default path: popularity_values=None
                 # (cluster_artist_tracks treats None as no-op, byte-identical to today).
                 popularity_values = None
-                if popular_seeds and getattr(self, "lastfm", None) is not None:
+                if popular_seeds_mode in {"on", "fire"} and getattr(self, "lastfm", None) is not None:
                     from dataclasses import replace
                     from datetime import datetime, timezone
                     from src.analyze.popularity_runner import (
                         enrichment_db_path,
                         load_artist_popularity_values,
                     )
-                    pop_w = float(style_cfg_raw.get("popular_seeds_weight", 0.5))
+                    pop_w = float(style_cfg_raw.get("popular_seeds_weight", 1.0))
                     style_cfg = replace(style_cfg, medoid_popularity_weight=pop_w)
                     popularity_values = load_artist_popularity_values(
                         bundle, artist_name, client=self.lastfm,
@@ -1778,6 +1779,22 @@ class PlaylistGenerator:
                     popularity_values=popularity_values,
                     metadata_db_path=self.config.get("library", "database_path", default="data/metadata.db"),
                 )
+                # 🔥 Pure-hits piers: override cluster medoids with the artist's top-N
+                # most-popular tracks (selection only — order_clusters still sequences them).
+                if popular_seeds_mode == "fire" and popularity_values is not None:
+                    _all_members = [i for _cluster in clusters for i in _cluster]
+                    _fire_piers = select_popular_piers(_all_members, popularity_values, target_pier_count)
+                    if _fire_piers:
+                        logger.info(
+                            "Popular Seeds 🔥: overriding %d cluster-medoid piers with top-%d popular tracks",
+                            len(medoids), len(_fire_piers),
+                        )
+                        medoids = _fire_piers
+                    else:
+                        logger.warning(
+                            "Popular Seeds 🔥: no popular piers resolved (uncached artist?) — "
+                            "falling back to cluster-medoid piers",
+                        )
                 if not medoids:
                     raise ValueError("Style clustering returned no medoids")
                 ordered_medoids = order_clusters(medoids, X_norm)
@@ -1837,7 +1854,7 @@ class PlaylistGenerator:
                 # Internal connectors disabled for Artist mode - seed artist should ONLY appear as piers
                 internal_connector_ids = []
                 pier_ids = [str(bundle.track_ids[m]) for m in ordered_medoids]
-                if popular_seeds:
+                if popular_seeds_mode in {"on", "fire"}:
                     # Diagnostic: log where each chosen pier sits on the artist's
                     # Last.fm popularity list (the cache is warm from the lazy fetch).
                     from src.analyze.popularity_runner import (
