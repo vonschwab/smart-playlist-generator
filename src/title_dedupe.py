@@ -326,8 +326,11 @@ def calculate_version_preference_score(title: str, album: str = "") -> int:
     score = 100  # Base score
 
     # Album-based live detection: catches live recordings with clean track titles.
+    # A standalone "live" word (\blive\b) catches live albums named "Live <X>"
+    # (e.g. Unwound "Live Leaves") that match none of the phrase markers, while NOT
+    # firing on substrings like "Alive"/"Olive"/"Deliver".
     album_lower = str(album or "").lower()
-    if any(m in album_lower for m in _LIVE_ALBUM_MARKERS):
+    if re.search(r"\blive\b", album_lower) or any(m in album_lower for m in _LIVE_ALBUM_MARKERS):
         score -= 30
 
     # Penalize version indicators

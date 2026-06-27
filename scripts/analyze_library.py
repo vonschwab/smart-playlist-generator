@@ -601,11 +601,16 @@ def estimate_stage_units(ctx: Dict, stage: str) -> Tuple[Optional[int], Optional
             )
             return pending, "albums needing Discogs genres"
         if stage == "lastfm":
-            total_albums = _safe_count(conn, "SELECT COUNT(DISTINCT album_id) FROM albums "
-                                            "WHERE album_id IS NOT NULL AND album_id != ''")
-            scraped = _sidecar_count(
-                "SELECT COUNT(*) FROM ai_genre_source_pages WHERE source_type='lastfm_tags'")
-            return max(0, total_albums - scraped), "releases needing Last.fm tags"
+            # Count exactly what the stage would fetch: discover the releases and
+            # subtract the same skip set the gate uses (pages + misses within TTL).
+            # Earlier this compared album_id counts to source-page counts — wrong
+            # granularity, so it could read 0 while the stage went on to fetch 500+.
+            store = SidecarStore(str(ENRICHMENT_DB_PATH))
+            store.initialize()
+            skip = _lastfm_skip_keys(store, _lastfm_recheck_miss_days(ctx))
+            releases = discover_releases(ctx["db_path"])
+            pending = sum(1 for r in releases if r.release_key not in skip)
+            return pending, "releases needing Last.fm tags"
         if stage == "enrich":
             source_pages = _sidecar_count("SELECT COUNT(DISTINCT release_key) "
                                           "FROM ai_genre_source_pages")
@@ -1306,6 +1311,24 @@ def _lastfm_recheck_miss_days(ctx: Dict) -> int:
         return 30
 
 
+def _lastfm_skip_keys(store: SidecarStore, recheck_days: int) -> set:
+    """release_keys the lastfm stage skips: stored pages (hits) + misses within TTL.
+
+    Single source of truth for both the actual stage gate and the up-front
+    pending estimate, so the two can't drift apart. Misses older than
+    ``recheck_days`` are intentionally NOT skipped (they age out and get retried).
+    """
+    skip = store.release_keys_with_source_type("lastfm_tags")
+    if recheck_days > 0:
+        cutoff_iso = (
+            datetime.now(timezone.utc) - timedelta(days=recheck_days)
+        ).replace(microsecond=0).isoformat()
+        skip = skip | store.release_keys_attempted(
+            "lastfm_tags", status="miss", newer_than_iso=cutoff_iso
+        )
+    return skip
+
+
 def stage_lastfm(ctx: Dict) -> Dict:
     """Fetch Last.fm top tags into the sidecar for releases that lack them.
 
@@ -1335,22 +1358,15 @@ def stage_lastfm(ctx: Dict) -> Dict:
     # those that returned no tags within the recheck window (a recent miss).
     # Without the miss-cache, every empty release was re-fetched on every run —
     # the same ~500 albums, forever. Misses age out after recheck_miss_days so a
-    # release that gets tagged later is still picked up.
+    # release that gets tagged later is still picked up. The estimate uses the
+    # same _lastfm_skip_keys helper, so "pending=N" up front matches what runs.
     have_pages = store.release_keys_with_source_type("lastfm_tags")
     recheck_days = _lastfm_recheck_miss_days(ctx)
-    recent_misses: set = set()
-    if recheck_days > 0:
-        cutoff_iso = (
-            datetime.now(timezone.utc) - timedelta(days=recheck_days)
-        ).replace(microsecond=0).isoformat()
-        recent_misses = store.release_keys_attempted(
-            "lastfm_tags", status="miss", newer_than_iso=cutoff_iso
-        )
-    skip = have_pages | recent_misses
+    skip = _lastfm_skip_keys(store, recheck_days)
     pending = [r for r in releases if args.force or r.release_key not in skip]
     skipped_keys = {r.release_key for r in releases} - {r.release_key for r in pending}
     skipped_existing = len(skipped_keys & have_pages)
-    skipped_recent_miss = len(skipped_keys & (recent_misses - have_pages))
+    skipped_recent_miss = len(skipped_keys - have_pages)
     if not pending:
         logger.info(
             "Skipping lastfm stage (all %d releases handled: %d scraped, %d recent miss)",

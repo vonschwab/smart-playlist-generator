@@ -82,6 +82,12 @@ class PierBridgeConfig:
     weight_end_start: float = 0.70
     weight_mid_mid: float = 0.15
     weight_full_full: float = 0.15
+    # Calibrated-sigmoid transition rescale params (used when center_transitions=True).
+    # Single source of truth: vec._calibrate_transition_cos; fixed constants from
+    # the library cosine band (scripts/research/calibrate_transition_sigmoid.py).
+    transition_calib_center: float = 0.32
+    transition_calib_scale: float = 0.0625
+    transition_calib_gain: float = 1.0
     # Bridge scoring weights
     weight_bridge: float = 0.6
     weight_transition: float = 0.4
@@ -94,6 +100,9 @@ class PierBridgeConfig:
     # combined_score *= (1 - popularity_penalty_strength * (1 - popularity)); NaN -> max.
     # 0.0 = off / today's behavior. Resolved from popularity_mode (off/on/oops).
     popularity_penalty_strength: float = 0.0
+    # Oops, All Bangers admission gate: resolved per popularity_mode (off->None,
+    # on->50, oops->10). None = gate disabled. Consumed by core.generate_playlist_ds.
+    popularity_rank_cutoff: Optional[int] = None
     # Layered genre graph transition scoring (opt-in; default OFF).
     # Uses sidecar-derived leaf/family/bridge/facet matrices when present on
     # the artifact bundle. This is separate from legacy flat genre steering.
@@ -390,6 +399,9 @@ def _compute_transition_score(
         weight_end_start=float(cfg.weight_end_start),
         weight_mid_mid=float(cfg.weight_mid_mid),
         weight_full_full=float(cfg.weight_full_full),
+        calib_center=float(cfg.transition_calib_center),
+        calib_scale=float(cfg.transition_calib_scale),
+        calib_gain=float(cfg.transition_calib_gain),
     )
 
 
@@ -409,6 +421,9 @@ def _compute_transition_score_raw_and_transformed(
         weight_end_start=float(cfg.weight_end_start),
         weight_mid_mid=float(cfg.weight_mid_mid),
         weight_full_full=float(cfg.weight_full_full),
+        calib_center=float(cfg.transition_calib_center),
+        calib_scale=float(cfg.transition_calib_scale),
+        calib_gain=float(cfg.transition_calib_gain),
     )
 
 

@@ -11,10 +11,6 @@ This module provides scoring functions for:
 
 Public API:
 -----------
-Transition Scoring:
-    compute_transition_score()
-    compute_transition_score_raw_and_transformed()
-
 Bridge Scoring:
     compute_bridgeability_score()
 
@@ -22,12 +18,11 @@ Constraints:
     TransitionWeights
     ScoringConstraints
     SeedOrderingConfig
+
+(Transition scoring lives in src/playlist/transition_metrics.py
+(score_transition_edge); the legacy transition_scoring duplicate was removed.)
 """
 
-from .transition_scoring import (
-    compute_transition_score,
-    compute_transition_score_raw_and_transformed,
-)
 from .bridge_scoring import (
     compute_bridgeability_score,
 )
@@ -38,9 +33,6 @@ from .constraints import (
 )
 
 __all__ = [
-    # Transition scoring
-    "compute_transition_score",
-    "compute_transition_score_raw_and_transformed",
     # Bridge scoring
     "compute_bridgeability_score",
     # Constraints

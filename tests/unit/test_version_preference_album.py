@@ -12,8 +12,13 @@ def test_version_preference_penalizes_live_album():
     assert studio > reading
     # Title-only call (no album) is unchanged / backwards-compatible.
     assert calculate_version_preference_score("Polly") == 100
-    # A studio LP that merely contains the word "live" is NOT penalized (no false positive).
-    assert calculate_version_preference_score("Doll Parts", "Live Through This") == 100
+    # A standalone "live" word IS penalized so live LPs named "Live <X>" (e.g. Unwound's
+    # "Live Leaves") are caught. This also penalizes the rare studio LP named "Live <X>"
+    # (e.g. "Live Through This") — an accepted tradeoff: the -30 only changes a tie-break
+    # between two versions of the SAME song, which those studio LPs' tracks almost never have.
+    assert calculate_version_preference_score("Doll Parts", "Live Through This") == 70
+    # ...but a substring like "Alive"/"Olive" is NOT a false positive (word boundary).
+    assert calculate_version_preference_score("Doll Parts", "Still Alive") == 100
 
 
 def test_dedupe_album_aware_beats_duration_tiebreak():

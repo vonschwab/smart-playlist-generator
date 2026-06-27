@@ -494,16 +494,20 @@ def test_progress_monotonicity_in_beam_search_segment():
     assert ts[0] <= ts[1] + 1e-9
 
 
-def test_dynamic_transition_floor_blocks_low_t():
-    # With dynamic transition_floor=0.35, a segment with no valid transitions should fail.
-    # guarantee_feasible=False restores the legacy failure path so this gate is still exercised.
+def test_transition_floor_no_longer_hard_gates_low_t():
+    # Roam-only design (2026-06-25 centered-transition fix, design §5): the
+    # ``transition_floor`` HARD GATE is removed. A low-T edge that the legacy floor
+    # would have rejected (cosine ~0.20 < the old 0.35 floor) is now ACCEPTED in the
+    # legacy beam path — roam's worst-edge minimax, not a hard floor, is the quality
+    # mechanism (and removing the gate is strictly fewer cascade triggers → budget-safe).
+    # ``transition_floor`` is retained only as an inert param for cascade callers.
     from src.playlist.pier_bridge_builder import PierBridgeConfig, build_pier_bridge_playlist
     from src.playlist.run_audit import InfeasibleHandlingConfig
 
     X = np.array([
         [1.0, 0.0],         # pier A
         [0.0, 1.0],         # pier B
-        [0.2, 0.98],        # candidate: A->cand cosine ~0.20 < 0.35
+        [0.2, 0.98],        # candidate: A->cand cosine ~0.20, below the old 0.35 floor
     ])
     bundle = DummyBundle(
         X_sonic=X,
@@ -520,7 +524,9 @@ def test_dynamic_transition_floor_blocks_low_t():
         allowed_track_ids_set={"a0", "b0", "c0"},
         infeasible_handling=InfeasibleHandlingConfig(guarantee_feasible=False),
     )
-    assert not result.success
+    # The old hard gate would have failed this build (no edge ≥ 0.35); it no longer gates.
+    assert result.success
+    assert "c0" in result.track_ids
 
 
 def test_soft_genre_penalty_changes_ranking_without_gating():

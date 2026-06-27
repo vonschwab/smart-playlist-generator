@@ -7,7 +7,7 @@ from typing import Any, Optional
 
 import numpy as np
 
-from src.playlist.pier_bridge.vec import _l2_normalize_rows
+from src.playlist.pier_bridge.vec import _calibrate_transition_cos, _l2_normalize_rows
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +28,12 @@ class TransitionMetricContext:
     weight_mid_mid: float = 0.15
     weight_full_full: float = 0.15
     transition_gamma: Optional[float] = None
+    # Calibrated-sigmoid rescale params (used when center_transitions=True).
+    # Fixed constants derived once from the library cosine band; see
+    # docs/superpowers/specs/2026-06-25-sonic-centered-transition-design.md.
+    calib_center: float = 0.32
+    calib_scale: float = 0.0625
+    calib_gain: float = 1.0
 
 
 def _norm_optional(mat: Optional[np.ndarray]) -> Optional[np.ndarray]:
@@ -58,11 +64,6 @@ def _finite(value: Any) -> bool:
         return False
 
 
-def _rescale_centered_cos(value: float) -> float:
-    if not _finite(value):
-        return float("nan")
-    return float(np.clip((float(value) + 1.0) / 2.0, 0.0, 1.0))
-
 
 def build_transition_metric_context(
     *,
@@ -79,6 +80,9 @@ def build_transition_metric_context(
     weight_end_start: float = 0.70,
     weight_mid_mid: float = 0.15,
     weight_full_full: float = 0.15,
+    calib_center: float = 0.32,
+    calib_scale: float = 0.0625,
+    calib_gain: float = 1.0,
 ) -> TransitionMetricContext:
     """Build the shared transition metric context from raw artifact matrices."""
 
@@ -140,6 +144,9 @@ def build_transition_metric_context(
         weight_mid_mid=float(weight_mid_mid),
         weight_full_full=float(weight_full_full),
         transition_gamma=(float(transition_gamma) if transition_gamma is not None else None),
+        calib_center=float(calib_center),
+        calib_scale=float(calib_scale),
+        calib_gain=float(calib_gain),
     )
 
 
@@ -163,10 +170,18 @@ def score_transition_edge(context: TransitionMetricContext, prev_idx: int, cur_i
         + float(context.weight_full_full) * float(sim_full_raw)
     )
     if context.center_transitions:
+        def _r(x: float) -> float:
+            return _calibrate_transition_cos(
+                x,
+                center=context.calib_center,
+                scale=context.calib_scale,
+                gain=context.calib_gain,
+            )
+
         t_val = (
-            float(context.weight_end_start) * _rescale_centered_cos(sim_end_start_raw)
-            + float(context.weight_mid_mid) * _rescale_centered_cos(sim_mid_raw)
-            + float(context.weight_full_full) * _rescale_centered_cos(sim_full_raw)
+            float(context.weight_end_start) * _r(sim_end_start_raw)
+            + float(context.weight_mid_mid) * _r(sim_mid_raw)
+            + float(context.weight_full_full) * _r(sim_full_raw)
         )
     else:
         t_val = t_raw
@@ -179,7 +194,6 @@ def score_transition_edge(context: TransitionMetricContext, prev_idx: int, cur_i
 
     edge = {
         "T": float(t_val),
-        "T_used": float(t_val),
         "T_raw": float(t_raw),
         "T_centered_cos": float(sim_end_start_raw),
         "H": float(h_val),
@@ -196,11 +210,21 @@ def is_broken_transition(
     transition_floor: float,
     centered_cos_floor: Optional[float] = None,
 ) -> bool:
-    """Return True when an edge is below the shared floor or catastrophically anti-aligned."""
+    """Return True only when an edge is catastrophically anti-aligned.
 
-    t_val = edge.get("T")
-    if _finite(t_val) and float(t_val) < float(transition_floor):
-        return True
+    Roam-only: the ``transition_floor`` HARD GATE is removed. With a
+    discriminating ``T`` (the calibrated sigmoid), the beam objective and roam's
+    worst-edge minimax already prefer good edges by *optimization* — eliminating
+    candidates on a `T` floor only adds cascade/budget risk (north star #5 +
+    the 90 s ceiling). The ``transition_floor`` parameter is retained for the
+    legacy-cascade callers that still pass it; it no longer gates. (The cascade
+    plumbing itself is swept by the roam-promotion, not here.)
+
+    The ``-0.5`` ``centered_cos_floor`` safety stays: it gates the *raw*
+    end→start cosine (`T_centered_cos`), catching an edge that is actively
+    *opposite* (essentially never fires in the anisotropic MERT space).
+    """
+
     if centered_cos_floor is not None:
         centered = edge.get("T_centered_cos")
         if _finite(centered) and float(centered) < float(centered_cos_floor):

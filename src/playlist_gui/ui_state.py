@@ -140,6 +140,8 @@ class UIStateModel:
     - seed_auto_order=False maps to dj_seed_ordering="fixed" (preserves order)
     """
 
+    popularity_mode: str = "off"  # Oops All Bangers: off / on / oops
+
     # ─────────────────────────────────────────────────────────────────────────
     # Helper methods
     # ─────────────────────────────────────────────────────────────────────────

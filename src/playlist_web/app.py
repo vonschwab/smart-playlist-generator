@@ -186,6 +186,7 @@ def create_app(
             artist_diversity_mode=body.artist_diversity_mode,  # type: ignore[arg-type]
             artist_presence=body.artist_presence,  # type: ignore[arg-type]
             artist_variety=body.artist_variety,  # type: ignore[arg-type]
+            popularity_mode=body.popularity_mode,
         )
         # Resolve seed artists so the policy can evaluate DJ-bridging
         # eligibility (it conservatively disables when keys are missing).

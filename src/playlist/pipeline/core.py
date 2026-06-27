@@ -5,7 +5,7 @@ import math
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, Iterator, List, Optional, Set
 
 import numpy as np
 
@@ -94,6 +94,36 @@ class _CandidateRelaxationAttempt:
     summary: Dict[str, Any]
 
 
+def _banger_gate_inputs(
+    bundle: Any,
+    rank_cutoff: Optional[int],
+    *,
+    db_path: str,
+    metadata_db_path: Optional[str] = None,
+) -> tuple[Optional[np.ndarray], Optional[int]]:
+    """Pure helper: resolve (_banger_ranks, _banger_cutoff) for the Oops-All-Bangers gate.
+
+    Takes the already-resolved cutoff int (computed at the call site from either
+    pier_bridge_config.popularity_rank_cutoff for artist mode, or pb_overrides for
+    seed mode). Returns (None, None) when rank_cutoff is None (gate inactive). Otherwise
+    loads per-track Last.fm ranks once over the full bundle and returns
+    (rank_array, int_cutoff). Isolated into a helper so the unit test can monkeypatch
+    the loader without building a real artifact bundle."""
+    if rank_cutoff is None:
+        return None, None
+    _banger_cutoff = int(rank_cutoff)
+    from src.analyze.popularity_runner import (
+        enrichment_db_path as _edb_path,
+        load_pool_popularity_ranks_cached,
+    )
+    _effective_db = db_path if db_path else _edb_path()
+    _banger_ranks = load_pool_popularity_ranks_cached(
+        bundle, list(range(len(bundle.track_ids))), db_path=_effective_db,
+        metadata_db_path=metadata_db_path,
+    )
+    return _banger_ranks, _banger_cutoff
+
+
 def _relaxed_one_each_candidate_attempts(
     candidate_cfg: Any,
     min_genre_similarity: Optional[float],
@@ -150,6 +180,73 @@ def _relaxed_one_each_candidate_attempts(
         )
 
     return attempts
+
+
+# ---------------------------------------------------------------------------
+# Oops, All Bangers: relax-to-fill cascade (spec §3.5)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class _BangerRelaxStep:
+    candidate_cfg: Any
+    genre_gate: Optional[float]
+    rank_cutoff: Optional[int]
+    label: str
+
+
+def _loosen_sonic(cfg, level: float):
+    """level in (0,1] scales the sonic floors toward open; 0.0 disables sonic gating."""
+    sap = cfg.sonic_admission_percentile
+    mss = cfg.min_sonic_similarity
+    if level <= 0.0:
+        return replace(cfg, sonic_admission_percentile=0.0, min_sonic_similarity=None)
+    return replace(
+        cfg,
+        sonic_admission_percentile=(float(sap) * level) if sap else sap,
+        min_sonic_similarity=(float(mss) * level) if mss else mss,
+    )
+
+
+def _loosen_pace(cfg, *, off: bool):
+    """Widen the BPM/onset admission bands; off=True disables pace gating entirely."""
+    if off:
+        return replace(cfg, bpm_admission_max_log_distance=float("inf"),
+                       onset_admission_max_log_distance=float("inf"))
+    def _wider(x):
+        return float("inf") if x == float("inf") else float(x) * 2.0
+    return replace(cfg,
+                   bpm_admission_max_log_distance=_wider(cfg.bpm_admission_max_log_distance),
+                   onset_admission_max_log_distance=_wider(cfg.onset_admission_max_log_distance))
+
+
+def _banger_relaxation_steps(
+    base_cfg,
+    base_genre_gate,
+    base_cutoff,
+) -> Iterator[_BangerRelaxStep]:
+    """Progressively looser banger-pool admission, in the fixed priority order
+    sonic -> pace -> genre -> popularity (spec §3.5). Sonic gets the most/earliest
+    relaxation; popularity is the LAST rung and the ONLY one that admits a non-banger.
+    Mirrors _relaxed_one_each_candidate_attempts (a deterministic generator)."""
+    cfg, gate, cutoff = base_cfg, base_genre_gate, base_cutoff
+    # NOTE: _loosen_sonic/_loosen_pace scale the RUNNING cfg, so notches COMPOUND —
+    # e.g. sonic 0.66 then 0.33 -> ~0.22x of the original floor, not 0.33x. Intentional
+    # (deeper = more aggressive); the multipliers are calibration knobs (spec §10).
+    # 1 sonic notch 1, 2 pace notch 1, 3 sonic notch 2, 4 pace off, 5 sonic off
+    cfg = _loosen_sonic(cfg, 0.66);            yield _BangerRelaxStep(cfg, gate, cutoff, "sonic notch1")
+    cfg = _loosen_pace(cfg, off=False);        yield _BangerRelaxStep(cfg, gate, cutoff, "pace notch1")
+    cfg = _loosen_sonic(cfg, 0.33);            yield _BangerRelaxStep(cfg, gate, cutoff, "sonic notch2")
+    cfg = _loosen_pace(cfg, off=True);         yield _BangerRelaxStep(cfg, gate, cutoff, "pace off")
+    cfg = _loosen_sonic(cfg, 0.0);             yield _BangerRelaxStep(cfg, gate, cutoff, "sonic off")
+    # 6 genre notch (one past the user), 7 genre off
+    gate = (float(base_genre_gate) * 0.5) if base_genre_gate is not None else None
+    yield _BangerRelaxStep(cfg, gate, cutoff, "genre notch1")
+    gate = None
+    yield _BangerRelaxStep(cfg, gate, cutoff, "genre off")
+    # 8-10 popularity: the only purity-breaking rungs (logged loudly by the caller)
+    for new_cutoff in (25, 50, None):
+        cutoff = new_cutoff
+        yield _BangerRelaxStep(cfg, gate, cutoff, f"popularity top-{new_cutoff}" if new_cutoff else "popularity off")
 
 
 def generate_playlist_ds(
@@ -460,7 +557,23 @@ def generate_playlist_ds(
     if _genre_admission_aggregate not in {"centroid", "per_seed"}:
         _genre_admission_aggregate = "centroid"
 
-    def _build_pool(candidate_cfg: Any, genre_gate: Optional[float]):
+    # Oops, All Bangers: gate cutoff comes from the explicit pier_bridge_config (artist
+    # mode) or from pb_overrides (seed mode injects it via config;
+    # pier_bridge_config is None there). Compute the effective cutoff here, then pass
+    # it to the helper so _banger_gate_inputs stays a pure function on (bundle, cutoff).
+    _cfg_cutoff: Optional[int] = getattr(pier_bridge_config, "popularity_rank_cutoff", None)
+    if _cfg_cutoff is None:
+        _ovr_cutoff = pb_overrides.get("popularity_rank_cutoff")
+        _cfg_cutoff = int(_ovr_cutoff) if _ovr_cutoff is not None else None
+    # metadata.db path for album-aware version-preference in popularity resolution
+    # (demotes clean-titled live-album tracks). Shared by the gate + beam loaders.
+    _meta_db = str((overrides or {}).get("library", {}).get("database_path") or "data/metadata.db")
+    _banger_ranks, _banger_cutoff = _banger_gate_inputs(
+        bundle, _cfg_cutoff, db_path="", metadata_db_path=_meta_db
+    )
+
+    def _build_pool(candidate_cfg: Any, genre_gate: Optional[float],
+                    popularity_rank_cutoff: Optional[int] = _banger_cutoff):
         return build_candidate_pool(
             seed_idx=seed_idx,
             seed_indices=embedding.seed_indices_for_floor,
@@ -499,6 +612,8 @@ def generate_playlist_ds(
             genre_bridge_vocab=getattr(bundle, "genre_bridge_vocab", None),
             facet_vocab=getattr(bundle, "facet_vocab", None),
             genre_graph_source=genre_graph_source,
+            popularity_ranks=_banger_ranks,
+            popularity_rank_cutoff=popularity_rank_cutoff,
         )
 
     _candidate_cfg_kwargs: dict = dict(
@@ -511,6 +626,28 @@ def generate_playlist_ds(
     _candidate_cfg = replace(cfg.candidate, **_candidate_cfg_kwargs)
     pool = _build_pool(_candidate_cfg, min_genre_similarity)
     pool.stats["target_length"] = num_tracks
+
+    # Oops, All Bangers: relax-to-fill cascade. If the banger-gated pool is too
+    # small to build a coherent playlist, relax sonic -> pace -> genre -> popularity
+    # (popularity LAST — the only purity-breaking rung), rebuilding and stopping the
+    # instant the pool fills. Only runs when the gate is active.
+    if _banger_cutoff is not None:
+        _min_banger_pool = max(2 * int(num_tracks), 40)
+        _pool_n = len(getattr(pool, "eligible_indices", pool.pool_indices))
+        if _pool_n < _min_banger_pool:
+            for _step in _banger_relaxation_steps(_candidate_cfg, min_genre_similarity, _banger_cutoff):
+                logger.info(
+                    "Bangers relax-to-fill: pool=%d < target=%d -> relaxing [%s]%s",
+                    _pool_n, _min_banger_pool, _step.label,
+                    "  (ADMITTING NON-BANGERS)" if _step.label.startswith("popularity") else "",
+                )
+                pool = _build_pool(_step.candidate_cfg, _step.genre_gate,
+                                   popularity_rank_cutoff=_step.rank_cutoff)
+                pool.stats["target_length"] = num_tracks
+                _pool_n = len(getattr(pool, "eligible_indices", pool.pool_indices))
+                if _pool_n >= _min_banger_pool:
+                    logger.info("Bangers relax-to-fill: filled at [%s] pool=%d", _step.label, _pool_n)
+                    break
 
     max_per_artist = max(1, math.ceil(playlist_len * cfg.construct.max_artist_fraction_final))
     logger.info(
@@ -738,7 +875,8 @@ def generate_playlist_ds(
                         load_pool_popularity_values_cached,
                     )
                     popularity_values = load_pool_popularity_values_cached(
-                        bundle, candidate_pool_indices, db_path=enrichment_db_path())
+                        bundle, candidate_pool_indices, db_path=enrichment_db_path(),
+                        metadata_db_path=_meta_db)
                 return build_pier_bridge_playlist(
                     seed_track_ids=seed_track_ids_for_pier,
                     total_tracks=playlist_len,

@@ -92,6 +92,29 @@ def test_pool_loader_cached_only_scans_given_indices(tmp_path):
     assert np.isnan(vec[1])       # index 1 not in pool_indices -> untouched
 
 
+def test_load_pool_popularity_ranks_cached_returns_rank_not_score(monkeypatch):
+    import numpy as np
+    from types import SimpleNamespace
+    import src.analyze.popularity_runner as pr
+
+    bundle = SimpleNamespace(
+        track_ids=np.array(["t0", "t1", "t2", "t3"], dtype=object),
+        track_titles=np.array(["Hit A", "Hit B", "Deep Cut", "Other"], dtype=object),
+        artist_keys=np.array(["nirvana", "nirvana", "nirvana", "uncached"], dtype=object),
+    )
+    # nirvana top tracks: Hit A rank 0, Hit B rank 1 (Deep Cut absent)
+    def fake_cached(db_path, key):
+        if key == "nirvana":
+            return [{"name": "Hit A", "rank": 0, "mbid": ""},
+                    {"name": "Hit B", "rank": 1, "mbid": ""}]
+        return []
+    monkeypatch.setattr(pr, "get_artist_top_tracks_cached", fake_cached)
+
+    ranks = pr.load_pool_popularity_ranks_cached(bundle, [0, 1, 2, 3], db_path=":memory:")
+    assert ranks.tolist() == [0, 1, -1, -1]   # rank, rank, not-in-top-N, uncached
+    assert ranks.dtype.kind == "i"
+
+
 def test_annotate_and_log_playlist_popularity(tmp_path, caplog):
     import logging
     from src.analyze.popularity_runner import annotate_and_log_playlist_popularity

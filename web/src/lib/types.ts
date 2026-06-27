@@ -13,7 +13,7 @@ export interface GenerateRequestBody {
   sonic_mode?: AxisValue;
   pace_mode?: AxisValue;
   include_collaborations?: boolean;
-  popular_seeds?: boolean;
+  popular_seeds_mode?: "off" | "on" | "fire";
   popularity_mode?: "off" | "on" | "oops";
   seed_epoch?: number;
   exclude_seed_tracks_from_recency?: boolean;

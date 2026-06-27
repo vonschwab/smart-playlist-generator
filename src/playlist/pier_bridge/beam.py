@@ -694,7 +694,9 @@ def _beam_search_segment(
         if not _transition_gate_failed(direct_edge):
             return [], 0, edges_scored, None
         else:
-            return None, 0, edges_scored, f"direct transition below floor ({direct_score:.3f} < {cfg.transition_floor:.3f})"
+            # Roam-only: no T floor; only the -0.5 anti-alignment safety can fail here.
+            _cc = direct_edge.get("T_centered_cos")
+            return None, 0, edges_scored, f"direct transition anti-aligned (centered_cos={_cc})"
 
     # Progress model (A→B) in sonic similarity space (X_full_norm).
     progress_active = bool(cfg.progress_enabled)
