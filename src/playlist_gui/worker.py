@@ -2758,6 +2758,239 @@ def handle_apply_escalation_decision(cmd_data: Dict[str, Any]) -> None:
                     "detail": str(e), "request_id": rid, "job_id": None})
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Taxonomy term adjudication (vocabulary-level review; writes the taxonomy YAML)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def handle_get_taxonomy_queue(cmd_data: Dict[str, Any]) -> None:
+    """Untriaged taxonomy-term candidate page. UNTRACKED + read-only (reader thread)."""
+    rid = cmd_data.get("request_id")
+    try:
+        from src.ai_genre_enrichment.layered_taxonomy import DEFAULT_TAXONOMY_PATH
+        from src.ai_genre_enrichment.taxonomy_review_queue import list_page
+        page = list_page(
+            SIDECAR_DB_PATH, DEFAULT_TAXONOMY_PATH, status="untriaged",
+            search=(cmd_data.get("search") or "").strip() or None,
+            limit=int(cmd_data.get("limit") or 50),
+            offset=int(cmd_data.get("offset") or 0))
+        emit_event({"type": "result", "result_type": "taxonomy_queue",
+                    "request_id": rid, "job_id": None, **page})
+        emit_event({"type": "done", "cmd": "get_taxonomy_queue", "ok": True,
+                    "detail": f"{page['untriaged_terms']} untriaged",
+                    "request_id": rid, "job_id": None})
+    except Exception as e:
+        emit_event({"type": "error", "message": str(e), "request_id": rid, "job_id": None})
+        emit_event({"type": "done", "cmd": "get_taxonomy_queue", "ok": False,
+                    "detail": str(e), "request_id": rid, "job_id": None})
+
+
+def handle_get_taxonomy_completed(cmd_data: Dict[str, Any]) -> None:
+    """Decided taxonomy-term page. UNTRACKED + read-only."""
+    rid = cmd_data.get("request_id")
+    try:
+        from src.ai_genre_enrichment.layered_taxonomy import DEFAULT_TAXONOMY_PATH
+        from src.ai_genre_enrichment.taxonomy_review_queue import list_page
+        page = list_page(
+            SIDECAR_DB_PATH, DEFAULT_TAXONOMY_PATH, status="decided",
+            search=(cmd_data.get("search") or "").strip() or None,
+            limit=int(cmd_data.get("limit") or 50),
+            offset=int(cmd_data.get("offset") or 0))
+        emit_event({"type": "result", "result_type": "taxonomy_completed",
+                    "request_id": rid, "job_id": None, **page})
+        emit_event({"type": "done", "cmd": "get_taxonomy_completed", "ok": True,
+                    "detail": f"{page['decided_terms']} decided",
+                    "request_id": rid, "job_id": None})
+    except Exception as e:
+        emit_event({"type": "error", "message": str(e), "request_id": rid, "job_id": None})
+        emit_event({"type": "done", "cmd": "get_taxonomy_completed", "ok": False,
+                    "detail": str(e), "request_id": rid, "job_id": None})
+
+
+def handle_adjudicate_taxonomy_term(cmd_data: Dict[str, Any]) -> None:
+    """Ask Claude for an add/alias/reject verdict on one term. UNTRACKED; calls
+    Claude and returns the verdict — it does NOT persist anything (the GUI ratifies
+    via record_taxonomy_decision)."""
+    rid = cmd_data.get("request_id")
+    try:
+        from dataclasses import asdict
+
+        from src.ai_genre_enrichment.layered_taxonomy import (
+            load_default_layered_taxonomy, normalize_taxonomy_name,
+        )
+        from src.ai_genre_enrichment.provider import create_enrichment_client
+        from src.ai_genre_enrichment.taxonomy_review_queue import (
+            _open_store_readonly, build_candidate_index,
+        )
+        from src.ai_genre_enrichment.taxonomy_term_adjudicator import (
+            RejectVerdict, adjudicate_term,
+        )
+
+        term = normalize_taxonomy_name(str(cmd_data.get("term") or ""))
+        if not term:
+            raise ValueError("term is required")
+        taxonomy = load_default_layered_taxonomy()
+        index = build_candidate_index(_open_store_readonly(SIDECAR_DB_PATH), taxonomy)
+        candidate = index.get(term)
+        if candidate is None:
+            raise ValueError(f"term not in candidate queue: {term!r}")
+        client = create_enrichment_client()  # web_mode off by default
+        verdict = adjudicate_term(candidate, taxonomy, client=client)
+        if isinstance(verdict, RejectVerdict):
+            out = {"verdict": "reject", "term": term,
+                   "proposal": {"reject_reason": verdict.reject_reason,
+                                "rationale": verdict.rationale}}
+        else:
+            out = {"verdict": "alias" if verdict.kind == "alias" else "add",
+                   "term": term, "proposal": asdict(verdict)}
+        emit_event({"type": "result", "result_type": "taxonomy_adjudication",
+                    "request_id": rid, "job_id": None, **out})
+        emit_event({"type": "done", "cmd": "adjudicate_taxonomy_term", "ok": True,
+                    "detail": term, "request_id": rid, "job_id": None})
+    except Exception as e:
+        emit_event({"type": "error", "message": str(e), "request_id": rid, "job_id": None})
+        emit_event({"type": "done", "cmd": "adjudicate_taxonomy_term", "ok": False,
+                    "detail": str(e), "request_id": rid, "job_id": None})
+
+
+def handle_record_taxonomy_decision(cmd_data: Dict[str, Any]) -> None:
+    """Record/revert one term decision to the staging table. UNTRACKED (quick write)."""
+    rid = cmd_data.get("request_id")
+    try:
+        import json as _json
+
+        from src.ai_genre_enrichment.taxonomy_decision_store import TaxonomyDecisionStore
+
+        term = str(cmd_data.get("term") or "")
+        verdict = str(cmd_data.get("verdict") or "")
+        store = TaxonomyDecisionStore(SIDECAR_DB_PATH)
+        try:
+            if verdict == "revert":
+                store.revert(term)
+                status = "reverted"
+            else:
+                store.record_decision(
+                    term=term, raw_term=str(cmd_data.get("raw_term") or term),
+                    verdict=verdict,
+                    proposal_json=_json.dumps(cmd_data.get("proposal") or None),
+                    claude_json=_json.dumps(cmd_data.get("claude") or None),
+                    human_edited=int(bool(cmd_data.get("human_edited"))))
+                status = verdict
+        finally:
+            store.close()
+        emit_event({"type": "result", "result_type": "taxonomy_decision",
+                    "term": term, "status": status,
+                    "request_id": rid, "job_id": None})
+        emit_event({"type": "done", "cmd": "record_taxonomy_decision", "ok": True,
+                    "detail": f"{term}: {status}", "request_id": rid, "job_id": None})
+    except Exception as e:
+        emit_event({"type": "error", "message": str(e), "request_id": rid, "job_id": None})
+        emit_event({"type": "done", "cmd": "record_taxonomy_decision", "ok": False,
+                    "detail": str(e), "request_id": rid, "job_id": None})
+
+
+def _next_taxonomy_gui_version(current: str, ts: str) -> str:
+    """Bump the minor of a 0.X.Y version and stamp the GUI grow suffix."""
+    import re
+    m = re.match(r"^(\d+)\.(\d+)\.(\d+)", str(current or ""))
+    if m:
+        return f"{int(m.group(1))}.{int(m.group(2)) + 1}.0-gui-{ts}-grown"
+    return f"0.1.0-gui-{ts}-grown"
+
+
+def handle_apply_taxonomy_decisions(cmd_data: Dict[str, Any]) -> None:
+    """Validate the pending decision batch, back up + write the taxonomy YAML, bump
+    the version, reload the graph cache. TRACKED job (the button click is the
+    explicit confirmation; the YAML is git-tracked, so the backup + one-diff-per-Apply
+    discipline mirror handle_publish_decided). NEVER touches metadata.db."""
+    import datetime
+
+    try:
+        import yaml as _yaml
+
+        from src.ai_genre_enrichment.graph_growth import GrowthProposal
+        from src.ai_genre_enrichment.layered_taxonomy import DEFAULT_TAXONOMY_PATH
+        from src.ai_genre_enrichment.taxonomy_apply import Decision, apply_decisions
+        from src.ai_genre_enrichment.taxonomy_decision_store import TaxonomyDecisionStore
+
+        emit_progress("apply_taxonomy_decisions", 0, 3, "reading pending decisions")
+        store = TaxonomyDecisionStore(SIDECAR_DB_PATH)
+        try:
+            pending = store.list_pending()
+            if not pending:
+                emit_result("apply_taxonomy_decisions",
+                            {"ok": True, "added": 0, "aliased": 0, "rejected": 0,
+                             "deferred_edges": [], "applied_terms": []})
+                emit_done("apply_taxonomy_decisions", True, "No pending decisions",
+                          summary="nothing to apply")
+                return
+
+            gp_fields = {f for f in GrowthProposal.__dataclass_fields__}  # type: ignore[attr-defined]
+            decisions: List[Decision] = []
+            for r in pending:
+                pj = r["proposal"] if isinstance(r["proposal"], dict) else {}
+                proposal = None
+                reject_reason = None
+                if r["verdict"] in ("add", "alias"):
+                    proposal = GrowthProposal(
+                        **{k: v for k, v in pj.items() if k in gp_fields})
+                elif r["verdict"] == "reject":
+                    reject_reason = pj.get("reject_reason")
+                decisions.append(Decision(
+                    term=r["term"], verdict=r["verdict"], proposal=proposal,
+                    reject_reason=reject_reason,
+                    rationale=str(pj.get("rationale") or "")))
+
+            check_cancelled()
+            ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            current_version = str(
+                (_yaml.safe_load(Path(DEFAULT_TAXONOMY_PATH).read_text(encoding="utf-8"))
+                 or {}).get("taxonomy_version") or "")
+            version = _next_taxonomy_gui_version(current_version, ts)
+
+            emit_progress("apply_taxonomy_decisions", 1, 3, "validating + writing")
+            result = apply_decisions(DEFAULT_TAXONOMY_PATH, decisions, new_version=version)
+            if result.validation_failures:
+                emit_result("apply_taxonomy_decisions",
+                            {"ok": False, "validation_failures": result.validation_failures,
+                             "deferred_edges": result.deferred_edges})
+                emit_done("apply_taxonomy_decisions", False,
+                          "Validation failed — nothing written")
+                return
+            store.mark_applied([d.term for d in decisions], version)
+        finally:
+            store.close()
+
+        emit_progress("apply_taxonomy_decisions", 2, 3, "reloading graph cache")
+        # §6 cache note: graph_adapter holds the only long-lived LayeredTaxonomy
+        # (lru_cache). Bust it so subsequent graph-adapter consumers in this worker
+        # session see the new vocabulary (mirrors the load_artifact_bundle bust).
+        try:
+            from src.genre.graph_adapter import _cached_default_taxonomy
+            _cached_default_taxonomy.cache_clear()
+        except Exception as exc:  # pragma: no cover - defensive
+            emit_log("WARNING", f"Could not clear taxonomy cache (restart GUI): {exc}")
+
+        # "M albums will re-classify on next publish" — distinct albums whose
+        # collected tags include a just-added/aliased term (impact = sum reach).
+        applied_terms = [d.term for d in decisions if d.verdict in ("add", "alias")]
+        result_payload = {
+            "ok": True, "added": result.added, "aliased": result.aliased,
+            "rejected": result.rejected, "deferred_edges": result.deferred_edges,
+            "backup": result.backup_path, "new_version": result.new_version,
+            "applied_terms": applied_terms,
+        }
+        emit_result("apply_taxonomy_decisions", result_payload)
+        total = result.added + result.aliased + result.rejected
+        emit_done("apply_taxonomy_decisions", True, f"Applied {total} decisions",
+                  summary=f"added={result.added} aliased={result.aliased} "
+                          f"rejected={result.rejected} v={result.new_version}")
+    except CancellationError:
+        emit_done("apply_taxonomy_decisions", False, "Cancelled", cancelled=True)
+    except Exception as e:
+        emit_error(str(e), traceback.format_exc())
+        emit_done("apply_taxonomy_decisions", False, str(e))
+
+
 def handle_enrich_artist_cmd(cmd_data: Dict[str, Any]) -> None:
     """Command handler wrapper for enrich_artist — called from the dispatch table."""
     artist = cmd_data.get("artist", "")
@@ -2815,6 +3048,7 @@ TRACKED_COMMAND_HANDLERS = {
     "refresh_genre_artifact": handle_refresh_genre_artifact,
     "scan_genre_review": handle_scan_genre_review,
     "publish_decided": handle_publish_decided,
+    "apply_taxonomy_decisions": handle_apply_taxonomy_decisions,
 }
 
 # Commands that don't have their own request context
@@ -2850,6 +3084,10 @@ UNTRACKED_COMMAND_HANDLERS = {
     "get_escalation_queue": handle_get_escalation_queue,
     "get_escalation_completed": handle_get_escalation_completed,
     "apply_escalation_decision": handle_apply_escalation_decision,
+    "get_taxonomy_queue": handle_get_taxonomy_queue,
+    "get_taxonomy_completed": handle_get_taxonomy_completed,
+    "adjudicate_taxonomy_term": handle_adjudicate_taxonomy_term,
+    "record_taxonomy_decision": handle_record_taxonomy_decision,
 }
 
 

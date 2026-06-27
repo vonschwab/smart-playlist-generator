@@ -297,6 +297,19 @@ class EscalationDecisionRequest(BaseModel):
     genres: list[str] | None = None
 
 
+class TaxonomyAdjudicateRequest(BaseModel):
+    term: str
+
+
+class TaxonomyDecisionRequest(BaseModel):
+    term: str
+    raw_term: str = ""
+    verdict: str  # add | alias | reject | revert — validated by the worker
+    proposal: dict | None = None  # GrowthProposal asdict (add/alias) or {reject_reason, rationale}
+    claude: dict | None = None    # Claude's original verdict, for audit
+    human_edited: bool = False
+
+
 class TrackGenresRequest(BaseModel):
     """Batch lookup of display genres for staged seed tracks."""
 

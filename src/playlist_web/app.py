@@ -31,6 +31,8 @@ from .schemas import (
     PlexExportRequest,
     ReplaceSuggestionsRequest,
     ReplaceSuggestionsResponse,
+    TaxonomyAdjudicateRequest,
+    TaxonomyDecisionRequest,
     TrackGenresRequest,
 )
 from .worker_bridge import (
@@ -314,6 +316,67 @@ def create_app(
         job_id = registry.create(request_params={"tool": "publish_decided"})
         try:
             await bridge.submit({"cmd": "publish_decided", "job_id": job_id})
+        except BridgeBusy:
+            raise HTTPException(status_code=409, detail="A job is already running.")
+        return {"job_id": job_id}
+
+    # ── Taxonomy term adjudication (vocabulary-level review) ──────────────────
+    @app.get("/api/taxonomy/queue")
+    async def taxonomy_queue(search: str = "", limit: int = 50, offset: int = 0) -> dict:
+        try:
+            return await bridge.command({
+                "cmd": "get_taxonomy_queue", "search": search,
+                "limit": limit, "offset": offset}, untracked=True)
+        except BridgeBusy:
+            raise HTTPException(status_code=409, detail="Worker is busy — try again when the current job finishes.")
+        except WorkerCommandError as exc:
+            raise HTTPException(status_code=502, detail=str(exc))
+
+    @app.get("/api/taxonomy/completed")
+    async def taxonomy_completed(search: str = "", limit: int = 50, offset: int = 0) -> dict:
+        try:
+            return await bridge.command({
+                "cmd": "get_taxonomy_completed", "search": search,
+                "limit": limit, "offset": offset}, untracked=True)
+        except BridgeBusy:
+            raise HTTPException(status_code=409, detail="Worker is busy — try again when the current job finishes.")
+        except WorkerCommandError as exc:
+            raise HTTPException(status_code=502, detail=str(exc))
+
+    @app.post("/api/taxonomy/adjudicate")
+    async def taxonomy_adjudicate(body: TaxonomyAdjudicateRequest) -> dict:
+        if not body.term.strip():
+            raise HTTPException(status_code=422, detail="term is required")
+        try:
+            result = await bridge.command({
+                "cmd": "adjudicate_taxonomy_term", "term": body.term}, untracked=True)
+        except BridgeBusy:
+            raise HTTPException(status_code=409, detail="Worker is busy — try again when the current job finishes.")
+        except WorkerCommandError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        return {"ok": True, **result}
+
+    @app.post("/api/taxonomy/decision")
+    async def taxonomy_decision(body: TaxonomyDecisionRequest) -> dict:
+        if not body.term.strip() or not body.verdict.strip():
+            raise HTTPException(status_code=422, detail="term and verdict are required")
+        try:
+            result = await bridge.command({
+                "cmd": "record_taxonomy_decision", "term": body.term,
+                "raw_term": body.raw_term, "verdict": body.verdict,
+                "proposal": body.proposal, "claude": body.claude,
+                "human_edited": body.human_edited}, untracked=True)
+        except BridgeBusy:
+            raise HTTPException(status_code=409, detail="Worker is busy — try again when the current job finishes.")
+        except WorkerCommandError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        return {"ok": True, **result}
+
+    @app.post("/api/taxonomy/apply")
+    async def taxonomy_apply() -> dict:
+        job_id = registry.create(request_params={"tool": "apply_taxonomy_decisions"})
+        try:
+            await bridge.submit({"cmd": "apply_taxonomy_decisions", "job_id": job_id})
         except BridgeBusy:
             raise HTTPException(status_code=409, detail="A job is already running.")
         return {"job_id": job_id}

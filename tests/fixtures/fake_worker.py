@@ -152,6 +152,59 @@ def main():
                   "collisions": 31, "request_id": rid, "job_id": cmd.get("job_id")})
             emit({"type": "done", "cmd": "publish_decided", "ok": True,
                   "request_id": rid, "job_id": cmd.get("job_id")})
+        elif name == "get_taxonomy_queue":
+            emit({"type": "result", "result_type": "taxonomy_queue",
+                  "terms": [{"term": "vaporwave", "raw_term": "Vaporwave",
+                             "album_frequency": 7, "cooccurring_tags": ["synthwave"],
+                             "examples": ["Macintosh Plus — Floral Shoppe"],
+                             "variants": ["vapor wave"], "source": "growth",
+                             "decision": None}],
+                  "untriaged_terms": 1, "decided_terms": 0,
+                  "request_id": rid, "job_id": None})
+            emit({"type": "done", "cmd": "get_taxonomy_queue", "ok": True,
+                  "detail": "1 untriaged", "request_id": rid, "job_id": None})
+        elif name == "get_taxonomy_completed":
+            emit({"type": "result", "result_type": "taxonomy_completed",
+                  "terms": [{"term": "slowcore", "raw_term": "slowcore",
+                             "album_frequency": 4, "cooccurring_tags": [],
+                             "examples": [], "variants": [], "source": "growth",
+                             "decision": {"verdict": "add", "status": "pending"}}],
+                  "untriaged_terms": 0, "decided_terms": 1,
+                  "request_id": rid, "job_id": None})
+            emit({"type": "done", "cmd": "get_taxonomy_completed", "ok": True,
+                  "detail": "1 decided", "request_id": rid, "job_id": None})
+        elif name == "adjudicate_taxonomy_term":
+            emit({"type": "result", "result_type": "taxonomy_adjudication",
+                  "verdict": "add", "term": cmd.get("term"),
+                  "proposal": {"name": "vaporwave", "kind": "genre", "status": "active",
+                               "specificity_score": 0.62,
+                               "parent_edges": [{"target": "electronic",
+                                                 "edge_type": "family_context",
+                                                 "weight": 0.5, "confidence": 0.8}],
+                               "similar_to": [], "alias_variants": ["vapor wave"],
+                               "term_kind_confirm": "genre", "rationale": "fake",
+                               "facet_type": None, "canonical_target": None},
+                  "request_id": rid, "job_id": None})
+            emit({"type": "done", "cmd": "adjudicate_taxonomy_term", "ok": True,
+                  "detail": cmd.get("term"), "request_id": rid, "job_id": None})
+        elif name == "record_taxonomy_decision":
+            emit({"type": "result", "result_type": "taxonomy_decision",
+                  "term": cmd.get("term"), "status": cmd.get("verdict"),
+                  "request_id": rid, "job_id": None})
+            emit({"type": "done", "cmd": "record_taxonomy_decision", "ok": True,
+                  "detail": f"{cmd.get('term')}: {cmd.get('verdict')}",
+                  "request_id": rid, "job_id": None})
+        elif name == "apply_taxonomy_decisions":
+            emit({"type": "progress", "stage": "apply_taxonomy_decisions",
+                  "current": 1, "total": 3, "detail": "validating + writing",
+                  "request_id": rid, "job_id": cmd.get("job_id")})
+            emit({"type": "result", "result_type": "apply_taxonomy_decisions",
+                  "ok": True, "added": 1, "aliased": 0, "rejected": 0,
+                  "deferred_edges": [], "backup": "data/layered_genre_taxonomy.yaml.bak.x",
+                  "new_version": "0.9.0-gui-20260627-grown", "applied_terms": ["vaporwave"],
+                  "request_id": rid, "job_id": cmd.get("job_id")})
+            emit({"type": "done", "cmd": "apply_taxonomy_decisions", "ok": True,
+                  "detail": "Applied 1 decisions", "request_id": rid, "job_id": cmd.get("job_id")})
         else:
             emit({"type": "error", "message": f"unknown cmd {name}", "request_id": rid, "job_id": jid})
             emit({"type": "done", "cmd": name or "?", "ok": False, "request_id": rid, "job_id": jid})
