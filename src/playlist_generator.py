@@ -1750,7 +1750,6 @@ class PlaylistGenerator:
                 # (cluster_artist_tracks treats None as no-op, byte-identical to today).
                 popularity_values = None
                 if popular_seeds_mode in {"on", "fire"} and getattr(self, "lastfm", None) is not None:
-                    from dataclasses import replace
                     from datetime import datetime, timezone
                     from src.analyze.popularity_runner import (
                         enrichment_db_path,
