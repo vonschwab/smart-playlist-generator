@@ -85,7 +85,7 @@ export function GenerateControls({
   const [artistPresence, setArtistPresence] = useLocalStorage("pg_artist_presence", "medium");
   const [artistVariety, setArtistVariety] = useLocalStorage("pg_artist_variety", "balanced");
   const [includeCollabs, setIncludeCollabs] = useLocalStorage("pg_include_collabs", false);
-  const [popularSeeds, setPopularSeeds] = useLocalStorage("pg_popular_seeds", false);
+  const [popularSeedsMode, setPopularSeedsMode] = useLocalStorage<"off" | "on" | "fire">("pg_popular_seeds_mode", "off");
   const [popularityMode, setPopularityMode] = useLocalStorage<"off" | "on" | "oops">("pg_popularity_mode", "off");
   const [seedEpoch, setSeedEpoch] = useState(0);
 
@@ -162,7 +162,7 @@ export function GenerateControls({
       artist_presence: artistPresence,
       artist_variety: artistVariety,
       include_collaborations: includeCollabs,
-      popular_seeds: popularSeeds,
+      popular_seeds_mode: popularityMode === "oops" ? "fire" : popularSeedsMode,
       popularity_mode: popularityMode,
       seed_epoch: epoch,
     };
@@ -303,13 +303,20 @@ export function GenerateControls({
               </label>
             </Cell>
             <Cell>
-              <label className="flex items-center gap-1.5 cursor-pointer select-none"
-                title="Bias the seed tracks toward this artist's most popular (Last.fm) songs.">
-                <input type="checkbox" checked={popularSeeds}
-                  onChange={(e) => setPopularSeeds(e.target.checked)}
-                  className="accent-[#5eead4] cursor-pointer" />
-                <Lbl>popular seeds</Lbl>
-              </label>
+              <Lbl title="Seed piers from this artist's most popular tracks. Off = cluster-medoid selection; On = popularity-weighted medoids; 🔥 Pure Hits = top-N most popular tracks only. Forced 🔥 when Bangers = Oops.">
+                popular seeds
+              </Lbl>
+              <select
+                value={popularityMode === "oops" ? "fire" : popularSeedsMode}
+                onChange={(e) => setPopularSeedsMode(e.target.value as "off" | "on" | "fire")}
+                disabled={popularityMode === "oops"}
+                className={SEL}
+                title="Seed piers from this artist's most popular tracks. Off = cluster-medoid selection; On = popularity-weighted medoids; 🔥 Pure Hits = top-N most popular tracks only. Forced 🔥 when Bangers = Oops."
+              >
+                <option value="off">Popular Seeds: Off</option>
+                <option value="on">Popular Seeds: On</option>
+                <option value="fire">🔥 Pure Hits</option>
+              </select>
             </Cell>
           </>
         )}
