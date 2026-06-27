@@ -20,3 +20,32 @@
 
 html, body, #root { height: 100%; margin: 0; }
 body { background: #0f1115; color: #e6e9ec; font-family: "Spline Sans", system-ui, sans-serif; }
+
+/* ── Responsive / accessibility quality floor ──────────────────────────── */
+
+/* Visible keyboard focus everywhere (mouse clicks stay ring-free). */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+
+/* Honor reduced-motion: kill non-essential transitions/animations. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* On coarse pointers (touch), lift the tiny desktop type to a legible floor
+   so the dense toolbar/table stay readable on a phone. Targets the project's
+   smallest hard-coded sizes without touching desktop rendering. */
+@media (pointer: coarse) {
+  body { font-size: 14px; }
+  [class*="text-[9px]"]  { font-size: 11px; }
+  [class*="text-[10px]"] { font-size: 12px; }
+  [class*="text-[11px]"] { font-size: 13px; }
+}
