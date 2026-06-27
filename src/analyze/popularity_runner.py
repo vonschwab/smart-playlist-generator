@@ -360,6 +360,47 @@ def load_pool_popularity_values_cached(
     return out
 
 
+def load_pool_popularity_ranks_cached(
+    bundle, pool_indices, *, db_path: str
+) -> np.ndarray:
+    """Cache-ONLY per-track Last.fm rank (0-based) for the given bundle pool indices.
+
+    Sibling of load_pool_popularity_values_cached, but stores the rank itself — the
+    popularity admission gate compares against a rank cutoff (top-10 / top-50), and
+    the score 1 - rank/n is not a fixed-rank threshold (n varies per artist). Artists
+    not in the warm cache and tracks not in the artist's top-N stay -1. Aligned to
+    bundle.track_ids. Never raises."""
+    track_ids = bundle.track_ids
+    out = np.full(len(track_ids), -1, dtype=int)
+    keys = getattr(bundle, "artist_keys", None)
+    titles = getattr(bundle, "track_titles", None)
+    if keys is None:
+        return out
+    rows_by_key: Dict[str, List[int]] = {}
+    for i in pool_indices:
+        i = int(i)
+        rows_by_key.setdefault(str(keys[i]), []).append(i)
+    for key, idxs in rows_by_key.items():
+        try:
+            top = get_artist_top_tracks_cached(db_path, key)
+        except Exception:  # never gate generation
+            top = []
+        if not top:
+            continue
+        local = [{
+            "track_id": str(track_ids[i]),
+            "title": str(titles[i]) if titles is not None else "",
+            "musicbrainz_id": "",
+        } for i in idxs]
+        ranks = resolve_top_tracks_to_rank(top, local)
+        pos = {str(track_ids[i]): i for i in idxs}
+        for tid, rank in ranks.items():
+            j = pos.get(tid)
+            if j is not None:
+                out[j] = int(rank)
+    return out
+
+
 def annotate_and_log_playlist_popularity(tracks, *, db_path: str) -> None:
     """Annotate each playlist track dict with its Last.fm popularity rank and log it.
 

@@ -510,6 +510,22 @@ def _medoids_for_cluster(
     return medoids
 
 
+def select_popular_piers(
+    member_indices: list[int],
+    popularity_values: np.ndarray,
+    target_pier_count: int,
+) -> list[int]:
+    """🔥 pier selection: the up-to-target_pier_count member indices with the highest
+    Last.fm popularity score (1 - rank/n; higher = more popular). Pure top-N — no
+    sonic-diversity constraint. Non-finite scores (non-hits) are excluded; ties break
+    by index. Returns [] when no member has a finite score (caller falls back to
+    medoid piers). The pier-bridge still orders these for cohesion downstream."""
+    pv = np.asarray(popularity_values, dtype=float)
+    scored = [(int(i), float(pv[int(i)])) for i in member_indices if np.isfinite(pv[int(i)])]
+    scored.sort(key=lambda t: (-t[1], t[0]))
+    return [i for i, _ in scored[: max(0, int(target_pier_count))]]
+
+
 def cluster_artist_tracks(
     *,
     bundle,

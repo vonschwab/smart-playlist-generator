@@ -640,3 +640,35 @@ class TestCohesionModeDerivation:
         state = UIStateModel()  # default cohesion_mode = "dynamic"
         decisions = derive_runtime_config(state)
         assert decisions.overrides["playlists"]["cohesion_mode"] == "dynamic"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OOPS Popularity Mode Tests (Task 6)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestOopsPopularityModeOverride:
+    """Tests for OOPS popularity_mode sonic/pace baseline override."""
+
+    def test_oops_overrides_sonic_and_pace_baseline_not_genre(self):
+        from src.playlist_gui.policy import derive_runtime_config
+        from src.playlist_gui.ui_state import UIStateModel
+        ui = UIStateModel(
+            genre_mode="strict", sonic_mode="strict", pace_mode="strict",
+            popularity_mode="oops",
+        )
+        pol = derive_runtime_config(ui)
+        pl = pol.overrides["playlists"]
+        assert pl["sonic_mode"] == "dynamic"   # OOPS owns sonic
+        assert pl["pace_mode"] == "dynamic"    # OOPS owns pace
+        assert pl["genre_mode"] == "strict"    # user still owns genre
+
+    def test_on_and_off_do_not_override_modes(self):
+        from src.playlist_gui.policy import derive_runtime_config
+        from src.playlist_gui.ui_state import UIStateModel
+        for m in ("on", "off"):
+            ui = UIStateModel(genre_mode="strict", sonic_mode="strict",
+                              pace_mode="strict", popularity_mode=m)
+            pl = derive_runtime_config(ui).overrides["playlists"]
+            assert pl["sonic_mode"] == "strict"
+            assert pl["pace_mode"] == "strict"

@@ -100,6 +100,9 @@ class PierBridgeConfig:
     # combined_score *= (1 - popularity_penalty_strength * (1 - popularity)); NaN -> max.
     # 0.0 = off / today's behavior. Resolved from popularity_mode (off/on/oops).
     popularity_penalty_strength: float = 0.0
+    # Oops, All Bangers admission gate: resolved per popularity_mode (off->None,
+    # on->50, oops->10). None = gate disabled. Consumed by core.generate_playlist_ds.
+    popularity_rank_cutoff: Optional[int] = None
     # Layered genre graph transition scoring (opt-in; default OFF).
     # Uses sidecar-derived leaf/family/bridge/facet matrices when present on
     # the artifact bundle. This is separate from legacy flat genre steering.

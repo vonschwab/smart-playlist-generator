@@ -33,7 +33,7 @@ class GenerateRequestBody(BaseModel):
     artist_diversity_mode: str = "weighted"
     artist_presence: str = "medium"
     artist_variety: str = "balanced"
-    popular_seeds: bool = False
+    popular_seeds_mode: str = "off"
     popularity_mode: str = "off"  # Oops All Bangers: off / on / oops
     seed_epoch: int = 0
 
@@ -51,7 +51,7 @@ class GenerateRequestBody(BaseModel):
             pace_mode=self.pace_mode,
             include_collaborations=self.include_collaborations,
             exclude_seed_tracks_from_recency=self.exclude_seed_tracks_from_recency,
-            popular_seeds=self.popular_seeds,
+            popular_seeds_mode=self.popular_seeds_mode,
             popularity_mode=self.popularity_mode,
             seed_epoch=self.seed_epoch,
         )

@@ -18,6 +18,7 @@ from src.playlist.artist_style import (
     build_genre_neighbor_candidate_pool,
     cluster_artist_tracks,
     order_clusters,
+    select_popular_piers,
     _select_k,
     _artist_indices_in_bundle,
 )
@@ -174,6 +175,26 @@ def _build_edge_audit_rows(
         rows.append(row)
     return rows
 
+
+def _resolve_popularity_rank_cutoff(popularity_mode: str, bangers_cfg: dict) -> Optional[int]:
+    """Oops, All Bangers admission-gate cutoff. off -> None (gate disabled);
+    on -> rank_cutoff_on (default 50); oops -> rank_cutoff_oops (default 10)."""
+    m = str(popularity_mode or "off").lower()
+    if m == "on":
+        return int((bangers_cfg or {}).get("rank_cutoff_on", 50))
+    if m == "oops":
+        return int((bangers_cfg or {}).get("rank_cutoff_oops", 10))
+    return None
+
+
+def _resolve_popular_seeds_mode(popular_seeds_mode: str, popularity_mode: str) -> str:
+    """Popular-seed pier mode: off / on / fire. OOPS (the all-bangers bridge gate) forces
+    'fire' so the piers are unambiguous hits too. Artist-mode-only by construction (this is
+    called on the artist-mode entry point; seed mode never reaches here)."""
+    if str(popularity_mode or "off").lower() == "oops":
+        return "fire"
+    m = str(popular_seeds_mode or "off").lower()
+    return m if m in {"off", "on", "fire"} else "off"
 
 
 class PlaylistGenerator:
@@ -1278,7 +1299,7 @@ class PlaylistGenerator:
         num_tracks: Optional[int] = None,
         mode: Optional[str] = None,
         random_seed: Optional[int] = None,
-        popular_seeds: bool = False,
+        popular_seeds_mode: str = "off",
         popularity_mode: str = "off",
     ) -> Optional[Dict[str, Any]]:
         """
@@ -1302,6 +1323,10 @@ class PlaylistGenerator:
             dynamic = mode == "dynamic"
         if random_seed is not None:
             self.config.config.setdefault("playlists", {}).setdefault("ds_pipeline", {})["random_seed"] = random_seed
+
+        # Oops, All Bangers: OOPS mode forces popular-seed pier selection so piers
+        # are the artist's hits, not just the centroid medoids.
+        popular_seeds_mode = _resolve_popular_seeds_mode(popular_seeds_mode, popularity_mode)
 
         logger.info(f"Creating playlist for artist: {artist_name}")
 
@@ -1724,14 +1749,14 @@ class PlaylistGenerator:
                 # values aligned to the bundle. Default path: popularity_values=None
                 # (cluster_artist_tracks treats None as no-op, byte-identical to today).
                 popularity_values = None
-                if popular_seeds and getattr(self, "lastfm", None) is not None:
+                if popular_seeds_mode in {"on", "fire"} and getattr(self, "lastfm", None) is not None:
                     from dataclasses import replace
                     from datetime import datetime, timezone
                     from src.analyze.popularity_runner import (
                         enrichment_db_path,
                         load_artist_popularity_values,
                     )
-                    pop_w = float(style_cfg_raw.get("popular_seeds_weight", 0.5))
+                    pop_w = float(style_cfg_raw.get("popular_seeds_weight", 1.0))
                     style_cfg = replace(style_cfg, medoid_popularity_weight=pop_w)
                     popularity_values = load_artist_popularity_values(
                         bundle, artist_name, client=self.lastfm,
@@ -1754,6 +1779,22 @@ class PlaylistGenerator:
                     popularity_values=popularity_values,
                     metadata_db_path=self.config.get("library", "database_path", default="data/metadata.db"),
                 )
+                # 🔥 Pure-hits piers: override cluster medoids with the artist's top-N
+                # most-popular tracks (selection only — order_clusters still sequences them).
+                if popular_seeds_mode == "fire" and popularity_values is not None:
+                    _all_members = [i for _cluster in clusters for i in _cluster]
+                    _fire_piers = select_popular_piers(_all_members, popularity_values, target_pier_count)
+                    if _fire_piers:
+                        logger.info(
+                            "Popular Seeds 🔥: overriding %d cluster-medoid piers with top-%d popular tracks",
+                            len(medoids), len(_fire_piers),
+                        )
+                        medoids = _fire_piers
+                    else:
+                        logger.warning(
+                            "Popular Seeds 🔥: no popular piers resolved (uncached artist?) — "
+                            "falling back to cluster-medoid piers",
+                        )
                 if not medoids:
                     raise ValueError("Style clustering returned no medoids")
                 ordered_medoids = order_clusters(medoids, X_norm)
@@ -1813,7 +1854,7 @@ class PlaylistGenerator:
                 # Internal connectors disabled for Artist mode - seed artist should ONLY appear as piers
                 internal_connector_ids = []
                 pier_ids = [str(bundle.track_ids[m]) for m in ordered_medoids]
-                if popular_seeds:
+                if popular_seeds_mode in {"on", "fire"}:
                     # Diagnostic: log where each chosen pier sits on the artist's
                     # Last.fm popularity list (the cache is warm from the lazy fetch).
                     from src.analyze.popularity_runner import (
@@ -1927,6 +1968,7 @@ class PlaylistGenerator:
                     "on": float(_bangers_cfg.get("strength_on", 0.25)),
                     "oops": float(_bangers_cfg.get("strength_oops", 0.60)),
                 }.get(str(popularity_mode or "off"), 0.0)
+                _pop_rank_cutoff = _resolve_popularity_rank_cutoff(popularity_mode, _bangers_cfg)
 
                 pier_cfg = PierBridgeConfig(
                     transition_floor=float(ds_defaults.construct.transition_floor),
@@ -1940,6 +1982,7 @@ class PlaylistGenerator:
                     genre_penalty_threshold=float(pb_tuning["genre_penalty_threshold"]),
                     genre_penalty_strength=float(pb_tuning["genre_penalty_strength"]),
                     popularity_penalty_strength=_pop_strength,
+                    popularity_rank_cutoff=_pop_rank_cutoff,
                     genre_steering_enabled=bool(pb_tuning.get("genre_steering_enabled", False)),
                     genre_steering_source=str(pb_tuning.get("genre_steering_source", "taxonomy")),
                     weight_genre=float(pb_tuning.get("weight_genre", 0.0)),
@@ -2930,6 +2973,7 @@ class PlaylistGenerator:
         dynamic: bool = False,
         cohesion_mode_override: Optional[str] = None,
         seed_track_ids: Optional[List[str]] = None,
+        popularity_mode: str = "off",
     ) -> Optional[Dict[str, Any]]:
         """
         Create a playlist from explicit seed tracks without requiring an artist name.
@@ -2938,6 +2982,16 @@ class PlaylistGenerator:
         """
         if not seed_tracks:
             raise ValueError("No seed tracks provided.")
+
+        # Oops, All Bangers: inject the popularity gate cutoff into the DS pipeline
+        # config so core.generate_playlist_ds picks it up via pb_overrides (the seed
+        # path calls _maybe_generate_ds_playlist with pier_bridge_config=None, so the
+        # gate must be read from config). Do NOT force popular_seeds / override piers —
+        # seed-mode piers are the user's explicitly chosen seeds.
+        _bangers_cfg = self.config.get("playlists", "bangers", default={}) or {}
+        _seed_cutoff = _resolve_popularity_rank_cutoff(popularity_mode, _bangers_cfg)
+        self.config.config.setdefault("playlists", {}).setdefault("ds_pipeline", {}) \
+            .setdefault("pier_bridge", {})["popularity_rank_cutoff"] = _seed_cutoff
 
         all_library_tracks = self.library.get_all_tracks()
 

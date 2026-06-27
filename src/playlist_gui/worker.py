@@ -1309,7 +1309,7 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                 cohesion_mode_override=cohesion_mode,
                 include_collaborations=include_collaborations,
                 exclude_seed_tracks_from_recency=exclude_seed_tracks_from_recency,
-                popular_seeds=request.popular_seeds,
+                popular_seeds_mode=request.popular_seeds_mode,
                 popularity_mode=request.popularity_mode,
                 seed_epoch=request.seed_epoch,
             )
@@ -1321,6 +1321,7 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                 dynamic=(cohesion_mode == "dynamic"),
                 cohesion_mode_override=cohesion_mode,
                 seed_track_ids=seed_track_ids,
+                popularity_mode=request.popularity_mode,
             )
         elif mode == "artist" and seed_tracks:
             # Legacy seeds mode (old UI sent mode="artist" with seed_tracks)
@@ -1330,6 +1331,7 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                 dynamic=(cohesion_mode == "dynamic"),
                 cohesion_mode_override=cohesion_mode,
                 seed_track_ids=seed_track_ids,
+                popularity_mode=request.popularity_mode,
             )
         elif mode == "genre" and genre:
             # Genre mode
