@@ -227,6 +227,9 @@ def _banger_relaxation_steps(
     relaxation; popularity is the LAST rung and the ONLY one that admits a non-banger.
     Mirrors _relaxed_one_each_candidate_attempts (a deterministic generator)."""
     cfg, gate, cutoff = base_cfg, base_genre_gate, base_cutoff
+    # NOTE: _loosen_sonic/_loosen_pace scale the RUNNING cfg, so notches COMPOUND —
+    # e.g. sonic 0.66 then 0.33 -> ~0.22x of the original floor, not 0.33x. Intentional
+    # (deeper = more aggressive); the multipliers are calibration knobs (spec §10).
     # 1 sonic notch 1, 2 pace notch 1, 3 sonic notch 2, 4 pace off, 5 sonic off
     cfg = _loosen_sonic(cfg, 0.66);            yield _BangerRelaxStep(cfg, gate, cutoff, "sonic notch1")
     cfg = _loosen_pace(cfg, off=False);        yield _BangerRelaxStep(cfg, gate, cutoff, "pace notch1")
