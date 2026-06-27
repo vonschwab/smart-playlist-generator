@@ -17,7 +17,7 @@ import sys
 import time
 import uuid
 import hashlib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Any, Tuple
 
@@ -1298,6 +1298,14 @@ def _resolve_lastfm_api_key(ctx: Dict) -> Optional[str]:
         return None
 
 
+def _lastfm_recheck_miss_days(ctx: Dict) -> int:
+    """Days a Last.fm 'miss' is skipped before a retry (config lastfm.recheck_miss_days)."""
+    try:
+        return int(Config(ctx["config_path"]).lastfm_recheck_miss_days)
+    except Exception:
+        return 30
+
+
 def stage_lastfm(ctx: Dict) -> Dict:
     """Fetch Last.fm top tags into the sidecar for releases that lack them.
 
@@ -1323,13 +1331,34 @@ def stage_lastfm(ctx: Dict) -> Dict:
     if not releases:
         return {"skipped": True, "reason": "no_releases", "extracted": 0}
 
-    already = store.release_keys_with_source_type("lastfm_tags")
-    pending = [r for r in releases if args.force or r.release_key not in already]
-    skipped_existing = len(releases) - len(pending)
+    # Skip releases we've already handled: those with a stored page (a hit) and
+    # those that returned no tags within the recheck window (a recent miss).
+    # Without the miss-cache, every empty release was re-fetched on every run —
+    # the same ~500 albums, forever. Misses age out after recheck_miss_days so a
+    # release that gets tagged later is still picked up.
+    have_pages = store.release_keys_with_source_type("lastfm_tags")
+    recheck_days = _lastfm_recheck_miss_days(ctx)
+    recent_misses: set = set()
+    if recheck_days > 0:
+        cutoff_iso = (
+            datetime.now(timezone.utc) - timedelta(days=recheck_days)
+        ).replace(microsecond=0).isoformat()
+        recent_misses = store.release_keys_attempted(
+            "lastfm_tags", status="miss", newer_than_iso=cutoff_iso
+        )
+    skip = have_pages | recent_misses
+    pending = [r for r in releases if args.force or r.release_key not in skip]
+    skipped_keys = {r.release_key for r in releases} - {r.release_key for r in pending}
+    skipped_existing = len(skipped_keys & have_pages)
+    skipped_recent_miss = len(skipped_keys & (recent_misses - have_pages))
     if not pending:
-        logger.info("Skipping lastfm stage (all %d releases already scraped)", len(releases))
+        logger.info(
+            "Skipping lastfm stage (all %d releases handled: %d scraped, %d recent miss)",
+            len(releases), skipped_existing, skipped_recent_miss,
+        )
         return {"skipped": True, "reason": "all_scraped", "extracted": 0,
-                "skipped_existing": skipped_existing}
+                "skipped_existing": skipped_existing,
+                "skipped_recent_miss": skipped_recent_miss}
 
     prog = (
         ProgressLogger(
@@ -1353,16 +1382,21 @@ def stage_lastfm(ctx: Dict) -> Dict:
                 limit=20,
             )
             if not tags:
+                # Record the miss so reruns skip it for recheck_miss_days instead
+                # of re-fetching it every time. (Exceptions below are NOT recorded
+                # — a network blip should retry, only a real "no tags" answer skips.)
+                store.record_source_attempt(release.release_key, "lastfm_tags", "miss")
                 empty += 1
                 time.sleep(0.25)
                 continue
             album_segment = f"/album/{release.normalized_album}" if release.normalized_album else ""
+            source_url = f"lastfm://artist/{release.normalized_artist}{album_segment}"
             page_id = store.upsert_source_page(
                 release_key=release.release_key,
                 normalized_artist=release.normalized_artist,
                 normalized_album=release.normalized_album,
                 album_id=release.album_id,
-                source_url=f"lastfm://artist/{release.normalized_artist}{album_segment}",
+                source_url=source_url,
                 source_type="lastfm_tags",
                 identity_status="confirmed",
                 identity_confidence=0.9,
@@ -1370,6 +1404,7 @@ def stage_lastfm(ctx: Dict) -> Dict:
             )
             store.replace_source_tags(page_id, tags)
             store.classify_source_tags(page_id, adjudicate=False, model=None)
+            store.record_source_attempt(release.release_key, "lastfm_tags", "hit", source_url)
             extracted += 1
         except Exception as exc:  # network blip / API error — log and continue
             failed += 1
@@ -1378,10 +1413,14 @@ def stage_lastfm(ctx: Dict) -> Dict:
 
     if prog:
         prog.finish(detail=f"lastfm extracted {extracted:,} of {len(pending):,}")
-    logger.info("lastfm stage: extracted=%d empty=%d failed=%d skipped_existing=%d",
-                extracted, empty, failed, skipped_existing)
+    logger.info(
+        "lastfm stage: extracted=%d empty=%d failed=%d skipped_existing=%d "
+        "skipped_recent_miss=%d (recheck_miss_days=%d)",
+        extracted, empty, failed, skipped_existing, skipped_recent_miss, recheck_days,
+    )
     return {"skipped": False, "extracted": extracted, "empty": empty,
             "failed": failed, "skipped_existing": skipped_existing,
+            "skipped_recent_miss": skipped_recent_miss,
             "total": len(pending), "errors": failed}
 
 
@@ -2237,7 +2276,17 @@ def stage_mert(ctx: Dict) -> Dict:
         (tid, db_paths.get(tid)) for tid in pending_ids
     ]
 
+    # Loading the MERT model (download on a cold HF cache, then weights onto the
+    # device) is a multi-second-to-minute step with no output of its own — log
+    # around it so the stage doesn't look hung before track 1.
+    logger.info(
+        "stage_mert: loading MERT model %s on %s (first run / cold cache can take a minute)...",
+        MODEL_NAME, device,
+    )
+    _load_t0 = time.time()
     embedder = _build_mert_embedder(device, torch_threads)
+    logger.info("stage_mert: MERT model loaded in %.1fs; embedding %d track(s)",
+                time.time() - _load_t0, len(pending_ids))
     store = ShardStore(
         shard_dir,
         model_name=MODEL_NAME,

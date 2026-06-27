@@ -143,6 +143,17 @@ class Config:
         """Get Last.FM history days"""
         return self.config.get('lastfm', {}).get('history_days', 90)
 
+    @property
+    def lastfm_recheck_miss_days(self) -> int:
+        """Days to skip a Last.fm album that returned no tags before retrying.
+
+        The lastfm stage records a 'miss' for releases Last.fm has no tags for
+        and skips them on reruns until this many days have passed (then it
+        retries once, since tags accrue over time). 0 (or negative) disables the
+        cache and re-fetches every miss every run (the legacy behavior).
+        """
+        return int(self.config.get('lastfm', {}).get('recheck_miss_days', 30))
+
     def get_ds_artifact_path(self) -> str:
         """Get DS pipeline artifact path."""
         return self.config.get('playlists', {}).get('ds_pipeline', {}).get(

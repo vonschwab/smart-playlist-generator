@@ -78,3 +78,29 @@ def test_attempt_ledger_is_source_scoped(tmp_path):
     store.record_source_attempt("a::b", "bandcamp", "miss")
     assert store.release_keys_attempted("bandcamp") == {"a::b"}
     assert store.release_keys_attempted("lastfm") == set()
+
+
+def test_release_keys_attempted_filters_by_status(tmp_path):
+    store = SidecarStore(tmp_path / "sidecar.db")
+    store.initialize()
+    store.record_source_attempt("a::miss", "lastfm_tags", "miss")
+    store.record_source_attempt("a::hit", "lastfm_tags", "hit", "lastfm://artist/a/album/hit")
+
+    assert store.release_keys_attempted("lastfm_tags") == {"a::miss", "a::hit"}
+    assert store.release_keys_attempted("lastfm_tags", status="miss") == {"a::miss"}
+    assert store.release_keys_attempted("lastfm_tags", status="hit") == {"a::hit"}
+
+
+def test_release_keys_attempted_filters_by_recency(tmp_path):
+    store = SidecarStore(tmp_path / "sidecar.db")
+    store.initialize()
+    # Record a miss "now" (record_source_attempt stamps the current time).
+    store.record_source_attempt("a::recent", "lastfm_tags", "miss")
+
+    # A cutoff in the distant past keeps it; a cutoff in the far future drops it.
+    assert store.release_keys_attempted(
+        "lastfm_tags", status="miss", newer_than_iso="1970-01-01T00:00:00+00:00"
+    ) == {"a::recent"}
+    assert store.release_keys_attempted(
+        "lastfm_tags", status="miss", newer_than_iso="2999-01-01T00:00:00+00:00"
+    ) == set()
