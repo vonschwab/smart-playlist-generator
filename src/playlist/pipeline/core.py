@@ -99,6 +99,7 @@ def _banger_gate_inputs(
     rank_cutoff: Optional[int],
     *,
     db_path: str,
+    metadata_db_path: Optional[str] = None,
 ) -> tuple[Optional[np.ndarray], Optional[int]]:
     """Pure helper: resolve (_banger_ranks, _banger_cutoff) for the Oops-All-Bangers gate.
 
@@ -117,7 +118,8 @@ def _banger_gate_inputs(
     )
     _effective_db = db_path if db_path else _edb_path()
     _banger_ranks = load_pool_popularity_ranks_cached(
-        bundle, list(range(len(bundle.track_ids))), db_path=_effective_db
+        bundle, list(range(len(bundle.track_ids))), db_path=_effective_db,
+        metadata_db_path=metadata_db_path,
     )
     return _banger_ranks, _banger_cutoff
 
@@ -563,8 +565,11 @@ def generate_playlist_ds(
     if _cfg_cutoff is None:
         _ovr_cutoff = pb_overrides.get("popularity_rank_cutoff")
         _cfg_cutoff = int(_ovr_cutoff) if _ovr_cutoff is not None else None
+    # metadata.db path for album-aware version-preference in popularity resolution
+    # (demotes clean-titled live-album tracks). Shared by the gate + beam loaders.
+    _meta_db = str((overrides or {}).get("library", {}).get("database_path") or "data/metadata.db")
     _banger_ranks, _banger_cutoff = _banger_gate_inputs(
-        bundle, _cfg_cutoff, db_path=""
+        bundle, _cfg_cutoff, db_path="", metadata_db_path=_meta_db
     )
 
     def _build_pool(candidate_cfg: Any, genre_gate: Optional[float],
@@ -870,7 +875,8 @@ def generate_playlist_ds(
                         load_pool_popularity_values_cached,
                     )
                     popularity_values = load_pool_popularity_values_cached(
-                        bundle, candidate_pool_indices, db_path=enrichment_db_path())
+                        bundle, candidate_pool_indices, db_path=enrichment_db_path(),
+                        metadata_db_path=_meta_db)
                 return build_pier_bridge_playlist(
                     seed_track_ids=seed_track_ids_for_pier,
                     total_tracks=playlist_len,
