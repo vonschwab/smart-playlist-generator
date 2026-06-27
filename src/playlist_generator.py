@@ -186,11 +186,14 @@ def _resolve_popularity_rank_cutoff(popularity_mode: str, bangers_cfg: dict) -> 
     return None
 
 
-def _resolve_popular_seeds(popular_seeds: bool, popularity_mode: str) -> bool:
-    """OOPS forces popular-seed pier selection (piers -> the artist's hits), so the
-    whole playlist is bangers, not just the bridges. Artist-mode-only by construction:
-    this is called on the artist-mode entry point; seed mode never reaches here."""
-    return bool(popular_seeds) or str(popularity_mode or "off").lower() == "oops"
+def _resolve_popular_seeds_mode(popular_seeds_mode: str, popularity_mode: str) -> str:
+    """Popular-seed pier mode: off / on / fire. OOPS (the all-bangers bridge gate) forces
+    'fire' so the piers are unambiguous hits too. Artist-mode-only by construction (this is
+    called on the artist-mode entry point; seed mode never reaches here)."""
+    if str(popularity_mode or "off").lower() == "oops":
+        return "fire"
+    m = str(popular_seeds_mode or "off").lower()
+    return m if m in {"off", "on", "fire"} else "off"
 
 
 class PlaylistGenerator:

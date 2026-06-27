@@ -1,6 +1,6 @@
 from src.playlist_generator import (
     _resolve_popularity_rank_cutoff,
-    _resolve_popular_seeds,
+    _resolve_popular_seeds_mode,
 )
 
 
@@ -19,8 +19,14 @@ def test_cutoff_reads_config_overrides():
     assert _resolve_popularity_rank_cutoff("oops", cfg) == 15
 
 
-def test_popular_seeds_forced_only_by_oops():
-    assert _resolve_popular_seeds(False, "oops") is True     # OOPS forces it
-    assert _resolve_popular_seeds(False, "on") is False      # ON does not
-    assert _resolve_popular_seeds(False, "off") is False
-    assert _resolve_popular_seeds(True, "on") is True        # user's own choice respected
+def test_oops_forces_fire_regardless_of_user_mode():
+    assert _resolve_popular_seeds_mode("off", "oops") == "fire"
+    assert _resolve_popular_seeds_mode("on", "oops") == "fire"
+    assert _resolve_popular_seeds_mode("fire", "oops") == "fire"
+
+
+def test_non_oops_passes_through_user_mode():
+    assert _resolve_popular_seeds_mode("off", "off") == "off"
+    assert _resolve_popular_seeds_mode("on", "on") == "on"
+    assert _resolve_popular_seeds_mode("fire", "on") == "fire"
+    assert _resolve_popular_seeds_mode("", "off") == "off"
