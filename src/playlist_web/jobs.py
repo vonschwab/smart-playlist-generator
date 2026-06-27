@@ -104,3 +104,16 @@ class JobRegistry:
     def recent(self) -> list[JobOut]:
         """Get all jobs, newest first."""
         return [self._to_out(j) for j in reversed(self._jobs.values())]
+
+    def clear(self, keep_running: bool = True) -> int:
+        """Remove finished jobs from the registry, returning how many were cleared.
+
+        By default an in-flight job (``running``/``pending``) is preserved —
+        clearing it would orphan the worker events still arriving for it and lose
+        its eventual result. Pass ``keep_running=False`` to drop everything.
+        """
+        keep = {"running", "pending"} if keep_running else set()
+        to_remove = [jid for jid, job in self._jobs.items() if job.status not in keep]
+        for jid in to_remove:
+            del self._jobs[jid]
+        return len(to_remove)

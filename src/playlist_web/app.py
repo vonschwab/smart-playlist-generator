@@ -211,6 +211,15 @@ def create_app(
     async def jobs() -> list[JobOut]:
         return registry.recent()
 
+    @app.delete("/api/jobs")
+    async def clear_jobs() -> dict:
+        # Preserve a genuinely in-flight job (bridge busy) so its still-arriving
+        # worker events aren't orphaned. When the bridge is idle, any job still
+        # marked "running" is a zombie whose worker died before emitting `done` —
+        # clear it too. Keying on bridge.busy (not the status string) is what
+        # lets Clear sweep dead "running" jobs.
+        return {"cleared": registry.clear(keep_running=bridge.busy)}
+
     @app.get("/api/jobs/{job_id}")
     async def job_detail(job_id: str) -> JobOut:
         job = registry.get(job_id)

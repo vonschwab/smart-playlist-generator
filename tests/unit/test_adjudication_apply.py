@@ -69,6 +69,62 @@ def test_apply_materializes_nonescalated_and_enqueues_escalated(tmp_path):
     a2 = c.execute("SELECT COUNT(*) FROM genre_graph_release_genre_assignments "
                    "WHERE release_id='y::x'").fetchone()[0]
     c.close()
-    assert a1 >= 1 and a2 == 0
+    assert a1 >= 1 and a2 >= 1  # a2 now provisionally materialized (still queued below)
     pending = queue.list_pending()
     assert [p["album_id"] for p in pending] == ["a2"]
+
+
+def test_apply_provisionally_materializes_escalated_with_genres(tmp_path):
+    """An escalated album with proposed genres but no prior assignment is materialized
+    PROVISIONALLY at reduced confidence (never worse than legacy) and stays queued for
+    human confirmation. Bucket 1 of the 2026-06-25 un-enriched-albums audit."""
+    conn = _meta(tmp_path)
+    side = tmp_path / "side.db"
+    store = SidecarStore(str(side))
+    store.initialize()
+    queue = EscalationQueue(side)
+    rows = [("a2", "std", _resp(["dream pop"], escalate=True, reason="sparse"))]  # conf 0.9
+    summary = apply_adjudications(
+        rows=rows, thorough_pv="tho", std_pv="std", meta_conn=conn, id2name={},
+        taxonomy=load_default_layered_taxonomy(), adapter=FakeAdapter(),
+        sidecar_store=store, queue=queue,
+    )
+    c = sqlite3.connect(side)
+    confs = [r[0] for r in c.execute(
+        "SELECT confidence FROM genre_graph_release_genre_assignments "
+        "WHERE release_id='y::x' AND assignment_layer='observed_leaf'").fetchall()]
+    c.close()
+    assert confs, "escalated-with-genres should be provisionally materialized"
+    assert all(con < 0.9 for con in confs), "provisional confidence must be reduced below 0.9"
+    assert [p["album_id"] for p in queue.list_pending()] == ["a2"]  # still reviewable
+    assert summary.provisional == 1
+
+
+def test_apply_does_not_clobber_prior_assignment_on_escalation(tmp_path):
+    """Provisional fill only happens when the release has NO prior assignment — an
+    escalation must never overwrite an existing (confirmed) materialization."""
+    conn = _meta(tmp_path)
+    side = tmp_path / "side.db"
+    store = SidecarStore(str(side))
+    store.initialize()
+    queue = EscalationQueue(side)
+    # First: non-escalated materialize for a2 (release y::x) -> dream pop.
+    apply_adjudications(
+        rows=[("a2", "std", _resp(["dream pop"]))], thorough_pv="tho", std_pv="std",
+        meta_conn=conn, id2name={}, taxonomy=load_default_layered_taxonomy(),
+        adapter=FakeAdapter(), sidecar_store=store, queue=queue)
+    c = sqlite3.connect(side)
+    before = c.execute("SELECT genre_id, confidence FROM genre_graph_release_genre_assignments "
+                       "WHERE release_id='y::x' ORDER BY genre_id").fetchall()
+    c.close()
+    # Then: same release escalates with a different genre -> must NOT clobber `before`.
+    apply_adjudications(
+        rows=[("a2", "std", _resp(["shoegaze"], escalate=True, reason="sparse"))],
+        thorough_pv="tho", std_pv="std", meta_conn=conn, id2name={},
+        taxonomy=load_default_layered_taxonomy(), adapter=FakeAdapter(),
+        sidecar_store=store, queue=queue)
+    c = sqlite3.connect(side)
+    after = c.execute("SELECT genre_id, confidence FROM genre_graph_release_genre_assignments "
+                      "WHERE release_id='y::x' ORDER BY genre_id").fetchall()
+    c.close()
+    assert after == before  # prior preserved, provisional skipped

@@ -85,6 +85,18 @@ export default function App() {
     catch (e) { setError(String(e)); }
   }, [refreshJobs]);
 
+  // Clear finished (and dead-"running") jobs. The server keeps only a genuinely
+  // in-flight job; we then adopt its post-clear list as the truth so client-only
+  // stale entries (a "running" job localStorage kept across a worker death, which
+  // the server no longer tracks) are dropped too — a plain status filter would
+  // leave those zombies behind.
+  const handleClearJobs = useCallback(async () => {
+    try { await api.clearJobs(); }
+    catch (e) { setError(String(e)); return; }
+    try { setJobs(await api.jobs()); }
+    catch { setJobs((prev) => prev.filter((j) => j.status === "running" || j.status === "pending")); }
+  }, []);
+
   const handleRerun = useCallback((params: GenerateRequestBody) => {
     setMode((params.mode as Mode) ?? "artist");
     setRerunValues({ ...params });
@@ -238,7 +250,7 @@ export default function App() {
             {error && <div className="text-danger text-xs ml-auto">{error}</div>}
           </>
         }
-        jobs={<JobsPanel jobs={jobs} onSelect={(j) => setPlaylist(j.playlist ?? null)} onCancel={handleCancel} onRerun={handleRerun} />}
+        jobs={<JobsPanel jobs={jobs} onSelect={(j) => setPlaylist(j.playlist ?? null)} onCancel={handleCancel} onRerun={handleRerun} onClear={handleClearJobs} />}
         center={
           tab === "tools" ? (
             <ToolsPanel externalBusy={busy} refreshJobs={refreshJobs} />

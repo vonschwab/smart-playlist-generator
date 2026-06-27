@@ -1720,8 +1720,13 @@ def stage_apply(ctx: Dict) -> Dict:
     finally:
         conn.close()
         queue.close()
+    logger.info(
+        "apply stage: materialized=%d escalated=%d provisional=%d (escalated albums with "
+        "proposed genres get a reduced-confidence fallback, still queued for review)",
+        summary.materialized, summary.escalated, summary.provisional,
+    )
     return {"materialized": summary.materialized, "escalated": summary.escalated,
-            "total": summary.materialized}
+            "provisional": summary.provisional, "total": summary.materialized}
 
 
 def _release_effective_genres_exists(db_path: str) -> bool:
