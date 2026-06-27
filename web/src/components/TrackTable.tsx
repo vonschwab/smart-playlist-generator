@@ -91,6 +91,7 @@ export function TrackTable({ tracks, blacklisted, onContextAction }: TrackTableP
       ? [
           col.accessor("popularity_rank", {
             header: "Last.fm",
+            meta: { cellClass: "@max-md:hidden" },
             cell: (c) => {
               const r = c.getValue();
               return (
@@ -138,45 +139,53 @@ export function TrackTable({ tracks, blacklisted, onContextAction }: TrackTableP
   }
 
   return (
-    <table className="w-full text-left" data-testid="track-table">
-      <thead>
-        {table.getHeaderGroups().map((hg) => (
-          <tr key={hg.id} className="border-b border-border">
-            {hg.headers.map((h) => (
-              <th
-                key={h.id}
-                onClick={h.column.getToggleSortingHandler()}
-                className="px-3 py-2 text-[9px] uppercase tracking-wide text-faint cursor-pointer select-none"
-              >
-                {flexRender(h.column.columnDef.header, h.getContext())}
-              </th>
-            ))}
-          </tr>
-        ))}
-      </thead>
-      <tbody>
-        {table.getRowModel().rows.map((r) => {
-          const isCurrent = player.current?.rating_key === r.original.rating_key;
-          return (
-            <tr
-              key={r.id}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                onContextAction?.(r.original, r.index, e.clientX, e.clientY);
-              }}
-              className={`group border-b border-[#181b21] ${
-                isCurrent ? "bg-[#15202b]" : "odd:bg-panel2 hover:bg-[#15202b]"
-              }`}
-            >
-              {r.getVisibleCells().map((cell) => (
-                <td key={cell.id} className="px-3 py-2 align-top">
-                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                </td>
-              ))}
+    <div className="@container">
+      <table className="w-full text-left" data-testid="track-table">
+        <thead>
+          {table.getHeaderGroups().map((hg) => (
+            <tr key={hg.id} className="border-b border-border">
+              {hg.headers.map((h) => {
+                const extra = (h.column.columnDef.meta as { cellClass?: string } | undefined)?.cellClass ?? "";
+                return (
+                  <th
+                    key={h.id}
+                    onClick={h.column.getToggleSortingHandler()}
+                    className={`px-3 py-2 text-[9px] uppercase tracking-wide text-faint cursor-pointer select-none ${extra}`}
+                  >
+                    {flexRender(h.column.columnDef.header, h.getContext())}
+                  </th>
+                );
+              })}
             </tr>
-          );
-        })}
-      </tbody>
-    </table>
+          ))}
+        </thead>
+        <tbody>
+          {table.getRowModel().rows.map((r) => {
+            const isCurrent = player.current?.rating_key === r.original.rating_key;
+            return (
+              <tr
+                key={r.id}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  onContextAction?.(r.original, r.index, e.clientX, e.clientY);
+                }}
+                className={`group border-b border-[#181b21] ${
+                  isCurrent ? "bg-[#15202b]" : "odd:bg-panel2 hover:bg-[#15202b]"
+                }`}
+              >
+                {r.getVisibleCells().map((cell) => {
+                  const extra = (cell.column.columnDef.meta as { cellClass?: string } | undefined)?.cellClass ?? "";
+                  return (
+                    <td key={cell.id} className={`px-3 py-2 align-top ${extra}`}>
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
