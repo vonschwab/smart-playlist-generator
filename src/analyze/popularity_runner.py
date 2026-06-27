@@ -238,7 +238,9 @@ def load_artist_popularity_values(
     client. NaN for non-matched / other-artist tracks (neutral)."""
     if client is None:
         return None
-    from src.playlist.artist_style import _artist_indices_in_bundle, _load_albums_for_indices
+    from src.playlist.artist_style import (
+        _artist_indices_in_bundle, _dedupe_artist_indices, _load_albums_for_indices,
+    )
     from src.string_utils import normalize_artist_key
 
     indices = _artist_indices_in_bundle(
@@ -249,12 +251,20 @@ def load_artist_popularity_values(
     # Album is needed so version-preference can demote a clean-titled track on a live
     # album (e.g. "Corpse Pose" on "Live Leaves") below the studio version.
     _albums = _load_albums_for_indices(bundle, indices, metadata_db_path) if metadata_db_path else {}
+    # Resolve popularity against the SAME canonical (deduped) versions the piers come from,
+    # using the identical dedup as cluster_artist_tracks. Otherwise, when a song has two
+    # equally-preferred versions (e.g. two studio "Corpse Pose" copies on different albums),
+    # the resolver's tie-break can land the #1 score on a version the dedup discarded — so the
+    # hit carries no score on the surviving version and vanishes from the 🔥 piers.
+    canonical_indices = _dedupe_artist_indices(
+        indices, titles, getattr(bundle, "durations_ms", None), _albums
+    )
     local_tracks = [{
         "track_id": str(bundle.track_ids[i]),
         "title": str(titles[i]) if titles is not None else "",
         "musicbrainz_id": "",
         "album": _albums.get(i, ""),
-    } for i in indices]
+    } for i in canonical_indices]
     artist_key = normalize_artist_key(artist_name)
     top = get_artist_top_tracks_cached_or_fetch(
         artist_key, artist_name, client=client, db_path=db_path,
