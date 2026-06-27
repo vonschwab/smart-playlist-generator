@@ -1063,6 +1063,12 @@ def build_pier_bridge_playlist(
         last_segment_pool_cache: Optional[Dict[str, Any]] = None
         last_waypoint_stats: Dict[str, Any] = {}
         last_edge_components: List[dict] = []
+        # Initialized pre-loop so an entry-time deadline break (below) still
+        # returns a bound value — the return dict references it unconditionally.
+        # Without this, a generation that crosses the deadline on the FIRST
+        # floor attempt (before the in-loop assignment) crashes with
+        # UnboundLocalError (observed: Khruangbin, 2026-06-27).
+        last_pool_diag: Dict[str, Any] = {}
 
         for floor_attempt_idx, bridge_floor in enumerate(backoff_attempts):
             # Shared generation deadline: if a deadline was passed from core.py,
