@@ -5,7 +5,7 @@ import math
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, Iterator, List, Optional, Set
 
 import numpy as np
 
@@ -177,6 +177,70 @@ def _relaxed_one_each_candidate_attempts(
         )
 
     return attempts
+
+
+# ---------------------------------------------------------------------------
+# Oops, All Bangers: relax-to-fill cascade (spec §3.5)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class _BangerRelaxStep:
+    candidate_cfg: Any
+    genre_gate: Optional[float]
+    rank_cutoff: Optional[int]
+    label: str
+
+
+def _loosen_sonic(cfg, level: float):
+    """level in (0,1] scales the sonic floors toward open; 0.0 disables sonic gating."""
+    sap = cfg.sonic_admission_percentile
+    mss = cfg.min_sonic_similarity
+    if level <= 0.0:
+        return replace(cfg, sonic_admission_percentile=0.0, min_sonic_similarity=None)
+    return replace(
+        cfg,
+        sonic_admission_percentile=(float(sap) * level) if sap else sap,
+        min_sonic_similarity=(float(mss) * level) if mss else mss,
+    )
+
+
+def _loosen_pace(cfg, *, off: bool):
+    """Widen the BPM/onset admission bands; off=True disables pace gating entirely."""
+    if off:
+        return replace(cfg, bpm_admission_max_log_distance=float("inf"),
+                       onset_admission_max_log_distance=float("inf"))
+    def _wider(x):
+        return float("inf") if x == float("inf") else float(x) * 2.0
+    return replace(cfg,
+                   bpm_admission_max_log_distance=_wider(cfg.bpm_admission_max_log_distance),
+                   onset_admission_max_log_distance=_wider(cfg.onset_admission_max_log_distance))
+
+
+def _banger_relaxation_steps(
+    base_cfg,
+    base_genre_gate,
+    base_cutoff,
+) -> Iterator[_BangerRelaxStep]:
+    """Progressively looser banger-pool admission, in the fixed priority order
+    sonic -> pace -> genre -> popularity (spec §3.5). Sonic gets the most/earliest
+    relaxation; popularity is the LAST rung and the ONLY one that admits a non-banger.
+    Mirrors _relaxed_one_each_candidate_attempts (a deterministic generator)."""
+    cfg, gate, cutoff = base_cfg, base_genre_gate, base_cutoff
+    # 1 sonic notch 1, 2 pace notch 1, 3 sonic notch 2, 4 pace off, 5 sonic off
+    cfg = _loosen_sonic(cfg, 0.66);            yield _BangerRelaxStep(cfg, gate, cutoff, "sonic notch1")
+    cfg = _loosen_pace(cfg, off=False);        yield _BangerRelaxStep(cfg, gate, cutoff, "pace notch1")
+    cfg = _loosen_sonic(cfg, 0.33);            yield _BangerRelaxStep(cfg, gate, cutoff, "sonic notch2")
+    cfg = _loosen_pace(cfg, off=True);         yield _BangerRelaxStep(cfg, gate, cutoff, "pace off")
+    cfg = _loosen_sonic(cfg, 0.0);             yield _BangerRelaxStep(cfg, gate, cutoff, "sonic off")
+    # 6 genre notch (one past the user), 7 genre off
+    gate = (float(base_genre_gate) * 0.5) if base_genre_gate is not None else None
+    yield _BangerRelaxStep(cfg, gate, cutoff, "genre notch1")
+    gate = None
+    yield _BangerRelaxStep(cfg, gate, cutoff, "genre off")
+    # 8-10 popularity: the only purity-breaking rungs (logged loudly by the caller)
+    for new_cutoff in (25, 50, None):
+        cutoff = new_cutoff
+        yield _BangerRelaxStep(cfg, gate, cutoff, f"popularity top-{new_cutoff}" if new_cutoff else "popularity off")
 
 
 def generate_playlist_ds(
@@ -549,6 +613,28 @@ def generate_playlist_ds(
     _candidate_cfg = replace(cfg.candidate, **_candidate_cfg_kwargs)
     pool = _build_pool(_candidate_cfg, min_genre_similarity)
     pool.stats["target_length"] = num_tracks
+
+    # Oops, All Bangers: relax-to-fill cascade. If the banger-gated pool is too
+    # small to build a coherent playlist, relax sonic -> pace -> genre -> popularity
+    # (popularity LAST — the only purity-breaking rung), rebuilding and stopping the
+    # instant the pool fills. Only runs when the gate is active.
+    if _banger_cutoff is not None:
+        _min_banger_pool = max(2 * int(num_tracks), 40)
+        _pool_n = len(getattr(pool, "eligible_indices", pool.pool_indices))
+        if _pool_n < _min_banger_pool:
+            for _step in _banger_relaxation_steps(_candidate_cfg, min_genre_similarity, _banger_cutoff):
+                logger.info(
+                    "Bangers relax-to-fill: pool=%d < target=%d -> relaxing [%s]%s",
+                    _pool_n, _min_banger_pool, _step.label,
+                    "  (ADMITTING NON-BANGERS)" if _step.label.startswith("popularity") else "",
+                )
+                pool = _build_pool(_step.candidate_cfg, _step.genre_gate,
+                                   popularity_rank_cutoff=_step.rank_cutoff)
+                pool.stats["target_length"] = num_tracks
+                _pool_n = len(getattr(pool, "eligible_indices", pool.pool_indices))
+                if _pool_n >= _min_banger_pool:
+                    logger.info("Bangers relax-to-fill: filled at [%s] pool=%d", _step.label, _pool_n)
+                    break
 
     max_per_artist = max(1, math.ceil(playlist_len * cfg.construct.max_artist_fraction_final))
     logger.info(
