@@ -866,6 +866,143 @@ Per spec §10, tune by ear: OOPS sonic/pace baseline (policy constants), cutoffs
 
 ---
 
+## Task SM: Seed-mode bridge gate (added post-approval per the seed-mode decision)
+
+Wire the popularity bridge gate into **seed mode** — gate the bridge pool, **never** touch the user's
+chosen seeds (no pier override). Seed mode generates via `create_playlist_from_seed_tracks` →
+`_maybe_generate_ds_playlist(pier_bridge_config=None)` → `core.generate_playlist_ds`, so the gate must
+read the cutoff from `pb_overrides` (config) as a fallback to the (here-`None`) `pier_bridge_config`
+param. The seed path injects the cutoff via config — the same mechanism its existing fallbacks use.
+
+**Files:**
+- Modify: `src/playlist/pipeline/core.py` (refactor `_banger_gate_inputs`; resolve effective cutoff from param-or-overrides)
+- Modify: `src/playlist_generator.py` (`create_playlist_from_seed_tracks`: `popularity_mode` param + config injection)
+- Modify: `src/playlist_gui/worker.py` (`:1318` pass `popularity_mode`)
+- Test: `tests/unit/test_core_popularity_gate_wiring.py` (update for the new helper signature) + a new effective-cutoff test
+
+**Interfaces:**
+- Changes: `_banger_gate_inputs(bundle, pb_cfg, *, db_path)` → `_banger_gate_inputs(bundle, rank_cutoff, *, db_path)` (takes the resolved cutoff int, not the config). Returns `(ranks, cutoff)` unchanged.
+- Produces: seed-mode `popularity_mode` → `create_playlist_from_seed_tracks` → config `playlists.ds_pipeline.pier_bridge.popularity_rank_cutoff` → core reads it via `pb_overrides`.
+
+- [ ] **Step 1: Update the wiring test for the new helper signature**
+
+In `tests/unit/test_core_popularity_gate_wiring.py`, change the helper calls from passing a `pb_cfg`
+object to passing the cutoff int directly. The tests become:
+
+```python
+import numpy as np
+import src.playlist.pipeline.core as core
+
+
+def test_gate_inputs_none_when_cutoff_none(monkeypatch):
+    called = {"n": 0}
+    monkeypatch.setattr(
+        "src.analyze.popularity_runner.load_pool_popularity_ranks_cached",
+        lambda *a, **k: called.__setitem__("n", called["n"] + 1) or np.array([0]),
+    )
+    ranks, cutoff = core._banger_gate_inputs(object(), None, db_path="")
+    assert ranks is None and cutoff is None and called["n"] == 0   # loader NOT called
+
+
+def test_gate_inputs_loads_when_cutoff_set(monkeypatch):
+    from types import SimpleNamespace
+    bundle = SimpleNamespace(track_ids=np.array(["a", "b"], dtype=object))
+    monkeypatch.setattr(
+        "src.analyze.popularity_runner.load_pool_popularity_ranks_cached",
+        lambda b, idx, *, db_path: np.array([0, 5]),
+    )
+    ranks, cutoff = core._banger_gate_inputs(bundle, 10, db_path="")
+    assert cutoff == 10 and ranks is not None and list(ranks) == [0, 5]
+```
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `python -m pytest tests/unit/test_core_popularity_gate_wiring.py -q --basetemp=$PT`
+Expected: FAIL (helper still takes a config object / signature mismatch).
+
+- [ ] **Step 3: Refactor `_banger_gate_inputs` + resolve the effective cutoff**
+
+In `src/playlist/pipeline/core.py`, change `_banger_gate_inputs` to take the cutoff int:
+
+```python
+def _banger_gate_inputs(
+    bundle: Any,
+    rank_cutoff: Optional[int],
+    *,
+    db_path: str,
+) -> tuple[Optional[np.ndarray], Optional[int]]:
+    """Pure helper: resolve (_banger_ranks, _banger_cutoff) for the Oops-All-Bangers gate.
+    Returns (None, None) when rank_cutoff is None. Otherwise loads per-track Last.fm ranks
+    once over the full bundle and returns (rank_array, int_cutoff)."""
+    if rank_cutoff is None:
+        return None, None
+    from src.analyze.popularity_runner import (
+        enrichment_db_path as _edb_path,
+        load_pool_popularity_ranks_cached,
+    )
+    _effective_db = db_path if db_path else _edb_path()
+    ranks = load_pool_popularity_ranks_cached(
+        bundle, list(range(len(bundle.track_ids))), db_path=_effective_db
+    )
+    return ranks, int(rank_cutoff)
+```
+
+At the call site (where Task 4 placed the rank-load block, just above `def _build_pool`), compute the
+effective cutoff from the param config OR `pb_overrides`, then call the helper:
+
+```python
+    # Oops, All Bangers: gate cutoff comes from the explicit pier_bridge_config (artist mode)
+    # or from pb_overrides (seed mode injects it via config; pier_bridge_config is None there).
+    _cfg_cutoff = getattr(pier_bridge_config, "popularity_rank_cutoff", None)
+    if _cfg_cutoff is None:
+        _ovr_cutoff = pb_overrides.get("popularity_rank_cutoff")
+        _cfg_cutoff = int(_ovr_cutoff) if _ovr_cutoff is not None else None
+    _banger_ranks, _banger_cutoff = _banger_gate_inputs(bundle, _cfg_cutoff, db_path="")
+```
+
+(`pb_overrides` is already parsed at `core.py:208`; the call site is well below that.)
+
+- [ ] **Step 4: Inject the cutoff in the seed path + add `popularity_mode`**
+
+In `src/playlist_generator.py::create_playlist_from_seed_tracks` (signature ~2948), add the param
+`popularity_mode: str = "off",`. Near the top of the method body (after `if not seed_tracks:` raises,
+~line 2964), resolve and inject (always set — `None` clears any stale value):
+
+```python
+        _bangers_cfg = self.config.get("playlists", "bangers", default={}) or {}
+        _seed_cutoff = _resolve_popularity_rank_cutoff(popularity_mode, _bangers_cfg)
+        self.config.config.setdefault("playlists", {}).setdefault("ds_pipeline", {}) \
+            .setdefault("pier_bridge", {})["popularity_rank_cutoff"] = _seed_cutoff
+```
+
+`_resolve_popularity_rank_cutoff` already exists (pool-gate Task 3). **Do NOT** force `popular_seeds` /
+override piers here — seed-mode piers are the user's chosen seeds.
+
+- [ ] **Step 5: Pass `popularity_mode` from the worker**
+
+In `src/playlist_gui/worker.py` (~line 1318), add `popularity_mode=request.popularity_mode,` to the
+`create_playlist_from_seed_tracks(...)` call (both the `mode == "seeds"` and the legacy
+`mode == "artist" and seed_tracks` dispatch at ~1327 — find both `create_playlist_from_seed_tracks(`
+call sites and add the kwarg to each).
+
+- [ ] **Step 6: Verify**
+
+Run:
+```bash
+python -c "import src.playlist.pipeline.core; import src.playlist_generator" && echo IMPORT_OK
+python -m pytest tests/unit/test_core_popularity_gate_wiring.py tests/unit/test_banger_cascade.py -q --basetemp=$PT
+```
+Expected: `IMPORT_OK` and PASS.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/playlist/pipeline/core.py src/playlist_generator.py src/playlist_gui/worker.py tests/unit/test_core_popularity_gate_wiring.py
+git commit -m "feat(bangers): wire the popularity bridge gate into seed mode (gate only, seeds untouched)"
+```
+
+---
+
 ## Self-Review (completed)
 
 - **Spec coverage:** rank loader (§3.1→T1), gate placement + backstop reconciliation (§3.2/§3.6→T2), threading + `PierBridgeConfig` field + popular-seed piers (§3.3/§3.8→T3), gate activation in core (§3.3→T4), cascade (§3.5→T5), OOPS owns sonic/pace (§3.4→T6), config + goldens (§5→T7), secondary beam penalty (§3.7→unchanged, untouched by design), observability (§6→logging in T2/T5), testing (§8→T1-T8), live verify (§8→T9). Deferred items (version-preference, single-pass relax, config-wiring of baselines/ladder/min_pool) are called out in the spec §9/§10 and not tasked — intentional.
