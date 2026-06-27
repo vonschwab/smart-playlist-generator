@@ -1081,18 +1081,35 @@ class SidecarStore:
                 (release_key, source_type, status, detail, _now_iso()),
             )
 
-    def release_keys_attempted(self, source_type: str) -> set[str]:
+    def release_keys_attempted(
+        self,
+        source_type: str,
+        *,
+        status: str | None = None,
+        newer_than_iso: str | None = None,
+    ) -> set[str]:
         """Return release_keys with a prior attempt of the given source_type.
 
         Includes misses — that's the point: an attempted-but-not-found release
         should be skipped on reruns, not retried.
+
+        ``status`` filters to a single attempt status (e.g. ``"miss"``).
+        ``newer_than_iso`` filters to attempts whose ``attempted_at`` is at or
+        after the given ISO-8601 cutoff — used for TTL-bounded rechecks, so a
+        miss eventually ages out and is retried (e.g. a Last.fm album that gets
+        tagged later). ``attempted_at`` is stored via ``_now_iso`` (UTC, second
+        precision, fixed ``+00:00`` offset) so lexical ``>=`` is chronological.
         """
+        sql = "SELECT release_key FROM ai_genre_source_attempts WHERE source_type = ?"
+        params: list[object] = [source_type]
+        if status is not None:
+            sql += " AND status = ?"
+            params.append(status)
+        if newer_than_iso is not None:
+            sql += " AND attempted_at >= ?"
+            params.append(newer_than_iso)
         with self.connect() as conn:
-            rows = conn.execute(
-                "SELECT release_key FROM ai_genre_source_attempts WHERE source_type = ?",
-                (source_type,),
-            )
-            return {row[0] for row in rows}
+            return {row[0] for row in conn.execute(sql, params)}
 
     def upsert_source_page(
         self,

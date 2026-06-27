@@ -256,6 +256,35 @@ class TestRunExtraction:
         assert set(manifest["failed"]) == {"gone", "nopath"}
         assert manifest["done"] == ["ok"]
 
+    def test_heartbeat_logs_between_every_n_boundaries(self, tmp_path, capsys):
+        # On CPU each MERT track takes longer than the heartbeat window, so the
+        # run must emit a progress line per track (not stay silent until the
+        # every-N=10 boundary, which made it "look hung").
+        ok_fp = self._touch(tmp_path, "ok.flac")
+
+        def prober(fp):
+            return 100.0
+
+        def loader(fp, offset, duration):
+            return np.ones(32, np.float32)
+
+        # Fake clock advancing 20s/call -> every track exceeds the 15s heartbeat.
+        ticks = iter(range(0, 100_000, 20))
+        clock = lambda: float(next(ticks))  # noqa: E731
+
+        store = _store(tmp_path)
+        items = [(f"t{i}", ok_fp) for i in range(5)]
+        run_extraction(
+            items, fake_embedder, store, prober=prober, loader=loader,
+            clock=clock, heartbeat_s=15.0,  # log_every defaults to 10 -> never hits for 5 items
+        )
+        out = capsys.readouterr().out
+        # An intermediate track logged via the heartbeat (every-N alone would not).
+        assert "2/5" in out
+        # First and last track always announced.
+        assert "1/5" in out
+        assert "5/5" in out
+
     def test_decode_error_recorded_and_run_continues(self, tmp_path):
         bad_fp = self._touch(tmp_path, "corrupt.flac")
         ok_fp = self._touch(tmp_path, "ok.flac")
