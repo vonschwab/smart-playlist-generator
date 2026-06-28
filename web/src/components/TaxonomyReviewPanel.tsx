@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { useJobReconcile } from "../lib/useJobReconcile";
 import { useWorkerEvents } from "../lib/ws";
+import { GenreAutocomplete } from "./GenreAutocomplete";
 import type {
   TaxonomyProposal, TaxonomyQueueItem, TaxonomyQueueResponse, TaxonomyVerdict, WsEvent,
 } from "../lib/types";
@@ -156,7 +157,11 @@ function TermCard({
           // Direct alias — point this term at an existing canonical genre, no Claude.
           <div className="flex items-center gap-1.5 mt-1 flex-wrap">
             <span className="text-faint text-[10px]">alias of</span>
-            <input autoFocus value={aliasTarget} onChange={(e) => setAliasTarget(e.target.value)}
+            <GenreAutocomplete
+              autoFocus
+              value={aliasTarget}
+              onChange={setAliasTarget}
+              onPick={setAliasTarget}
               placeholder="existing canonical genre, e.g. twee pop"
               className="bg-panel2 border border-border rounded text-[10px] text-text px-1.5 py-0.5 outline-none min-w-[200px]" />
             <button disabled={!aliasTarget.trim()}
