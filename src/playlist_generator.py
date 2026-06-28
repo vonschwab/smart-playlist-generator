@@ -1107,7 +1107,15 @@ class PlaylistGenerator:
 
         errors: List[str] = []
         if expected_length > 0 and len(ordered_ids) != int(expected_length):
-            errors.append(f"length_mismatch final={len(ordered_ids)} expected={int(expected_length)}")
+            # Exact-N length is no longer enforced — variable bridge length lets the
+            # total land in a band (Dylan's call, 2026-06-27; retired alongside the
+            # builder assembly check and post_validation.py). Soft-warn instead of
+            # failing; the recency/title guards below still raise. Pathologically
+            # small pools are caught upstream by pool-size checks + the band bound.
+            logger.warning(
+                "post_order_validation: length_mismatch final=%d expected=%d (allowed: variable bridge length)",
+                len(ordered_ids), int(expected_length),
+            )
 
         if overlap:
             offenders: List[str] = []
@@ -1989,6 +1997,12 @@ class PlaylistGenerator:
                     genre_arc_floor=float(pb_tuning.get("genre_arc_floor", 0.0)),
                     genre_arc_floor_percentile=float(pb_tuning.get("genre_arc_floor_percentile", 0.0)),
                     genre_admission_percentile=float(pb_tuning.get("genre_admission_percentile", 0.0)),
+                    variable_bridge_length=bool((ds_cfg.get("pier_bridge") or {}).get("variable_bridge_length", False)),
+                    variable_bridge_flex=int((ds_cfg.get("pier_bridge") or {}).get("variable_bridge_flex", 2)),
+                    variable_bridge_band=int((ds_cfg.get("pier_bridge") or {}).get("variable_bridge_band", 5)),
+                    variable_bridge_min_edge=float((ds_cfg.get("pier_bridge") or {}).get("variable_bridge_min_edge", 0.30)),
+                    variable_bridge_epsilon=float((ds_cfg.get("pier_bridge") or {}).get("variable_bridge_epsilon", 0.02)),
+                    variable_bridge_max_flex_segments=int((ds_cfg.get("pier_bridge") or {}).get("variable_bridge_max_flex_segments", 3)),
                 )
                 # Roam corridors (Phase-1): the artist path builds PierBridgeConfig
                 # explicitly, so it must apply the roam override itself (no-op if absent).
@@ -2875,6 +2889,12 @@ class PlaylistGenerator:
                         genre_arc_floor=float(pb_tuning.get("genre_arc_floor", 0.0)),
                         genre_arc_floor_percentile=float(pb_tuning.get("genre_arc_floor_percentile", 0.0)),
                         genre_admission_percentile=float(pb_tuning.get("genre_admission_percentile", 0.0)),
+                        variable_bridge_length=bool((ds_cfg.get("pier_bridge") or {}).get("variable_bridge_length", False)),
+                        variable_bridge_flex=int((ds_cfg.get("pier_bridge") or {}).get("variable_bridge_flex", 2)),
+                        variable_bridge_band=int((ds_cfg.get("pier_bridge") or {}).get("variable_bridge_band", 5)),
+                        variable_bridge_min_edge=float((ds_cfg.get("pier_bridge") or {}).get("variable_bridge_min_edge", 0.30)),
+                        variable_bridge_epsilon=float((ds_cfg.get("pier_bridge") or {}).get("variable_bridge_epsilon", 0.02)),
+                        variable_bridge_max_flex_segments=int((ds_cfg.get("pier_bridge") or {}).get("variable_bridge_max_flex_segments", 3)),
                     )
                     # Roam corridors (Phase-1): apply the roam override on the explicit
                     # artist-path PierBridgeConfig (no-op if absent).
