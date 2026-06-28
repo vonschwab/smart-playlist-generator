@@ -620,16 +620,28 @@ class TestRunPostOrderValidation:
         assert result.summary["final_size"] == 3
         assert result.summary["expected_size"] == 3
 
-    def test_length_mismatch_recorded(self):
+    def test_length_mismatch_warns_not_errors(self, caplog):
+        """Length mismatch is now a soft warning (retired exact-N guarantee).
+
+        variable-bridge mode produces totals in a band [N-m, N+m]; the old
+        behaviour of adding "length_mismatch" to errors and causing the caller
+        to raise has been removed (Dylan's decision, Task 3).  A WARNING is
+        emitted instead so the mismatch is still visible in logs.
+        """
+        import logging
         bundle = _make_bundle(["t0", "t1", "t2"])
-        result = run_post_order_validation(
-            bundle=bundle,
-            ordered_track_ids=["t0", "t1"],
-            expected_length=3,
-            excluded_track_ids=None,
-            seed_track_ids_for_pier=["t0"],
-        )
-        assert any("length_mismatch" in e for e in result.errors)
+        with caplog.at_level(logging.WARNING, logger="src.playlist.pipeline.post_validation"):
+            result = run_post_order_validation(
+                bundle=bundle,
+                ordered_track_ids=["t0", "t1"],
+                expected_length=3,
+                excluded_track_ids=None,
+                seed_track_ids_for_pier=["t0"],
+            )
+        # No error — band lengths must not block generation.
+        assert result.errors == []
+        # Warning must be present so the mismatch is still visible.
+        assert any("length_mismatch" in r.message for r in caplog.records)
 
     def test_recency_overlap_excludes_piers(self):
         """Pier ids in the excluded set don't count as overlap violations."""

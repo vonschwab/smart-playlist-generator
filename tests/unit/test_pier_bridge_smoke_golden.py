@@ -260,7 +260,11 @@ def _serialize_result(result: Any) -> Dict[str, Any]:
 @pytest.mark.parametrize("scenario_name", sorted(SMOKE_SCENARIOS.keys()))
 def test_pier_bridge_smoke_golden(scenario_name, smoke_bundle):
     scenario = SMOKE_SCENARIOS[scenario_name]
-    cfg = PierBridgeConfig(**scenario["cfg_kwargs"])
+    # Smoke goldens are stable CORE-beam regression baselines: pin variable bridge
+    # length OFF (it became the live default 2026-06-28) so these track the rigid
+    # even-split beam, not the flex — which has its own coverage in
+    # tests/unit/test_var_bridge_integration.py.
+    cfg = PierBridgeConfig(variable_bridge_length=False, **scenario["cfg_kwargs"])
 
     seed_ids = scenario["seed_track_ids"]
     seed_idx_set = {smoke_bundle.track_id_to_index[s] for s in seed_ids}

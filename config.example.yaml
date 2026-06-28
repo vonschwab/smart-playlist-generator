@@ -270,6 +270,18 @@ playlists:
 
     # Pier-bridge ordering/scoring (applies to all playlists when pipeline=ds)
     pier_bridge:
+      # Variable bridge length (Lever 2, default ON as of 2026-06-28): each segment
+      # flexes its interior length within a soft total band [N-band, N+band] to land
+      # more smoothly on the next pier, lifting the worst transition. Costs ~2.5-3x
+      # generation time on playlists with a weak segment. Set false to roll back to the
+      # rigid even split. flex=per-segment +/- tracks; band=total track-count slack;
+      # min_edge=only flex a segment whose worst edge is below this; max_flex_segments=
+      # deterministic cap on how many segments may flex.
+      variable_bridge_length: true
+      # variable_bridge_flex: 2
+      # variable_bridge_band: 5
+      # variable_bridge_min_edge: 0.30
+      # variable_bridge_max_flex_segments: 3
       # Total-generation wall-clock budget (seconds). A single shared deadline is
       # computed once at generation start (before any One-Each retries) and threaded
       # into all segment loops and relaxation tiers so NO path can collectively exceed
