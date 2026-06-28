@@ -34,14 +34,21 @@ def test_completed_returns_terms():
         assert body["terms"][0]["decision"]["verdict"] == "add"
 
 
-def test_adjudicate_returns_verdict():
+def test_adjudicate_runs_as_job_and_returns_verdict():
+    # Tracked: the slow Claude call runs off the reader thread; the client polls
+    # /api/jobs/{id} for the verdict in tool_result (no 60s untracked cap).
     with _client() as c:
         r = c.post("/api/taxonomy/adjudicate", json={"term": "vaporwave"})
         assert r.status_code == 200
-        body = r.json()
-        assert body["ok"] is True
-        assert body["verdict"] == "add"
-        assert body["proposal"]["kind"] == "genre"
+        job_id = r.json()["job_id"]
+        for _ in range(100):
+            job = c.get(f"/api/jobs/{job_id}").json()
+            if job["status"] in ("success", "failed", "cancelled"):
+                break
+            time.sleep(0.05)
+        assert job["status"] == "success"
+        assert job["tool_result"]["verdict"] == "add"
+        assert job["tool_result"]["proposal"]["kind"] == "genre"
 
 
 def test_adjudicate_requires_term():

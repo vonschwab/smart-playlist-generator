@@ -80,13 +80,32 @@ function TermCard({
   const [draft, setDraft] = useState("");
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("source_noise");
+  const [aliasing, setAliasing] = useState(false);
+  const [aliasTarget, setAliasTarget] = useState("");
 
   async function ask() {
+    // Adjudication is a tracked job (the Claude call is slow): submit, then poll
+    // /api/jobs/{id} for the verdict in tool_result.
     setAsking(true); setError(null);
     try {
-      const v = await api.taxonomyAdjudicate(item.term);
-      setVerdict(v);
-      setDraft(JSON.stringify(v.proposal, null, 2));
+      const { job_id } = await api.taxonomyAdjudicate(item.term);
+      for (let i = 0; i < 600; i++) {  // up to ~5 min at 500ms cadence
+        await new Promise((r) => setTimeout(r, 500));
+        const job = await api.job(job_id);
+        if (job.status === "success") {
+          const tr = job.tool_result as unknown as
+            { verdict: "add" | "alias" | "reject"; term: string; proposal: TaxonomyProposal };
+          const v: TaxonomyVerdict = { ok: true, verdict: tr.verdict, term: tr.term, proposal: tr.proposal };
+          setVerdict(v);
+          setDraft(JSON.stringify(v.proposal, null, 2));
+          return;
+        }
+        if (job.status === "failed" || job.status === "cancelled") {
+          setError(job.error || `adjudication ${job.status}`);
+          return;
+        }
+      }
+      setError("adjudication timed out");
     } catch (e) { setError(String(e)); }
     finally { setAsking(false); }
   }
@@ -133,23 +152,47 @@ function TermCard({
       {error && <div className="text-danger text-[10px]">{error}</div>}
 
       {!verdict ? (
-        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-          <button onClick={ask} disabled={asking}
-            className="text-[10px] px-2 py-0.5 rounded bg-accent text-bg font-semibold disabled:opacity-50">
-            {asking ? "asking Claude…" : "Ask Claude"}
-          </button>
-          {/* Direct reject — no Claude call needed for obvious non-genres. */}
-          <span className="text-faint text-[10px]">or reject as</span>
-          <select value={reason} onChange={(e) => setReason(e.target.value)}
-            className="bg-panel2 border border-border rounded text-[10px] text-text px-1.5 py-0.5 outline-none">
-            {REJECT_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
-          </select>
-          <button
-            onClick={() => onDecide("reject", { reject_reason: reason, rationale: "" }, null, true)}
-            className="text-[10px] px-2 py-0.5 rounded border border-danger/50 text-danger hover:bg-danger/10">
-            Reject
-          </button>
-        </div>
+        aliasing ? (
+          // Direct alias — point this term at an existing canonical genre, no Claude.
+          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+            <span className="text-faint text-[10px]">alias of</span>
+            <input autoFocus value={aliasTarget} onChange={(e) => setAliasTarget(e.target.value)}
+              placeholder="existing canonical genre, e.g. twee pop"
+              className="bg-panel2 border border-border rounded text-[10px] text-text px-1.5 py-0.5 outline-none min-w-[200px]" />
+            <button disabled={!aliasTarget.trim()}
+              onClick={() => onDecide("alias", {
+                name: item.term, kind: "alias", status: "alias_only",
+                canonical_target: aliasTarget.trim(), specificity_score: 0,
+                parent_edges: [], similar_to: [], alias_variants: [],
+                term_kind_confirm: "genre", rationale: "",
+              }, null, true)}
+              className="text-[10px] px-2 py-0.5 rounded bg-accent text-bg font-semibold disabled:opacity-50">
+              Save alias
+            </button>
+            <button onClick={() => setAliasing(false)}
+              className="text-[10px] px-2 py-0.5 rounded border border-border text-muted hover:text-text">Cancel</button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+            <button onClick={ask} disabled={asking}
+              className="text-[10px] px-2 py-0.5 rounded bg-accent text-bg font-semibold disabled:opacity-50">
+              {asking ? "asking Claude…" : "Ask Claude"}
+            </button>
+            {/* Direct alias / reject — no Claude call needed when you already know. */}
+            <button onClick={() => setAliasing(true)}
+              className="text-[10px] px-2 py-0.5 rounded border border-border text-muted hover:text-text">Alias…</button>
+            <span className="text-faint text-[10px]">or reject as</span>
+            <select value={reason} onChange={(e) => setReason(e.target.value)}
+              className="bg-panel2 border border-border rounded text-[10px] text-text px-1.5 py-0.5 outline-none">
+              {REJECT_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+            <button
+              onClick={() => onDecide("reject", { reject_reason: reason, rationale: "" }, null, true)}
+              className="text-[10px] px-2 py-0.5 rounded border border-danger/50 text-danger hover:bg-danger/10">
+              Reject
+            </button>
+          </div>
+        )
       ) : (
         <div className="flex flex-col gap-1 mt-1">
           <VerdictSummary v={verdict} />

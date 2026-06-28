@@ -346,16 +346,19 @@ def create_app(
 
     @app.post("/api/taxonomy/adjudicate")
     async def taxonomy_adjudicate(body: TaxonomyAdjudicateRequest) -> dict:
+        # Tracked job: the Claude call is slow (often > the 60s untracked cap) and
+        # must run off the reader thread. The client polls /api/jobs/{id} for the
+        # verdict in tool_result.
         if not body.term.strip():
             raise HTTPException(status_code=422, detail="term is required")
+        job_id = registry.create(
+            request_params={"tool": "adjudicate_taxonomy_term", "term": body.term})
         try:
-            result = await bridge.command({
-                "cmd": "adjudicate_taxonomy_term", "term": body.term}, untracked=True)
+            await bridge.submit({"cmd": "adjudicate_taxonomy_term",
+                                 "term": body.term, "job_id": job_id})
         except BridgeBusy:
-            raise HTTPException(status_code=409, detail="Worker is busy — try again when the current job finishes.")
-        except WorkerCommandError as exc:
-            raise HTTPException(status_code=422, detail=str(exc))
-        return {"ok": True, **result}
+            raise HTTPException(status_code=409, detail="A job is already running.")
+        return {"job_id": job_id}
 
     @app.post("/api/taxonomy/decision")
     async def taxonomy_decision(body: TaxonomyDecisionRequest) -> dict:

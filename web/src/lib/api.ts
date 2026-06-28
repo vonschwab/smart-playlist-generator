@@ -16,7 +16,6 @@ import type {
   SeedTrack,
   TaxonomyDecisionRequest,
   TaxonomyQueueResponse,
-  TaxonomyVerdict,
 } from "./types";
 
 async function jsonOrThrow(resp: Response) {
@@ -151,7 +150,8 @@ export const api = {
     const params = new URLSearchParams({ search, limit: String(limit), offset: String(offset) });
     return jsonOrThrow(await fetch(`/api/taxonomy/completed?${params}`));
   },
-  async taxonomyAdjudicate(term: string): Promise<TaxonomyVerdict> {
+  async taxonomyAdjudicate(term: string): Promise<{ job_id: string }> {
+    // Tracked job — poll api.job(job_id) for the verdict in tool_result.
     return jsonOrThrow(await fetch("/api/taxonomy/adjudicate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

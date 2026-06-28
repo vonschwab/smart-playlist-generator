@@ -174,7 +174,8 @@ def main():
             emit({"type": "done", "cmd": "get_taxonomy_completed", "ok": True,
                   "detail": "1 decided", "request_id": rid, "job_id": None})
         elif name == "adjudicate_taxonomy_term":
-            emit({"type": "result", "result_type": "taxonomy_adjudication",
+            # Tracked job: emit with job_id so the verdict lands in tool_result.
+            emit({"type": "result", "result_type": "adjudicate_taxonomy_term",
                   "verdict": "add", "term": cmd.get("term"),
                   "proposal": {"name": "vaporwave", "kind": "genre", "status": "active",
                                "specificity_score": 0.62,
@@ -184,9 +185,9 @@ def main():
                                "similar_to": [], "alias_variants": ["vapor wave"],
                                "term_kind_confirm": "genre", "rationale": "fake",
                                "facet_type": None, "canonical_target": None},
-                  "request_id": rid, "job_id": None})
+                  "request_id": rid, "job_id": cmd.get("job_id")})
             emit({"type": "done", "cmd": "adjudicate_taxonomy_term", "ok": True,
-                  "detail": cmd.get("term"), "request_id": rid, "job_id": None})
+                  "detail": cmd.get("term"), "request_id": rid, "job_id": cmd.get("job_id")})
         elif name == "record_taxonomy_decision":
             emit({"type": "result", "result_type": "taxonomy_decision",
                   "term": cmd.get("term"), "status": cmd.get("verdict"),

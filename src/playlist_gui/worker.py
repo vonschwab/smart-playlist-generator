@@ -2809,10 +2809,12 @@ def handle_get_taxonomy_completed(cmd_data: Dict[str, Any]) -> None:
 
 
 def handle_adjudicate_taxonomy_term(cmd_data: Dict[str, Any]) -> None:
-    """Ask Claude for an add/alias/reject verdict on one term. UNTRACKED; calls
-    Claude and returns the verdict — it does NOT persist anything (the GUI ratifies
-    via record_taxonomy_decision)."""
-    rid = cmd_data.get("request_id")
+    """Ask Claude for an add/alias/reject verdict on one term. TRACKED job: the
+    Claude (Agent SDK) call is slow — routinely longer than the 60s untracked
+    bridge.command cap — and must run on the worker thread, not the reader thread
+    (an untracked Claude call there blocks every other untracked command incl.
+    cancel; see web-gui skill). Returns the verdict in the job result; does NOT
+    persist (the GUI ratifies via record_taxonomy_decision)."""
     try:
         from dataclasses import asdict
 
@@ -2830,11 +2832,13 @@ def handle_adjudicate_taxonomy_term(cmd_data: Dict[str, Any]) -> None:
         term = normalize_taxonomy_name(str(cmd_data.get("term") or ""))
         if not term:
             raise ValueError("term is required")
+        emit_progress("adjudicate_taxonomy_term", 0, 1, f"asking Claude about {term}")
         taxonomy = load_default_layered_taxonomy()
         index = build_candidate_index(_open_store_readonly(SIDECAR_DB_PATH), taxonomy)
         candidate = index.get(term)
         if candidate is None:
             raise ValueError(f"term not in candidate queue: {term!r}")
+        check_cancelled()
         client = create_enrichment_client()  # web_mode off by default
         verdict = adjudicate_term(candidate, taxonomy, client=client)
         if isinstance(verdict, RejectVerdict):
@@ -2844,14 +2848,13 @@ def handle_adjudicate_taxonomy_term(cmd_data: Dict[str, Any]) -> None:
         else:
             out = {"verdict": "alias" if verdict.kind == "alias" else "add",
                    "term": term, "proposal": asdict(verdict)}
-        emit_event({"type": "result", "result_type": "taxonomy_adjudication",
-                    "request_id": rid, "job_id": None, **out})
-        emit_event({"type": "done", "cmd": "adjudicate_taxonomy_term", "ok": True,
-                    "detail": term, "request_id": rid, "job_id": None})
+        emit_result("adjudicate_taxonomy_term", out)
+        emit_done("adjudicate_taxonomy_term", True, term)
+    except CancellationError:
+        emit_done("adjudicate_taxonomy_term", False, "Cancelled", cancelled=True)
     except Exception as e:
-        emit_event({"type": "error", "message": str(e), "request_id": rid, "job_id": None})
-        emit_event({"type": "done", "cmd": "adjudicate_taxonomy_term", "ok": False,
-                    "detail": str(e), "request_id": rid, "job_id": None})
+        emit_error(str(e), traceback.format_exc())
+        emit_done("adjudicate_taxonomy_term", False, str(e))
 
 
 def handle_record_taxonomy_decision(cmd_data: Dict[str, Any]) -> None:
@@ -3051,6 +3054,7 @@ TRACKED_COMMAND_HANDLERS = {
     "scan_genre_review": handle_scan_genre_review,
     "publish_decided": handle_publish_decided,
     "apply_taxonomy_decisions": handle_apply_taxonomy_decisions,
+    "adjudicate_taxonomy_term": handle_adjudicate_taxonomy_term,
 }
 
 # Commands that don't have their own request context
@@ -3088,7 +3092,6 @@ UNTRACKED_COMMAND_HANDLERS = {
     "apply_escalation_decision": handle_apply_escalation_decision,
     "get_taxonomy_queue": handle_get_taxonomy_queue,
     "get_taxonomy_completed": handle_get_taxonomy_completed,
-    "adjudicate_taxonomy_term": handle_adjudicate_taxonomy_term,
     "record_taxonomy_decision": handle_record_taxonomy_decision,
 }
 
