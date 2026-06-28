@@ -1107,7 +1107,15 @@ class PlaylistGenerator:
 
         errors: List[str] = []
         if expected_length > 0 and len(ordered_ids) != int(expected_length):
-            errors.append(f"length_mismatch final={len(ordered_ids)} expected={int(expected_length)}")
+            # Exact-N length is no longer enforced — variable bridge length lets the
+            # total land in a band (Dylan's call, 2026-06-27; retired alongside the
+            # builder assembly check and post_validation.py). Soft-warn instead of
+            # failing; the recency/title guards below still raise. Pathologically
+            # small pools are caught upstream by pool-size checks + the band bound.
+            logger.warning(
+                "post_order_validation: length_mismatch final=%d expected=%d (allowed: variable bridge length)",
+                len(ordered_ids), int(expected_length),
+            )
 
         if overlap:
             offenders: List[str] = []
