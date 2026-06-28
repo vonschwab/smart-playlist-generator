@@ -79,7 +79,7 @@ function TermCard({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [rejecting, setRejecting] = useState(false);
-  const [reason, setReason] = useState(REJECT_REASONS[0]);
+  const [reason, setReason] = useState("source_noise");
 
   async function ask() {
     setAsking(true); setError(null);
@@ -133,10 +133,21 @@ function TermCard({
       {error && <div className="text-danger text-[10px]">{error}</div>}
 
       {!verdict ? (
-        <div className="flex gap-1.5 mt-1">
+        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
           <button onClick={ask} disabled={asking}
             className="text-[10px] px-2 py-0.5 rounded bg-accent text-bg font-semibold disabled:opacity-50">
             {asking ? "asking Claude…" : "Ask Claude"}
+          </button>
+          {/* Direct reject — no Claude call needed for obvious non-genres. */}
+          <span className="text-faint text-[10px]">or reject as</span>
+          <select value={reason} onChange={(e) => setReason(e.target.value)}
+            className="bg-panel2 border border-border rounded text-[10px] text-text px-1.5 py-0.5 outline-none">
+            {REJECT_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
+          </select>
+          <button
+            onClick={() => onDecide("reject", { reject_reason: reason, rationale: "" }, null, true)}
+            className="text-[10px] px-2 py-0.5 rounded border border-danger/50 text-danger hover:bg-danger/10">
+            Reject
           </button>
         </div>
       ) : (
