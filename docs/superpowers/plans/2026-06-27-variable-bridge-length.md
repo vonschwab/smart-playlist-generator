@@ -246,7 +246,7 @@ git commit -m "feat(var-bridge): config knobs + artist/seeds wiring (default off
 ### Task 3: Builder integration — greedy variable length in the segment loop
 
 **Files:**
-- Modify: `src/playlist/pier_bridge_builder.py` (even-split ~line 898; segment loop ~line 1722; beam call ~line 1486)
+- Modify: `src/playlist/pier_bridge_builder.py` (even-split nominal ~line 898; segment loop ~line 1722; per-segment build = genre targets ~1756/1810 + `_run_segment_backoff_attempts` ~1926 + fallbacks ~1981–2150)
 - Test: `tests/unit/test_pier_bridge_smoke_golden.py` (engine-off byte-identical) + a targeted variable-length generation assertion in `tests/unit/test_var_bridge_integration.py`
 
 **Interfaces:**
@@ -257,56 +257,33 @@ git commit -m "feat(var-bridge): config knobs + artist/seeds wiring (default off
 
 The even-split block (~line 898) computes `segment_lengths` as today — KEEP it. It is now the **nominal** per segment. No change here when the feature is off.
 
-- [ ] **Step 2: Add the greedy selection inside the segment loop (guarded)**
+- [ ] **Step 2: Factor the per-segment build into a length-parameterized closure, and drive it with `choose_segment_length` when enabled**
 
-Inside `for seg_idx in range(num_segments):` (~line 1722), the body currently calls `_beam_search_segment(pier_a, pier_b, interior_length, ...)` once with `interior_length = segment_lengths[seg_idx]`. Wrap that single call so that, when the feature is on, it is driven by `choose_segment_length`. Add near the top of the builder (before the loop), the time origin and a transition context handle:
+This is a careful refactor of an intricate, **length-coupled** loop body in a 5.3k-LOC hotspot. READ the segment loop (builder ~1722–2150) before editing. (Controller verified the structure below.)
 
-```python
-    # Variable bridge length: greedy per-segment length, budget-guarded. (Lever 2)
-    _vbl = bool(getattr(cfg, "variable_bridge_length", False))
-    _vbl_k = int(getattr(cfg, "variable_bridge_flex", 2))
-    _vbl_band = int(getattr(cfg, "variable_bridge_band", 5))
-    _vbl_good = float(getattr(cfg, "variable_bridge_min_edge", 0.30))
-    _vbl_eps = float(getattr(cfg, "variable_bridge_epsilon", 0.02))
-    _vbl_total_dev = 0   # running sum of (chosen_len - nominal_len), clamped to +/- band
-    if _vbl:
-        from src.playlist.pier_bridge.var_bridge import segment_bottleneck, choose_segment_length
-        from src.playlist.transition_metrics import score_transition_edge
+**The real structure — the loop body does NOT call `_beam_search_segment` directly.** For each segment it:
+1. sets `interior_len = segment_lengths[seg_idx]` (~1740);
+2. builds the genre-arc targets `segment_g_targets` (`_build_genre_targets(..., interior_length=interior_len, ...)`, ~1756, under `if cfg.dj_bridging_enabled and X_genre_norm is not None`) and `segment_g_targets_dense` (`build_taxonomy_genre_targets(..., interior_length=interior_len, ...)`, ~1810, under the genre-steering condition) — **both length-coupled**;
+3. computes length-INDEPENDENT `segment_far_stats` (~1771, pier-pair only — reuse, do NOT rebuild per length);
+4. calls `attempt_result = _run_segment_backoff_attempts(*, cfg_attempt_base=…, segment_allow_detours=…, segment_g_targets=segment_g_targets, segment_g_targets_dense=segment_g_targets_dense, pier_a=pier_a, pier_b=pier_b, interior_len=interior_len, pier_a_id=…, pier_b_id=…, seg_idx=seg_idx, recent_boundary_artists=…)` (~1926; def is keyword-only ~1026) → `segment_path = attempt_result["segment_path"]` (~1939);
+5. runs infeasibility **fallbacks** if `segment_path is None` (transition/genre-floor relaxation retries, micro-pier; ~1981–2150).
+
+**The seam:** extract steps 2 + 4 (the length-coupled genre-target build + the primary `_run_segment_backoff_attempts` call) into a local closure
 ```
-
-Then, in the loop body, replace the single fixed-length beam call with a builder closure + selection. Where the body has `interior_length = segment_lengths[seg_idx]` and the `_beam_search_segment(... interior_length ...)` call producing `segment_path`, do:
-
-```python
-        nominal_len = int(segment_lengths[seg_idx])
-        if not _vbl or num_segments <= 0:
-            interior_length = nominal_len
-            segment_path, soft_hits, soft_edges, beam_fail = _run_one_beam(interior_length)  # existing call, factored
-        else:
-            # band clamp: keep the running total within [N-m, N+m]
-            lo = max(1, nominal_len - _vbl_k, nominal_len - (_vbl_band + _vbl_total_dev))
-            hi = nominal_len + min(_vbl_k, _vbl_band - _vbl_total_dev)
-            hi = max(lo, hi)
-            # budget guard: if we've eaten the budget, do not flex this segment
-            _elapsed = _seconds_since_start()
-            if _elapsed > float(getattr(cfg, "generation_budget_s", 60.0)) * 0.55:
-                lo = hi = nominal_len
-            def _build(l):
-                path, _sh, _se, _bf = _run_one_beam(l)
-                nodes = [int(pier_a), *[int(x) for x in path], int(pier_b)]
-                b, _ = segment_bottleneck(nodes, lambda a, c: float(score_transition_edge(transition_metric_context, a, c).get("T", 0.0)))
-                return (path, _sh, _se, _bf, b)
-            def _build_and_score(l):
-                r = _build(l)
-                return ((r[0], r[1], r[2], r[3]), r[4])
-            chosen_len, chosen = choose_segment_length(nominal_len, lo, hi, _build_and_score,
-                                                       good_enough=_vbl_good, eps=_vbl_eps)
-            segment_path, soft_hits, soft_edges, beam_fail = chosen
-            _vbl_total_dev += (chosen_len - nominal_len)
-            interior_length = chosen_len
-            logger.info("Var-bridge seg %d: nominal=%d chosen=%d (total_dev=%+d)", seg_idx, nominal_len, chosen_len, _vbl_total_dev)
+def _build_segment_at(interior_len: int) -> dict:   # returns the attempt_result dict ("segment_path", soft-penalty counts, …)
 ```
+keyed only on `interior_len` (capture `pier_a/pier_b/seg_idx/cfg/far_stats/recent_boundary_artists/…`). The length-INDEPENDENT far_stats (step 3) and the fallbacks (step 5) stay in the loop body, **outside** the closure.
 
-NOTE for the implementer: factor the existing `_beam_search_segment(...)` call at ~line 1486 into a local `_run_one_beam(interior_length)` closure that returns `(segment_path, soft_genre_penalty_hits_segment, soft_genre_penalty_edges_scored_segment, beam_failure_reason)` — it already has all other args (`pier_a, pier_b, candidates, …, transition_metric_context, …`) in scope; only `interior_length` varies. Add a `_seconds_since_start()` helper (or reuse the existing deadline/`time.monotonic()` origin the builder already tracks for `generation_budget_s`). Confirm `transition_metric_context` is the in-scope context variable passed to `_beam_search_segment` (it is — grep the call site).
+**When the feature is OFF** (`variable_bridge_length=False`): `attempt_result = _build_segment_at(segment_lengths[seg_idx])` exactly once → **byte-identical to today** (same genre targets, same backoff, same fallbacks). This is the single most important property to preserve — prove it with Step 3.
+
+**When ON:** add the config reads before the loop (`_vbl`, `_vbl_k`=flex, `_vbl_band`=band, `_vbl_good`=min_edge, `_vbl_eps`=epsilon, `_vbl_total_dev=0`), importing `segment_bottleneck`/`choose_segment_length` from `src.playlist.pier_bridge.var_bridge` and `score_transition_edge` from `src.playlist.transition_metrics` under `if _vbl:`. Then in the loop body drive the closure:
+- `nominal = int(segment_lengths[seg_idx])`. Band-clamp: `lo = max(1, nominal − _vbl_k, nominal − (_vbl_band + _vbl_total_dev))`, `hi = max(lo, nominal + min(_vbl_k, _vbl_band − _vbl_total_dev))` (keeps the running total in `[N−m, N+m]`).
+- **Budget guard (the hard 90 s ceiling):** before flexing, if `(deadline is not None and time.monotonic() > deadline − 5.0)` OR `(time.monotonic() − _pb_build_start) > 0.55 * float(cfg.generation_budget_s)`, force `lo = hi = nominal` (no flex). `deadline` is the builder param (~457); `_pb_build_start = time.monotonic()` is set ~1721.
+- `edge_T = lambda a, c: float(score_transition_edge(transition_metric_context, a, c).get("T", 0.0))`.
+- `def _build_and_score(l): r = _build_segment_at(l); p = r["segment_path"]; b = segment_bottleneck([int(pier_a), *[int(x) for x in p], int(pier_b)], edge_T)[0] if p else float("-inf"); return (r, b)`.
+- `chosen_len, attempt_result = choose_segment_length(nominal, lo, hi, _build_and_score, good_enough=_vbl_good, eps=_vbl_eps)`; then `interior_len = chosen_len`, `_vbl_total_dev += chosen_len − nominal`, `segment_path = attempt_result["segment_path"]`, and continue the loop body so the existing fallbacks run on `segment_path` exactly as today when it is `None`. `logger.info("Var-bridge seg %d: nominal=%d chosen=%d total_dev=%+d", seg_idx, nominal, chosen_len, _vbl_total_dev)`.
+
+Verified facts to rely on (do not re-derive): `_run_segment_backoff_attempts` keyword-only signature at ~1026; `transition_metric_context` built ~731, passed to the beam ~1525; `deadline` param ~457; `_pb_build_start` ~1721; `score_transition_edge(context, a, b)["T"]` at `transition_metrics.py:153`. If anything doesn't match when you read the code, STOP and report BLOCKED rather than guessing.
 
 - [ ] **Step 3: Engine-off byte-identical check**
 
