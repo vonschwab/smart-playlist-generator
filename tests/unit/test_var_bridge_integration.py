@@ -6,17 +6,13 @@ exactly as the GUI worker would resolve config. This is NOT a hand-built
 single-seed config — it walks the same policy -> overrides -> config.yaml chain
 the worker uses (see the playlist-testing skill).
 
-KNOWN BLOCKER (documented, see .superpowers/sdd/task-3-report.md):
-The builder enforces an EXACT-length invariant in two places
-(``pier_bridge_builder.py`` "Pier-bridge length mismatch" at the assembly step,
-and ``post_validation.run_post_order_validation`` "length_mismatch"). The
-variable-length band ``[N-m, N+m]`` lets the running total drift off N, which
-collides with that invariant — a flexed run raises ValueError instead of
-returning a band-length playlist. Resolving this is a design decision beyond
-Task 3's stated file scope (net-zero redistribution vs. relaxing the exact-length
-guarantee), so the on-feature assertion is marked ``xfail`` until that question
-is settled. The OFF path is proven byte-identical by
-``test_pier_bridge_smoke_golden.py`` + the pier/beam/roam suite.
+The exact-N length invariant has been retired (Dylan's decision, Task 3):
+both the builder assembly check and ``post_validation.run_post_order_validation``
+now emit soft warnings instead of raising, so a band-length result is returned
+normally. The xfail that previously guarded the on-feature assertion has been
+removed. The test is still marked ``@integration`` + ``@slow`` + ``_requires_artifact``
+and will SKIP in CI where the live artifact is absent; the full corpus run
+happens in Task 4.
 """
 from __future__ import annotations
 
@@ -87,12 +83,6 @@ def _generate(*, variable_bridge: bool, length: int = 30):
 @pytest.mark.integration
 @pytest.mark.slow
 @_requires_artifact
-@pytest.mark.xfail(
-    reason="variable-length band collides with the exact-length invariant "
-    "(builder + post_validation require len == requested); see task-3-report.md",
-    strict=False,
-    raises=ValueError,
-)
 def test_variable_bridge_holds_total_in_band_and_helps_or_holds_worst_edge():
     load_artifact_bundle.cache_clear()
     base = _generate(variable_bridge=False)

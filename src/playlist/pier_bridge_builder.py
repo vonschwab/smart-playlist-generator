@@ -2799,24 +2799,20 @@ def build_pier_bridge_playlist(
 
     # Convert to track IDs
     # Cross-segment min_gap is enforced DURING generation (boundary-aware beam search),
-    # not as a post-order filter. This ensures exact length guarantees.
+    # not as a post-order filter.
     final_track_ids = [str(bundle.track_ids[i]) for i in final_indices]
 
-    # Strict length validation: pier-bridge must return EXACTLY the requested number of tracks
+    # Soft length check: variable-bridge mode intentionally produces totals in a band
+    # [N-m, N+m], so an exact-N guarantee is no longer enforced here.  A mismatch on
+    # the default (feature-off) path is unexpected and worth a warning, but generation
+    # proceeds with whatever length was produced.
     if len(final_track_ids) != total_tracks:
-        failure_msg = (
-            f"Pier-bridge length mismatch: generated {len(final_track_ids)} tracks "
-            f"but expected exactly {total_tracks}. This indicates a bug in segment generation."
-        )
-        logger.error(failure_msg)
-        return PierBridgeResult(
-            track_ids=[],
-            track_indices=[],
-            seed_positions=[],
-            segment_diagnostics=diagnostics,
-            stats={"error": "length_mismatch", "expected": total_tracks, "actual": len(final_track_ids)},
-            success=False,
-            failure_reason=failure_msg,
+        logger.warning(
+            "Pier-bridge length mismatch: generated %d tracks but expected %d "
+            "(variable_bridge_length=%s). Proceeding with actual length.",
+            len(final_track_ids),
+            total_tracks,
+            getattr(cfg, "variable_bridge_length", False),
         )
 
     # Compute per-edge transition scores for reporting (matches builder scoring)

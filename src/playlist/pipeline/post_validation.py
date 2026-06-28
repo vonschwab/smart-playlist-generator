@@ -136,8 +136,11 @@ def run_post_order_validation(
     """Run the post-order DS contract checks.
 
     Two checks:
-      * Length must match ``expected_length`` (when expected_length > 0).
-      * No track in ``excluded_track_ids`` may appear (piers are exempt).
+      * Length: if actual != expected_length a WARNING is logged, but no error
+        is raised — variable-bridge mode intentionally produces totals in a band
+        [N-m, N+m], so the exact-N guarantee is no longer enforced here.
+      * No track in ``excluded_track_ids`` may appear (piers are exempt);
+        violations ARE added to ``errors`` and will cause the caller to raise.
 
     Returns a ``PostOrderValidation`` carrying both the summary dict (for
     audit emission) and the list of human-readable error strings. The
@@ -156,8 +159,14 @@ def run_post_order_validation(
 
     errors: List[str] = []
     if expected_length > 0 and len(ordered_track_ids) != expected_length:
-        errors.append(
-            f"length_mismatch final={len(ordered_track_ids)} expected={expected_length}"
+        # Soft check: variable-bridge mode intentionally produces totals in a band
+        # [N-m, N+m].  Log a warning so the mismatch is visible, but do NOT add
+        # to errors — the caller raises on any error entry, which would block
+        # band-length results from being returned.
+        logger.warning(
+            "post_order_validation: length_mismatch final=%d expected=%d",
+            len(ordered_track_ids),
+            expected_length,
         )
 
     if recency_overlap_ids:
