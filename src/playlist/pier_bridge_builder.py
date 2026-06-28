@@ -1719,6 +1719,28 @@ def build_pier_bridge_playlist(
     # _SEGMENT_RELAXATION_BUDGET_S). Cumulative across all segments so the total
     # build cannot blow the generation budget on a pathological relaxation grind.
     _pb_build_start = time.monotonic()
+
+    # Variable bridge length (default OFF -> byte-identical to the even-split path).
+    # When ON, each segment's interior length flexes within a band off the nominal
+    # even-split length to maximize its worst edge (bottleneck), guarded by the
+    # generation time budget. See src/playlist/pier_bridge/var_bridge.py.
+    _vbl = bool(getattr(cfg, "variable_bridge_length", False))
+    if _vbl:
+        from src.playlist.pier_bridge.var_bridge import (
+            choose_segment_length,
+            segment_bottleneck,
+        )
+        _vbl_k = int(getattr(cfg, "variable_bridge_flex", 2))
+        _vbl_band = int(getattr(cfg, "variable_bridge_band", 5))
+        _vbl_good = float(getattr(cfg, "variable_bridge_min_edge", 0.30))
+        _vbl_eps = float(getattr(cfg, "variable_bridge_epsilon", 0.02))
+        _vbl_total_dev = 0  # running sum of (chosen - nominal) across segments
+
+        def _edge_T(a: int, c: int) -> float:
+            return float(
+                score_transition_edge(transition_metric_context, int(a), int(c)).get("T", 0.0)
+            )
+
     for seg_idx in range(num_segments):
         raise_if_cancelled()  # cooperative cancellation at each segment boundary
         # Shared generation deadline: if the caller passed a deadline (computed
@@ -1745,29 +1767,13 @@ def build_pier_bridge_playlist(
         logger.info("Building segment %d: %s -> %s (interior=%d)",
                    seg_idx, pier_a_id, pier_b_id, interior_len)
 
-        segment_g_targets: Optional[list[np.ndarray]] = None
-        segment_g_targets_dense: Optional[list[np.ndarray]] = None
-        segment_ladder_diag: dict[str, Any] = {}
+        # ── Length-INDEPENDENT per-segment setup (does NOT depend on interior_len) ──
+        # Far-stats (pier-pair only) and the relaxation-attempt plan depend on the
+        # piers + cfg, not on the interior length, so compute them ONCE per segment.
+        # They are captured by the length-parameterized build closure below.
         segment_far_stats: Optional[dict[str, Optional[float]]] = None
         segment_is_far = False
         if bool(cfg.dj_bridging_enabled) and X_genre_norm is not None:
-            # Phase 3 fix: genre_vocab is optional for vector mode, always try to build targets
-            genre_vocab = getattr(bundle, "genre_vocab", None)
-            segment_g_targets = _build_genre_targets(
-                pier_a=pier_a,
-                pier_b=pier_b,
-                interior_length=interior_len,
-                X_full_norm=X_full_norm,
-                X_genre_norm=X_genre_norm,
-                genre_vocab=genre_vocab,  # Can be None for vector mode
-                genre_graph=genre_graph,
-                cfg=cfg,
-                warnings=warnings,
-                ladder_diag=segment_ladder_diag,
-                X_genre_raw=X_genre_raw,
-                X_genre_smoothed=X_genre_smoothed,
-                genre_idf=genre_idf,
-            )
             segment_far_stats = _segment_far_stats(
                 pier_a=pier_a,
                 pier_b=pier_b,
@@ -1788,97 +1794,8 @@ def build_pier_bridge_playlist(
                 if scarcity is not None and float(scarcity) < float(cfg.dj_far_threshold_connector_scarcity):
                     segment_is_far = True
 
-        # Genre-arc steering: build per-step g_targets that feed the beam's first-class
-        # arc vote (via g_targets_override). Two sources, selected by genre_steering_source:
-        #   - "taxonomy": route the arc through the SP3a taxonomy graph (hub-damped);
-        #     targets live in the genre-vocab space (beam scores against X_genre_norm).
-        #   - "dense" (legacy): interpolate the 64-dim dense PMI-SVD vectors (beam scores
-        #     against X_genre_dense). Kept SEPARATE from segment_g_targets (dj-bridging
-        #     pooling) to avoid dimension clashes.
         _steering_source = str(getattr(cfg, "genre_steering_source", "taxonomy"))
-        if (
-            bool(cfg.genre_steering_enabled)
-            and _steering_source == "taxonomy"
-            and getattr(bundle, "X_genre_raw", None) is not None
-            and getattr(bundle, "genre_vocab", None) is not None
-        ):
-            from src.playlist.pier_bridge.taxonomy_steering import (
-                build_taxonomy_genre_targets,
-                get_taxonomy_steering,
-            )
-            _tax_diag: dict[str, Any] = {}
-            segment_g_targets_dense = build_taxonomy_genre_targets(
-                pier_a=pier_a,
-                pier_b=pier_b,
-                interior_length=interior_len,
-                X_genre_raw=bundle.X_genre_raw,
-                genre_vocab=bundle.genre_vocab,
-                steering=get_taxonomy_steering(),
-                top_labels=int(cfg.dj_ladder_top_labels),
-                min_label_weight=float(cfg.dj_ladder_min_label_weight),
-                smooth_top_k=int(cfg.dj_ladder_smooth_top_k),
-                smooth_min_sim=float(cfg.dj_ladder_smooth_min_sim),
-                max_steps=int(cfg.dj_ladder_max_steps),
-                genre_track_counts=genre_track_counts,
-                min_waypoint_mass=int(getattr(cfg, "taxonomy_waypoint_min_library_mass", 0)),
-                ladder_diag=_tax_diag,
-            )
-            if segment_g_targets_dense is not None and _tax_diag.get("taxonomy_waypoint_labels"):
-                segment_ladder_diag.update(_tax_diag)
-                logger.info(
-                    "Genre steering [taxonomy]: %s -> %s via %s",
-                    bundle.track_ids[pier_a],
-                    bundle.track_ids[pier_b],
-                    _tax_diag.get("taxonomy_waypoint_labels"),
-                )
-            elif segment_g_targets_dense is None:
-                logger.info(
-                    "Genre steering [taxonomy]: no taxonomy path for segment %s -> %s "
-                    "(uncovered genres); genre arc inactive this segment",
-                    bundle.track_ids[pier_a],
-                    bundle.track_ids[pier_b],
-                )
-
-        # Dense steering (legacy). Skipped entirely in taxonomy mode so the beam's
-        # genre-vocab arc vote never receives 64-dim dense targets.
-        if (
-            _steering_source != "taxonomy"
-            and bool(cfg.genre_steering_enabled)
-            and getattr(bundle, "X_genre_dense", None) is not None
-        ):
-            labels_a = _select_top_genre_labels(
-                bundle.X_genre_raw[pier_a], bundle.genre_vocab,
-                top_n=int(cfg.dj_ladder_top_labels), min_weight=float(cfg.dj_ladder_min_label_weight),
-            ) if getattr(bundle, "genre_vocab", None) is not None else None
-            labels_b = _select_top_genre_labels(
-                bundle.X_genre_raw[pier_b], bundle.genre_vocab,
-                top_n=int(cfg.dj_ladder_top_labels), min_weight=float(cfg.dj_ladder_min_label_weight),
-            ) if getattr(bundle, "genre_vocab", None) is not None else None
-            segment_g_targets_dense = build_dense_genre_targets(
-                bundle.X_genre_dense[pier_a], bundle.X_genre_dense[pier_b],
-                interior_length=interior_len, route=str(cfg.dj_route_shape or "linear"),
-                genre_emb=getattr(bundle, "genre_emb", None),
-                genre_vocab=list(bundle.genre_vocab) if getattr(bundle, "genre_vocab", None) is not None else None,
-                genre_graph=genre_graph_arc, labels_a=labels_a, labels_b=labels_b,
-                max_steps=int(cfg.dj_ladder_max_steps),
-            )
-
-        # Log the "steering enabled but no usable targets" condition ONCE per
-        # segment here. The per-beam-call site in beam.py is demoted to debug so
-        # the relaxation cascade does not flood the log with identical warnings.
-        if (
-            bool(cfg.genre_steering_enabled)
-            and segment_g_targets_dense is None
-            and segment_g_targets is None
-        ):
-            logger.warning(
-                "Segment %d: genre steering enabled (source=%s) but no usable genre "
-                "targets — genre arc inactive this segment",
-                seg_idx, _steering_source,
-            )
-
         segment_allow_detours = bool(cfg.dj_allow_detours_when_far) and segment_is_far
-
         relaxation_enabled = (
             bool(cfg.dj_bridging_enabled)
             and bool(cfg.dj_relaxation_enabled)
@@ -1889,11 +1806,230 @@ def build_pier_bridge_playlist(
             if relaxation_enabled
             else [{"label": "baseline", "cfg": cfg, "changes": [], "force_allow_detours": False}]
         )
-        segment_relaxation_attempts: list[dict[str, Any]] = []
-        relaxation_success_attempt: Optional[int] = None
         cfg_base = cfg
-        cfg_used_for_segment = cfg
         segment_allow_detours_base = segment_allow_detours
+
+        def _build_segment_at(interior_len: int) -> dict[str, Any]:
+            """Build one bridge attempt at a specific interior length.
+
+            Encapsulates the LENGTH-COUPLED work: the genre-arc target build (both
+            the dj-bridging pooling targets and the steering targets) and the primary
+            bridge-floor backoff / relaxation-attempt loop. Everything it consumes is
+            captured from the enclosing segment scope EXCEPT ``interior_len``, so the
+            variable-length selector can re-run it at several lengths side-effect-free
+            (it only READS ``global_used`` — the commit happens in the loop body).
+
+            Returns a dict carrying the chosen ``segment_path`` plus every diagnostic
+            and length-coupled local the loop body and fallback tiers need. When the
+            variable-length feature is OFF this is called exactly once at the nominal
+            length, so the off-path stays byte-identical to the even-split path.
+            """
+            _g_targets: Optional[list[np.ndarray]] = None
+            _g_targets_dense: Optional[list[np.ndarray]] = None
+            _ladder_diag: dict[str, Any] = {}
+            if bool(cfg_base.dj_bridging_enabled) and X_genre_norm is not None:
+                # Phase 3 fix: genre_vocab is optional for vector mode, always try to build targets
+                genre_vocab = getattr(bundle, "genre_vocab", None)
+                _g_targets = _build_genre_targets(
+                    pier_a=pier_a,
+                    pier_b=pier_b,
+                    interior_length=interior_len,
+                    X_full_norm=X_full_norm,
+                    X_genre_norm=X_genre_norm,
+                    genre_vocab=genre_vocab,  # Can be None for vector mode
+                    genre_graph=genre_graph,
+                    cfg=cfg_base,
+                    warnings=warnings,
+                    ladder_diag=_ladder_diag,
+                    X_genre_raw=X_genre_raw,
+                    X_genre_smoothed=X_genre_smoothed,
+                    genre_idf=genre_idf,
+                )
+
+            # Genre-arc steering: build per-step g_targets that feed the beam's first-class
+            # arc vote (via g_targets_override). Two sources, selected by genre_steering_source:
+            #   - "taxonomy": route the arc through the SP3a taxonomy graph (hub-damped);
+            #     targets live in the genre-vocab space (beam scores against X_genre_norm).
+            #   - "dense" (legacy): interpolate the 64-dim dense PMI-SVD vectors (beam scores
+            #     against X_genre_dense). Kept SEPARATE from segment_g_targets (dj-bridging
+            #     pooling) to avoid dimension clashes.
+            if (
+                bool(cfg_base.genre_steering_enabled)
+                and _steering_source == "taxonomy"
+                and getattr(bundle, "X_genre_raw", None) is not None
+                and getattr(bundle, "genre_vocab", None) is not None
+            ):
+                from src.playlist.pier_bridge.taxonomy_steering import (
+                    build_taxonomy_genre_targets,
+                    get_taxonomy_steering,
+                )
+                _tax_diag: dict[str, Any] = {}
+                _g_targets_dense = build_taxonomy_genre_targets(
+                    pier_a=pier_a,
+                    pier_b=pier_b,
+                    interior_length=interior_len,
+                    X_genre_raw=bundle.X_genre_raw,
+                    genre_vocab=bundle.genre_vocab,
+                    steering=get_taxonomy_steering(),
+                    top_labels=int(cfg_base.dj_ladder_top_labels),
+                    min_label_weight=float(cfg_base.dj_ladder_min_label_weight),
+                    smooth_top_k=int(cfg_base.dj_ladder_smooth_top_k),
+                    smooth_min_sim=float(cfg_base.dj_ladder_smooth_min_sim),
+                    max_steps=int(cfg_base.dj_ladder_max_steps),
+                    genre_track_counts=genre_track_counts,
+                    min_waypoint_mass=int(getattr(cfg_base, "taxonomy_waypoint_min_library_mass", 0)),
+                    ladder_diag=_tax_diag,
+                )
+                if _g_targets_dense is not None and _tax_diag.get("taxonomy_waypoint_labels"):
+                    _ladder_diag.update(_tax_diag)
+                    logger.info(
+                        "Genre steering [taxonomy]: %s -> %s via %s",
+                        bundle.track_ids[pier_a],
+                        bundle.track_ids[pier_b],
+                        _tax_diag.get("taxonomy_waypoint_labels"),
+                    )
+                elif _g_targets_dense is None:
+                    logger.info(
+                        "Genre steering [taxonomy]: no taxonomy path for segment %s -> %s "
+                        "(uncovered genres); genre arc inactive this segment",
+                        bundle.track_ids[pier_a],
+                        bundle.track_ids[pier_b],
+                    )
+
+            # Dense steering (legacy). Skipped entirely in taxonomy mode so the beam's
+            # genre-vocab arc vote never receives 64-dim dense targets.
+            if (
+                _steering_source != "taxonomy"
+                and bool(cfg_base.genre_steering_enabled)
+                and getattr(bundle, "X_genre_dense", None) is not None
+            ):
+                labels_a = _select_top_genre_labels(
+                    bundle.X_genre_raw[pier_a], bundle.genre_vocab,
+                    top_n=int(cfg_base.dj_ladder_top_labels), min_weight=float(cfg_base.dj_ladder_min_label_weight),
+                ) if getattr(bundle, "genre_vocab", None) is not None else None
+                labels_b = _select_top_genre_labels(
+                    bundle.X_genre_raw[pier_b], bundle.genre_vocab,
+                    top_n=int(cfg_base.dj_ladder_top_labels), min_weight=float(cfg_base.dj_ladder_min_label_weight),
+                ) if getattr(bundle, "genre_vocab", None) is not None else None
+                _g_targets_dense = build_dense_genre_targets(
+                    bundle.X_genre_dense[pier_a], bundle.X_genre_dense[pier_b],
+                    interior_length=interior_len, route=str(cfg_base.dj_route_shape or "linear"),
+                    genre_emb=getattr(bundle, "genre_emb", None),
+                    genre_vocab=list(bundle.genre_vocab) if getattr(bundle, "genre_vocab", None) is not None else None,
+                    genre_graph=genre_graph_arc, labels_a=labels_a, labels_b=labels_b,
+                    max_steps=int(cfg_base.dj_ladder_max_steps),
+                )
+
+            # Log the "steering enabled but no usable targets" condition ONCE per
+            # segment here. The per-beam-call site in beam.py is demoted to debug so
+            # the relaxation cascade does not flood the log with identical warnings.
+            if (
+                bool(cfg_base.genre_steering_enabled)
+                and _g_targets_dense is None
+                and _g_targets is None
+            ):
+                logger.warning(
+                    "Segment %d: genre steering enabled (source=%s) but no usable genre "
+                    "targets — genre arc inactive this segment",
+                    seg_idx, _steering_source,
+                )
+
+            _seg_relax_attempts: list[dict[str, Any]] = []
+            _relax_success: Optional[int] = None
+            _cfg_used = cfg_base
+            _attempt_result: Optional[dict[str, Any]] = None
+            for relax_idx, relax in enumerate(relaxation_attempts):
+                if _deadline_exceeded_at_segment_start:
+                    break  # skip all beam attempts; fall through to guaranteed-fill
+                _cfg_used = relax["cfg"]
+                attempt_allow_detours = segment_allow_detours_base or bool(relax.get("force_allow_detours"))
+                _attempt_result = _run_segment_backoff_attempts(
+                    cfg_attempt_base=_cfg_used,
+                    segment_allow_detours=attempt_allow_detours,
+                    segment_g_targets=_g_targets,
+                    segment_g_targets_dense=_g_targets_dense,
+                    pier_a=pier_a,
+                    pier_b=pier_b,
+                    interior_len=interior_len,
+                    pier_a_id=pier_a_id,
+                    pier_b_id=pier_b_id,
+                    seg_idx=seg_idx,
+                    recent_boundary_artists=_recent_artists_for_segment(seg_idx),
+                )
+                _attempt_path = _attempt_result["segment_path"]
+                _seg_relax_attempts.append({
+                    "attempt_index": int(relax_idx),
+                    "label": str(relax.get("label", "")),
+                    "changes": list(relax.get("changes") or []),
+                    "failure_reason": (str(_attempt_result["last_failure_reason"]) if _attempt_path is None else None),
+                })
+                if _attempt_path is not None:
+                    _relax_success = int(relax_idx)
+                    break
+
+            return {
+                "attempt_result": _attempt_result,
+                "segment_g_targets": _g_targets,
+                "segment_g_targets_dense": _g_targets_dense,
+                "segment_ladder_diag": _ladder_diag,
+                "segment_relaxation_attempts": _seg_relax_attempts,
+                "relaxation_success_attempt": _relax_success,
+                "cfg_used_for_segment": _cfg_used,
+            }
+
+        # Select the interior length and build the primary attempt. OFF -> one build
+        # at the even-split nominal (byte-identical). ON -> greedy bottleneck-maximizing
+        # flex within the running-total band, guarded by the generation time budget.
+        nominal = int(segment_lengths[seg_idx])
+        if not _vbl:
+            _seg_build = _build_segment_at(nominal)
+            interior_len = nominal
+        else:
+            # Band-clamp keeps the running total in [N-m, N+m]: a segment may flex by
+            # at most ±flex, and never beyond the band budget left after prior segments.
+            lo = max(1, nominal - _vbl_k, nominal - (_vbl_band + _vbl_total_dev))
+            hi = max(lo, nominal + min(_vbl_k, _vbl_band - _vbl_total_dev))
+            # Budget guard (the hard 90 s ceiling): when the deadline is near or we are
+            # already past ~55% of the generation budget, do NOT flex — extra builds
+            # could push the total build past the budget. Force nominal-only.
+            _now_vbl = time.monotonic()
+            if (deadline is not None and _now_vbl > deadline - 5.0) or (
+                (_now_vbl - _pb_build_start) > 0.55 * float(cfg.generation_budget_s)
+            ):
+                lo = hi = nominal
+
+            def _build_and_score(length: int) -> tuple[dict[str, Any], float]:
+                r = _build_segment_at(length)
+                ar = r["attempt_result"]
+                p = ar["segment_path"] if ar is not None else None
+                if p:
+                    nodes = [int(pier_a), *[int(x) for x in p], int(pier_b)]
+                    b = segment_bottleneck(nodes, _edge_T)[0]
+                else:
+                    b = float("-inf")
+                return (r, b)
+
+            chosen_len, _seg_build = choose_segment_length(
+                nominal, lo, hi, _build_and_score,
+                good_enough=_vbl_good, eps=_vbl_eps,
+            )
+            interior_len = int(chosen_len)
+            _vbl_total_dev += chosen_len - nominal
+            logger.info(
+                "Var-bridge seg %d: nominal=%d chosen=%d total_dev=%+d",
+                seg_idx, nominal, chosen_len, _vbl_total_dev,
+            )
+
+        # Unpack the chosen-length build into the loop-body locals the downstream
+        # fallback tiers + diagnostics consume (exactly as the inline relax loop did).
+        segment_g_targets = _seg_build["segment_g_targets"]
+        segment_g_targets_dense = _seg_build["segment_g_targets_dense"]
+        segment_ladder_diag = _seg_build["segment_ladder_diag"]
+        segment_relaxation_attempts = _seg_build["segment_relaxation_attempts"]
+        relaxation_success_attempt = _seg_build["relaxation_success_attempt"]
+        cfg_used_for_segment = _seg_build["cfg_used_for_segment"]
+        attempt_result = _seg_build["attempt_result"]
+
         segment_path: Optional[List[int]] = None
         last_segment_candidates: List[int] = []
         last_candidate_artist_keys: Dict[int, str] = {}
@@ -1910,32 +2046,14 @@ def build_pier_bridge_playlist(
         soft_genre_penalty_hits_segment = 0
         soft_genre_penalty_edges_scored_segment = 0
         local_sonic_stats_segment: Dict[str, Any] = {}
-        # Pre-initialize variables that are set inside the relax loop so that
-        # an early break (e.g. deadline exceeded before the loop body runs)
-        # doesn't leave them unbound for the downstream diagnostics code.
+        # Pre-initialize variables that are set from attempt_result so that an early
+        # break (e.g. deadline exceeded before any attempt ran) doesn't leave them
+        # unbound for the downstream diagnostics code.
         last_waypoint_stats: Dict[str, Any] = {}
         last_pool_diag: Dict[str, Any] = {}
         segment_edge_components: List[dict] = []
 
-        for relax_idx, relax in enumerate(relaxation_attempts):
-            if _deadline_exceeded_at_segment_start:
-                break  # skip all beam attempts; fall through to guaranteed-fill
-            cfg = relax["cfg"]
-            cfg_used_for_segment = cfg
-            attempt_allow_detours = segment_allow_detours_base or bool(relax.get("force_allow_detours"))
-            attempt_result = _run_segment_backoff_attempts(
-                cfg_attempt_base=cfg,
-                segment_allow_detours=attempt_allow_detours,
-                segment_g_targets=segment_g_targets,
-                segment_g_targets_dense=segment_g_targets_dense,
-                pier_a=pier_a,
-                pier_b=pier_b,
-                interior_len=interior_len,
-                pier_a_id=pier_a_id,
-                pier_b_id=pier_b_id,
-                seg_idx=seg_idx,
-                recent_boundary_artists=_recent_artists_for_segment(seg_idx),
-            )
+        if attempt_result is not None:
             segment_path = attempt_result["segment_path"]
             chosen_bridge_floor = float(attempt_result["chosen_bridge_floor"])
             backoff_used_count = int(attempt_result["backoff_used_count"])
@@ -1956,16 +2074,6 @@ def build_pier_bridge_playlist(
             last_waypoint_stats = dict(attempt_result.get("last_waypoint_stats", {}))
             last_pool_diag = dict(attempt_result.get("last_pool_diag", {}))
             segment_edge_components = list(attempt_result.get("edge_components") or [])
-
-            segment_relaxation_attempts.append({
-                "attempt_index": int(relax_idx),
-                "label": str(relax.get("label", "")),
-                "changes": list(relax.get("changes") or []),
-                "failure_reason": (str(last_failure_reason) if segment_path is None else None),
-            })
-            if segment_path is not None:
-                relaxation_success_attempt = int(relax_idx)
-                break
 
         cfg = cfg_base
         segment_allow_detours = segment_allow_detours_base
