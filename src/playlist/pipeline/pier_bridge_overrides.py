@@ -126,7 +126,8 @@ def apply_pier_bridge_overrides(
     if isinstance(pb_overrides.get("variable_bridge_length"), bool):
         pb_cfg = replace(pb_cfg, variable_bridge_length=bool(pb_overrides.get("variable_bridge_length")))
     for _k, _cast in (("variable_bridge_flex", int), ("variable_bridge_band", int),
-                      ("variable_bridge_min_edge", float), ("variable_bridge_epsilon", float)):
+                      ("variable_bridge_min_edge", float), ("variable_bridge_epsilon", float),
+                      ("variable_bridge_max_flex_segments", int)):
         _v = pb_overrides.get(_k)
         if isinstance(_v, (int, float)) and not isinstance(_v, bool):
             pb_cfg = replace(pb_cfg, **{_k: _cast(_v)})

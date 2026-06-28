@@ -24,17 +24,20 @@ def segment_bottleneck(nodes, edge_score: Callable[[int, int], float]) -> tuple[
 
 def choose_segment_length(nominal: int, lo: int, hi: int,
                           build_and_score: Callable[[int], tuple], *,
-                          good_enough: float, eps: float) -> tuple[int, object]:
+                          good_enough: float, eps: float) -> tuple[int, object, bool]:
     """Choose interior length in [lo, hi] maximizing the segment bottleneck.
 
     Tries the nominal first; if its bottleneck >= good_enough, keeps it (no flex,
     one build). Otherwise builds the other allowed lengths and picks the best
     bottleneck, preferring the length CLOSEST to nominal among those within eps of
-    the best (the prefer-N + eps anti-crutch). Returns (chosen_length, chosen_path)."""
+    the best (the prefer-N + eps anti-crutch).
+
+    Returns (chosen_length, chosen_path, flexed) where flexed is True iff the
+    nominal bottleneck was below good_enough and other lengths were evaluated."""
     nom = max(lo, min(hi, int(nominal)))
     nom_path, nom_b = build_and_score(nom)
     if nom_b >= good_enough:
-        return nom, nom_path
+        return nom, nom_path, False
     results = {nom: (nom_b, nom_path)}
     for l in range(lo, hi + 1):
         if l not in results:
@@ -43,4 +46,4 @@ def choose_segment_length(nominal: int, lo: int, hi: int,
     best_b = max(b for b, _ in results.values())
     near = [l for l, (b, _) in results.items() if b >= best_b - eps]
     chosen = min(near, key=lambda l: (abs(l - nom), l))    # closest to nominal, then smaller
-    return chosen, results[chosen][1]
+    return chosen, results[chosen][1], True

@@ -1722,8 +1722,8 @@ def build_pier_bridge_playlist(
 
     # Variable bridge length (default OFF -> byte-identical to the even-split path).
     # When ON, each segment's interior length flexes within a band off the nominal
-    # even-split length to maximize its worst edge (bottleneck), guarded by the
-    # generation time budget. See src/playlist/pier_bridge/var_bridge.py.
+    # even-split length to maximize its worst edge (bottleneck), capped by a
+    # deterministic segment count limit. See src/playlist/pier_bridge/var_bridge.py.
     _vbl = bool(getattr(cfg, "variable_bridge_length", False))
     if _vbl:
         from src.playlist.pier_bridge.var_bridge import (
@@ -1735,6 +1735,8 @@ def build_pier_bridge_playlist(
         _vbl_good = float(getattr(cfg, "variable_bridge_min_edge", 0.30))
         _vbl_eps = float(getattr(cfg, "variable_bridge_epsilon", 0.02))
         _vbl_total_dev = 0  # running sum of (chosen - nominal) across segments
+        _vbl_flexed = 0    # count of segments that actually flexed (deterministic cap)
+        _vbl_max_flex = int(getattr(cfg, "variable_bridge_max_flex_segments", 3))
 
         def _edge_T(a: int, c: int) -> float:
             return float(
@@ -1979,7 +1981,7 @@ def build_pier_bridge_playlist(
 
         # Select the interior length and build the primary attempt. OFF -> one build
         # at the even-split nominal (byte-identical). ON -> greedy bottleneck-maximizing
-        # flex within the running-total band, guarded by the generation time budget.
+        # flex within the running-total band, capped by a deterministic segment count.
         nominal = int(segment_lengths[seg_idx])
         if not _vbl:
             _seg_build = _build_segment_at(nominal)
@@ -1989,13 +1991,10 @@ def build_pier_bridge_playlist(
             # at most ±flex, and never beyond the band budget left after prior segments.
             lo = max(1, nominal - _vbl_k, nominal - (_vbl_band + _vbl_total_dev))
             hi = max(lo, nominal + min(_vbl_k, _vbl_band - _vbl_total_dev))
-            # Budget guard (the hard 90 s ceiling): when the deadline is near or we are
-            # already past ~55% of the generation budget, do NOT flex — extra builds
-            # could push the total build past the budget. Force nominal-only.
-            _now_vbl = time.monotonic()
-            if (deadline is not None and _now_vbl > deadline - 5.0) or (
-                (_now_vbl - _pb_build_start) > 0.55 * float(cfg.generation_budget_s)
-            ):
+            # Deterministic cap: if already at the max-flex-segments limit, force
+            # nominal — no more multi-build evaluations. This removes all timing
+            # dependence (the outer 90s deadline remains the hard safety ceiling).
+            if _vbl_flexed >= _vbl_max_flex:
                 lo = hi = nominal
 
             def _build_and_score(length: int) -> tuple[dict[str, Any], float]:
@@ -2009,15 +2008,18 @@ def build_pier_bridge_playlist(
                     b = float("-inf")
                 return (r, b)
 
-            chosen_len, _seg_build = choose_segment_length(
+            chosen_len, _seg_build, _vbl_seg_flexed = choose_segment_length(
                 nominal, lo, hi, _build_and_score,
                 good_enough=_vbl_good, eps=_vbl_eps,
             )
+            if _vbl_seg_flexed:
+                _vbl_flexed += 1
             interior_len = int(chosen_len)
             _vbl_total_dev += chosen_len - nominal
             logger.info(
-                "Var-bridge seg %d: nominal=%d chosen=%d total_dev=%+d",
+                "Var-bridge seg %d: nominal=%d chosen=%d total_dev=%+d flexed=%s (%d/%d)",
                 seg_idx, nominal, chosen_len, _vbl_total_dev,
+                _vbl_seg_flexed, _vbl_flexed, _vbl_max_flex,
             )
 
         # Unpack the chosen-length build into the loop-body locals the downstream

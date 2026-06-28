@@ -324,6 +324,7 @@ class PierBridgeConfig:
     variable_bridge_band: int = 5          # m: total track count may land in [N-m, N+m]
     variable_bridge_min_edge: float = 0.30  # only flex a segment whose nominal worst edge is below this
     variable_bridge_epsilon: float = 0.02   # prefer nominal length unless a flex beats it by > eps
+    variable_bridge_max_flex_segments: int = 3  # max segments that may actually flex (deterministic cap)
 
 
 @dataclass

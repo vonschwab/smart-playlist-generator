@@ -165,6 +165,7 @@
   "variable_bridge_epsilon": 0.02,
   "variable_bridge_flex": 2,
   "variable_bridge_length": false,
+  "variable_bridge_max_flex_segments": 3,
   "variable_bridge_min_edge": 0.3,
   "weight_bridge": 0.7,
   "weight_end_start": 0.7,

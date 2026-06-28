@@ -2002,6 +2002,7 @@ class PlaylistGenerator:
                     variable_bridge_band=int((ds_cfg.get("pier_bridge") or {}).get("variable_bridge_band", 5)),
                     variable_bridge_min_edge=float((ds_cfg.get("pier_bridge") or {}).get("variable_bridge_min_edge", 0.30)),
                     variable_bridge_epsilon=float((ds_cfg.get("pier_bridge") or {}).get("variable_bridge_epsilon", 0.02)),
+                    variable_bridge_max_flex_segments=int((ds_cfg.get("pier_bridge") or {}).get("variable_bridge_max_flex_segments", 3)),
                 )
                 # Roam corridors (Phase-1): the artist path builds PierBridgeConfig
                 # explicitly, so it must apply the roam override itself (no-op if absent).
@@ -2893,6 +2894,7 @@ class PlaylistGenerator:
                         variable_bridge_band=int((ds_cfg.get("pier_bridge") or {}).get("variable_bridge_band", 5)),
                         variable_bridge_min_edge=float((ds_cfg.get("pier_bridge") or {}).get("variable_bridge_min_edge", 0.30)),
                         variable_bridge_epsilon=float((ds_cfg.get("pier_bridge") or {}).get("variable_bridge_epsilon", 0.02)),
+                        variable_bridge_max_flex_segments=int((ds_cfg.get("pier_bridge") or {}).get("variable_bridge_max_flex_segments", 3)),
                     )
                     # Roam corridors (Phase-1): apply the roam override on the explicit
                     # artist-path PierBridgeConfig (no-op if absent).
