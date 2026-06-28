@@ -316,6 +316,14 @@ class PierBridgeConfig:
     # at 70s which was only ~2s under the ceiling. Expose as
     # playlists.pier_bridge.generation_budget_s in config.yaml.
     generation_budget_s: float = 60.0
+    # --- Variable bridge length (default OFF until the worst-edge gate passes) ---
+    # Each segment may flex its interior length to land more smoothly on the next
+    # pier; lengths reallocate within a soft total band. OFF => even split (byte-identical).
+    variable_bridge_length: bool = False
+    variable_bridge_flex: int = 2          # k: +/- interior tracks a segment may flex
+    variable_bridge_band: int = 5          # m: total track count may land in [N-m, N+m]
+    variable_bridge_min_edge: float = 0.30  # only flex a segment whose nominal worst edge is below this
+    variable_bridge_epsilon: float = 0.02   # prefer nominal length unless a flex beats it by > eps
 
 
 @dataclass
