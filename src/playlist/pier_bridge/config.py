@@ -316,9 +316,12 @@ class PierBridgeConfig:
     # at 70s which was only ~2s under the ceiling. Expose as
     # playlists.pier_bridge.generation_budget_s in config.yaml.
     generation_budget_s: float = 60.0
-    # --- Variable bridge length (default OFF until the worst-edge gate passes) ---
-    # Each segment may flex its interior length to land more smoothly on the next
-    # pier; lengths reallocate within a soft total band. OFF => even split (byte-identical).
+    # --- Variable bridge length (ACTIVATED 2026-06-28 via config.yaml after the
+    # worst-edge gate + audition passed). Each segment may flex its interior length
+    # to land more smoothly on the next pier; lengths reallocate within a soft total
+    # band. The LIVE default is ON (config.yaml / config.example.yaml set true); this
+    # in-code default stays False as the rollback fallback + to keep test baselines on
+    # the even-split path. False => even split. ---
     variable_bridge_length: bool = False
     variable_bridge_flex: int = 2          # k: +/- interior tracks a segment may flex
     variable_bridge_band: int = 5          # m: total track count may land in [N-m, N+m]
