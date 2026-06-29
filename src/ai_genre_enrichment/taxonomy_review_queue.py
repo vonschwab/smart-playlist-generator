@@ -9,7 +9,9 @@ path is mode=ro (reader-thread safe) and paginated (the page line stays small).
 """
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from .graph_growth import collapse_variants, gather_growth_candidates
 from .layered_taxonomy import (
@@ -40,8 +42,34 @@ class TaxonomyCandidate:
     source: str = "growth"
 
 
+def load_artist_names(metadata_db_path) -> frozenset[str]:
+    """Normalized known artist names (+ leading-'the'-stripped variants) for
+    excluding artist-name tags from the candidate queue. Read-only (mode=ro);
+    returns an empty set if the DB or the ``artists`` table is absent."""
+    uri = f"file:{Path(metadata_db_path).as_posix()}?mode=ro"
+    try:
+        conn = sqlite3.connect(uri, uri=True)
+    except sqlite3.OperationalError:
+        return frozenset()
+    names: set[str] = set()
+    try:
+        for (raw,) in conn.execute("SELECT DISTINCT artist_name FROM artists"):
+            n = normalize_taxonomy_name(str(raw or ""))
+            if not n:
+                continue
+            names.add(n)
+            if n.startswith("the "):
+                names.add(n[4:])
+    except sqlite3.OperationalError:
+        return frozenset()
+    finally:
+        conn.close()
+    return frozenset(names)
+
+
 def build_candidate_index(
     store, taxonomy: LayeredTaxonomy, *, min_album_freq: int = 3,
+    artist_names: "frozenset[str]" = frozenset(),
 ) -> dict[str, TaxonomyCandidate]:
     """Normalized-name -> candidate.
 
@@ -54,6 +82,9 @@ def build_candidate_index(
     reflects its combined spellings (``vapor wave`` + ``vaporwave``) and the
     minority spelling isn't silently dropped below threshold. We therefore gather
     at freq 1 and apply ``min_album_freq`` to the merged reach.
+
+    ``artist_names`` (normalized, from ``load_artist_names``) are dropped — a tag
+    that is just a known artist name is not a genre candidate.
     """
     candidates = collapse_variants(
         gather_growth_candidates(store, taxonomy, min_album_freq=1)
@@ -62,11 +93,14 @@ def build_candidate_index(
     for c in candidates:
         if c.album_frequency < min_album_freq:
             continue
+        key = normalize_taxonomy_name(c.term)
+        # Drop tags that are just a known artist name (e.g. "aphex twin").
+        if key in artist_names:
+            continue
         # Apply the deterministic noise policy: drop place/year/instrument/format/
         # mood/label tags the system already resolves without graph adjudication.
         if classify_source_tag(c.term).classification not in _QUEUE_KEEP_CLASSIFICATIONS:
             continue
-        key = normalize_taxonomy_name(c.term)
         index[key] = TaxonomyCandidate(
             term=key,
             raw_term=c.term,
@@ -92,6 +126,7 @@ def list_page(
     sidecar_db_path, taxonomy_path, *,
     status: str = "untriaged", search: "str | None" = None,
     limit: int = 50, offset: int = 0,
+    artist_names: "frozenset[str]" = frozenset(),
 ) -> dict:
     """Read-only page of candidate terms joined with staged decisions.
 
@@ -100,7 +135,7 @@ def list_page(
     """
     taxonomy = load_layered_taxonomy(taxonomy_path)
     store = _open_store_readonly(sidecar_db_path)
-    index = build_candidate_index(store, taxonomy)
+    index = build_candidate_index(store, taxonomy, artist_names=artist_names)
 
     decisions = {d["term"]: d for d in list_decisions(sidecar_db_path, status="pending")}
     decisions.update(

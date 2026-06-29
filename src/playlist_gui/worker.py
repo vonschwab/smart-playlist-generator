@@ -2769,12 +2769,13 @@ def handle_get_taxonomy_queue(cmd_data: Dict[str, Any]) -> None:
     rid = cmd_data.get("request_id")
     try:
         from src.ai_genre_enrichment.layered_taxonomy import DEFAULT_TAXONOMY_PATH
-        from src.ai_genre_enrichment.taxonomy_review_queue import list_page
+        from src.ai_genre_enrichment.taxonomy_review_queue import list_page, load_artist_names
         page = list_page(
             SIDECAR_DB_PATH, DEFAULT_TAXONOMY_PATH, status="untriaged",
             search=(cmd_data.get("search") or "").strip() or None,
             limit=int(cmd_data.get("limit") or 50),
-            offset=int(cmd_data.get("offset") or 0))
+            offset=int(cmd_data.get("offset") or 0),
+            artist_names=load_artist_names(METADATA_DB_PATH))
         emit_event({"type": "result", "result_type": "taxonomy_queue",
                     "request_id": rid, "job_id": None, **page})
         emit_event({"type": "done", "cmd": "get_taxonomy_queue", "ok": True,
@@ -2791,12 +2792,13 @@ def handle_get_taxonomy_completed(cmd_data: Dict[str, Any]) -> None:
     rid = cmd_data.get("request_id")
     try:
         from src.ai_genre_enrichment.layered_taxonomy import DEFAULT_TAXONOMY_PATH
-        from src.ai_genre_enrichment.taxonomy_review_queue import list_page
+        from src.ai_genre_enrichment.taxonomy_review_queue import list_page, load_artist_names
         page = list_page(
             SIDECAR_DB_PATH, DEFAULT_TAXONOMY_PATH, status="decided",
             search=(cmd_data.get("search") or "").strip() or None,
             limit=int(cmd_data.get("limit") or 50),
-            offset=int(cmd_data.get("offset") or 0))
+            offset=int(cmd_data.get("offset") or 0),
+            artist_names=load_artist_names(METADATA_DB_PATH))
         emit_event({"type": "result", "result_type": "taxonomy_completed",
                     "request_id": rid, "job_id": None, **page})
         emit_event({"type": "done", "cmd": "get_taxonomy_completed", "ok": True,

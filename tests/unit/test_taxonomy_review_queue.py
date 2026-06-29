@@ -85,6 +85,39 @@ def test_build_candidate_index_collapses_spacing_variants(tmp_path):
     assert "vaporwave" in rep.variants or "vapor wave" in rep.variants
 
 
+def test_build_candidate_index_excludes_artist_names(tmp_path):
+    tax = load_layered_taxonomy(_tiny_taxonomy(tmp_path))
+    rows = []
+    for tag in ["aphex twin", "the beatles", "vaporwave", "slowcore"]:
+        rows += [_row(tag, f"{tag}-r{i}") for i in range(3)]
+    index = trq.build_candidate_index(
+        _FakeStore(rows), tax, min_album_freq=3,
+        artist_names=frozenset({"aphex twin", "the beatles"}))
+    assert "aphex twin" not in index
+    assert "the beatles" not in index
+    assert "vaporwave" in index
+    assert "slowcore" in index
+
+
+def test_load_artist_names_normalizes_and_strips_the(tmp_path):
+    import sqlite3
+    db = tmp_path / "metadata.db"
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE artists (artist_name TEXT PRIMARY KEY)")
+    conn.executemany("INSERT INTO artists (artist_name) VALUES (?)",
+                     [("The Beatles",), ("Aphex Twin",)])
+    conn.commit()
+    conn.close()
+    names = trq.load_artist_names(db)
+    assert "the beatles" in names  # normalized
+    assert "beatles" in names      # 'the'-stripped variant
+    assert "aphex twin" in names
+
+
+def test_load_artist_names_missing_db_is_empty(tmp_path):
+    assert trq.load_artist_names(tmp_path / "nope.db") == frozenset()
+
+
 def test_list_page_joins_decisions_and_filters_status(tmp_path, monkeypatch):
     tax_path = _tiny_taxonomy(tmp_path)
     db = tmp_path / "ai_genre_enrichment.db"
