@@ -103,6 +103,15 @@ class PierBridgeConfig:
     # Oops, All Bangers admission gate: resolved per popularity_mode (off->None,
     # on->50, oops->10). None = gate disabled. Consumed by core.generate_playlist_ds.
     popularity_rank_cutoff: Optional[int] = None
+    # SP2 seed-character anti-collapse scoring (off by default -> byte-identical).
+    # Two alternative bridge-candidate adjustments, compared via the collapse harness:
+    #   "hubness"     (A) deflate each candidate's pier-similarities by its k-NN
+    #                     in-degree within the segment pool (hubs = the generic blur).
+    #   "anti_center" (B) penalize combined_score by how much closer a candidate sits
+    #                     to the local pool center than to its own piers (anti-sag).
+    seed_character_mode: str = "off"      # off | hubness | anti_center
+    seed_character_strength: float = 0.0  # 0 = inert
+    seed_character_knn_k: int = 25        # k for the hubness in-degree (mode=hubness)
     # Layered genre graph transition scoring (opt-in; default OFF).
     # Uses sidecar-derived leaf/family/bridge/facet matrices when present on
     # the artifact bundle. This is separate from legacy flat genre steering.

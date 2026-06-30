@@ -125,13 +125,17 @@ def apply_pier_bridge_overrides(
         pb_cfg = replace(pb_cfg, pace_bridge_floor=float(pb_overrides.get("pace_bridge_floor")))
     if isinstance(pb_overrides.get("variable_bridge_length"), bool):
         pb_cfg = replace(pb_cfg, variable_bridge_length=bool(pb_overrides.get("variable_bridge_length")))
+    if isinstance(pb_overrides.get("seed_character_mode"), str):
+        pb_cfg = replace(pb_cfg, seed_character_mode=str(pb_overrides.get("seed_character_mode")))
     for _k, _cast in (("variable_bridge_flex", int), ("variable_bridge_band", int),
                       ("variable_bridge_min_edge", float), ("variable_bridge_epsilon", float),
                       ("variable_bridge_max_flex_segments", int),
                       # generation_budget_s: the beam's soft deadline. Was never read
                       # from config (only the 60s dataclass default), so the 90s ceiling
                       # was unreachable. Wire it here with the other pier_bridge knobs.
-                      ("generation_budget_s", float)):
+                      ("generation_budget_s", float),
+                      # SP2 seed-character anti-collapse scoring (off by default).
+                      ("seed_character_strength", float), ("seed_character_knn_k", int)):
         _v = pb_overrides.get(_k)
         if isinstance(_v, (int, float)) and not isinstance(_v, bool):
             pb_cfg = replace(pb_cfg, **{_k: _cast(_v)})
