@@ -127,7 +127,11 @@ def apply_pier_bridge_overrides(
         pb_cfg = replace(pb_cfg, variable_bridge_length=bool(pb_overrides.get("variable_bridge_length")))
     for _k, _cast in (("variable_bridge_flex", int), ("variable_bridge_band", int),
                       ("variable_bridge_min_edge", float), ("variable_bridge_epsilon", float),
-                      ("variable_bridge_max_flex_segments", int)):
+                      ("variable_bridge_max_flex_segments", int),
+                      # generation_budget_s: the beam's soft deadline. Was never read
+                      # from config (only the 60s dataclass default), so the 90s ceiling
+                      # was unreachable. Wire it here with the other pier_bridge knobs.
+                      ("generation_budget_s", float)):
         _v = pb_overrides.get(_k)
         if isinstance(_v, (int, float)) and not isinstance(_v, bool):
             pb_cfg = replace(pb_cfg, **{_k: _cast(_v)})
