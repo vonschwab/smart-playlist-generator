@@ -34,17 +34,19 @@ POOL = 2000                    # realistic candidate pool per destination
 N_DESTS = 60
 TARGET_LO, TARGET_HI = 0.05, 0.95   # where p1/p99 of the band should land
 
+VARIANT = sys.argv[1] if len(sys.argv) > 1 else "mert"  # mert (default) | muq | ...
+
 a = np.load(ART, allow_pickle=True)
 artists = np.array([str(x).strip().lower() for x in a["track_artists"]])
-mert = np.asarray(a["X_sonic_mert"], np.float32)
-mst = np.asarray(a["X_sonic_mert_start"], np.float32)
-mmd = np.asarray(a["X_sonic_mert_mid"], np.float32)
-men = np.asarray(a["X_sonic_mert_end"], np.float32)
+mert = np.asarray(a[f"X_sonic_{VARIANT}"], np.float32)
+mst = np.asarray(a[f"X_sonic_{VARIANT}_start"], np.float32)
+mmd = np.asarray(a[f"X_sonic_{VARIANT}_mid"], np.float32)
+men = np.asarray(a[f"X_sonic_{VARIANT}_end"], np.float32)
 
 ctx = build_transition_metric_context(
     X_sonic=mert, X_start=mst, X_mid=mmd, X_end=men,
     center_transitions=True, transition_weights=(0.2, 0.5, 0.3),
-    sonic_variant="mert", weight_end_start=W[0], weight_mid_mid=W[1], weight_full_full=W[2],
+    sonic_variant=VARIANT, weight_end_start=W[0], weight_mid_mid=W[1], weight_full_full=W[2],
 )
 
 rng = np.random.default_rng(7)
@@ -79,7 +81,7 @@ scale = float(1.0 / k)        # so gain=1.0, z = (x-center)/scale
 gain = 1.0
 
 print("=" * 64)
-print("CALIBRATION — realistic centered end->start cosine band")
+print(f"CALIBRATION [{VARIANT}] — realistic centered end->start cosine band")
 print("=" * 64)
 print(f"  pool: top-{POOL} per dest x {N_DESTS} dests = {len(pool_es)} edges")
 print(f"  band p1/p50/p99 = {p1:.3f} / {p50:.3f} / {p99:.3f}   (min {pool_es.min():.3f}, max {pool_es.max():.3f})")

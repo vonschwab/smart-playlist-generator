@@ -6,7 +6,13 @@ calibrated logistic spreads that band across (0,1) and restores discrimination.
 """
 import math
 
-from src.playlist.transition_metrics import _calibrate_transition_cos, is_broken_transition
+import pytest
+
+from src.playlist.transition_metrics import (
+    _calibrate_transition_cos,
+    is_broken_transition,
+    resolve_transition_calib,
+)
 
 # Provisional params (band midpoint center, gain/scale = 16 → p1→~0.05, p99→~0.95).
 P = dict(center=0.32, scale=0.0625, gain=1.0)
@@ -58,3 +64,55 @@ def test_anti_alignment_still_gates():
 def test_within_anti_alignment_safety_passes():
     edge = {"T": 0.05, "T_centered_cos": -0.3}
     assert is_broken_transition(edge, transition_floor=0.20, centered_cos_floor=-0.5) is False
+
+
+# --- variant-aware transition calibration ---------------------------------
+# The realistic centered end->start cosine band differs by sonic embedding, so
+# the sigmoid center/scale must track the ACTIVE variant or the rescale
+# saturates. MERT band p1/p50/p99 ~ 0.12/0.26/0.51; MuQ (contrastive, hot)
+# ~ 0.32/0.55/0.87. Derived on the full 41k via
+# scripts/research/calibrate_transition_sigmoid.py.
+
+def test_resolve_mert_is_the_live_default():
+    # MERT keeps its committed, validated params byte-for-byte (the rollback path).
+    assert resolve_transition_calib("mert") == (0.32, 0.0625, 1.0)
+
+
+def test_resolve_none_maps_to_legacy_default():
+    # Legacy / pre-variant artifacts (bundle.sonic_variant is None) must behave
+    # exactly as before: the historical 0.32 band.
+    assert resolve_transition_calib(None) == (0.32, 0.0625, 1.0)
+
+
+def test_resolve_muq_uses_the_hot_band():
+    center, scale, gain = resolve_transition_calib("muq")
+    assert 0.55 < center < 0.65        # MuQ band midpoint, well above MERT's 0.32
+    assert 0.08 < scale < 0.11
+    assert gain == 1.0
+
+
+def test_resolve_is_case_insensitive():
+    assert resolve_transition_calib("MuQ") == resolve_transition_calib("muq")
+
+
+def test_muq_band_avoids_saturation_that_mert_calib_would_cause():
+    # WHY this exists: a MuQ median edge (cos ~0.55) rescaled through MERT's
+    # center 0.32 saturates to ~0.98 (no discrimination). With the MuQ-aware
+    # calib it lands mid-band, preserving the gradient.
+    muq_c, muq_s, muq_g = resolve_transition_calib("muq")
+    mid_under_muq = _calibrate_transition_cos(0.55, center=muq_c, scale=muq_s, gain=muq_g)
+    mid_under_mert = _calibrate_transition_cos(0.55, center=0.32, scale=0.0625, gain=1.0)
+    assert 0.30 < mid_under_muq < 0.70     # discriminating
+    assert mid_under_mert > 0.95           # saturated — the bug we're preventing
+
+
+def test_resolve_override_wins_for_tuning():
+    assert resolve_transition_calib("muq", override=(0.40, 0.05)) == (0.40, 0.05, 1.0)
+    assert resolve_transition_calib("muq", override=(0.40, 0.05, 0.8)) == (0.40, 0.05, 0.8)
+
+
+def test_resolve_unknown_variant_with_no_override_raises():
+    # A configured sonic space the calibration can't act on is a startup error,
+    # not a silent fall-through to MERT's band.
+    with pytest.raises(ValueError):
+        resolve_transition_calib("some_future_embedding")

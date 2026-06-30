@@ -141,7 +141,11 @@ from src.playlist.pier_bridge.roam import (
     segment_sonic_detour as _segment_sonic_detour,
     energy_band_deviation as _energy_band_deviation,
 )
-from src.playlist.transition_metrics import TransitionMetricContext, score_transition_edge
+from src.playlist.transition_metrics import (
+    TransitionMetricContext,
+    resolve_transition_calib,
+    score_transition_edge,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -474,6 +478,22 @@ def build_pier_bridge_playlist(
     """
     if cfg is None:
         cfg = PierBridgeConfig()
+    # Variant-aware transition calibration. The rescale sigmoid's center/scale
+    # must track the ACTIVE sonic variant's cosine band (MuQ runs hot vs MERT)
+    # or the transition score saturates. Resolve once here, from the variant the
+    # artifact actually loaded (bundle.sonic_variant — cfg.sonic_variant is the
+    # normalized tower name and loses mert/muq), so every downstream consumer
+    # (the transition context, the edge-score wrappers, the beam) reads the
+    # correct band. No-op for MERT (0.32 stays); unknown variants raise.
+    # sonic_variant is an Optional bundle field (None => legacy/MERT band), so
+    # access it defensively — the real ArtifactBundle always carries it.
+    _cal_c, _cal_s, _cal_g = resolve_transition_calib(getattr(bundle, "sonic_variant", None))
+    cfg = replace(
+        cfg,
+        transition_calib_center=_cal_c,
+        transition_calib_scale=_cal_s,
+        transition_calib_gain=_cal_g,
+    )
     # Genre steering supersedes the older dj_bridging waypoint system. They are two
     # overlapping genre-arc implementations (dense 64-dim arc vote vs. 893-dim waypoint
     # pooling) and were never meant to run together. When steering is on, force

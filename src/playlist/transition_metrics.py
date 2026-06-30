@@ -12,6 +12,53 @@ from src.playlist.pier_bridge.vec import _calibrate_transition_cos, _l2_normaliz
 logger = logging.getLogger(__name__)
 
 
+# Per-variant transition-cosine calibration (center, scale). The realistic
+# centered end->start cosine band differs by sonic embedding, so the rescale
+# sigmoid's center/scale MUST track the active variant or it saturates: a MuQ
+# median edge (cos ~0.55) pushed through MERT's center 0.32 maps to ~0.98, with
+# no transition discrimination left. Bands derived on the full 41k artifact via
+# scripts/research/calibrate_transition_sigmoid.py <variant>.
+#   mert: band p1/p50/p99 ~ 0.12/0.26/0.51   (self-supervised; the live default)
+#   muq:  band p1/p50/p99 ~ 0.32/0.55/0.87   (contrastive; runs hot)
+TRANSITION_CALIB_BY_VARIANT: dict[str, tuple[float, float]] = {
+    "mert": (0.32, 0.0625),
+    "muq": (0.594, 0.092),
+}
+# Legacy / pre-variant artifacts (bundle.sonic_variant is None) used the 0.32
+# band before variants existed; keep them byte-identical by mapping to MERT.
+_DEFAULT_CALIB_VARIANT = "mert"
+
+
+def resolve_transition_calib(
+    variant: Optional[str],
+    *,
+    override: Optional[tuple[float, ...]] = None,
+) -> tuple[float, float, float]:
+    """Resolve (center, scale, gain) transition-sigmoid params for ``variant``.
+
+    Priority: an explicit ``override`` (center, scale[, gain]) wins, for tuning;
+    otherwise the per-variant band table. A ``None``/empty variant maps to the
+    historical MERT band (byte-identical to pre-variant behavior). An unknown
+    variant with no override RAISES — a configured sonic space the transition
+    rescale can't calibrate is a startup error, not a silent MERT fallback that
+    would saturate every edge (the project's #1 failure mode).
+    """
+    if override is not None:
+        center, scale = float(override[0]), float(override[1])
+        gain = float(override[2]) if len(override) > 2 else 1.0
+        return center, scale, gain
+    key = (variant or _DEFAULT_CALIB_VARIANT).strip().lower()
+    if key in TRANSITION_CALIB_BY_VARIANT:
+        center, scale = TRANSITION_CALIB_BY_VARIANT[key]
+        return float(center), float(scale), 1.0
+    raise ValueError(
+        f"No transition calibration for sonic variant {variant!r}. Derive its band via "
+        f"`python scripts/research/calibrate_transition_sigmoid.py {key}` and add an entry to "
+        "TRANSITION_CALIB_BY_VARIANT, or pass an explicit override — a configured sonic space "
+        "the transition rescale can't calibrate is a startup error, not a silent MERT fallback."
+    )
+
+
 @dataclass(frozen=True)
 class TransitionMetricContext:
     """Prepared matrices and weights for the final edge transition metric."""
