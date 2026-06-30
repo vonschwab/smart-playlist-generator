@@ -862,7 +862,13 @@ def generate_playlist_ds(
             # apply_pier_bridge_overrides) so a programmatic caller passing a
             # typed config without a raw overrides dict is honored.
             _budget_s = float(pb_cfg.generation_budget_s)
-            _generation_deadline: Optional[float] = time.monotonic() + _budget_s
+            # generation_budget_s <= 0 disables the wall-clock limit entirely: no soft
+            # deadline here, and (because the builder keys its relaxation cap off this
+            # being None) no per-build relaxation cap either. Quality-first while we
+            # dial in playlists; a positive value re-arms the deadline + fallback later.
+            _generation_deadline: Optional[float] = (
+                None if _budget_s <= 0 else time.monotonic() + _budget_s
+            )
 
             def _run_pier_bridge(candidate_pool_indices: list[int]) -> PierBridgeResult:
                 # Oops, All Bangers: cache-only popularity for the gated pool (no Last.fm

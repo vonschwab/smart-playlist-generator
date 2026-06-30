@@ -1739,6 +1739,11 @@ def build_pier_bridge_playlist(
     # _SEGMENT_RELAXATION_BUDGET_S). Cumulative across all segments so the total
     # build cannot blow the generation budget on a pathological relaxation grind.
     _pb_build_start = time.monotonic()
+    # When the caller disables the generation deadline (deadline=None,
+    # generation_budget_s<=0), the per-build relaxation cap is disabled too — "no
+    # time limit" must mean BOTH wall-clock cutoffs are off, or relaxation grinds
+    # would still bail at 40s. A finite deadline keeps the legacy 40s cap.
+    _relax_budget_s = float("inf") if deadline is None else _SEGMENT_RELAXATION_BUDGET_S
 
     # Variable bridge length (default OFF -> byte-identical to the even-split path).
     # When ON, each segment's interior length flexes within a band off the nominal
@@ -2130,7 +2135,7 @@ def build_pier_bridge_playlist(
         over_relaxation_budget = (
             _deadline_exceeded_at_segment_start
             or (deadline is not None and _now > deadline)
-            or (_now - _pb_build_start) > _SEGMENT_RELAXATION_BUDGET_S
+            or (_now - _pb_build_start) > _relax_budget_s
         )
         if segment_path is None and over_relaxation_budget and not pool_too_small_for_segment:
             logger.warning(
@@ -2146,7 +2151,7 @@ def build_pier_bridge_playlist(
             _t_attempts = _transition_floor_attempts(float(cfg_base.transition_floor))
             for _t_floor in _t_attempts[1:]:  # first value already tried in relax loop above
                 _now2 = time.monotonic()
-                if (deadline is not None and _now2 > deadline) or (_now2 - _pb_build_start) > _SEGMENT_RELAXATION_BUDGET_S:
+                if (deadline is not None and _now2 > deadline) or (_now2 - _pb_build_start) > _relax_budget_s:
                     break
                 for _relax in relaxation_attempts:
                     _t_result = _run_segment_backoff_attempts(
@@ -2211,7 +2216,7 @@ def build_pier_bridge_playlist(
             _t_attempts_arc = _transition_floor_attempts(float(cfg_base.transition_floor))
             for _gf in _gfloors[1:]:  # first value already tried in the relax loop above
                 _now3 = time.monotonic()
-                if (deadline is not None and _now3 > deadline) or (_now3 - _pb_build_start) > _SEGMENT_RELAXATION_BUDGET_S:
+                if (deadline is not None and _now3 > deadline) or (_now3 - _pb_build_start) > _relax_budget_s:
                     logger.warning(
                         "Segment %d: relaxation budget exceeded mid genre-arc tier — "
                         "bailing to fallback placement", seg_idx,
