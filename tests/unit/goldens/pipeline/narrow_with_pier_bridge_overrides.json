@@ -152,7 +152,6 @@
   "roam_width_energy": 0.0,
   "roam_width_genre": 0.0,
   "roam_width_sonic": 0.0,
-  "seed_character_knn_k": 25,
   "seed_character_mode": "off",
   "seed_character_strength": 0.0,
   "segment_pool_genre_weight": 0.0,

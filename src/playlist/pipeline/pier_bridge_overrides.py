@@ -137,7 +137,7 @@ def apply_pier_bridge_overrides(
                       # was unreachable. Wire it here with the other pier_bridge knobs.
                       ("generation_budget_s", float),
                       # SP2 seed-character anti-collapse scoring (off by default).
-                      ("seed_character_strength", float), ("seed_character_knn_k", int),
+                      ("seed_character_strength", float),
                       # SP3 mini-piers (off by default).
                       ("mini_pier_max_interior", int), ("mini_pier_smoothness_margin", float)):
         _v = pb_overrides.get(_k)

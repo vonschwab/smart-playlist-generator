@@ -25,11 +25,7 @@ from src.playlist.artist_identity_resolver import (
     resolve_artist_identity_keys,
 )
 from src.playlist.pier_bridge.config import PierBridgeConfig, _compute_transition_score
-from src.playlist.pier_bridge.seed_character import (
-    anti_center_penalty,
-    hubness_deflated_bridge,
-    pool_hubness,
-)
+from src.playlist.pier_bridge.seed_character import anti_center_penalty
 from src.playlist.layered_genre_scoring import score_layered_transition
 from src.playlist.title_quality import compute_title_artifact_penalty
 from src.playlist.pier_bridge.genre import (
@@ -829,16 +825,11 @@ def _beam_search_segment(
     # both stay None => the scoring loop below is byte-identical to today).
     _sc_mode = str(getattr(cfg, "seed_character_mode", "off") or "off")
     _sc_strength = float(getattr(cfg, "seed_character_strength", 0.0) or 0.0)
-    _sc_hub: Optional[np.ndarray] = None         # global-indexed pool hubness in [0,1] (mode=hubness)
     _sc_center_sim: Optional[np.ndarray] = None  # global-indexed cosine to the pool centroid (mode=anti_center)
     if _sc_mode != "off" and _sc_strength > 0.0 and candidates:
         _cand_arr = np.asarray(candidates, dtype=int)
         _n_full = int(X_full_norm.shape[0])
-        if _sc_mode == "hubness":
-            _hub_vals = pool_hubness(X_full_norm[_cand_arr], int(getattr(cfg, "seed_character_knn_k", 25)))
-            _sc_hub = np.zeros(_n_full, dtype=np.float64)
-            _sc_hub[_cand_arr] = _hub_vals
-        elif _sc_mode == "anti_center":
+        if _sc_mode == "anti_center":
             _pc = X_full_norm[_cand_arr].mean(axis=0)
             _pc_norm = float(np.linalg.norm(_pc))
             if _pc_norm > 1e-12:
@@ -1280,12 +1271,7 @@ def _beam_search_segment(
                 sim_a = float(sim_to_a[cand])
                 sim_b = float(sim_to_b[cand])
                 denom = sim_a + sim_b
-                if _sc_hub is not None:
-                    # SP2-A: deflate the pier-sims by this candidate's pool hubness so
-                    # central/blur tracks lose the harmonic-mean over-reward.
-                    bridge_score = hubness_deflated_bridge(sim_a, sim_b, float(_sc_hub[cand]), _sc_strength)
-                else:
-                    bridge_score = 0.0 if denom <= 1e-9 else (2 * sim_a * sim_b) / denom
+                bridge_score = 0.0 if denom <= 1e-9 else (2 * sim_a * sim_b) / denom
 
                 # Add heuristic pull toward destination
                 dest_pull = cfg.eta_destination_pull * float(np.dot(X_full_norm[cand], vec_b_full))
