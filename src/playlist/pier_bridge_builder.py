@@ -911,8 +911,27 @@ def build_pier_bridge_playlist(
         total_interior = total_tracks - 1  # Only one seed in final output
         logger.info("Pier+Bridge: single-seed arc mode (seed is both start and end pier)")
     else:
-        num_segments = num_seeds - 1
-        total_interior = total_tracks - num_seeds
+        if bool(getattr(cfg, "mini_pier_enabled", False)):
+            from src.playlist.pier_bridge.mini_pier_select import plan_pier_sequence
+            # exclude seed/pier-artist tracks (waypoints are real piers; keep them
+            # off the seed artists) using normalized track_artists.
+            import numpy as _np
+            _artists = _np.array([" ".join(str(x).split()).lower()
+                                  for x in bundle.track_artists])
+            _pier_artists = {_artists[i] for i in ordered_seeds}
+            _exclude = frozenset(int(i) for i in _np.where(
+                _np.isin(_artists, list(_pier_artists)))[0])
+            ordered_seeds = plan_pier_sequence(
+                ordered_seeds, total_tracks, candidate_pool_indices, X_full_norm,
+                max_interior=int(cfg.mini_pier_max_interior),
+                margin=float(cfg.mini_pier_smoothness_margin),
+                k_broad=150, exclude_base=_exclude,
+                max_waypoints=max(0, total_tracks // 4),
+            )
+            logger.info("Mini-piers: %d waypoint(s) inserted (piers now %d)",
+                        len(ordered_seeds) - num_seeds, len(ordered_seeds))
+        num_segments = len(ordered_seeds) - 1
+        total_interior = total_tracks - len(ordered_seeds)
 
     # Even split with remainder distributed to earlier segments
     base_length = total_interior // num_segments
