@@ -282,14 +282,28 @@ playlists:
       # variable_bridge_band: 5
       # variable_bridge_min_edge: 0.30
       # variable_bridge_max_flex_segments: 3
+      # SP2 seed-character anti-collapse (live default): "anti_center" demotes bridge
+      # interiors that sit closer to the local generic center than to their own piers
+      # (the within-bridge sag fix; strength ~2.0 = sweet spot). Set mode:off to disable.
+      seed_character_mode: anti_center
+      seed_character_strength: 2.0
+      # SP3 mini-piers (live default): pin a high-character waypoint as an extra pier in a
+      # long bridge so the beam can't sag past it (structural anti-sag; dreampop sag
+      # 103%->63%). max_interior=K: split any segment whose interior would exceed K.
+      # smoothness_margin trades worst-edge for character. Set enabled:false to roll back.
+      mini_pier_enabled: true
+      mini_pier_max_interior: 5
+      mini_pier_smoothness_margin: 0.12
       # Total-generation wall-clock budget (seconds). A single shared deadline is
       # computed once at generation start (before any One-Each retries) and threaded
       # into all segment loops and relaxation tiers so NO path can collectively exceed
       # this budget. 60s leaves a comfortable margin under the 90s hard ceiling for
       # pool-build + Last.fm overhead (killer cell measured 87.8s at 70s, only ~2s
       # under). Raise if you have a large library and many seeds; lower for tighter
-      # latency guarantees.
-      # generation_budget_s: 60.0
+      # latency guarantees. LIVE DEFAULT 0 = time limit DISABLED (quality-first: the
+      # beam / var-bridge / mini-piers always run to completion, no fallback bail). Set a
+      # positive value (e.g. 60) to re-arm the budget once optimizing for speed.
+      generation_budget_s: 0
       # Bridge-local gate: require min(sim_to_pier_A, sim_to_pier_B) >= floor
       bridge_floor_strict: 0.10   # Ultra-cohesive (Phase 1)
       bridge_floor_narrow: 0.05   # Relaxed from 0.08 (Phase 3A)
