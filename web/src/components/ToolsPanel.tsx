@@ -4,10 +4,13 @@ import { useJobReconcile } from "../lib/useJobReconcile";
 import { useWorkerEvents } from "../lib/ws";
 import type { AnalyzeToolRequest, EnrichToolRequest, WsEvent } from "../lib/types";
 
+// Mirror of ANALYZE_LIBRARY_STAGE_ORDER (src/playlist/request_models.py) — keep in sync.
+// The album-grain adjudicate/apply/popularity stages are in the default run; the legacy
+// tag-grain `enrich` stage is opt-in CLI-only (`--stages enrich`), never the default.
 const ALL_STAGES = [
   "scan", "genres", "discogs", "lastfm", "sonic", "mert",
-  "enrich", "publish", "genre-sim", "artifacts", "energy",
-  "genre-embedding", "verify",
+  "adjudicate", "apply", "publish", "genre-sim", "artifacts", "energy",
+  "popularity", "genre-embedding", "verify",
 ] as const;
 
 type AnalyzeStageName = (typeof ALL_STAGES)[number];
