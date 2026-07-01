@@ -1,4 +1,5 @@
 import numpy as np
+from src.analyze import muq_runner
 from src.analyze.muq_runner import (
     MODEL_NAME, sidecar_ids, pending_muq, run_muq_extraction,
 )
@@ -31,7 +32,34 @@ def test_run_extraction_appends_backs_up_and_is_resumable(tmp_path):
 def test_run_extraction_survives_a_bad_file(tmp_path):
     sc = tmp_path / "muq_sidecar.npz"
     def stub(path):
-        if path == "/bad": raise RuntimeError("decode fail")
+        if path == "/bad":
+            raise RuntimeError("decode fail")
         return np.ones(4, np.float32)
     res = run_muq_extraction([("g", "/good"), ("b", "/bad")], stub, sc)
     assert res["ok"] == 1 and res["failed"] == 1 and sidecar_ids(sc) == {"g"}
+
+def test_run_extraction_no_crash_when_no_items_embed_successfully(tmp_path):
+    sc = tmp_path / "absent.npz"
+    res = run_muq_extraction([("x", None)], lambda p: np.ones(4), sc)
+    assert res["failed"] == 1 and res["ok"] == 0
+
+def test_run_extraction_no_crash_on_empty_items(tmp_path):
+    sc = tmp_path / "absent.npz"
+    res = run_muq_extraction([], lambda p: None, sc)
+    assert res["ok"] == 0 and res["failed"] == 0
+
+def test_periodic_checkpoint_fires_mid_loop(tmp_path, monkeypatch):
+    sc = tmp_path / "muq_sidecar.npz"
+    calls = []
+    real_atomic_save = muq_runner._atomic_save
+
+    def counting_atomic_save(sidecar_path, done):
+        calls.append(1)
+        return real_atomic_save(sidecar_path, done)
+
+    monkeypatch.setattr(muq_runner, "_atomic_save", counting_atomic_save)
+    stub = lambda path: np.ones(4, np.float32)
+    items = [("a", "/a"), ("b", "/b"), ("c", "/c")]
+    res = run_muq_extraction(items, stub, sc, save_every=1)
+    assert res["ok"] == 3
+    assert len(calls) > 1

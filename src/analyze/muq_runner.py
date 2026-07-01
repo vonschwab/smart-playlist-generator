@@ -4,6 +4,9 @@ Incremental + resumable: embeds only tracks lacking a MuQ vector into muq_sideca
 (single npz, atomic save). Backs up the existing sidecar before the first overwrite —
 it is a ~16-29h CPU artifact, treated like the irreplaceable MERT data. Productionized
 from scripts/research/embed_muq_full.py.
+
+A bad file's failure is recorded in the returned `fails` list, never fatal — the
+calling stage logs the summary.
 """
 from __future__ import annotations
 
@@ -17,7 +20,7 @@ MODEL_NAME = "OpenMuQ/MuQ-MuLan-large"
 SAVE_EVERY = 500
 
 
-def sidecar_ids(sidecar_path) -> set:
+def sidecar_ids(sidecar_path) -> set[str]:
     p = Path(sidecar_path)
     if not p.exists():
         return set()
@@ -42,6 +45,8 @@ def _load_existing(sidecar_path) -> Dict[str, np.ndarray]:
 
 
 def _atomic_save(sidecar_path, done: Dict[str, np.ndarray]) -> None:
+    if not done:
+        return
     p = Path(sidecar_path)
     tids = list(done.keys())
     embs = np.stack([done[t] for t in tids]).astype(np.float32)
@@ -88,8 +93,8 @@ def run_muq_extraction(
     save_every: int = SAVE_EVERY,
 ) -> Dict[str, object]:
     """Embed each (track_id, path); append into the sidecar (atomic, resumable). Backs up
-    the existing sidecar once (when backup_stamp given) before the first write. A bad file
-    is logged and skipped, never fatal. Returns {ok, failed, fails}."""
+    the existing sidecar once (when backup_stamp given) before the first write. A bad file's
+    failure is recorded in the returned `fails` list, never fatal. Returns {ok, failed, fails}."""
     done = _load_existing(sidecar_path)
     if backup_stamp is not None:
         _backup(sidecar_path, backup_stamp)
@@ -97,10 +102,12 @@ def run_muq_extraction(
     fails: List[Tuple[str, str]] = []
     for k, (tid, path) in enumerate(items, 1):
         if not path:
-            fails.append((tid, "no_path")); continue
+            fails.append((tid, "no_path"))
+            continue
         try:
-            done[tid] = np.asarray(embed_fn(path), dtype=np.float32); ok += 1
-        except Exception as exc:  # noqa: BLE001 — one bad file must not kill the scan
+            done[tid] = np.asarray(embed_fn(path), dtype=np.float32)
+            ok += 1
+        except Exception as exc:  # one bad file must not kill the scan
             fails.append((tid, type(exc).__name__))
         if k % save_every == 0:
             _atomic_save(sidecar_path, done)
