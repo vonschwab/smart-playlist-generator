@@ -148,6 +148,17 @@ def _mert_fold_settings(config_path: str) -> Tuple[bool, str]:
     return enabled, variant
 
 
+def _variant_gate(config_path: str, stage_variant: str) -> Optional[str]:
+    """Approach-1 gate: return a skip-reason if the ACTIVE sonic variant
+    (artifacts.sonic_variant_override) is not this stage's variant, else None. Only the
+    active variant's extraction runs in a default rebuild; the other is reached by
+    switching the variant."""
+    _, active = _mert_fold_settings(config_path)
+    if active != stage_variant:
+        return f"active sonic variant is {active!r}; skipping {stage_variant} extraction"
+    return None
+
+
 def _assert_dbs_not_aliased(*db_paths: str) -> None:
     """Refuse to run if a SQLite DB (or its parent dir) is reached via a symlink/junction.
 
@@ -409,6 +420,18 @@ def compute_stage_fingerprint(ctx: Dict, stage: str) -> str:
             track_ids = []
         key = {"stage": stage, "track_ids": track_ids}
         return _hash_obj(key)
+
+    if stage == "muq":
+        try:
+            track_ids = sorted(
+                str(r[0]) for r in conn.execute(
+                    "SELECT track_id FROM tracks "
+                    "WHERE file_path IS NOT NULL AND file_path != ''"
+                ).fetchall()
+            )
+        except Exception:
+            track_ids = []
+        return _hash_obj({"stage": stage, "track_ids": track_ids})
 
     if stage == "energy":
         from src.analyze.energy_runner import pending_energy, load_energy_config
@@ -2239,6 +2262,11 @@ def stage_mert(ctx: Dict) -> Dict:
     done-or-failed.  Returns immediately (skipped=True) when pending==0 and
     force is False so the real embedder is never loaded in that case.
     """
+    _gate = _variant_gate(ctx["config_path"], "mert")
+    if _gate:
+        logger.info("stage_mert: %s", _gate)
+        return {"skipped": True, "pending": 0, "reason": _gate}
+
     import yaml
     from scripts.extract_mert_sidecar import (
         ShardStore,
@@ -2354,6 +2382,62 @@ def stage_mert(ctx: Dict) -> Dict:
         "failed": n_fail,
         "sidecar": str(sidecar_path) if sidecar_path else None,
     }
+
+
+def stage_muq(ctx: Dict) -> Dict:
+    """Extract MuQ-MuLan sonic embeddings into muq_sidecar.npz (incremental, resumable).
+    No-ops when muq is not the active sonic variant (Approach-1 variant gate)."""
+    _gate = _variant_gate(ctx["config_path"], "muq")
+    if _gate:
+        logger.info("stage_muq: %s", _gate)
+        return {"skipped": True, "pending": 0, "reason": _gate}
+
+    import yaml
+    from datetime import datetime
+    from scripts.extract_mert_sidecar import load_paths
+    from src.analyze.muq_runner import build_muq_embedder, pending_muq, run_muq_extraction
+
+    args = ctx["args"]
+    force = bool(args.force)
+    limit: Optional[int] = args.limit if args.limit else None
+    out_dir = Path(ctx["out_dir"])
+    sidecar_path = out_dir / "muq_sidecar.npz"
+
+    device, torch_threads = "cpu", 0
+    try:
+        _cfg = yaml.safe_load(open(ctx["config_path"], "r", encoding="utf-8")) or {}
+        _mcfg = (_cfg.get("analyze") or {}).get("muq") or {}
+        device = str(_mcfg.get("device", "cpu"))
+        torch_threads = int(_mcfg.get("torch_threads", 0))
+    except Exception:
+        pass
+
+    try:
+        db_paths = load_paths(ctx["db_path"])
+    except Exception as exc:
+        logger.warning("stage_muq: cannot load file paths from db: %s", exc)
+        return {"skipped": True, "pending": 0, "reason": str(exc)}
+
+    universe = list(db_paths.keys())
+    if force:
+        pending = universe
+    else:
+        pending, _done = pending_muq(sidecar_path, universe)
+    if limit is not None:
+        pending = pending[:limit]
+    if not pending:
+        logger.info("stage_muq: nothing pending (sidecar complete); skipping")
+        return {"skipped": True, "pending": 0}
+
+    logger.info("stage_muq: %d track(s) pending (device=%s); loading MuQ-MuLan "
+                "(cold cache can take a minute)...", len(pending), device)
+    embed_fn = build_muq_embedder(device, torch_threads)
+    items = [(t, db_paths.get(t)) for t in pending]
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    result = run_muq_extraction(items, embed_fn, sidecar_path, backup_stamp=stamp)
+    logger.info("stage_muq: embedded ok=%d failed=%d -> %s",
+                result["ok"], result["failed"], sidecar_path)
+    return {"skipped": False, "pending": len(pending), **result}
 
 
 def _energy_pending(out_dir):
@@ -2521,6 +2605,7 @@ STAGE_FUNCS = {
     "publish": stage_publish,
     "sonic": stage_sonic,
     "mert": stage_mert,
+    "muq": stage_muq,
     "genre-sim": stage_genre_sim,
     "artifacts": stage_artifacts,
     "energy": stage_energy,
