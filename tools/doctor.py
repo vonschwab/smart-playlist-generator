@@ -73,16 +73,16 @@ class DoctorChecks:
         self.failed = 0
 
     def check_python_version(self) -> bool:
-        """Check Python version is 3.8+."""
+        """Check Python version is 3.11+."""
         version = sys.version_info
-        if version >= (3, 8):
+        if version >= (3, 11):
             check_pass(f"Python {version.major}.{version.minor}.{version.micro}")
             self.passed += 1
             return True
         else:
             check_fail(
-                f"Python {version.major}.{version.minor} (need 3.8+)",
-                "Install Python 3.8 or newer"
+                f"Python {version.major}.{version.minor} (need 3.11+)",
+                "Install Python 3.11 or newer"
             )
             self.failed += 1
             return False
