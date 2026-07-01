@@ -21,6 +21,20 @@ def pytest_addoption(parser):
     )
 
 
+@pytest.fixture(autouse=True)
+def _reset_sonic_variant_override():
+    """Keep the process-wide ``artifacts.sonic_variant_override`` global from leaking
+    across tests. Any test that loads the live ``config.yaml`` (via the worker /
+    gui_fidelity chain) sets it to the configured variant (e.g. ``muq``) as a side
+    effect; without this reset a later test that builds a muq-less synthetic artifact
+    inherits it and the loader raises. Reset to None around every test."""
+    from src.features.artifacts import set_sonic_variant_override
+
+    set_sonic_variant_override(None)
+    yield
+    set_sonic_variant_override(None)
+
+
 def _build_artifact(tmp_path, seed: int = 0, include_segments: bool = True):
     """Build a synthetic artifact for testing."""
     rng = np.random.default_rng(seed)
