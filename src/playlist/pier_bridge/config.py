@@ -112,6 +112,11 @@ class PierBridgeConfig:
     seed_character_mode: str = "off"      # off | hubness | anti_center
     seed_character_strength: float = 0.0  # 0 = inert
     seed_character_knn_k: int = 25        # k for the hubness in-degree (mode=hubness)
+    # SP3 mini-piers (off by default -> byte-identical). Insert high-character
+    # waypoints as extra piers in long bridges so the beam can't sag past them.
+    mini_pier_enabled: bool = False
+    mini_pier_max_interior: int = 5        # split any segment whose interior exceeds K
+    mini_pier_smoothness_margin: float = 0.12
     # Layered genre graph transition scoring (opt-in; default OFF).
     # Uses sidecar-derived leaf/family/bridge/facet matrices when present on
     # the artifact bundle. This is separate from legacy flat genre steering.

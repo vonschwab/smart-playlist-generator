@@ -127,6 +127,8 @@ def apply_pier_bridge_overrides(
         pb_cfg = replace(pb_cfg, variable_bridge_length=bool(pb_overrides.get("variable_bridge_length")))
     if isinstance(pb_overrides.get("seed_character_mode"), str):
         pb_cfg = replace(pb_cfg, seed_character_mode=str(pb_overrides.get("seed_character_mode")))
+    if isinstance(pb_overrides.get("mini_pier_enabled"), bool):
+        pb_cfg = replace(pb_cfg, mini_pier_enabled=bool(pb_overrides.get("mini_pier_enabled")))
     for _k, _cast in (("variable_bridge_flex", int), ("variable_bridge_band", int),
                       ("variable_bridge_min_edge", float), ("variable_bridge_epsilon", float),
                       ("variable_bridge_max_flex_segments", int),
@@ -135,7 +137,9 @@ def apply_pier_bridge_overrides(
                       # was unreachable. Wire it here with the other pier_bridge knobs.
                       ("generation_budget_s", float),
                       # SP2 seed-character anti-collapse scoring (off by default).
-                      ("seed_character_strength", float), ("seed_character_knn_k", int)):
+                      ("seed_character_strength", float), ("seed_character_knn_k", int),
+                      # SP3 mini-piers (off by default).
+                      ("mini_pier_max_interior", int), ("mini_pier_smoothness_margin", float)):
         _v = pb_overrides.get(_k)
         if isinstance(_v, (int, float)) and not isinstance(_v, bool):
             pb_cfg = replace(pb_cfg, **{_k: _cast(_v)})
