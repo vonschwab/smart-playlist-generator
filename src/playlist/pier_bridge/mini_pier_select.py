@@ -50,3 +50,46 @@ def select_waypoint(
     center = center / norm
     cent = X_full_norm[smooth] @ center
     return int(smooth[int(np.argmin(cent))])
+
+
+def _even_split_lengths(total_interior: int, num_segments: int) -> list[int]:
+    base, rem = divmod(total_interior, num_segments)
+    return [base + (1 if i < rem else 0) for i in range(num_segments)]
+
+
+def plan_pier_sequence(
+    ordered_seeds,
+    total_tracks: int,
+    candidate_indices,
+    X_full_norm: np.ndarray,
+    *,
+    max_interior: int,
+    margin: float,
+    k_broad: int,
+    exclude_base: frozenset[int] = frozenset(),
+    max_waypoints: int = 8,
+) -> list[int]:
+    """Greedily split the longest segment (by even-split interior) by inserting a
+    waypoint between its two piers, until every segment's interior <= max_interior,
+    no feasible waypoint remains, or max_waypoints is reached. Returns the augmented
+    pier list; identical to ordered_seeds when nothing needs splitting."""
+    piers = [int(s) for s in ordered_seeds]
+    used = set(piers) | {int(e) for e in exclude_base}
+    for _ in range(int(max_waypoints)):
+        num_seg = len(piers) - 1
+        interior = int(total_tracks) - len(piers)
+        if num_seg < 1 or interior < 1:
+            break
+        lengths = _even_split_lengths(interior, num_seg)
+        seg = int(np.argmax(lengths))
+        if lengths[seg] <= int(max_interior):
+            break
+        wp = select_waypoint(
+            piers[seg], piers[seg + 1], candidate_indices, X_full_norm,
+            margin=margin, k_broad=k_broad, exclude=frozenset(used),
+        )
+        if wp is None:
+            break
+        piers.insert(seg + 1, wp)
+        used.add(wp)
+    return piers
