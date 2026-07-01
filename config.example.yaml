@@ -10,6 +10,9 @@ analyze:
                               # back in and set X_sonic_variant=mert. Set false to
                               # keep the tower rollback active (see
                               # artifacts.sonic_variant_override below).
+  muq:
+    device: cpu        # cpu|cuda — MuQ-MuLan extraction device
+    torch_threads: 0   # 0 = all available
   energy:
     distro: "Ubuntu-22.04"        # WSL distro hosting the Essentia venv
     python: "/opt/ess/bin/python" # interpreter inside that distro

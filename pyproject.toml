@@ -39,6 +39,10 @@ web = [
     "uvicorn[standard]>=0.22.0",
     "httpx>=0.24.0",
 ]
+muq = [
+    "muq",
+    "torch",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23.0",

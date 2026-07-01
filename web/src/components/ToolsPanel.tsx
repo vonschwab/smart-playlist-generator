@@ -8,7 +8,7 @@ import type { AnalyzeToolRequest, EnrichToolRequest, WsEvent } from "../lib/type
 // The album-grain adjudicate/apply/popularity stages are in the default run; the legacy
 // tag-grain `enrich` stage is opt-in CLI-only (`--stages enrich`), never the default.
 const ALL_STAGES = [
-  "scan", "genres", "discogs", "lastfm", "sonic", "mert",
+  "scan", "genres", "discogs", "lastfm", "sonic", "mert", "muq",
   "adjudicate", "apply", "publish", "genre-sim", "artifacts", "energy",
   "popularity", "genre-embedding", "verify",
 ] as const;
