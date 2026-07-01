@@ -2041,33 +2041,58 @@ def stage_artifacts(ctx: Dict) -> Dict:
         except Exception as exc:
             logger.warning("2DFTM fold failed (artifact left as-is): %s", exc)
 
-    # Fold the MERT sidecar back in. A fresh build (and the 2DFTM fold above) leave
-    # X_sonic_variant on the tower blend; without this, every artifacts rebuild
-    # silently reverts the production sonic space from the learned MERT embedding to
-    # the tower rollback. This is the auto-fold that replaces the manual
-    # `fold_mert_into_artifact.py` step the old pipeline relied on.
+    # Fold the ACTIVE sonic-variant sidecar back in. A fresh build (and the 2DFTM fold
+    # above) leave X_sonic_variant on the tower blend; without this, every artifacts
+    # rebuild silently reverts the production sonic space to the tower rollback. This is
+    # the auto-fold that replaces the manual fold_*_into_artifact.py step. The variant is
+    # chosen by artifacts.sonic_variant_override (muq | mert); folding the WRONG sidecar
+    # would leave the active matrix (X_sonic_muq / X_sonic_mert) STALE while `verify`
+    # still passes on the stamp — so we branch on the active variant here.
     fold_enabled, active_variant = _mert_fold_settings(ctx["config_path"])
-    mert_sidecar = out_dir / "mert_sidecar.npz"
-    if fold_enabled and mert_sidecar.exists():
-        logger.info("Folding MERT sidecar into rebuilt artifact (X_sonic_variant=%s)...", active_variant)
-        try:
-            from scripts.fold_mert_into_artifact import fold_mert
-            fold_mert(
-                out_path, mert_sidecar, set_active=active_variant, no_backup=True,
-                log_fn=lambda msg="", **kw: logger.info("%s", msg),
-            )
-            logger.info("MERT fold complete; X_sonic_variant=%s", active_variant)
-        except Exception as exc:
-            # Loud: a failed fold leaves generation on the tower rollback space.
+    if fold_enabled and active_variant == "muq":
+        muq_sidecar = out_dir / "muq_sidecar.npz"
+        if muq_sidecar.exists():
+            logger.info("Folding MuQ sidecar into rebuilt artifact (X_sonic_variant=muq)...")
+            try:
+                from scripts.fold_muq_into_artifact import fold_muq
+                fold_muq(
+                    out_path, muq_sidecar, set_active="muq", no_backup=True,
+                    log_fn=lambda msg="", **kw: logger.info("%s", msg),
+                )
+                logger.info("MuQ fold complete; X_sonic_variant=muq")
+            except Exception as exc:
+                logger.error(
+                    "MuQ fold FAILED after artifact rebuild — generation will use the WRONG "
+                    "sonic space until re-folded: %s", exc
+                )
+        else:
             logger.error(
-                "MERT fold FAILED after artifact rebuild — generation will use the WRONG "
-                "sonic space (tower rollback) until re-folded: %s", exc
+                "sonic_variant_override=muq but %s not found — X_sonic_muq will be STALE "
+                "(verify only checks the stamp). Build the MuQ sidecar then run "
+                "scripts/fold_muq_into_artifact.py.", muq_sidecar
             )
     elif fold_enabled:
-        logger.warning(
-            "MERT sidecar not found (%s); artifact left on the tower variant. "
-            "Run the mert stage to build the sidecar.", mert_sidecar
-        )
+        mert_sidecar = out_dir / "mert_sidecar.npz"
+        if mert_sidecar.exists():
+            logger.info("Folding MERT sidecar into rebuilt artifact (X_sonic_variant=%s)...", active_variant)
+            try:
+                from scripts.fold_mert_into_artifact import fold_mert
+                fold_mert(
+                    out_path, mert_sidecar, set_active=active_variant, no_backup=True,
+                    log_fn=lambda msg="", **kw: logger.info("%s", msg),
+                )
+                logger.info("MERT fold complete; X_sonic_variant=%s", active_variant)
+            except Exception as exc:
+                # Loud: a failed fold leaves generation on the tower rollback space.
+                logger.error(
+                    "MERT fold FAILED after artifact rebuild — generation will use the WRONG "
+                    "sonic space (tower rollback) until re-folded: %s", exc
+                )
+        else:
+            logger.warning(
+                "MERT sidecar not found (%s); artifact left on the tower variant. "
+                "Run the mert stage to build the sidecar.", mert_sidecar
+            )
 
     fingerprint = compute_stage_fingerprint(ctx, "artifacts")
     manifest_path = _write_artifact_manifest(out_dir, fingerprint, ctx.get("config_hash", ""), {})
