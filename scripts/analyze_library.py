@@ -148,12 +148,27 @@ def _mert_fold_settings(config_path: str) -> Tuple[bool, str]:
     return enabled, variant
 
 
+# Recognized artifacts.sonic_variant_override values: the baked learned-embedding variants
+# (mert, muq) that have extraction stages, plus the tower/transform rollback variants. An
+# override that is none of these is almost certainly a typo — the mert/muq extraction stages
+# would BOTH silently no-op, the exact "a configured knob that can't act is a silent no-op"
+# failure this project guards against — so _variant_gate warns loudly at analyze time.
+from src.similarity.sonic_variant import _ALLOWED as _SONIC_TRANSFORM_VARIANTS  # noqa: E402
+_KNOWN_SONIC_VARIANTS = frozenset({"mert", "muq"}) | frozenset(_SONIC_TRANSFORM_VARIANTS)
+
+
 def _variant_gate(config_path: str, stage_variant: str) -> Optional[str]:
     """Approach-1 gate: return a skip-reason if the ACTIVE sonic variant
     (artifacts.sonic_variant_override) is not this stage's variant, else None. Only the
     active variant's extraction runs in a default rebuild; the other is reached by
-    switching the variant."""
+    switching the variant. Warns loudly if the override is an unrecognized variant (a typo
+    would otherwise make both mert/muq stages silently no-op)."""
     _, active = _mert_fold_settings(config_path)
+    if active not in _KNOWN_SONIC_VARIANTS:
+        logger.warning(
+            "sonic_variant_override=%r is not a recognized sonic variant (known: %s) — the "
+            "mert/muq extraction stages will not run for it; check for a typo.",
+            active, ", ".join(sorted(_KNOWN_SONIC_VARIANTS)))
     if active != stage_variant:
         return f"active sonic variant is {active!r}; skipping {stage_variant} extraction"
     return None

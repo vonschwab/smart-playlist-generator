@@ -63,3 +63,23 @@ def test_periodic_checkpoint_fires_mid_loop(tmp_path, monkeypatch):
     res = run_muq_extraction(items, stub, sc, save_every=1)
     assert res["ok"] == 3
     assert len(calls) > 1
+
+
+def test_failed_ids_persisted_excluded_from_pending_and_cleared_on_success(tmp_path):
+    from src.analyze.muq_runner import failed_ids
+    sc = tmp_path / "muq_sidecar.npz"
+    _write_sidecar(sc, ["a"])
+
+    def stub(path):
+        if path == "/bad":
+            raise RuntimeError("decode fail")
+        return np.ones(4, np.float32)
+
+    # 'b' fails, 'c' succeeds -> b recorded in muq_failed.json, c added to the sidecar
+    run_muq_extraction([("b", "/bad"), ("c", "/good")], stub, sc)
+    assert failed_ids(sc) == {"b"}
+    pend, done = pending_muq(sc, ["a", "b", "c", "d"])
+    assert pend == ["d"] and done == 2          # done{a,c} + failed{b} both skipped; only d pending
+    # a later successful embed of 'b' clears it from the failed set
+    run_muq_extraction([("b", "/good")], stub, sc)
+    assert failed_ids(sc) == set() and "b" in sidecar_ids(sc)

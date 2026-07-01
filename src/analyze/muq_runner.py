@@ -10,6 +10,7 @@ calling stage logs the summary.
 """
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
@@ -28,9 +29,27 @@ def sidecar_ids(sidecar_path) -> set[str]:
         return {str(t) for t in z["track_ids"]}
 
 
+def _failed_path(sidecar_path) -> Path:
+    return Path(sidecar_path).with_name("muq_failed.json")
+
+
+def failed_ids(sidecar_path) -> set[str]:
+    """Track ids recorded as permanently failed (unreadable/bad files) in the companion
+    muq_failed.json, so the MuQ model is not reloaded to retry them on every run (mirrors
+    MERT's ``done ∪ failed`` skip set). ``--force`` bypasses this and re-attempts all."""
+    p = _failed_path(sidecar_path)
+    if not p.exists():
+        return set()
+    try:
+        return set(json.loads(p.read_text(encoding="utf-8")).keys())
+    except Exception:
+        return set()
+
+
 def pending_muq(sidecar_path, universe_ids: Sequence[str]) -> Tuple[List[str], int]:
     have = sidecar_ids(sidecar_path)
-    return [t for t in universe_ids if t not in have], len(have)
+    skip = have | failed_ids(sidecar_path)
+    return [t for t in universe_ids if t not in skip], len(have)
 
 
 def _load_existing(sidecar_path) -> Dict[str, np.ndarray]:
@@ -62,6 +81,29 @@ def _backup(sidecar_path, stamp: str) -> Optional[Path]:
     bak = p.with_name(f"{p.stem}.bak_{stamp}.npz")
     shutil.copy2(str(p), str(bak))
     return bak
+
+
+def _update_failures(sidecar_path, new_fails: Sequence[Tuple[str, str]], succeeded: Sequence[str]) -> None:
+    """Merge this run's failures into muq_failed.json (tid->reason) and drop any track that
+    succeeded this run (e.g. a file that became readable). Deletes the file if nothing failed."""
+    p = _failed_path(sidecar_path)
+    rec: Dict[str, str] = {}
+    if p.exists():
+        try:
+            rec = dict(json.loads(p.read_text(encoding="utf-8")))
+        except Exception:
+            rec = {}
+    for tid in succeeded:
+        rec.pop(tid, None)
+    for tid, reason in new_fails:
+        rec[tid] = reason
+    if not rec:
+        if p.exists():
+            p.unlink()
+        return
+    tmp = p.with_name(p.stem + ".tmp.json")
+    tmp.write_text(json.dumps(rec, indent=0, sort_keys=True), encoding="utf-8")
+    tmp.replace(p)
 
 
 def build_muq_embedder(device: str = "cpu", torch_threads: int = 0) -> Callable[[str], np.ndarray]:
@@ -100,6 +142,7 @@ def run_muq_extraction(
         _backup(sidecar_path, backup_stamp)
     ok = 0
     fails: List[Tuple[str, str]] = []
+    succeeded: List[str] = []
     for k, (tid, path) in enumerate(items, 1):
         if not path:
             fails.append((tid, "no_path"))
@@ -107,9 +150,11 @@ def run_muq_extraction(
         try:
             done[tid] = np.asarray(embed_fn(path), dtype=np.float32)
             ok += 1
+            succeeded.append(tid)
         except Exception as exc:  # one bad file must not kill the scan
             fails.append((tid, type(exc).__name__))
         if k % save_every == 0:
             _atomic_save(sidecar_path, done)
     _atomic_save(sidecar_path, done)
+    _update_failures(sidecar_path, fails, succeeded)
     return {"ok": ok, "failed": len(fails), "fails": fails}

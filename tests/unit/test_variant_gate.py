@@ -19,3 +19,18 @@ def test_default_variant_is_mert(tmp_path):
     p.write_text("{}", encoding="utf-8")   # no override -> 'mert'
     assert _variant_gate(str(p), "mert") is None
     assert _variant_gate(str(p), "muq") is not None
+
+
+def test_unknown_variant_warns_loudly(tmp_path, caplog):
+    import logging
+    with caplog.at_level(logging.WARNING):
+        _variant_gate(_cfg(tmp_path, "muq2"), "muq")   # a typo
+    assert any("not a recognized sonic variant" in r.getMessage() for r in caplog.records)
+
+
+def test_known_variants_do_not_warn(tmp_path, caplog):
+    import logging
+    with caplog.at_level(logging.WARNING):
+        _variant_gate(_cfg(tmp_path, "muq"), "muq")
+        _variant_gate(_cfg(tmp_path, "tower_weighted"), "muq")   # valid rollback, must not warn
+    assert not any("not a recognized" in r.getMessage() for r in caplog.records)
