@@ -73,15 +73,20 @@ def test_within_anti_alignment_safety_passes():
 # ~ 0.32/0.55/0.87. Derived on the full 41k via
 # scripts/research/calibrate_transition_sigmoid.py.
 
-def test_resolve_mert_is_the_live_default():
-    # MERT keeps its committed, validated params byte-for-byte (the rollback path).
-    assert resolve_transition_calib("mert") == (0.32, 0.0625, 1.0)
+def test_none_variant_maps_to_muq_default():
+    # Post-SP-B: muq is the only registered variant; legacy/no-variant
+    # artifacts get the muq band (pre-variant artifacts no longer exist).
+    assert resolve_transition_calib(None) == (0.594, 0.092, 1.0)
 
 
-def test_resolve_none_maps_to_legacy_default():
-    # Legacy / pre-variant artifacts (bundle.sonic_variant is None) must behave
-    # exactly as before: the historical 0.32 band.
-    assert resolve_transition_calib(None) == (0.32, 0.0625, 1.0)
+def test_mert_variant_now_raises():
+    # The mert band was removed with the MERT path (SP-B).
+    with pytest.raises(ValueError, match="No transition calibration"):
+        resolve_transition_calib("mert")
+
+
+def test_muq_band_unchanged():
+    assert resolve_transition_calib("muq") == (0.594, 0.092, 1.0)
 
 
 def test_resolve_muq_uses_the_hot_band():

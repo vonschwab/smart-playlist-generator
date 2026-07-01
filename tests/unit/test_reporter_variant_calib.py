@@ -58,7 +58,7 @@ def _spy_build(captured: dict):
     return _build
 
 
-@pytest.mark.parametrize("variant", ["muq", "mert"])
+@pytest.mark.parametrize("variant", ["muq"])
 def test_reporter_resolves_calib_from_bundle_variant(monkeypatch, variant):
     captured: dict = {}
     monkeypatch.setattr(reporter, "load_artifact_bundle", lambda path: _fake_bundle(variant))
@@ -77,7 +77,10 @@ def test_reporter_resolves_calib_from_bundle_variant(monkeypatch, variant):
 
 
 def test_muq_does_not_get_the_mert_default(monkeypatch):
-    """The exact saturation bug: MuQ must land on its hot band, not MERT's 0.32."""
+    """The exact saturation bug this guards against: MuQ must land on its own
+    hot band. Post-SP-B there's no MERT band left to silently fall back to —
+    querying "mert" raises instead of resolving a stale default.
+    """
     captured: dict = {}
     monkeypatch.setattr(reporter, "load_artifact_bundle", lambda path: _fake_bundle("muq"))
     monkeypatch.setattr(reporter, "build_transition_metric_context", _spy_build(captured))
@@ -91,5 +94,7 @@ def test_muq_does_not_get_the_mert_default(monkeypatch):
     )
 
     center = captured["calib"][0]
-    assert center != pytest.approx(0.32), "MuQ report is using MERT's 0.32 band (saturation bug)"
     assert center == pytest.approx(0.594, abs=1e-6)
+
+    with pytest.raises(ValueError, match="No transition calibration"):
+        resolve_transition_calib("mert")

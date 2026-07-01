@@ -85,8 +85,8 @@ class PierBridgeConfig:
     # Calibrated-sigmoid transition rescale params (used when center_transitions=True).
     # Single source of truth: vec._calibrate_transition_cos; fixed constants from
     # the library cosine band (scripts/research/calibrate_transition_sigmoid.py).
-    transition_calib_center: float = 0.32
-    transition_calib_scale: float = 0.0625
+    transition_calib_center: float = 0.594
+    transition_calib_scale: float = 0.092
     transition_calib_gain: float = 1.0
     # Bridge scoring weights
     weight_bridge: float = 0.6
