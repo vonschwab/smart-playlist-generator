@@ -409,6 +409,13 @@ def compute_stage_fingerprint(ctx: Dict, stage: str) -> str:
         # Keyed off the DB, not the artifact, so a freshly-scanned track flips this
         # fingerprint and the orchestrator re-runs MERT in the same pass — before
         # the artifact rebuild that would otherwise hide the new track.
+        #
+        # ``config`` folds in artifacts.sonic_variant_override (via cfg_hash) so a
+        # variant flip busts the cache too — otherwise stage_mert's variant gate
+        # (skip unless active variant is 'mert') can cache-skip while 'muq' is
+        # active, then the orchestrator never calls the stage again after
+        # flipping back to 'mert' with the same track set, and the gate that
+        # would have let it run is never reached.
         try:
             track_ids = sorted(
                 str(r[0]) for r in conn.execute(
@@ -418,10 +425,13 @@ def compute_stage_fingerprint(ctx: Dict, stage: str) -> str:
             )
         except Exception:
             track_ids = []
-        key = {"stage": stage, "track_ids": track_ids}
+        key = {"stage": stage, "track_ids": track_ids, "config": cfg_hash}
         return _hash_obj(key)
 
     if stage == "muq":
+        # See the "mert" branch above: ``config`` folds in
+        # artifacts.sonic_variant_override so a variant flip busts this stage's
+        # cached fingerprint too, instead of silently no-op'ing via the gate.
         try:
             track_ids = sorted(
                 str(r[0]) for r in conn.execute(
@@ -431,7 +441,7 @@ def compute_stage_fingerprint(ctx: Dict, stage: str) -> str:
             )
         except Exception:
             track_ids = []
-        return _hash_obj({"stage": stage, "track_ids": track_ids})
+        return _hash_obj({"stage": stage, "track_ids": track_ids, "config": cfg_hash})
 
     if stage == "energy":
         from src.analyze.energy_runner import pending_energy, load_energy_config
@@ -2260,7 +2270,10 @@ def stage_mert(ctx: Dict) -> Dict:
 
     Pending = artifact track_ids minus whatever the shard manifest already marks
     done-or-failed.  Returns immediately (skipped=True) when pending==0 and
-    force is False so the real embedder is never loaded in that case.
+    force is False so the real embedder is never loaded in that case. Also
+    no-ops (skipped=True) when ``artifacts.sonic_variant_override`` is not
+    'mert' — the variant gate in ``_variant_gate`` — so a default rebuild only
+    extracts the active variant's embeddings.
     """
     _gate = _variant_gate(ctx["config_path"], "mert")
     if _gate:

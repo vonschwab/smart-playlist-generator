@@ -1,0 +1,84 @@
+"""Regression test for the "silent stale" footgun in compute_stage_fingerprint.
+
+The mert/muq fingerprint branches used to hash only {"stage", "track_ids"} — no
+signal for the active sonic variant (artifacts.sonic_variant_override). Task 2
+added a variant gate so stage_mert no-ops unless variant == 'mert' and
+stage_muq no-ops unless variant == 'muq', but the orchestrator skips calling a
+stage at all when its fingerprint is unchanged — BEFORE the gate runs. With the
+track set held constant, flipping the active variant must still bust the
+cached fingerprint so the gate gets a chance to re-evaluate and the
+newly-active variant's extraction actually runs.
+"""
+import argparse
+import sqlite3
+from types import SimpleNamespace
+
+from scripts.analyze_library import compute_config_hash, compute_stage_fingerprint
+
+
+def _make_conn():
+    """A tiny in-memory tracks table standing in for the real DB."""
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE tracks (track_id TEXT, file_path TEXT)")
+    conn.execute("INSERT INTO tracks VALUES (?, ?)", ("t1", "/music/a.mp3"))
+    conn.commit()
+    return conn
+
+
+def _config_hash_for_variant(tmp_path, variant):
+    """Real compute_config_hash() output for a config file whose only content
+    is artifacts.sonic_variant_override=<variant> — i.e. the same cfg_hash the
+    orchestrator would thread into ctx["config_hash"] for a real run."""
+    import yaml
+
+    p = tmp_path / f"config_{variant}.yaml"
+    p.write_text(
+        yaml.safe_dump({"artifacts": {"sonic_variant_override": variant}}),
+        encoding="utf-8",
+    )
+    cfg_data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    cfg = SimpleNamespace(config=cfg_data)
+    args = argparse.Namespace(stages=None, max_tracks=None, limit=None, out_dir=None)
+    return compute_config_hash(cfg, args)
+
+
+def test_mert_fingerprint_differs_when_active_variant_flips(tmp_path):
+    conn = _make_conn()
+    mert_hash = _config_hash_for_variant(tmp_path, "mert")
+    muq_hash = _config_hash_for_variant(tmp_path, "muq")
+
+    fp_variant_mert = compute_stage_fingerprint({"conn": conn, "config_hash": mert_hash}, "mert")
+    fp_variant_muq = compute_stage_fingerprint({"conn": conn, "config_hash": muq_hash}, "mert")
+
+    assert fp_variant_mert != fp_variant_muq, (
+        "stage_mert's fingerprint must change when the active sonic variant "
+        "flips (same track set) — otherwise the orchestrator short-circuits on "
+        "the cached fingerprint before the variant gate runs, and flipping back "
+        "to 'mert' silently never re-extracts."
+    )
+
+
+def test_muq_fingerprint_differs_when_active_variant_flips(tmp_path):
+    conn = _make_conn()
+    mert_hash = _config_hash_for_variant(tmp_path, "mert")
+    muq_hash = _config_hash_for_variant(tmp_path, "muq")
+
+    fp_variant_mert = compute_stage_fingerprint({"conn": conn, "config_hash": mert_hash}, "muq")
+    fp_variant_muq = compute_stage_fingerprint({"conn": conn, "config_hash": muq_hash}, "muq")
+
+    assert fp_variant_mert != fp_variant_muq, (
+        "stage_muq's fingerprint must change when the active sonic variant "
+        "flips (same track set) — otherwise flipping to 'muq' with an "
+        "already-cached fingerprint silently never runs the extraction."
+    )
+
+
+def test_fingerprint_unaffected_by_variant_when_config_hash_absent(tmp_path):
+    """Sanity check: with track_ids held constant and no config_hash supplied
+    (ctx.get("config_hash", "") default), both branches still hash deterministically
+    off the same empty string — i.e. the new "config" key doesn't break the
+    no-config-hash-available path, it just can't distinguish variants there."""
+    conn = _make_conn()
+    fp1 = compute_stage_fingerprint({"conn": conn}, "mert")
+    fp2 = compute_stage_fingerprint({"conn": conn}, "mert")
+    assert fp1 == fp2
