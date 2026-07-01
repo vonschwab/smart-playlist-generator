@@ -729,7 +729,7 @@ def _populate_last_generation_cache(
 
     from src.features.artifacts import load_artifact_bundle
     from src.playlist.bpm_loader import load_bpm_arrays
-    from src.playlist.transition_metrics import build_transition_metric_context
+    from src.playlist.transition_metrics import build_transition_metric_context, resolve_transition_calib
 
     bundle = load_artifact_bundle(artifact_path)
     playlist_track_ids = [
@@ -767,6 +767,11 @@ def _populate_last_generation_cache(
     if isinstance(transition_weights, list):
         transition_weights = tuple(float(v) for v in transition_weights)
 
+    # Calib must track the ACTIVE variant's cosine band (MuQ hot vs MERT) or the
+    # rescale saturates — resolve from bundle.sonic_variant (authoritative mert/muq),
+    # exactly as the beam does (pier_bridge_builder.py:490); build_transition_metric_context
+    # otherwise defaults to MERT's 0.32 and every replacement-scored edge collapses to ~1.0.
+    _cal_c, _cal_s, _cal_g = resolve_transition_calib(getattr(bundle, "sonic_variant", None))
     transition_metric_context = build_transition_metric_context(
         X_sonic=bundle.X_sonic,
         X_start=bundle.X_sonic_start,
@@ -780,6 +785,9 @@ def _populate_last_generation_cache(
         transition_weights=transition_weights,
         sonic_variant=ds_report.get("sonic_variant"),
         transition_gamma=playlist_stats.get("transition_gamma") or ds_report.get("transition_gamma"),
+        calib_center=_cal_c,
+        calib_scale=_cal_s,
+        calib_gain=_cal_g,
     )
 
     ds_cfg = (config.get("playlists", {}) or {}).get("ds_pipeline", {}) or {}
