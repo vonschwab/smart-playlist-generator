@@ -915,17 +915,24 @@ def build_pier_bridge_playlist(
             from src.playlist.pier_bridge.mini_pier_select import plan_pier_sequence
             # exclude seed/pier-artist tracks (waypoints are real piers; keep them
             # off the seed artists) using normalized track_artists.
-            import numpy as _np
-            _artists = _np.array([" ".join(str(x).split()).lower()
-                                  for x in bundle.track_artists])
-            _pier_artists = {_artists[i] for i in ordered_seeds}
-            _exclude = frozenset(int(i) for i in _np.where(
-                _np.isin(_artists, list(_pier_artists)))[0])
+            if bundle.track_artists is not None:
+                _artists = np.array([" ".join(str(x).split()).lower()
+                                      for x in bundle.track_artists])
+                _pier_artists = {_artists[i] for i in ordered_seeds}
+                exclude_base = frozenset(int(i) for i in np.where(
+                    np.isin(_artists, list(_pier_artists)))[0])
+            else:
+                # Graceful degradation: no artist data — exclude only the pier tracks
+                # themselves so waypoints don't land on seeds.
+                exclude_base = frozenset(int(i) for i in ordered_seeds)
             ordered_seeds = plan_pier_sequence(
                 ordered_seeds, total_tracks, candidate_pool_indices, X_full_norm,
                 max_interior=int(cfg.mini_pier_max_interior),
                 margin=float(cfg.mini_pier_smoothness_margin),
-                k_broad=150, exclude_base=_exclude,
+                k_broad=150, exclude_base=exclude_base,
+                # SAFETY BACKSTOP: roughly one waypoint per 4 tracks.
+                # Primary terminators are "interior ≤ K" and "no feasible waypoint";
+                # this cap rarely binds in practice.
                 max_waypoints=max(0, total_tracks // 4),
             )
             logger.info("Mini-piers: %d waypoint(s) inserted (piers now %d)",
