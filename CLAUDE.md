@@ -16,9 +16,9 @@ For the listener-facing feature catalog, see `README.md`. Newest, most authorita
 
 - `data/metadata.db` — SQLite track database
 - `data/artifacts/beat3tower_32k/data_matrices_step1.npz` — pre-computed sonic + genre matrices
-- `data/artifacts/beat3tower_32k/mert_shards/` — MERT embedding shards + `manifest.json` — rollback data, superseded by MuQ (SP-B, 2026-07-01); **irreplaceable** (~55h CPU to regenerate; never delete or overwrite); provisional home, archived under `data/archive/mert_2026/` after SP-B (Task 11)
-- `data/artifacts/beat3tower_32k/mert_sidecar.npz` — merged MERT embeddings — rollback data; **irreplaceable** (regenerated from shards via `--merge-only`, but shards are the ground truth); archived under `data/archive/mert_2026/` after SP-B (Task 11)
-- `data/artifacts/beat3tower_32k/mert_transform_calibration.npz` — fitted transform params — rollback data, superseded by MuQ (SP-B, 2026-07-01); re-fittable from sidecar, but keep; archived under `data/archive/mert_2026/` after SP-B (Task 11)
+- `data/archive/mert_2026/mert_shards/` — MERT embedding shards + `manifest.json` — retired rollback data, superseded by MuQ; **ARCHIVED (never delete)** by SP-B Task 11 (2026-07-02); **irreplaceable** (~55h CPU to regenerate). See `data/archive/mert_2026/README.md`.
+- `data/archive/mert_2026/mert_sidecar.npz` — merged MERT embeddings (+ historical `.bak.*`) — retired rollback data; **ARCHIVED (never delete)**; **irreplaceable** (regenerated from shards via `--merge-only`, but shards are the ground truth)
+- `data/archive/mert_2026/mert_transform_calibration.npz` — fitted MERT transform params — retired rollback data, **ARCHIVED**; re-fittable from sidecar, but keep
 - `data/genre_similarity.yaml` — genre taxonomy overrides
 - `config.yaml` — gitignored; copy from `config.example.yaml`
 
@@ -108,7 +108,7 @@ GUI/backend coupling is already clean (audit `[A#5]`). The architecture problem 
 ## Project-specific gotchas
 
 - **`data/metadata.db` is irreplaceable — treat it like production.** A full re-analysis takes days. Never write to, migrate, or alter the database without explicit user instruction followed by a second confirmation. Before any write operation, back up the file (`metadata.db.bak` with a timestamp). When in doubt, stop and ask.
-- **`data/artifacts/beat3tower_32k/mert_shards/` and `mert_sidecar.npz` are irreplaceable — ~55h CPU to regenerate.** Never delete, overwrite, or move these files without explicit instruction and a second confirmation. The shards are the ground truth; the sidecar is derived from them via `--merge-only`. Any script that writes to the artifact directory must back up existing MERT files with a timestamp before touching them. The fold script (Phase 4) must follow the same backup discipline as the 2DFTM fold script.
+- **`data/archive/mert_2026/mert_shards/` and `mert_sidecar.npz` are irreplaceable — ~55h CPU to regenerate.** Retired to the archive by SP-B (Task 11, 2026-07-02) but STILL never delete or overwrite. The shards are the ground truth; the sidecar is derived from them via `--merge-only`. The live sonic space is now MuQ (`muq_sidecar.npz` in `data/artifacts/beat3tower_32k/`); its extraction backs up before writing (see `src/analyze/muq_runner.py`).
 - **Music library files are permanently read-only.** The audio files on disk are never written, moved, renamed, or deleted — ever. Read access only, no exceptions.
 - **A configured knob that can't act is a startup error, not a silent no-op.** This codebase's recurring failure mode is config that looks wired but isn't (2026-06-10 audit: beam widths ran at half config for months; the pace gate was dead in the live path; the web policy silently disabled dj_bridging). When adding a gate or knob, make the missing-data path warn loudly or raise — never fall back silently. See `docs/DEAD_CODE_AUDIT_2026-06-10.md`.
 - **Don't re-introduce post-order recency filtering.** Recency lives pre-order, in pool construction. The v3.4 fix exists for a reason — seed tracks at pier positions may be recently played but are explicitly requested.
