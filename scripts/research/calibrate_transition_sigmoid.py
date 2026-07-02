@@ -42,12 +42,15 @@ TARGET_LO, TARGET_HI = 0.05, 0.95   # where p1/p99 of the band should land
 
 def _stamped_variant(npz) -> str:
     """The artifact's own X_sonic_variant stamp (muq post-SP-B) — NOT a hardcoded
-    'mert' default. MERT/tower keys no longer exist once the artifact is rebuilt
-    (SP-B Task 10); falls back to 'muq' if the artifact predates the stamp."""
+    default. A missing stamp is an error, never a silent fallback (the
+    configured-knob-must-act rule): pass the variant argument explicitly."""
     if "X_sonic_variant" in npz:
         v = npz["X_sonic_variant"]
         return str(v.item() if hasattr(v, "item") else v)
-    return "muq"
+    raise ValueError(
+        "artifact has no X_sonic_variant stamp — pass the variant argument "
+        "explicitly (python scripts/research/calibrate_transition_sigmoid.py <variant>)"
+    )
 
 
 def parse_args():
@@ -65,21 +68,22 @@ def parse_args():
 args = parse_args()
 a = np.load(ART, allow_pickle=True)
 VARIANT = args.variant or _stamped_variant(a)
+print(f"Calibrating variant={VARIANT}")
 
 artists = np.array([str(x).strip().lower() for x in a["track_artists"]])
-mert = np.asarray(a[f"X_sonic_{VARIANT}"], np.float32)
+X = np.asarray(a[f"X_sonic_{VARIANT}"], np.float32)
 mst = np.asarray(a[f"X_sonic_{VARIANT}_start"], np.float32)
 mmd = np.asarray(a[f"X_sonic_{VARIANT}_mid"], np.float32)
 men = np.asarray(a[f"X_sonic_{VARIANT}_end"], np.float32)
 
 ctx = build_transition_metric_context(
-    X_sonic=mert, X_start=mst, X_mid=mmd, X_end=men,
+    X_sonic=X, X_start=mst, X_mid=mmd, X_end=men,
     center_transitions=True,
     weight_end_start=W[0], weight_mid_mid=W[1], weight_full_full=W[2],
 )
 
 rng = np.random.default_rng(7)
-valid = np.linalg.norm(mert, axis=1) > 1e-9
+valid = np.linalg.norm(X, axis=1) > 1e-9
 dests = rng.choice(np.where(valid)[0], N_DESTS, replace=False)
 
 

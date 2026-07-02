@@ -790,8 +790,10 @@ logging:
 # ─────────────────────────────────────────────────────────────────────────────
 # sonic_variant_override: A/B switch for the sonic similarity space. When set,
 # it WINS over the variant the artifact declares via its X_sonic_variant key.
-# `muq` is the live default (learned MuQ embedding; MERT + the tower spaces
-# were removed by SP-B, 2026-07). This knob remains the seam for a FUTURE
+# `muq` is the live default (learned MuQ embedding). The MERT/tower CODE paths
+# were removed by SP-B (Tasks 1-8, 2026-07); the artifact's legacy
+# X_sonic_mert*/tower keys remain until the Task 10 rebuild, and the MERT
+# source data is archived in Task 11. This knob remains the seam for a FUTURE
 # sonic variant (e.g. auditioning a new embedding) without re-folding the
 # artifact's other keys — set the override, don't re-bake.
 # The named variant's X_sonic_<variant> key must exist in the artifact —
