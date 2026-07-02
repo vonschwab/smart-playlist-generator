@@ -1775,6 +1775,36 @@ class PlaylistGenerator:
                         include_collaborations=include_collaborations,
                     )
 
+                # Scarcity-gated freshness: re-admit the seed artist's recently-played
+                # tracks only as needed to fill target_piers (Artist Presence wins over
+                # freshness for the seed artist alone). Freshness stays hard elsewhere.
+                _relaxed_excluded = None
+                if exclude_seed_tracks_from_recency and seed_recency_excluded_ids:
+                    from src.playlist.seed_eligibility import seed_recency_exclusion_for_presence
+                    _artist_ids = {
+                        str(bundle.track_ids[i]) for i in _artist_indices_in_bundle(
+                            bundle, artist_name, include_collaborations=include_collaborations)
+                    }
+                    _rank = None
+                    if popularity_values is not None:
+                        _idxs = _artist_indices_in_bundle(
+                            bundle, artist_name, include_collaborations=include_collaborations)
+                        _rank = [
+                            str(bundle.track_ids[i]) for i in sorted(
+                                _idxs, key=lambda i: float(popularity_values[i]), reverse=True)
+                        ]
+                    _relaxed_excluded = seed_recency_exclusion_for_presence(
+                        _artist_ids, seed_recency_excluded_ids, target_pier_count,
+                        readmit_rank=_rank,
+                    ) or None
+                    _readmitted = len(seed_recency_excluded_ids) - len(_relaxed_excluded or set())
+                    if _readmitted:
+                        logger.info(
+                            "Seed presence: re-admitted %d recently-played %s track(s) to fill "
+                            "target_piers=%d (fresh pool was short)",
+                            _readmitted, artist_name, target_pier_count,
+                        )
+
                 clusters, medoids, medoids_by_cluster, X_norm = cluster_artist_tracks(
                     bundle=bundle,
                     artist_name=artist_name,
@@ -1783,7 +1813,7 @@ class PlaylistGenerator:
                     sonic_variant=sonic_variant_cfg,
                     medoid_top_k=medoid_top_k,
                     include_collaborations=include_collaborations,
-                    excluded_track_ids=seed_recency_excluded_ids if exclude_seed_tracks_from_recency else None,
+                    excluded_track_ids=_relaxed_excluded,
                     popularity_values=popularity_values,
                     metadata_db_path=self.config.get("library", "database_path", default="data/metadata.db"),
                 )
