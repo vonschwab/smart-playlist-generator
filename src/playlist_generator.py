@@ -1738,14 +1738,14 @@ class PlaylistGenerator:
                 if popular_seeds_mode in {"on", "fire"} and getattr(self, "lastfm", None) is not None:
                     from datetime import datetime, timezone
                     from src.analyze.popularity_runner import (
-                        enrichment_db_path,
+                        popularity_cache_db_path,
                         load_artist_popularity_values,
                     )
                     pop_w = float(style_cfg_raw.get("popular_seeds_weight", 1.0))
                     style_cfg = replace(style_cfg, medoid_popularity_weight=pop_w)
                     popularity_values = load_artist_popularity_values(
                         bundle, artist_name, client=self.lastfm,
-                        db_path=enrichment_db_path(),
+                        db_path=popularity_cache_db_path(),
                         metadata_db_path=self.config.get("library", "database_path", default="data/metadata.db"),
                         limit=int((self.config.config.get("lastfm", {}) or {}).get("artist_top_tracks_limit", 50)),
                         max_age_days=int(style_cfg_raw.get("popularity_max_age_days", 30)),
@@ -1873,7 +1873,7 @@ class PlaylistGenerator:
                     # Diagnostic: log where each chosen pier sits on the artist's
                     # Last.fm popularity list (the cache is warm from the lazy fetch).
                     from src.analyze.popularity_runner import (
-                        enrichment_db_path,
+                        popularity_cache_db_path,
                         log_seed_popularity,
                     )
                     _titles = getattr(bundle, "track_titles", None)
@@ -1881,7 +1881,7 @@ class PlaylistGenerator:
                         str(_titles[m]) if _titles is not None else "" for m in ordered_medoids
                     ]
                     log_seed_popularity(
-                        artist_name, pier_ids, pier_titles, db_path=enrichment_db_path()
+                        artist_name, pier_ids, pier_titles, db_path=popularity_cache_db_path()
                     )
                 style_allowed_track_ids = list(dict.fromkeys(
                     pier_ids + external_pool + genre_neighbor_pool + list(internal_connector_ids or [])

@@ -1,10 +1,13 @@
 """Build side of the Last.fm popularity sidecar.
 
-Fetches each artist's top tracks (cached in ai_genre_enrichment.db so re-runs
+Fetches each artist's top tracks (cached in data/popularity_cache.db so re-runs
 skip), resolves each Last.fm track to the *canonical* local track per song
 (mbid-first, then loose-title + version-preference), and writes
 data/artifacts/beat3tower_32k/popularity/popularity_sidecar.npz aligned to the
 artifact's track_ids. Mirrors the energy sidecar. Reads metadata.db read-only.
+
+This cache is deliberately separate from the genre-enrichment DB — it's a
+Last.fm artist-popularity cache, not genre data.
 """
 from __future__ import annotations
 
@@ -19,12 +22,12 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-ENRICHMENT_DB_DEFAULT = "data/ai_genre_enrichment.db"
+POPULARITY_CACHE_DB_DEFAULT = "data/popularity_cache.db"
 
 
-def enrichment_db_path() -> str:
-    """ROOT-anchored absolute path to the enrichment DB (the per-artist cache)."""
-    return str(Path(__file__).resolve().parents[2] / "data" / "ai_genre_enrichment.db")
+def popularity_cache_db_path() -> str:
+    """ROOT-anchored absolute path to the popularity cache DB (the per-artist cache)."""
+    return str(Path(__file__).resolve().parents[2] / "data" / "popularity_cache.db")
 
 
 def init_top_tracks_cache(db_path: str) -> None:

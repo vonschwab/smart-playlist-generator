@@ -1402,10 +1402,10 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                 try:
                     from src.analyze.popularity_runner import (
                         annotate_and_log_playlist_popularity,
-                        enrichment_db_path,
+                        popularity_cache_db_path,
                     )
                     annotate_and_log_playlist_popularity(
-                        formatted_tracks, db_path=enrichment_db_path())
+                        formatted_tracks, db_path=popularity_cache_db_path())
                 except Exception as _exc:  # diagnostics must never break a generation
                     logging.getLogger(__name__).warning(
                         "Bangers popularity annotation failed: %s", _exc)

@@ -212,12 +212,13 @@ def _assert_dbs_not_aliased(*db_paths: str) -> None:
         )
 
 
-def _sidecar_count(query: str, params: tuple = ()) -> int:
-    """COUNT(*) against the enrichment sidecar, 0 if absent/unreadable."""
+def _sidecar_count(query: str, params: tuple = (), db_path: Optional[Path] = None) -> int:
+    """COUNT(*) against the enrichment sidecar (or ``db_path`` if given), 0 if absent/unreadable."""
+    target = db_path if db_path is not None else ENRICHMENT_DB_PATH
     try:
-        if not ENRICHMENT_DB_PATH.exists():
+        if not target.exists():
             return 0
-        conn = sqlite3.connect(f"file:{ENRICHMENT_DB_PATH}?mode=ro", uri=True)
+        conn = sqlite3.connect(f"file:{target}?mode=ro", uri=True)
         try:
             row = conn.execute(query, params).fetchone()
             return int(row[0]) if row else 0
@@ -547,7 +548,13 @@ def compute_stage_fingerprint(ctx: Dict, stage: str) -> str:
             "WHERE artist_key IS NOT NULL AND artist_key <> '' "
             "GROUP BY artist_key HAVING COUNT(*) >= 8)",
         )
-        cached = _sidecar_count("SELECT COUNT(*) FROM artist_top_tracks_cache")
+        # artist_top_tracks_cache now lives in its own popularity_cache.db, not
+        # the genre-enrichment sidecar — count against that DB explicitly.
+        from src.analyze.popularity_runner import popularity_cache_db_path
+        cached = _sidecar_count(
+            "SELECT COUNT(*) FROM artist_top_tracks_cache",
+            db_path=Path(popularity_cache_db_path()),
+        )
         sc = Path(ctx["out_dir"]) / "popularity" / "popularity_sidecar.npz"
         key = {
             "stage": stage,
@@ -2350,6 +2357,7 @@ def stage_popularity(ctx: Dict) -> Dict:
     from src.analyze.popularity_runner import (
         init_top_tracks_cache, cached_artist_keys,
         upsert_artist_top_tracks, build_popularity_sidecar,
+        popularity_cache_db_path,
     )
     from src.lastfm_client import LastFMClient
     import sqlite3 as _sqlite
@@ -2374,7 +2382,7 @@ def stage_popularity(ctx: Dict) -> Dict:
                      .get("toptracks_min_artist_tracks", 8))
     username = (cfg.get("lastfm") or {}).get("username", "")
 
-    enrich_db = str(ENRICHMENT_DB_PATH)
+    enrich_db = popularity_cache_db_path()
     init_top_tracks_cache(enrich_db)
     # qualifying artists: >= min_tracks local tracks, not already cached
     with _sqlite.connect(f"file:{ctx['db_path']}?mode=ro", uri=True) as conn:

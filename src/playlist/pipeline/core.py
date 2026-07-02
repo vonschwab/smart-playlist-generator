@@ -113,7 +113,7 @@ def _banger_gate_inputs(
         return None, None
     _banger_cutoff = int(rank_cutoff)
     from src.analyze.popularity_runner import (
-        enrichment_db_path as _edb_path,
+        popularity_cache_db_path as _edb_path,
         load_pool_popularity_ranks_cached,
     )
     _effective_db = db_path if db_path else _edb_path()
@@ -846,11 +846,11 @@ def generate_playlist_ds(
                 popularity_values = None
                 if float(getattr(pb_cfg, "popularity_penalty_strength", 0.0)) > 0.0:
                     from src.analyze.popularity_runner import (
-                        enrichment_db_path,
+                        popularity_cache_db_path,
                         load_pool_popularity_values_cached,
                     )
                     popularity_values = load_pool_popularity_values_cached(
-                        bundle, candidate_pool_indices, db_path=enrichment_db_path(),
+                        bundle, candidate_pool_indices, db_path=popularity_cache_db_path(),
                         metadata_db_path=_meta_db)
                 return build_pier_bridge_playlist(
                     seed_track_ids=seed_track_ids_for_pier,
