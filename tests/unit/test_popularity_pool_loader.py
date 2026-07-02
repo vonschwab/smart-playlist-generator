@@ -20,9 +20,9 @@ def test_pool_loader_scores_multiple_artists_aligned(tmp_path):
     db = str(tmp_path / "e.db")
     init_top_tracks_cache(db)
     upsert_artist_top_tracks(db, "nirvana", "2026-06-25T00:00:00+00:00",
-                             [{"name": "In Bloom", "mbid": "", "rank": 0}])
+                             [{"name": "In Bloom", "mbid": "in-bloom-mbid", "rank": 0}])
     upsert_artist_top_tracks(db, "the smiths", "2026-06-25T00:00:00+00:00",
-                             [{"name": "This Charming Man", "mbid": "", "rank": 0}])
+                             [{"name": "This Charming Man", "mbid": "charming-man-mbid", "rank": 0}])
     b = _bundle(
         ["n_hit", "n_deep", "s_hit", "other"],
         ["In Bloom", "Endless Nameless", "This Charming Man", "Song"],

@@ -7,7 +7,7 @@ from src.analyze.popularity_runner import (
     load_artist_popularity_values,
 )
 
-ROWS = [{"name": "Hit", "playcount": 9, "mbid": "", "rank": 0}]
+ROWS = [{"name": "Hit", "playcount": 9, "mbid": "abc-123", "rank": 0}]
 
 
 def test_cache_hit_skips_fetch(tmp_path):
@@ -105,7 +105,7 @@ def test_load_artist_popularity_aligns_seed_artist(tmp_path):
     db = str(tmp_path / "e.db")
     init_top_tracks_cache(db)
     upsert_artist_top_tracks(db, "nirvana", "2026-06-24T00:00:00+00:00",
-                             [{"name": "In Bloom", "mbid": "", "rank": 0}])
+                             [{"name": "In Bloom", "mbid": "in-bloom-mbid", "rank": 0}])
     client = MagicMock()
     vec = load_artist_popularity_values(
         b, "Nirvana", client=client, db_path=db, limit=50, max_age_days=30,
@@ -149,3 +149,19 @@ def test_log_seed_popularity_no_cache_is_graceful(tmp_path, caplog):
     with caplog.at_level(logging.INFO):
         log_seed_popularity("Unknown Artist", ["a"], ["T"], db_path=db)
     assert any("no cached Last.fm top tracks" in r.message for r in caplog.records)
+
+
+def test_all_blank_mbid_payload_distrusted_and_refetched(tmp_path):
+    db = str(tmp_path / "e.db")
+    init_top_tracks_cache(db)
+    # fresh cache, but EVERY entry has a blank mbid -> hallmark of a bad warm
+    upsert_artist_top_tracks(db, "porches", "2026-06-26T00:00:00+00:00",
+                             [{"name": "Headsgiving", "mbid": "", "rank": 0}])
+    good = [{"name": "Mood", "mbid": "a8861120-cf1f-41cc-93ec-65b0d5b956e3", "rank": 0}]
+    client = MagicMock()
+    client.get_artist_top_tracks.return_value = good
+    out = get_artist_top_tracks_cached_or_fetch(
+        "porches", "Porches", client=client, db_path=db,
+        max_age_days=30, now_iso="2026-06-27T00:00:00+00:00")  # within TTL
+    client.get_artist_top_tracks.assert_called_once()   # distrusted -> refetched
+    assert out == good

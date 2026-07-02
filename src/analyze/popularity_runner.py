@@ -504,7 +504,13 @@ def get_artist_top_tracks_cached_or_fetch(
             # Bad/unparseable timestamp OR aware-vs-naive mismatch -> treat as stale
             # and refetch. This block must never raise (never gate generation).
             fresh = False
-    if fetched_at is not None and fresh:
+    # A real artist.getTopTracks response carries MusicBrainz IDs. A cached payload
+    # where EVERY entry has a blank mbid is the hallmark of a transient/ambiguous
+    # Last.fm response (this exact bug served deep-cut seeds for a month) -> distrust
+    # it and re-fetch even within the TTL. Only the seed artist is checked per
+    # generation, so the cost is at most one extra Last.fm call.
+    cached_all_blank = bool(cached) and not any((t.get("mbid") or "") for t in cached)
+    if fetched_at is not None and fresh and not cached_all_blank:
         return cached
     try:
         rows = client.get_artist_top_tracks(artist_name, limit=limit)
