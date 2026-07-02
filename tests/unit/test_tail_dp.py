@@ -93,6 +93,32 @@ def test_disallowed_pairs_are_skipped_for_next_best():
     assert tuple(res.new_tail) != (4, 5)
 
 
+def test_floor_gate_skips_already_good_landing():
+    # existing tail [4,5]=C90 has a strong window min (~0.9, clearly >= the
+    # 0.30 floor); candidates [2,3] are near-perfectly aligned (C99) and WOULD
+    # win the re-opt on merit (0.99 > 0.9+epsilon) if the gate were absent --
+    # the floor must suppress that otherwise-available swap.
+    C99 = [0.99, (1 - 0.99 ** 2) ** 0.5]
+    X = [[1, 0], [1, 0], C99, C99, C90, C90]
+    ctx = _ctx(X)
+    res = optimize_segment_tail(
+        ctx, segment_path=[4, 5], pier_a=0, pier_b=1,
+        candidates=[2, 3], epsilon=0.02, floor=0.30, is_allowed_pair=lambda x, y: True,
+    )
+    assert res is None
+
+
+def test_floor_gate_fires_on_weak_landing():
+    # existing tail [2,3] orthogonal (window min ~0) < floor 0.30 => re-opt to C90 pair
+    X = [[1, 0], [1, 0], [0, 1], [0, 1], C90, C90]
+    ctx = _ctx(X)
+    res = optimize_segment_tail(
+        ctx, segment_path=[2, 3], pier_a=0, pier_b=1,
+        candidates=[4, 5], epsilon=0.02, floor=0.30, is_allowed_pair=lambda x, y: True,
+    )
+    assert res is not None and set(res.new_tail) == {4, 5}
+
+
 def test_one_slot_window():
     # single-interior segment: replace the lone slot.
     X = [[1, 0], [1, 0], [0, 1], C90]
@@ -123,6 +149,7 @@ def test_tail_dp_knobs_default_and_override():
     cfg = PierBridgeConfig()
     assert cfg.tail_dp_enabled is True
     assert cfg.tail_dp_epsilon == 0.02
+    assert cfg.tail_dp_floor == 0.30
 
     # mirror the invocation shape used by test_edge_repair_break_glass.py's
     # knob test (the real apply_pier_bridge_overrides signature).
@@ -130,7 +157,7 @@ def test_tail_dp_knobs_default_and_override():
         pier_bridge_config=PierBridgeConfig(),
         cfg=default_ds_config("dynamic", playlist_len=3),
         overrides={},
-        pb_overrides={"tail_dp": {"enabled": False, "epsilon": 0.05}},
+        pb_overrides={"tail_dp": {"enabled": False, "epsilon": 0.05, "floor": 0.1}},
         artist_playlist=False,
         dry_run=True,
         audit_cfg=None,
@@ -138,3 +165,4 @@ def test_tail_dp_knobs_default_and_override():
 
     assert pb_cfg.tail_dp_enabled is False
     assert pb_cfg.tail_dp_epsilon == 0.05
+    assert pb_cfg.tail_dp_floor == 0.1

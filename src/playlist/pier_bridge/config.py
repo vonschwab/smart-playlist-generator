@@ -117,6 +117,8 @@ class PierBridgeConfig:
     # on any internal error). false = byte-identical to today.
     tail_dp_enabled: bool = True
     tail_dp_epsilon: float = 0.02
+    tail_dp_floor: float = 0.30  # weak-landing trigger: re-optimize a segment only
+    # when its landing-window min-edge is below this. 0 = always-on. Spec 2026-07-02.
     # Layered genre graph transition scoring (opt-in; default OFF).
     # Uses sidecar-derived leaf/family/bridge/facet matrices when present on
     # the artifact bundle. This is separate from legacy flat genre steering.

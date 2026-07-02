@@ -280,6 +280,7 @@ playlists:
       tail_dp:
         enabled: true
         epsilon: 0.02
+        floor: 0.3
       # Total-generation wall-clock budget (seconds). A single shared deadline is
       # computed once at generation start (before any One-Each retries) and threaded
       # into all segment loops and relaxation tiers so NO path can collectively exceed

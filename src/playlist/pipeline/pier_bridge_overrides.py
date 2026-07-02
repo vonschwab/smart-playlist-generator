@@ -217,6 +217,8 @@ def apply_pier_bridge_overrides(
             pb_cfg = replace(pb_cfg, tail_dp_enabled=bool(tail_dp.get("enabled")))
         if isinstance(tail_dp.get("epsilon"), (int, float)):
             pb_cfg = replace(pb_cfg, tail_dp_epsilon=float(tail_dp.get("epsilon")))
+        if isinstance(tail_dp.get("floor"), (int, float)):
+            pb_cfg = replace(pb_cfg, tail_dp_floor=float(tail_dp.get("floor")))
 
     edge_repair = pb_overrides.get("edge_repair")
     if isinstance(edge_repair, dict):

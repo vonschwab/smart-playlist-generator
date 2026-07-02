@@ -2511,6 +2511,7 @@ def build_pier_bridge_playlist(
                     candidates=td_candidates,
                     epsilon=float(getattr(cfg, "tail_dp_epsilon", 0.02)),
                     is_allowed_pair=_tail_dp_is_allowed_pair,
+                    floor=float(getattr(cfg, "tail_dp_floor", 0.30)),
                 )
                 if td_swap is not None:
                     td_old_tail = tuple(int(i) for i in segment_path[-td_window:])

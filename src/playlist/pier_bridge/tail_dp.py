@@ -66,11 +66,18 @@ def optimize_segment_tail(
     epsilon: float,
     is_allowed_pair: Callable[[int, int], bool],
     max_pairs_checked: int = 50,
+    floor: Optional[float] = None,
 ) -> Optional[TailSwap]:
     """Best allowed re-fill of the last min(2, len(path)) interior slots.
 
     Returns None when nothing beats the existing tail by >= epsilon (never-
     worse), when the path/candidates are empty, or on internal error (logged).
+
+    ``floor`` is the weak-landing trigger (spec 2026-07-02): None or <= 0.0
+    means no gate (always attempt re-optimization, matching prior behavior).
+    Otherwise, when the existing window's min-edge (``old_min``) is already
+    >= floor, the landing is considered good enough and this returns None
+    without searching candidates -- leaving the beam's own choice in place.
     """
     try:
         path = [int(i) for i in segment_path]
@@ -86,6 +93,8 @@ def optimize_segment_tail(
             scores = np.minimum(t_in, t_out)
             old_min = float(np.min(batch_T(ctx, [prefix_end, path[-1]],
                                            [path[-1], pier_b])[[0, 1], [0, 1]]))
+            if floor is not None and float(floor) > 0.0 and old_min >= float(floor):
+                return None  # landing window already >= floor: leave the beam's choice
             order = np.argsort(-scores, kind="stable")
             for rank in order[: int(max_pairs_checked)]:
                 x = cand[int(rank)]
@@ -109,6 +118,8 @@ def optimize_segment_tail(
             batch_T(ctx, [ey], [pier_b])[0, 0],
         ]
         old_min = float(min(old_edges))
+        if floor is not None and float(floor) > 0.0 and old_min >= float(floor):
+            return None  # landing window already >= floor: leave the beam's choice
 
         flat_order = np.argsort(-M, axis=None, kind="stable")
         for flat in flat_order[: int(max_pairs_checked)]:
