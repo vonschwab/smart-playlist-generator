@@ -3,11 +3,14 @@ Unified logging utilities for Playlist Generator.
 
 All entrypoints should call configure_logging() once at startup.
 """
+import itertools
 import logging
 import sys
 import os
 import re
+import threading
 import time
+from datetime import datetime
 from pathlib import Path
 from contextlib import contextmanager
 from typing import Optional, Any, List, Union
@@ -19,6 +22,15 @@ _HANDLER_TAG = "_pg_handler"
 _CONSOLE_FMT_NO_RUN_ID = '%(asctime)s | %(levelname)-5s | %(name)s | %(message)s'
 _CONSOLE_FMT_WITH_RUN_ID = '%(asctime)s | %(levelname)-5s | %(name)s | run_id=%(run_id)s | %(message)s'
 _FILE_FMT_WITH_RUN_ID = '%(asctime)s | %(levelname)-5s | %(name)s | %(funcName)s:%(lineno)d | run_id=%(run_id)s | %(message)s'
+
+# Per-playlist DEBUG log files (see
+# docs/superpowers/specs/2026-07-02-per-playlist-logging-design.md).
+# Distinct from _HANDLER_TAG so console-level controls (set_log_level) and
+# configure_logging's tagged-handler cleanup never touch these handlers.
+_PLAYLIST_HANDLER_TAG = "_pg_playlist_handler"
+_PLAYLIST_LOG_SHORTID_COUNTER = itertools.count(1)
+_ARTIST_UNSAFE_RE = re.compile(r'[^A-Za-z0-9_-]')
+_ARTIST_MAX_LEN = 40
 
 
 class RunIdFilter(logging.Filter):
@@ -536,3 +548,136 @@ class RunSummary:
 
         self.logger.log(level, f"  Total Time: {time_str}")
         self.logger.log(level, "=" * 60)
+
+
+def playlist_log_dir() -> Path:
+    """ROOT-anchored directory for per-playlist DEBUG log files.
+
+    Resolves to <repo_root>/logs/playlists, independent of cwd.
+    """
+    return Path(__file__).resolve().parents[1] / "logs" / "playlists"
+
+
+def _sanitize_artist(artist: Optional[Any]) -> str:
+    """Replace filesystem-unsafe characters and cap length for a log filename."""
+    text = str(artist) if artist else "unknown"
+    safe = _ARTIST_UNSAFE_RE.sub('_', text)
+    safe = safe[:_ARTIST_MAX_LEN]
+    return safe or "unknown"
+
+
+def make_playlist_log_path(
+    artist: Optional[Any],
+    request_id: Optional[Any],
+    *,
+    dir: Optional[Union[str, Path]] = None,
+) -> Path:
+    """Build a unique, sortable per-playlist log path.
+
+    Shape: <dir>/<YYYY-MM-DD_HHMMSS>_<safe_artist>_<shortid>.log
+    """
+    base_dir = Path(dir) if dir is not None else playlist_log_dir()
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    safe_artist = _sanitize_artist(artist)
+    if request_id:
+        shortid = str(request_id)[:6]
+    else:
+        shortid = f"{next(_PLAYLIST_LOG_SHORTID_COUNTER):06d}"
+    return base_dir / f"{timestamp}_{safe_artist}_{shortid}.log"
+
+
+@contextmanager
+def playlist_log_file(
+    artist: Optional[Any],
+    request_id: Optional[Any],
+    *,
+    enabled: bool = True,
+    dir: Optional[Union[str, Path]] = None,
+    level: int = logging.DEBUG,
+):
+    """Attach a per-playlist DEBUG FileHandler to the root logger for the
+    duration of the block, then detach and close it.
+
+    When disabled, yields None and attaches nothing (byte-identical to
+    not having this feature). Never raises out of setup or teardown -- a
+    logging failure must never break a playlist generation.
+    """
+    if not enabled:
+        yield None
+        return
+
+    handler: Optional[logging.FileHandler] = None
+    path: Optional[Path] = None
+    try:
+        base_dir = Path(dir) if dir is not None else playlist_log_dir()
+        base_dir.mkdir(parents=True, exist_ok=True)
+        path = make_playlist_log_path(artist, request_id, dir=base_dir)
+
+        handler = logging.FileHandler(path, encoding="utf-8")
+        handler.setLevel(level)
+        handler.setFormatter(_build_formatter(_FILE_FMT_WITH_RUN_ID, datefmt='%Y-%m-%d %H:%M:%S'))
+        handler.addFilter(RunIdFilter())
+        setattr(handler, _PLAYLIST_HANDLER_TAG, True)
+
+        logging.getLogger().addHandler(handler)
+    except Exception:
+        if handler is not None:
+            try:
+                handler.close()
+            except Exception:
+                pass
+        yield None
+        return
+
+    try:
+        yield path
+    finally:
+        try:
+            logging.getLogger().removeHandler(handler)
+        except Exception:
+            pass
+        try:
+            handler.close()
+        except Exception:
+            pass
+
+
+def cleanup_old_playlist_logs(
+    dir: Optional[Union[str, Path]] = None,
+    retention_days: int = 30,
+) -> int:
+    """Delete *.log files under dir older than retention_days. Never raises."""
+    try:
+        base_dir = Path(dir) if dir is not None else playlist_log_dir()
+        if not base_dir.exists():
+            return 0
+
+        cutoff = time.time() - (retention_days * 86400)
+        deleted = 0
+        for log_path in base_dir.glob("*.log"):
+            try:
+                if log_path.is_file() and log_path.stat().st_mtime < cutoff:
+                    log_path.unlink()
+                    deleted += 1
+            except OSError:
+                continue
+        return deleted
+    except Exception:
+        return 0
+
+
+def cleanup_old_playlist_logs_async(
+    dir: Optional[Union[str, Path]] = None,
+    retention_days: int = 30,
+) -> None:
+    """Run cleanup_old_playlist_logs in a daemon thread. Never raises."""
+    try:
+        thread = threading.Thread(
+            target=cleanup_old_playlist_logs,
+            args=(dir, retention_days),
+            daemon=True,
+            name="playlist-log-cleanup",
+        )
+        thread.start()
+    except Exception:
+        pass
