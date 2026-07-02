@@ -479,14 +479,16 @@ def build_pier_bridge_playlist(
     if cfg is None:
         cfg = PierBridgeConfig()
     # Variant-aware transition calibration. The rescale sigmoid's center/scale
-    # must track the ACTIVE sonic variant's cosine band (MuQ runs hot vs MERT)
-    # or the transition score saturates. Resolve once here, from the variant the
-    # artifact actually loaded (bundle.sonic_variant — cfg.sonic_variant is the
-    # normalized tower name and loses mert/muq), so every downstream consumer
+    # must track the ACTIVE sonic variant's cosine band or the transition
+    # score saturates. Resolve once here, from the variant the artifact
+    # actually loaded (bundle.sonic_variant), so every downstream consumer
     # (the transition context, the edge-score wrappers, the beam) reads the
-    # correct band. No-op for MERT (0.32 stays); unknown variants raise.
-    # sonic_variant is an Optional bundle field (None => legacy/MERT band), so
-    # access it defensively — the real ArtifactBundle always carries it.
+    # correct band. muq is the sole registered variant post-SP-B; unknown/
+    # unregistered variants (including the retired mert/tower path) raise —
+    # a configured sonic space the transition rescale can't calibrate is a
+    # startup error, not a silent fallback.
+    # sonic_variant is an Optional bundle field (defensive only — the real
+    # ArtifactBundle always carries it).
     _cal_c, _cal_s, _cal_g = resolve_transition_calib(getattr(bundle, "sonic_variant", None))
     cfg = replace(
         cfg,
@@ -546,98 +548,38 @@ def build_pier_bridge_playlist(
     X_mid_raw = bundle.X_sonic_mid
     X_end_raw = bundle.X_sonic_end
 
-    # Similarity space for bridge gating (full vectors) must match DS admission
-    from src.similarity.sonic_variant import compute_sonic_variant_matrix, resolve_sonic_variant
+    # Similarity space for bridge gating (full vectors): plain L2-normalized
+    # cosine on the loaded sonic matrix (muq) — matches DS admission.
+    X_full_norm = _l2_normalize_rows(X_full_raw)
+    logger.debug("Pier+Bridge sonic sim space: dim=%d", int(X_full_norm.shape[1]))
 
-    sonic_variant = resolve_sonic_variant(explicit_variant=cfg.sonic_variant, config_variant=None)
-    X_full_variant, _ = compute_sonic_variant_matrix(X_full_raw, sonic_variant, l2=False)
-    X_full_norm = _l2_normalize_rows(X_full_variant)
-    logger.debug("Pier+Bridge sonic sim space: variant=%s dim=%d", sonic_variant, int(X_full_norm.shape[1]))
-
-    # Rhythm axis for the beam's pace gate and soft penalty. Both mechanisms
-    # silently no-op when rhythm_matrix is None — extract whenever either is active.
+    # Pace gating is BPM/onset-band based (the rhythm tower axis was removed
+    # in SP-B; under muq it had already fallen back to BPM permanently).
     rhythm_matrix: Optional[np.ndarray] = None
-    _needs_rhythm = (
-        float(getattr(cfg, "pace_bridge_floor", 0.0)) > 0.0
-        or float(getattr(cfg, "rhythm_soft_penalty_strength", 0.0)) > 0.0
-    )
-    if _needs_rhythm:
-        _td = getattr(bundle, "tower_dims", None)
-        _td_tuple = tuple(int(v) for v in _td) if _td is not None else None
-        if (
-            _td_tuple is not None
-            and len(_td_tuple) == 3
-            and sum(_td_tuple) == int(X_full_raw.shape[1])
-        ):
-            from src.playlist.sonic_axes import extract_axis_vectors
-
-            rhythm_matrix = extract_axis_vectors(X_full_raw, tower_pca_dims=_td_tuple)["rhythm"]
-            logger.info(
-                "Pace bridge gate active: floor=%.2f rhythm_dims=%d",
-                float(cfg.pace_bridge_floor),
-                int(rhythm_matrix.shape[1]),
-            )
-        elif perceptual_bpm is not None:
-            # No usable rhythm axis (no-tower artifact, e.g. MERT 768-dim, or a
-            # stale tower_dims left after an in-place fold). The rhythm soft-penalty
-            # is tower-dependent, so it goes inert; the perceptual-BPM (+ onset)
-            # bands carry the pace gate instead.
+    if float(getattr(cfg, "pace_bridge_floor", 0.0)) > 0.0:
+        if perceptual_bpm is not None:
             from src.playlist.pier_bridge.pace_gate import bpm_fallback_max_log_distance
 
             _bpm_cap = float(getattr(cfg, "bpm_bridge_max_log_distance", float("inf")))
             if not np.isfinite(_bpm_cap):
                 _bpm_cap = bpm_fallback_max_log_distance(float(cfg.pace_bridge_floor))
                 cfg = replace(cfg, bpm_bridge_max_log_distance=_bpm_cap)
-            if float(getattr(cfg, "pace_bridge_floor", 0.0)) > 0.0:
-                # A configured rhythm-cosine HARD gate that cannot act is a real
-                # fallback — warn loudly (CLAUDE.md: a configured knob that can't
-                # act must not silently no-op).
-                logger.warning(
-                    "Pace bridge gate FALLBACK: pace_bridge_floor=%.2f is set but the "
-                    "artifact bundle has no usable tower_dims (got %r for blend dim %d); "
-                    "rhythm-axis gating is unavailable — pace gating falls back to the "
-                    "perceptual-BPM gate (bpm_bridge_max_log_distance=%.2f)",
-                    float(cfg.pace_bridge_floor),
-                    _td,
-                    int(X_full_raw.shape[1]),
-                    _bpm_cap,
-                )
-            else:
-                # Only the soft rhythm penalty wanted the rhythm axis. Under a
-                # no-tower (MERT) artifact its going inert is expected by design,
-                # not a fallback — log once at INFO, not WARNING.
-                logger.info(
-                    "No tower decomposition (blend dim %d vs tower_dims %r) — MERT-style "
-                    "artifact: rhythm soft-penalty inert by design; perceptual-BPM + onset "
-                    "bands carry the pace gate (bpm_bridge_max_log_distance=%.2f)",
-                    int(X_full_raw.shape[1]),
-                    _td,
-                    _bpm_cap,
-                )
+            logger.info(
+                "Pace bridge gate: perceptual-BPM band (bpm_bridge_max_log_distance=%.2f)",
+                float(cfg.bpm_bridge_max_log_distance),
+            )
         else:
             logger.warning(
-                "Pace bridge gate INACTIVE: pace_bridge_floor=%.2f is set but the "
-                "artifact bundle has no usable tower_dims (got %r for blend dim %d) "
-                "and no perceptual-BPM data is available; "
-                "rhythm gating will not run",
+                "Pace bridge gate DISABLED: pace_bridge_floor=%.2f is set but no "
+                "perceptual-BPM data is available (a configured knob that can't act).",
                 float(cfg.pace_bridge_floor),
-                _td,
-                int(X_full_raw.shape[1]),
             )
 
-    # Transition space (optional tower weights + optional mean-centering)
-    from src.similarity.sonic_variant import apply_transition_weights
-
-    X_full_tr, _ = apply_transition_weights(X_full_raw, config_weights=cfg.transition_weights)
-    X_start_tr = None
-    X_mid_tr = None
-    X_end_tr = None
-    if X_start_raw is not None:
-        X_start_tr, _ = apply_transition_weights(X_start_raw, config_weights=cfg.transition_weights)
-    if X_mid_raw is not None:
-        X_mid_tr, _ = apply_transition_weights(X_mid_raw, config_weights=cfg.transition_weights)
-    if X_end_raw is not None:
-        X_end_tr, _ = apply_transition_weights(X_end_raw, config_weights=cfg.transition_weights)
+    # Transition space: the raw sonic matrices (optional mean-centering below).
+    X_full_tr = X_full_raw
+    X_start_tr = X_start_raw
+    X_mid_tr = X_mid_raw
+    X_end_tr = X_end_raw
 
     if cfg.center_transitions:
         X_full_tr = X_full_tr - X_full_tr.mean(axis=0, keepdims=True)
@@ -1572,7 +1514,6 @@ def build_pier_bridge_playlist(
                         perceptual_bpm=perceptual_bpm,
                         tempo_stability=tempo_stability_arr,
                         onset_rate=onset_rate,
-                        rhythm_matrix=rhythm_matrix,
                         pair_sim_provider=pair_sim_provider,
                         energy_matrix=energy_matrix,
                         roam_detour_sonic=_roam_detour_sonic,
@@ -2988,7 +2929,6 @@ def build_pier_bridge_playlist(
         "warnings": warnings,
         "config": {
             "transition_floor": cfg.transition_floor,
-            "transition_weights": cfg.transition_weights,
             "edge_repair_enabled": bool(cfg.edge_repair_enabled),
             "edge_repair_centered_cos_floor": float(cfg.edge_repair_centered_cos_floor),
             "edge_repair_margin": float(cfg.edge_repair_margin),

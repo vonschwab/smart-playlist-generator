@@ -13,7 +13,7 @@ from src.playlist.pipeline.pier_bridge_overrides import apply_pier_bridge_overri
 
 
 def _apply(overrides: dict) -> PierBridgeConfig:
-    pb_cfg, _tuning, _sources, _weights = apply_pier_bridge_overrides(
+    pb_cfg, _tuning, _sources = apply_pier_bridge_overrides(
         pier_bridge_config=PierBridgeConfig(),
         cfg=default_ds_config("dynamic", playlist_len=3),
         overrides=overrides,

@@ -3,7 +3,7 @@ from src.playlist.pier_bridge.config import PierBridgeConfig
 from src.playlist.pipeline.pier_bridge_overrides import apply_pier_bridge_overrides
 
 def _apply(overrides):
-    cfg, _, _, _ = apply_pier_bridge_overrides(
+    cfg, _, _ = apply_pier_bridge_overrides(
         pier_bridge_config=PierBridgeConfig(),
         cfg=default_ds_config("dynamic", playlist_len=3),
         overrides=overrides, pb_overrides=overrides.get("pier_bridge", {}),

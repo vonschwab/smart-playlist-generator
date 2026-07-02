@@ -43,31 +43,13 @@ def apply_pier_bridge_overrides(
     dry_run: bool,
     audit_cfg: Any,  # src.playlist.run_audit.RunAuditConfig
     resolved_variant: str,
-) -> Tuple[PierBridgeConfig, Any, Dict[str, Any], Optional[Tuple[float, float, float]]]:
+) -> Tuple[PierBridgeConfig, Any, Dict[str, Any]]:
     """Translate ``overrides`` into a fully-populated PierBridgeConfig.
 
-    Returns ``(pb_cfg, tuning, tuning_sources, transition_weights)`` —
-    the tuning + sources are returned because the orchestrator emits
-    them in the preflight audit event downstream.
+    Returns ``(pb_cfg, tuning, tuning_sources)`` — the tuning + sources are
+    returned because the orchestrator emits them in the preflight audit event
+    downstream.
     """
-    transition_weights = None
-    try:
-        tw_raw = (overrides or {}).get("transition_weights")
-        if isinstance(tw_raw, dict):
-            transition_weights = (
-                float(tw_raw.get("rhythm", 0.4)),
-                float(tw_raw.get("timbre", 0.35)),
-                float(tw_raw.get("harmony", 0.25)),
-            )
-        elif isinstance(tw_raw, (list, tuple)) and len(tw_raw) == 3:
-            transition_weights = (
-                float(tw_raw[0]),
-                float(tw_raw[1]),
-                float(tw_raw[2]),
-            )
-    except Exception:
-        transition_weights = None
-
     tuning, tuning_sources = resolve_pier_bridge_tuning(
         mode=cfg.mode,
         similarity_floor=float(cfg.candidate.similarity_floor),
@@ -98,8 +80,6 @@ def apply_pier_bridge_overrides(
         bridge_floor=float(tuning.bridge_floor),
         pace_bridge_floor=float(getattr(cfg.candidate, "pace_bridge_floor", 0.0)),
         center_transitions=cfg.construct.center_transitions,
-        transition_weights=transition_weights,
-        sonic_variant=resolved_variant,
         weight_bridge=float(tuning.weight_bridge),
         weight_transition=float(tuning.weight_transition),
         genre_tiebreak_weight=float(tuning.genre_tiebreak_weight),
@@ -833,4 +813,4 @@ def apply_pier_bridge_overrides(
     if _roam_kwargs:
         pb_cfg = replace(pb_cfg, **_roam_kwargs)
 
-    return pb_cfg, tuning, tuning_sources, transition_weights
+    return pb_cfg, tuning, tuning_sources

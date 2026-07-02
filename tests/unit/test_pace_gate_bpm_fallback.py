@@ -1,13 +1,14 @@
-"""Pace-gate perceptual-BPM fallback for no-tower variants (MERT plan Phase 5, item 4).
+"""Pace-gate perceptual-BPM path (SP-B: the rhythm-tower axis was removed, so
+BPM/onset bands are the only pace-gate mechanism left).
 
-With a no-tower sonic variant the builder cannot derive ``rhythm_matrix`` from
-``tower_dims``, so a configured ``pace_bridge_floor > 0`` must fall back to the
-perceptual-BPM gate (``bpm_bridge_max_log_distance`` machinery) with exactly
-one warning — never a silent no-op.
+A configured ``pace_bridge_floor > 0`` gates on the perceptual-BPM band
+(``bpm_bridge_max_log_distance`` machinery, defaulted via the ladder in
+``bpm_fallback_max_log_distance`` when not explicitly set) — logged at INFO
+when BPM data is available, and at WARNING (never a silent no-op) when it
+is not.
 
-Fixture mirrors tests/unit/test_builder_pace_gate_wiring.py: the off-pace
-candidate (t2) is engineered to win on full-vector similarity, so it is chosen
-when no gate runs and rejected when the BPM fallback gate is live.
+The off-pace candidate (t2) is engineered to win on full-vector similarity,
+so it is chosen when no gate runs and rejected when the BPM gate is live.
 """
 from __future__ import annotations
 
@@ -40,7 +41,7 @@ def _bundle(X_sonic: np.ndarray) -> ArtifactBundle:
         X_genre_smoothed=np.eye(n, dtype=float),
         genre_vocab=np.array([f"g{i}" for i in range(n)], dtype=object),
         track_id_to_index={str(tid): i for i, tid in enumerate(track_ids)},
-        sonic_variant="mert",
+        sonic_variant="muq",
         sonic_pre_scaled=True,
         tower_dims=None,  # no-tower variant: rhythm axis cannot be sliced
     )
@@ -84,11 +85,11 @@ def _build(*, pace_bridge_floor: float, perceptual_bpm):
     )
 
 
-def _pace_warnings(caplog) -> list[str]:
+def _pace_records(caplog, level) -> list[str]:
     return [
         r.getMessage()
         for r in caplog.records
-        if r.levelno == logging.WARNING and "Pace bridge gate" in r.getMessage()
+        if r.levelno == level and "Pace bridge gate" in r.getMessage()
     ]
 
 
@@ -98,28 +99,29 @@ def test_off_bpm_candidate_wins_when_gate_disabled(caplog):
         result = _build(pace_bridge_floor=0.0, perceptual_bpm=_BPM)
     assert result.success
     assert result.track_ids == ["t0", "t2", "t3"]
-    assert _pace_warnings(caplog) == []
+    assert _pace_records(caplog, logging.WARNING) == []
 
 
-def test_bpm_fallback_gates_when_rhythm_dims_unavailable(caplog):
-    """No tower dims + pace_bridge_floor > 0 → the perceptual-BPM gate must
-    actually gate (t2 rejected at double tempo) and exactly one warning logs."""
-    with caplog.at_level(logging.WARNING, logger=_BUILDER_LOGGER):
+def test_bpm_gate_actually_gates_when_bpm_data_available(caplog):
+    """pace_bridge_floor > 0 + perceptual-BPM data present -> the BPM band
+    gate actually gates (t2 rejected at double tempo) via the ladder-derived
+    cap, logged once at INFO (BPM is the only pace-gate path since SP-B)."""
+    with caplog.at_level(logging.INFO, logger=_BUILDER_LOGGER):
         result = _build(pace_bridge_floor=0.5, perceptual_bpm=_BPM)
     assert result.success
     assert result.track_ids == ["t0", "t1", "t3"]
-    warnings = _pace_warnings(caplog)
-    assert len(warnings) == 1, f"expected exactly one pace warning, got: {warnings}"
-    assert "BPM" in warnings[0]
+    infos = _pace_records(caplog, logging.INFO)
+    assert len(infos) == 1, f"expected exactly one pace-gate info log, got: {infos}"
+    assert "BPM" in infos[0]
 
 
 def test_no_bpm_data_warns_loudly_instead_of_silent_noop(caplog):
-    """Without BPM data the fallback cannot run either — the builder must say
-    so loudly (configured gate with no data is a loud warning, not silence)."""
+    """Without BPM data the gate cannot run — the builder must say so loudly
+    (configured gate with no data is a loud warning, not silence)."""
     with caplog.at_level(logging.WARNING, logger=_BUILDER_LOGGER):
         result = _build(pace_bridge_floor=0.5, perceptual_bpm=None)
     assert result.success
     assert result.track_ids == ["t0", "t2", "t3"]  # nothing gated
-    warnings = _pace_warnings(caplog)
+    warnings = _pace_records(caplog, logging.WARNING)
     assert len(warnings) == 1
-    assert "INACTIVE" in warnings[0]
+    assert "DISABLED" in warnings[0]

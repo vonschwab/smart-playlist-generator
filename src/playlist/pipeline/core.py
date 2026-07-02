@@ -9,7 +9,7 @@ from typing import Any, Dict, Iterator, List, Optional, Set
 
 import numpy as np
 
-from src.features.artifacts import load_artifact_bundle, validate_tower_knobs
+from src.features.artifacts import load_artifact_bundle
 from src.playlist.candidate_pool import build_candidate_pool
 from src.playlist.config import DSPipelineConfig, default_ds_config
 from src.playlist.mode_presets import resolve_pace_mode
@@ -451,19 +451,6 @@ def generate_playlist_ds(
     # Also apply any runtime overrides (for backward compatibility with nested structure)
     cfg = _apply_overrides(cfg, overrides)
 
-    # Extract transition weights from overrides (for constructor)
-    transition_weights = None
-    if overrides and overrides.get("transition_weights"):
-        tw = overrides["transition_weights"]
-        if isinstance(tw, (list, tuple)) and len(tw) == 3:
-            transition_weights = tuple(tw)
-        elif isinstance(tw, dict):
-            transition_weights = (
-                tw.get("rhythm", 0.4),
-                tw.get("timbre", 0.35),
-                tw.get("harmony", 0.25),
-            )
-
     embedding = setup_embedding(
         bundle,
         seed_track_id,
@@ -692,7 +679,7 @@ def generate_playlist_ds(
                 audit_context_extra=audit_context_extra,
             )
 
-            pb_cfg, tuning, tuning_sources, transition_weights = apply_pier_bridge_overrides(
+            pb_cfg, tuning, tuning_sources = apply_pier_bridge_overrides(
                 pier_bridge_config=pier_bridge_config,
                 cfg=cfg,
                 overrides=overrides,
@@ -711,8 +698,6 @@ def generate_playlist_ds(
                 onset_bridge_max_log_distance=float(pace_settings.get("onset_bridge_max_log_distance", float("inf"))),
                 bpm_bridge_soft_penalty_strength=float(pace_settings.get("bpm_bridge_soft_penalty_strength", 0.0)),
                 onset_bridge_soft_penalty_strength=float(pace_settings.get("onset_bridge_soft_penalty_strength", 0.0)),
-                rhythm_soft_penalty_threshold=float(pace_settings.get("rhythm_soft_penalty_threshold", 0.0)),
-                rhythm_soft_penalty_strength=float(pace_settings.get("rhythm_soft_penalty_strength", 0.0)),
                 energy_step_cap=float(pace_settings.get("energy_step_cap", 0.0)),
                 energy_step_strength=float(pace_settings.get("energy_step_strength", 0.0)),
                 energy_arc_band=float(pace_settings.get("energy_arc_band", 0.0)),
@@ -728,17 +713,6 @@ def generate_playlist_ds(
                     _energy_overrides[_ek] = float(pb_overrides[_ek])
             if _energy_overrides:
                 pb_cfg = replace(pb_cfg, **_energy_overrides)
-
-            # Tower-knob guard: tower-style transition_weights cannot act on a
-            # no-tower sonic variant (e.g. mert). Non-default weights raise
-            # (configured-knob-must-act rule); otherwise an INFO log records
-            # that the knobs are inert for this variant.
-            validate_tower_knobs(
-                bundle,
-                transition_weights
-                if transition_weights is not None
-                else getattr(pb_cfg, "transition_weights", None),
-            )
 
             logger.info(
                 "Pier-bridge segment policy: artist_playlist=%s strategy=%s pool_max=%d progress=%s disallow_seed_artist_in_interiors=%s disallow_pier_artists_in_interiors=%s",
@@ -1044,11 +1018,9 @@ def generate_playlist_ds(
                     "transition_floor": float(pb_cfg.transition_floor),
                     "transition_gamma": float(cfg.construct.transition_gamma),
                     "transition_centered": bool(pb_cfg.center_transitions),
-                    "transition_weights": (
-                        tuple(float(v) for v in pb_cfg.transition_weights)
-                        if pb_cfg.transition_weights is not None
-                        else None
-                    ),
+                    # SP-B: tower transition weights removed from the beam (plain-cosine
+                    # sonic space); key kept for downstream consumers that still read it.
+                    "transition_weights": None,
                     "below_floor_count": below_floor_count,
                     "min_transition": min_transition,
                     "mean_transition": mean_transition,

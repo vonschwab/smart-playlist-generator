@@ -153,8 +153,6 @@ PACE_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "onset_bridge_max_log_distance": 0.40,
         "bpm_bridge_soft_penalty_strength": 0.50,
         "onset_bridge_soft_penalty_strength": 0.50,
-        "rhythm_soft_penalty_threshold": 0.35,
-        "rhythm_soft_penalty_strength": 0.20,
         # Energy arc + rescue: calibrated 2026-06-20 (Task 5, worst-edge gate PASS k=20).
         # Rescue re-admits up to 20 arousal-spanning candidates rejected by rhythm bands,
         # so energy can arc even when BPM gates constrain the pool.
@@ -176,8 +174,6 @@ PACE_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "onset_bridge_max_log_distance": 0.60,
         "bpm_bridge_soft_penalty_strength": 0.40,
         "onset_bridge_soft_penalty_strength": 0.40,
-        "rhythm_soft_penalty_threshold": 0.25,
-        "rhythm_soft_penalty_strength": 0.15,
         # Energy arc + rescue: calibrated 2026-06-20 (Task 5, worst-edge gate PASS k=5).
         # k=10 FAILED on WIDE_SWING (worst_edge_sonic dropped -0.064, beyond -0.05 gate).
         "energy_step_cap": 1.5,
@@ -198,8 +194,6 @@ PACE_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "onset_bridge_max_log_distance": 0.85,
         "bpm_bridge_soft_penalty_strength": 0.30,
         "onset_bridge_soft_penalty_strength": 0.30,
-        "rhythm_soft_penalty_threshold": 0.15,
-        "rhythm_soft_penalty_strength": 0.10,
         # Energy arc: 0.0 (unevaluated — dynamic arc was shipped without worst-edge gate;
         # set to 0.0 until a full eval-gated calibration run is completed and authorized).
         "energy_step_cap": 0.0,
@@ -220,8 +214,6 @@ PACE_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "onset_bridge_max_log_distance": float("inf"),
         "bpm_bridge_soft_penalty_strength": 0.0,
         "onset_bridge_soft_penalty_strength": 0.0,
-        "rhythm_soft_penalty_threshold": 0.0,
-        "rhythm_soft_penalty_strength": 0.0,
         # No energy arc or rescue: pace=off means rhythm is fully disabled.
         "energy_step_cap": 0.0,
         "energy_step_strength": 0.0,

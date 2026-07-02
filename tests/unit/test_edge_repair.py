@@ -227,7 +227,7 @@ def test_edge_repair_refuses_collaboration_secondary_artist_that_exceeds_non_see
 
 
 def test_edge_repair_nested_config_overrides_are_parsed():
-    pb_cfg, _tuning, _sources, _weights = apply_pier_bridge_overrides(
+    pb_cfg, _tuning, _sources = apply_pier_bridge_overrides(
         pier_bridge_config=PierBridgeConfig(),
         cfg=default_ds_config("dynamic", playlist_len=3),
         overrides={},

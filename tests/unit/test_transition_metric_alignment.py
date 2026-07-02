@@ -43,13 +43,14 @@ def _bundle(
 def _matrix_sonic(rows: list[tuple[float, float, float]]) -> np.ndarray:
     """Build sparse muq-shaped (512-dim) rows with three feature-axis sentinels.
 
-    Width intentionally != 137: the beam builder (pier_bridge_builder.py)
-    still calls the legacy `apply_transition_weights`, which special-cases
-    exactly-137-dim beat3tower matrices and re-applies tower reweighting that
-    `build_transition_metric_context` no longer does (SP-B Task 3). A 137-dim
-    fixture would re-introduce that legacy path and break the beam-vs-reporter
-    alignment this test guards, pending its removal from pier_bridge_builder.py
-    in a later SP-B task.
+    Width intentionally != 137: the beam builder (pier_bridge_builder.py) no
+    longer applies tower transition weights at all (removed in SP-B Task 4 —
+    the transition space is now always the raw sonic matrix), but the
+    reporter's `compute_edge_scores_from_artifact` still special-cases
+    exactly-137-dim beat3tower matrices via the legacy `apply_transition_weights`.
+    A 137-dim fixture would make the reporter re-apply tower reweighting the
+    beam no longer does and break the beam-vs-reporter alignment this test
+    guards; 512-dim keeps both sides a no-op passthrough.
     """
     mat = np.zeros((len(rows), 512), dtype=float)
     for i, (rhythm, timbre, harmony) in enumerate(rows):
@@ -95,7 +96,6 @@ def test_beam_trans_score_matches_reporter_t_for_centered_weighted_edge(monkeypa
     cfg = PierBridgeConfig(
         center_transitions=True,
         transition_floor=0.0,
-        transition_weights=weights,
         progress_enabled=False,
         collapse_segment_pool_by_artist=False,
     )
@@ -185,7 +185,6 @@ def test_builder_edge_scores_match_final_reporter_edges(monkeypatch):
         center_transitions=False,
         transition_floor=-1.0,
         bridge_floor=-1.0,
-        transition_weights=weights,
         progress_enabled=False,
         collapse_segment_pool_by_artist=False,
     )

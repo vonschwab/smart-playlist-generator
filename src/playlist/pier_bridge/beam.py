@@ -260,7 +260,6 @@ def _beam_search_segment(
     local_sonic_stats: Optional[Dict[str, Any]] = None,
     edge_components_out: Optional[Dict[str, Any]] = None,
     transition_metric_context: Optional[TransitionMetricContext] = None,
-    rhythm_matrix: Optional[np.ndarray] = None,
     perceptual_bpm: Optional[np.ndarray] = None,
     tempo_stability: Optional[np.ndarray] = None,
     onset_rate: Optional[np.ndarray] = None,
@@ -1121,20 +1120,6 @@ def _beam_search_segment(
                 # Pace bridge bands (BPM/onset): demote out-of-band candidates when a
                 # soft-penalty strength is configured; otherwise legacy hard reject.
                 _pace_penalty = 0.0
-                pace_sim_for_penalty = None
-                if rhythm_matrix is not None:
-                    from src.playlist.pier_bridge.pace_gate import compute_step_rhythm_target
-                    from src.playlist.sonic_axes import axis_cosine_similarity
-
-                    _pace_target = compute_step_rhythm_target(
-                        rhythm_matrix[int(pier_a)],
-                        rhythm_matrix[int(pier_b)],
-                        step=step,
-                        segment_length=interior_length,
-                    )
-                    pace_sim_for_penalty = float(
-                        axis_cosine_similarity(rhythm_matrix[int(cand)], _pace_target).reshape(-1)[0]
-                    )
 
                 # BPM bridge gate (skipped when a pier is beatless — garbage target)
                 if (
@@ -1300,13 +1285,6 @@ def _beam_search_segment(
                     if step_jump > float(progress_arc_max_step):
                         if progress_arc_max_step_mode == "penalty" and progress_arc_max_step_penalty > 0:
                             combined_score -= progress_arc_max_step_penalty * (step_jump - float(progress_arc_max_step))
-
-                if (
-                    pace_sim_for_penalty is not None
-                    and float(getattr(cfg, "rhythm_soft_penalty_strength", 0.0)) > 0.0
-                    and pace_sim_for_penalty < float(cfg.rhythm_soft_penalty_threshold)
-                ):
-                    combined_score *= (1.0 - float(cfg.rhythm_soft_penalty_strength))
 
                 genre_sim = None
                 if X_genre_for_sim is not None and not _steering:

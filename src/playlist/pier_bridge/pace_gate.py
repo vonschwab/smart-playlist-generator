@@ -1,45 +1,17 @@
-"""Rhythm-axis moving target gate for pier-bridge beam search."""
+"""BPM/onset/energy moving-target pace gates for pier-bridge beam search.
+
+The rhythm-tower-axis gate (cosine similarity on a PCA rhythm sub-vector) was
+removed in SP-B: under muq (no tower decomposition) it had already fallen
+back to the perceptual-BPM band permanently, so BPM/onset bands are now the
+only pace-gate path.
+"""
 from __future__ import annotations
 
-from typing import List, Optional, Sequence
+from typing import Optional
 
 import numpy as np
 
-from src.playlist.sonic_axes import axis_cosine_similarity, interpolate_axis_vector
-
-
-def compute_step_rhythm_target(
-    R_a: np.ndarray,
-    R_b: np.ndarray,
-    *,
-    step: int,
-    segment_length: int,
-) -> np.ndarray:
-    """Return the interpolated rhythm target for a beam step."""
-    if int(segment_length) <= 0:
-        return np.asarray(R_a, dtype=float)
-    t = max(0.0, min(1.0, float(step) / float(segment_length)))
-    return interpolate_axis_vector(R_a, R_b, t)
-
-
-def filter_candidates_by_rhythm_target(
-    *,
-    candidate_indices: Sequence[int],
-    rhythm_matrix: np.ndarray,
-    target: np.ndarray,
-    floor: float,
-) -> List[int]:
-    """Return candidates whose rhythm cosine to ``target`` is at least ``floor``."""
-    if float(floor) <= 0.0:
-        return list(candidate_indices)
-    indices = list(candidate_indices)
-    if not indices:
-        return []
-
-    sims = axis_cosine_similarity(rhythm_matrix[indices], np.asarray(target, dtype=float)).reshape(-1)
-    return [idx for idx, sim in zip(indices, sims) if float(sim) >= float(floor)]
-
-
+from src.playlist.sonic_axes import interpolate_axis_vector
 from src.playlist.bpm_axis import interpolate_log_bpm, bpm_log_distance as _bpm_log_distance
 
 
@@ -61,13 +33,14 @@ def compute_step_log_bpm_target(
 
 
 def bpm_fallback_max_log_distance(pace_bridge_floor: float) -> float:
-    """Map a rhythm-cosine bridge floor onto a perceptual-BPM log-distance cap.
+    """Map a legacy rhythm-cosine bridge-floor tightness onto a perceptual-BPM
+    log-distance cap.
 
-    Used when a no-tower sonic variant (e.g. mert) leaves ``pace_bridge_floor``
-    with no rhythm axis to act on: pace gating falls back to the perceptual-BPM
-    gate, and this ladder picks the BPM cap matching the configured tightness.
-    The ladder mirrors PACE_MODE_PRESETS (bridge_floor → bpm_bridge_max_log_distance)
-    so the fallback stays consistent with the pace_mode presets.
+    Since SP-B, BPM/onset bands are the only pace-gate path; this ladder picks
+    the BPM cap matching a configured ``pace_bridge_floor`` when no explicit
+    ``bpm_bridge_max_log_distance`` is set. The ladder mirrors PACE_MODE_PRESETS
+    (bridge_floor → bpm_bridge_max_log_distance) so it stays consistent with
+    the pace_mode presets.
     """
     from src.playlist.mode_presets import PACE_MODE_PRESETS
 

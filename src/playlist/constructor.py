@@ -11,7 +11,7 @@ from src.features.artifacts import ArtifactBundle, get_sonic_matrix
 from src.playlist.candidate_pool import CandidatePoolResult
 from src.playlist.config import DSPipelineConfig
 from src.similarity.hybrid import HybridEmbeddingModel, transition_similarity_end_to_start
-from src.similarity.sonic_variant import compute_sonic_variant_norm, resolve_sonic_variant, apply_transition_weights
+from src.similarity.sonic_variant import compute_sonic_variant_norm, resolve_sonic_variant
 from src.title_dedupe import normalize_title_for_dedupe
 
 logger = logging.getLogger(__name__)
@@ -141,18 +141,9 @@ def construct_playlist(
     if bundle.X_sonic_start is not None and bundle.X_sonic_end is not None:
         X_start_orig = get_sonic_matrix(bundle, "start")
         X_end_orig = get_sonic_matrix(bundle, "end")
-        # Apply transition-specific tower weights (rhythm-heavy for BPM flow)
-        X_start, start_stats = apply_transition_weights(X_start_orig, config_weights=transition_weights)
-        X_end, end_stats = apply_transition_weights(X_end_orig, config_weights=transition_weights)
-        transition_weight_stats = {
-            "start": start_stats,
-            "end": end_stats,
-        }
-        if start_stats.get("transition_weights_applied"):
-            logger.debug(
-                "Applied transition weights: rhythm=%.2f timbre=%.2f harmony=%.2f",
-                *start_stats.get("transition_weights", (0, 0, 0))
-            )
+        X_start = X_start_orig
+        X_end = X_end_orig
+        transition_weight_stats = {}
         if X_start.shape[0] != emb.shape[0] or X_end.shape[0] != emb.shape[0]:
             X_start = None
             X_end = None
