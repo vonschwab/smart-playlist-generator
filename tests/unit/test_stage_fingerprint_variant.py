@@ -74,3 +74,32 @@ def test_fingerprint_unaffected_by_variant_when_config_hash_absent(tmp_path):
 def test_mert_stage_no_longer_registered():
     from scripts.analyze_library import STAGE_FUNCS
     assert "mert" not in STAGE_FUNCS
+
+
+def test_artifacts_fingerprint_stable_across_manifest_write(tmp_path):
+    """The artifacts fingerprint must be independent of artifact_manifest.json.
+
+    The manifest is written AFTER this fingerprint is computed and stores the
+    fingerprint itself; folding its mtime in made the fingerprint
+    self-invalidating — verify's manifest-vs-recomputed check could never match
+    after a rebuild, and the artifacts stage could never fingerprint_same-skip.
+    Regression for the v3.2.0 manifest_mtime bug, surfaced by SP-B Task 10's
+    acceptance gate (verify reported spurious `stale_artifact` right after a
+    clean rebuild).
+    """
+    conn = _make_conn()
+    out_dir = tmp_path / "artifacts"
+    out_dir.mkdir()
+    (out_dir / "data_matrices_step1.npz").write_bytes(b"stub-npz")
+    ctx = {"conn": conn, "out_dir": out_dir, "config_hash": "h"}
+
+    fp_before = compute_stage_fingerprint(ctx, "artifacts")
+    # The manifest is (re)written after the fingerprint is computed on every rebuild.
+    (out_dir / "artifact_manifest.json").write_text("{}", encoding="utf-8")
+    fp_after = compute_stage_fingerprint(ctx, "artifacts")
+
+    assert fp_before == fp_after, (
+        "artifacts fingerprint must not change when artifact_manifest.json is "
+        "written — the manifest stores this very fingerprint, so folding its "
+        "mtime in makes the fingerprint self-invalidating."
+    )

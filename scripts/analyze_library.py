@@ -506,9 +506,7 @@ def compute_stage_fingerprint(ctx: Dict, stage: str) -> str:
                 conn, "SELECT COUNT(*) FROM release_effective_genres"
             )
         out_path = Path(ctx["out_dir"]) / "data_matrices_step1.npz"
-        manifest_path = Path(ctx["out_dir"]) / "artifact_manifest.json"
         out_mtime = int(out_path.stat().st_mtime) if out_path.exists() else 0
-        manifest_mtime = int(manifest_path.stat().st_mtime) if manifest_path.exists() else 0
         key = {
             "stage": stage,
             "tracks_with_features": tracks_with_features,
@@ -517,7 +515,12 @@ def compute_stage_fingerprint(ctx: Dict, stage: str) -> str:
             "config": cfg_hash,
             "artifact_exists": out_path.exists(),
             "artifact_mtime": out_mtime,
-            "manifest_mtime": manifest_mtime,
+            # NOTE: manifest_mtime is deliberately NOT folded in. The manifest is
+            # written AFTER this fingerprint is computed and stores the fingerprint
+            # itself — folding its mtime made the fingerprint self-invalidating:
+            # verify's manifest-vs-recomputed check could never match after a
+            # rebuild, and the artifacts stage could never fingerprint_same-skip.
+            # (Pre-existing since v3.2.0; surfaced by SP-B Task 10's acceptance gate.)
         }
         return _hash_obj(key)
 

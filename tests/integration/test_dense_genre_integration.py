@@ -70,7 +70,11 @@ def live_bundle():
     if not ARTIFACT_PATH.exists():
         pytest.skip("Live artifact not found")
     load_artifact_bundle.cache_clear()
-    return load_artifact_bundle(ARTIFACT_PATH)
+    # The live artifact is per-variant-keyed (SP-B): pass the override the way
+    # production does (config publishes artifacts.sonic_variant_override at
+    # startup). These tests exercise the genre sidecar; the sonic space is
+    # incidental, but the loader requires the active variant's key.
+    return load_artifact_bundle(ARTIFACT_PATH, sonic_variant_override="muq")
 
 
 @pytest.fixture(scope="module")
