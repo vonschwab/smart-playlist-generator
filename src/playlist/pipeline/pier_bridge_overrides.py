@@ -252,6 +252,17 @@ def apply_pier_bridge_overrides(
                     edge_repair_variety_guard_threshold=float(variety_guard.get("threshold")),
                 )
 
+    edge_delete = pb_overrides.get("edge_delete")
+    if isinstance(edge_delete, dict):
+        if isinstance(edge_delete.get("enabled"), bool):
+            pb_cfg = replace(pb_cfg, edge_delete_enabled=bool(edge_delete.get("enabled")))
+        if isinstance(edge_delete.get("floor"), (int, float)):
+            pb_cfg = replace(pb_cfg, edge_delete_floor=float(edge_delete.get("floor")))
+        if isinstance(edge_delete.get("max_deletions"), (int, float)):
+            pb_cfg = replace(
+                pb_cfg, edge_delete_max_deletions=int(edge_delete.get("max_deletions"))
+            )
+
     progress_raw = pb_overrides.get("progress")
     if isinstance(progress_raw, dict):
         if isinstance(progress_raw.get("enabled"), bool):

@@ -328,6 +328,16 @@ class PierBridgeConfig:
     edge_repair_margin: float = 0.05
     edge_repair_variety_guard_enabled: bool = False
     edge_repair_variety_guard_threshold: float = 0.85
+    # Remove-only last resort (repair-by-deletion): runs AFTER break-glass edge
+    # repair. Deletes an interior track only when doing so strictly lifts a
+    # still-broken edge (never-worse); never removes a pier/seed. ACTIVATED
+    # 2026-07-02 (live default per "activate fixes" discipline); rollback via
+    # edge_delete_enabled: false. Shared floor = 0.30, aligned with
+    # variable_bridge_min_edge / tail_dp_floor / edge_repair_t_floor. See
+    # docs/superpowers/plans/2026-07-02-weak-edge-cascade-reorder.md.
+    edge_delete_enabled: bool = True
+    edge_delete_floor: float = 0.30
+    edge_delete_max_deletions: int = 4
     # Total-generation wall-clock budget (seconds). When a shared deadline is
     # threaded in from core.py, this is the default budget used to compute it.
     # 60s leaves a comfortable margin under the 90s hard ceiling for pre-build

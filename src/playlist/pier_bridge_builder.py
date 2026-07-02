@@ -2915,6 +2915,35 @@ def build_pier_bridge_playlist(
             final_indices = list(repair_result.indices)
             all_beam_components = []
 
+    # Remove-only last resort (repair-by-deletion): runs AFTER break-glass
+    # repair, since repair is strictly non-destructive to length and should
+    # get first shot at a broken edge. Only removes an interior track that is
+    # NOT a pier/seed, and only when the deletion strictly improves on the
+    # still-broken edge (never-worse). See
+    # docs/superpowers/plans/2026-07-02-weak-edge-cascade-reorder.md.
+    edge_delete_log: list[dict[str, Any]] = []
+    if bool(getattr(cfg, "edge_delete_enabled", True)) and len(final_indices) >= 3:
+        from src.playlist.repair.edge_delete import delete_broken_edges
+
+        _edge_delete_protected = {int(s) for s in seed_indices}
+
+        def _edge_delete_score(a: int, b: int) -> float:
+            _edge = score_transition_edge(transition_metric_context, int(a), int(b))
+            _t = _edge.get("T")
+            return float(_t) if isinstance(_t, (int, float)) else 0.0
+
+        delete_result = delete_broken_edges(
+            final_indices,
+            edge_score=_edge_delete_score,
+            floor=float(getattr(cfg, "edge_delete_floor", 0.30)),
+            protected_indices=_edge_delete_protected,
+            max_deletions=int(getattr(cfg, "edge_delete_max_deletions", 4)),
+        )
+        edge_delete_log = list(delete_result.delete_log)
+        if list(delete_result.indices) != list(final_indices):
+            final_indices = list(delete_result.indices)
+            all_beam_components = []
+
     # Convert to track IDs
     # Cross-segment min_gap is enforced DURING generation (boundary-aware beam search),
     # not as a post-order filter.
@@ -3050,6 +3079,9 @@ def build_pier_bridge_playlist(
             any(isinstance(entry, dict) and "new_idx" in entry for entry in edge_repair_swap_log)
         ),
         "edge_repair_swap_log": edge_repair_swap_log,
+        "edge_delete_enabled": bool(getattr(cfg, "edge_delete_enabled", True)),
+        "edge_delete_applied": bool(edge_delete_log),
+        "edge_delete_log": edge_delete_log,
         "warnings": warnings,
         "config": {
             "transition_floor": cfg.transition_floor,
