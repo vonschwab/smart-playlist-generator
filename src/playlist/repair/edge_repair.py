@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Iterable, Optional, Sequence
 
@@ -12,6 +13,8 @@ from src.playlist.transition_metrics import (
     is_broken_transition,
     score_transition_edge,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -56,6 +59,24 @@ def _adjacent_edges(context: TransitionMetricContext, indices: Sequence[int], po
 def _worst_t(edges: Sequence[dict]) -> float:
     vals = [float(e.get("T")) for e in edges if isinstance(e.get("T"), (int, float))]
     return min(vals) if vals else 1.0
+
+
+def _needs_repair(
+    edge: dict, *, t_floor: float, transition_floor: float, centered_cos_floor: float
+) -> bool:
+    """Break-glass trigger: weak T (below t_floor) OR catastrophic anti-alignment.
+
+    t_floor=0 disables the weak-T arm (T is always > 0 post-sigmoid), reverting to
+    the legacy anti-alignment-only behavior. is_broken_transition itself is untouched.
+    """
+    t_val = edge.get("T")
+    if isinstance(t_val, (int, float)) and float(t_val) < float(t_floor):
+        return True
+    return is_broken_transition(
+        edge,
+        transition_floor=float(transition_floor),
+        centered_cos_floor=float(centered_cos_floor),
+    )
 
 
 def _all_edges_clear(
@@ -136,6 +157,7 @@ def _candidate_refusal_reasons(
     variety_guard_threshold: float,
     max_non_seed_tracks_per_artist: Optional[int],
     artist_identity_cfg: Optional[ArtistIdentityConfig],
+    min_gap: int = 0,
 ) -> list[str]:
     reasons: list[str] = []
     candidate = int(candidate)
@@ -183,6 +205,21 @@ def _candidate_refusal_reasons(
     ):
         reasons.append("max_non_seed_artist_cap")
 
+    if int(min_gap) > 0:
+        cand_artist_keys = _cap_artist_keys_for_idx(bundle, candidate, artist_identity_cfg)
+        if cand_artist_keys:
+            lo = max(0, int(replace_position) - (int(min_gap) - 1))
+            hi = min(len(current_indices) - 1, int(replace_position) + (int(min_gap) - 1))
+            for pos in range(lo, hi + 1):
+                if int(pos) == int(replace_position):
+                    continue
+                other_keys = _cap_artist_keys_for_idx(
+                    bundle, int(current_indices[pos]), artist_identity_cfg
+                )
+                if cand_artist_keys & other_keys:
+                    reasons.append("min_gap")
+                    break
+
     if detect_title_artifacts(_title_for_idx(bundle, candidate)):
         reasons.append("title_artifact")
     if variety_guard_enabled and replace_position > 0:
@@ -211,6 +248,8 @@ def repair_playlist_edges(
     variety_guard_threshold: float = 0.85,
     max_non_seed_tracks_per_artist: Optional[int] = None,
     artist_identity_cfg: Optional[ArtistIdentityConfig] = None,
+    t_floor: float = 0.0,
+    min_gap: int = 0,
 ) -> EdgeRepairResult:
     """Conservatively swap interior tracks to fix broken adjacent transitions."""
 
@@ -226,18 +265,33 @@ def repair_playlist_edges(
     disallowed_artist_set = {str(v) for v in (disallowed_artist_keys or []) if str(v)}
     candidates = [int(c) for c in candidate_indices]
 
-    edge_positions = (
-        [int(repair_edge_position)]
-        if repair_edge_position is not None
-        else list(range(1, len(indices)))
-    )
+    if repair_edge_position is not None:
+        edge_positions = [int(repair_edge_position)]
+    else:
+        scored: list[tuple[float, int]] = []
+        for pos in range(1, len(indices)):
+            e = _edge(metric_context, indices[pos - 1], indices[pos])
+            if _needs_repair(
+                e, t_floor=float(t_floor),
+                transition_floor=float(transition_floor),
+                centered_cos_floor=float(centered_cos_floor),
+            ):
+                t_val = e.get("T")
+                scored.append(
+                    (float(t_val) if isinstance(t_val, (int, float)) else 1.0, int(pos))
+                )
+        scored.sort()  # worst-first; a neighboring swap may fix later entries
+        edge_positions = [pos for _t, pos in scored]
+    edges_triggered = len(edge_positions)
+    edges_repaired = 0
 
     for edge_pos in edge_positions:
         if edge_pos <= 0 or edge_pos >= len(indices):
             continue
         current_edge = _edge(metric_context, indices[edge_pos - 1], indices[edge_pos])
-        if not is_broken_transition(
+        if not _needs_repair(
             current_edge,
+            t_floor=float(t_floor),
             transition_floor=float(transition_floor),
             centered_cos_floor=float(centered_cos_floor),
         ):
@@ -279,6 +333,7 @@ def repair_playlist_edges(
                 variety_guard_threshold=float(variety_guard_threshold),
                 max_non_seed_tracks_per_artist=max_non_seed_tracks_per_artist,
                 artist_identity_cfg=artist_identity_cfg,
+                min_gap=int(min_gap),
             )
             if reasons:
                 for reason in reasons:
@@ -314,6 +369,12 @@ def repair_playlist_edges(
         _new_worst, new_idx, _new_edges = best
         old_idx = int(indices[replace_pos])
         indices[replace_pos] = int(new_idx)
+        edges_repaired += 1
+        logger.info(
+            "Edge repair: pos=%d swapped %s -> %s, worst-T %.3f -> %.3f",
+            int(replace_pos), _track_id_for_idx(bundle, old_idx),
+            _track_id_for_idx(bundle, int(new_idx)), float(old_worst), float(_new_worst),
+        )
         swap_log.append(
             {
                 "edge_position": int(edge_pos),
@@ -326,6 +387,12 @@ def repair_playlist_edges(
                 "old_worst_T": float(old_worst),
                 "new_worst_T": float(_new_worst),
             }
+        )
+
+    if repair_edge_position is None and edges_triggered:
+        logger.info(
+            "Edge repair summary: triggered=%d repaired=%d left_alone=%d (t_floor=%.2f)",
+            edges_triggered, edges_repaired, edges_triggered - edges_repaired, float(t_floor),
         )
 
     return EdgeRepairResult(indices=indices, swap_log=swap_log)
