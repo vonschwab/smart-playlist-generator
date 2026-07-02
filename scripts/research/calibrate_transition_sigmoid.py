@@ -11,8 +11,13 @@ Outputs:
   - a floor sweep: fraction of realistic candidate edges rejected at each
     candidate transition_floor (so floors can be set at a chosen percentile).
 
-Usage:  python scripts/research/calibrate_transition_sigmoid.py
+Usage:  python scripts/research/calibrate_transition_sigmoid.py [VARIANT]
+
+VARIANT defaults to whatever the artifact's X_sonic_variant stamp declares
+(muq post-SP-B). Pass an explicit variant to calibrate a different/future
+sonic space without editing this script.
 """
+import argparse
 import math
 import sys
 from pathlib import Path
@@ -34,9 +39,33 @@ POOL = 2000                    # realistic candidate pool per destination
 N_DESTS = 60
 TARGET_LO, TARGET_HI = 0.05, 0.95   # where p1/p99 of the band should land
 
-VARIANT = sys.argv[1] if len(sys.argv) > 1 else "mert"  # mert (default) | muq | ...
 
+def _stamped_variant(npz) -> str:
+    """The artifact's own X_sonic_variant stamp (muq post-SP-B) — NOT a hardcoded
+    'mert' default. MERT/tower keys no longer exist once the artifact is rebuilt
+    (SP-B Task 10); falls back to 'muq' if the artifact predates the stamp."""
+    if "X_sonic_variant" in npz:
+        v = npz["X_sonic_variant"]
+        return str(v.item() if hasattr(v, "item") else v)
+    return "muq"
+
+
+def parse_args():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument(
+        "variant", nargs="?", default=None,
+        help="Sonic variant key (X_sonic_<variant>) to calibrate against. "
+             "Defaults to the artifact's stamped X_sonic_variant (muq post-SP-B); "
+             "this is the seam for calibrating a future variant without editing "
+             "this script.",
+    )
+    return p.parse_args()
+
+
+args = parse_args()
 a = np.load(ART, allow_pickle=True)
+VARIANT = args.variant or _stamped_variant(a)
+
 artists = np.array([str(x).strip().lower() for x in a["track_artists"]])
 mert = np.asarray(a[f"X_sonic_{VARIANT}"], np.float32)
 mst = np.asarray(a[f"X_sonic_{VARIANT}_start"], np.float32)

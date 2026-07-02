@@ -144,27 +144,6 @@ playlists:
     random_seed: 0
     enable_logging: true
 
-    # Sonic feature weighting for candidate selection (must sum to 1.0)
-    # rhythm: tempo/beat patterns | timbre: texture/tone | harmony: key/chords
-    tower_weights:
-      rhythm: 0.20      # Weight for rhythm features (0.0-1.0)
-      timbre: 0.50      # Weight for timbre features (0.0-1.0)
-      harmony: 0.30     # Weight for harmony features (0.0-1.0)
-
-    # Transition weighting for end-of-track-A to start-of-track-B matching
-    # Higher rhythm weight helps maintain tempo/BPM flow between tracks
-    transition_weights:
-      rhythm: 0.40      # Weight for rhythm features (0.0-1.0)
-      timbre: 0.35      # Weight for timbre features (0.0-1.0)
-      harmony: 0.25     # Weight for harmony features (0.0-1.0)
-
-    # PCA dimensions per tower (lower = faster but less detail)
-    # Max dims: rhythm=21, timbre=83, harmony=33
-    tower_pca_dims:
-      rhythm: 8         # PCA components for rhythm (1-21)
-      timbre: 16        # PCA components for timbre (1-83)
-      harmony: 8        # PCA components for harmony (1-33)
-
     # Hybrid embedding configuration (sonic + genre features combined)
     embedding:
       sonic_components: 32    # PCA dims for sonic features (8-64)
@@ -692,8 +671,6 @@ playlists:
       max_iters: 5            # Max repair iterations
       max_edges: 5            # Max edges to fix per iteration
       objective: gap_penalty  # "gap_penalty" or "below_floor_first"
-  sonic:
-    sim_variant: tower_pca
   genre_similarity:
     enabled: true
     weight: 0.50
@@ -812,10 +789,13 @@ logging:
 # Artifact-level settings (top-level section, default absent)
 # ─────────────────────────────────────────────────────────────────────────────
 # sonic_variant_override: A/B switch for the sonic similarity space. When set,
-# it WINS over the variant the artifact declares via its X_sonic_variant key
-# (e.g. flip between tower_weighted and mert without re-folding the artifact).
+# it WINS over the variant the artifact declares via its X_sonic_variant key.
+# `muq` is the live default (learned MuQ embedding; MERT + the tower spaces
+# were removed by SP-B, 2026-07). This knob remains the seam for a FUTURE
+# sonic variant (e.g. auditioning a new embedding) without re-folding the
+# artifact's other keys — set the override, don't re-bake.
 # The named variant's X_sonic_<variant> key must exist in the artifact —
 # otherwise generation fails at startup (a configured knob that cannot act is
 # an error, never a silent no-op). Leave commented for normal use.
 # artifacts:
-#   sonic_variant_override: mert
+#   sonic_variant_override: muq

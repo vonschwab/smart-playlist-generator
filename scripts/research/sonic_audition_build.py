@@ -339,7 +339,14 @@ def main() -> None:
     if args.head_to_head:
         sidecar_path = ROOT / args.sidecar
         if not sidecar_path.exists():
-            print(f"No sidecar at {sidecar_path}. Run extract_harmony_2dftm_sidecar.py first.")
+            print(
+                f"No sidecar at {sidecar_path}. "
+                "scripts/extract_harmony_2dftm_sidecar.py (which generated it) was removed "
+                "in SP-B Task 7 — the 2DFTM-vs-legacy question it answered was already "
+                "settled 2026-06-03 and folded into the production artifact. This "
+                "--head-to-head mode now only works against a pre-existing sidecar file; "
+                "see docs/CLEANUP_LIST.md for the research-harness modernization note."
+            )
             sys.exit(1)
         X_2dftm, valid_mask = load_2dftm_sidecar(str(sidecar_path), bundle)
         n_valid = int(valid_mask.sum())

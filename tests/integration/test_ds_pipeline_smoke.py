@@ -96,21 +96,6 @@ playlists:
     random_seed: 42
     enable_logging: false
 
-    tower_weights:
-      rhythm: 0.20
-      timbre: 0.50
-      harmony: 0.30
-
-    transition_weights:
-      rhythm: 0.40
-      timbre: 0.35
-      harmony: 0.25
-
-    tower_pca_dims:
-      rhythm: 8
-      timbre: 16
-      harmony: 8
-
     embedding:
       sonic_components: 16
       genre_components: 16
