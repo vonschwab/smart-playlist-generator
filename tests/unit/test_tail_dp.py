@@ -1,11 +1,8 @@
 """Tail-DP endgame (spec 2026-07-02): exact max-min re-optimization of the
 last 2 interior slots per segment. Pure module tests."""
-from pathlib import Path
-
 import numpy as np
 import pytest
 
-from src.features.artifacts import ArtifactBundle
 from src.playlist.pier_bridge.tail_dp import batch_T, optimize_segment_tail
 from src.playlist.transition_metrics import build_transition_metric_context, score_transition_edge
 
@@ -21,13 +18,39 @@ def _ctx(X):
     )
 
 
-def test_batch_T_matches_score_transition_edge():
-    rng = np.random.default_rng(0)
+@pytest.mark.parametrize("centered", [False, True])
+def test_batch_T_matches_score_transition_edge_both_branches(centered):
+    rng = np.random.default_rng(1)
     X = rng.standard_normal((6, 4))
-    ctx = _ctx(X)
+    ctx = build_transition_metric_context(
+        X_sonic=X, X_start=X, X_mid=X, X_end=X,
+        X_genre=np.eye(6), center_transitions=centered,
+    )
     M = batch_T(ctx, [0, 1, 2], [3, 4, 5])
     for i, a in enumerate([0, 1, 2]):
         for j, b in enumerate([3, 4, 5]):
+            assert M[i, j] == pytest.approx(score_transition_edge(ctx, a, b)["T"], abs=1e-9)
+
+
+@pytest.mark.parametrize("centered", [False, True])
+def test_batch_T_mixed_none_start_matches_reference(centered):
+    # X_end present, X_start ABSENT: reference falls back to full-full for the
+    # end->start component; batch_T must do the same (review catch, 2026-07-02).
+    # X_end is deliberately DISTINCT from X_sonic here -- using the same array
+    # for both (as in the original review snippet) makes ctx.X_end == ctx.X_full
+    # after identical normalization, which coincidentally makes the buggy
+    # independent-substitution formula (X_end @ X_full.T) equal the correct
+    # full-full fallback (X_full @ X_full.T), so the test would never go red.
+    rng = np.random.default_rng(2)
+    X_sonic = rng.standard_normal((5, 4))
+    X_end = rng.standard_normal((5, 4))
+    ctx = build_transition_metric_context(
+        X_sonic=X_sonic, X_start=None, X_mid=X_sonic, X_end=X_end,
+        X_genre=np.eye(5), center_transitions=centered,
+    )
+    M = batch_T(ctx, [0, 1], [2, 3])
+    for i, a in enumerate([0, 1]):
+        for j, b in enumerate([2, 3]):
             assert M[i, j] == pytest.approx(score_transition_edge(ctx, a, b)["T"], abs=1e-9)
 
 

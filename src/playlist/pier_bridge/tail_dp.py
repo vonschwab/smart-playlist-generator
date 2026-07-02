@@ -36,17 +36,19 @@ def batch_T(ctx, src_indices: Sequence[int], dst_indices: Sequence[int]) -> np.n
     """Calibrated blended transition T from each src to each dst.
 
     Exactly mirrors score_transition_edge: per-component calibration THEN the
-    weighted blend; start/mid/end fall back to X_full when absent.
+    weighted blend. The end->start component falls back to full-full whenever
+    EITHER X_end or X_start is absent (not independently substituted); mid
+    falls back to full-full when X_mid is absent.
     """
     src = np.asarray(list(src_indices), dtype=int)
     dst = np.asarray(list(dst_indices), dtype=int)
     X_full = ctx.X_full
-    X_end = ctx.X_end if ctx.X_end is not None else X_full
-    X_start = ctx.X_start if ctx.X_start is not None else X_full
-    X_mid = ctx.X_mid if ctx.X_mid is not None else X_full
-    es = X_end[src] @ X_start[dst].T
-    mm = X_mid[src] @ X_mid[dst].T
     ff = X_full[src] @ X_full[dst].T
+    if ctx.X_end is not None and ctx.X_start is not None:
+        es = ctx.X_end[src] @ ctx.X_start[dst].T
+    else:
+        es = ff
+    mm = ctx.X_mid[src] @ ctx.X_mid[dst].T if ctx.X_mid is not None else ff
     return (
         float(ctx.weight_end_start) * _calibrate(ctx, es)
         + float(ctx.weight_mid_mid) * _calibrate(ctx, mm)
