@@ -119,6 +119,26 @@ def test_worst_first_ordering():
     assert swaps[0]["position"] == 3  # worst edge repaired first
 
 
+def test_min_gap_boundary_distance_equal_min_gap_refused():
+    # Boundary case: same-artist candidate sits EXACTLY min_gap positions away
+    # from the replace position. Codebase convention (_enforce_min_gap_global
+    # in pier_bridge_builder.py; docs/CONFIG.md "min_gap: Tracks between same
+    # artist") treats distance <= min_gap as a violation (min allowed distance
+    # is min_gap+1). Candidate 5 shares an artist with position 1 -- distance
+    # |3-1| == 2 == min_gap -- so it must be refused with reason "min_gap";
+    # distinct-artist candidate 6 (identical vector, otherwise tied-winning)
+    # lands as the fallback.
+    X = [[1, 0], [1, 0], [1, 0], [1, 0], [0, 1], C90, C90]
+    artists = ["Pier0", "SameArtist", "Mid", "ToReplace", "Pier4", "SameArtist", "Fresh"]
+    b = _bundle(X, artists)
+    res = _run(b, [0, 1, 2, 3, 4], [5, 6], t_floor=0.30,
+               seed_indices={0, 4}, pier_positions={0, 4}, min_gap=2)
+    assert res.indices == [0, 1, 2, 6, 4]
+    assert any(
+        e.get("reason") == "min_gap" and e.get("candidate_idx") == 5 for e in res.swap_log
+    )
+
+
 def test_edge_repair_t_floor_default_and_override():
     from src.playlist.config import default_ds_config
     from src.playlist.pier_bridge.config import PierBridgeConfig

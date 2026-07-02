@@ -208,8 +208,8 @@ def _candidate_refusal_reasons(
     if int(min_gap) > 0:
         cand_artist_keys = _cap_artist_keys_for_idx(bundle, candidate, artist_identity_cfg)
         if cand_artist_keys:
-            lo = max(0, int(replace_position) - (int(min_gap) - 1))
-            hi = min(len(current_indices) - 1, int(replace_position) + (int(min_gap) - 1))
+            lo = max(0, int(replace_position) - int(min_gap))
+            hi = min(len(current_indices) - 1, int(replace_position) + int(min_gap))
             for pos in range(lo, hi + 1):
                 if int(pos) == int(replace_position):
                     continue
@@ -251,7 +251,14 @@ def repair_playlist_edges(
     t_floor: float = 0.0,
     min_gap: int = 0,
 ) -> EdgeRepairResult:
-    """Conservatively swap interior tracks to fix broken adjacent transitions."""
+    """Best-effort swap of interior tracks to lift weak/broken adjacent transitions.
+
+    Guarantee is LOCAL-PAIR MINIMAX, not global monotonicity: an accepted swap
+    improves min(T_in, T_out) for the swapped slot by >= margin; an individual
+    adjacent edge may still end lower than before (bounded below by
+    old_worst + margin). Edges triggered only as a side-effect of a later swap
+    are not re-enqueued this pass.
+    """
 
     indices = [int(i) for i in final_indices]
     swap_log: list[dict] = []
