@@ -731,7 +731,6 @@ class TestEmbeddingSetupPreScaled:
             seed_track_id="t0",
             seed_idx=0,
             anchor_seed_ids=[],
-            sonic_variant=None,
             mode="narrow",
             cfg=self._minimal_cfg(),
             sonic_weight=None,
@@ -770,7 +769,7 @@ class TestEmbeddingSetupPreScaled:
         )
         result = setup_embedding(
             bundle, "t0", 0,
-            anchor_seed_ids=[], sonic_variant=None,
+            anchor_seed_ids=[],
             mode="dynamic", cfg=self._minimal_cfg(),
             sonic_weight=None, genre_weight=None,
             min_genre_similarity=None, random_seed=0,

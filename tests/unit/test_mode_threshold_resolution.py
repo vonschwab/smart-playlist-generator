@@ -347,7 +347,6 @@ class TestSearchWidthPlumbing:
             artist_playlist=False,
             dry_run=False,
             audit_cfg=parse_run_audit_config(None),
-            resolved_variant="raw",
         )
         assert pb_cfg.initial_beam_width == 40
         assert pb_cfg.max_beam_width == 200

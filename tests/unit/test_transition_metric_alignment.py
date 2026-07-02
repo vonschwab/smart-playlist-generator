@@ -122,10 +122,8 @@ def test_beam_trans_score_matches_reporter_t_for_centered_weighted_edge(monkeypa
     reporter_edges = reporter.compute_edge_scores_from_artifact(
         tracks=[{"rating_key": "t0"}, {"rating_key": "t1"}, {"rating_key": "t2"}],
         artifact_path="fake.npz",
-        config_sonic_variant="raw",
         center_transitions=True,
         transition_weights=weights,
-        sonic_variant="raw",
     )
     beam_edges = out["components"]
     assert len(beam_edges) == len(reporter_edges) == 2
@@ -203,10 +201,8 @@ def test_builder_edge_scores_match_final_reporter_edges(monkeypatch):
     reporter_edges = reporter.compute_edge_scores_from_artifact(
         tracks=[{"rating_key": tid} for tid in result.track_ids],
         artifact_path="fake.npz",
-        config_sonic_variant="raw",
         center_transitions=False,
         transition_weights=weights,
-        sonic_variant="raw",
     )
     builder_edges = result.stats["edge_scores"]
     assert len(builder_edges) == len(reporter_edges) == 2

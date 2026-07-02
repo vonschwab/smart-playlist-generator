@@ -506,7 +506,6 @@ def _build_seed_similarity_components(
 
     try:
         from src.features.artifacts import load_artifact_bundle
-        from src.similarity.sonic_variant import compute_sonic_variant_norm
 
         bundle = load_artifact_bundle(artifact_path)
     except Exception:
@@ -521,13 +520,12 @@ def _build_seed_similarity_components(
     if not seed_positions:
         return {}
 
-    sonic_variant = ds_report.get("sonic_variant") or "raw"
     X_sonic = getattr(bundle, "X_sonic", None)
     X_genre = getattr(bundle, "X_genre_smoothed", None)
     if X_sonic is None:
         return {}
 
-    X_sonic_norm, _ = compute_sonic_variant_norm(X_sonic, sonic_variant)
+    X_sonic_norm = X_sonic / (np.linalg.norm(X_sonic, axis=1, keepdims=True) + 1e-12)
     X_genre_norm = None
     if X_genre is not None:
         denom = np.linalg.norm(X_genre, axis=1, keepdims=True) + 1e-12
@@ -763,9 +761,6 @@ def _populate_last_generation_cache(
 
     playlist_stats = (ds_report.get("playlist_stats") or {}).get("playlist") or {}
     transition_floor = playlist_stats.get("transition_floor") or ds_report.get("transition_floor") or 0.20
-    transition_weights = playlist_stats.get("transition_weights") or ds_report.get("transition_weights")
-    if isinstance(transition_weights, list):
-        transition_weights = tuple(float(v) for v in transition_weights)
 
     # Calib must track the ACTIVE variant's cosine band (MuQ hot vs MERT) or the
     # rescale saturates — resolve from bundle.sonic_variant (authoritative mert/muq),

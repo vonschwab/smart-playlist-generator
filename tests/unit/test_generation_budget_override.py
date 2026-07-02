@@ -21,7 +21,6 @@ def _apply(overrides: dict) -> PierBridgeConfig:
         artist_playlist=False,
         dry_run=True,
         audit_cfg=None,
-        resolved_variant="raw",
     )
     return pb_cfg
 

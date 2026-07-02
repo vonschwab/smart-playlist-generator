@@ -532,7 +532,6 @@ def cluster_artist_tracks(
     artist_name: str,
     cfg: ArtistStyleConfig,
     random_seed: int = 0,
-    sonic_variant: Optional[str] = None,
     medoid_top_k: int = 1,
     include_collaborations: bool = False,
     excluded_track_ids: Optional[set[str]] = None,
@@ -547,10 +546,7 @@ def cluster_artist_tracks(
     X_raw = getattr(bundle, "X_sonic", None)
     if X_raw is None:
         raise ValueError("Artifact missing X_sonic for clustering.")
-    from src.similarity.sonic_variant import compute_sonic_variant_norm, resolve_sonic_variant
-
-    variant = resolve_sonic_variant(explicit_variant=sonic_variant, config_variant=None)
-    X_norm, variant_stats = compute_sonic_variant_norm(X_raw, variant)
+    X_norm = X_raw / (np.linalg.norm(X_raw, axis=1, keepdims=True) + 1e-12)
     artist_indices = _artist_indices_in_bundle(
         bundle, artist_name, include_collaborations=include_collaborations
     )
@@ -692,7 +688,7 @@ def cluster_artist_tracks(
         k,
         len(clusters),
         len(medoids),
-        variant_stats.get("variant", variant),
+        getattr(bundle, "sonic_variant", None),
         int(X_norm.shape[1]),
     )
     # Diagnostics: intra/inter stats

@@ -261,7 +261,6 @@ def generate_playlist_ds(
     allowed_track_ids: Optional[list[str]] = None,
     excluded_track_ids: Optional[set[str]] = None,
     single_artist: bool = False,
-    sonic_variant: Optional[str] = None,
     anchor_seed_ids: Optional[List[str]] = None,
     pier_bridge_config: Optional[PierBridgeConfig] = None,
     # Hybrid-level tuning dials (not part of DSPipelineConfig)
@@ -456,7 +455,6 @@ def generate_playlist_ds(
         seed_track_id,
         seed_idx,
         anchor_seed_ids=anchor_seed_ids,
-        sonic_variant=sonic_variant,
         mode=mode,
         cfg=cfg,
         sonic_weight=sonic_weight,
@@ -466,7 +464,6 @@ def generate_playlist_ds(
     )
     # The orchestrator still needs these by name for the remaining phases.
     min_genre_similarity = embedding.min_genre_similarity
-    resolved_variant = embedding.resolved_variant
     variant_stats = embedding.variant_stats
     broad_filters = embedding.broad_filters
     genre_vocab = embedding.genre_vocab
@@ -671,7 +668,7 @@ def generate_playlist_ds(
                 mode=cfg.mode,
                 dry_run=dry_run,
                 artifact_path=artifact_path,
-                sonic_variant=resolved_variant,
+                sonic_variant=getattr(bundle, "sonic_variant", None),
                 allowed_ids_count=int(len(allowed_track_ids_set or set())),
                 pool_source=pool_source,
                 artist_style_enabled=artist_style_enabled,
@@ -687,7 +684,6 @@ def generate_playlist_ds(
                 artist_playlist=artist_playlist,
                 dry_run=dry_run,
                 audit_cfg=audit_cfg,
-                resolved_variant=resolved_variant,
             )
             pb_cfg = replace(
                 pb_cfg,

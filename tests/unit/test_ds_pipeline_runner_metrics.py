@@ -45,7 +45,6 @@ def test_ds_runner_metrics_use_recomputed_final_edges(monkeypatch):
         mode="dynamic",
         length=3,
         random_seed=0,
-        sonic_variant="tower_pca",
     )
 
     assert result.metrics["below_floor"] == 1

@@ -10,7 +10,6 @@ import os
 import math
 from .string_utils import normalize_artist_key
 from src.features.artifacts import load_artifact_bundle
-from src.similarity.sonic_variant import resolve_sonic_variant
 from src.playlist.ds_pipeline_runner import DsRunResult, generate_playlist_ds as run_ds_pipeline
 from src.playlist.artist_style import (
     ArtistStyleConfig,
@@ -60,9 +59,6 @@ def build_ds_overrides(ds_cfg: Dict[str, Any]) -> Dict[str, Any]:
         "genre_graph": ds_cfg.get("genre_graph", {}),
         "genre_source": ds_cfg.get("genre_source", "legacy"),
         "repair": ds_cfg.get("repair", {}),
-        "tower_weights": ds_cfg.get("tower_weights"),
-        "transition_weights": ds_cfg.get("transition_weights"),
-        "tower_pca_dims": ds_cfg.get("tower_pca_dims"),
         "embedding": ds_cfg.get("embedding", {}),
     }
 
@@ -230,9 +226,6 @@ class PlaylistGenerator:
         self._last_ds_report: Optional[Dict[str, Any]] = None
         self.genre_similarity_cache = {}  # Legacy cache placeholder
         self._warn_if_ds_artifact_missing()
-        # Capture resolved variant once; env can override unless CLI sets explicit
-        sonic_cfg = self.config.get('playlists', 'sonic', default={}) or {}
-        self.sonic_variant = resolve_sonic_variant(config_variant=sonic_cfg.get("sim_variant"))
         # Runtime flags (CLI/GUI) for optional pier-bridge backoff + run audits.
         # Default OFF; config.yaml keys can still enable these without flags.
         self._pb_backoff_enabled: bool = False
@@ -457,7 +450,6 @@ class PlaylistGenerator:
         embedding_random_seed: Optional[int] = None,
         center_transitions: bool = False,
         verbose: bool = False,
-        sonic_variant: Optional[str] = None,
         transition_weights: Optional[tuple[float, float, float]] = None,
     ) -> List[Dict[str, Any]]:
         """
@@ -472,8 +464,6 @@ class PlaylistGenerator:
             embedding_random_seed=embedding_random_seed,
             center_transitions=center_transitions,
             verbose=verbose,
-            sonic_variant=sonic_variant,
-            config_sonic_variant=self.sonic_variant,
             last_ds_report=getattr(self, "_last_ds_report", None),
             transition_weights=transition_weights,
         )
@@ -510,11 +500,6 @@ class PlaylistGenerator:
         artifact_path = ds_cfg.get('artifact_path')
         if not artifact_path:
             raise ValueError("DS pipeline artifact_path is not configured.")
-        sonic_cfg = self.config.get("playlists", "sonic", default={}) or {}
-        sonic_variant_cfg = resolve_sonic_variant(
-            explicit_variant=self.sonic_variant,
-            config_variant=ds_cfg.get("sonic_variant") or sonic_cfg.get("sim_variant"),
-        )
         mode = mode_override or ds_cfg.get('mode', 'dynamic')
         random_seed = ds_cfg.get('random_seed', 0)
         enable_logging = ds_cfg.get('enable_logging', False)
@@ -802,7 +787,6 @@ class PlaylistGenerator:
             enable_logging=enable_logging,
             allowed_track_ids=allowed_track_ids,
             excluded_track_ids=excluded_track_ids,
-            sonic_variant=sonic_variant_cfg,
             pier_bridge_config=pier_bridge_config,
             dry_run=bool(dry_run),
             pool_source=pool_source_effective,
@@ -861,7 +845,6 @@ class PlaylistGenerator:
             "transition_centered": bool(playlist_stats_only.get("transition_centered")),
             "transition_weights": playlist_stats_only.get("transition_weights"),
             "random_seed": random_seed,
-            "sonic_variant": sonic_variant_cfg or os.getenv("SONIC_SIM_VARIANT") or "raw",
         }
         # Log candidate pool stats for diagnostics
         pool_stats = ds_stats.get("candidate_pool", {})
@@ -1716,11 +1699,6 @@ class PlaylistGenerator:
         if style_cfg.enabled and artifact_path and (not artist_only) and (not track_title) and not fixed_seed_tracks:
             try:
                 bundle = load_artifact_bundle(artifact_path)
-                sonic_cfg = self.config.get("playlists", "sonic", default={}) or {}
-                sonic_variant_cfg = resolve_sonic_variant(
-                    explicit_variant=getattr(self, "sonic_variant", None),
-                    config_variant=ds_cfg.get("sonic_variant") or sonic_cfg.get("sim_variant"),
-                )
                 base_seed = int(ds_cfg.get("random_seed", 0) or 0)
                 seed_epoch_val = int(seed_epoch or 0)
                 cluster_seed = base_seed + seed_epoch_val
@@ -1810,7 +1788,6 @@ class PlaylistGenerator:
                     artist_name=artist_name,
                     cfg=style_cfg,
                     random_seed=cluster_seed,
-                    sonic_variant=sonic_variant_cfg,
                     medoid_top_k=medoid_top_k,
                     include_collaborations=include_collaborations,
                     excluded_track_ids=_relaxed_excluded,
@@ -1925,7 +1902,7 @@ class PlaylistGenerator:
                 style_summary = {
                     "artist": str(artist_name),
                     "cohesion_mode": str(cohesion_mode_effective),
-                    "sonic_variant": str(sonic_variant_cfg),
+                    "sonic_variant": str(getattr(bundle, "sonic_variant", None)),
                     "seed_epoch": int(seed_epoch or 0),
                     "medoid_top_k": int(medoid_top_k),
                     "global_sonic_floor": float(min_sonic) if min_sonic is not None else None,
@@ -1953,20 +1930,6 @@ class PlaylistGenerator:
                 center_transitions = bool(ds_cfg.get("center_transitions", False)) or bool(
                     ds_cfg.get("constraints", {}).get("center_transitions", False)
                 )
-                tw_raw = ds_cfg.get("transition_weights")
-                transition_weights = None
-                if isinstance(tw_raw, dict):
-                    transition_weights = (
-                        float(tw_raw.get("rhythm", 0.4)),
-                        float(tw_raw.get("timbre", 0.35)),
-                        float(tw_raw.get("harmony", 0.25)),
-                    )
-                elif isinstance(tw_raw, (list, tuple)) and len(tw_raw) == 3:
-                    transition_weights = (
-                        float(tw_raw[0]),
-                        float(tw_raw[1]),
-                        float(tw_raw[2]),
-                    )
                 ds_defaults = default_ds_config(cohesion_mode_effective, playlist_len=track_count, overrides=ds_cfg)
                 pb_tuning = resolve_pier_bridge_tuning(ds_cfg, cohesion_mode_effective)
 
@@ -2218,7 +2181,6 @@ class PlaylistGenerator:
                 center_transitions=bool(self._last_ds_report.get("transition_centered")),
                 embedding_random_seed=self._last_ds_report.get("random_seed"),
                 verbose=verbose,
-                sonic_variant=self._last_ds_report.get("sonic_variant"),
                 transition_weights=(
                     ((self._last_ds_report.get("playlist_stats") or {}).get("playlist") or {}).get("transition_weights")
                 ),
@@ -2755,11 +2717,6 @@ class PlaylistGenerator:
             if style_cfg.enabled and artifact_path:
                 try:
                     bundle = load_artifact_bundle(artifact_path)
-                    sonic_cfg = self.config.get("playlists", "sonic", default={}) or {}
-                    sonic_variant_cfg = resolve_sonic_variant(
-                        explicit_variant=getattr(self, "sonic_variant", None),
-                        config_variant=ds_cfg.get("sonic_variant") or sonic_cfg.get("sim_variant"),
-                    )
 
                     # Calculate medoid_top_k based on presence setting (max_artist_fraction)
                     max_artist_fraction = ds_cfg.get("candidate_pool", {}).get("max_artist_fraction", 0.125)
@@ -2785,7 +2742,6 @@ class PlaylistGenerator:
                         artist_name=artist,
                         cfg=style_cfg,
                         random_seed=ds_cfg.get("random_seed", 0),
-                        sonic_variant=sonic_variant_cfg,
                         medoid_top_k=medoid_top_k,
                     )
                     if not medoids:
@@ -2859,20 +2815,6 @@ class PlaylistGenerator:
                     center_transitions = bool(ds_cfg.get("center_transitions", False)) or bool(
                         ds_cfg.get("constraints", {}).get("center_transitions", False)
                     )
-                    tw_raw = ds_cfg.get("transition_weights")
-                    transition_weights = None
-                    if isinstance(tw_raw, dict):
-                        transition_weights = (
-                            float(tw_raw.get("rhythm", 0.4)),
-                            float(tw_raw.get("timbre", 0.35)),
-                            float(tw_raw.get("harmony", 0.25)),
-                        )
-                    elif isinstance(tw_raw, (list, tuple)) and len(tw_raw) == 3:
-                        transition_weights = (
-                            float(tw_raw[0]),
-                            float(tw_raw[1]),
-                            float(tw_raw[2]),
-                        )
                     ds_defaults = default_ds_config(cohesion_mode_effective, playlist_len=target_playlist_size, overrides=ds_cfg)
                     pb_tuning = resolve_pier_bridge_tuning(ds_cfg, cohesion_mode_effective)
 

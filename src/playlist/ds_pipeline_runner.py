@@ -37,7 +37,6 @@ def _refresh_playlist_metrics_from_final_edges(
     track_ids: List[str],
     playlist_stats: Dict[str, Any],
     artifact_path: str,
-    sonic_variant: Optional[str],
     random_seed: int,
 ) -> None:
     """Make DS summary metrics match final edge-reporting representation."""
@@ -54,12 +53,10 @@ def _refresh_playlist_metrics_from_final_edges(
     edge_scores = reporter.compute_edge_scores_from_artifact(
         tracks=[{"rating_key": str(tid)} for tid in track_ids],
         artifact_path=artifact_path,
-        config_sonic_variant=sonic_variant,
         transition_floor=transition_floor,
         transition_gamma=playlist_stats.get("transition_gamma"),
         embedding_random_seed=random_seed,
         center_transitions=bool(playlist_stats.get("transition_centered")),
-        sonic_variant=sonic_variant,
         transition_weights=transition_weights,
     )
     if len(edge_scores) != len(track_ids) - 1:
@@ -91,7 +88,6 @@ def generate_playlist_ds(
     allowed_track_ids: Optional[List[str]] = None,
     excluded_track_ids: Optional[set[str]] = None,
     single_artist: bool = False,
-    sonic_variant: Optional[str] = None,
     anchor_seed_ids: Optional[List[str]] = None,
     # Optional pier-bridge audit/backoff context
     dry_run: bool = False,
@@ -133,7 +129,6 @@ def generate_playlist_ds(
         allowed_track_ids=allowed_track_ids,
         excluded_track_ids=excluded_track_ids,
         single_artist=single_artist,
-        sonic_variant=sonic_variant,
         pier_bridge_config=pier_bridge_config,
         dry_run=dry_run,
         pool_source=pool_source,
@@ -156,7 +151,6 @@ def generate_playlist_ds(
         track_ids=list(result.track_ids),
         playlist_stats=playlist_stats,
         artifact_path=artifact_path,
-        sonic_variant=sonic_variant,
         random_seed=random_seed,
     )
     metrics: Dict[str, Any] = {

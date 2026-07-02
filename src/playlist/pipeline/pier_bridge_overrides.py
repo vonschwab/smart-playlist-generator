@@ -42,7 +42,6 @@ def apply_pier_bridge_overrides(
     artist_playlist: bool,
     dry_run: bool,
     audit_cfg: Any,  # src.playlist.run_audit.RunAuditConfig
-    resolved_variant: str,
 ) -> Tuple[PierBridgeConfig, Any, Dict[str, Any]]:
     """Translate ``overrides`` into a fully-populated PierBridgeConfig.
 

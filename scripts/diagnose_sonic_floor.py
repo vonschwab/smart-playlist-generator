@@ -14,7 +14,6 @@ import numpy as np
 
 from src.config_loader import Config
 from src.features.artifacts import load_artifact_bundle
-from src.similarity.sonic_variant import resolve_sonic_variant, compute_sonic_variant_matrix
 from src.logging_utils import configure_logging
 from src.playlist.config import get_min_sonic_similarity
 
@@ -83,8 +82,6 @@ def main():
         raise ValueError(f"Seed track_id {seed_track_id} not found in artifact")
 
     X_sonic = bundle.X_sonic
-    if getattr(bundle, "sonic_variant", None) != "raw":
-        X_sonic, _ = compute_sonic_variant_matrix(bundle.X_sonic, resolve_sonic_variant(explicit_variant=None, config_variant=None), l2=False)
     sonic_norm = X_sonic / (np.linalg.norm(X_sonic, axis=1, keepdims=True) + 1e-12)
     seed_vec = sonic_norm[seed_idx]
     sims = np.dot(sonic_norm, seed_vec)

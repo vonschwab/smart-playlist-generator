@@ -16,7 +16,6 @@ import numpy as np
 from src.config_loader import Config
 from src.features.artifacts import load_artifact_bundle
 from src.playlist.candidate_pool import _compute_genre_similarity
-from src.similarity.sonic_variant import resolve_sonic_variant, compute_sonic_variant_matrix
 from src.genre_similarity_v2 import GenreSimilarityV2
 from src.similarity_calculator import SimilarityCalculator
 from src.logging_utils import configure_logging
@@ -73,8 +72,6 @@ def _compute_sims(
     X_genre_raw, X_genre_smoothed, genre_vocab, mask = _mask_genres(bundle, broad_filters)
     # Sonic
     X_sonic = bundle.X_sonic
-    if getattr(bundle, "sonic_variant", None) != "raw":
-        X_sonic, _ = compute_sonic_variant_matrix(bundle.X_sonic, resolve_sonic_variant(explicit_variant=None, config_variant=None), l2=False)
     sonic_norm = X_sonic / (np.linalg.norm(X_sonic, axis=1, keepdims=True) + 1e-12)
     seed_vec_sonic = sonic_norm[seed_idx]
     sonic_sim = np.dot(sonic_norm, seed_vec_sonic)

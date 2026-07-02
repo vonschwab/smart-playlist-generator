@@ -27,7 +27,6 @@ from src.playlist.artist_style import (
     order_clusters,
 )
 from src.playlist.config import get_min_sonic_similarity
-from src.similarity.sonic_variant import resolve_sonic_variant
 from src.string_utils import normalize_artist_key
 from src.logging_utils import configure_logging
 
@@ -62,17 +61,11 @@ def main():
         bridge_floor_dynamic=style_raw.get("bridge_floor", {}).get("dynamic", 0.03),
     )
 
-    sonic_cfg = cfg.config.get("playlists", {}).get("sonic", {}) or {}
-    sonic_variant_cfg = resolve_sonic_variant(
-        explicit_variant=None,
-        config_variant=ds_cfg.get("sonic_variant") or sonic_cfg.get("sim_variant"),
-    )
     clusters, medoids, medoids_by_cluster, X_norm = cluster_artist_tracks(
         bundle=bundle,
         artist_name=args.artist,
         cfg=style_cfg,
         random_seed=ds_cfg.get("random_seed", 0),
-        sonic_variant=sonic_variant_cfg,
     )
     ordered_medoids = order_clusters(medoids, X_norm)
 

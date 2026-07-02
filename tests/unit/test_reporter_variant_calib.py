@@ -67,8 +67,6 @@ def test_reporter_resolves_calib_from_bundle_variant(monkeypatch, variant):
     reporter.compute_edge_scores_from_artifact(
         tracks=[{"rating_key": "a"}, {"rating_key": "b"}],
         artifact_path="unused.npz",
-        config_sonic_variant=variant,
-        sonic_variant=variant,       # the (normalized) transform variant — must NOT drive calib
         center_transitions=True,
         transition_floor=0.2,
     )
@@ -88,8 +86,6 @@ def test_muq_does_not_get_the_mert_default(monkeypatch):
     reporter.compute_edge_scores_from_artifact(
         tracks=[{"rating_key": "a"}, {"rating_key": "b"}],
         artifact_path="unused.npz",
-        config_sonic_variant="muq",
-        sonic_variant="muq",
         center_transitions=True,
     )
 

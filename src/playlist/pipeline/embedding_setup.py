@@ -1,11 +1,10 @@
-"""Embedding setup phase — sonic variant resolution + hybrid embedding build.
+"""Embedding setup phase — hybrid embedding build.
 
 Extracted from pipeline.core.generate_playlist_ds (Tier-1.5 split).
 
-Resolves the sonic variant, computes the variant matrix (or reuses a
-pre-scaled one), runs a flatness diagnostic, applies optional
-broad-genre masking, and constructs the hybrid (sonic+genre) embedding
-the candidate-pool builder expects.
+Uses the bundle's sonic matrix (pre-scaled tower artifact or raw), runs a
+flatness diagnostic, applies optional broad-genre masking, and constructs
+the hybrid (sonic+genre) embedding the candidate-pool builder expects.
 """
 from __future__ import annotations
 
@@ -18,7 +17,6 @@ import numpy as np
 from src.features.artifacts import ArtifactBundle
 from src.playlist.config import DSPipelineConfig
 from src.similarity.hybrid import build_hybrid_embedding
-from src.similarity.sonic_variant import compute_sonic_variant_matrix, resolve_sonic_variant
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +37,6 @@ class EmbeddingSetup:
     broad_filters: tuple
     seed_indices_for_floor: List[int]
     variant_stats: Dict[str, Any]
-    resolved_variant: str
     # min_genre_similarity may be reset to None in sonic_only mode; the
     # orchestrator reads it back out for downstream gating decisions.
     min_genre_similarity: Optional[float]
@@ -53,7 +50,6 @@ def setup_embedding(
     seed_idx: int,
     *,
     anchor_seed_ids: List[str],
-    sonic_variant: Optional[str],
     mode: str,
     cfg: DSPipelineConfig,
     sonic_weight: Optional[float],
@@ -61,16 +57,13 @@ def setup_embedding(
     min_genre_similarity: Optional[float],
     random_seed: int,
 ) -> EmbeddingSetup:
-    """Resolve sonic variant + build hybrid embedding + apply genre mask.
+    """Build hybrid embedding + apply genre mask.
 
     Mirrors the legacy in-line phase exactly, including the flatness-warning
     diagnostic, the sonic_only mode override that disables genre gating,
     and the three-way (both / sonic-only / genre-only) weight resolution.
     """
-    resolved_variant = resolve_sonic_variant(
-        explicit_variant=sonic_variant, config_variant=None
-    )
-    variant_stats: Dict[str, Any] = {"variant": resolved_variant}
+    variant_stats: Dict[str, Any] = {}
     X_sonic_for_embed = bundle.X_sonic
     pre_scaled_sonic = False
     if bundle.X_sonic is not None:
@@ -83,7 +76,7 @@ def setup_embedding(
             # docs/superpowers/specs/2026-06-01-sonic-tower-weighted-fix-design.md.
             X_sonic_for_embed = bundle.X_sonic
             variant_stats = {
-                "variant": getattr(bundle, "sonic_variant", resolved_variant),
+                "variant": getattr(bundle, "sonic_variant", None),
                 "pre_scaled": True,
                 "dim": int(bundle.X_sonic.shape[1]),
             }
@@ -97,9 +90,11 @@ def setup_embedding(
                     variant_stats["tower_dims"] = _dims
                     variant_stats["tower_pca_dims"] = _dims
         else:
-            X_sonic_for_embed, variant_stats = compute_sonic_variant_matrix(
-                bundle.X_sonic, resolved_variant, l2=False
-            )
+            # No baked-in variant transform: the sonic space is used as-is
+            # (raw passthrough — matches the pre-SP-B tower_pca fallback
+            # behavior under a dimension mismatch, now made explicit).
+            X_sonic_for_embed = bundle.X_sonic
+            variant_stats = {"variant": getattr(bundle, "sonic_variant", None), "fallback": False}
     else:
         raise ValueError("Artifact missing X_sonic matrix.")
 
@@ -116,10 +111,10 @@ def setup_embedding(
         p90 = float(np.percentile(sims, 90))
         if (p90 - p10) < 0.1:
             logger.warning(
-                "Sonic space appears flat for seed %s (p90-p10=%.3f). Check artifact/variant (resolved=%s).",
+                "Sonic space appears flat for seed %s (p90-p10=%.3f). Check artifact/variant (variant=%s).",
                 seed_track_id,
                 p90 - p10,
-                resolved_variant,
+                variant_stats.get("variant"),
             )
     except Exception:
         logger.debug(
@@ -232,7 +227,6 @@ def setup_embedding(
         broad_filters=broad_filters,
         seed_indices_for_floor=seed_indices_for_floor,
         variant_stats=variant_stats,
-        resolved_variant=resolved_variant,
         min_genre_similarity=min_genre_similarity,
         effective_w_sonic=effective_w_sonic,
         effective_w_genre=effective_w_genre,

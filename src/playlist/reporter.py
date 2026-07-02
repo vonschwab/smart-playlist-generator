@@ -235,13 +235,11 @@ def compute_edge_scores_from_artifact(
     *,
     tracks: List[Dict[str, Any]],
     artifact_path: Optional[str],
-    config_sonic_variant: Optional[str],
     transition_floor: Optional[float] = None,
     transition_gamma: Optional[float] = None,
     embedding_random_seed: Optional[int] = None,
     center_transitions: bool = False,
     verbose: bool = False,
-    sonic_variant: Optional[str] = None,
     last_ds_report: Optional[Dict[str, Any]] = None,
     transition_weights: Optional[tuple[float, float, float]] = None,
 ) -> List[Dict[str, Any]]:
@@ -251,13 +249,11 @@ def compute_edge_scores_from_artifact(
     Args:
         tracks: List of track dictionaries
         artifact_path: Path to artifact bundle
-        config_sonic_variant: Sonic variant from configuration
         transition_floor: Minimum transition score threshold
         transition_gamma: Blend weight for transition scoring
         embedding_random_seed: Random seed for embedding
         center_transitions: Whether to center transition embeddings
         verbose: Enable verbose logging
-        sonic_variant: Explicit sonic variant override
         last_ds_report: Last DS report dictionary (for storing baseline)
 
     Returns:

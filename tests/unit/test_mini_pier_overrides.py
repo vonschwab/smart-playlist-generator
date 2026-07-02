@@ -7,7 +7,7 @@ def _apply(overrides):
         pier_bridge_config=PierBridgeConfig(),
         cfg=default_ds_config("dynamic", playlist_len=3),
         overrides=overrides, pb_overrides=overrides.get("pier_bridge", {}),
-        artist_playlist=False, dry_run=True, audit_cfg=None, resolved_variant="raw")
+        artist_playlist=False, dry_run=True, audit_cfg=None)
     return cfg
 
 def test_mini_pier_defaults_off():

@@ -245,7 +245,6 @@ def test_edge_repair_nested_config_overrides_are_parsed():
         artist_playlist=False,
         dry_run=True,
         audit_cfg=None,
-        resolved_variant="raw",
     )
 
     assert pb_cfg.edge_repair_enabled is True
