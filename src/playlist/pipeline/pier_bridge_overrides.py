@@ -100,6 +100,12 @@ def apply_pier_bridge_overrides(
         initial_bridge_helpers=int(getattr(tuning, "initial_bridge_helpers", 50)),
         max_bridge_helpers=int(getattr(tuning, "max_bridge_helpers", 200)),
     )
+    if pier_bridge_config is not None:
+        logger.info(
+            "Pier-bridge weights in effect: weight_bridge=%.2f weight_transition=%.2f "
+            "(pre-built pier config supplied; the resolved-tuning weights above were NOT applied)",
+            float(pb_cfg.weight_bridge), float(pb_cfg.weight_transition),
+        )
     if isinstance(pb_overrides.get("pace_bridge_floor"), (int, float)):
         pb_cfg = replace(pb_cfg, pace_bridge_floor=float(pb_overrides.get("pace_bridge_floor")))
     if isinstance(pb_overrides.get("variable_bridge_length"), bool):
