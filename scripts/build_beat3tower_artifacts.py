@@ -3,7 +3,12 @@
 Build Beat 3-Tower Artifacts
 ============================
 
-Builds normalized 3-tower artifacts from tracks with beat3tower features.
+Builds the genre + metadata artifact skeleton over the `sonic_features`
+universe gate (tracks with beat3tower features recorded in the DB — that
+gate defines the track universe, even though the tower vectors themselves
+are no longer baked here). The sonic space is NOT built by this script:
+`stage_artifacts` folds the active variant sidecar (X_sonic_muq*) in
+immediately after, which also stamps `X_sonic_variant`. (SP-B)
 
 Usage:
     python scripts/build_beat3tower_artifacts.py \
@@ -12,20 +17,14 @@ Usage:
         --output data/artifacts/beat3tower_32k/data_matrices_step1.npz
 
 Features:
-- Loads beat3tower features from database
-- Separates into rhythm/timbre/harmony towers
-- Applies per-tower robust normalization with optional PCA whitening
-- Computes calibration statistics for weighted combination
-- Saves all required matrices for playlist generation
+- Loads tracks gated on beat3tower feature presence (universe gate)
+- Builds genre matrices (raw + smoothed) from the configured genre source
+- Saves genre + metadata matrices for playlist generation
 
 Output NPZ contents:
-- X_sonic_rhythm, X_sonic_timbre, X_sonic_harmony: Per-tower embeddings
-- X_sonic_rhythm_start/end, etc.: Segment embeddings for transitions
-- X_sonic: Concatenated towers (backward compatibility)
-- tower_calibration: Statistics for calibrated similarity
-- normalizer_params: For reproducibility
-- tower_dims: Dimension counts per tower
-- track_ids, artist_keys, etc.: Metadata
+- X_genre_raw, X_genre_smoothed, genre_vocab: Genre matrices
+- track_ids, track_artists, track_titles, artist_keys, durations_ms: Metadata
+- build_config: Build provenance
 """
 
 import argparse
@@ -41,14 +40,6 @@ import numpy as np
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.features.beat3tower_normalizer import (
-    Beat3TowerNormalizer,
-    NormalizerConfig,
-    compute_tower_calibration_stats,
-    l2_normalize,
-)
-from src.features.beat3tower_types import Beat3TowerFeatures
-
 # Genre normalization (Taxonomy v1)
 try:
     from src.genre.normalize import normalize_and_split_genre
@@ -61,7 +52,7 @@ logger = logging.getLogger(__name__)
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Build 3-tower artifacts from beat3tower features"
+        description="Build genre + metadata artifacts over the beat3tower feature universe gate"
     )
     parser.add_argument(
         "--db-path",
@@ -87,23 +78,6 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=0,
         help="Maximum tracks to include (0 = all)",
-    )
-    parser.add_argument(
-        "--no-pca",
-        action="store_true",
-        help="Disable PCA whitening (use robust standardization only)",
-    )
-    parser.add_argument(
-        "--pca-variance",
-        type=float,
-        default=0.95,
-        help="Fraction of variance to retain in PCA (default: 0.95)",
-    )
-    parser.add_argument(
-        "--clip-sigma",
-        type=float,
-        default=3.0,
-        help="Sigma for outlier clipping (default: 3.0)",
     )
     parser.add_argument(
         "--random-seed",
@@ -235,42 +209,6 @@ def _is_beat3tower_features(features: Dict[str, Any]) -> bool:
         if full.get("extraction_method") == "beat3tower":
             return True
     return False
-
-
-def extract_tower_vectors(
-    features_list: List[Dict[str, Any]],
-    segment: str = "full",
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, List[float]]:
-    """
-    Extract tower vectors from feature dictionaries.
-
-    Args:
-        features_list: List of beat3tower feature dictionaries
-        segment: Which segment to extract ('full', 'start', 'mid', 'end')
-
-    Returns:
-        Tuple of (X_rhythm, X_timbre, X_harmony, bpm_list)
-    """
-    X_rhythm = []
-    X_timbre = []
-    X_harmony = []
-    bpm_list = []
-
-    for features in features_list:
-        seg_features = features.get(segment, features.get("full", {}))
-        feat_obj = Beat3TowerFeatures.from_dict(seg_features)
-
-        X_rhythm.append(feat_obj.rhythm.to_vector())
-        X_timbre.append(feat_obj.timbre.to_vector())
-        X_harmony.append(feat_obj.harmony.to_vector())
-        bpm_list.append(feat_obj.bpm_info.primary_bpm)
-
-    return (
-        np.vstack(X_rhythm) if X_rhythm else np.array([]),
-        np.vstack(X_timbre) if X_timbre else np.array([]),
-        np.vstack(X_harmony) if X_harmony else np.array([]),
-        bpm_list,
-    )
 
 
 def smooth_genres(
@@ -815,95 +753,12 @@ def build_artifacts(args: argparse.Namespace, enriched_resolver: Optional[Any] =
     logger.info("Artifact genre source: %s", genre_source.value)
 
     logger.info("Loading tracks with beat3tower features...")
-    tracks, features_list = load_tracks_with_beat3tower(args.db_path, args.max_tracks)
+    tracks, _features_list = load_tracks_with_beat3tower(args.db_path, args.max_tracks)
 
     if not tracks:
         raise RuntimeError("No tracks with beat3tower features found")
 
     logger.info(f"Processing {len(tracks)} tracks...")
-
-    # Extract tower vectors for all segments
-    X_rhythm_full, X_timbre_full, X_harmony_full, bpm_list = extract_tower_vectors(
-        features_list, "full"
-    )
-    X_rhythm_start, X_timbre_start, X_harmony_start, _ = extract_tower_vectors(
-        features_list, "start"
-    )
-    X_rhythm_mid, X_timbre_mid, X_harmony_mid, _ = extract_tower_vectors(
-        features_list, "mid"
-    )
-    X_rhythm_end, X_timbre_end, X_harmony_end, _ = extract_tower_vectors(
-        features_list, "end"
-    )
-
-    logger.info(
-        f"Tower dimensions before normalization: "
-        f"rhythm={X_rhythm_full.shape[1]}, "
-        f"timbre={X_timbre_full.shape[1]}, "
-        f"harmony={X_harmony_full.shape[1]}"
-    )
-
-    # Configure normalizer
-    config = NormalizerConfig(
-        clip_sigma=args.clip_sigma,
-        use_pca_whitening=not args.no_pca,
-        pca_variance_retain=args.pca_variance,
-        l2_normalize=True,
-        random_seed=args.random_seed,
-    )
-
-    # Fit normalizer on full segment (representative of overall distribution)
-    logger.info("Fitting normalizer on full-track features...")
-    normalizer = Beat3TowerNormalizer(config)
-    normalizer.fit(X_rhythm_full, X_timbre_full, X_harmony_full)
-
-    output_dims = normalizer.get_output_dims()
-    logger.info(
-        f"Tower dimensions after normalization: "
-        f"rhythm={output_dims['rhythm']}, "
-        f"timbre={output_dims['timbre']}, "
-        f"harmony={output_dims['harmony']}"
-    )
-
-    # Transform all segments
-    logger.info("Normalizing all segments...")
-    X_r_full, X_t_full, X_h_full = normalizer.transform(
-        X_rhythm_full, X_timbre_full, X_harmony_full
-    )
-    X_r_start, X_t_start, X_h_start = normalizer.transform(
-        X_rhythm_start, X_timbre_start, X_harmony_start
-    )
-    X_r_mid, X_t_mid, X_h_mid = normalizer.transform(
-        X_rhythm_mid, X_timbre_mid, X_harmony_mid
-    )
-    X_r_end, X_t_end, X_h_end = normalizer.transform(
-        X_rhythm_end, X_timbre_end, X_harmony_end
-    )
-
-    # Compute calibration statistics
-    logger.info("Computing calibration statistics...")
-    tower_calibration = compute_tower_calibration_stats(
-        X_r_full, X_t_full, X_h_full,
-        n_pairs=min(10000, len(tracks) * 5),
-        random_seed=args.random_seed,
-    )
-    logger.info(
-        f"Calibration: rhythm(mean={tower_calibration['rhythm']['random_mean']:.4f}, "
-        f"std={tower_calibration['rhythm']['random_std']:.4f}), "
-        f"timbre(mean={tower_calibration['timbre']['random_mean']:.4f}, "
-        f"std={tower_calibration['timbre']['random_std']:.4f}), "
-        f"harmony(mean={tower_calibration['harmony']['random_mean']:.4f}, "
-        f"std={tower_calibration['harmony']['random_std']:.4f})"
-    )
-
-    # Build concatenated sonic matrix (backward compatibility)
-    X_sonic_raw = np.hstack([X_r_full, X_t_full, X_h_full])
-    X_sonic_raw = l2_normalize(X_sonic_raw)  # L2 normalize the concatenation
-
-    # Similarly for segments
-    X_sonic_start = l2_normalize(np.hstack([X_r_start, X_t_start, X_h_start]))
-    X_sonic_mid = l2_normalize(np.hstack([X_r_mid, X_t_mid, X_h_mid]))
-    X_sonic_end = l2_normalize(np.hstack([X_r_end, X_t_end, X_h_end]))
 
     # Load genres with optional normalization (includes artist/album genre inheritance)
     normalize_genres = not args.no_genre_normalization
@@ -953,12 +808,6 @@ def build_artifacts(args: argparse.Namespace, enriched_resolver: Optional[Any] =
     track_titles = [t["title"] for t in tracks]
     durations_ms = np.array([t["duration_ms"] for t in tracks], dtype=np.int32)
 
-    # Create feature names
-    rhythm_names = [f"rhythm_{i:02d}" for i in range(X_r_full.shape[1])]
-    timbre_names = [f"timbre_{i:02d}" for i in range(X_t_full.shape[1])]
-    harmony_names = [f"harmony_{i:02d}" for i in range(X_h_full.shape[1])]
-    feature_names = rhythm_names + timbre_names + harmony_names
-
     # Save artifact
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -966,38 +815,6 @@ def build_artifacts(args: argparse.Namespace, enriched_resolver: Optional[Any] =
     logger.info(f"Saving artifact to {out_path}...")
     np.savez(
         out_path,
-        # Per-tower embeddings (full)
-        X_sonic_rhythm=X_r_full,
-        X_sonic_timbre=X_t_full,
-        X_sonic_harmony=X_h_full,
-        # Per-tower embeddings (start segment)
-        X_sonic_rhythm_start=X_r_start,
-        X_sonic_timbre_start=X_t_start,
-        X_sonic_harmony_start=X_h_start,
-        # Per-tower embeddings (mid segment)
-        X_sonic_rhythm_mid=X_r_mid,
-        X_sonic_timbre_mid=X_t_mid,
-        X_sonic_harmony_mid=X_h_mid,
-        # Per-tower embeddings (end segment)
-        X_sonic_rhythm_end=X_r_end,
-        X_sonic_timbre_end=X_t_end,
-        X_sonic_harmony_end=X_h_end,
-        # Concatenated embeddings (backward compatibility)
-        X_sonic=X_sonic_raw,  # raw concatenated (legacy)
-        X_sonic_raw=X_sonic_raw,
-        X_sonic_pre_scaled=np.array(True),
-        X_sonic_start=X_sonic_start,
-        X_sonic_mid=X_sonic_mid,
-        X_sonic_end=X_sonic_end,
-        # Feature metadata
-        sonic_feature_names=np.array(feature_names, dtype=object),
-        tower_dims=np.array([output_dims['rhythm'], output_dims['timbre'], output_dims['harmony']]),
-        # Calibration
-        tower_calibration=tower_calibration,
-        # Normalizer params (for reproducibility)
-        normalizer_params=normalizer.get_params(),
-        # BPM array
-        bpm_array=np.array(bpm_list, dtype=np.float32),
         # Genre matrices
         X_genre_raw=X_genre_raw,
         X_genre_smoothed=X_genre_smoothed,
@@ -1008,13 +825,12 @@ def build_artifacts(args: argparse.Namespace, enriched_resolver: Optional[Any] =
         track_titles=np.array(track_titles, dtype=object),
         artist_keys=np.array(artist_keys, dtype=object),
         durations_ms=durations_ms,
-        # Build metadata
+        # Build metadata. The sonic space is NOT baked here: stage_artifacts
+        # folds the active variant sidecar (X_sonic_muq*) immediately after,
+        # which also stamps X_sonic_variant. (SP-B)
         build_config={
-            'clip_sigma': args.clip_sigma,
-            'use_pca_whitening': not args.no_pca,
-            'pca_variance_retain': args.pca_variance,
             'random_seed': args.random_seed,
-            'extraction_method': 'beat3tower',
+            'extraction_method': 'universe_gate_beat3tower_features',
             'genre_normalization': genre_stats["normalization_applied"],
             'genre_stats': genre_stats,
             'genre_source': genre_source.value,
@@ -1030,9 +846,7 @@ def build_artifacts(args: argparse.Namespace, enriched_resolver: Optional[Any] =
     logger.info(
         f"Artifact saved successfully: "
         f"{len(tracks)} tracks, "
-        f"{len(vocab)} genres, "
-        f"{X_sonic_raw.shape[1]} sonic dims "
-        f"({output_dims['rhythm']}+{output_dims['timbre']}+{output_dims['harmony']})"
+        f"{len(vocab)} genres (sonic space folded separately by stage_artifacts)"
     )
 
 

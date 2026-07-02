@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Sequence, Tuple
+from typing import Any, Dict, Optional, Sequence
 
 import numpy as np
 
@@ -538,7 +538,6 @@ def build_candidate_pool(
     genre_vocab: Optional[list[str]] = None,
     broad_filters: tuple[str, ...] = (),
     mode: str = "dynamic",  # "dynamic", "narrow", "discover"
-    tower_pca_dims: Optional[Tuple[int, int, int]] = None,
     uncap_pool: bool = False,  # seeded mode: skip max_pool_size; per-artist cap still applies
     perceptual_bpm: Optional[np.ndarray] = None,
     tempo_stability: Optional[np.ndarray] = None,

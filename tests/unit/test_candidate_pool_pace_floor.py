@@ -42,7 +42,6 @@ def test_pace_admission_floor_is_no_longer_a_hard_gate():
         cfg=_make_cfg(pace_admission_floor=0.80),
         random_seed=0,
         X_sonic=X_sonic,
-        tower_pca_dims=(8, 16, 8),
     )
 
     # Track 5 is now admitted (rhythm-cosine gate removed)
@@ -68,7 +67,6 @@ def test_pace_floor_uses_max_over_seeds():
         cfg=_make_cfg(pace_admission_floor=0.80),
         random_seed=0,
         X_sonic=X_sonic,
-        tower_pca_dims=(8, 16, 8),
     )
 
     assert 5 in set(result.pool_indices)
