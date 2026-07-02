@@ -221,7 +221,10 @@ def emit_edge_repair_log(swap_log: list[dict]) -> None:
                 entry.get("new_worst_T"),
             )
         else:
-            logger.info(
+            # Per-candidate refusals are DEBUG-only: one line per rejected
+            # candidate per edge floods INFO (hundreds of lines/generation).
+            # The accepted swaps above + the summary stay at INFO.
+            logger.debug(
                 "Repair refusal edge=%s pos=%s candidate=%s/%s reason=%s",
                 entry.get("edge_position"),
                 entry.get("position"),
