@@ -1245,7 +1245,7 @@ def _beam_search_segment(
                 edge_metric = _score_shared_transition(current, cand)
                 trans_score = float(edge_metric.get("T", float("nan")))
 
-                # Hard floors: transition + bridge-local
+                # Anti-alignment safety only (is_broken_transition no longer T-gates; roam design)
                 if _transition_gate_failed(edge_metric):
                     continue
 
@@ -1797,7 +1797,7 @@ def _beam_search_segment(
         final_edge_metric = _score_shared_transition(last, pier_b)
         final_trans = float(final_edge_metric.get("T", float("nan")))
 
-        # Hard floor on final transition
+        # Anti-alignment safety only (is_broken_transition no longer T-gates; roam design)
         if _transition_gate_failed(final_edge_metric):
             continue
 
