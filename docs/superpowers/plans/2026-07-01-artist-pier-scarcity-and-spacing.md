@@ -88,12 +88,16 @@ def test_waypoints_distribute_across_gaps(monkeypatch):
         lengths = _even_split_lengths(interior, num_seg)
         if int(max(lengths)) <= int(max_interior):
             break
-        # Split an over-long segment whose ORIGIN seed-gap has the fewest waypoints so
-        # far (ties -> leftmost). Distributes evenly instead of hammering segment 0.
-        order = sorted(
-            (i for i in range(num_seg) if lengths[i] > int(max_interior)),
-            key=lambda i: (wp_per_gap[seg_gap[i]], i),
-        )
+        # Round-robin across ORIGIN seed-gaps: split the gap with the fewest waypoints
+        # so far (ties -> leftmost). Even-split makes every sub-segment ~equal length
+        # regardless of which gap we split, so the split-choice only controls seed
+        # spacing -- distribute it, don't (as the old argmax did) hammer segment 0.
+        # NB: do NOT pre-filter to `lengths[i] > max_interior`. `_even_split_lengths`
+        # piles the remainder onto the EARLIEST segments, so at the tail only gap-0
+        # segments look "over-long" and waypoints re-concentrate there (the bug found
+        # in review). `max(lengths)` above is the stop condition; selection ranges over
+        # ALL segments.
+        order = sorted(range(num_seg), key=lambda i: (wp_per_gap[seg_gap[i]], i))
         seg = wp = None
         for i in order:
             cand = select_waypoint(
