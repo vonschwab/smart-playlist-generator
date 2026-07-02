@@ -272,6 +272,14 @@ playlists:
       mini_pier_enabled: true
       mini_pier_max_interior: 5
       mini_pier_smoothness_margin: 0.12
+      # Tail-DP segment endgame (spec 2026-07-02, live default ON): after each
+      # segment's beam+var-bridge finalizes, re-open the last min(2, interior)
+      # slots and exactly maximize the window min-edge over the segment pool
+      # (never-worse; falls back to the original tail on any internal error).
+      # Set enabled:false to roll back to the beam's landing as-is.
+      tail_dp:
+        enabled: true
+        epsilon: 0.02
       # Total-generation wall-clock budget (seconds). A single shared deadline is
       # computed once at generation start (before any One-Each retries) and threaded
       # into all segment loops and relaxation tiers so NO path can collectively exceed

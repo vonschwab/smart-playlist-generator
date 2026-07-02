@@ -110,6 +110,13 @@ class PierBridgeConfig:
     mini_pier_enabled: bool = False
     mini_pier_max_interior: int = 5        # split any segment whose interior exceeds K
     mini_pier_smoothness_margin: float = 0.12
+    # Tail-DP segment endgame (spec 2026-07-02; live default ON). After each
+    # segment's beam+var-bridge finalizes segment_path, re-opens the last
+    # min(2, interior) slots and exactly maximizes the window min-edge over the
+    # segment's own candidate pool (never-worse; falls back to the original tail
+    # on any internal error). false = byte-identical to today.
+    tail_dp_enabled: bool = True
+    tail_dp_epsilon: float = 0.02
     # Layered genre graph transition scoring (opt-in; default OFF).
     # Uses sidecar-derived leaf/family/bridge/facet matrices when present on
     # the artifact bundle. This is separate from legacy flat genre steering.

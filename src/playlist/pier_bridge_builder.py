@@ -146,6 +146,7 @@ from src.playlist.transition_metrics import (
     resolve_transition_calib,
     score_transition_edge,
 )
+from src.playlist.pier_bridge.tail_dp import optimize_segment_tail
 
 
 logger = logging.getLogger(__name__)
@@ -934,6 +935,10 @@ def build_pier_bridge_playlist(
     MIN_GAP_GLOBAL = max(1, int(min_gap))  # Cross-segment min_gap constraint
     recent_boundary_artists: List[str] = []
     global_non_seed_artist_counts: Dict[str, int] = {}
+
+    # Tail-DP endgame (spec 2026-07-02) summary counters.
+    tail_dp_attempted_segments = 0
+    tail_dp_applied_segments = 0
 
     def _artist_keys_for_cap(idx: int) -> Set[str]:
         use_identity = artist_identity_cfg is not None and artist_identity_cfg.enabled
@@ -2423,6 +2428,115 @@ def build_pier_bridge_playlist(
                 ),
             )
 
+        # Tail-DP endgame (spec 2026-07-02): re-open the last min(2, interior)
+        # slots of the just-finalized segment and exactly maximize the window
+        # min-edge (T) over the segment's own candidate pool. Runs AFTER
+        # var-bridge finalizes segment_path and BEFORE full_segment is
+        # assembled below, so every downstream consumer (diagnostics, the
+        # global_used commit, audits) sees the re-optimized path. Never-worse
+        # by construction (tail_dp.optimize_segment_tail); never raises — any
+        # internal error here is caught and logged, leaving segment_path as-is.
+        if bool(getattr(cfg, "tail_dp_enabled", False)) and segment_path:
+            tail_dp_attempted_segments += 1
+            try:
+                segment_path = list(segment_path)
+                td_window = min(2, len(segment_path))
+                td_kept_prefix = list(segment_path[:-td_window]) if td_window else list(segment_path)
+
+                # Interior-banned artist identities (seed/pier artists), reusing
+                # the same construction the edge-repair pass uses below.
+                td_banned_artist_keys: Set[str] = set()
+                if bool(cfg.disallow_seed_artist_in_interiors) or bool(cfg.disallow_pier_artists_in_interiors):
+                    for td_sidx in seed_indices:
+                        td_banned_artist_keys |= _artist_keys_for_cap(int(td_sidx))
+
+                # Candidate prefilter: the segment's own pool, minus used tracks
+                # (cross-segment), the current segment's kept-prefix tracks, the
+                # piers, and interior-banned artists. The two tail tracks being
+                # replaced are intentionally NOT excluded (a candidate equal to
+                # the current occupant is a harmless no-op swap).
+                td_exclude = set(int(i) for i in td_kept_prefix) | {int(pier_a), int(pier_b)}
+                td_candidates = [
+                    int(c) for c in last_segment_candidates
+                    if int(c) not in global_used
+                    and int(c) not in td_exclude
+                    and not (_artist_keys_for_cap(int(c)) & td_banned_artist_keys)
+                ]
+
+                # "Assembled playlist so far" = all prior committed segments
+                # (all_segments has not yet been appended-to for this segment)
+                # + the kept prefix of this segment. Used for the trailing
+                # min_gap recency window (mirrors _enforce_min_gap_global: a
+                # rolling window of the last min_gap identity keys).
+                td_assembled_so_far: List[int] = []
+                for td_ci, td_cseg in enumerate(all_segments):
+                    if td_ci == 0:
+                        td_assembled_so_far.extend(td_cseg)
+                    else:
+                        td_assembled_so_far.extend(td_cseg[1:])
+                if not td_assembled_so_far or int(td_assembled_so_far[-1]) != int(pier_a):
+                    td_assembled_so_far.append(int(pier_a))
+
+                td_recent_source = td_assembled_so_far + td_kept_prefix
+                td_recent_keys: Set[str] = set()
+                if int(min_gap) > 0:
+                    for td_ridx in td_recent_source[-int(min_gap):]:
+                        td_recent_keys |= _artist_keys_for_cap(int(td_ridx))
+
+                def _tail_dp_is_allowed_pair(x: int, y: int) -> bool:
+                    try:
+                        x = int(x)
+                        y = int(y)
+                        two_slot = td_window == 2
+                        if two_slot and x == y:
+                            return False
+                        x_keys = _artist_keys_for_cap(x)
+                        y_keys = _artist_keys_for_cap(y) if two_slot else set()
+                        if two_slot and int(min_gap) > 0 and (x_keys & y_keys):
+                            return False
+                        if int(min_gap) > 0:
+                            if x_keys & td_recent_keys:
+                                return False
+                            if two_slot and (y_keys & td_recent_keys):
+                                return False
+                        return True
+                    except Exception:
+                        return False
+
+                td_swap = optimize_segment_tail(
+                    transition_metric_context,
+                    segment_path=segment_path,
+                    pier_a=int(pier_a),
+                    pier_b=int(pier_b),
+                    candidates=td_candidates,
+                    epsilon=float(getattr(cfg, "tail_dp_epsilon", 0.02)),
+                    is_allowed_pair=_tail_dp_is_allowed_pair,
+                )
+                if td_swap is not None:
+                    td_old_tail = tuple(int(i) for i in segment_path[-td_window:])
+                    segment_path[-td_window:] = list(td_swap.new_tail)
+                    tail_dp_applied_segments += 1
+                    try:
+                        td_old_ids = [str(bundle.track_ids[i]) for i in td_old_tail]
+                        td_new_ids = [str(bundle.track_ids[i]) for i in td_swap.new_tail]
+                    except Exception:
+                        td_old_ids = [str(i) for i in td_old_tail]
+                        td_new_ids = [str(i) for i in td_swap.new_tail]
+                    logger.info(
+                        "Tail-DP seg %d: window min %.3f -> %.3f (swapped [%s] -> [%s])",
+                        seg_idx,
+                        float(td_swap.old_min),
+                        float(td_swap.new_min),
+                        ", ".join(td_old_ids),
+                        ", ".join(td_new_ids),
+                    )
+            except Exception:
+                logger.warning(
+                    "Tail-DP: internal error on segment %d; keeping original segment tail",
+                    seg_idx,
+                    exc_info=True,
+                )
+
         # Compute edge scores for diagnostics
         full_segment = [pier_a] + segment_path + [pier_b]
         worst_edge, mean_edge = _compute_edge_scores(
@@ -2730,6 +2844,13 @@ def build_pier_bridge_playlist(
                         recent_boundary_artists.append(str(artist_key))
             except Exception:
                 continue
+
+    if bool(getattr(cfg, "tail_dp_enabled", False)):
+        logger.info(
+            "Tail-DP summary: applied=%d/%d segments",
+            int(tail_dp_applied_segments),
+            int(tail_dp_attempted_segments),
+        )
 
     # Concatenate segments
     # First segment: keep full [A, ..., B]

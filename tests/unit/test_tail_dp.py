@@ -113,3 +113,28 @@ def test_empty_path_and_no_candidates_noop():
     assert optimize_segment_tail(ctx, segment_path=[2], pier_a=0, pier_b=1,
                                  candidates=[], epsilon=0.02,
                                  is_allowed_pair=lambda x, y: True) is None
+
+
+def test_tail_dp_knobs_default_and_override():
+    from src.playlist.config import default_ds_config
+    from src.playlist.pier_bridge.config import PierBridgeConfig
+    from src.playlist.pipeline.pier_bridge_overrides import apply_pier_bridge_overrides
+
+    cfg = PierBridgeConfig()
+    assert cfg.tail_dp_enabled is True
+    assert cfg.tail_dp_epsilon == 0.02
+
+    # mirror the invocation shape used by test_edge_repair_break_glass.py's
+    # knob test (the real apply_pier_bridge_overrides signature).
+    pb_cfg, _tuning, _sources = apply_pier_bridge_overrides(
+        pier_bridge_config=PierBridgeConfig(),
+        cfg=default_ds_config("dynamic", playlist_len=3),
+        overrides={},
+        pb_overrides={"tail_dp": {"enabled": False, "epsilon": 0.05}},
+        artist_playlist=False,
+        dry_run=True,
+        audit_cfg=None,
+    )
+
+    assert pb_cfg.tail_dp_enabled is False
+    assert pb_cfg.tail_dp_epsilon == 0.05
