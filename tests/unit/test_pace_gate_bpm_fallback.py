@@ -43,7 +43,6 @@ def _bundle(X_sonic: np.ndarray) -> ArtifactBundle:
         track_id_to_index={str(tid): i for i, tid in enumerate(track_ids)},
         sonic_variant="muq",
         sonic_pre_scaled=True,
-        tower_dims=None,  # no-tower variant: rhythm axis cannot be sliced
     )
 
 

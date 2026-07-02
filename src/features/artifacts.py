@@ -4,7 +4,7 @@ import functools
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Literal, Optional, Tuple
+from typing import Dict, Literal, Optional
 
 import numpy as np
 
@@ -13,11 +13,6 @@ from src.genre.artifact_identity import dense_sidecar_mismatch_reason
 logger = logging.getLogger(__name__)
 
 Segment = Literal["full", "start", "mid", "end"]
-
-# The v4.1 tower-weight alignment: transition_weights == tower_weights ==
-# rhythm 0.20 / timbre 0.50 / harmony 0.30. Anything else is an intentional
-# user override (see validate_tower_knobs).
-DEFAULT_TOWER_TRANSITION_WEIGHTS: Tuple[float, float, float] = (0.20, 0.50, 0.30)
 
 # Process-wide config override (config.yaml: artifacts.sonic_variant_override).
 # When set, it wins over the variant the artifact declares via its
@@ -69,10 +64,6 @@ class ArtifactBundle:
     X_sonic_raw: Optional[np.ndarray] = None
     sonic_variant: Optional[str] = None
     sonic_pre_scaled: bool = False
-    # Authoritative per-tower blend split (rhythm, timbre, harmony) — sums to X_sonic
-    # width. The source of truth for slicing X_sonic into perceptual axes; None for
-    # legacy artifacts that predate the key.
-    tower_dims: Optional[Tuple[int, int, int]] = None
     # Optional: dense PMI-SVD genre embedding (from sidecar NPZ)
     X_genre_dense: Optional[np.ndarray] = None   # (N, dim) L2-normalized
     genre_emb: Optional[np.ndarray] = None       # (V, dim) vocabulary embedding
@@ -183,15 +174,6 @@ def _load_artifact_bundle_cached(
     sonic_feature_names = data["sonic_feature_names"] if "sonic_feature_names" in data else None
     sonic_feature_units = data["sonic_feature_units"] if "sonic_feature_units" in data else None
     durations_ms = data["durations_ms"] if "durations_ms" in data else None
-
-    tower_dims: Optional[Tuple[int, int, int]] = None
-    if "tower_dims" in data:
-        try:
-            td = tuple(int(v) for v in np.asarray(data["tower_dims"]).ravel())
-            if len(td) == 3:
-                tower_dims = td  # type: ignore[assignment]
-        except (TypeError, ValueError):
-            tower_dims = None
 
     # Prefer precomputed variant matrix when present. The config override
     # (artifacts.sonic_variant_override) wins over the artifact-declared
@@ -358,7 +340,6 @@ def _load_artifact_bundle_cached(
         X_sonic_raw=X_sonic_raw,
         sonic_variant=sonic_variant,
         sonic_pre_scaled=sonic_pre_scaled,
-        tower_dims=tower_dims,
         X_genre_dense=X_genre_dense,
         genre_emb=genre_emb,
         X_genre_leaf_idf=X_genre_leaf_idf,
@@ -371,83 +352,6 @@ def _load_artifact_bundle_cached(
         facet_vocab=facet_vocab,
         genre_graph_taxonomy_version=genre_graph_taxonomy_version,
         genre_graph_sidecar_fingerprint=genre_graph_sidecar_fingerprint,
-    )
-
-
-def _is_default_transition_weights(weights: Tuple[float, float, float]) -> bool:
-    """True when ``weights`` normalize to the 0.20/0.50/0.30 default split."""
-    try:
-        vals = tuple(float(v) for v in weights)
-    except (TypeError, ValueError):
-        return False
-    if len(vals) != 3 or any(v < 0 for v in vals):
-        return False
-    total = sum(vals)
-    if total <= 0:
-        return False
-    return all(
-        abs(v / total - d) <= 1e-6
-        for v, d in zip(vals, DEFAULT_TOWER_TRANSITION_WEIGHTS)
-    )
-
-
-def _variant_lacks_tower_split(bundle: ArtifactBundle) -> bool:
-    """True when an active sonic variant has no rhythm/timbre/harmony split.
-
-    Only variant-active bundles qualify: legacy artifacts with no declared
-    variant keep their current behavior. A variant has a tower split when the
-    artifact's ``tower_dims`` matches the blend width, or the matrix is the
-    raw 137-dim beat3tower blend (hardcoded slices in apply_transition_weights).
-    """
-    if not bundle.sonic_pre_scaled or not bundle.sonic_variant:
-        return False
-    X = bundle.X_sonic
-    if X is None:
-        return False
-    blend_dim = int(X.shape[1])
-    if blend_dim == 137:
-        return False
-    td = bundle.tower_dims
-    if td is not None and len(td) == 3 and sum(int(v) for v in td) == blend_dim:
-        return False
-    return True
-
-
-def validate_tower_knobs(
-    bundle: ArtifactBundle,
-    transition_weights: Optional[Tuple[float, float, float]],
-) -> None:
-    """Guard tower-style knobs against no-tower sonic variants (e.g. mert).
-
-    A no-tower variant is a single space: ``transition_weights`` /
-    ``tower_weights`` cannot act on it (beam and reporter both score plain
-    cosine, so the v4.1 beam/reporter alignment holds by construction).
-
-    - default (0.20/0.50/0.30) or unset weights → INFO log that the knobs are
-      inert for this variant;
-    - non-default weights → raise (a configured knob that cannot act is a
-      startup error, not a silent no-op).
-    """
-    if not _variant_lacks_tower_split(bundle):
-        return
-    variant = str(bundle.sonic_variant)
-    blend_dim = int(bundle.X_sonic.shape[1]) if bundle.X_sonic is not None else -1
-    if transition_weights is None or _is_default_transition_weights(transition_weights):
-        logger.info(
-            "Sonic variant '%s' has no rhythm/timbre/harmony tower split "
-            "(blend dim=%d, tower_dims=%r): tower_weights/transition_weights are "
-            "inert for this variant; transitions score plain cosine in the variant space.",
-            variant,
-            blend_dim,
-            bundle.tower_dims,
-        )
-        return
-    raise ValueError(
-        f"transition_weights={tuple(float(v) for v in transition_weights)} are configured "
-        f"(non-default) but the active sonic variant '{variant}' has no tower split "
-        f"(X_sonic dim {blend_dim}, tower_dims={bundle.tower_dims!r}); tower-style weights "
-        "cannot act on a single-space variant. Remove the non-default transition_weights "
-        f"(default {DEFAULT_TOWER_TRANSITION_WEIGHTS}) or switch back to a tower variant."
     )
 
 

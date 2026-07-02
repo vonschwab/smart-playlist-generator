@@ -47,7 +47,6 @@ from src.features.beat3tower_normalizer import (
     compute_tower_calibration_stats,
     l2_normalize,
 )
-from src.similarity.sonic_variant import compute_sonic_variant_matrix
 from src.features.beat3tower_types import Beat3TowerFeatures
 
 # Genre normalization (Taxonomy v1)
@@ -906,10 +905,6 @@ def build_artifacts(args: argparse.Namespace, enriched_resolver: Optional[Any] =
     X_sonic_mid = l2_normalize(np.hstack([X_r_mid, X_t_mid, X_h_mid]))
     X_sonic_end = l2_normalize(np.hstack([X_r_end, X_t_end, X_h_end]))
 
-    # Precompute preferred variant (robust_whiten) for downstream consumers
-    variant_name = "robust_whiten"
-    X_sonic_variant, variant_stats = compute_sonic_variant_matrix(X_sonic_raw, variant_name, l2=False)
-
     # Load genres with optional normalization (includes artist/album genre inheritance)
     normalize_genres = not args.no_genre_normalization
     logger.info(f"Loading genre information (normalization={'enabled' if normalize_genres else 'disabled'})...")
@@ -990,8 +985,6 @@ def build_artifacts(args: argparse.Namespace, enriched_resolver: Optional[Any] =
         # Concatenated embeddings (backward compatibility)
         X_sonic=X_sonic_raw,  # raw concatenated (legacy)
         X_sonic_raw=X_sonic_raw,
-        X_sonic_robust_whiten=X_sonic_variant,
-        X_sonic_variant=np.array(variant_name),
         X_sonic_pre_scaled=np.array(True),
         X_sonic_start=X_sonic_start,
         X_sonic_mid=X_sonic_mid,
@@ -1039,8 +1032,7 @@ def build_artifacts(args: argparse.Namespace, enriched_resolver: Optional[Any] =
         f"{len(tracks)} tracks, "
         f"{len(vocab)} genres, "
         f"{X_sonic_raw.shape[1]} sonic dims "
-        f"({output_dims['rhythm']}+{output_dims['timbre']}+{output_dims['harmony']}) "
-        f"| variant={variant_name} pre_scaled=True stats={variant_stats}"
+        f"({output_dims['rhythm']}+{output_dims['timbre']}+{output_dims['harmony']})"
     )
 
 

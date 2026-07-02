@@ -2,12 +2,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence
 
 import numpy as np
 
 from src.playlist.bpm_axis import bpm_log_distance
-from src.playlist.sonic_axes import axis_cosine_similarity, extract_axis_vectors
 from src.playlist.transition_metrics import TransitionMetricContext, score_transition_edge
 
 
@@ -29,7 +28,6 @@ class ReplacementContext:
     track_ids: np.ndarray
     artist_keys: np.ndarray
     candidate_pool_indices: np.ndarray
-    tower_pca_dims: Tuple[int, int, int]
     idf_weights: Optional[np.ndarray] = None
     transition_metric_context: Optional[TransitionMetricContext] = None
     transition_floor: float = DEFAULT_T_MIN
@@ -107,16 +105,16 @@ def _pace_divergence(ctx: ReplacementContext, *, cand_idx: int, current_idx: int
         current_bpm = float(ctx.perceptual_bpm[int(current_idx)])
         if np.isfinite(cand_bpm) and np.isfinite(current_bpm) and cand_bpm > 0 and current_bpm > 0:
             return float(bpm_log_distance(cand_bpm, current_bpm))
-
-    axes = extract_axis_vectors(ctx.X_sonic, tower_pca_dims=ctx.tower_pca_dims)
-    rhythm = axes["rhythm"]
-    return float(1.0 - axis_cosine_similarity(rhythm[int(cand_idx)], rhythm[int(current_idx)])[0, 0])
+    # No usable BPM: no pace signal (the tower rhythm axis was removed in SP-B).
+    return 0.0
 
 
 def _sound_divergence(ctx: ReplacementContext, *, cand_idx: int, current_idx: int) -> float:
-    axes = extract_axis_vectors(ctx.X_sonic, tower_pca_dims=ctx.tower_pca_dims)
-    color = axes["color"]
-    return float(1.0 - axis_cosine_similarity(color[int(cand_idx)], color[int(current_idx)])[0, 0])
+    # Full-sonic cosine divergence on the loaded (muq) matrix. The old tower
+    # "color" carving was meaningless on a no-tower embedding.
+    a = np.asarray(ctx.X_sonic[int(current_idx)], dtype=float)
+    b = np.asarray(ctx.X_sonic[int(cand_idx)], dtype=float)
+    return _safe_cosine_divergence(a, b)
 
 
 def find_replacement_candidates(

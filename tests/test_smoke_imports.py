@@ -62,10 +62,6 @@ class TestFeatureModuleImports:
 class TestSimilarityModuleImports:
     """Test that similarity submodule is importable."""
 
-    def test_sonic_variant(self):
-        from src.similarity.sonic_variant import resolve_sonic_variant
-        assert resolve_sonic_variant is not None
-
     def test_hybrid(self):
         from src.similarity.hybrid import HybridEmbeddingModel
         assert HybridEmbeddingModel is not None

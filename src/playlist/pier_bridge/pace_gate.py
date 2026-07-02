@@ -11,8 +11,12 @@ from typing import Optional
 
 import numpy as np
 
-from src.playlist.sonic_axes import interpolate_axis_vector
 from src.playlist.bpm_axis import interpolate_log_bpm, bpm_log_distance as _bpm_log_distance
+
+
+def _interpolate_vector(a: np.ndarray, b: np.ndarray, t: float) -> np.ndarray:
+    """Linearly interpolate between two vectors (generic lerp, not sonic-axis-specific)."""
+    return (1.0 - float(t)) * np.asarray(a, dtype=float) + float(t) * np.asarray(b, dtype=float)
 
 
 def compute_step_log_bpm_target(
@@ -142,7 +146,7 @@ def compute_step_energy_target(
     if int(segment_length) <= 0:
         return np.asarray(e_a, dtype=float)
     t = max(0.0, min(1.0, float(step) / float(segment_length)))
-    return interpolate_axis_vector(e_a, e_b, t)
+    return _interpolate_vector(e_a, e_b, t)
 
 
 def compute_energy_pace_penalty(

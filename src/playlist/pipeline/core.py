@@ -578,7 +578,6 @@ def generate_playlist_ds(
             genre_vocab=genre_vocab,
             broad_filters=broad_filters,
             mode=mode,
-            tower_pca_dims=variant_stats.get("tower_pca_dims"),
             uncap_pool=not artist_playlist,
             perceptual_bpm=perceptual_bpm,
             tempo_stability=tempo_stability_bpm,

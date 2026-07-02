@@ -80,15 +80,6 @@ def setup_embedding(
                 "pre_scaled": True,
                 "dim": int(bundle.X_sonic.shape[1]),
             }
-            # Expose tower_dims / tower_pca_dims so downstream pace-mode rhythm
-            # gating (candidate_pool.py) can slice X_sonic by perceptual axis.
-            _td = getattr(bundle, "tower_dims", None)
-            if _td is not None:
-                _blend = int(bundle.X_sonic.shape[1])
-                _dims = tuple(int(v) for v in _td)
-                if len(_dims) == 3 and sum(_dims) == _blend:
-                    variant_stats["tower_dims"] = _dims
-                    variant_stats["tower_pca_dims"] = _dims
         else:
             # No baked-in variant transform: the sonic space is used as-is
             # (raw passthrough — matches the pre-SP-B tower_pca fallback

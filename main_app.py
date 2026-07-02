@@ -22,7 +22,6 @@ from src.lastfm_client import LastFMClient
 from src.track_matcher import TrackMatcher
 from src.m3u_exporter import M3UExporter
 from src.metadata_client import MetadataClient
-from src.similarity.sonic_variant import resolve_sonic_variant
 from src.plex_exporter import PlexExporter
 from src.playlist.request_models import GeneratePlaylistRequest
 
@@ -60,8 +59,11 @@ class PlaylistApp:
             library_id=None,
             db_path=self.config.library_database_path,
         )
+        # Cosmetic export label only (M3U #EXTVARIANT tag + filename suffix) — SP-B
+        # retired the sonic-space transform selector (resolve_sonic_variant); this
+        # no longer selects a transform, it just surfaces the configured name.
         sonic_cfg = self.config.get('playlists', 'sonic', default={}) or {}
-        self.sonic_variant = resolve_sonic_variant(sonic_cfg.get("sim_variant"))
+        self.sonic_variant = str(sonic_cfg.get("sim_variant") or "raw").strip().lower()
 
         # Initialize metadata database client (optional, for enhanced genre matching)
         self.metadata = None
@@ -596,23 +598,6 @@ def main():
     )
 
     parser.add_argument(
-        "--sonic-variant",
-        choices=[
-            "raw",
-            "centered",
-            "z",
-            "z_clip",
-            "whiten_pca",
-            "robust_whiten",
-            "tower_l2",
-            "tower_robust",
-            "tower_iqr",
-            "tower_weighted",
-            "tower_pca",
-        ],
-        help="Override sonic similarity variant for DS pipeline (env has highest priority).",
-    )
-    parser.add_argument(
         "--audit-run",
         action="store_true",
         help="Write a detailed pier-bridge markdown audit report for this run (see playlists.ds_pipeline.pier_bridge.audit_run).",
@@ -685,17 +670,8 @@ def main():
 
     # Run application
     try:
-        if getattr(args, "sonic_variant", None):
-            import os
-
-            os.environ["SONIC_SIM_VARIANT"] = args.sonic_variant
         app = PlaylistApp(
             cohesion_mode_override=getattr(args, 'cohesion_mode', None),
-        )
-        # propagate explicit variant into generator (CLI > env > config)
-        app.generator.sonic_variant = resolve_sonic_variant(
-            explicit_variant=getattr(args, "sonic_variant", None),
-            config_variant=getattr(app.generator, "sonic_variant", None),
         )
 
         # Apply genre/sonic mode presets if provided (CLI overrides config)

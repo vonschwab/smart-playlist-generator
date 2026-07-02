@@ -200,7 +200,6 @@ class _LastGenerationCache:
     perceptual_bpm: Optional[np.ndarray] = None
     tempo_stability: Optional[np.ndarray] = None
     candidate_pool_indices: Optional[np.ndarray] = None
-    tower_pca_dims: Optional[tuple[int, int, int]] = None
     idf_weights: Optional[np.ndarray] = None
     transition_metric_context: Any = None
     transition_floor: float = 0.20
@@ -574,46 +573,6 @@ def _build_seed_similarity_components(
     return components
 
 
-def _infer_tower_pca_dims(dim: int) -> tuple[int, int, int]:
-    if dim == 137:
-        return (21, 83, 33)
-    if dim == 32:
-        return (8, 16, 8)
-    rhythm = max(1, int(round(dim * 0.25)))
-    timbre = max(1, int(round(dim * 0.50)))
-    harmony = max(1, dim - rhythm - timbre)
-    return (rhythm, timbre, harmony)
-
-
-def _resolve_tower_pca_dims(bundle, ds_cfg: dict) -> tuple[int, int, int]:
-    """Resolve the rhythm/timbre/harmony split used to slice X_sonic into axes.
-
-    Priority:
-      1. The artifact's own ``tower_dims`` — authoritative, records the exact blend
-         layout. Only trusted when it sums to the blend width (guards stale values).
-      2. An explicit 3-element ``tower_pca_dims`` in config that matches the width.
-      3. Width-based inference (lossy fallback for legacy artifacts).
-
-    Inference goes wrong whenever towers aren't in the default proportion — e.g. the
-    162-dim 2DFTM harmony rebuild is truly (9,57,96) but inference yields (40,81,41).
-    """
-    blend_dim = int(bundle.X_sonic.shape[1])
-
-    bundle_dims = getattr(bundle, "tower_dims", None)
-    if bundle_dims is not None:
-        dims = tuple(int(v) for v in bundle_dims)
-        if len(dims) == 3 and sum(dims) == blend_dim:
-            return dims  # type: ignore[return-value]
-
-    cfg_dims = ds_cfg.get("tower_pca_dims")
-    if isinstance(cfg_dims, (list, tuple)) and len(cfg_dims) == 3:
-        dims = tuple(int(v) for v in cfg_dims)
-        if sum(dims) == blend_dim:
-            return dims  # type: ignore[return-value]
-
-    return _infer_tower_pca_dims(blend_dim)
-
-
 def _resolve_track_genres(
     track: Dict[str, Any],
     *,
@@ -713,7 +672,6 @@ def _populate_last_generation_cache(
     *,
     generator: Any,
     playlist_result: dict[str, Any],
-    config: dict[str, Any],
     db_path: str,
 ) -> None:
     """Capture read-only generation artifacts needed for replacement scoring."""
@@ -783,9 +741,6 @@ def _populate_last_generation_cache(
         calib_gain=_cal_g,
     )
 
-    ds_cfg = (config.get("playlists", {}) or {}).get("ds_pipeline", {}) or {}
-    tower_pca_dims = _resolve_tower_pca_dims(bundle, ds_cfg)
-
     cache = _LAST_GENERATION_CACHE
     cache.playlist_id = str(playlist_result.get("name") or "")
     cache.db_path = str(db_path)
@@ -801,7 +756,6 @@ def _populate_last_generation_cache(
     cache.perceptual_bpm = perceptual_bpm
     cache.tempo_stability = tempo_stability
     cache.candidate_pool_indices = candidate_pool_indices
-    cache.tower_pca_dims = tower_pca_dims
     cache.transition_metric_context = transition_metric_context
     cache.transition_floor = float(transition_floor)
     cache.playlist_track_ids = playlist_track_ids
@@ -899,7 +853,6 @@ def handle_find_replacement_suggestions(cmd_data: Dict[str, Any]) -> None:
             cache.X_full,
             cache.X_genre_smoothed,
             cache.candidate_pool_indices,
-            cache.tower_pca_dims,
         ]
         if any(value is None for value in required):
             emit_error("No playlist in cache. Generate one first.")
@@ -941,7 +894,6 @@ def handle_find_replacement_suggestions(cmd_data: Dict[str, Any]) -> None:
             track_ids=cache.track_ids,
             artist_keys=cache.artist_keys,
             candidate_pool_indices=cache.candidate_pool_indices,
-            tower_pca_dims=cache.tower_pca_dims,
             idf_weights=cache.idf_weights,
             transition_metric_context=cache.transition_metric_context,
             transition_floor=cache.transition_floor,
@@ -1490,7 +1442,6 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                 _populate_last_generation_cache(
                     generator=generator,
                     playlist_result=playlist_result,
-                    config=config,
                     db_path=merged_config.library_database_path,
                 )
             except Exception as exc:

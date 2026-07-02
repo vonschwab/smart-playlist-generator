@@ -202,7 +202,6 @@ def _slice_bundle(
         # because ArtifactBundle is a frozen dataclass (defaults don't carry over).
         sonic_variant=bundle.sonic_variant,
         sonic_pre_scaled=bundle.sonic_pre_scaled,
-        tower_dims=bundle.tower_dims,
         genre_emb=bundle.genre_emb,
         genre_leaf_vocab=getattr(bundle, "genre_leaf_vocab", None),
         genre_family_vocab=getattr(bundle, "genre_family_vocab", None),

@@ -28,9 +28,15 @@ def test_unknown_variant_warns_loudly(tmp_path, caplog):
     assert any("not a recognized sonic variant" in r.getMessage() for r in caplog.records)
 
 
-def test_known_variants_do_not_warn(tmp_path, caplog):
+def test_known_variant_does_not_warn(tmp_path, caplog):
     import logging
     with caplog.at_level(logging.WARNING):
         _variant_gate(_cfg(tmp_path, "muq"), "muq")
-        _variant_gate(_cfg(tmp_path, "tower_weighted"), "muq")   # valid rollback, must not warn
     assert not any("not a recognized" in r.getMessage() for r in caplog.records)
+
+
+def test_tower_weighted_override_now_warns(tmp_path, caplog):
+    import logging
+    with caplog.at_level(logging.WARNING):
+        _variant_gate(_cfg(tmp_path, "tower_weighted"), "muq")
+    assert any("not a recognized sonic variant" in r.getMessage() for r in caplog.records)

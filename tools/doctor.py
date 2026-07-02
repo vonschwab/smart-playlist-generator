@@ -246,12 +246,11 @@ class DoctorChecks:
     def check_playlist_module_imports(self) -> bool:
         """Check core playlist module imports work."""
         try:
-            # All four imports are availability checks; the noqa marks satisfy
+            # All three imports are availability checks; the noqa marks satisfy
             # ruff F401 since the names aren't referenced after the import.
             from src.config_loader import Config  # noqa: F401
             from src.local_library_client import LocalLibraryClient  # noqa: F401
             from src.playlist.pipeline import DSPipelineResult  # noqa: F401
-            from src.playlist.constructor import construct_playlist  # noqa: F401
             check_pass("Core modules importable")
             self.passed += 1
             return True

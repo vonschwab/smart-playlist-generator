@@ -148,13 +148,9 @@ def _mert_fold_settings(config_path: str) -> Tuple[bool, str]:
     return enabled, variant
 
 
-# Recognized artifacts.sonic_variant_override values: the baked learned-embedding variants
-# (mert, muq) that have extraction stages, plus the tower/transform rollback variants. An
-# override that is none of these is almost certainly a typo — the mert/muq extraction stages
-# would BOTH silently no-op, the exact "a configured knob that can't act is a silent no-op"
-# failure this project guards against — so _variant_gate warns loudly at analyze time.
-from src.similarity.sonic_variant import _ALLOWED as _SONIC_TRANSFORM_VARIANTS  # noqa: E402
-_KNOWN_SONIC_VARIANTS = frozenset({"mert", "muq"}) | frozenset(_SONIC_TRANSFORM_VARIANTS)
+# Recognized artifacts.sonic_variant_override values. muq is the sole baked
+# variant (SP-B removed MERT and the tower/transform variants).
+_KNOWN_SONIC_VARIANTS = frozenset({"muq"})
 
 
 def _variant_gate(config_path: str, stage_variant: str) -> Optional[str]:

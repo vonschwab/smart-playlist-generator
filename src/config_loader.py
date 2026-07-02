@@ -345,36 +345,6 @@ class Config:
         return val
 
     @property
-    def ds_tower_weights(self) -> tuple:
-        """Tower weights (rhythm, timbre, harmony) for candidate selection."""
-        tw = self._get_ds_pipeline('tower_weights', default={})
-        return (
-            tw.get('rhythm', 0.20),
-            tw.get('timbre', 0.50),
-            tw.get('harmony', 0.30),
-        )
-
-    @property
-    def ds_transition_weights(self) -> tuple:
-        """Transition weights (rhythm, timbre, harmony) for end→start scoring."""
-        tw = self._get_ds_pipeline('transition_weights', default={})
-        return (
-            tw.get('rhythm', 0.40),
-            tw.get('timbre', 0.35),
-            tw.get('harmony', 0.25),
-        )
-
-    @property
-    def ds_tower_pca_dims(self) -> tuple:
-        """PCA dimensions (rhythm, timbre, harmony) per tower."""
-        dims = self._get_ds_pipeline('tower_pca_dims', default={})
-        return (
-            dims.get('rhythm', 8),
-            dims.get('timbre', 16),
-            dims.get('harmony', 8),
-        )
-
-    @property
     def ds_embedding_sonic_components(self) -> int:
         """PCA dimensions for sonic features in hybrid embedding."""
         return self._get_ds_pipeline('embedding', 'sonic_components', default=32)
@@ -492,9 +462,6 @@ class Config:
     def get_ds_tuning_dict(self) -> dict:
         """Return all DS tuning parameters as a dict for pipeline consumption."""
         return {
-            'tower_weights': self.ds_tower_weights,
-            'transition_weights': self.ds_transition_weights,
-            'tower_pca_dims': self.ds_tower_pca_dims,
             'embedding': {
                 'sonic_components': self.ds_embedding_sonic_components,
                 'genre_components': self.ds_embedding_genre_components,

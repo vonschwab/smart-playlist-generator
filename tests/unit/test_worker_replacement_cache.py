@@ -64,7 +64,6 @@ def test_replacement_cache_uses_ds_candidate_pool_track_ids(monkeypatch):
     worker._populate_last_generation_cache(
         generator=generator,
         playlist_result=playlist_result,
-        config={"playlists": {"ds_pipeline": {"tower_pca_dims": [2, 2, 2]}}},
         db_path="metadata.db",
     )
 

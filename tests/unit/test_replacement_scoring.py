@@ -26,7 +26,6 @@ def _ctx(N=20, dim=32):
         track_ids=np.array([f"t{i}" for i in range(N)], dtype=object),
         artist_keys=np.array([f"a{i // 2}" for i in range(N)], dtype=object),
         candidate_pool_indices=np.arange(N),
-        tower_pca_dims=(8, 16, 8),
         idf_weights=None,
     )
 

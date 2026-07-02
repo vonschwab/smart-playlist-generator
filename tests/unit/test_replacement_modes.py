@@ -23,7 +23,6 @@ def _replacement_ctx() -> ReplacementContext:
         track_ids=np.array([f"track-{idx}" for idx in range(n)], dtype=object),
         artist_keys=np.array([f"artist-{idx}" for idx in range(n)], dtype=object),
         candidate_pool_indices=np.arange(n),
-        tower_pca_dims=(8, 16, 8),
         transition_floor=0.0,
     )
 
