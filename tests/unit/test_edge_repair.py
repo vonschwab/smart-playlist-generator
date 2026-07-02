@@ -56,7 +56,6 @@ def _context(bundle: ArtifactBundle):
         X_end=bundle.X_sonic_end,
         X_genre=bundle.X_genre_smoothed,
         center_transitions=False,
-        sonic_variant="raw",
     )
 
 

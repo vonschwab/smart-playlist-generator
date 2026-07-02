@@ -40,9 +40,18 @@ def _bundle(
     )
 
 
-def _matrix_137(rows: list[tuple[float, float, float]]) -> np.ndarray:
-    """Build sparse beat3tower-shaped rows with rhythm/timbre/harmony sentinels."""
-    mat = np.zeros((len(rows), 137), dtype=float)
+def _matrix_sonic(rows: list[tuple[float, float, float]]) -> np.ndarray:
+    """Build sparse muq-shaped (512-dim) rows with three feature-axis sentinels.
+
+    Width intentionally != 137: the beam builder (pier_bridge_builder.py)
+    still calls the legacy `apply_transition_weights`, which special-cases
+    exactly-137-dim beat3tower matrices and re-applies tower reweighting that
+    `build_transition_metric_context` no longer does (SP-B Task 3). A 137-dim
+    fixture would re-introduce that legacy path and break the beam-vs-reporter
+    alignment this test guards, pending its removal from pier_bridge_builder.py
+    in a later SP-B task.
+    """
+    mat = np.zeros((len(rows), 512), dtype=float)
     for i, (rhythm, timbre, harmony) in enumerate(rows):
         mat[i, 0] = rhythm
         mat[i, 21] = timbre
@@ -52,22 +61,22 @@ def _matrix_137(rows: list[tuple[float, float, float]]) -> np.ndarray:
 
 def test_beam_trans_score_matches_reporter_t_for_centered_weighted_edge(monkeypatch):
     weights = (0.2, 0.5, 0.3)
-    X_full = _matrix_137([
+    X_full = _matrix_sonic([
         (1.0, 0.0, 0.0),
         (0.8, 0.5, 0.0),
         (0.0, 1.0, 0.4),
     ])
-    X_start = _matrix_137([
+    X_start = _matrix_sonic([
         (1.0, 0.0, 0.0),
         (0.7, 0.6, 0.0),
         (0.0, 1.0, 0.5),
     ])
-    X_mid = _matrix_137([
+    X_mid = _matrix_sonic([
         (1.0, 0.0, 0.0),
         (0.6, 0.7, 0.0),
         (0.1, 1.0, 0.4),
     ])
-    X_end = _matrix_137([
+    X_end = _matrix_sonic([
         (1.0, 0.1, 0.0),
         (0.6, 0.7, 0.1),
         (0.0, 0.9, 0.6),
@@ -82,8 +91,6 @@ def test_beam_trans_score_matches_reporter_t_for_centered_weighted_edge(monkeypa
         X_end=X_end,
         X_genre=bundle.X_genre_smoothed,
         center_transitions=True,
-        transition_weights=weights,
-        sonic_variant="raw",
     )
     cfg = PierBridgeConfig(
         center_transitions=True,
@@ -141,7 +148,6 @@ def test_catastrophic_centered_cos_is_broken_even_when_rescaled_t_clears_floor()
         X_mid=X,
         X_end=X,
         center_transitions=True,
-        sonic_variant="raw",
     )
     edge = score_transition_edge(ctx, 0, 1)
 
@@ -152,22 +158,22 @@ def test_catastrophic_centered_cos_is_broken_even_when_rescaled_t_clears_floor()
 
 def test_builder_edge_scores_match_final_reporter_edges(monkeypatch):
     weights = (0.2, 0.5, 0.3)
-    X_full = _matrix_137([
+    X_full = _matrix_sonic([
         (1.0, 0.0, 0.0),
         (0.8, 0.5, 0.0),
         (0.0, 1.0, 0.4),
     ])
-    X_start = _matrix_137([
+    X_start = _matrix_sonic([
         (1.0, 0.0, 0.0),
         (0.7, 0.6, 0.0),
         (0.0, 1.0, 0.5),
     ])
-    X_mid = _matrix_137([
+    X_mid = _matrix_sonic([
         (1.0, 0.0, 0.0),
         (0.6, 0.7, 0.0),
         (0.1, 1.0, 0.4),
     ])
-    X_end = _matrix_137([
+    X_end = _matrix_sonic([
         (1.0, 0.1, 0.0),
         (0.6, 0.7, 0.1),
         (0.0, 0.9, 0.6),

@@ -23,8 +23,8 @@ men = np.asarray(a["X_sonic_mert_end"], np.float32)
 def ctx(center):
     return build_transition_metric_context(
         X_sonic=mert, X_start=mst, X_mid=mmd, X_end=men,
-        center_transitions=center, transition_weights=(0.2, 0.5, 0.3),
-        sonic_variant="mert", weight_end_start=0.7, weight_mid_mid=0.15, weight_full_full=0.15,
+        center_transitions=center,
+        weight_end_start=0.7, weight_mid_mid=0.15, weight_full_full=0.15,
     )
 
 

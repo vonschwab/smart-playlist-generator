@@ -56,7 +56,7 @@ mert = np.asarray(a["X_sonic_mert"], np.float32)
 ctx = build_transition_metric_context(
     X_sonic=mert, X_start=np.asarray(a["X_sonic_mert_start"], np.float32),
     X_mid=np.asarray(a["X_sonic_mert_mid"], np.float32), X_end=np.asarray(a["X_sonic_mert_end"], np.float32),
-    center_transitions=True, transition_weights=(0.2, 0.5, 0.3), sonic_variant="mert",
+    center_transitions=True,
     weight_end_start=0.7, weight_mid_mid=0.15, weight_full_full=0.15,
     calib_center=0.32, calib_scale=0.0625, calib_gain=1.0,
 )

@@ -14,7 +14,6 @@ import numpy as np
 
 from src.playlist.utils import sanitize_for_logging
 from src.features.artifacts import load_artifact_bundle
-from src.similarity.sonic_variant import resolve_sonic_variant
 from src.playlist.transition_metrics import (
     build_transition_metric_context,
     resolve_transition_calib,
@@ -299,14 +298,11 @@ def compute_edge_scores_from_artifact(
     if X_sonic is None:
         return []
 
-    sonic_variant = resolve_sonic_variant(explicit_variant=sonic_variant, config_variant=config_sonic_variant)
     # Transition calibration must track the ACTIVE sonic variant's cosine band
     # (MuQ runs hot vs MERT) or the rescale sigmoid saturates and every reported
     # edge collapses to ~1.0 — the diagnostics-panel bug. Resolve from
     # bundle.sonic_variant (the authoritative mert/muq name), exactly as the beam
-    # does (pier_bridge_builder.py:490). The local `sonic_variant` above is
-    # normalized for the sonic-space transform and loses mert/muq (-> tower_pca),
-    # so it must NOT drive calib.
+    # does (pier_bridge_builder.py:490).
     _cal_c, _cal_s, _cal_g = resolve_transition_calib(getattr(bundle, "sonic_variant", None))
     ctx = build_transition_metric_context(
         X_sonic=X_sonic,
@@ -315,8 +311,6 @@ def compute_edge_scores_from_artifact(
         X_end=getattr(bundle, "X_sonic_end", None),
         X_genre=X_genre,
         center_transitions=bool(center_transitions),
-        transition_weights=transition_weights,
-        sonic_variant=sonic_variant,
         transition_gamma=transition_gamma,
         embedding_random_seed=embedding_random_seed,
         calib_center=_cal_c,

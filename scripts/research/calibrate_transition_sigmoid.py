@@ -45,8 +45,8 @@ men = np.asarray(a[f"X_sonic_{VARIANT}_end"], np.float32)
 
 ctx = build_transition_metric_context(
     X_sonic=mert, X_start=mst, X_mid=mmd, X_end=men,
-    center_transitions=True, transition_weights=(0.2, 0.5, 0.3),
-    sonic_variant=VARIANT, weight_end_start=W[0], weight_mid_mid=W[1], weight_full_full=W[2],
+    center_transitions=True,
+    weight_end_start=W[0], weight_mid_mid=W[1], weight_full_full=W[2],
 )
 
 rng = np.random.default_rng(7)

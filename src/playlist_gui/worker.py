@@ -770,7 +770,7 @@ def _populate_last_generation_cache(
     # Calib must track the ACTIVE variant's cosine band (MuQ hot vs MERT) or the
     # rescale saturates — resolve from bundle.sonic_variant (authoritative mert/muq),
     # exactly as the beam does (pier_bridge_builder.py:490); build_transition_metric_context
-    # otherwise defaults to MERT's 0.32 and every replacement-scored edge collapses to ~1.0.
+    # otherwise defaults to muq's 0.594/0.092 and every replacement-scored edge collapses to ~1.0.
     _cal_c, _cal_s, _cal_g = resolve_transition_calib(getattr(bundle, "sonic_variant", None))
     transition_metric_context = build_transition_metric_context(
         X_sonic=bundle.X_sonic,
@@ -782,8 +782,6 @@ def _populate_last_generation_cache(
             playlist_stats.get("transition_centered")
             or ds_report.get("transition_centered")
         ),
-        transition_weights=transition_weights,
-        sonic_variant=ds_report.get("sonic_variant"),
         transition_gamma=playlist_stats.get("transition_gamma") or ds_report.get("transition_gamma"),
         calib_center=_cal_c,
         calib_scale=_cal_s,

@@ -117,8 +117,6 @@ def build_transition_metric_context(
     X_end: Optional[np.ndarray] = None,
     X_genre: Optional[np.ndarray] = None,
     center_transitions: bool = False,
-    transition_weights: Optional[tuple[float, float, float]] = None,
-    sonic_variant: Optional[str] = None,
     transition_gamma: Optional[float] = None,
     embedding_random_seed: Optional[int] = None,
     weight_end_start: float = 0.70,
@@ -130,25 +128,13 @@ def build_transition_metric_context(
 ) -> TransitionMetricContext:
     """Build the shared transition metric context from raw artifact matrices."""
 
-    from src.similarity.sonic_variant import (
-        apply_transition_weights,
-        compute_sonic_variant_norm,
-        resolve_sonic_variant,
-    )
+    # One sonic space (muq): plain L2-normalized cosine, no tower transforms.
+    X_sonic_norm = _l2_normalize_rows(X_sonic)
 
-    variant = resolve_sonic_variant(explicit_variant=sonic_variant, config_variant=None)
-    X_sonic_norm, _ = compute_sonic_variant_norm(X_sonic, variant)
-
-    X_full_tr, _ = apply_transition_weights(X_sonic, config_weights=transition_weights)
-    X_start_tr = None
-    X_mid_tr = None
-    X_end_tr = None
-    if X_start is not None:
-        X_start_tr, _ = apply_transition_weights(X_start, config_weights=transition_weights)
-    if X_mid is not None:
-        X_mid_tr, _ = apply_transition_weights(X_mid, config_weights=transition_weights)
-    if X_end is not None:
-        X_end_tr, _ = apply_transition_weights(X_end, config_weights=transition_weights)
+    X_full_tr = X_sonic
+    X_start_tr = X_start
+    X_mid_tr = X_mid
+    X_end_tr = X_end
 
     if center_transitions:
         X_full_tr = _center_optional(X_full_tr)
