@@ -2785,6 +2785,8 @@ def build_pier_bridge_playlist(
             variety_guard_threshold=float(getattr(cfg, "edge_repair_variety_guard_threshold", 0.85)),
             max_non_seed_tracks_per_artist=getattr(cfg, "max_non_seed_tracks_per_artist", None),
             artist_identity_cfg=artist_identity_cfg,
+            t_floor=float(getattr(cfg, "edge_repair_t_floor", 0.30)),
+            min_gap=int(min_gap),
         )
         edge_repair_swap_log = list(repair_result.swap_log)
         if list(repair_result.indices) != list(final_indices):

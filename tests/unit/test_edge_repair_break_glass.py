@@ -117,3 +117,23 @@ def test_worst_first_ordering():
     swaps = [e for e in res.swap_log if "new_idx" in e]
     assert swaps, "expected at least one executed swap"
     assert swaps[0]["position"] == 3  # worst edge repaired first
+
+
+def test_edge_repair_t_floor_default_and_override():
+    from src.playlist.config import default_ds_config
+    from src.playlist.pier_bridge.config import PierBridgeConfig
+    from src.playlist.pipeline.pier_bridge_overrides import apply_pier_bridge_overrides
+
+    assert PierBridgeConfig().edge_repair_t_floor == 0.30
+
+    pb_cfg, _tuning, _sources = apply_pier_bridge_overrides(
+        pier_bridge_config=PierBridgeConfig(),
+        cfg=default_ds_config("dynamic", playlist_len=3),
+        overrides={},
+        pb_overrides={"edge_repair": {"t_floor": 0.42}},
+        artist_playlist=False,
+        dry_run=True,
+        audit_cfg=None,
+    )
+
+    assert pb_cfg.edge_repair_t_floor == 0.42

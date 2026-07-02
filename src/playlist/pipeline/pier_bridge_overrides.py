@@ -222,6 +222,8 @@ def apply_pier_bridge_overrides(
             )
         if isinstance(edge_repair.get("margin"), (int, float)):
             pb_cfg = replace(pb_cfg, edge_repair_margin=float(edge_repair.get("margin")))
+        if isinstance(edge_repair.get("t_floor"), (int, float)):
+            pb_cfg = replace(pb_cfg, edge_repair_t_floor=float(edge_repair.get("t_floor")))
         variety_guard = edge_repair.get("variety_guard")
         if isinstance(variety_guard, dict):
             if isinstance(variety_guard.get("enabled"), bool):

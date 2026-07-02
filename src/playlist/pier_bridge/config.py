@@ -313,6 +313,9 @@ class PierBridgeConfig:
     # Last-mile edge repair fallback (opt-in; default OFF).
     edge_repair_enabled: bool = False
     edge_repair_centered_cos_floor: float = -0.5
+    # Break-glass weak-edge trigger: repair edges with T below this (0 = legacy
+    # anti-alignment-only). Aligned with variable_bridge_min_edge. Spec 2026-07-01.
+    edge_repair_t_floor: float = 0.30
     edge_repair_margin: float = 0.05
     edge_repair_variety_guard_enabled: bool = False
     edge_repair_variety_guard_threshold: float = 0.85
