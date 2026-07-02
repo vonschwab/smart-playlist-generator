@@ -353,7 +353,7 @@ class PierBridgeConfig:
     # the even-split path. False => even split. ---
     variable_bridge_length: bool = False
     variable_bridge_flex: int = 2          # k: +/- interior tracks a segment may flex
-    variable_bridge_band: int = 5          # m: total track count may land in [N-m, N+m]
+    variable_bridge_band: int = 5          # unused since add-only reorder (2026-07-02)
     variable_bridge_min_edge: float = 0.30  # only flex a segment whose nominal worst edge is below this
     variable_bridge_epsilon: float = 0.02   # prefer nominal length unless a flex beats it by > eps
     variable_bridge_max_flex_segments: int = 3  # max segments that may actually flex (deterministic cap)

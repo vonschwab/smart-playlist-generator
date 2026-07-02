@@ -1728,10 +1728,8 @@ def build_pier_bridge_playlist(
             segment_bottleneck,
         )
         _vbl_k = int(getattr(cfg, "variable_bridge_flex", 2))
-        _vbl_band = int(getattr(cfg, "variable_bridge_band", 5))
         _vbl_good = float(getattr(cfg, "variable_bridge_min_edge", 0.30))
         _vbl_eps = float(getattr(cfg, "variable_bridge_epsilon", 0.02))
-        _vbl_total_dev = 0  # running sum of (chosen - nominal) across segments
         _vbl_flexed = 0    # count of segments that actually flexed (deterministic cap)
         _vbl_max_flex = int(getattr(cfg, "variable_bridge_max_flex_segments", 3))
 
@@ -1984,13 +1982,11 @@ def build_pier_bridge_playlist(
             _seg_build = _build_segment_at(nominal)
             interior_len = nominal
         else:
-            # Band-clamp keeps the running total in [N-m, N+m]: a segment may flex by
-            # at most ±flex, and never beyond the band budget left after prior segments.
-            lo = max(1, nominal - _vbl_k, nominal - (_vbl_band + _vbl_total_dev))
-            hi = max(lo, nominal + min(_vbl_k, _vbl_band - _vbl_total_dev))
-            # Deterministic cap: if already at the max-flex-segments limit, force
-            # nominal — no more multi-build evaluations. This removes all timing
-            # dependence (the outer 90s deadline remains the hard safety ceiling).
+            # ADD-only: never shorten a segment. lo == nominal; may lengthen up to
+            # +variable_bridge_flex. No length budget (track count is not a target).
+            lo = nominal
+            hi = nominal + _vbl_k
+            # Deterministic cap: once max-flex-segments have flexed, force nominal.
             if _vbl_flexed >= _vbl_max_flex:
                 lo = hi = nominal
 
@@ -2012,10 +2008,9 @@ def build_pier_bridge_playlist(
             if _vbl_seg_flexed:
                 _vbl_flexed += 1
             interior_len = int(chosen_len)
-            _vbl_total_dev += chosen_len - nominal
             logger.info(
-                "Var-bridge seg %d: nominal=%d chosen=%d total_dev=%+d flexed=%s (%d/%d)",
-                seg_idx, nominal, chosen_len, _vbl_total_dev,
+                "Var-bridge seg %d: nominal=%d chosen=%d flexed=%s (%d/%d) [add-only]",
+                seg_idx, nominal, chosen_len,
                 _vbl_seg_flexed, _vbl_flexed, _vbl_max_flex,
             )
 
