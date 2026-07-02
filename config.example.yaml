@@ -257,7 +257,7 @@ playlists:
       # deterministic cap on how many segments may flex.
       variable_bridge_length: true
       # variable_bridge_flex: 2
-      # variable_bridge_band: 5
+      # variable_bridge_band: 5   # UNUSED since the 2026-07-02 add-only reorder (var-bridge only lengthens; removal is now the edge_delete pass)
       # variable_bridge_min_edge: 0.30
       # variable_bridge_max_flex_segments: 3
       # SP2 seed-character anti-collapse (live default): "anti_center" demotes bridge
@@ -281,6 +281,14 @@ playlists:
         enabled: true
         epsilon: 0.02
         floor: 0.3
+      # Remove-only last resort (repair-by-deletion, spec 2026-07-02, live default ON):
+      # after break-glass repair, if an edge is STILL below floor, delete the interior
+      # endpoint whose removal merges the two edges — only if the merge strictly lifts
+      # the worst edge (never-worse), and never a pier/seed. enabled:false = roll back.
+      edge_delete:
+        enabled: true
+        floor: 0.3
+        max_deletions: 4
       # Total-generation wall-clock budget (seconds). A single shared deadline is
       # computed once at generation start (before any One-Each retries) and threaded
       # into all segment loops and relaxation tiers so NO path can collectively exceed

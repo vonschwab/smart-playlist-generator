@@ -263,8 +263,10 @@ def test_pier_bridge_smoke_golden(scenario_name, smoke_bundle):
     # Smoke goldens are stable CORE-beam regression baselines: pin variable bridge
     # length OFF (it became the live default 2026-06-28) so these track the rigid
     # even-split beam, not the flex — which has its own coverage in
-    # tests/unit/test_var_bridge_integration.py.
-    cfg = PierBridgeConfig(variable_bridge_length=False, **scenario["cfg_kwargs"])
+    # tests/unit/test_var_bridge_integration.py. Same reasoning pins edge_delete OFF
+    # (a post-core repair-by-deletion pass, live default 2026-07-02; covered by
+    # tests/unit/test_edge_delete.py) so these track the CORE beam, not the deletion.
+    cfg = PierBridgeConfig(variable_bridge_length=False, edge_delete_enabled=False, **scenario["cfg_kwargs"])
 
     seed_ids = scenario["seed_track_ids"]
     seed_idx_set = {smoke_bundle.track_id_to_index[s] for s in seed_ids}
