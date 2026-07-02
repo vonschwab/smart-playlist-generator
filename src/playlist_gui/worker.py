@@ -399,7 +399,11 @@ class WorkerLogHandler(logging.Handler):
 def setup_worker_logging():
     """Configure logging to emit via NDJSON."""
     root = logging.getLogger()
-    root.setLevel(logging.INFO)
+    # Root must allow DEBUG through so a per-playlist log FileHandler
+    # (attached later, per-request, by src.logging_utils.playlist_log_file)
+    # can actually receive DEBUG records. The NDJSON handler below stays at
+    # INFO, so the GUI itself is unaffected -- DEBUG-to-file, INFO-to-GUI.
+    root.setLevel(logging.DEBUG)
 
     # Remove existing handlers
     for handler in root.handlers[:]:
@@ -1032,443 +1036,479 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
     # OperationCancelled` clause can always resolve the name.
     from src.cancellation import OperationCancelled, set_cancellation_hook
 
-    emit_log("INFO", f"Starting playlist generation (mode={mode})")
-    emit_progress("init", 0, 100, "Loading configuration")
+    request_id = _worker_state.get_request_id()
 
+    # Per-playlist DEBUG log file (see
+    # docs/superpowers/specs/2026-07-02-per-playlist-logging-design.md).
+    # Settings are resolved ahead of the try/except below via a
+    # best-effort, exception-swallowing config pre-load, so the
+    # "Starting playlist generation" line and the authoritative config
+    # load (inside the try, with real error handling) both land in the
+    # file. A logging failure here must never block a generation.
+    from src.logging_utils import cleanup_old_playlist_logs_async, playlist_log_file
+
+    playlist_log_enabled, playlist_log_dir_cfg = True, "logs/playlists"
+    playlist_log_retention_days, playlist_log_level_name = 30, "DEBUG"
     try:
-        # Load and merge config
-        config = load_config_with_overrides(base_path, overrides)
-        emit_progress("init", 10, 100, "Configuration loaded")
+        _playlist_logs_cfg = (
+            load_config_with_overrides(base_path, overrides)
+            .get("logging", {})
+            .get("playlist_logs", {})
+        ) or {}
+        playlist_log_enabled = bool(_playlist_logs_cfg.get("enabled", True))
+        playlist_log_dir_cfg = _playlist_logs_cfg.get("dir", "logs/playlists")
+        playlist_log_retention_days = int(_playlist_logs_cfg.get("retention_days", 30))
+        playlist_log_level_name = _playlist_logs_cfg.get("level", "DEBUG")
+    except Exception:
+        pass
+    playlist_log_level = getattr(logging, str(playlist_log_level_name).upper(), logging.DEBUG)
 
-        # Cancellation check after config load
-        check_cancelled()
+    with playlist_log_file(
+        artist or genre or mode,
+        request_id,
+        enabled=playlist_log_enabled,
+        dir=playlist_log_dir_cfg,
+        level=playlist_log_level,
+    ):
+        emit_log("INFO", f"Starting playlist generation (mode={mode})")
+        emit_progress("init", 0, 100, "Loading configuration")
 
-        # Import application modules (heavy imports deferred)
-        emit_log("INFO", "Loading application modules...")
-        emit_progress("init", 20, 100, "Loading modules")
-
-        # Add project root to path if needed
-        project_root = Path(__file__).parent.parent.parent
-        if str(project_root) not in sys.path:
-            sys.path.insert(0, str(project_root))
-
-        from src.local_library_client import LocalLibraryClient
-        from src.playlist_generator import PlaylistGenerator
-        from src.track_matcher import TrackMatcher
-        from src.metadata_client import MetadataClient
-        from src.lastfm_client import LastFMClient
-
-        # Cancellation check after imports
-        check_cancelled()
-
-        # Apply overrides to config
-        # Write merged config to temp or use Config directly
-        class MergedConfig:
-            """Wrapper that uses merged config dict instead of loading from file."""
-            def __init__(self, config_dict: dict, original_path: str):
-                self.config = config_dict
-                self.config_path = original_path
-                self._validate()
-
-            def _validate(self):
-                # Minimal validation
-                if 'library' not in self.config:
-                    raise ValueError("Missing 'library' section in config")
-
-            def get(self, section: str, key: str = None, default: Any = None) -> Any:
-                if section not in self.config:
-                    return default
-                if key is None:
-                    return self.config.get(section, default)
-                return self.config[section].get(key, default)
-
-            @property
-            def library_database_path(self) -> str:
-                return self.config['library']['database_path']
-
-            @property
-            def library_music_directory(self) -> str:
-                return self.config['library'].get('music_directory', 'E:\\MUSIC')
-
-            @property
-            def lastfm_api_key(self) -> str:
-                import os
-                return os.getenv('LASTFM_API_KEY') or self.config.get('lastfm', {}).get('api_key', '')
-
-            @property
-            def lastfm_username(self) -> str:
-                import os
-                return os.getenv('LASTFM_USERNAME') or self.config.get('lastfm', {}).get('username', '')
-
-            @property
-            def lastfm_history_days(self) -> int:
-                return self.config.get('lastfm', {}).get('history_days', 90)
-
-            @property
-            def min_duration_minutes(self) -> int:
-                return self.config.get('playlists', {}).get('min_duration_minutes', 90)
-
-            @property
-            def min_track_duration_seconds(self) -> int:
-                return self.config.get('playlists', {}).get('min_track_duration_seconds', 90)
-
-            @property
-            def max_track_duration_seconds(self) -> int:
-                return self.config.get('playlists', {}).get('max_track_duration_seconds', 720)
-
-            @property
-            def recently_played_filter_enabled(self) -> bool:
-                return self.config.get('playlists', {}).get('recently_played_filter', {}).get('enabled', True)
-
-            @property
-            def recently_played_lookback_days(self) -> int:
-                return self.config.get('playlists', {}).get('recently_played_filter', {}).get('lookback_days', 0)
-
-            @property
-            def recently_played_min_playcount(self) -> int:
-                return self.config.get('playlists', {}).get('recently_played_filter', {}).get('min_playcount_threshold', 0)
-
-            @property
-            def max_tracks_per_artist(self) -> int:
-                return self.config.get('playlists', {}).get('max_tracks_per_artist', 3)
-
-            @property
-            def artist_window_size(self) -> int:
-                return self.config.get('playlists', {}).get('artist_window_size', 8)
-
-            @property
-            def max_artist_per_window(self) -> int:
-                return self.config.get('playlists', {}).get('max_artist_per_window', 1)
-
-            @property
-            def min_seed_artist_ratio(self) -> float:
-                return self.config.get('playlists', {}).get('min_seed_artist_ratio', 0.125)
-
-            @property
-            def dynamic_sonic_ratio(self) -> float:
-                return self.config.get('playlists', {}).get('dynamic_mode', {}).get('sonic_ratio', 0.6)
-
-            @property
-            def dynamic_genre_ratio(self) -> float:
-                return self.config.get('playlists', {}).get('dynamic_mode', {}).get('genre_ratio', 0.4)
-
-            @property
-            def similarity_min_threshold(self) -> float:
-                return self.config.get('playlists', {}).get('similarity', {}).get('min_threshold', 0.5)
-
-            @property
-            def limit_similar_tracks(self) -> int:
-                return self.config.get('playlists', {}).get('limits', {}).get('similar_tracks', 50)
-
-            @property
-            def title_dedupe_enabled(self) -> bool:
-                return self.config.get('playlists', {}).get('dedupe', {}).get('title', {}).get('enabled', True)
-
-            @property
-            def title_dedupe_threshold(self) -> int:
-                return self.config.get('playlists', {}).get('dedupe', {}).get('title', {}).get('threshold', 92)
-
-            @property
-            def title_dedupe_mode(self) -> str:
-                return self.config.get('playlists', {}).get('dedupe', {}).get('title', {}).get('mode', 'loose')
-
-            @property
-            def title_dedupe_short_title_min_len(self) -> int:
-                return self.config.get('playlists', {}).get('dedupe', {}).get('title', {}).get('short_title_min_len', 6)
-
-        emit_progress("init", 30, 100, "Initializing library client")
-        merged_config = MergedConfig(config, base_path)
-        library = LocalLibraryClient(db_path=merged_config.library_database_path)
-
-        # Cancellation check after library init
-        check_cancelled()
-
-        emit_progress("init", 40, 100, "Initializing track matcher")
-        matcher = TrackMatcher(library, library_id=None, db_path=merged_config.library_database_path)
-
-        # Metadata client
-        metadata = None
         try:
-            metadata = MetadataClient(merged_config.library_database_path)
-        except Exception:
-            pass
+            # Load and merge config
+            config = load_config_with_overrides(base_path, overrides)
+            emit_progress("init", 10, 100, "Configuration loaded")
 
-        # Last.FM client (optional)
-        lastfm = None
-        if merged_config.lastfm_api_key and merged_config.lastfm_username:
+            # Cancellation check after config load
+            check_cancelled()
+
+            # Import application modules (heavy imports deferred)
+            emit_log("INFO", "Loading application modules...")
+            emit_progress("init", 20, 100, "Loading modules")
+
+            # Add project root to path if needed
+            project_root = Path(__file__).parent.parent.parent
+            if str(project_root) not in sys.path:
+                sys.path.insert(0, str(project_root))
+
+            from src.local_library_client import LocalLibraryClient
+            from src.playlist_generator import PlaylistGenerator
+            from src.track_matcher import TrackMatcher
+            from src.metadata_client import MetadataClient
+            from src.lastfm_client import LastFMClient
+
+            # Cancellation check after imports
+            check_cancelled()
+
+            # Apply overrides to config
+            # Write merged config to temp or use Config directly
+            class MergedConfig:
+                """Wrapper that uses merged config dict instead of loading from file."""
+                def __init__(self, config_dict: dict, original_path: str):
+                    self.config = config_dict
+                    self.config_path = original_path
+                    self._validate()
+
+                def _validate(self):
+                    # Minimal validation
+                    if 'library' not in self.config:
+                        raise ValueError("Missing 'library' section in config")
+
+                def get(self, section: str, key: str = None, default: Any = None) -> Any:
+                    if section not in self.config:
+                        return default
+                    if key is None:
+                        return self.config.get(section, default)
+                    return self.config[section].get(key, default)
+
+                @property
+                def library_database_path(self) -> str:
+                    return self.config['library']['database_path']
+
+                @property
+                def library_music_directory(self) -> str:
+                    return self.config['library'].get('music_directory', 'E:\\MUSIC')
+
+                @property
+                def lastfm_api_key(self) -> str:
+                    import os
+                    return os.getenv('LASTFM_API_KEY') or self.config.get('lastfm', {}).get('api_key', '')
+
+                @property
+                def lastfm_username(self) -> str:
+                    import os
+                    return os.getenv('LASTFM_USERNAME') or self.config.get('lastfm', {}).get('username', '')
+
+                @property
+                def lastfm_history_days(self) -> int:
+                    return self.config.get('lastfm', {}).get('history_days', 90)
+
+                @property
+                def min_duration_minutes(self) -> int:
+                    return self.config.get('playlists', {}).get('min_duration_minutes', 90)
+
+                @property
+                def min_track_duration_seconds(self) -> int:
+                    return self.config.get('playlists', {}).get('min_track_duration_seconds', 90)
+
+                @property
+                def max_track_duration_seconds(self) -> int:
+                    return self.config.get('playlists', {}).get('max_track_duration_seconds', 720)
+
+                @property
+                def recently_played_filter_enabled(self) -> bool:
+                    return self.config.get('playlists', {}).get('recently_played_filter', {}).get('enabled', True)
+
+                @property
+                def recently_played_lookback_days(self) -> int:
+                    return self.config.get('playlists', {}).get('recently_played_filter', {}).get('lookback_days', 0)
+
+                @property
+                def recently_played_min_playcount(self) -> int:
+                    return self.config.get('playlists', {}).get('recently_played_filter', {}).get('min_playcount_threshold', 0)
+
+                @property
+                def max_tracks_per_artist(self) -> int:
+                    return self.config.get('playlists', {}).get('max_tracks_per_artist', 3)
+
+                @property
+                def artist_window_size(self) -> int:
+                    return self.config.get('playlists', {}).get('artist_window_size', 8)
+
+                @property
+                def max_artist_per_window(self) -> int:
+                    return self.config.get('playlists', {}).get('max_artist_per_window', 1)
+
+                @property
+                def min_seed_artist_ratio(self) -> float:
+                    return self.config.get('playlists', {}).get('min_seed_artist_ratio', 0.125)
+
+                @property
+                def dynamic_sonic_ratio(self) -> float:
+                    return self.config.get('playlists', {}).get('dynamic_mode', {}).get('sonic_ratio', 0.6)
+
+                @property
+                def dynamic_genre_ratio(self) -> float:
+                    return self.config.get('playlists', {}).get('dynamic_mode', {}).get('genre_ratio', 0.4)
+
+                @property
+                def similarity_min_threshold(self) -> float:
+                    return self.config.get('playlists', {}).get('similarity', {}).get('min_threshold', 0.5)
+
+                @property
+                def limit_similar_tracks(self) -> int:
+                    return self.config.get('playlists', {}).get('limits', {}).get('similar_tracks', 50)
+
+                @property
+                def title_dedupe_enabled(self) -> bool:
+                    return self.config.get('playlists', {}).get('dedupe', {}).get('title', {}).get('enabled', True)
+
+                @property
+                def title_dedupe_threshold(self) -> int:
+                    return self.config.get('playlists', {}).get('dedupe', {}).get('title', {}).get('threshold', 92)
+
+                @property
+                def title_dedupe_mode(self) -> str:
+                    return self.config.get('playlists', {}).get('dedupe', {}).get('title', {}).get('mode', 'loose')
+
+                @property
+                def title_dedupe_short_title_min_len(self) -> int:
+                    return self.config.get('playlists', {}).get('dedupe', {}).get('title', {}).get('short_title_min_len', 6)
+
+            emit_progress("init", 30, 100, "Initializing library client")
+            merged_config = MergedConfig(config, base_path)
+            library = LocalLibraryClient(db_path=merged_config.library_database_path)
+
+            # Cancellation check after library init
+            check_cancelled()
+
+            emit_progress("init", 40, 100, "Initializing track matcher")
+            matcher = TrackMatcher(library, library_id=None, db_path=merged_config.library_database_path)
+
+            # Metadata client
+            metadata = None
             try:
-                lastfm = LastFMClient(
-                    api_key=merged_config.lastfm_api_key,
-                    username=merged_config.lastfm_username
-                )
+                metadata = MetadataClient(merged_config.library_database_path)
             except Exception:
                 pass
 
-        # Cancellation check before playlist generator init
-        check_cancelled()
-
-        emit_progress("init", 50, 100, "Initializing playlist generator")
-        generator = PlaylistGenerator(
-            library,
-            merged_config,
-            lastfm_client=lastfm,
-            track_matcher=matcher,
-            metadata_client=metadata
-        )
-
-        # Resolve cohesion_mode — drives pier-bridge beam tuning.
-        # genre_mode/sonic_mode/pace_mode are independent axes that affect
-        # candidate pool composition, not beam scoring.
-        cohesion_mode = resolve_cohesion_mode(config.get('playlists', {}))
-
-        # Log which modes are active
-        genre_mode = request.genre_mode or config.get('playlists', {}).get(
-            'genre_mode'
-        )
-        sonic_mode = request.sonic_mode or config.get('playlists', {}).get(
-            'sonic_mode'
-        )
-        pace_mode = request.pace_mode or config.get('playlists', {}).get(
-            'pace_mode', 'dynamic'
-        )
-        if genre_mode:
-            emit_log("INFO", f"Genre mode: {genre_mode}")
-        if sonic_mode:
-            emit_log("INFO", f"Sonic mode: {sonic_mode}")
-        emit_log("INFO", f"Pace mode: {pace_mode}")
-        emit_log("INFO", f"Cohesion mode: {cohesion_mode}")
-
-        # Cancellation check before generation
-        check_cancelled()
-
-        # The generation core (build_pier_bridge_playlist -> beam search) runs
-        # several layers below this handler and cannot see the worker's cancel
-        # flag directly. Register a predicate it polls at its loop checkpoints;
-        # on cancel it raises OperationCancelled (caught below). Cleared in the
-        # `finally`. This is what makes a long generation actually cancellable.
-        set_cancellation_hook(_worker_state.is_cancelled)
-
-        emit_progress("generate", 60, 100, "Generating playlist")
-        emit_log("INFO", f"Running playlist generation with cohesion_mode={cohesion_mode}")
-
-        if mode == "artist" and artist:
-            # Single artist mode
-            playlist_data = generator.create_playlist_for_artist(
-                artist,
-                track_count,
-                track_title=track_title,
-                track_titles=seed_tracks,
-                dynamic=(cohesion_mode == "dynamic"),
-                cohesion_mode_override=cohesion_mode,
-                include_collaborations=include_collaborations,
-                exclude_seed_tracks_from_recency=exclude_seed_tracks_from_recency,
-                popular_seeds_mode=request.popular_seeds_mode,
-                popularity_mode=request.popularity_mode,
-                seed_epoch=request.seed_epoch,
-            )
-        elif mode == "seeds" and seed_tracks:
-            # Seeds mode (Phase 2 UI)
-            playlist_data = generator.create_playlist_from_seed_tracks(
-                seed_tracks,
-                track_count=track_count,
-                dynamic=(cohesion_mode == "dynamic"),
-                cohesion_mode_override=cohesion_mode,
-                seed_track_ids=seed_track_ids,
-                popularity_mode=request.popularity_mode,
-            )
-        elif mode == "artist" and seed_tracks:
-            # Legacy seeds mode (old UI sent mode="artist" with seed_tracks)
-            playlist_data = generator.create_playlist_from_seed_tracks(
-                seed_tracks,
-                track_count=track_count,
-                dynamic=(cohesion_mode == "dynamic"),
-                cohesion_mode_override=cohesion_mode,
-                seed_track_ids=seed_track_ids,
-                popularity_mode=request.popularity_mode,
-            )
-        elif mode == "genre" and genre:
-            # Genre mode
-            playlist_data = generator.create_playlist_for_genre(
-                genre,
-                track_count,
-                dynamic=(cohesion_mode == "dynamic"),
-                cohesion_mode_override=cohesion_mode,
-            )
-        elif mode == "history":
-            # Config/history-driven mode, matching the CLI batch-generation flow.
-            playlists = generator.create_playlist_batch(
-                1,
-                dynamic=(cohesion_mode == "dynamic"),
-                cohesion_mode_override=cohesion_mode,
-            )
-            playlist_data = playlists[0] if playlists else None
-        else:
-            # Fallback for unknown modes or missing required parameters
-            raise ValueError(
-                "Invalid mode or missing parameters: "
-                f"mode={mode}, artist={artist}, genre={genre}, seed_tracks={seed_tracks}"
-            )
-
-        # Cancellation check after generation, before output
-        check_cancelled()
-
-        emit_progress("generate", 90, 100, "Formatting results")
-
-        if playlist_data:
-            tracks = playlist_data.get('tracks', [])
-            ds_report = playlist_data.get('ds_report', {}) or {}
-            edge_scores = (
-                (ds_report.get("playlist_stats") or {}).get("playlist", {}).get("edge_scores")
-                or ds_report.get("edge_scores")
-                or []
-            )
-            edge_map = {str(edge.get("cur_id")): edge for edge in edge_scores if edge.get("cur_id")}
-
-            similarity_components = _build_seed_similarity_components(
-                tracks=tracks,
-                ds_report=ds_report,
-                edge_map=edge_map,
-            )
-
-            formatted_tracks = []
-
-            for i, track in enumerate(tracks):
-                rating_key = track.get('rating_key') or track.get('id') or track.get('track_id')
-
-                def _raw_genres(_track=track, _rk=rating_key) -> List[str]:
-                    raw = _track.get('genres', []) or []
-                    if raw:
-                        return raw
-                    if _rk and getattr(generator, "similarity_calc", None):
-                        try:
-                            return generator.similarity_calc.get_filtered_combined_genres_for_track(str(_rk)) or []
-                        except Exception:
-                            return []
-                    return []
-
-                genres = _resolve_display_genres(
-                    track,
-                    sidecar_db_path=SIDECAR_DB_PATH,
-                    fallback=_raw_genres,
-                    db_path=merged_config.library_database_path,
-                )
-
-                # Prefer explicit similarity fields; fall back to edge scores from DS report
-                edge = edge_map.get(str(rating_key), {})
-                sonic_sim = (
-                    track.get('similarity_score')
-                    or track.get('hybrid_score')
-                    or track.get('score')
-                    or track.get('sonic_similarity')
-                    or edge.get('S')
-                )
-                genre_sim = (
-                    track.get('genre_sim')
-                    or track.get('genre_similarity')
-                    or track.get('G')
-                    or edge.get('G')
-                )
-                components = similarity_components.get(str(rating_key)) if rating_key else None
-                if components:
-                    sonic_comp = components.get("sonic")
-                    genre_comp = components.get("genre")
-                    if sonic_comp and sonic_comp.get("t") is not None:
-                        sonic_sim = sonic_comp.get("t")
-                    if genre_comp and genre_comp.get("t") is not None:
-                        genre_sim = genre_comp.get("t")
-                else:
-                    sonic_comp = None
-                    genre_comp = None
-
-                formatted_tracks.append({
-                    "position": i,
-                    "rating_key": rating_key,
-                    "artist": track.get('artist', 'Unknown'),
-                    "title": track.get('title', 'Unknown'),
-                    "album": track.get('album', ''),
-                    "duration_ms": track.get('duration', 0),
-                    "file_path": track.get('file_path', ''),
-                    "sonic_similarity": sonic_sim,
-                    "genre_similarity": genre_sim,
-                    "sonic_similarity_components": sonic_comp,
-                    "genre_similarity_components": genre_comp,
-                    "genres": genres,
-                    "transition_score": edge.get("T"),
-                })
-
-            # Oops, All Bangers: annotate each track with its Last.fm popularity rank
-            # (sets track['popularity_rank']) and log it, when Bangers is on.
-            if str(getattr(request, "popularity_mode", "off")) in ("on", "oops"):
+            # Last.FM client (optional)
+            lastfm = None
+            if merged_config.lastfm_api_key and merged_config.lastfm_username:
                 try:
-                    from src.analyze.popularity_runner import (
-                        annotate_and_log_playlist_popularity,
-                        popularity_cache_db_path,
+                    lastfm = LastFMClient(
+                        api_key=merged_config.lastfm_api_key,
+                        username=merged_config.lastfm_username
                     )
-                    annotate_and_log_playlist_popularity(
-                        formatted_tracks, db_path=popularity_cache_db_path())
-                except Exception as _exc:  # diagnostics must never break a generation
-                    logging.getLogger(__name__).warning(
-                        "Bangers popularity annotation failed: %s", _exc)
+                except Exception:
+                    pass
 
-            playlist_result = {
-                "name": playlist_data.get('title', 'Generated Playlist'),
-                "tracks": formatted_tracks,
-                "track_count": len(formatted_tracks),
-            }
+            # Cancellation check before playlist generator init
+            check_cancelled()
 
-            # Include DS report metrics if available
-            if ds_report:
-                metrics = ds_report.get('metrics', {})
-                playlist_result["metrics"] = {
-                    "mean_transition": metrics.get('mean_transition'),
-                    "min_transition": metrics.get('min_transition'),
-                    "p10_transition": metrics.get('p10_transition'),
-                    "p90_transition": metrics.get('p90_transition'),
-                    "distinct_artists": metrics.get('distinct_artists'),
+            emit_progress("init", 50, 100, "Initializing playlist generator")
+            generator = PlaylistGenerator(
+                library,
+                merged_config,
+                lastfm_client=lastfm,
+                track_matcher=matcher,
+                metadata_client=metadata
+            )
+
+            # Resolve cohesion_mode — drives pier-bridge beam tuning.
+            # genre_mode/sonic_mode/pace_mode are independent axes that affect
+            # candidate pool composition, not beam scoring.
+            cohesion_mode = resolve_cohesion_mode(config.get('playlists', {}))
+
+            # Log which modes are active
+            genre_mode = request.genre_mode or config.get('playlists', {}).get(
+                'genre_mode'
+            )
+            sonic_mode = request.sonic_mode or config.get('playlists', {}).get(
+                'sonic_mode'
+            )
+            pace_mode = request.pace_mode or config.get('playlists', {}).get(
+                'pace_mode', 'dynamic'
+            )
+            if genre_mode:
+                emit_log("INFO", f"Genre mode: {genre_mode}")
+            if sonic_mode:
+                emit_log("INFO", f"Sonic mode: {sonic_mode}")
+            emit_log("INFO", f"Pace mode: {pace_mode}")
+            emit_log("INFO", f"Cohesion mode: {cohesion_mode}")
+
+            # Cancellation check before generation
+            check_cancelled()
+
+            # The generation core (build_pier_bridge_playlist -> beam search) runs
+            # several layers below this handler and cannot see the worker's cancel
+            # flag directly. Register a predicate it polls at its loop checkpoints;
+            # on cancel it raises OperationCancelled (caught below). Cleared in the
+            # `finally`. This is what makes a long generation actually cancellable.
+            set_cancellation_hook(_worker_state.is_cancelled)
+
+            emit_progress("generate", 60, 100, "Generating playlist")
+            emit_log("INFO", f"Running playlist generation with cohesion_mode={cohesion_mode}")
+
+            if mode == "artist" and artist:
+                # Single artist mode
+                playlist_data = generator.create_playlist_for_artist(
+                    artist,
+                    track_count,
+                    track_title=track_title,
+                    track_titles=seed_tracks,
+                    dynamic=(cohesion_mode == "dynamic"),
+                    cohesion_mode_override=cohesion_mode,
+                    include_collaborations=include_collaborations,
+                    exclude_seed_tracks_from_recency=exclude_seed_tracks_from_recency,
+                    popular_seeds_mode=request.popular_seeds_mode,
+                    popularity_mode=request.popularity_mode,
+                    seed_epoch=request.seed_epoch,
+                )
+            elif mode == "seeds" and seed_tracks:
+                # Seeds mode (Phase 2 UI)
+                playlist_data = generator.create_playlist_from_seed_tracks(
+                    seed_tracks,
+                    track_count=track_count,
+                    dynamic=(cohesion_mode == "dynamic"),
+                    cohesion_mode_override=cohesion_mode,
+                    seed_track_ids=seed_track_ids,
+                    popularity_mode=request.popularity_mode,
+                )
+            elif mode == "artist" and seed_tracks:
+                # Legacy seeds mode (old UI sent mode="artist" with seed_tracks)
+                playlist_data = generator.create_playlist_from_seed_tracks(
+                    seed_tracks,
+                    track_count=track_count,
+                    dynamic=(cohesion_mode == "dynamic"),
+                    cohesion_mode_override=cohesion_mode,
+                    seed_track_ids=seed_track_ids,
+                    popularity_mode=request.popularity_mode,
+                )
+            elif mode == "genre" and genre:
+                # Genre mode
+                playlist_data = generator.create_playlist_for_genre(
+                    genre,
+                    track_count,
+                    dynamic=(cohesion_mode == "dynamic"),
+                    cohesion_mode_override=cohesion_mode,
+                )
+            elif mode == "history":
+                # Config/history-driven mode, matching the CLI batch-generation flow.
+                playlists = generator.create_playlist_batch(
+                    1,
+                    dynamic=(cohesion_mode == "dynamic"),
+                    cohesion_mode_override=cohesion_mode,
+                )
+                playlist_data = playlists[0] if playlists else None
+            else:
+                # Fallback for unknown modes or missing required parameters
+                raise ValueError(
+                    "Invalid mode or missing parameters: "
+                    f"mode={mode}, artist={artist}, genre={genre}, seed_tracks={seed_tracks}"
+                )
+
+            # Cancellation check after generation, before output
+            check_cancelled()
+
+            emit_progress("generate", 90, 100, "Formatting results")
+
+            if playlist_data:
+                tracks = playlist_data.get('tracks', [])
+                ds_report = playlist_data.get('ds_report', {}) or {}
+                edge_scores = (
+                    (ds_report.get("playlist_stats") or {}).get("playlist", {}).get("edge_scores")
+                    or ds_report.get("edge_scores")
+                    or []
+                )
+                edge_map = {str(edge.get("cur_id")): edge for edge in edge_scores if edge.get("cur_id")}
+
+                similarity_components = _build_seed_similarity_components(
+                    tracks=tracks,
+                    ds_report=ds_report,
+                    edge_map=edge_map,
+                )
+
+                formatted_tracks = []
+
+                for i, track in enumerate(tracks):
+                    rating_key = track.get('rating_key') or track.get('id') or track.get('track_id')
+
+                    def _raw_genres(_track=track, _rk=rating_key) -> List[str]:
+                        raw = _track.get('genres', []) or []
+                        if raw:
+                            return raw
+                        if _rk and getattr(generator, "similarity_calc", None):
+                            try:
+                                return generator.similarity_calc.get_filtered_combined_genres_for_track(str(_rk)) or []
+                            except Exception:
+                                return []
+                        return []
+
+                    genres = _resolve_display_genres(
+                        track,
+                        sidecar_db_path=SIDECAR_DB_PATH,
+                        fallback=_raw_genres,
+                        db_path=merged_config.library_database_path,
+                    )
+
+                    # Prefer explicit similarity fields; fall back to edge scores from DS report
+                    edge = edge_map.get(str(rating_key), {})
+                    sonic_sim = (
+                        track.get('similarity_score')
+                        or track.get('hybrid_score')
+                        or track.get('score')
+                        or track.get('sonic_similarity')
+                        or edge.get('S')
+                    )
+                    genre_sim = (
+                        track.get('genre_sim')
+                        or track.get('genre_similarity')
+                        or track.get('G')
+                        or edge.get('G')
+                    )
+                    components = similarity_components.get(str(rating_key)) if rating_key else None
+                    if components:
+                        sonic_comp = components.get("sonic")
+                        genre_comp = components.get("genre")
+                        if sonic_comp and sonic_comp.get("t") is not None:
+                            sonic_sim = sonic_comp.get("t")
+                        if genre_comp and genre_comp.get("t") is not None:
+                            genre_sim = genre_comp.get("t")
+                    else:
+                        sonic_comp = None
+                        genre_comp = None
+
+                    formatted_tracks.append({
+                        "position": i,
+                        "rating_key": rating_key,
+                        "artist": track.get('artist', 'Unknown'),
+                        "title": track.get('title', 'Unknown'),
+                        "album": track.get('album', ''),
+                        "duration_ms": track.get('duration', 0),
+                        "file_path": track.get('file_path', ''),
+                        "sonic_similarity": sonic_sim,
+                        "genre_similarity": genre_sim,
+                        "sonic_similarity_components": sonic_comp,
+                        "genre_similarity_components": genre_comp,
+                        "genres": genres,
+                        "transition_score": edge.get("T"),
+                    })
+
+                # Oops, All Bangers: annotate each track with its Last.fm popularity rank
+                # (sets track['popularity_rank']) and log it, when Bangers is on.
+                if str(getattr(request, "popularity_mode", "off")) in ("on", "oops"):
+                    try:
+                        from src.analyze.popularity_runner import (
+                            annotate_and_log_playlist_popularity,
+                            popularity_cache_db_path,
+                        )
+                        annotate_and_log_playlist_popularity(
+                            formatted_tracks, db_path=popularity_cache_db_path())
+                    except Exception as _exc:  # diagnostics must never break a generation
+                        logging.getLogger(__name__).warning(
+                            "Bangers popularity annotation failed: %s", _exc)
+
+                playlist_result = {
+                    "name": playlist_data.get('title', 'Generated Playlist'),
+                    "tracks": formatted_tracks,
+                    "track_count": len(formatted_tracks),
                 }
-                # Surface pier-bridge relaxation warnings so the GUI can display
-                # a notice when generation had to bend a guideline to stay feasible.
-                all_warnings = (
-                    (ds_report.get("playlist_stats") or {})
-                    .get("playlist", {})
-                    .get("warnings") or []
-                )
-                playlist_result["relaxations"] = [
-                    w for w in all_warnings
-                    if isinstance(w, dict) and w.get("type") == "relaxation"
-                ]
 
-            try:
-                _populate_last_generation_cache(
-                    generator=generator,
-                    playlist_result=playlist_result,
-                    db_path=merged_config.library_database_path,
-                )
-            except Exception as exc:
-                emit_log("WARNING", f"Replacement cache unavailable for this playlist: {exc}")
+                # Include DS report metrics if available
+                if ds_report:
+                    metrics = ds_report.get('metrics', {})
+                    playlist_result["metrics"] = {
+                        "mean_transition": metrics.get('mean_transition'),
+                        "min_transition": metrics.get('min_transition'),
+                        "p10_transition": metrics.get('p10_transition'),
+                        "p90_transition": metrics.get('p90_transition'),
+                        "distinct_artists": metrics.get('distinct_artists'),
+                    }
+                    # Surface pier-bridge relaxation warnings so the GUI can display
+                    # a notice when generation had to bend a guideline to stay feasible.
+                    all_warnings = (
+                        (ds_report.get("playlist_stats") or {})
+                        .get("playlist", {})
+                        .get("warnings") or []
+                    )
+                    playlist_result["relaxations"] = [
+                        w for w in all_warnings
+                        if isinstance(w, dict) and w.get("type") == "relaxation"
+                    ]
 
-            emit_result("playlist", {"playlist": playlist_result})
-            emit_progress("complete", 100, 100, "Done")
-            emit_done("generate_playlist", True, f"Generated {len(formatted_tracks)} tracks")
-        else:
-            emit_error("No playlist generated")
-            emit_done("generate_playlist", False, "No playlist generated")
+                try:
+                    _populate_last_generation_cache(
+                        generator=generator,
+                        playlist_result=playlist_result,
+                        db_path=merged_config.library_database_path,
+                    )
+                except Exception as exc:
+                    emit_log("WARNING", f"Replacement cache unavailable for this playlist: {exc}")
 
-    except OperationCancelled:
-        # Raised by the generation core's cancellation checkpoints (BaseException
-        # subclass, so the core's broad `except Exception` blocks don't swallow it).
-        emit_log("INFO", "Playlist generation cancelled")
-        emit_done("generate_playlist", False, "Cancelled by user", cancelled=True)
-    except CancellationError:
-        emit_log("INFO", "Playlist generation cancelled")
-        emit_done("generate_playlist", False, "Cancelled by user", cancelled=True)
-    except Exception as e:
-        tb = traceback.format_exc()
-        emit_error(str(e), tb)
-        emit_done("generate_playlist", False, str(e))
-    finally:
-        # Never leave the process-global hook set across requests.
-        set_cancellation_hook(None)
+                emit_result("playlist", {"playlist": playlist_result})
+                emit_progress("complete", 100, 100, "Done")
+                emit_done("generate_playlist", True, f"Generated {len(formatted_tracks)} tracks")
+            else:
+                emit_error("No playlist generated")
+                emit_done("generate_playlist", False, "No playlist generated")
+
+        except OperationCancelled:
+            # Raised by the generation core's cancellation checkpoints (BaseException
+            # subclass, so the core's broad `except Exception` blocks don't swallow it).
+            emit_log("INFO", "Playlist generation cancelled")
+            emit_done("generate_playlist", False, "Cancelled by user", cancelled=True)
+        except CancellationError:
+            emit_log("INFO", "Playlist generation cancelled")
+            emit_done("generate_playlist", False, "Cancelled by user", cancelled=True)
+        except Exception as e:
+            tb = traceback.format_exc()
+            emit_error(str(e), tb)
+            emit_done("generate_playlist", False, str(e))
+        finally:
+            # Never leave the process-global hook set across requests.
+            set_cancellation_hook(None)
+
+    cleanup_old_playlist_logs_async(playlist_log_dir_cfg, playlist_log_retention_days)
 
 
 def handle_scan_library(cmd_data: Dict[str, Any]) -> None:

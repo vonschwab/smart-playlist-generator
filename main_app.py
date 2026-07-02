@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import sys
 import argparse
 
-from src.logging_utils import configure_logging, add_logging_args, resolve_log_level
+from src.logging_utils import configure_logging, add_logging_args, resolve_log_level, playlist_log_file
 from src.console_output import (
     header, section, blank, bullet,
     PlaylistReport, BatchReport, print_startup_banner
@@ -519,6 +519,19 @@ class PlaylistApp:
         )
 
 
+def _playlist_log_settings(config: Config) -> Tuple[bool, str, int]:
+    """Resolve logging.playlist_logs.* from config, with the documented
+    defaults when the block is absent (see
+    docs/superpowers/specs/2026-07-02-per-playlist-logging-design.md).
+    """
+    cfg = config.get('logging', 'playlist_logs', default={}) or {}
+    enabled = bool(cfg.get('enabled', True))
+    directory = cfg.get('dir', 'logs/playlists')
+    level_name = cfg.get('level', 'DEBUG')
+    level = getattr(logging, str(level_name).upper(), logging.DEBUG)
+    return enabled, directory, level
+
+
 def main():
     """Entry point"""
     # Parse command-line arguments
@@ -749,30 +762,47 @@ def main():
             pace_mode=pace_mode,
         )
 
+        # Per-playlist DEBUG log file for this CLI run (independent of the
+        # explicit --log-file / configure_logging file, which keeps working
+        # unchanged). One CLI invocation = one generation = one log.
+        log_enabled, log_dir, log_level = _playlist_log_settings(app.config)
+
         if generation_request.mode == "artist" and generation_request.artist:
             # Single artist mode
-            app.run_single_artist(
-                generation_request.artist,
-                generation_request.tracks,
-                track_title=generation_request.track,
-                dry_run=getattr(args, 'dry_run', False),
-                dynamic=dynamic_flag,
-                verbose=getattr(args, 'verbose', False),
-                artist_only=generation_request.artist_only,
-                anchor_seed_ids=generation_request.anchor_seed_ids or None,
-            )
+            with playlist_log_file(
+                generation_request.artist, None,
+                enabled=log_enabled, dir=log_dir, level=log_level,
+            ):
+                app.run_single_artist(
+                    generation_request.artist,
+                    generation_request.tracks,
+                    track_title=generation_request.track,
+                    dry_run=getattr(args, 'dry_run', False),
+                    dynamic=dynamic_flag,
+                    verbose=getattr(args, 'verbose', False),
+                    artist_only=generation_request.artist_only,
+                    anchor_seed_ids=generation_request.anchor_seed_ids or None,
+                )
         elif generation_request.mode == "genre" and generation_request.genre:
             # Single genre mode
-            app.run_single_genre(
-                generation_request.genre,
-                generation_request.tracks,
-                dry_run=getattr(args, 'dry_run', False),
-                dynamic=dynamic_flag,
-                verbose=getattr(args, 'verbose', False),
-            )
+            with playlist_log_file(
+                generation_request.genre, None,
+                enabled=log_enabled, dir=log_dir, level=log_level,
+            ):
+                app.run_single_genre(
+                    generation_request.genre,
+                    generation_request.tracks,
+                    dry_run=getattr(args, 'dry_run', False),
+                    dynamic=dynamic_flag,
+                    verbose=getattr(args, 'verbose', False),
+                )
         else:
             # Normal mode - generate multiple playlists from history
-            app.run(dry_run=getattr(args, 'dry_run', False), dynamic=dynamic_flag)
+            with playlist_log_file(
+                "history", None,
+                enabled=log_enabled, dir=log_dir, level=log_level,
+            ):
+                app.run(dry_run=getattr(args, 'dry_run', False), dynamic=dynamic_flag)
     except ValueError as e:
         print(f"\nConfiguration Error: {e}")
         print("\nPlease check your config.yaml file.\n")

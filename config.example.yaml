@@ -793,6 +793,16 @@ playlists:
 logging:
   level: DEBUG
   file: logs/playlist_generator.log
+  # Per-playlist DEBUG log files (default-on). One file per generation under
+  # `dir`, full DEBUG detail regardless of the console/GUI level, cleaned up
+  # asynchronously after each generation. Rollback: set enabled: false to
+  # restore today's behavior byte-for-byte.
+  # See docs/superpowers/specs/2026-07-02-per-playlist-logging-design.md.
+  playlist_logs:
+    enabled: true
+    dir: logs/playlists
+    retention_days: 30
+    level: DEBUG
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Artifact-level settings (top-level section, default absent)
