@@ -25,7 +25,20 @@ class TailSwap:
 
 
 def _calibrate(ctx, arr: np.ndarray) -> np.ndarray:
-    """Vectorized twin of vec._calibrate_transition_cos, honoring ctx flags."""
+    """Vectorized twin of vec._calibrate_transition_cos, honoring ctx flags.
+
+    NOT a delegating call: vec._calibrate_transition_cos (the declared single
+    source of truth for the calibrated-transition sigmoid) is scalar-only
+    (``value: float``, ``math.exp``/``math.isfinite``) and this module needs
+    the same logistic remap applied elementwise over (possibly large)
+    similarity matrices, so the formula is intentionally re-expressed in numpy
+    here rather than looped through the scalar function per element. Any
+    change to the calibration formula in vec.py must be mirrored here by hand.
+    The anti-divergence guard is
+    test_batch_T_matches_score_transition_edge_both_branches (parametrized
+    centered=True/False), which asserts batch_T exactly matches
+    score_transition_edge's per-edge "T" for both branches -- keep it green.
+    """
     if not ctx.center_transitions:
         return np.asarray(arr, dtype=np.float64)
     z = float(ctx.calib_gain) * (np.asarray(arr, dtype=np.float64) - float(ctx.calib_center)) / float(ctx.calib_scale)
@@ -81,7 +94,7 @@ def optimize_segment_tail(
     """
     try:
         path = [int(i) for i in segment_path]
-        cand = [int(c) for c in candidates if int(c) != int(pier_b)]
+        cand = [int(c) for c in candidates if int(c) != int(pier_b) and int(c) != int(pier_a)]
         if not path or not cand:
             return None
         window = min(2, len(path))

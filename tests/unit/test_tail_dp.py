@@ -119,6 +119,36 @@ def test_floor_gate_fires_on_weak_landing():
     assert res is not None and set(res.new_tail) == {4, 5}
 
 
+def test_floor_gate_skips_already_good_landing_window_one():
+    # single-interior-slot segment (window==1): existing slot=C90 already
+    # clears the 0.30 floor (both prefix->slot and slot->pier_b edges land at
+    # ~0.9 since pier_a and pier_b share the same [1,0] vector) -- even though
+    # a strictly better candidate (C99) is available and would win on merit
+    # (0.99 > 0.9+epsilon) if the gate were absent, the floor must suppress
+    # the re-opt and return None.
+    C99 = [0.99, (1 - 0.99 ** 2) ** 0.5]
+    X = [[1, 0], [1, 0], C90, C99]
+    ctx = _ctx(X)
+    res = optimize_segment_tail(
+        ctx, segment_path=[2], pier_a=0, pier_b=1,
+        candidates=[3], epsilon=0.02, floor=0.30, is_allowed_pair=lambda x, y: True,
+    )
+    assert res is None
+
+
+def test_floor_gate_fires_on_weak_landing_window_one():
+    # single-interior-slot segment (window==1): existing slot [0,1] is
+    # orthogonal to both pier_a and pier_b ([1,0]) -> window min ~0, below the
+    # 0.30 floor -> re-opt swaps in the strong C90 candidate.
+    X = [[1, 0], [1, 0], [0, 1], C90]
+    ctx = _ctx(X)
+    res = optimize_segment_tail(
+        ctx, segment_path=[2], pier_a=0, pier_b=1,
+        candidates=[3], epsilon=0.02, floor=0.30, is_allowed_pair=lambda x, y: True,
+    )
+    assert res is not None and res.new_tail == (3,)
+
+
 def test_one_slot_window():
     # single-interior segment: replace the lone slot.
     X = [[1, 0], [1, 0], [0, 1], C90]
