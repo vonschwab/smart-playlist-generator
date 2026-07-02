@@ -75,10 +75,15 @@ appended to the playlist:
   min-edge exceeds the current window min-edge by ≥ `tail_dp_epsilon` (0.02).
   Otherwise leave the segment untouched. Never raises; on any internal error,
   log and keep the original segment.
-- **Always-on, not threshold-triggered:** probe evidence shows large gains well
-  above any sensible trigger floor (0.472→0.799, 0.692→0.891); the never-worse
-  guard makes always-on safe. Cost ≈ 3 vectorized matrix ops per segment on a
-  ~800-track pool — negligible against the 90s budget.
+- **Weak-landing trigger (`tail_dp_floor`, default 0.30):** re-optimize a segment
+  only when its current landing-window min-edge is below the floor — matching the
+  break-glass repair's under-threshold philosophy (Dylan, 2026-07-02: only override
+  the beam's pace/genre balancing when the endgame is actually weak, not for a
+  marginal pure-T gain on an already-good landing; superseding the first draft's
+  always-on choice, which a pair of pace/genre-gate tests flagged as over-reaching).
+  `tail_dp_floor: 0` = always-on (no gate). Never-worse (≥ `tail_dp_epsilon`) still
+  guards each accepted swap. Cost ≈ 3 vectorized matrix ops per *triggered* segment
+  — negligible against the 90s budget.
 - **Config (Layer 4):** `pier_bridge.tail_dp_enabled: true` — live default;
   rollback `false` restores today's beam output byte-identically.
   `tail_dp_epsilon: 0.02`. Window size fixed at 2 (not a knob; YAGNI).
