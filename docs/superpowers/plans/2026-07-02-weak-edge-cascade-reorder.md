@@ -354,18 +354,21 @@ git commit -m "feat(var-bridge): add-only length selection (never shorten; drop 
 ```
 Place it near the existing `edge_repair_*` keys. Confirm the exact nesting by reading how `edge_repair_*` appears in `config.example.yaml`.
 
-- [ ] **Step 2: Regenerate config-snapshot goldens.** These four capture resolved config and gain `edge_delete_*` (and may shift where var-bridge behavior changed values):
+- [ ] **Step 2: Identify ALL failing goldens, then regenerate.** Run `python -m pytest tests/unit/test_pipeline_smoke_golden.py tests/unit/test_pier_bridge_smoke_golden.py -q` to a file and list every failing golden. Two golden SETS shift from this feature:
+  - **Config-snapshot** (`tests/unit/goldens/pipeline/*.json`, 4 files): gain the 3 `edge_delete_*` keys.
+  - **Behavioral** (`tests/unit/goldens/pier_bridge/*.json`, at least `two_seeds_default.json` + `three_seeds_centered.json`): the *playlist itself* changes because `edge_delete` (live default) now deletes a broken-edge outlier AND add-only var-bridge no longer shortens. (Task 2 already confirmed `edge_delete_enabled=false` reproduces the old behavioral goldens byte-for-byte.)
 
 ```bash
-rm tests/unit/goldens/pipeline/discover_with_dj_bridging.json tests/unit/goldens/pipeline/dynamic_default.json tests/unit/goldens/pipeline/narrow_progress_arc_dry_run.json tests/unit/goldens/pipeline/narrow_with_pier_bridge_overrides.json
-python -m pytest tests/unit/test_pipeline_smoke_golden.py -q   # regenerates baselines (skips)
-python -m pytest tests/unit/test_pipeline_smoke_golden.py -q   # verifies (passes)
+# regenerate whichever files the run above reported as failing (delete then rebuild)
+rm <each-failing-golden.json>
+python -m pytest tests/unit/test_pipeline_smoke_golden.py tests/unit/test_pier_bridge_smoke_golden.py -q   # rebuild baselines (skips)
+python -m pytest tests/unit/test_pipeline_smoke_golden.py tests/unit/test_pier_bridge_smoke_golden.py -q   # verify (passes)
 ```
 
-- [ ] **Step 3: Diff-audit the goldens.** `git diff -- tests/unit/goldens/pipeline/` — EVERY changed line must be an `edge_delete_*` key addition OR a var-bridge-behavior-driven value change you can explain (e.g. a segment that no longer shortened). If any change is unexplained, STOP and investigate. Commit only after the audit:
+- [ ] **Step 3: Diff-audit — legitimacy, not just shape.** For **config-snapshot** goldens, every changed line must be an `edge_delete_*` key addition. For **behavioral** goldens, every removed track must be a genuine `edge_delete` deletion of a **broken edge** — verify by re-running that fixture with `edge_delete_enabled=false` and confirming (a) the old output returns AND (b) the deleted track sat on an edge below 0.30 whose merge lifted the worst edge (the feature working, not a misfire). Any track removed from an already-healthy edge (worst edge was ≥ 0.30) is a BUG — STOP and investigate. Likewise any segment that got *longer* with no weak-edge justification. Commit only after the audit passes, with explicit pathspec for every regenerated file:
 
 ```bash
-git commit -m "test(golden): edge_delete_* keys + add-only var-bridge snapshot regen (diff-audited)" -- tests/unit/goldens/pipeline/discover_with_dj_bridging.json tests/unit/goldens/pipeline/dynamic_default.json tests/unit/goldens/pipeline/narrow_progress_arc_dry_run.json tests/unit/goldens/pipeline/narrow_with_pier_bridge_overrides.json
+git commit -m "test(golden): regen for edge_delete + add-only var-bridge (diff-audited, deletions verified legit)" -- <each-regenerated-golden.json>
 ```
 
 - [ ] **Step 4: Full fast suite.**
