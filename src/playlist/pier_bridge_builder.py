@@ -2933,6 +2933,8 @@ def build_pier_bridge_playlist(
             floor=float(getattr(cfg, "edge_delete_floor", 0.30)),
             protected_indices=_edge_delete_protected,
             max_deletions=int(getattr(cfg, "edge_delete_max_deletions", 4)),
+            artist_key_of=lambda i: bundle.artist_keys[int(i)],
+            min_gap=int(min_gap),
         )
         edge_delete_log = list(delete_result.delete_log)
         if list(delete_result.indices) != list(final_indices):

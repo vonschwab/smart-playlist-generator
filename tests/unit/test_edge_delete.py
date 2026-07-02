@@ -64,6 +64,54 @@ def test_respects_max_deletions():
     assert len(r.delete_log) == 1
 
 
+# --- bystander min_gap guard -------------------------------------------------
+
+
+def test_skips_deletion_that_breaches_bystander_min_gap():
+    # positions == bundle indices 0..9; piers 0 and 9. Artist "Q" sits at positions
+    # 2 and 5 (distance 3 == min_gap+1, exactly legal). Broken edge is 3->4 (0.05);
+    # both candidate deletions (pos 3 or pos 4) sit strictly between the Q pair, so
+    # either one would shift Q@5 down to position 4, shrinking the pair to distance
+    # 2 == min_gap -> a fresh bystander violation. Both merges score well (0.9), so
+    # WITHOUT the guard the old code deletes pos 3 (tie -> lower del_pos wins) and
+    # breaches the hard diversity constraint. WITH the guard both candidates are
+    # blocked and the edge is left broken (never-worse: nothing safe improves it).
+    artists = {2: "Q", 5: "Q"}
+
+    def akey(i):
+        return artists.get(i, f"u{i}")
+
+    score = _score({(3, 4): 0.05, (2, 4): 0.9, (3, 5): 0.9}, default=0.9)
+    r = delete_broken_edges(
+        list(range(10)), edge_score=score, floor=0.30,
+        protected_indices={0, 9}, max_deletions=4,
+        artist_key_of=akey, min_gap=2,
+    )
+    # Key invariant: no same-artist pair in the surviving order sits at distance
+    # <= min_gap (the hard diversity constraint the deletion must never breach).
+    q_positions = [p for p, i in enumerate(r.indices) if akey(i) == "Q"]
+    for a, b in zip(q_positions, q_positions[1:]):
+        assert b - a > 2  # > min_gap
+    # In this scenario both candidate deletions straddle the Q pair, so the guard
+    # blocks the deletion outright and the broken edge is left (never-worse).
+    assert r.indices == list(range(10))
+    assert r.delete_log == []
+
+
+def test_without_artist_key_of_gap_blind_still_deletes():
+    # Companion contrast test: the same scenario as above, but WITHOUT
+    # artist_key_of/min_gap (the defaults) -- old gap-blind behavior is
+    # unchanged, and the deletion proceeds (proving the guard above is the
+    # thing that changed the outcome, not some other side effect).
+    score = _score({(3, 4): 0.05, (2, 4): 0.9, (3, 5): 0.9}, default=0.9)
+    r = delete_broken_edges(
+        list(range(10)), edge_score=score, floor=0.30,
+        protected_indices={0, 9}, max_deletions=4,
+    )
+    assert r.indices == [0, 1, 2, 4, 5, 6, 7, 8, 9]  # pos 3 deleted, tie -> lower del_pos
+    assert len(r.delete_log) == 1 and r.delete_log[0]["deleted_idx"] == 3
+
+
 # --- Task 2: config knobs + override threading ------------------------------
 
 

@@ -3,7 +3,10 @@
 
 Runs AFTER break-glass repair. For an edge still below floor, delete the interior
 endpoint whose removal best merges the two edges, but ONLY if the merged edge
-strictly beats the broken edge (never-worse). Never deletes a pier/seed. See
+strictly beats the broken edge (never-worse). Never deletes a pier/seed. Deleting
+a track compacts the list by one slot, which can shrink a BYSTANDER same-artist
+pair's positional gap below the hard `min_gap` diversity constraint -- when
+`artist_key_of`/`min_gap` are supplied, such a deletion is skipped. See
 docs/superpowers/specs/2026-07-02-weak-edge-cascade-reorder-design.md.
 """
 from __future__ import annotations
@@ -21,6 +24,25 @@ class DeleteResult:
     delete_log: list[dict] = field(default_factory=list)
 
 
+def _violates_min_gap_after_delete(idx, artist_key_of, del_pos, min_gap):
+    """Would deleting idx[del_pos] compress a BYSTANDER same-artist pair to <= min_gap?
+    Deleting del_pos shifts everything after it left by one, so a same-artist pair
+    (p1 < del_pos < p2) goes from distance (p2 - p1) to (p2 - p1 - 1). The pre-delete
+    list is already min_gap-legal, so only a straddling pair at exactly distance
+    min_gap+1 becomes a fresh violation. Scan the window [del_pos-min_gap, del_pos+min_gap]."""
+    if not min_gap or artist_key_of is None:
+        return False
+    before = {}  # artist key -> nearest position < del_pos
+    for p in range(max(0, del_pos - min_gap), del_pos):
+        before[artist_key_of(idx[p])] = p
+    for p in range(del_pos + 1, min(len(idx), del_pos + min_gap + 1)):
+        a = artist_key_of(idx[p])
+        p1 = before.get(a)
+        if p1 is not None and (p - 1) - p1 <= min_gap:
+            return True
+    return False
+
+
 def delete_broken_edges(
     indices: Sequence[int],
     *,
@@ -28,6 +50,8 @@ def delete_broken_edges(
     floor: float,
     protected_indices: set[int],
     max_deletions: int = 4,
+    artist_key_of: Callable[[int], object] | None = None,
+    min_gap: int = 0,
 ) -> DeleteResult:
     idx = [int(x) for x in indices]
     delete_log: list[dict] = []
@@ -51,6 +75,8 @@ def delete_broken_edges(
                 prev, nxt = del_pos - 1, del_pos + 1
                 if prev < 0 or nxt >= len(idx):
                     continue  # boundary track has no neighbor to merge across
+                if _violates_min_gap_after_delete(idx, artist_key_of, del_pos, min_gap):
+                    continue  # deletion would breach the hard diversity constraint for a bystander
                 merged = float(edge_score(idx[prev], idx[nxt]))
                 if best is None or merged > best[0]:
                     best = (merged, del_pos)  # ties -> lower del_pos (worst_pos first)
