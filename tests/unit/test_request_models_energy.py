@@ -27,7 +27,7 @@ def test_gui_default_runs_sonnet_adjudicator_not_legacy_enrich():
     assert "adjudicate" in order and "apply" in order
     assert "enrich" not in order
     assert order.index("apply") == order.index("adjudicate") + 1
-    assert order.index("adjudicate") > order.index("mert")
+    assert order.index("adjudicate") > order.index("muq")
 
 
 def test_gui_and_cli_default_orders_match():

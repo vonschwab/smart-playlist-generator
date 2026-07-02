@@ -88,7 +88,7 @@ def main():
             # Mirrors STAGE_ORDER_DEFAULT in scripts/analyze_library.py — the
             # real default pipeline the worker runs when no stage subset is given.
             stages = cmd.get("stages") or [
-                "scan", "genres", "discogs", "lastfm", "sonic", "mert",
+                "scan", "genres", "discogs", "lastfm", "sonic", "muq",
                 "adjudicate", "apply", "publish", "genre-sim", "artifacts",
                 "energy", "genre-embedding", "verify",
             ]

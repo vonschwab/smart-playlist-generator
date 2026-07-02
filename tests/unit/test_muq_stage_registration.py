@@ -1,10 +1,10 @@
 from src.playlist.request_models import ANALYZE_LIBRARY_STAGE_ORDER, LibraryPipelineRequest
 
 
-def test_muq_is_in_order_right_after_mert():
+def test_muq_registered_and_mert_gone():
     order = list(ANALYZE_LIBRARY_STAGE_ORDER)
     assert "muq" in order
-    assert order.index("muq") == order.index("mert") + 1
+    assert "mert" not in order
 
 
 def test_request_accepts_muq_stage():

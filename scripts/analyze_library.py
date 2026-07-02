@@ -125,14 +125,12 @@ def _configured_genre_source(ctx: Dict) -> str:
     return str(value or "legacy").strip().lower()
 
 
-def _mert_fold_settings(config_path: str) -> Tuple[bool, str]:
-    """(fold_enabled, active_variant) for the post-artifact MERT fold.
+def _sonic_fold_settings(config_path: str) -> Tuple[bool, str]:
+    """(fold_enabled, active_variant) for the post-artifact sonic fold.
 
-    - ``analyze.mert.fold_into_artifact`` (default True) toggles the auto-fold
-      that runs at the end of the artifacts stage. Set it False to keep the tower
-      rollback active without a code change.
-    - ``artifacts.sonic_variant_override`` (default 'mert') chooses the active
-      variant the fold writes — set to 'tower_weighted' for the documented rollback.
+    - ``analyze.muq.fold_into_artifact`` (default True) toggles the auto-fold at
+      the end of the artifacts stage.
+    - ``artifacts.sonic_variant_override`` (default 'muq') names the active variant.
     """
     import yaml
 
@@ -141,11 +139,10 @@ def _mert_fold_settings(config_path: str) -> Tuple[bool, str]:
             cfg = yaml.safe_load(f) or {}
     except Exception:
         cfg = {}
-    mert_cfg = (cfg.get("analyze") or {}).get("mert") or {}
-    enabled = bool(mert_cfg.get("fold_into_artifact", True))
-    override = ((cfg.get("artifacts") or {}).get("sonic_variant_override") or "mert")
-    variant = str(override).strip() or "mert"
-    return enabled, variant
+    muq_cfg = (cfg.get("analyze") or {}).get("muq") or {}
+    enabled = bool(muq_cfg.get("fold_into_artifact", True))
+    override = ((cfg.get("artifacts") or {}).get("sonic_variant_override") or "muq")
+    return enabled, str(override).strip() or "muq"
 
 
 # Recognized artifacts.sonic_variant_override values. muq is the sole baked
@@ -158,12 +155,18 @@ def _variant_gate(config_path: str, stage_variant: str) -> Optional[str]:
     (artifacts.sonic_variant_override) is not this stage's variant, else None. Only the
     active variant's extraction runs in a default rebuild; the other is reached by
     switching the variant. Warns loudly if the override is an unrecognized variant (a typo
-    would otherwise make both mert/muq stages silently no-op)."""
-    _, active = _mert_fold_settings(config_path)
+    would otherwise make the stage silently no-op).
+
+    To add a future embedding: add an extraction stage writing `<name>_sidecar.npz`, a
+    fold writing `X_sonic_<name>*`, a `TRANSITION_CALIB_BY_VARIANT` entry, register
+    `<name>` in `_KNOWN_SONIC_VARIANTS` + the stage registries, then flip
+    `artifacts.sonic_variant_override`. Both variants coexist in the artifact during A/B.
+    """
+    _, active = _sonic_fold_settings(config_path)
     if active not in _KNOWN_SONIC_VARIANTS:
         logger.warning(
             "sonic_variant_override=%r is not a recognized sonic variant (known: %s) — the "
-            "mert/muq extraction stages will not run for it; check for a typo.",
+            "extraction stage will not run for it; check for a typo.",
             active, ", ".join(sorted(_KNOWN_SONIC_VARIANTS)))
     if active != stage_variant:
         return f"active sonic variant is {active!r}; skipping {stage_variant} extraction"
@@ -415,34 +418,18 @@ def compute_stage_fingerprint(ctx: Dict, stage: str) -> str:
         }
         return _hash_obj(key)
 
-    if stage == "mert":
-        # Universe = DB tracks with a file_path (what stage_mert actually embeds).
+    if stage == "muq":
+        # Universe = DB tracks with a file_path (what stage_muq actually embeds).
         # Keyed off the DB, not the artifact, so a freshly-scanned track flips this
-        # fingerprint and the orchestrator re-runs MERT in the same pass — before
+        # fingerprint and the orchestrator re-runs muq in the same pass — before
         # the artifact rebuild that would otherwise hide the new track.
         #
         # ``config`` folds in artifacts.sonic_variant_override (via cfg_hash) so a
-        # variant flip busts the cache too — otherwise stage_mert's variant gate
-        # (skip unless active variant is 'mert') can cache-skip while 'muq' is
-        # active, then the orchestrator never calls the stage again after
-        # flipping back to 'mert' with the same track set, and the gate that
-        # would have let it run is never reached.
-        try:
-            track_ids = sorted(
-                str(r[0]) for r in conn.execute(
-                    "SELECT track_id FROM tracks "
-                    "WHERE file_path IS NOT NULL AND file_path != ''"
-                ).fetchall()
-            )
-        except Exception:
-            track_ids = []
-        key = {"stage": stage, "track_ids": track_ids, "config": cfg_hash}
-        return _hash_obj(key)
-
-    if stage == "muq":
-        # See the "mert" branch above: ``config`` folds in
-        # artifacts.sonic_variant_override so a variant flip busts this stage's
-        # cached fingerprint too, instead of silently no-op'ing via the gate.
+        # variant flip busts the cache too — otherwise stage_muq's variant gate
+        # (skip unless active variant is 'muq') can cache-skip, then the
+        # orchestrator never calls the stage again after flipping back to 'muq'
+        # with the same track set, and the gate that would have let it run is
+        # never reached.
         try:
             track_ids = sorted(
                 str(r[0]) for r in conn.execute(
@@ -578,7 +565,7 @@ def compute_stage_fingerprint(ctx: Dict, stage: str) -> str:
         except Exception:
             artifact_mtime = 0
         key = {"stage": stage, "artifact_mtime": artifact_mtime}
-    return _hash_obj(key)
+        return _hash_obj(key)
 
     return _hash_obj({"stage": stage})
 
@@ -2067,33 +2054,15 @@ def stage_artifacts(ctx: Dict) -> Dict:
         logger.warning("Skipping artifacts stage: %s", exc)
         return {"path": str(out_path), "skipped": True, "reason": str(exc)}
 
-    # If the 2DFTM harmony sidecar exists, fold it into the freshly built artifact.
-    # New tracks without sidecar entries get zero harmony vectors (gracefully degraded
-    # until the user runs extract_harmony_2dftm_sidecar.py for the new tracks).
-    _sidecar = out_dir / "harmony_2dftm_sidecar.npz"
-    if _sidecar.exists():
-        logger.info("2DFTM sidecar found; folding harmony into rebuilt artifact...")
-        try:
-            from scripts.fold_2dftm_into_artifact import fold_harmony
-            # Pass the message as a plain arg (%s), not as a logging format string,
-            # so any literal % in a fold message can't raise or mangle output.
-            fold_harmony(
-                out_path, _sidecar, no_backup=True,
-                log_fn=lambda msg="", **kw: logger.info("%s", msg),
-            )
-            logger.info("2DFTM harmony fold complete")
-        except Exception as exc:
-            logger.warning("2DFTM fold failed (artifact left as-is): %s", exc)
-
-    # Fold the ACTIVE sonic-variant sidecar back in. A fresh build (and the 2DFTM fold
-    # above) leave X_sonic_variant on the tower blend; without this, every artifacts
-    # rebuild silently reverts the production sonic space to the tower rollback. This is
-    # the auto-fold that replaces the manual fold_*_into_artifact.py step. The variant is
-    # chosen by artifacts.sonic_variant_override (muq | mert); folding the WRONG sidecar
-    # would leave the active matrix (X_sonic_muq / X_sonic_mert) STALE while `verify`
-    # still passes on the stamp — so we branch on the active variant here.
-    fold_enabled, active_variant = _mert_fold_settings(ctx["config_path"])
-    if fold_enabled and active_variant == "muq":
+    # Fold the ACTIVE sonic-variant sidecar back in. A fresh build leaves
+    # X_sonic_variant on the tower blend; without this, every artifacts rebuild
+    # silently reverts the production sonic space to the tower rollback. This is
+    # the auto-fold that replaces the manual fold_muq_into_artifact.py step. muq
+    # is the sole baked variant (SP-B removed MERT and the tower/transform
+    # variants) so the fold is unconditional once enabled — see _variant_gate's
+    # docstring for the recipe to add a future embedding alongside it.
+    fold_enabled, _active_variant = _sonic_fold_settings(ctx["config_path"])
+    if fold_enabled:
         muq_sidecar = out_dir / "muq_sidecar.npz"
         if muq_sidecar.exists():
             logger.info("Folding MuQ sidecar into rebuilt artifact (X_sonic_variant=muq)...")
@@ -2114,28 +2083,6 @@ def stage_artifacts(ctx: Dict) -> Dict:
                 "sonic_variant_override=muq but %s not found — X_sonic_muq will be STALE "
                 "(verify only checks the stamp). Build the MuQ sidecar then run "
                 "scripts/fold_muq_into_artifact.py.", muq_sidecar
-            )
-    elif fold_enabled:
-        mert_sidecar = out_dir / "mert_sidecar.npz"
-        if mert_sidecar.exists():
-            logger.info("Folding MERT sidecar into rebuilt artifact (X_sonic_variant=%s)...", active_variant)
-            try:
-                from scripts.fold_mert_into_artifact import fold_mert
-                fold_mert(
-                    out_path, mert_sidecar, set_active=active_variant, no_backup=True,
-                    log_fn=lambda msg="", **kw: logger.info("%s", msg),
-                )
-                logger.info("MERT fold complete; X_sonic_variant=%s", active_variant)
-            except Exception as exc:
-                # Loud: a failed fold leaves generation on the tower rollback space.
-                logger.error(
-                    "MERT fold FAILED after artifact rebuild — generation will use the WRONG "
-                    "sonic space (tower rollback) until re-folded: %s", exc
-                )
-        else:
-            logger.warning(
-                "MERT sidecar not found (%s); artifact left on the tower variant. "
-                "Run the mert stage to build the sidecar.", mert_sidecar
             )
 
     fingerprint = compute_stage_fingerprint(ctx, "artifacts")
@@ -2233,21 +2180,23 @@ def stage_verify(ctx: Dict) -> Dict:
         except Exception as exc:
             logger.warning("Verify: could not read genre embedding sidecar: %s", exc)
             issues.append("genre_embedding_unreadable")
-    # Sonic-variant guard: when the MERT sidecar exists and folding is enabled, the
-    # active sonic variant MUST be the learned embedding. A mismatch means an
-    # artifacts rebuild clobbered the variant and the fold did not restore it —
-    # generation would silently run on the tower rollback space. Fail loudly.
+    # Sonic-variant guard: when the ACTIVE variant's sidecar exists and folding is
+    # enabled, the active sonic variant MUST be stamped on the artifact. A mismatch
+    # means an artifacts rebuild clobbered the variant and the fold did not restore
+    # it — generation would silently run on the tower rollback space. Keyed off the
+    # active variant's own sidecar (not hardcoded to MERT) so this guard doesn't go
+    # dark once an inactive variant's sidecar is archived. Fail loudly.
     try:
-        fold_enabled, active_variant = _mert_fold_settings(ctx["config_path"])
-        mert_sidecar = artifact_path.parent / "mert_sidecar.npz"
-        if fold_enabled and mert_sidecar.exists():
+        fold_enabled, active_variant = _sonic_fold_settings(ctx["config_path"])
+        sidecar = artifact_path.parent / f"{active_variant}_sidecar.npz"
+        if fold_enabled and sidecar.exists():
             with np.load(artifact_path, allow_pickle=True) as _z:
                 current_variant = (
                     str(_z["X_sonic_variant"]) if "X_sonic_variant" in _z else ""
                 )
             if current_variant != active_variant:
                 logger.error(
-                    "Verify: X_sonic_variant=%r but expected %r — MERT fold missing or "
+                    "Verify: X_sonic_variant=%r but expected %r — sonic fold missing or "
                     "clobbered; generation would use the wrong sonic space.",
                     current_variant, active_variant,
                 )
@@ -2263,151 +2212,6 @@ def stage_verify(ctx: Dict) -> Dict:
     }
 
 
-def _build_mert_embedder(device: str, torch_threads: int):
-    """Build and return the real MERT embedder.
-
-    Isolated so tests can monkeypatch ``al._build_mert_embedder`` without
-    loading torch/transformers.  Sets torch CPU thread count when requested.
-    """
-    if torch_threads > 0:
-        import torch
-        torch.set_num_threads(torch_threads)
-    from scripts.extract_mert_sidecar import build_real_embedder
-    return build_real_embedder(device)
-
-
-def stage_mert(ctx: Dict) -> Dict:
-    """Extract MERT sonic embeddings into resumable shards and a merged sidecar npz.
-
-    Pending = artifact track_ids minus whatever the shard manifest already marks
-    done-or-failed.  Returns immediately (skipped=True) when pending==0 and
-    force is False so the real embedder is never loaded in that case. Also
-    no-ops (skipped=True) when ``artifacts.sonic_variant_override`` is not
-    'mert' — the variant gate in ``_variant_gate`` — so a default rebuild only
-    extracts the active variant's embeddings.
-    """
-    _gate = _variant_gate(ctx["config_path"], "mert")
-    if _gate:
-        logger.info("stage_mert: %s", _gate)
-        return {"skipped": True, "pending": 0, "reason": _gate}
-
-    import yaml
-    from scripts.extract_mert_sidecar import (
-        ShardStore,
-        load_paths,
-        merge_shards,
-        MODEL_NAME,
-        DEFAULT_REVISION,
-        EMB_DIM,
-        run_extraction,
-    )
-
-    args = ctx["args"]
-    force: bool = bool(args.force)
-    limit: Optional[int] = args.limit if args.limit else None
-    out_dir: Path = Path(ctx["out_dir"])
-
-    # Read MERT config block (device / torch_threads / shard_size).
-    device = "cpu"
-    torch_threads = 0
-    shard_size = 500
-    try:
-        with open(ctx["config_path"], "r", encoding="utf-8") as _f:
-            _cfg = yaml.safe_load(_f) or {}
-        _mert_cfg = (_cfg.get("analyze") or {}).get("mert") or {}
-        device = str(_mert_cfg.get("device", "cpu"))
-        torch_threads = int(_mert_cfg.get("torch_threads", 0))
-        shard_size = int(_mert_cfg.get("shard_size", 500))
-    except Exception:
-        pass
-
-    # Determine the shard directory and merged-sidecar path.
-    shard_dir = out_dir / "mert_shards"
-    sidecar_path = out_dir / "mert_sidecar.npz"
-
-    # Universe = every track with a file_path in the DB (read-only). Keyed off the
-    # DB rather than the existing artifact so newly-scanned tracks are embedded in
-    # THIS run, before the artifact is rebuilt — otherwise a fresh file would not
-    # enter the MERT sidecar until a second pass (it is not yet in the stale
-    # artifact's track_ids). stage_artifacts folds the sidecar into the rebuilt
-    # artifact afterwards, aligning to the canonical track order.
-    db_paths: Dict[str, str] = {}
-    try:
-        db_paths = load_paths(ctx["db_path"])
-    except Exception as exc:
-        logger.warning("stage_mert: cannot load file paths from db: %s", exc)
-        return {"skipped": True, "pending": 0, "reason": str(exc)}
-    universe_ids: List[str] = list(db_paths.keys())
-
-    # Build the skip set from the existing manifest (if any).
-    skip_ids: set = set()
-    if not force and shard_dir.exists() and (shard_dir / "manifest.json").exists():
-        try:
-            store_probe = ShardStore(
-                shard_dir,
-                model_name=MODEL_NAME,
-                model_revision=DEFAULT_REVISION,
-                emb_dim=EMB_DIM,
-                shard_size=shard_size,
-            )
-            skip_ids = store_probe.skip_ids()
-        except Exception as exc:
-            logger.warning("stage_mert: manifest read failed, treating as empty: %s", exc)
-
-    # Force re-extracts the whole DB universe; otherwise only what isn't done yet.
-    pending_ids = list(universe_ids) if force else [t for t in universe_ids if t not in skip_ids]
-    if limit is not None:
-        pending_ids = pending_ids[:limit]
-
-    if not pending_ids:
-        logger.info("stage_mert: nothing pending (manifest complete); skipping")
-        return {"skipped": True, "pending": 0}
-
-    logger.info("stage_mert: %d track(s) pending (device=%s)", len(pending_ids), device)
-
-    items: List[Tuple[str, Optional[str]]] = [
-        (tid, db_paths.get(tid)) for tid in pending_ids
-    ]
-
-    # Loading the MERT model (download on a cold HF cache, then weights onto the
-    # device) is a multi-second-to-minute step with no output of its own — log
-    # around it so the stage doesn't look hung before track 1.
-    logger.info(
-        "stage_mert: loading MERT model %s on %s (first run / cold cache can take a minute)...",
-        MODEL_NAME, device,
-    )
-    _load_t0 = time.time()
-    embedder = _build_mert_embedder(device, torch_threads)
-    logger.info("stage_mert: MERT model loaded in %.1fs; embedding %d track(s)",
-                time.time() - _load_t0, len(pending_ids))
-    store = ShardStore(
-        shard_dir,
-        model_name=MODEL_NAME,
-        model_revision=DEFAULT_REVISION,
-        emb_dim=EMB_DIM,
-        shard_size=shard_size,
-    )
-
-    result = run_extraction(items, embedder, store)
-    n_ok: int = result["ok"]
-    n_fail: int = result["failed"]
-
-    # Merge all shards into the sidecar npz.
-    try:
-        merge_shards(shard_dir, sidecar_path)
-    except Exception as exc:
-        logger.warning("stage_mert: merge_shards failed: %s", exc)
-        sidecar_path = None  # type: ignore[assignment]
-
-    return {
-        "skipped": False,
-        "pending": len(pending_ids),
-        "ok": n_ok,
-        "failed": n_fail,
-        "sidecar": str(sidecar_path) if sidecar_path else None,
-    }
-
-
 def stage_muq(ctx: Dict) -> Dict:
     """Extract MuQ-MuLan sonic embeddings into muq_sidecar.npz (incremental, resumable).
     No-ops when muq is not the active sonic variant (Approach-1 variant gate)."""
@@ -2418,7 +2222,7 @@ def stage_muq(ctx: Dict) -> Dict:
 
     import yaml
     from datetime import datetime
-    from scripts.extract_mert_sidecar import load_paths
+    from src.analyze.track_paths import load_paths
     from src.analyze.muq_runner import build_muq_embedder, pending_muq, run_muq_extraction
 
     args = ctx["args"]
@@ -2628,7 +2432,6 @@ STAGE_FUNCS = {
     "apply": stage_apply,
     "publish": stage_publish,
     "sonic": stage_sonic,
-    "mert": stage_mert,
     "muq": stage_muq,
     "genre-sim": stage_genre_sim,
     "artifacts": stage_artifacts,

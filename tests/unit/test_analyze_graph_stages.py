@@ -395,9 +395,9 @@ def test_default_stage_order_has_new_stages_positioned():
     assert "enrich" not in order, "enrich should be opt-in only (not in default order)"
     # enrich is still registered so --stages enrich still works
     assert "enrich" in al.STAGE_FUNCS
-    # lastfm after discogs; adjudicate+apply after mert; publish after apply
+    # lastfm after discogs; adjudicate+apply after muq; publish after apply
     assert order.index("lastfm") > order.index("discogs")
-    assert order.index("adjudicate") > order.index("mert")
+    assert order.index("adjudicate") > order.index("muq")
     assert order.index("apply") == order.index("adjudicate") + 1
     assert order.index("publish") == order.index("apply") + 1
     # publish precedes genre-sim/artifacts

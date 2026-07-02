@@ -2,17 +2,13 @@ library:
   music_directory: /path/to/music
   database_path: data/metadata.db
 analyze:
-  mert:
-    device: cpu        # cpu|cuda
-    torch_threads: 0   # 0 = all available (--workers N overrides)
-    shard_size: 200    # tracks per resumable shard npz
-    fold_into_artifact: true  # after every artifacts rebuild, fold the MERT sidecar
-                              # back in and set X_sonic_variant=mert. Set false to
-                              # keep the tower rollback active (see
-                              # artifacts.sonic_variant_override below).
   muq:
     device: cpu        # cpu|cuda — MuQ-MuLan extraction device
     torch_threads: 0   # 0 = all available
+    fold_into_artifact: true  # after every artifacts rebuild, fold the MuQ sidecar
+                              # back in and set X_sonic_variant=muq. Set false to
+                              # keep the tower rollback active (see
+                              # artifacts.sonic_variant_override below).
   energy:
     distro: "Ubuntu-22.04"        # WSL distro hosting the Essentia venv
     python: "/opt/ess/bin/python" # interpreter inside that distro
