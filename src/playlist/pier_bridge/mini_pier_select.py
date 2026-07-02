@@ -107,7 +107,7 @@ def plan_pier_sequence(
             if cand is not None:
                 seg, wp = i, int(cand)
                 break
-        if wp is None:
+        if seg is None or wp is None:
             break
         g = seg_gap[seg]
         piers.insert(seg + 1, wp)
