@@ -138,21 +138,28 @@ def _load_artifact_bundle_cached(
 ) -> ArtifactBundle:
     data = np.load(artifact_path, allow_pickle=True)
 
+    # SP-B contract: the sonic space is per-variant. With an override, plain
+    # X_sonic is optional (rebuilt artifacts no longer carry it) — the
+    # override's own X_sonic_{variant} key is validated below with a more
+    # specific error message (mentions sonic_variant_override) than the
+    # generic missing-keys check here. Without an override (legacy
+    # artifacts, unit fixtures) plain X_sonic remains required.
     required_keys = {
         "track_ids",
         "artist_keys",
-        "X_sonic",
         "X_genre_raw",
         "X_genre_smoothed",
         "genre_vocab",
     }
+    if not sonic_variant_override:
+        required_keys.add("X_sonic")
     _require_keys(data, required_keys)
 
     track_ids = data["track_ids"]
     artist_keys = data["artist_keys"]
     track_artists = data["track_artists"] if "track_artists" in data else data.get("artist_names")
     track_titles = data["track_titles"] if "track_titles" in data else None
-    X_sonic_raw = data["X_sonic"]
+    X_sonic_raw = data["X_sonic"] if "X_sonic" in data else None
     X_sonic_start = data["X_sonic_start"] if "X_sonic_start" in data else None
     X_sonic_mid = data["X_sonic_mid"] if "X_sonic_mid" in data else None
     X_sonic_end = data["X_sonic_end"] if "X_sonic_end" in data else None
@@ -222,6 +229,11 @@ def _load_artifact_bundle_cached(
             sonic_pre_scaled = True
             logger.info("Using precomputed sonic variant '%s' from artifact key %s", declared_variant, variant_key)
         else:
+            if X_sonic_raw is None:
+                raise ValueError(
+                    f"Artifact {artifact_path} declares sonic_variant={declared_variant!r} "
+                    f"but has neither X_sonic_{declared_variant} nor a plain X_sonic key."
+                )
             X_sonic = X_sonic_raw
             logger.warning(
                 "Artifact declared sonic_variant=%s but missing key %s; falling back to X_sonic raw.",
@@ -229,7 +241,7 @@ def _load_artifact_bundle_cached(
                 variant_key,
             )
     else:
-        X_sonic = X_sonic_raw
+        X_sonic = X_sonic_raw  # guaranteed non-None: no override => X_sonic was required
 
     # Variant-aware start/mid/end resolution: when a variant matrix is in
     # effect, prefer X_sonic_{variant}_{start|mid|end}; fall back to the
