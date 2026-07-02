@@ -87,8 +87,13 @@ def test_variable_bridge_holds_total_in_band_and_helps_or_holds_worst_edge():
     load_artifact_bundle.cache_clear()
     base = _generate(variable_bridge=False)
     flex = _generate(variable_bridge=True)
-    # Total in band [N-5, N+5] (variable_bridge_band default = 5).
-    assert 25 <= len(flex.track_ids) <= 35
+    # Add-only reorder (2026-07-02): `variable_bridge_band` is retired/unused --
+    # pass 1 only ever ADDS interior tracks, up to
+    # variable_bridge_max_flex_segments (default 3) segments each flexing by up
+    # to variable_bridge_flex (default 2) extra tracks, so the ceiling is
+    # N + max_flex_segments*flex = 30 + 3*2 = 36. There is no shortening path,
+    # so the lower bound stays at the requested length.
+    assert 30 <= len(flex.track_ids) <= 36
     base_mt = base.playlist_stats.get("min_transition")
     flex_mt = flex.playlist_stats.get("min_transition")
     if base_mt is not None and flex_mt is not None:

@@ -90,8 +90,14 @@ Algorithm (deterministic, worst-edge-first):
    (deterministic bound; deletions are rare — they only fire on edges that
    survived add-only, tail-DP, and swap-repair).
 
-Deletion cannot violate diversity: removing a track only *increases* the gap
-between same-artist tracks, never decreases it — so no min-gap re-check is needed.
+**Correction (post-review):** deletion CAN violate diversity. Removing a track
+compacts the list by one slot, so a *bystander* same-artist pair (two occurrences
+of some OTHER artist that straddle the deleted position) has its positional gap
+shrink by 1 — a pair sitting at exactly `min_gap+1` becomes a `min_gap` violation.
+`delete_broken_edges` is therefore threaded `artist_key_of`/`min_gap` and skips
+any candidate deletion that would drop a bystander pair to `<= min_gap`, leaving
+the edge broken (never-worse) if both endpoints are blocked. See
+`src/playlist/repair/edge_delete.py::_violates_min_gap_after_delete`.
 Emit a `delete_log` (mirrors repair's `swap_log`) for the diagnostics dict.
 
 ## Config (`src/playlist/pier_bridge/config.py`)
