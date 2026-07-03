@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.14.0-pass2-gaps-grown
+taxonomy_version: 0.26.0-gui-20260702_213443-grown
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -23391,6 +23391,6001 @@ records:
   source_policy: null
   possible_context_target: null
   notes: Spelling variant (growth).
+- name: all
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: fusion
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: favourite albums
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: user_list
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: nigeria
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: place
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: warp
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: label
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: composer
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: africa
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: place
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: totec radio
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: trumpet
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: indiana
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: place
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: austin
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: place
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: nigerian
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: place
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: progressive
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: east coast rap
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: east coast hip hop
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: real post hardcore
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: post-hardcore
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: shoegazer
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: shoegaze
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: bedroom
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: bedroom pop
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: indiepop
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: indie pop
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: alt rock
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: alternative rock
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: modernjazz
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: contemporary jazz
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: plant music
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: nature ambient
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: traditional doom metal
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: doom metal
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: lo-fi indie
+  kind: subgenre
+  role: leaf
+  status: review
+  facet_type: null
+  specificity_score: 0.68
+  canonical_target: null
+  parent_edges:
+  - target: indie rock
+    edge_type: is_a
+    weight: 0.8
+    confidence: 0.75
+    notes: null
+  - target: lo-fi rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: bedroom pop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: indie pop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: dream pop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: lo-fi indie is a legitimate subgenre combining indie rock/pop with lo-fi
+    production aesthetic and bedroom recording techniques. It follows the established
+    pattern of lo-fi compounds in the taxonomy (lo-fi rock, lo-fi hip hop). Examples
+    like Helvetia and Winter represent indie artists employing lo-fi production. Status
+    set to 'review' because this is an emerging category with modest album frequency
+    (31) that would benefit from clearer exemplars and broader community validation.
+    Cooccurring tags show noise (death metal unrelated), suggesting inconsistent application.
+    Specificity sits at subgenre level; relationship to bedroom pop noted but distinct
+    in scope.
+- name: lofi indie
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: lo-fi indie
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: psych pop
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: psychedelic pop
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: 80s hardcore
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: hardcore punk
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: anime
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: harp
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: tropical
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: vibraphone
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: avant
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: decale
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: kranky
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: label
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: beyonce
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: artist_name
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: pedal steel
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: improvisation
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: redneck
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: 80s influenced
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: jizz jazz
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: pleasantville
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: sample based
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: sax
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: chain reaction
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: cocktail nation
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: imagination
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: queer
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: rasta
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: scandinavian
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: place
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: tenor sax
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: conscious
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: domino
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: label
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: dream
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: lo fi sungazed palm trees
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: meatstep
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: acoustic guitar
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: atmospheric drum and bass
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: avant cum
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: club
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '"club" is a venue/context descriptor rather than a meaningful genre. It
+    lacks sonic or cultural specificity—virtually any music can be played in clubs.
+    The taxonomy already includes specific club-oriented subgenres (baltimore club,
+    jersey club, deconstructed club, ghetto house, tech house, deep house, progressive
+    house, acid house, etc.) with defined characteristics. The low frequency (11 albums)
+    and examples showing "club" appearing in track titles (e.g., "bambii — infinity
+    club ii") suggest noisy/incidental tagging rather than coherent genre usage.'
+- name: progressive trance
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: nickelodeon
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: modular synth
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: melodica
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: medieval
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: label
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: kiss of life
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: kannada devotional
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: jay z
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: artist_name
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: international
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: hammond
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: horror
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: funk add to lidarr batch 29
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: funk add to lidarr batch 25
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: final fantasy
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: fhubbard
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: dank haze
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: d.i.y.
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: bummer
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: bob james
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: artist_name
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: charlie brown
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: christian
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: classical guitar
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: dark muscle
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: dj kicks
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: flute
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: japanese jazz
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: moog
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: 4 25
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: electronic music
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: electronic
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: bossanova
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: bossa nova
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: alternative indie rock
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: indie/alternative
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: kawaii
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: isaac brock
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: artist_name
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: heavy
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: funk add to lidarr batch 19
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: funk add to lidarr batch 14
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: female vocal
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: close harmony
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: calvin johnson
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: artist_name
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: boston indie
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: beach
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: asian pop
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: asian music
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: whitney houston
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: artist_name
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: '100'
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: shimmy disc
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: piano rock
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: r'n'b
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: rhythm and blues
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: postrock
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: post-rock
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: tweegaze
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: shoegaze
+    edge_type: is_a
+    weight: 0.65
+    confidence: 0.95
+    notes: null
+  - target: twee pop
+    edge_type: is_a
+    weight: 0.35
+    confidence: 0.9
+    notes: null
+  - target: dream pop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: indie pop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Tweegaze is a legitimate subgenre fusion combining shoegaze''s lush, reverb-heavy
+    guitar textures and production with twee pop''s delicate, precious melodic sensibility.
+    Wild Nothing exemplifies this hybrid: albums like Gemini and Golden Haze pair
+    shoegaze atmospherics with whimsical, tender melodicism distinct from both parent
+    genres. The term appears in music tagging with consistent application (8 albums)
+    and clear identity, supported by co-occurring tags (shoegaze, twee pop, indie
+    pop, dream pop) that confirm the hybrid positioning. Specificity places it in
+    upper-middle subgenre range: more targeted than dream pop, less niche than some
+    specific formations.'
+- name: funk / soul
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: funk
+    edge_type: is_a
+    weight: 0.5
+    confidence: 0.95
+    notes: null
+  - target: soul
+    edge_type: is_a
+    weight: 0.5
+    confidence: 0.95
+    notes: null
+  - target: r&b/soul
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: funk rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: soul jazz
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: pop soul
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: psychedelic soul
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Funk / soul is a real fusion genre with canonical examples (James Brown,
+    Marva Whitney). The taxonomy already includes the parallel 'r&b/soul' using slash
+    notation for genre blends. This entry represents the balanced intersection of
+    funk's rhythmic drive and soul's emotional depth, distinct from related single-parent
+    fusions like funk rock or soul jazz. Seven albums constitute meaningful adoption
+    for a subgenre. The term merits inclusion as an active subgenre with funk and
+    soul as equal-weight dual parents.
+- name: funksoul
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: funk / soul
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: post-industrial
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: industrial
+    edge_type: is_a
+    weight: 0.85
+    confidence: 0.92
+    notes: null
+  - target: electronic
+    edge_type: family_context
+    weight: 0.65
+    confidence: 0.85
+    notes: null
+  - target: post-rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: post-punk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: glitch
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: experimental electronic
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: industrial techno
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Post-industrial is a recognized electronic subgenre that evolved from industrial
+    music, emphasizing digital deconstruction, glitch textures, and experimental sound
+    design. Autechre (Chiastic Slide) is canonical post-industrial; the tag co-occurs
+    consistently with electronic, experimental, glitch, and noise. The taxonomy already
+    includes parallel post-evolutionary subgenres (post-rock, post-punk, post-metal,
+    post-hardcore), establishing precedent for this pattern. Distinct from parent
+    industrial by virtue of its digital-first, deconstructive approach rather than
+    raw percussion/noise. Album frequency (7) is modest but solid for a niche electronic
+    subgenre.
+- name: hip house
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: hip hop
+    edge_type: is_a
+    weight: 0.55
+    confidence: 0.95
+    notes: null
+  - target: house
+    edge_type: is_a
+    weight: 0.55
+    confidence: 0.95
+    notes: null
+  - target: trip-hop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: jazz rap
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: pop rap
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Hip house is a documented subgenre fusion of hip hop and house music that
+    emerged in the late 1980s. Cooccurring tags (hip hop, house, electronic, dance,
+    rap) and examples (Channel Tres tracks) confirm the hybrid identity with equal
+    parts hip hop and house DNA. Six-album frequency shows collection representation.
+    Specificity (0.70) reflects a historically-attested subgenre that is specific
+    but not niche. Parent edges (hip hop, house) are equally weighted primary parents;
+    the fusion is fundamentally bidirectional. Similar existing hybrids (trip-hop,
+    jazz rap, pop rap) validate the slot. Spelling variant hiphouse normalized.
+- name: hiphouse
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: hip house
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: industrial metal
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.71
+  canonical_target: null
+  parent_edges:
+  - target: industrial
+    edge_type: is_a
+    weight: 0.82
+    confidence: 0.93
+    notes: null
+  - target: metal
+    edge_type: is_a
+    weight: 0.74
+    confidence: 0.88
+    notes: null
+  - target: industrial rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: noise rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: experimental rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Industrial metal is an established fusion subgenre combining industrial music's
+    electronic textures, synthesizers, and distorted sonic production with metal's
+    heavy instrumentation, aggressive dynamics, and compositional frameworks. The
+    cooccurrence data (industrial, electronic, noise, experimental) and provided examples
+    (Health, Draag Me, Flatliner) confirm this as a coherent scene with distinct identity
+    from industrial rock (which emphasizes rock structure) and pure metal. Specificity
+    reflects subgenre-level precision; parent edges weight industrial (primary textural/production
+    framework, 0.82) and metal (secondary harmonic/instrumental aggression, 0.74).
+    High confidence justified by established artists, consistent tagging, and clear
+    differentiation from sibling fusion genres.
+- name: jangle
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.58
+  canonical_target: null
+  parent_edges:
+  - target: alternative rock
+    edge_type: is_a
+    weight: 0.75
+    confidence: 0.85
+    notes: null
+  - target: indie rock
+    edge_type: is_a
+    weight: 0.7
+    confidence: 0.8
+    notes: null
+  - target: indie pop
+    edge_type: is_a
+    weight: 0.65
+    confidence: 0.75
+    notes: null
+  - target: jangle pop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: jangle rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: acoustic rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: alternative pop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: folk rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Jangle is a legitimate genre descriptor with established usage, characterized
+    by bright, ringing guitar tones typically in indie and alternative contexts. The
+    six albums tagged and examples (The Sundays, Way Dynamic) confirm real-world usage.
+    While 'jangle pop' and 'jangle rock' exist in the taxonomy as specific combinations,
+    'jangle' itself functions as a standalone genre marker describing a distinct sonic
+    aesthetic that bridges indie pop and indie rock. Co-occurring tags (alternative,
+    indie, acoustic) and the artist examples establish clear positioning within the
+    indie/alternative rock family. This follows the pattern of other descriptive genres
+    in the taxonomy (psychedelic, experimental, electronic) that stand alone or combine
+    with other modifiers.
+- name: space ambient
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.71
+  canonical_target: null
+  parent_edges:
+  - target: ambient
+    edge_type: is_a
+    weight: 0.9
+    confidence: 0.95
+    notes: null
+  - target: progressive electronic
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.78
+    notes: null
+  - target: dark ambient
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: nature ambient
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: ambient electronic
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Space ambient is a documented subgenre describing ambient music with spacious,
+    cosmic, or ethereal sonic qualities, typically produced with electronic/synth
+    elements. Seminal artists like Nala Sinephro and Corntuth exemplify the aesthetic.
+    It is distinct from dark ambient (ominous affect), nature ambient (naturalistic
+    soundscapes), and space rock (guitar-driven). The primary is_a relationship to
+    ambient reflects core taxonomic identity; secondary family_context to progressive
+    electronic reflects shared experimental and production aesthetics. Specificity
+    and scope align with existing modal-ambient subgenres.
+- name: soulful
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: paul chambers
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: m jackson
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: kramer
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: king of pop
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: rose melberg
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: rollicking
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: devotional
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Devotional describes an artistic approach or curatorial intent (the artist's
+    devotion/intensity in composition) rather than a sonic or cultural genre. The
+    cooccurring tags (experimental, ambient, lo-fi, indie, tape, 4-track, messing
+    around) conflate production aesthetics with musical characteristics. Low frequency
+    (7 albums), narrow examples (King Krule, Dravier are experimental indie/hip-hop,
+    not devotional music traditions), lack of sonic boundaries, and absence from standard
+    music taxonomy all indicate this is a personalized descriptor or misclassified
+    label, not a genre.
+- name: avant rock
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Low-frequency user-generated label (6 albums) that conflates existing taxonomy
+    boundaries without forming a distinct scene or tradition. Pavement, the primary
+    example, is canonically labeled indie rock, noise rock, alternative rock, experimental
+    rock, and art rock in standard critical discourse — never ''avant rock.'' The
+    cooccurring tags (experimental, noise rock, art rock, alternative rock, progressive
+    rock) map cleanly to established, more specific genres. The taxonomy already supports
+    the conceptual space via ''avant-garde'' (umbrella), ''art rock'', ''experimental
+    rock'', and ''noise rock'' — and follows a pattern of ''avant-garde + subgenre''
+    (avant-garde jazz, avant-garde pop) rather than shorthand ''avant X''. No distinct
+    movement, era, or critical identity supports ''avant rock'' as a separable genre.
+    This is source noise: a conflation label rather than a real tradition.'
+- name: british indie
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: place
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Term applies a geographic-origin modifier to an existing contemporary genre.
+    The taxonomy establishes precise genre categories for UK sonic traditions (shoegaze,
+    dream pop, noise pop, post-rock, ethereal wave)—these are sonic-constitutive,
+    not geographic labels. The examples (Slowdive) exemplify shoegaze specifically,
+    not a distinct 'british indie' sound. Contemporary genres are not differentiated
+    by production origin in this taxonomy (no 'american indie rock' or 'japanese noise
+    pop' categories). British indie = indie rock made in Britain, which is descriptive
+    context, not a genre.
+- name: celtic
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: countrygaze
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: user_list
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: All 6 occurrences derive from a single artist (Allegra Krieger), indicating
+    a personal or artist-specific tag rather than an established genre. The co-occurring
+    tags (dream, indie folk, folk pop, singer-songwriter) consistently identify dream
+    folk or indie folk, with no mention of country or country-influenced music—contradicting
+    the 'country' component of the candidate term. While 'countrygaze' is a plausible
+    portmanteau blending country with shoegaze aesthetics, it lacks canonical adoption
+    or evidence of a real music community/scene behind it. Recommend routing Allegra
+    Krieger's music to dream folk or indie folk instead.
+- name: groove
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '"Groove" is a rhythmic-quality descriptor (feel, swing, beat-driven character)
+    that applies across multiple genres, not a distinct musical genre itself. It appears
+    in diverse co-occurring contexts (jazz, funk, soul, fusion, ambient, instrumental),
+    functioning as an attribute applied regardless of genre category. The examples
+    span hard bop (Byrd, Green) and funk (Parliament)—each already classified by their
+    actual genres. Without distinct sonic identity, cultural origin, or subcultural
+    lineage, "groove" cannot stand as a taxonomy entry alongside funk, soul, jazz,
+    and hard bop.'
+- name: bossa
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: bossa nova
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: deep ambient
+  kind: subgenre
+  role: leaf
+  status: review
+  facet_type: null
+  specificity_score: 0.68
+  canonical_target: null
+  parent_edges:
+  - target: ambient
+    edge_type: is_a
+    weight: 0.85
+    confidence: 0.95
+    notes: null
+  - target: drone music
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.6
+    notes: null
+  - target: dark ambient
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: space ambient
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: nature ambient
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: drone music
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Deep ambient describes intricate, multi-layered ambient music with textural
+    complexity and immersive sonics—positioned between minimalist/sparse ambient and
+    expansive/dark variants. The three examples (DAC Crowell, Roger Eno, Thousand
+    Foot Whale Claw) represent coherent experimental/drone-adjacent ambient. Cooccurrence
+    with drone, atmospheric, and ethereal tags supports conceptual coherence. Follows
+    the established precedent of 'deep' subgenres (deep house, deep soul, deep techno).
+    Signal is thin (3 albums only) and boundary is soft, warranting review status
+    rather than active; future data will clarify whether this is a durable subgenre
+    or a descriptive tag.
+- name: chanson
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: brill building
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: aphex
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: anti
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: label
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: all time favorite
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: 4 track
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: album rock
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: waller
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: steve albini
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: empowerment
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: ecm style jazz
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: label
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: ebo taylor
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: artist_name
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: dave brubeck
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: artist_name
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: alternative metal
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: alternative rock
+    edge_type: is_a
+    weight: 0.6
+    confidence: 0.9
+    notes: null
+  - target: metal
+    edge_type: is_a
+    weight: 0.55
+    confidence: 0.9
+    notes: null
+  - target: nu metal
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: funk metal
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: rapcore
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: industrial metal
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Alternative metal is an established subgenre fusing alternative rock's artistic
+    independence and sonic experimentalism with heavy metal's intensity. Exemplified
+    by HUM and Rage Against the Machine, it emerged in the late 1980s–1990s as a distinct
+    tradition. Co-occurrence with rapcore, funk metal, and alternative rock confirms
+    its hybrid positioning. Specificity 0.70 reflects a well-bounded subgenre with
+    clear sonic characteristics and cultural identity distinct from both parent traditions.
+- name: cosmic jazz
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.72
+  canonical_target: null
+  parent_edges:
+  - target: jazz
+    edge_type: is_a
+    weight: 1.0
+    confidence: 0.99
+    notes: null
+  - target: spiritual jazz
+    edge_type: family_context
+    weight: 0.7
+    confidence: 0.8
+    notes: null
+  - target: spiritual jazz
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: avant-garde jazz
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: free jazz
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: experimental jazz
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Cosmic jazz is a well-defined subgenre of jazz, exemplified by Sun Ra Arkestra
+    and contemporary artists like Isaiah Collier. It emphasizes expansive, otherworldly,
+    and cosmologically-themed aesthetics within experimental frameworks. Distinct
+    from spiritual jazz (broader, less cosmologically-centered) and generic avant-garde
+    jazz (lacks the cosmic/spiritual dimension). The examples are canonical and the
+    term appears consistently in music discourse. Placement as subgenre under jazz
+    with family context to spiritual jazz reflects the thematic and philosophical
+    overlap while preserving the distinct cosmological identity.
+- name: drone ambient
+  kind: subgenre
+  role: leaf
+  status: review
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: drone music
+    edge_type: is_a
+    weight: 0.5
+    confidence: 0.95
+    notes: null
+  - target: ambient
+    edge_type: is_a
+    weight: 0.5
+    confidence: 0.95
+    notes: null
+  - target: dark ambient
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: deep ambient
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: space ambient
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: drone folk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: drone rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Drone ambient is a recognized fusion genre combining drone's minimalist,
+    sustain-focused textures with ambient's contemplative, immersive atmosphere. Godspeed
+    You Black America examples exemplify this intersection. The taxonomy already includes
+    analogous compound subgenres (drone folk, space ambient, dark ambient, deep ambient),
+    establishing precedent. It is distinct from pure drone (lacks ambient's background
+    character), pure ambient (lacks drone's textural minimalism), and dark ambient
+    (lacks the latter's aggressive/industrial edge). Low album frequency (5) and single-artist
+    sample warrant review status, but the term is real, curated, and structurally
+    consistent with existing taxonomy compound patterns.
+- name: lofi pop
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: indie pop
+    edge_type: is_a
+    weight: 0.75
+    confidence: 0.85
+    notes: null
+  - target: bedroom pop
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.75
+    notes: null
+  - target: lo-fi indie
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: indie pop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: bedroom pop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: experimental pop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Lo-fi pop combines low-fidelity recording aesthetics with pop songwriting
+    accessibility. Real artist presence (elvis depressedly, hooky) and stable album
+    corpus (5 albums) confirm established subgenre status. Cooccurring tags ('lofi'
+    + 'indie pop' + 'pop') verify genuine intersection. Distinct from broader indie
+    pop via mandatory lo-fi production emphasis; not an alias. Primary parent indie
+    pop (melodic core + accessibility); secondary bedroom pop (DIY aesthetic context).
+    Specificity 0.70 fits subgenre range.
+- name: lo-fi pop
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: lofi pop
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: psytrance
+  kind: subgenre
+  role: leaf
+  status: review
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: electronic
+    edge_type: is_a
+    weight: 0.85
+    confidence: 0.95
+    notes: null
+  - target: psychedelic
+    edge_type: is_a
+    weight: 0.6
+    confidence: 0.8
+    notes: null
+  - target: ambient techno
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: deep techno
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: progressive electronic
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Psytrance is an established electronic music subgenre combining psychedelic
+    elements with trance rhythms, originating in the 1990s with a distinct international
+    scene and community. It fits clearly under electronic as primary parent with psychedelic
+    as secondary context. Status 'review' reflects low album frequency (5) and examples
+    that don't strongly match the genre profile—tagging may be loose or applied to
+    adjacent experimental works rather than canonical psytrance.
+- name: classical piano
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: format
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '"Classical piano" is an instrument-led facet descriptor, not a distinct
+    genre. The term conflates instrumentation (piano) with genre (classical), without
+    a unique scene or style tradition beyond the pairing. The examples (Erik Satie
+    solo piano works) are accurately described by existing taxonomy entries such as
+    "classical", "contemporary classical", or "modern classical". Per the placement
+    guardrail, instrument-led terms without distinct artistic traditions belong in
+    performance metadata, not the genre taxonomy.'
+- name: exotic
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: outsider house
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: plant core
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: user_list
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: plant-core appears to be a user-created microgenre tag combining 'plant music'
+    (ambient/new age designed for plant environments) with a '-core' intensifier suffix.
+    The term is extremely niche (5 albums), undocumented in standard music taxonomies,
+    and reads as personal categorization rather than an established canonical genre.
+    The '-core' suffix applied to ambient/new age contexts is characteristic of user-generated
+    tagging rather than industry-standard genre nomenclature. It does not map to any
+    existing taxonomy names and lacks the breadth and codification of a recognizable
+    subgenre.
+- name: power ambient
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: blackwave
+  kind: subgenre
+  role: leaf
+  status: review
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: garage punk
+    edge_type: is_a
+    weight: 0.8
+    confidence: 0.8
+    notes: null
+  - target: synth punk
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.7
+    notes: null
+  - target: crank wave
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: post-punk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Blackwave is an underground music genre/scene rooted in Memphis, TN punk
+    and garage rock, exemplified by Lost Sounds. It fuses garage punk with synth-punk
+    aesthetics and post-punk influences. Album frequency of 4 and coherent co-occurring
+    tags (garage punk, synthpunk, post-punk, memphis) indicate intentional classification
+    within a recognized regional scene, not source noise. Status 'review' reflects
+    niche prevalence and potential overlap with 'crank wave'—consolidation may be
+    warranted pending community consensus on term distinction.
+- name: cuddlecore
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: indie pop
+    edge_type: is_a
+    weight: 0.85
+    confidence: 0.95
+    notes: null
+  - target: twee pop
+    edge_type: is_a
+    weight: 0.75
+    confidence: 0.9
+    notes: null
+  - target: lo-fi indie
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.7
+    notes: null
+  - target: twee pop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: indie pop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: bedroom pop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: lo-fi indie
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Cuddlecore is a documented 1990s indie pop subgenre marked by intimate, cute,
+    and whimsical aesthetic sensibilities. Exemplified by Cub and Go Sailor, it combines
+    twee sensibilities with distinctly vulnerable, cuddly sonic markers. While overlapping
+    'twee pop' and 'indie pop,' cuddlecore captures a specific emotional and sonic
+    identity (vulnerable intimacy, youthful charm, lo-fi vulnerability) distinct from
+    broader categories. The taxonomy includes fine-grained indie pop variants (chamber
+    pop, garage pop, bedroom pop, jangle pop), making cuddlecore consistent with existing
+    depth. Album frequency of 4 reflects niche but real usage in music discourse.
+- name: free folk
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.64
+  canonical_target: null
+  parent_edges:
+  - target: folk
+    edge_type: is_a
+    weight: 0.75
+    confidence: 0.95
+    notes: null
+  - target: experimental folk
+    edge_type: is_a
+    weight: 0.65
+    confidence: 0.85
+    notes: null
+  - target: freak folk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: experimental folk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: avant-folk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: drone folk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Free folk is a distinct genre movement emphasizing experimental, improvisational,
+    and structurally liberated approaches to folk music. While it overlaps with existing
+    categories (freak folk emphasizes lo-fi indie aesthetics; experimental folk is
+    a broader umbrella), free folk has established usage and represents a recognizable
+    scene (e.g., Ilyas Ahmed, Jim O''Rourke, Old Saw). The genre''s identity is anchored
+    in freedom from conventional folk structures, incorporating drone, ambient, and
+    instrumental elements. Album frequency of 4 and coherent co-occurring tags (drone,
+    experimental, instrumental, ambient) confirm it as a real genre warranting inclusion.
+    Parent edges: folk (core tradition, weight 0.75) and experimental folk (methodological
+    emphasis on experimentation/liberation, weight 0.65).'
+- name: future funk
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: synth funk
+    edge_type: is_a
+    weight: 0.6
+    confidence: 0.8
+    notes: null
+  - target: electronic
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.75
+    notes: null
+  - target: vaporwave
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: future garage
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: synth-pop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: funk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Future funk is an established contemporary subgenre (2010s emergence) that
+    fuses funk grooves with electronic/synth production and nostalgic 80s/90s aesthetics.
+    The examples (Saint Pepsi, Macross 82-99) are canonical artists defining the genre.
+    It parallels existing ''future garage'' and ''future jazz'' entries, following
+    the same ''future [genre]'' pattern. While sharing DNA with synth funk (70s/80s
+    origin), future funk is a revivalist reinterpretation distinct in its vaporwave-adjacent
+    cultural context and contemporary production. Album frequency of 4 reflects appropriate
+    niche specificity. Parent edges: synth funk (primary sonic lineage, synth-driven
+    funk ancestry) and electronic (production foundation and contemporary electronic
+    context).'
+- name: happy hardcore
+  kind: subgenre
+  role: leaf
+  status: review
+  facet_type: null
+  specificity_score: 0.68
+  canonical_target: null
+  parent_edges:
+  - target: breakbeat hardcore
+    edge_type: is_a
+    weight: 0.85
+    confidence: 0.9
+    notes: null
+  - target: drum and bass
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: hyperpop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: electropop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Happy hardcore is a legitimate electronic music subgenre originating from
+    1990s breakbeat hardcore, defined by fast breakbeats (160+ BPM) paired with euphoric,
+    uplifting melodies. Status ''review'' due to evidence mismatch: provided examples
+    (Danny L Harle, Bueno) cluster in hyperpop/pc music space rather than traditional
+    happy hardcore, suggesting either contemporary cross-genre application or potential
+    mistagging in source data. Warrants human audit to clarify scope before activation.'
+- name: funky 16 corners
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: funk add to lidarr batch 8
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: homocore
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: guitar ambient
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: groovy
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: graveface
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: label
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: glen campbell
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: artist_name
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: funk add to lidarr batch 22
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: funk add to lidarr batch 10
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: fretless bass
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: fake techno
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: enka
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: en vogue
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: electronic superhighway
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: arabic pop
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: 90s emo
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: krillwave
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: klassik
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: kinsella
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: julian bream
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: john digweed
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: jello biafra
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: jazzy
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: jazztrumpet
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: jazz pianist
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: jazz organ
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: nara leao
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: lute
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: male vocals
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: death doom metal
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: neo-rockabilly
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.72
+  canonical_target: null
+  parent_edges:
+  - target: rockabilly
+    edge_type: is_a
+    weight: 0.95
+    confidence: 1.0
+    notes: null
+  - target: garage rock revival
+    edge_type: family_context
+    weight: 0.65
+    confidence: 0.85
+    notes: null
+  - target: neo-psychedelia
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: rockabilly
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: garage rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: garage rock revival
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Neo-rockabilly is a documented contemporary revival subgenre of rockabilly,
+    structurally parallel to 'garage rock revival' and 'neo-psychedelia' already in
+    the taxonomy. The cooccurring tags (rockabilly, psychobilly, garage rock, country
+    rock) align with the genre's sonic position as a modern rockabilly-derived movement.
+    The term appears across 4 albums with consistent rock/country adjacency. The provided
+    examples appear to be source contamination (gospel and jazz/funk unrelated to
+    rockabilly), reflecting external tagging noise rather than invalidity of the term
+    itself. Neo-rockabilly has a documented active contemporary scene and merits inclusion
+    as an established subgenre.
+- name: indie surf
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Only 4 album occurrences; no surf elements in co-occurring tags (which cluster
+    around indie rock, lo-fi, shoegaze, dream pop); examples (Alvvays, Being Dead,
+    Current Joys) are primarily dream pop/shoegaze/lo-fi indie without surf instrumentation.
+    The tag appears to be applied inconsistently to reverb-heavy indie music that
+    may superficially evoke surf aesthetics but belongs in existing indie rock/dream
+    pop categories. Insufficient evidence of a coherent subgenre or scene tradition.
+- name: italian wave
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: place
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: The term conflates geographic origin ('Italian') with a sonic descriptor
+    ('wave'). 'Italian' is a place/nationality, not a musical genre or style descriptor.
+    The taxonomy reserves geographic modifiers for application within genres (e.g.,
+    j-pop, k-pop, french pop, brazilian/latin), not as standalone genre terms. The
+    cooccurring tags (minimal synth, electronic, downtempo) indicate the sonic characteristics;
+    'Italian' is metadata about origin. With only 4 album instances and sparse examples,
+    this appears to be user-generated geographic tagging rather than an established
+    critical genre or scene term. Route tagged tracks to their underlying sonic genre
+    (minimal synth, electronic, ambient electronic) with optional origin metadata
+    if needed.
+- name: memphis soul
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: minimalistic
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: format
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Minimalistic is a style/aesthetic descriptor (sparse, reductive instrumentation)
+    applied across genres, not a canonical genre or subgenre. While minimalism is
+    a real classical music movement, this term serves as an informal catch-all adjective
+    for minimal-sounding works. Album frequency (4) is very low, suggesting incidental
+    use rather than a coherent scene. The taxonomy already covers related genres:
+    minimal synth, minimal pop, minimal techno, minimal wave, and post-minimalism.
+    Examples (Amiina post-rock, Loscil ambient/drone, Sakamoto classical/experimental)
+    are better classified within their primary genre families. This is a facet term
+    analogous to instrument-led descriptors—it describes compositional approach, not
+    genre tradition or cultural lineage.'
+- name: modular
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: mutant techno
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: nueva trova cubana
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.71
+  canonical_target: null
+  parent_edges:
+  - target: singer-songwriter
+    edge_type: is_a
+    weight: 0.65
+    confidence: 0.95
+    notes: null
+  - target: latin alternative
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: singer-songwriter
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: latin alternative
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: experimental
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Nueva trovа cubana is a documented Cuban musical tradition and cultural movement
+    originating in the 1960s-70s, rooted in the trovа (troubadour) tradition and characterized
+    by politically engaged singer-songwriters blending traditional Cuban music with
+    experimental/contemporary elements. Key artists include Silvio Rodríguez, Pablo
+    Milanés, and Emiliano Salvador. Though album frequency is low (4), this reflects
+    data scarcity rather than invalidity — the tradition is historically established
+    and culturally significant within Latin music. Constitutes a distinct subgenre
+    under singer-songwriter and Latin contexts, differentiated by its revolutionary-era
+    Cuban origin and fusion methodology.
+- name: power noise
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.68
+  canonical_target: null
+  parent_edges:
+  - target: noise
+    edge_type: is_a
+    weight: 0.8
+    confidence: 0.9
+    notes: null
+  - target: industrial
+    edge_type: is_a
+    weight: 0.75
+    confidence: 0.85
+    notes: null
+  - target: power electronics
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: industrial techno
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: noise rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: experimental electronic
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Power noise is a real subgenre with an established scene in experimental
+    electronic music, distinct from generic 'noise + power' phrasing. It combines
+    harsh noise aesthetics with industrial and minimal techno influences, as evidenced
+    by co-occurring tags (industrial techno, minimal techno, hardcore techno, industrial,
+    experimental). Container exemplifies the scene. Positioned between noise and industrial
+    traditions, it warrants inclusion as a legitimate subgenre. Specificity 0.68 reflects
+    its niche but real status.
+- name: powernoise
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: power noise
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: pyschedelic
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: psychedelic
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: rap metal
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: rapcore
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: sound art
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.54
+  canonical_target: null
+  parent_edges:
+  - target: experimental
+    edge_type: is_a
+    weight: 0.75
+    confidence: 0.9
+    notes: null
+  - target: contemporary classical
+    edge_type: is_a
+    weight: 0.4
+    confidence: 0.75
+    notes: null
+  - target: avant-garde
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: experimental electronic
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: sound collage
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Sound art is a legitimate and established artistic practice centered on sound
+    as the primary medium in installations, performances, and conceptual works. Strongly
+    supported by the co-occurring tag 'sound performances and installations' and the
+    diverse examples (Takehisa Kosugi from the Fluxus tradition, Yumi Iwaki's ambient
+    installations, Haruhisa Tanaka's contemporary composition). Distinct from experimental
+    music by emphasizing artistic/conceptual intent and installation contexts. Often
+    overlaps with contemporary classical in performance traditions and electronic
+    in sonic tools, but maintains its own identity as an artistic practice rather
+    than a sonic category.
+- name: space music
+  kind: umbrella
+  role: context
+  status: active
+  facet_type: null
+  specificity_score: 0.32
+  canonical_target: null
+  parent_edges:
+  - target: ambient
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: electronic
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.8
+    notes: null
+  - target: space ambient
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: space rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: space age pop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: dark ambient
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: drone music
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: new age
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Space music is a real, widely recognized aesthetic umbrella describing expansive,
+    cosmic, or atmospheric music. It functions as a cross-cutting category encompassing
+    multiple existing space-themed subgenres (space ambient, space rock, space age
+    pop) that currently exist as separate branches in the taxonomy. The cooccurrence
+    pattern (space ambient, ambient, electronic, new age, dub) confirms its use as
+    a broad aesthetic descriptor spanning multiple sonic foundations. Album frequency
+    (4) is modest but consistent with umbrella categories used in curatorial tagging.
+    Positioned with spread parentage across ambient and electronic—the two dominant
+    sonic families for space-themed work—with balanced weight (0.50 each) reflecting
+    no single dominant child branch.
+- name: techno pop
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: electropop
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: totalism
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.71
+  canonical_target: null
+  parent_edges:
+  - target: experimental rock
+    edge_type: is_a
+    weight: 0.75
+    confidence: 0.9
+    notes: null
+  - target: post-minimalism
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: math rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: avant-garde
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: krautrock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Totalism is a documented compositional movement (emerging 1980s–1990s) defined
+    by systematic, polytonally complex rhythmic structures and intricate harmonic
+    layering. Horse Lords exemplifies totalist approaches in experimental rock. While
+    philosophically descended from post-minimalism, it manifests here as a specific
+    subgenre of experimental rock emphasizing compositional rigor and rhythmic/harmonic
+    density. Distinct from math rock (which centers odd meters) and krautrock (which
+    predates totalism and differs in systematic approach). Clear established exemplars,
+    documented practitioners, and a coherent stylistic identity justify 'active' status
+    despite niche currency.
+- name: turntablism
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: hip hop
+    edge_type: is_a
+    weight: 0.75
+    confidence: 0.95
+    notes: null
+  - target: experimental hip hop
+    edge_type: is_a
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: instrumental hip hop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: plunderphonics
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: abstract hip hop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: experimental electronic
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Turntablism is a legitimate subgenre with a distinct scene and tradition
+    within hip-hop culture. Pioneering practitioners (Qbert, DJ Craze, Grandmaster
+    Flash) established scratching, beat-juggling, and breakbeat manipulation as core
+    compositional techniques—not merely instrumental proficiency or technical format.
+    While instrument-focused, turntablism meets the 'real scene/style tradition beyond
+    the instrument' threshold that distinguishes genuine subgenres from format descriptors.
+    The low album frequency (4) reflects niche positioning. Examples show artists
+    known for turntable-centric and sample-based production. Co-occurring tags (hip-hop,
+    experimental, plunderphonics) confirm its role as an experimental hip-hop subgenre
+    centered on turntable manipulation and sample-based composition.
+- name: classic country
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.68
+  canonical_target: null
+  parent_edges:
+  - target: country
+    edge_type: is_a
+    weight: 0.85
+    confidence: 0.95
+    notes: null
+  - target: singer-songwriter
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.7
+    notes: null
+  - target: country pop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: country rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: outlaw country
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: country/roots
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Classic country is an established subgenre denoting traditional country
+    music from the 1960s–1980s era, exemplified by Glen Campbell. It occupies a distinct
+    space: it describes an era and aesthetic (orchestrated arrangements, strong songwriting
+    lineage, mainstream polish) separate from outlaw country (rebellious stance),
+    country rock (rock fusion), or contemporary country variants. Specificity 0.68
+    reflects clear subgenre positioning within country. Primary parent ''country''
+    (0.85 confidence) captures the core identity; secondary ''singer-songwriter''
+    (0.35 family context) acknowledges the traditional emphasis on craft and composition.
+    Status active reflects widespread curatorial and retail use.'
+- name: digital hardcore
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.68
+  canonical_target: null
+  parent_edges:
+  - target: industrial
+    edge_type: is_a
+    weight: 0.6
+    confidence: 0.9
+    notes: null
+  - target: breakbeat
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.85
+    notes: null
+  - target: breakbeat hardcore
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: industrial rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: synth punk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: post-industrial
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: noise rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Digital hardcore is a legitimate subgenre fusion combining industrial/electronic
+    production, breakbeat percussion, and punk attitude/ethos. The cooccurring tags
+    (industrial, electronic, breakbeat, punk, noise) and examples align with the established
+    digital hardcore scene (Atari Teenage Riot, early 2000s movement). It occupies
+    a distinct position between industrial production and breakbeat rhythm traditions,
+    with documented historical identity and recognizable sonic/cultural markers. Specificity
+    (0.68) fits subgenre range; frequency (3) is modest but consistent with niche
+    subgenres already in taxonomy.
+- name: electro funk
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: funk
+    edge_type: is_a
+    weight: 0.6
+    confidence: 0.95
+    notes: null
+  - target: electro
+    edge_type: is_a
+    weight: 0.4
+    confidence: 0.9
+    notes: null
+  - target: synth funk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: future funk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: electronic rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: g-funk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Electro funk is a real subgenre representing funk music infused with electro
+    production aesthetics and electronic elements. It is distinct from synth funk
+    (which foregrounds synthesizers as primary instruments) and future funk (which
+    emphasizes futuristic production broadly). The examples—Dam Funk, Nite Funk, Toro
+    y Moi—represent contemporary electronically-produced funk sounds. With 3 album
+    occurrences and consistent cooccurrence with funk, electronic, and electro tags,
+    it merits inclusion as a fusion subgenre with dual parents. The term is well-established
+    in music journalism and discographic databases. Specificity 0.70 reflects a defined
+    but focused subgenre.
+- name: electrofunk
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: electro funk
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: retro soul
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: symphonic prog
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: acoustic blues
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: blackpool mecca
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: dark progressive
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: electric guitar
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: electro-industrial
+  kind: subgenre
+  role: leaf
+  status: review
+  facet_type: null
+  specificity_score: 0.72
+  canonical_target: null
+  parent_edges:
+  - target: industrial
+    edge_type: is_a
+    weight: 0.65
+    confidence: 0.95
+    notes: null
+  - target: electronic
+    edge_type: is_a
+    weight: 0.35
+    confidence: 0.9
+    notes: null
+  - target: industrial rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: experimental electronic
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: industrial techno
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: noise rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Electro-industrial is a legitimate subgenre distinct from industrial rock
+    or electronic rock. It fuses industrial's harsh, atonal sensibilities with electronic/synth-based
+    production, creating a coherent aesthetic represented by acts like Health. Historical
+    precedent (80s/90s industrial scene) and consistent co-occurrence pattern with
+    industrial, electronic, experimental, and noise rock tags support its distinction.
+    Limited album frequency (3 examples) warrants 'review' status pending broader
+    validation.
+- name: future soul
+  kind: subgenre
+  role: leaf
+  status: review
+  facet_type: null
+  specificity_score: 0.65
+  canonical_target: null
+  parent_edges:
+  - target: neo-soul
+    edge_type: is_a
+    weight: 0.8
+    confidence: 0.88
+    notes: null
+  - target: soul
+    edge_type: is_a
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: neo-soul
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: future beats
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: nu jazz
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Future soul is a legitimate subgenre blending soul/R&B traditions with forward-looking,
+    experimental production. Exemplified by Hiatus Kaiyote across all three examples,
+    it occupies a distinct space within neo-soul, emphasizing sonic experimentation
+    and futurism more explicitly than neo-soul proper. Low frequency (3 albums, single
+    artist) and emerging adoption warrant ''review'' status rather than ''active''.
+    Parent edges: neo-soul (primary ancestor, 0.80) and soul (foundational tradition,
+    0.55). Similar contexts: future beats and nu jazz share the contemporary/experimental
+    aesthetic through different lineages.'
+- name: hardcore techno
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.68
+  canonical_target: null
+  parent_edges:
+  - target: techno
+    edge_type: is_a
+    weight: 0.85
+    confidence: 0.95
+    notes: null
+  - target: industrial techno
+    edge_type: family_context
+    weight: 0.65
+    confidence: 0.8
+    notes: null
+  - target: industrial techno
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: dark techno
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: digital hardcore
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: breakbeat hardcore
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Hardcore techno is a legitimate techno subgenre that emerged in the 1990s,
+    characterized by hard, relentless beats, industrial synthesis, and darker aesthetics,
+    distinct from existing taxonomy entries. It differs from industrial techno (broader,
+    more synth-centric), dark techno (contemporary minimal aesthetic), and digital
+    hardcore (heavier punk/vocal fusion). The three-album footprint and co-occurrence
+    with drum and bass, breakbeat, and jungle suggests authentic 90s continental-European
+    electronic music context. Primary parent: techno (foundational subgenre relationship).
+    Secondary family context: industrial techno (shared harsh, industrial sonic character).
+    Not an alias—occupies its own niche within the electronic taxonomy.'
+- name: hauntology
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: experimental electronic
+    edge_type: is_a
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  - target: psychedelic
+    edge_type: is_a
+    weight: 0.4
+    confidence: 0.78
+    notes: null
+  - target: hypnagogic pop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: experimental pop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: neo-psychedelia
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: dream pop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Hauntology is a documented aesthetic subgenre combining experimental electronic
+    production with psychedelic and melancholic elements rooted in British cultural
+    concepts (haunt + ontology). The provided examples (Black Moth Super Rainbow,
+    Vanishing Twin, Inca Ore) exemplify the characteristic blend of nostalgia, loss,
+    and experimental psychedelic soundscapes. Cooccurring tags (electronic, experimental,
+    psychedelic, neo-psychedelia, lo-fi) and strong sonic/conceptual coherence support
+    placement as a subgenre within experimental electronic and psychedelic families.
+    Shares aesthetic kinship with hypnagogic pop's melancholic experimental character.
+- name: indie punk
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: punk
+    edge_type: is_a
+    weight: 0.85
+    confidence: 0.95
+    notes: null
+  - target: indie rock
+    edge_type: is_a
+    weight: 0.45
+    confidence: 0.75
+    notes: null
+  - target: art punk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: garage punk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: folk punk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: noise rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: post-punk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: lo-fi rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Indie punk is a legitimate subgenre blending punk''s raw, confrontational
+    ethos with indie rock''s DIY sensibility and experimental approach. It appears
+    consistently in tagging (album frequency 3, strong co-occurrence with indie, indie
+    rock, noise pop, lo-fi, shoegaze). The taxonomy already accepts ''[modifier] punk''
+    subgenres (art punk, garage punk, folk punk, pop punk, ska punk, synth punk, etc.),
+    and indie punk follows this established pattern perfectly. It is distinct from
+    pure punk (broader, less indie-focused) and pure indie rock (broader, doesn''t
+    require punk elements). Primary parent: punk (core sonic/cultural identity). Secondary
+    parent: indie rock (stylistic influence and indie sensibility). Stove exemplifies
+    the sound.'
+- name: instrumental jazz
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.68
+  canonical_target: null
+  parent_edges:
+  - target: jazz
+    edge_type: is_a
+    weight: 0.95
+    confidence: 1.0
+    notes: null
+  - target: vocal jazz
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: cool jazz
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: bebop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: contemporary jazz
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: chamber jazz
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Instrumental jazz is a well-established subgenre distinguishing jazz with
+    minimal or absent vocal presence. The taxonomy already recognizes 'vocal jazz'
+    as a distinct category; instrumental jazz is its natural complement. The examples
+    (Bill Evans Trio, Pete Jolly, Sam Gendel) exemplify canonical instrumental jazz.
+    This subgenre narrows jazz by a primary criterion (vocal absence) that defines
+    compositional and orchestration conventions. It is naturally allied with instrumental-dominant
+    subgenres like cool jazz, bebop, and chamber jazz but is broader than any of them.
+- name: japanese ambient
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: ambient
+    edge_type: is_a
+    weight: 0.85
+    confidence: 0.95
+    notes: null
+  - target: experimental electronic
+    edge_type: is_a
+    weight: 0.15
+    confidence: 0.7
+    notes: null
+  - target: ambient electronic
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: experimental electronic
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: new age
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Japanese ambient is a distinct micro-scene within ambient and experimental
+    electronic music, characterized by artists like Hiroshi Yoshimura who pioneered
+    a minimalist electronic aesthetic blending environmental and instrumental sensibilities.
+    Unlike purely geographic tags, this represents a recognizable subgenre with its
+    own sonic character and production philosophy, precedented in the taxonomy by
+    regional variants like 'british invasion' and 'brazilian/latin'.
+- name: sub
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: rare
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: math
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: ofwgkta
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: pearl jam
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: pfabtrax
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: phil spector
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: philly joe jones
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: pearl fashion music
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: p funk
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: eurobeat
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'While eurobeat is a real, established electronic dance music subgenre (Italian
+    origin, late 1980s, synthesizer-driven upbeat production), all three corpus examples
+    are misaligned: Sophie''s ''Oil of Every Pearl''s Un Insides'' is experimental
+    hyperpop, not eurobeat; Foster''s ''Born to Sing'' and Symbol''s ''Holodeck Vision
+    One'' do not identify as eurobeat. With only 3 albums and zero valid exemplars,
+    this appears to be a source noise artifact or corpus mislabeling. The term should
+    not enter the taxonomy without re-sourced examples that actually represent eurobeat.'
+- name: italian library music inspired
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: minneapolis sound
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.62
+  canonical_target: null
+  parent_edges:
+  - target: synth funk
+    edge_type: is_a
+    weight: 0.55
+    confidence: 0.93
+    notes: null
+  - target: soul
+    edge_type: is_a
+    weight: 0.45
+    confidence: 0.88
+    notes: null
+  - target: funk rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: new wave
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: funk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Minneapolis sound is a documented musical genre and scene movement that emerged
+    from Minneapolis in the 1980s, most prominently through Prince and other local
+    artists. It is characterized by a fusion of synth funk, soul, R&B, rock, and new
+    wave elements. The three example albums (Prince's 1999, Purple Rain, and Sign
+    O The Times) are canonical exemplars of the style. It is neither an existing term
+    in the taxonomy nor a variant thereof. As a geographically and culturally anchored
+    fusion style with distinct identity, it qualifies as a genre (specificity ~0.62,
+    between broad umbrella and hyper-specialized subgenre). Parent edges prioritize
+    synth funk and soul, which together define the movement's core sound.
+- name: noise punk
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: punk
+    edge_type: is_a
+    weight: 0.7
+    confidence: 0.95
+    notes: null
+  - target: noise rock
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.9
+    notes: null
+  - target: indie punk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: post-punk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: experimental rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: garage punk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Noise punk is a real subgenre that fuses punk's DIY ethos and song structure
+    with noise rock's abrasive, high-distortion sonic palette. The provided examples
+    (Ekko Astral, No Age) are canonical acts in this space. Cooccurrence data (punk,
+    noise rock, indie rock, post-punk) confirms it as a distinct fusion rather than
+    a rebranding of existing terms. Primary lineage is punk; noise rock is strong
+    contextual family. Specificity (0.70) and evidence support active subgenre status.
+- name: nu funk
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.68
+  canonical_target: null
+  parent_edges:
+  - target: funk
+    edge_type: is_a
+    weight: 0.85
+    confidence: 0.95
+    notes: null
+  - target: soul
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.75
+    notes: null
+  - target: nu jazz
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: future funk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: electro funk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: synth funk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: nu funk is a real subgenre describing contemporary/modernized funk music,
+    following the established pattern of 'nu [parent]' terms already in the taxonomy
+    (nu jazz, nu metal, nu-disco). Examples (Monophonics, Nite Funk) are known contemporary
+    funk acts blending funk with soul and psychedelic elements. Co-occurring tags
+    align with modern funk production. Primary parent is 'funk' with secondary soul/r&b
+    influences. Specificity 0.68 appropriate for a modernized subgenre positioned
+    between 'funk' (0.55) and more granular soul subgenres.
+- name: progressive breaks
+  kind: subgenre
+  role: leaf
+  status: review
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: progressive electronic
+    edge_type: is_a
+    weight: 0.65
+    confidence: 0.75
+    notes: null
+  - target: drum and bass
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.65
+    notes: null
+  - target: acid breaks
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: progressive house
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Progressive breaks is a coherent subgenre fusing breakbeat production with
+    progressive song structures and extended DJ-focused arranging. Consistent co-occurrence
+    with progressive electronic, drum and bass, tech house, and progressive house
+    tags indicates genuine stylistic affinity. Multiple releases from established
+    artists (quivver, luke chable on quattro iii series) demonstrate production activity
+    and scene coherence. Parallels the established acid breaks subgenre pattern in
+    the taxonomy. Low album frequency (3) warrants review status, but the coherent
+    style and documented artist releases indicate a real, emerging subgenre worth
+    inclusion.
+- name: psybient
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: psychedelic
+    edge_type: is_a
+    weight: 0.8
+    confidence: 0.95
+    notes: null
+  - target: ambient
+    edge_type: is_a
+    weight: 0.8
+    confidence: 0.95
+    notes: null
+  - target: ambient techno
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: experimental electronic
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: idm
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: space music
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Psybient is a well-established electronic music subgenre (1990s onward) fusing
+    psychedelic and ambient elements into a distinct musical identity—not a mere tag
+    combination but a coherent scene. Characterized by trippy, exploratory, immersive
+    soundscapes with artists like Space Time Continuum exemplifying the style. The
+    co-occurrence pattern (psychedelic + ambient + electronic + experimental + downtempo)
+    and canonical examples confirm legitimacy. It merits active status as a niche
+    but substantive subgenre at the intersection of its two parent genres.
+- name: psychedelic trance
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: psytrance
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: psychobilly
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.72
+  canonical_target: null
+  parent_edges:
+  - target: psychedelic rock
+    edge_type: is_a
+    weight: 0.55
+    confidence: 0.95
+    notes: null
+  - target: rockabilly
+    edge_type: is_a
+    weight: 0.55
+    confidence: 0.95
+    notes: null
+  - target: garage rock
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.85
+    notes: null
+  - target: neo-rockabilly
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: garage psych
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: psychedelic rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Psychobilly is an established fusion subgenre combining psychedelic rock
+    and rockabilly with a distinct scene since the 1980s. Cooccurring tags (rockabilly,
+    neo-rockabilly, garage rock) confirm proper taxonomic placement. Dual parentage
+    reflects its compositional nature: psychedelic rock and rockabilly in equal measure,
+    with secondary family kinship to garage rock. Low album frequency (3) is consistent
+    with a specialized subgenre. Note: two of three examples are misclassified (gospel
+    and jazz); source tagging is noisy but does not invalidate the genre term itself.'
+- name: yasushi yamashita
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: wu tang
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: vyrzukhisuc album
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: trombone
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: tony toni tone
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: the jackson 5
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: meditation music
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: label
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '"Meditation music" is a use-case or purpose-driven label (describing intended
+    listening context: meditation practice), not a musical genre. It is a functional
+    marketing category that can overlay any sonic style—ambient, drone, minimal, electronic,
+    etc. The actual musical genres in the cooccurring tags and examples (ambient,
+    experimental electronic, minimal electronic, drone ambient) are already in the
+    taxonomy and describe the sound itself. This is categorically a retail/functional
+    bucket label, not a genre.'
+- name: microtonal
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: modern funk
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Modern funk is primarily a temporal descriptor (modern = contemporary) rather
+    than a distinct genre or subgenre. It lacks a recognizable scene, musical tradition,
+    or aesthetic identity beyond being funk music made recently. The co-occurring
+    tags (synth funk, electro funk, electronic) and low album frequency (3) suggest
+    the sonic content is better captured by existing specific genres. Unlike scene-based
+    terms like future funk (a recognized electronic music aesthetic movement), modern
+    funk is too broad and would apply to nearly any contemporary funk music, making
+    it system noise rather than a meaningful taxonomy entry.
+- name: musica tropical
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: retail_bucket
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '"Musica tropical" is a generic Spanish phrase meaning "tropical music" —
+    descriptive rather than genre-specific. The three album instances all share an
+    identical thematic description ("perú selvático sonic expedition into the peruvian
+    amazon 1972 1986"), indicating this is a curated collection/compilation label
+    with geographic and thematic framing, not a musical category. Cooccurring tags
+    (chicha, cumbia peruana, psychedelic) point to already-canonicalized genres that
+    better describe the actual music. Album frequency of 3 and batch-import signals
+    (funk_add_to_lidarr_batch_25) confirm this is a retail bucket or source artifact,
+    not a real genre tradition.'
+- name: nature sound
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: newbreed
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: noisecore
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Noisecore appears to be a user-generated descriptor blending existing canonical
+    genres (noise rock, dance-punk, experimental rock) rather than an established
+    subgenre with distinct tradition or scene identity. Album frequency is low (3
+    instances). The examples (Guerilla Toss, Pink Siifu) are more accurately described
+    via existing taxonomy: Guerilla Toss as dance-punk/experimental rock, Pink Siifu
+    as experimental hip-hop. The term lacks consensus definition or canonical references;
+    it reads as an ad-hoc attempt to describe a sonic blend. If this emerges as a
+    real scene/tradition with broader adoption, it can be revisited as a subgenre
+    candidate.'
+- name: pillowcore
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: pillowcore is a user-generated descriptor combining 'pillow' (soft/intimate
+    aesthetic) with the '-core' suffix trend. It lacks industry recognition and established
+    scene documentation; the musical space is already comprehensively covered by bedroom
+    pop, lo-fi indie, slowcore, and dream pop in the existing taxonomy. The very low
+    album frequency (3) and absence from established music databases indicates this
+    is internet tagging noise rather than a genuine genre with recognized scene community
+    or tradition.
+- name: power
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: power trio
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: punk revival
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Punk revival is an overly broad descriptor that conflates multiple distinct
+    revival movements already well-represented in the taxonomy (post-punk revival,
+    garage rock revival, mod revival). The examples provided (Protomartyr maps to
+    post-punk revival; The Hives maps to garage rock revival) represent different
+    specific revivals, not a unified genre. The term lacks the specificity needed
+    for a leaf entry and is too vague to serve as a meaningful umbrella—it could apply
+    to any revival of any punk subgenre. The taxonomy's existing specific -revival
+    terms are the appropriate places for these tracks.
+- name: rap rock
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.58
+  canonical_target: null
+  parent_edges:
+  - target: hip hop
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.9
+    notes: null
+  - target: rock
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.9
+    notes: null
+  - target: rapcore
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: pop rap
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: funk rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rap rock is an established fusion genre combining hip-hop with rock elements.
+    Distinct from rapcore (which emphasizes hardcore punk aggression and metal influence),
+    rap rock is broader in scope, encompassing punk-influenced styles (Beastie Boys)
+    and other rock-fusion variants. The taxonomy already includes analogous 'X rock'
+    fusions (blues rock, funk rock, jazz rock, electronic rock), establishing a clear
+    pattern for this entry. Rap rock has substantial historical presence and tagging
+    tradition.
+- name: sampledelia
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: neo-psychedelia
+    edge_type: is_a
+    weight: 0.76
+    confidence: 0.88
+    notes: null
+  - target: experimental electronic
+    edge_type: is_a
+    weight: 0.68
+    confidence: 0.81
+    notes: null
+  - target: plunderphonics
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: turntablism
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: electronica
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: experimental
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Sampledelia is a coherent subgenre fusing psychedelic sensibilities with
+    sampling-based electronic composition. The Avalanches are canonical exemplars—their
+    work (''We Will Always Love You'', ''Wildflower'') exemplifies dense, collage-built
+    sound design with immersive, trippy atmospherics. Eno''s ''My Life in the Bush
+    of Ghosts'' established the archetype (ambient + sampled vernacular). The term
+    describes a specific aesthetic: psychedelia reframed through digital sampling,
+    turntable manipulation, and experimental electronic production. While niche (3
+    albums), it represents a recognized artistic tradition distinct from bare plunderphonics
+    (which emphasizes conceptual collage) or turntablism (which emphasizes live DJ
+    performance). Meaningfully used in critical discourse.'
+- name: singer songwriters
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: singer-songwriter
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: skinhead reggae
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: reggae
+    edge_type: is_a
+    weight: 0.95
+    confidence: 0.98
+    notes: null
+  - target: dub
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.75
+    notes: null
+  - target: roots reggae
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: rocksteady
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Skinhead reggae is a historically documented subgenre of reggae music that
+    emerged in Jamaica in the late 1960s, sonically and culturally distinct from the
+    later roots reggae movement (early-mid 1970s). Characterized by a rawer, more
+    militant aesthetic. The canonical examples (Delroy Wilson, Junior Murvin, The
+    Upsetters) exemplify the core sound of this subcategory. Warrants inclusion as
+    a subgenre under reggae with secondary connections to dub and rocksteady traditions.
+- name: space disco
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: disco
+    edge_type: is_a
+    weight: 0.8
+    confidence: 0.95
+    notes: null
+  - target: funk
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: psychedelic rock
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.7
+    notes: null
+  - target: italo disco
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: nu-disco
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: post-disco
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: space rock
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: cosmic jazz
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: future funk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Space disco is a legitimate subgenre fusing disco's funk-driven rhythm foundation
+    with psychedelic/cosmic production aesthetics and synthesizer-heavy arrangements.
+    Emerged primarily 1970s–80s (exemplified by Patrick Cowley's cosmic-disco pioneering
+    work) and is distinct from 'disco' alone by its deliberate cosmic/psychedelic
+    orientation and synth density. Cooccurring tags (funk, psychedelic rock, jazz
+    fusion) and examples (Mildlife, Cowley) confirm the syncretic fusion. Differs
+    from 'space rock' by rhythm base (disco-funk vs rock-based) and from 'italo disco'/'nu-disco'
+    by explicit cosmic/psychedelic character rather than geographic or era framing
+    alone.
+- name: stoner doom
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.72
+  canonical_target: null
+  parent_edges:
+  - target: stoner metal
+    edge_type: is_a
+    weight: 0.55
+    confidence: 0.92
+    notes: null
+  - target: doom metal
+    edge_type: is_a
+    weight: 0.45
+    confidence: 0.92
+    notes: null
+  - target: sludge metal
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: drone doom
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Stoner doom is a recognized subgenre fusing stoner metal''s fuzzy, groove-heavy
+    character with doom metal''s glacial pace and dirge atmosphere. Canonical examples
+    (Sleep''s Dopesmoker, OM''s Conference of the Birds) occupy this intersection
+    distinctly. It is narrower than either parent alone: stoner without doom emphasizes
+    groove and mid-tempo movement; doom without stoner often pursues atmosphere, despair,
+    or extreme aesthetics. Parent edges are stoner metal (primary, 0.55, since the
+    foundation is fuzzy heavy riffs) and doom metal (secondary, 0.45, for the defining
+    slowness and tone). Similar sonic space to sludge metal and drone doom but with
+    tighter, more riff-focused definition. Album frequency sufficient to warrant inclusion.'
+- name: stoner doom metal
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.74
+  canonical_target: null
+  parent_edges:
+  - target: stoner metal
+    edge_type: is_a
+    weight: 0.5
+    confidence: 0.95
+    notes: null
+  - target: doom metal
+    edge_type: is_a
+    weight: 0.5
+    confidence: 0.95
+    notes: null
+  - target: sludge metal
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: drone doom
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: heavy metal
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Stoner doom is a well-established subgenre fusion combining the heavy, fuzzy,
+    groove-oriented characteristics of stoner metal with the slow, heavy, melancholic
+    atmosphere of doom metal. The canonical examples (Sleep's 'Dopesmoker', OM's 'Conference
+    of the Birds') exemplify a distinct scene and sonic identity. While occupying
+    the intersection of two parent categories, stoner doom represents a specific aesthetic
+    and cultural tradition that transcends the sum of its parts—a fusion genre with
+    its own artistic coherence, compositional strategies (extended, drone-influenced
+    passage-building), and niche audience signal.
+- name: timba
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.72
+  canonical_target: null
+  parent_edges:
+  - target: salsa
+    edge_type: is_a
+    weight: 0.85
+    confidence: 0.95
+    notes: null
+  - target: afro-cuban
+    edge_type: family_context
+    weight: 0.65
+    confidence: 0.85
+    notes: null
+  - target: salsa
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: afro-cuban
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: latin jazz
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Timba is a legitimate and distinct Cuban dance music subgenre that emerged
+    in Havana during the 1970s–80s as an evolutionary descendant of salsa. It incorporates
+    contemporary dance elements and modern musical sensibilities while retaining Afro-Cuban
+    percussion and syncopated rhythmic traditions. Characterized by complex syncopation,
+    layered orchestration, and urban dance-floor orientation, timba is musically and
+    culturally distinguishable from generic salsa (which is pan-Latin) and from broader
+    afro-cuban traditions. Los Van Van is a seminal timba ensemble. The genre has
+    an established discography, community recognition, and recognized boundaries in
+    music historiography.
+- name: trap rap
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: trap
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: tribal house
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.72
+  canonical_target: null
+  parent_edges:
+  - target: house
+    edge_type: is_a
+    weight: 0.85
+    confidence: 0.95
+    notes: null
+  - target: tech house
+    edge_type: family_context
+    weight: 0.7
+    confidence: 0.8
+    notes: null
+  - target: deep house
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: funky house
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: progressive house
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: experimental electronic
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Tribal house is an established electronic music subgenre combining house
+    music foundations (4/4 beat, 120–130 BPM) with tribal percussion, African rhythmic
+    elements, and world-music instrumentation. It emerged as a recognized sound in
+    1990s dance music and remains active in contemporary production. The cooccurring
+    tags (tech house, afrobeat, experimental) and artist examples (Daphni''s percussive
+    deep house work) strongly support its genre validity. Sonic markers: percussion-forward
+    production, hypnotic grooves, hand drums, talking drums, and ethnic samples—distinguishing
+    it from generic house or tech house. Not a format, era, or retail category, but
+    a recognizable subgenre with specific sonic and cultural identity. Primary parent
+    is house; secondary family tie to tech house reflects shared deep, groove-oriented
+    production philosophy and overlapping artist communities.'
+- name: world fusion
+  kind: genre
+  role: leaf
+  status: review
+  facet_type: null
+  specificity_score: 0.56
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: is_a
+    weight: 0.75
+    confidence: 0.85
+    notes: null
+  - target: funk
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.65
+    notes: null
+  - target: jazz fusion
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: afrobeat
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: afro-funk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: World fusion is a distinct genre describing the fusion of non-Western musical
+    traditions (African, Asian, Latin, etc.) with Western rock, funk, electronic,
+    and jazz styles. While 'world music' serves as an umbrella for non-Western traditions,
+    'world fusion' specifically denotes the hybrid approach of blending these traditions
+    with Western genres. The payload examples (Pharoah Sanders' spiritual jazz, afrobeat-funk
+    hybrids) and co-occurring tags (afrobeat, funk, psychedelic rock, international)
+    support this as a real, niche genre. Low album frequency (3) and the inherent
+    breadth of fusion-based terms warrant 'review' status, but the clear distinction
+    from 'world music' and other existing taxonomy terms justifies inclusion.
+- name: roots radics
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: artist_name
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Roots Radics is a historical Jamaican reggae session and backing band collective
+    (active primarily in the 1980s), not a music genre. While they performed extensively
+    on roots reggae and dub productions and influenced reggae production aesthetics,
+    the term refers to a specific performing ensemble and artist credit, not a musical
+    style category. The examples (junjo presents..., scientist and jammy strike back)
+    reflect ensemble attribution on releases, not genre labeling. Artist names and
+    performing collectives belong outside the taxonomy.
+- name: shenandoah
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: slow alternative
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: format
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Slow alternative is a tempo descriptor applied to a broad umbrella category,
+    not a genre with distinct identity or scene tradition. Slowcore already exists
+    in the taxonomy and more precisely captures the slow, introspective indie aesthetic
+    exemplified by this term's canonical examples (Codeine, Rex—both quintessential
+    slowcore artists). The cooccurrence with slowcore, sadcore, and shoegaze indicates
+    this term is descriptive bucketing by mood/tempo rather than a meaningful genre
+    classification.
+- name: straight edge
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: label
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Straight edge is a cultural and lifestyle ideology rooted in punk communities
+    (characterized by abstinence from drugs, alcohol, and tobacco), not a musical
+    genre. While historically associated with certain hardcore punk and post-hardcore
+    movements (notably Minor Threat), the term describes the ethos and values of artists
+    and scenes rather than sonic characteristics. A genre taxonomy should organize
+    music by what it sounds like, not by the personal choices or ideologies of its
+    creators. This is fundamentally a lifestyle label, akin to tagging 'vegan' or
+    'anarchist'—valid cultural descriptors but not musical categories. The low album
+    frequency (3) and thematic misalignment further confirm it does not belong in
+    a sonic/genre taxonomy.
+- name: surf music
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: surfgaze
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: techno kayo
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Term conflates 'techno' (modern electronic genre) with 'kayo' (traditional
+    Japanese music reference) without evidence of a real genre tradition or scene.
+    All three examples are consistently tagged as 'japanese city pop' in source data,
+    suggesting this is metadata pollution or colloquial mashup rather than a distinct
+    subgenre. Low frequency (3 albums), scattered co-tags (city pop, synthpop, art
+    pop, experimental), and lack of stable meaning indicate informal user tagging,
+    not genre community consensus.
+- name: tribal
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: format
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '"Tribal" is a facet descriptor (instrumentation/texture featuring ethnic
+    or tribal percussion) rather than a genre proper. While "tribal house" and "tribal
+    techno" are real genres, "tribal" alone describes a sonic/instrumental attribute
+    that crosses genre boundaries. The incoherent co-tag mix (deathcore, progressive
+    house, slowcore, indie appearing together) confirms this is a cross-genre facet,
+    not a cohesive genre classification. Low album frequency (3) and semantic noise
+    reinforce exclusion from the taxonomy.'
+- name: ukulele
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: whistling
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: worldchill
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '"Worldchill" is a user-generated descriptive portmanteau blending world
+    music + chill mood, not an established genre or subgenre. Appears on only 3 albums
+    (Cantoma''s Balearic downtempo works), which are better classified under existing
+    taxonomy entries: "lounge", "downtempo", "ambient", "world music", "ambient electronic".
+    The term lacks a distinct scene, sonic tradition, or cultural identity beyond
+    the mood descriptor "chill" applied to the broad geographic category "world".
+    The taxonomy already covers this intersection comprehensively via existing entries.'
 bridge_rules:
 - source: indie pop
   target: synth-pop
