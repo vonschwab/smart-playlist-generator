@@ -158,3 +158,49 @@ def display_genre_names_for_album(conn: sqlite3.Connection, album_id: str) -> li
             seen.add(name)
             out.append(name)
     return out
+
+
+@dataclass(frozen=True)
+class ArtistGenreTag:
+    genre_id: str
+    name: str
+    release_count: int
+    max_confidence: float
+
+
+def resolved_genres_for_artist(
+    conn: sqlite3.Connection, artist_name: str
+) -> list[ArtistGenreTag]:
+    """Published observed-leaf/legacy genres across an artist's releases.
+
+    Feeds the tag-steering chips. The input comes from the artist autocomplete,
+    which reads ``tracks.artist`` — so an exact case-insensitive match on the
+    same column is the correct key (no substring matching). ``inferred_family``
+    rows are excluded: hub families carry no steering signal (hub-saturation
+    incident 2026-06-12). Ordered strongest-first by (release_count,
+    max_confidence). Returns [] for unknown artists or when the authority
+    tables are absent — callers render an empty chip row, they don't crash.
+    """
+    name = (artist_name or "").strip()
+    if not name:
+        return []
+    try:
+        rows = conn.execute(
+            "SELECT reg.genre_id, COALESCE(g.name, reg.genre_id) AS display_name, "
+            "       COUNT(DISTINCT reg.album_id) AS n_releases, "
+            "       MAX(reg.confidence) AS max_conf "
+            "FROM release_effective_genres reg "
+            "LEFT JOIN genre_graph_canonical_genres g ON g.genre_id = reg.genre_id "
+            "WHERE reg.assignment_layer IN ('observed_leaf', 'legacy') "
+            "  AND reg.album_id IN ("
+            "      SELECT DISTINCT album_id FROM tracks "
+            "      WHERE LOWER(TRIM(artist)) = LOWER(TRIM(?)) "
+            "        AND album_id IS NOT NULL"
+            "  ) "
+            "GROUP BY reg.genre_id "
+            "ORDER BY n_releases DESC, max_conf DESC, display_name ASC",
+            (name,),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return []
+    return [ArtistGenreTag(r[0], r[1], int(r[2]), float(r[3])) for r in rows]
