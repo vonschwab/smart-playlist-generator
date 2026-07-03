@@ -52,7 +52,41 @@ def load_golden(path: str) -> Dict[str, Any]:
         return json.load(fh, object_hook=_decode)
 
 
-def replay_golden(golden: Dict[str, Any]):
+def _reconstruct_pier_bridge_config(payload: Dict[str, Any]):
+    """Rebuild a PierBridgeConfig from a captured asdict payload.
+
+    Coerces JSON lists back to tuples for tuple-typed fields and keeps only
+    fields the current class still defines (a new class field falls to its
+    default — correct for reproducing a run captured before it existed).
+    """
+    import dataclasses
+
+    from src.playlist.pier_bridge_builder import PierBridgeConfig
+
+    fields = {f.name: f for f in dataclasses.fields(PierBridgeConfig)}
+    kwargs: Dict[str, Any] = {}
+    for name, value in payload["fields"].items():
+        field = fields.get(name)
+        if field is None:
+            continue  # tolerate a field the class no longer has
+        if isinstance(field.default, tuple) and isinstance(value, list):
+            value = tuple(value)
+        kwargs[name] = value
+    return PierBridgeConfig(**kwargs)
+
+
+def replay_golden(golden: Dict[str, Any], config_path: str = "config.yaml"):
+    from src.config_loader import Config
     from src.playlist.ds_pipeline_runner import generate_playlist_ds
 
-    return generate_playlist_ds(**golden["kwargs"])
+    # Reproduce the process-wide config side-effects the app performs at load
+    # time (notably artifacts.sonic_variant_override -> the artifact loader),
+    # which a bare generate_playlist_ds call would otherwise skip. Without this
+    # the muq-native artifact fails _require_keys(['X_sonic']).
+    Config(config_path)
+
+    kwargs = dict(golden["kwargs"])
+    pbc = kwargs.get("pier_bridge_config")
+    if isinstance(pbc, dict) and pbc.get("__dataclass__") == "PierBridgeConfig":
+        kwargs["pier_bridge_config"] = _reconstruct_pier_bridge_config(pbc)
+    return generate_playlist_ds(**kwargs)

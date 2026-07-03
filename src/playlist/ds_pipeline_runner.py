@@ -119,19 +119,16 @@ def generate_playlist_ds(
     _golden_dir = os.environ.get("PLAYLIST_GOLDEN_CAPTURE")
     _golden_kwargs = None
     if _golden_dir:
-        assert pier_bridge_config is None, (
-            "golden capture does not yet support a non-None pier_bridge_config; "
-            "extend tests/support/lossless_golden.py to serialize it"
-        )
         _golden_kwargs = dict(
             artifact_path=artifact_path, seed_track_id=seed_track_id, mode=mode,
             length=length, random_seed=random_seed, pace_mode=pace_mode,
             overrides=overrides, allowed_track_ids=allowed_track_ids,
             excluded_track_ids=excluded_track_ids, single_artist=single_artist,
-            anchor_seed_ids=anchor_seed_ids, pool_source=pool_source,
+            anchor_seed_ids=anchor_seed_ids, pool_source=pool_source, dry_run=dry_run,
             artist_style_enabled=artist_style_enabled, artist_playlist=artist_playlist,
             sonic_weight=sonic_weight, genre_weight=genre_weight,
             min_genre_similarity=min_genre_similarity, genre_method=genre_method,
+            pier_bridge_config=pier_bridge_config,
             internal_connector_ids=internal_connector_ids,
             internal_connector_max_per_segment=internal_connector_max_per_segment,
             internal_connector_priority=internal_connector_priority,
