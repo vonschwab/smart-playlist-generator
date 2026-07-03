@@ -43,3 +43,26 @@ def test_no_tags_is_silent_none():
         [], genre_vocab=VOCAB, genre_emb=EMB
     )
     assert target is None and mapped == [] and unmapped == []
+
+
+def test_no_tags_emits_no_warning(caplog):
+    with caplog.at_level(logging.WARNING):
+        resolve_tag_steering_target([], genre_vocab=VOCAB, genre_emb=EMB)
+    assert caplog.records == []
+
+
+def test_degenerate_zero_norm_target_returns_none_and_warns(caplog):
+    # Two selected tags whose embedding rows cancel to a ~zero mean vector.
+    vocab = ["cancel-a", "cancel-b"]
+    emb = np.array([[1.0, 0.0], [-1.0, 0.0]])
+    with caplog.at_level(logging.WARNING):
+        target, mapped, unmapped = resolve_tag_steering_target(
+            ["cancel-a", "cancel-b"], genre_vocab=vocab, genre_emb=emb
+        )
+    assert target is None
+    assert mapped == ["cancel-a", "cancel-b"]
+    assert unmapped == []
+    assert any(
+        "degenerate" in r.message.lower() or "zero-norm" in r.message.lower()
+        for r in caplog.records
+    )
