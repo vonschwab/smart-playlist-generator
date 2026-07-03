@@ -558,6 +558,10 @@ def build_candidate_pool(
     genre_graph_source: str = "legacy",
     popularity_ranks: Optional[np.ndarray] = None,
     popularity_rank_cutoff: Optional[int] = None,
+    # Tag steering (soft): blend a user-selected genre target into the dense
+    # admission centroid. None = feature off (byte-identical legacy behavior).
+    steering_target: Optional[np.ndarray] = None,
+    steering_blend: float = 0.5,
 ) -> CandidatePoolResult:
     """
     Implement current experiments behavior with optional genre gating:
@@ -777,6 +781,9 @@ def build_candidate_pool(
         _agg = str(genre_admission_aggregate or "centroid").strip().lower()
         if _agg not in {"centroid", "per_seed"}:
             _agg = "centroid"
+        if steering_target is not None and _agg == "per_seed":
+            logger.info("Tag steering: forcing genre_admission_aggregate=centroid (was per_seed)")
+            _agg = "centroid"
 
         if _agg == "per_seed":
             # Union-of-neighborhoods: each seed contributes its own genre floor.
@@ -814,6 +821,18 @@ def build_candidate_pool(
             seed_dense_norm = np.linalg.norm(seed_dense)
             if seed_dense_norm > 1e-12:
                 seed_dense = seed_dense / seed_dense_norm
+            if steering_target is not None:
+                _blend = float(np.clip(steering_blend, 0.0, 1.0))
+                _steered = (1.0 - _blend) * seed_dense + _blend * np.asarray(
+                    steering_target, dtype=seed_dense.dtype
+                )
+                _steered_norm = np.linalg.norm(_steered)
+                if _steered_norm > 1e-12:
+                    seed_dense = _steered / _steered_norm
+                logger.info(
+                    "Tag steering pool lever: blend=%.2f applied to admission centroid",
+                    _blend,
+                )
             genre_sim_all = (X_genre_dense @ seed_dense).astype(np.float64)
             # Do NOT clip to [0,1]. The mean-centered dense embedding produces negative cosine
             # similarities for genuinely dissimilar genres — clipping collapses them all to 0.000
@@ -831,6 +850,17 @@ def build_candidate_pool(
                 effective_genre_floor = floor_at_percentile(_dist[~np.isnan(_dist)], genre_admission_percentile)
             else:
                 effective_genre_floor = min_genre_similarity
+
+            if steering_target is not None and effective_genre_floor is not None:
+                _aff = (X_genre_dense @ np.asarray(steering_target, dtype=np.float64)).astype(np.float64)
+                _adm = _aff[genre_sim_all >= float(effective_genre_floor)]
+                if _adm.size:
+                    logger.info(
+                        "Tag steering pool affinity (genre-admitted set): "
+                        "p10=%.3f p50=%.3f p90=%.3f n=%d",
+                        float(np.percentile(_adm, 10)), float(np.percentile(_adm, 50)),
+                        float(np.percentile(_adm, 90)), int(_adm.size),
+                    )
 
         logger.info(
             "Candidate pool genre gating: method=dense (PMI-SVD), dim=%d, "

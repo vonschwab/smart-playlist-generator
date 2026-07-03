@@ -541,6 +541,23 @@ def generate_playlist_ds(
     if _genre_admission_aggregate not in {"centroid", "per_seed"}:
         _genre_admission_aggregate = "centroid"
 
+    # Tag steering (user-selected genre tags): resolve the dense target once per run.
+    _tag_steering_tags = [
+        str(t) for t in (pb_overrides.get("tag_steering_tags") or []) if str(t).strip()
+    ]
+    _tag_steering_target = None
+    try:
+        _tag_steering_blend = float(pb_overrides.get("tag_steering_pool_blend", 0.5))
+    except (TypeError, ValueError):
+        _tag_steering_blend = 0.5
+    if _tag_steering_tags:
+        from src.playlist.tag_steering import resolve_tag_steering_target
+        _tag_steering_target, _, _ = resolve_tag_steering_target(
+            _tag_steering_tags,
+            genre_vocab=[str(v) for v in getattr(bundle, "genre_vocab", [])],
+            genre_emb=getattr(bundle, "genre_emb", None),
+        )
+
     # Oops, All Bangers: gate cutoff comes from the explicit pier_bridge_config (artist
     # mode) or from pb_overrides (seed mode injects it via config;
     # pier_bridge_config is None there). Compute the effective cutoff here, then pass
@@ -597,6 +614,8 @@ def generate_playlist_ds(
             genre_graph_source=genre_graph_source,
             popularity_ranks=_banger_ranks,
             popularity_rank_cutoff=popularity_rank_cutoff,
+            steering_target=_tag_steering_target,
+            steering_blend=_tag_steering_blend,
         )
 
     _candidate_cfg_kwargs: dict = dict(

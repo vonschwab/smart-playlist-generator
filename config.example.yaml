@@ -289,6 +289,10 @@ playlists:
         enabled: true
         floor: 0.3
         max_deletions: 4
+      # Tag steering (artist-mode GUI chips; soft lean, never a gate).
+      # Per-request tag list arrives via policy override (tag_steering_tags).
+      tag_steering_pool_blend: 0.5    # 0=ignore tags, 1=pool centroid is pure target
+      tag_steering_pier_weight: 0.3   # on-tag bonus in artist pier (medoid) scoring
       # Total-generation wall-clock budget (seconds). A single shared deadline is
       # computed once at generation start (before any One-Each retries) and threaded
       # into all segment loops and relaxation tiers so NO path can collectively exceed
