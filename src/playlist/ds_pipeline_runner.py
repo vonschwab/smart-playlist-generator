@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -112,6 +113,30 @@ def generate_playlist_ds(
     - Single seed: seed acts as both start and end pier (arc structure)
     - No repair pass (pier-bridge ordering is final)
     """
+    # Env-gated golden capture for the lossless-speedup bit-diff harness.
+    # Off unless PLAYLIST_GOLDEN_CAPTURE is set; captures the exact inputs at
+    # this deterministic seam so a replay reproduces an identical playlist.
+    _golden_dir = os.environ.get("PLAYLIST_GOLDEN_CAPTURE")
+    _golden_kwargs = None
+    if _golden_dir:
+        assert pier_bridge_config is None, (
+            "golden capture does not yet support a non-None pier_bridge_config; "
+            "extend tests/support/lossless_golden.py to serialize it"
+        )
+        _golden_kwargs = dict(
+            artifact_path=artifact_path, seed_track_id=seed_track_id, mode=mode,
+            length=length, random_seed=random_seed, pace_mode=pace_mode,
+            overrides=overrides, allowed_track_ids=allowed_track_ids,
+            excluded_track_ids=excluded_track_ids, single_artist=single_artist,
+            anchor_seed_ids=anchor_seed_ids, pool_source=pool_source,
+            artist_style_enabled=artist_style_enabled, artist_playlist=artist_playlist,
+            sonic_weight=sonic_weight, genre_weight=genre_weight,
+            min_genre_similarity=min_genre_similarity, genre_method=genre_method,
+            internal_connector_ids=internal_connector_ids,
+            internal_connector_max_per_segment=internal_connector_max_per_segment,
+            internal_connector_priority=internal_connector_priority,
+        )
+
     logger.info(
         "DS_PIPELINE_RUNNER: anchor_seed_ids=%d (pier-bridge always enabled)",
         len(anchor_seed_ids or []),
@@ -181,6 +206,17 @@ def generate_playlist_ds(
             "effective": result.params_effective,
         }
         logger.info(json.dumps(payload))
+
+    if _golden_dir and _golden_kwargs is not None:
+        from tests.support.lossless_golden import dump_golden_inputs
+
+        os.makedirs(_golden_dir, exist_ok=True)
+        _label = os.environ.get("PLAYLIST_GOLDEN_LABEL", "capture")
+        dump_golden_inputs(
+            _golden_kwargs, result.track_ids,
+            metrics.get("min_transition"), metrics.get("mean_transition"),
+            os.path.join(_golden_dir, f"{_label}.json"),
+        )
 
     requested = dict(result.params_requested)
     requested.update({
