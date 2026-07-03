@@ -14,6 +14,7 @@ from src.features.artifacts import load_artifact_bundle
 from src.playlist.ds_pipeline_runner import DsRunResult, generate_playlist_ds as run_ds_pipeline
 from src.playlist.artist_style import (
     ArtistStyleConfig,
+    allocate_piers_by_tag_affinity,
     build_balanced_candidate_pool,
     build_genre_neighbor_candidate_pool,
     cluster_artist_tracks,
@@ -1808,6 +1809,11 @@ class PlaylistGenerator:
                 else:
                     medoid_top_k = medoid_top_k_calculated
 
+                # Tag steering: over-produce medoids per cluster so the tag-weighted
+                # allocator (below) has enough tag-ranked candidates to reallocate.
+                if steering_target is not None:
+                    medoid_top_k = max(medoid_top_k, target_pier_count)
+
                 logger.info(
                     "Artist presence pier calculation: max_artist_fraction=%.3f target_piers=%d "
                     "predicted_clusters=%d medoid_top_k=%d (track_count=%d)",
@@ -1897,16 +1903,44 @@ class PlaylistGenerator:
                         )
                 if not medoids:
                     raise ValueError("Style clustering returned no medoids")
-                ordered_medoids = order_clusters(medoids, X_norm)
-
-                # Cap medoids to target_pier_count to avoid ceiling overshoot
-                # (e.g., 5 clusters × ceil(6/5)=2 per cluster = 10, but we want 6)
-                if len(ordered_medoids) > target_pier_count:
-                    logger.info(
-                        "Capping medoids from %d to target_pier_count=%d",
-                        len(ordered_medoids), target_pier_count
+                _xgd = getattr(bundle, "X_genre_dense", None)
+                if (
+                    steering_target is not None
+                    and popular_seeds_mode != "fire"
+                    and _xgd is not None
+                ):
+                    # Tag-weighted pier allocation: skew slots toward on-tag clusters
+                    # (soft; floor 1 per cluster keeps the arc). Off-tag clusters
+                    # (e.g. an artist's interludes) contribute fewer piers.
+                    _xgd = np.asarray(_xgd, dtype=float)
+                    _tgt = np.asarray(steering_target, dtype=float)
+                    cluster_affinities = [
+                        float(np.mean(_xgd[members] @ _tgt)) if len(members) else 0.0
+                        for members in clusters
+                    ]
+                    pier_tag_skew = float(
+                        (ds_cfg.get("pier_bridge", {}) or {}).get("pier_tag_skew", 0.6)
                     )
-                    ordered_medoids = ordered_medoids[:target_pier_count]
+                    selected = allocate_piers_by_tag_affinity(
+                        medoids_by_cluster, cluster_affinities, target_pier_count, pier_tag_skew,
+                    )
+                    ordered_medoids = order_clusters(selected, X_norm)
+                    logger.info(
+                        "Tag steering pier allocation: skew=%.2f cluster_affinities=%s selected=%d/%d",
+                        pier_tag_skew,
+                        [round(a, 3) for a in cluster_affinities],
+                        len(selected), len(medoids),
+                    )
+                else:
+                    ordered_medoids = order_clusters(medoids, X_norm)
+                    # Cap medoids to target_pier_count to avoid ceiling overshoot
+                    # (e.g., 5 clusters × ceil(6/5)=2 per cluster = 10, but we want 6)
+                    if len(ordered_medoids) > target_pier_count:
+                        logger.info(
+                            "Capping medoids from %d to target_pier_count=%d",
+                            len(ordered_medoids), target_pier_count,
+                        )
+                        ordered_medoids = ordered_medoids[:target_pier_count]
 
                 ordered_medoids = self._filter_title_excluded_bundle_indices(
                     bundle,
