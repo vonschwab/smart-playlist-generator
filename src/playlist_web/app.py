@@ -520,6 +520,26 @@ def create_app(
         except sqlite3.Error:
             return {"genres": []}
 
+    @app.get("/api/genres/for_artist")
+    async def genres_for_artist(artist: str = "") -> dict:
+        """Published observed-leaf genres across an artist's releases (steering chips)."""
+        if not artist.strip() or not DB_PATH.exists():
+            return {"genres": []}
+        from src.genre.authority import resolved_genres_for_artist
+        try:
+            conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
+            try:
+                tags = resolved_genres_for_artist(conn, artist)
+                return {"genres": [
+                    {"name": t.name, "release_count": t.release_count,
+                     "confidence": round(t.max_confidence, 3)}
+                    for t in tags[:12]
+                ]}
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            return {"genres": []}
+
     @app.get("/api/autocomplete")
     async def autocomplete(
         q: str = "",

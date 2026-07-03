@@ -100,6 +100,10 @@ export const api = {
     const params = new URLSearchParams({ artist, album });
     return jsonOrThrow(await fetch(`/api/genres/for_album?${params}`));
   },
+  async artistGenres(artist: string): Promise<{ genres: { name: string; release_count: number; confidence: number }[] }> {
+    const params = new URLSearchParams({ artist });
+    return jsonOrThrow(await fetch(`/api/genres/for_artist?${params}`));
+  },
   async refreshGenreArtifact(): Promise<{ job_id: string }> {
     return jsonOrThrow(await fetch("/api/refresh_genre_artifact", { method: "POST" }));
   },
