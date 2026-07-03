@@ -193,6 +193,71 @@ def _resolve_popular_seeds_mode(popular_seeds_mode: str, popularity_mode: str) -
     return m if m in {"off", "on", "fire"} else "off"
 
 
+def _build_artist_pier_config(
+    *,
+    pb_tuning: Dict[str, Any],
+    ds_defaults: Any,
+    ds_cfg: Dict[str, Any],
+    weight_bridge: float,
+    weight_transition: float,
+    genre_tiebreak_weight: float,
+    bridge_floor: float,
+    popularity_penalty_strength: float = 0.0,
+    popularity_rank_cutoff: Optional[int] = None,
+) -> PierBridgeConfig:
+    """Build the artist-style PierBridgeConfig from resolved pier-bridge tuning.
+
+    Single construction site for both artist-style entry points (popular-seeds and the
+    plain artist path). The artist path supplies a *pre-built* PierBridgeConfig, which
+    short-circuits ``apply_pier_bridge_overrides``' own construction — so EVERY mode-tuned
+    field the beam reads must be threaded from ``pb_tuning`` here, or it silently falls to
+    a ``PierBridgeConfig`` dataclass default. That is the bug this helper exists to prevent:
+    before 2026-07-02 the two hand-built constructors omitted nine fields, so every artist
+    playlist ran the beam/pool at HALF config width and with the two genre guardrails off
+    (see docs/CLEANUP_LIST.md). Only the genuinely artist-specific overrides (bridge_floor,
+    bridge/transition weights, genre tiebreak, popularity) are explicit args; everything
+    else comes from ``pb_tuning`` verbatim.
+    """
+    pier = ds_cfg.get("pier_bridge") or {}
+    return PierBridgeConfig(
+        transition_floor=float(ds_defaults.construct.transition_floor),
+        bridge_floor=float(bridge_floor),
+        center_transitions=bool(ds_defaults.construct.center_transitions),
+        weight_bridge=float(weight_bridge),
+        weight_transition=float(weight_transition),
+        genre_tiebreak_weight=float(genre_tiebreak_weight),
+        genre_penalty_threshold=float(pb_tuning["genre_penalty_threshold"]),
+        genre_penalty_strength=float(pb_tuning["genre_penalty_strength"]),
+        popularity_penalty_strength=float(popularity_penalty_strength),
+        popularity_rank_cutoff=popularity_rank_cutoff,
+        genre_steering_enabled=bool(pb_tuning.get("genre_steering_enabled", False)),
+        genre_steering_source=str(pb_tuning.get("genre_steering_source", "taxonomy")),
+        weight_genre=float(pb_tuning.get("weight_genre", 0.0)),
+        genre_arc_floor=float(pb_tuning.get("genre_arc_floor", 0.0)),
+        genre_arc_floor_percentile=float(pb_tuning.get("genre_arc_floor_percentile", 0.0)),
+        genre_admission_percentile=float(pb_tuning.get("genre_admission_percentile", 0.0)),
+        # The nine fields below were silently dropping to PierBridgeConfig dataclass
+        # defaults before 2026-07-02 (beam/pool at HALF config width + genre guardrails
+        # off). They MUST be threaded from tuning here — adding a beam/genre knob to
+        # config without adding it here re-introduces the same silent-drop bug.
+        segment_pool_genre_weight=float(pb_tuning.get("segment_pool_genre_weight", 0.0)),
+        genre_pair_floor=float(pb_tuning.get("genre_pair_floor", 0.0)),
+        genre_pair_penalty=float(pb_tuning.get("genre_pair_penalty", 0.5)),
+        initial_beam_width=int(pb_tuning.get("initial_beam_width", 20)),
+        max_beam_width=int(pb_tuning.get("max_beam_width", 100)),
+        initial_neighbors_m=int(pb_tuning.get("initial_neighbors_m", 100)),
+        max_neighbors_m=int(pb_tuning.get("max_neighbors_m", 400)),
+        initial_bridge_helpers=int(pb_tuning.get("initial_bridge_helpers", 50)),
+        max_bridge_helpers=int(pb_tuning.get("max_bridge_helpers", 200)),
+        variable_bridge_length=bool(pier.get("variable_bridge_length", False)),
+        variable_bridge_flex=int(pier.get("variable_bridge_flex", 2)),
+        variable_bridge_band=int(pier.get("variable_bridge_band", 5)),
+        variable_bridge_min_edge=float(pier.get("variable_bridge_min_edge", 0.30)),
+        variable_bridge_epsilon=float(pier.get("variable_bridge_epsilon", 0.02)),
+        variable_bridge_max_flex_segments=int(pier.get("variable_bridge_max_flex_segments", 3)),
+    )
+
+
 class PlaylistGenerator:
     """Generates playlists based on listening history and similarity"""
 
@@ -1971,29 +2036,16 @@ class PlaylistGenerator:
                 }.get(str(popularity_mode or "off"), 0.0)
                 _pop_rank_cutoff = _resolve_popularity_rank_cutoff(popularity_mode, _bangers_cfg)
 
-                pier_cfg = PierBridgeConfig(
-                    transition_floor=float(ds_defaults.construct.transition_floor),
-                    bridge_floor=bridge_floor,
-                    center_transitions=bool(ds_defaults.construct.center_transitions),
+                pier_cfg = _build_artist_pier_config(
+                    pb_tuning=pb_tuning,
+                    ds_defaults=ds_defaults,
+                    ds_cfg=ds_cfg,
                     weight_bridge=weight_bridge,
                     weight_transition=weight_transition,
                     genre_tiebreak_weight=genre_tiebreak_weight,
-                    genre_penalty_threshold=float(pb_tuning["genre_penalty_threshold"]),
-                    genre_penalty_strength=float(pb_tuning["genre_penalty_strength"]),
+                    bridge_floor=bridge_floor,
                     popularity_penalty_strength=_pop_strength,
                     popularity_rank_cutoff=_pop_rank_cutoff,
-                    genre_steering_enabled=bool(pb_tuning.get("genre_steering_enabled", False)),
-                    genre_steering_source=str(pb_tuning.get("genre_steering_source", "taxonomy")),
-                    weight_genre=float(pb_tuning.get("weight_genre", 0.0)),
-                    genre_arc_floor=float(pb_tuning.get("genre_arc_floor", 0.0)),
-                    genre_arc_floor_percentile=float(pb_tuning.get("genre_arc_floor_percentile", 0.0)),
-                    genre_admission_percentile=float(pb_tuning.get("genre_admission_percentile", 0.0)),
-                    variable_bridge_length=bool((ds_cfg.get("pier_bridge") or {}).get("variable_bridge_length", False)),
-                    variable_bridge_flex=int((ds_cfg.get("pier_bridge") or {}).get("variable_bridge_flex", 2)),
-                    variable_bridge_band=int((ds_cfg.get("pier_bridge") or {}).get("variable_bridge_band", 5)),
-                    variable_bridge_min_edge=float((ds_cfg.get("pier_bridge") or {}).get("variable_bridge_min_edge", 0.30)),
-                    variable_bridge_epsilon=float((ds_cfg.get("pier_bridge") or {}).get("variable_bridge_epsilon", 0.02)),
-                    variable_bridge_max_flex_segments=int((ds_cfg.get("pier_bridge") or {}).get("variable_bridge_max_flex_segments", 3)),
                 )
                 # Roam corridors (Phase-1): the artist path builds PierBridgeConfig
                 # explicitly, so it must apply the roam override itself (no-op if absent).
@@ -2842,27 +2894,14 @@ class PlaylistGenerator:
                     elif isinstance(bridge_floor_raw, (int, float)):
                         bridge_floor = float(bridge_floor_raw)
 
-                    pier_cfg = PierBridgeConfig(
-                        transition_floor=float(ds_defaults.construct.transition_floor),
-                        bridge_floor=bridge_floor,
-                        center_transitions=bool(ds_defaults.construct.center_transitions),
+                    pier_cfg = _build_artist_pier_config(
+                        pb_tuning=pb_tuning,
+                        ds_defaults=ds_defaults,
+                        ds_cfg=ds_cfg,
                         weight_bridge=weight_bridge,
                         weight_transition=weight_transition,
                         genre_tiebreak_weight=genre_tiebreak_weight,
-                        genre_penalty_threshold=float(pb_tuning["genre_penalty_threshold"]),
-                        genre_penalty_strength=float(pb_tuning["genre_penalty_strength"]),
-                        genre_steering_enabled=bool(pb_tuning.get("genre_steering_enabled", False)),
-                        genre_steering_source=str(pb_tuning.get("genre_steering_source", "taxonomy")),
-                        weight_genre=float(pb_tuning.get("weight_genre", 0.0)),
-                        genre_arc_floor=float(pb_tuning.get("genre_arc_floor", 0.0)),
-                        genre_arc_floor_percentile=float(pb_tuning.get("genre_arc_floor_percentile", 0.0)),
-                        genre_admission_percentile=float(pb_tuning.get("genre_admission_percentile", 0.0)),
-                        variable_bridge_length=bool((ds_cfg.get("pier_bridge") or {}).get("variable_bridge_length", False)),
-                        variable_bridge_flex=int((ds_cfg.get("pier_bridge") or {}).get("variable_bridge_flex", 2)),
-                        variable_bridge_band=int((ds_cfg.get("pier_bridge") or {}).get("variable_bridge_band", 5)),
-                        variable_bridge_min_edge=float((ds_cfg.get("pier_bridge") or {}).get("variable_bridge_min_edge", 0.30)),
-                        variable_bridge_epsilon=float((ds_cfg.get("pier_bridge") or {}).get("variable_bridge_epsilon", 0.02)),
-                        variable_bridge_max_flex_segments=int((ds_cfg.get("pier_bridge") or {}).get("variable_bridge_max_flex_segments", 3)),
+                        bridge_floor=bridge_floor,
                     )
                     # Roam corridors (Phase-1): apply the roam override on the explicit
                     # artist-path PierBridgeConfig (no-op if absent).
