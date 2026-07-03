@@ -1,42 +1,94 @@
 # Playlist Generator
 
-**Version 6.0** — Learned MERT sonic embedding, pace bands, enriched-genre authority + layered taxonomy graph, multisource Claude enrichment, and a browser GUI.
+A local playlist generator that builds intentional, arc-shaped playlists from your own music
+library — fusing a learned sonic-similarity embedding with a real genre taxonomy graph, not a
+shuffle and not a generic "similar artists" API call.
 
 ## Overview
 
-Generates intelligent playlists from a local music library by fusing learned sonic similarity with genre-aware routing:
+Point it at a folder of music and a seed (an artist, a genre, or a set of tracks in the GUI). It
+builds a playlist that:
 
-- **Learned sonic embedding (MERT)** — the default sonic space is a learned music embedding (MERT-v1-95M, 768-d, anisotropy-corrected) that replaced the hand-built rhythm/timbre/harmony towers as the similarity backbone. The 162-d tower space remains a config-selectable rollback.
-- **Pier-Bridge beam search** — seeds become fixed "piers"; beam search builds smooth bridges between each adjacent pair, with monotonic progress through sonic space.
-- **Genre routing on a real taxonomy** — published, graph-resolved genres drive a per-segment genre arc with IDF weighting, preserving multi-genre signatures (shoegaze stays shoegaze, not "indie rock").
-- **Four independent axes** — `cohesion_mode` tightens the beam; `genre_mode`, `sonic_mode`, and `pace_mode` shape the candidate pool, each tunable from `strict` through `off`.
-- **Pace as tempo + rhythmic density** — BPM and onset-rate bands plus a soft rhythm penalty keep slow playlists slow and driving playlists driving — independent of the sonic embedding.
-- **Artist identity resolution** — collaboration-aware constraints normalise "X feat. Y", "The X", and ensemble suffixes before diversity enforcement.
-- **Browser GUI** — generate, run library analysis/enrichment, and review genres from a local web app.
+- **Sounds like a DJ set, not a shuffle.** Sonic similarity comes from **MuQ**, a learned
+  contrastive audio-text embedding — not hand-built rhythm/timbre/harmony features. Seeds anchor
+  the playlist as fixed "piers"; a beam search builds a smoothly-transitioning bridge between each
+  pair, so the whole thing moves somewhere instead of wandering.
+- **Preserves your taste, not the algorithm's average.** Genres are resolved against a real
+  taxonomy graph, not free-text tags — multi-genre signatures ("shoegaze + dreampop + slowcore")
+  survive instead of collapsing to "indie rock."
+- **Doesn't sag into generic filler.** Long bridges are actively kept from drifting into the
+  dense, "sounds like everything" middle of the sound space, and any transition that still comes
+  out weak gets one more pass to fix it before the playlist ships.
+- **Respects diversity as a hard rule.** Per-artist caps, minimum spacing, and collaboration-aware
+  identity resolution (so "Bill Evans Trio" and "Bill Evans feat. X" count as the same artist) are
+  enforced, not just recommended.
 
-## What's new in v6.0
+## Features
 
-### Learned sonic embedding (MERT)
-The hand-built towers were perceptually unreliable (the dominant timbre tower rated Metallica ≈ Yeah Yeah Yeahs). v6.0 folds a learned **MERT-v1-95M** embedding into the artifact and makes it the **default** sonic space (`X_sonic_variant: mert`), post-processed with `whiten_l2` (mean-center → per-dim std → L2) fitted on the full library. Cross-catalog neighbour QA shows it beats the towers by ~45–93%. The 162-d `tower_weighted` space (rhythm 9 + timbre 57 + 2DFTM harmony 96, weights 0.20/0.50/0.30) stays in the artifact as the rollback — set `artifacts.sonic_variant_override: tower_weighted` and restart the GUI. (See `docs/MERT_WHITEN_NEIGHBORS_20SEEDS.md`.)
+- **Learned sonic similarity (MuQ).** The sole sonic embedding is `OpenMuQ/MuQ-MuLan-large`, a
+  512-dimensional contrastive audio-text model — it beats an earlier acoustic embedding (MERT) and
+  the original hand-built towers on trusted soundalike triplets. There's no runtime variant switch
+  anymore; the old rhythm/timbre/harmony towers and MERT were removed from the codebase (archived,
+  not deleted) once MuQ replaced them outright.
+- **Pier-bridge beam search with collapse prevention.** Seeds become fixed piers; a constrained
+  beam search fills each segment between them. Two levers keep long bridges from sagging into a
+  generic local average instead of representing the seeds' character: an **anti-center** scoring
+  penalty (demotes candidates that drift toward the pool's centroid instead of the piers), and
+  **mini-piers** (splits an over-long segment by pinning a high-character waypoint as an extra
+  pier, so the beam structurally can't drift past it).
+- **Weak-edge recovery cascade.** After the beam finishes, a fixed four-pass cascade — lengthen the
+  bridge, re-optimize the last couple of interior slots, swap one interior track (break-glass
+  repair), or delete one interior track as a last resort — lifts any transition that's still weak,
+  escalating from least- to most-destructive.
+- **Genre graph authority.** Genres come from `release_effective_genres`, a single published table
+  written only by the enrichment pipeline's `publish` stage and resolved against a living taxonomy
+  graph (`data/layered_genre_taxonomy.yaml`). Multi-genre signatures are preserved end to end, and
+  a hub guard keeps broad genres ("rock", "indie") from gluing the whole similarity matrix
+  together.
+- **Four independent axes.** `cohesion_mode` controls beam tightness; `genre_mode`, `sonic_mode`,
+  and `pace_mode` independently gate what's allowed into the candidate pool. Mix and match — e.g.
+  same genre with varied sonic texture, or tight sound across genre boundaries.
+- **Tag-steering (artist mode).** When seeding from an artist, the GUI offers chips of that
+  artist's own published genres — pick up to three to softly lean the playlist toward that facet of
+  their catalog. It's an additive nudge, never a hard filter, and with no tags picked the run is
+  byte-identical to not using it.
+- **Pace as tempo + rhythmic density.** Pace is gated independently of the sonic embedding, using
+  BPM and onset-rate log-distance bands plus a soft rhythm penalty — so it keeps working the same
+  way regardless of what the sonic embedding is doing, and survives beatless/ambient seeds where
+  BPM alone is meaningless.
+- **Artist identity resolution.** Ensemble suffixes ("Trio", "Quartet"), collaborations ("X feat.
+  Y"), and "The"-prefixes are normalized before anything counts diversity, dedups, or excludes the
+  seed artist from bridge interiors.
+- **Multisource genre enrichment.** `scripts/analyze_library.py` runs the full pipeline —
+  MusicBrainz/Discogs/Last.fm collection, Claude-based album-grain genre adjudication, publish —
+  as one resumable, fingerprint-gated command. Claude calls run through the Agent SDK against a
+  Claude subscription, no separate API billing.
+- **Browser GUI.** Generate playlists, run library analysis/enrichment, review and adjudicate
+  genres, and edit the taxonomy graph — all from a local web app. No desktop GUI dependency.
 
-### Pace mode rebuilt on tempo + rhythmic density
-The old rhythm-cosine floor (near-noise, unsatisfiable for ambient artists) is gone. Pace now gates on two embedding-independent **hard bands** — BPM log-distance and onset-rate log-distance — plus a **soft** rhythm penalty that demotes (never rejects) off-rhythm bridge edges. Because the bands read DB features, pace survives the MERT migration unchanged, and `narrow` is now usable for a beatless/ambient seed.
+## What's new
 
-### Enriched-genre authority + layered taxonomy graph
-Published genres are now the authority: `release_effective_genres` (written only by the enrichment **publish** stage, read via `src/genre/authority.py`), resolved against the **SP3a layered taxonomy graph** (`data/layered_genre_taxonomy.yaml`, ~455 genres). The generation artifact bakes these in (`genre_source: graph`). Genre chips in the GUI are graph-canonical, ordered most-specific → broadest.
-
-### Multisource genre enrichment (Claude backend)
-`scripts/analyze_library.py` runs the enrichment pipeline end to end as resumable stages — `scan → genres → discogs → lastfm → sonic → mert → enrich → publish → genre-sim → artifacts → …`. The `enrich` stage adjudicates unknown tags via Claude (no API billing — Agent SDK), with source-quality fusion (label-storefront vs artist-page weighting, never-drop local tags) and incremental skip of unchanged releases. Transient rate-limit failures pause cleanly before publish so partial enrichment never reaches the database.
-
-### Genre Review panel (GUI)
-A new **Genre Review** tab queues hybrid-evidence "review terms" per release for human accept/reject; decisions persist as user overrides and rebuild the published genres.
+- **MuQ is now the only sonic embedding.** The earlier MERT embedding and the original hand-built
+  towers are gone from the runtime path (code removed, artifacts archived under
+  `data/archive/mert_2026/`) — there's no `--sonic-variant` flag or config switch to pick between
+  them anymore.
+- **Collapse prevention shipped on.** Anti-center scoring and mini-piers (structural waypoint
+  insertion) both ship active in `config.example.yaml`, along with variable-length bridges that
+  flex a segment to land on a better edge instead of forcing a rigid even split.
+- **Tag-steering.** Artist-mode playlists can now be softly steered toward specific genre facets of
+  the seed artist's own catalog, picked from chips in the GUI.
+- **Pace rebuilt on tempo + rhythmic density.** BPM and onset-rate bands replaced an old
+  rhythm-cosine floor that was near-noise and unsatisfiable for ambient/beatless artists.
 
 ## Quick Start
 
 ```bash
 # 1. Install (Python 3.11+ required)
-pip install -e .[web]        # browser GUI + generation (recommended)
-pip install -e .[web,dev]    # contributors: + pytest, ruff, mypy, pre-commit
+pip install -e .[web]         # browser GUI + generation (recommended baseline)
+pip install -e .[web,ai]      # + Claude Agent SDK, needed for genre enrichment
+pip install -e .[web,ai,muq]  # + muq/torch, needed to BUILD the MuQ embedding (analyze only —
+                               # not needed just to generate against an artifact that already has it)
+pip install -e .[web,dev]     # contributors: + pytest, ruff, mypy, pre-commit (combine with any of the above)
 
 # 2. Configure
 cp config.example.yaml config.yaml
@@ -45,34 +97,36 @@ cp config.example.yaml config.yaml
 # 3. Verify environment
 python tools/doctor.py
 
-# 4. Scan + enrich + build, all stages, one command
+# 4. Scan + enrich + build the artifact — one command, 15 ordered stages
 python scripts/analyze_library.py
-#   or a subset:  python scripts/analyze_library.py --stages scan,sonic,mert,artifacts
+#   or a subset:  python scripts/analyze_library.py --stages scan,muq,artifacts,verify
 #   see the stage list:  python scripts/analyze_library.py --help
 
 # 5. Generate playlists
 python main_app.py --artist "Slowdive" --tracks 30
-python main_app.py --seeds "Alison,Lost and Found,Endless Summer" --tracks 30
 python main_app.py --genre "shoegaze" --tracks 30
+# Note: there is no --seeds flag. Multi-track seed playlists ("DJ Bridge" mode) are GUI-only —
+# pick several tracks in the browser GUI and generate from there.
 
 # 6. Launch the browser GUI (http://127.0.0.1:8770)
 python tools/serve_web.py
 ```
 
-The MERT sonic embedding requires a one-time extraction (`scripts/extract_mert_sidecar.py`,
-run via the `mert` analyze stage) and fold (`scripts/fold_mert_into_artifact.py`); extraction
-is CPU-heavy but resumable. See [docs/GOLDEN_COMMANDS.md](docs/GOLDEN_COMMANDS.md) for the full
-command reference.
+See [docs/GOLDEN_COMMANDS.md](docs/GOLDEN_COMMANDS.md) for the full command reference and
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how it all fits together.
 
 ## Requirements
 
 - Python 3.11+
 - ~8 GB RAM for sonic analysis
 - SSD recommended for feature extraction
+- A GPU is not required for MuQ extraction but speeds it up considerably
 
 ## Playlist modes
 
-Four independent axes control cohesion vs. discovery. Each can be set in the GUI or via CLI flags. `cohesion_mode` drives the beam search; the other three shape the candidate pool.
+Four independent axes control cohesion vs. discovery. Each can be set in the GUI or via CLI
+flags. `cohesion_mode` drives the beam search itself; the other three shape what's allowed into
+the candidate pool before the beam ever runs.
 
 ### Cohesion mode (`--cohesion-mode`)
 Overall beam tightness — how strictly the bridge search holds to a coherent path.
@@ -80,41 +134,53 @@ Overall beam tightness — how strictly the bridge search holds to a coherent pa
 | Mode | Behaviour |
 |---|---|
 | `strict` | Tightest beam — minimal drift between piers |
-| `narrow` | Cohesive (default GUI) |
-| `dynamic` | Balanced |
+| `narrow` | Cohesive |
+| `dynamic` | Balanced (default) |
 | `discover` | Loosest — allows more exploratory bridges |
 
 ### Genre mode (`--genre-mode`)
-How closely candidates must match the seed's genre profile: `strict` (single-genre deep dives) · `narrow` (cohesive, default GUI) · `dynamic` (moderate variation) · `discover` (cross-genre) · `off` (ignore genre).
+How closely candidates must match the seed's genre profile, blended against sonic similarity:
+
+| Mode | Genre weight | Behaviour |
+|---|---|---|
+| `strict` | 0.80 | Ultra-tight genre coherence — stay within the seed genre |
+| `narrow` | 0.65 | Close to seed genre with some flexibility |
+| `dynamic` | 0.50 | Balanced genre exploration (default) |
+| `discover` | 0.35 | Venture into related genres |
+| `off` | 0.00 | Sonic-only — ignore genre completely |
 
 ### Sonic mode (`--sonic-mode`)
-Sonic-similarity admission floor in the learned MERT space. Floors are calibrated to MERT cosine percentiles (compressed near 0, unlike the old towers):
+Sonic-similarity admission floor and blend weight in the MuQ space:
 
-| Mode | Min sonic similarity |
-|---|---|
-| `strict` | 0.28 (p75) |
-| `narrow` | 0.18 (p50, default GUI) |
-| `dynamic` | 0.08 (p25) |
-| `discover` | 0.00 |
-| `off` | disabled |
+| Mode | Sonic weight | Behaviour |
+|---|---|---|
+| `strict` | 0.85 | Very similar sound, minimal variation |
+| `narrow` | 0.70 | Familiar sound, strict coherence |
+| `dynamic` | 0.50 | Balanced (default) |
+| `discover` | 0.35 | Broader sonic palette, varied textures |
+| `off` | 0.00 | No sonic floor — genre-only |
 
 ### Pace mode (`--pace-mode`)
-Tempo + rhythmic-density fidelity, independent of timbre. Two hard log-distance bands (BPM, onset-rate) plus a soft rhythm penalty; bands widen on segment backoff so pace never blows the generation budget.
+Tempo + rhythmic-density fidelity, independent of the sonic embedding — two hard log-distance
+bands (BPM, onset rate) plus a soft penalty that widens on backoff so pace never blows the
+generation budget. No `discover` level on this axis (only `strict` / `narrow` / `dynamic` / `off`).
 
-| Mode | BPM band (adm/bridge, log₂) | Onset band (adm/bridge, log₂) | Rhythm soft penalty (thresh/strength) |
+| Mode | BPM band (admission / bridge, log₂) | Onset band (admission / bridge, log₂) | Soft penalty strength |
 |---|---|---|---|
-| `strict`  | 0.30 / 0.40 | 0.30 / 0.40 | 0.35 / 0.20 |
-| `narrow`  | 0.50 / 0.60 | 0.50 / 0.60 | 0.25 / 0.15 |
-| `dynamic` | 0.75 / 0.85 | 0.75 / 0.85 | 0.15 / 0.10 |
-| `off`     | ∞ / ∞ | ∞ / ∞ | 0 / 0 |
+| `strict`  | 0.30 / 0.40 | 0.30 / 0.40 | 0.50 |
+| `narrow`  | 0.50 / 0.60 | 0.50 / 0.60 | 0.40 |
+| `dynamic` | 0.75 / 0.85 | 0.75 / 0.85 | 0.30 (default) |
+| `off`     | ∞ / ∞ | ∞ / ∞ | 0 |
 
-Pace mode is orthogonal to sonic mode: `sonic_mode=narrow + pace_mode=strict` means "very similar texture, must also hold tempo and density." Because the bands read database features (`bpm_info`, `onset_rate`), pace works identically whether the sonic space is MERT or the towers.
+Because pace reads BPM/onset-rate database features rather than the sonic embedding, it works
+identically no matter what the sonic space is doing — including on beatless/ambient seeds where a
+raw BPM comparison would be meaningless (handled via an onset-rate trust gate).
 
 ### Examples
 
 ```bash
 # Tight shoegaze/slowcore — stays slow, stays cohesive
-python main_app.py --seeds "Alison,Felo de Se,Endless Summer" \
+python main_app.py --artist "Slowdive" \
     --cohesion-mode narrow --genre-mode narrow --pace-mode strict --tracks 30
 
 # Same genre, explore varied sonic textures
@@ -126,15 +192,14 @@ python main_app.py --genre "ambient" \
     --genre-mode off --sonic-mode dynamic --tracks 30
 ```
 
-## DJ Bridge mode (multi-seed playlists)
+## Multi-seed ("DJ Bridge") playlists
 
-Multi-seed playlists use seeds as fixed "piers" and beam-search bridges between each adjacent pair. The genre routing plans a graph-genre arc across each segment using IDF-weighted interpolation.
-
-```bash
-python main_app.py --seeds "Slowdive,Beach House,Deerhunter,Helvetia" --tracks 30
-```
-
-Produces four segments — Slowdive → Beach House → Deerhunter → Helvetia — with smooth transitions and genre evolution at each bridge. See [docs/DJ_BRIDGE_ARCHITECTURE.md](docs/DJ_BRIDGE_ARCHITECTURE.md).
+Every playlist — single-artist or multi-seed — is built on the same pier-bridge topology: seeds
+become fixed piers, and a beam search fills the bridge between each adjacent pair with a smooth
+transition and a genre arc routed across the taxonomy graph. Multi-track seed lists are currently
+**GUI-only** — select several tracks in the browser GUI to build a playlist that bridges between
+all of them in sequence. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full pier-bridge
+walkthrough.
 
 ## Project structure
 
@@ -145,25 +210,25 @@ Produces four segments — Slowdive → Beach House → Deerhunter → Helvetia 
 ├── src/
 │   ├── playlist/                # Generation pipeline
 │   │   ├── pipeline/            # DS pipeline orchestration
-│   │   ├── pier_bridge/         # Beam search, beam scoring, pace gate
-│   │   ├── repair/              # Post-beam edge repair
-│   │   ├── candidate_pool.py    # Admission filtering (sonic, genre, pace, IDF)
+│   │   ├── pier_bridge/         # Beam search, anti-sag scoring, pace gate, recovery cascade
+│   │   ├── repair/              # Post-beam edge repair (weak-edge cascade)
+│   │   ├── candidate_pool.py    # Admission filtering (sonic, genre, pace, IDF, tag-steering)
+│   │   ├── tag_steering.py      # Artist-mode soft genre lean
 │   │   ├── genre_idf.py         # IDF computation for genre weighting
 │   │   └── mode_presets.py      # Cohesion/genre/sonic/pace mode presets
+│   ├── analyze/                 # MuQ extraction runner + resumable shard build
 │   ├── features/                # Audio feature extraction + artifact resolution
-│   ├── similarity/              # Sonic variant computation (MERT / towers)
 │   ├── genre/                   # Genre authority, taxonomy graph adapter, granularity
 │   ├── ai_genre_enrichment/     # Multisource enrichment (collection + adjudication)
-│   ├── playlist_web/            # FastAPI web app (Generate / Tools / Genre Review)
+│   ├── playlist_web/            # FastAPI web app (Generate / Tools / Genre Review / Taxonomy)
 │   └── playlist_gui/            # Generation worker (NDJSON) + shared policy layer
 ├── web/                         # React + TypeScript + Vite browser front-end
-├── scripts/                     # analyze_library orchestrator, scan, sonic/MERT, artifact build
+├── scripts/                     # analyze_library orchestrator, artifact/fold scripts
 ├── tools/
 │   ├── doctor.py                # Environment validator
-│   ├── serve_web.py             # Browser GUI launcher
-│   └── dead_code_audit.py       # Static reachability audit
+│   └── serve_web.py             # Browser GUI launcher
 ├── tests/                       # pytest suite (smoke / integration / golden / slow markers)
-└── docs/                        # See docs/README.md for the index
+└── docs/                        # See docs/ARCHITECTURE.md for the current map
 ```
 
 ## Diagnostics
@@ -173,30 +238,24 @@ Produces four segments — Slowdive → Beach House → Deerhunter → Helvetia 
 playlists:
   ds_pipeline:
     pier_bridge:
-      emit_selected_edge_audit: true   # per-edge T/S/G/bridge + BPM breakdown in logs
-      edge_repair:
-        enabled: true                  # opt-in post-beam swap for bad edges
+      emit_selected_edge_audit: true   # per-edge transition/sonic/genre/bridge breakdown in logs
 ```
 
-- **Edge audit** (`emit_selected_edge_audit: true`): logs T, S, G, bridge score, BPM distance, and title flags for every transition.
-- **Weakest-edge report**: always on — shows the lowest-T transitions with artist names.
-- **Quality metrics**: every generation reports transition stats (min / mean / p10 / p90) and distinct-artist count.
+- **Edge audit** (`emit_selected_edge_audit: true`): logs the transition, sonic, genre, and bridge
+  score for every transition, plus BPM distance and title flags.
+- **Weakest-edge report**: always on — shows the lowest-transition edges with artist names.
+- **Quality metrics**: every generation reports transition stats (min / mean / p10 / p90) and
+  distinct-artist count.
 
 ### Track replacement (GUI)
-Right-click any non-pier track in the playlist table → **Replace this track…**. The dialog offers Search, Best Match, Different Pace, Different Genre, and Different Sound — the auto modes require the replacement to clear the transition floor against both neighbours.
+Right-click any non-pier track in the playlist table → **Replace this track…**. The dialog offers
+Search, Best Match, Different Pace, Different Genre, and Different Sound — the auto modes require
+the replacement to clear the transition floor against both neighbours.
 
-## Version history
-
-| Version | Highlights |
-|---|---|
-| **6.0** | Learned MERT sonic embedding (default) + tower rollback; pace rebuilt on BPM + onset bands; enriched-genre authority + layered taxonomy graph; multisource Claude enrichment with publish/pause safety; Genre Review GUI panel + graph-canonical chips; four mode axes (adds cohesion); browser GUI as sole front-end |
-| **5.0** | Four-level pace mode; transition weight alignment; IDF admission; uncapped seeded pool; scoped blacklisting |
-| **4.0** | Native GUI overhaul; CLI parity; Analyze Library readouts |
-| **3.5** | Job cancellation/checkpoints; persistent genre cache; collaboration-aware artist clustering |
-| **3.4** | DJ Bridge mode; union pooling; per-run audit reports |
-| **3.3** | Seed List mode; sonic/genre modes; blacklist support |
-
-Full release notes: [docs/CHANGELOG.md](docs/CHANGELOG.md)
+### Genre Review & Taxonomy (GUI)
+The **Genre Review** and **Taxonomy** sub-tabs (under the Advanced panel) let you adjudicate
+enrichment suggestions per release and grow/edit the taxonomy graph itself, respectively —
+decisions persist immediately and feed back into the next generation.
 
 ## License
 

@@ -1,1509 +1,608 @@
 # Technical Playlist Generation Flow
-## Artist Mode Deep Dive: Bill Evans Trio Playlist Generation
 
-**Last Updated:** 2026-01-10 (v3.4)
-**Purpose:** Comprehensive technical reference for understanding the complete playlist generation pipeline
+**Last updated:** 2026-07-03
+**Purpose:** the authoritative, code-level, `file:line`-cited walkthrough of a single playlist
+generation, end to end.
 
-**Note:** This document covers Artist Mode (single-seed playlists with artist clustering). DJ Bridge Mode (multi-seed playlists with genre-aware routing) is the primary mode in v3.4 and is documented in [DJ_BRIDGE_ARCHITECTURE.md](DJ_BRIDGE_ARCHITECTURE.md).
+This is the layer-2 companion to [`ARCHITECTURE.md`](ARCHITECTURE.md) (the orientation map —
+read that first if you're new) and a sibling to [`DESIGN_RATIONALE.md`](DESIGN_RATIONALE.md)
+(the **why** — experiments, results, rejected alternatives). This doc states **what runs, in
+what order, in which file** for one generation. Where a mechanism is itself a deep subsystem
+with its own document — the beam search, the weak-edge cascade knobs, genre data authority — this
+doc describes it at the depth needed to follow the call chain and points to the deep-dive rather
+than duplicating it.
 
-> **⚠️ v6.0 scope note (2026-06-15):** This walkthrough was written for v3.4 and has
-> drifted in specifics. As of v6.0: the sonic space defaults to the **MERT learned
-> embedding** (not the 137-dim tower blend shown below — towers are the rollback);
-> genres come from the **published authority** (`src/genre/authority.py` →
-> `release_effective_genres`); and the **pre-DS legacy engine was deleted** —
-> `candidate_generator.py` → `src/playlist/candidate_pool.py`, and
-> `genre_similarity_v2.py` → `src/genre/similarity.py` / `graph_similarity.py`. The
-> pier-bridge **structure** described here is still accurate; treat exact dims, vocab
-> sizes, and `file:line` refs as historical. Current map: [ARCHITECTURE.md](ARCHITECTURE.md);
-> beam internals: [dj_bridge_architecture.md](dj_bridge_architecture.md).
+> **Framing.** Multi-pier seed generation (2+ seeds, beam-searched bridges between them) is
+> production and is the frame of this walkthrough. **Artist mode is one entry point that produces
+> piers**, not a separate engine: an artist-mode request clusters one artist's catalog into piers
+> and then hands off to the exact same pier-bridge builder a multi-seed request uses. Single-seed
+> requests are the degenerate case (one pier, used as both start and end — an "arc"). There is
+> only one playlist-construction engine in this codebase; the legacy greedy `constructor.py` path
+> is dead code, unconditionally bypassed (`src/playlist/pipeline/core.py:668`, `if True: #
+> Always use pier-bridge`).
 
----
-
-## High-Level Summary
-
-When you generate a playlist for "Bill Evans Trio", the system:
-
-1. **Retrieves** all Bill Evans Trio tracks from your library database
-2. **Selects** seed tracks (auto-clustered or explicit Seed List mode)
-3. **Analyzes** your Last.fm listening history to exclude recently played tracks
-4. **Clusters** the artist's catalog into 3-6 style groups using sonic similarity
-5. **Builds** a candidate pool of ~1,200-2,000 external tracks with similar sonic/genre characteristics
-6. **Constructs** a 30-track playlist using pier-bridge algorithm:
-   - Places seeds as structural "piers" (anchor points)
-   - Fills gaps between piers with smooth sonic transitions
-   - Enforces artist diversity and recency constraints
-7. **Validates** the result meets all quality constraints
-8. **Exports** to M3U8 file and Plex
-
-**Key Innovation:** The pier-bridge algorithm ensures the playlist flows smoothly while maintaining thematic coherence tied to the seed artist's musical identity.
+| Doc | Covers |
+|---|---|
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | System map: offline pipeline, sonic space, genre, the four mode axes, GUI wiring. |
+| **This doc** | Code-level walkthrough of one generation, phase by phase, `file:line`. |
+| [`DJ_BRIDGE_ARCHITECTURE.md`](DJ_BRIDGE_ARCHITECTURE.md) | Deep-dive on the beam's internal scoring math. **Caveat:** it documents the optional, off-by-default `dj_bridging` vector-mode/IDF/coverage genre-waypoint system (`dj_bridging.enabled: false` in `config.example.yaml:457`) — a *different*, older genre-routing lever than the taxonomy arc-steering described in Phase 5 below, which is what actually runs by default today. Read it for beam mechanics (pooling, scoring shape); don't take its genre-routing description as the current default. |
+| [`DESIGN_RATIONALE.md`](DESIGN_RATIONALE.md) | Why each current method was chosen over the alternative that was tried. |
+| [`PLAYLIST_ORDERING_TUNING.md`](PLAYLIST_ORDERING_TUNING.md) | Knob-by-knob tuning recipes for everything in Phases 5–6. |
+| [`CONFIG.md`](CONFIG.md) | Full config key reference. |
+| [`WIRING_STATUS.md`](WIRING_STATUS.md) / [`CLEANUP_LIST.md`](CLEANUP_LIST.md) | Shipped-vs-live divergences and open gaps. |
 
 ---
 
-## Detailed Technical Breakdown
+## Phase 1 — Entry, config, and the CLI/policy split
 
-### Phase 1: Initialization & Configuration
-**Duration:** ~1-2 seconds
-**Files:** `main_app.py`, `config_loader.py`, `src/playlist_generator.py`
+There are two entry points, and they **do not go through the same config-derivation code**:
 
-#### 1.1 Configuration Loading
+### 1.1 CLI (`main_app.py`)
+
+`main()` (`main_app.py:535`) parses argparse flags — `--artist` / `--genre` (mutually exclusive,
+`main_app.py:543–553`), `--track`, `--anchor-seed-ids`, `--tracks` (default 30), `--cohesion-mode`,
+`--genre-mode` / `--sonic-mode` / `--pace-mode`, `--mode` (quick preset), and the `--pb-*`
+experiment flags (`main_app.py:613–657`). Two flags that used to exist do **not**: there is no
+`--seeds` (seed-track mode is GUI/worker-only — `GenerateMode = Literal["artist", "genre",
+"seeds", "history"]`, `src/playlist/request_models.py:9`) and no `--sonic-variant` (the CLI
+variant selector was retired with the towers/MERT removal; the sonic space is chosen in
+`config.yaml` only, see Phase 2). `--pace-mode` also has one fewer choice than the other three
+axes — `strict|narrow|dynamic|off`, no `discover` (`main_app.py:602–606`).
+
+`PlaylistApp.__init__` (`main_app.py:34`) loads `Config(config_path)` (`src/config_loader.py:12`),
+which on construction: loads the YAML, calls `_apply_mode_presets()` (resolves `genre_mode` /
+`sonic_mode` / `pace_mode` strings into weights/floors via `mode_presets.py`), `_validate_config()`,
+and `_publish_artifact_settings()` (config_loader.py:15–17) — the last one is Phase 2's entry
+point.
+
+CLI mode overrides are applied **directly onto the config dict**, not through a policy layer:
+
 ```python
-# config_loader.py:18-25
-config = Config(config_path="config.yaml")
-config._apply_mode_presets()  # Apply genre/sonic mode presets
-config._validate_config()      # Validate required fields
+# main_app.py:708-716
+playlists_cfg = app.generator.config.config.setdefault('playlists', {})
+if genre_mode:
+    playlists_cfg['genre_mode'] = genre_mode
+if sonic_mode:
+    playlists_cfg['sonic_mode'] = sonic_mode
+if pace_mode:
+    playlists_cfg['pace_mode'] = pace_mode
+if genre_mode or sonic_mode:
+    apply_mode_presets(playlists_cfg)
 ```
 
-**Configuration Keys Applied:**
-- `playlists.cohesion_mode`: strict | narrow | dynamic (default) | discover — controls pier-bridge beam tightness (bridge floors, transition weights, genre penalty thresholds)
-- `playlists.genre_mode`: strict | narrow | dynamic | discover | off — controls genre pool gating
-- `playlists.sonic_mode`: strict | narrow | dynamic | off — controls sonic pool gating
-- `playlists.pace_mode`: strict | narrow | dynamic | off — controls rhythm gating (independent of sonic_mode)
-- `playlists.genre_similarity.weight`: 0.50 (from mode preset)
-- `playlists.sonic_weight`: 0.50
-- `playlists.ds_pipeline.artifact_path`: Path to sonic embeddings
-- `playlists.recently_played_filter.lookback_days`: 14
-- `playlists.tracks_per_playlist`: 30
+This means the CLI **skips** every translation the policy layer does for the web path: recency
+enable/lookback → `playlists.recently_played_filter.*`, artist-spacing preset →
+`ds_pipeline.constraints.min_gap`, and tag-steering tags → `pier_bridge.tag_steering_tags` are all
+policy-only (§1.2). A CLI run either sets these directly in `config.yaml`, or doesn't get them.
 
-#### 1.2 Artifact Loading
+`GeneratePlaylistRequest.from_cli_args` (`main_app.py:758`, `src/playlist/request_models.py:162`)
+normalizes the parsed args into one request object; `mode` dispatches to
+`run_single_artist` / `run_single_genre` (`main_app.py:770+`).
+
+### 1.2 Worker / web entry — the policy layer
+
+The browser GUI never talks to `main_app.py`. It POSTs to FastAPI (`src/playlist_web/app.py`),
+which calls the policy layer **before** building overrides for the worker:
+
 ```python
-# src/features/artifacts.py:157-189
-bundle = ArtifactBundle.from_file("data/artifacts/beat3tower_32k/data_matrices_step1.npz")
+# src/playlist_web/app.py:198
+policy = derive_runtime_config(ui, seed_artist_keys=seed_artist_keys)
+...
+overrides = policy.overrides
 ```
 
-**Loaded Arrays (current production artifact — 2026-06-03):**
-- `X_sonic` (39957 × 162): Tower-weighted sonic blend — `sqrt(w) * L2(tower)` per tower, concatenated
-  - Rhythm tower: 9 features (tempo, beat patterns) × √0.20
-  - Timbre tower: 57 features (spectral texture, tone color) × √0.50
-  - Harmony tower: 96 features (2DFTM — key-invariant chroma character) × √0.30
-- `X_sonic_start` / `_mid` / `_end` (39957 × 162): Segment-level blends (same layout)
-- `tower_dims`: [9, 57, 96] — authoritative split for axis slicing
-- `X_genre_raw` (39957 × 902): Raw genre tag vectors
-- `X_genre_smoothed` (39957 × 902): Smoothed genre embeddings
-- `track_ids`, `track_artists`, `track_titles`: Metadata arrays
+`derive_runtime_config` (`src/playlist_gui/policy.py:230`) is a pure function: `UIStateModel` in,
+`PolicyDecisions` (overrides + human-readable notes) out. It resolves the four axes
+(`policy.py:257–266`), tag-steering chips (**capped at 3**, `policy.py:267–276`), the Oops-All-
+Bangers sonic/pace baseline override (`policy.py:284–287`), recency enable/lookback/min-playcount
+(`policy.py:314–318`), artist-spacing → `min_gap` via `SPACING_MAP` (`policy.py:70–75, 330–342`),
+and the `dj_bridging` gating rules (`policy.py:363–472` — note: this is the *legacy* dj_bridging
+lever from §DJ_BRIDGE_ARCHITECTURE, gated separately from taxonomy steering).
 
-**Tower Configuration (beat3tower):**
-```yaml
-tower_weights:
-  rhythm: 0.20   # BPM, beat strength, rhythmic complexity
-  timbre: 0.50   # Spectral centroid, MFCCs, timbral texture
-  harmony: 0.30  # 2DFTM: key-invariant harmonic character (2026-06-03 rebuild)
-```
+`POLICY_OWNED_KEYS` (`policy.py:26–51`) is the set of config paths policy **always wins** for,
+even over anything the Advanced Panel set — `merge_overrides` (`policy.py:191–223`) enforces this
+by deep-merging policy overrides last and then re-asserting each owned key.
 
-> **Note:** This document covers v3.4 Artist Mode behavior. The artifact dimensions
-> above reflect the current production state; other dimension references in this doc
-> (e.g. "35881 × 137") reflect the v3.4 library count and pre-2DFTM 137-dim space.
+> **Trap.** A test/harness that builds `ds_pipeline` overrides by hand and skips
+> `derive_runtime_config` will see mode strings as **inert** — this is the multi-pier
+> slider-calibration false-negative documented in the `playlist-testing` skill. Always route
+> through policy (or the CLI's direct-set path) when exercising modes.
+
+### 1.3 Tag-steering wiring (artist mode)
+
+Tag-steering chips are the seed artist's own published genres, fetched via
+`GET /api/genres/for_artist` (`app.py:524` → `authority.resolved_genres_for_artist`,
+`src/genre/authority.py:171` — excludes `inferred_family` hub genres, top 12). Selected tags
+(≤3) flow `UIStateModel.steering_tags` → `policy.py:267–276` →
+`overrides["playlists"]["ds_pipeline"]["pier_bridge"]["tag_steering_tags"]`. This is a **web-only**
+override; the CLI has no equivalent flag. See Phase 4.3 for what it does to the candidate pool and
+Phase 3.1 for the pier-side lever.
 
 ---
 
-### Phase 2: Artist Lookup & Track Retrieval
-**Duration:** ~0.1 seconds
-**Files:** `src/local_library_client.py`, `src/metadata_client.py`
+## Phase 2 — Loading the artifact bundle (MuQ, the sole sonic space)
 
-#### 2.1 Library Query
+### 2.1 Publishing the variant override
+
+`Config._publish_artifact_settings` (`config_loader.py:63–72`) reads
+`artifacts.sonic_variant_override` and calls `set_sonic_variant_override` (`src/features/
+artifacts.py:24–37`), which stashes it in a process-wide global and clears the bundle cache if it
+changed. The GUI worker does the same at startup (`src/playlist_gui/worker.py:447–452`) so both
+entry points resolve the same sonic space without threading the override explicitly through every
+call site.
+
+### 2.2 `load_artifact_bundle`
+
+Called from `generate_playlist_ds` (`src/playlist/pipeline/core.py:327`). The public function
+(`artifacts.py:96–120`) resolves the override (explicit param > process-wide global) and delegates
+to an `lru_cache(maxsize=2)`-wrapped loader (`artifacts.py:126–226`) — a single generation calls
+this 3–7 times with the same path, and the cache collapses that into one NPZ decode.
+
+Today the system has **one sonic embedding: MuQ** (`OpenMuQ/MuQ-MuLan-large`, 512-d, contrastive
+audio-text, post-processed with `center_l2`). The hand-built rhythm/timbre/harmony towers and the
+MERT embedding that replaced them were both deleted (archived under `data/archive/mert_2026/`); see
+`ARCHITECTURE.md` § Sonic feature space and `DESIGN_RATIONALE.md` for the towers → MERT → MuQ arc.
+`sonic_variant_override` defaults to `"muq"` when unset (`analyze_library.py:144`, `... or
+"muq"`), and the artifact itself declares `X_sonic_variant="muq"` — override, artifact declaration,
+and `config.yaml` all agree today.
+
+### 2.3 Missing-key raise (a configured knob that can't act is a startup error)
+
 ```python
-# local_library_client.py:89-147
-def get_all_tracks(self) -> List[Dict]:
-    cursor.execute("""
-        SELECT t.track_id, t.title, t.artist, t.album,
-               t.filepath, t.duration_ms
-        FROM tracks t
-        WHERE t.filepath IS NOT NULL
-    """)
-```
-
-**Result:** 35,882 total tracks in library
-
-#### 2.2 Artist Filtering
-```python
-# playlist_generator.py:1580-1589
-def create_playlist_for_artist(self, artist: str, ...):
-    all_tracks = self.library.get_all_tracks()
-    artist_tracks = [
-        t for t in all_tracks
-        if self._fuzzy_artist_match(t['artist'], artist)
-    ]
-```
-
-**Fuzzy Matching Logic:**
-```python
-# src/string_utils.py:138-173
-def normalize_match_string(value: str, is_artist: bool = False):
-    # 1. Lowercase
-    # 2. Remove feat/ft/with/vs suffixes
-    # 3. Remove parenthetical content
-    # 4. Remove leading "the "
-    # 5. Split on "and", ",", ";" → take first part
-```
-
-**Artist Normalization (NEW - with ensemble support):**
-```python
-# src/playlist/identity_keys.py:14-36
-def normalize_primary_artist_key(value: str) -> str:
-    # Use extract_primary_artist() which handles:
-    # - "Bill Evans Trio" → "bill evans"
-    # - "The Red Garland Trio" → "red garland"
-    return extract_primary_artist(text, lowercase=True)
-```
-
-**Result for "Bill Evans Trio":**
-- Matched tracks: 66 tracks
-- Includes: "Bill Evans Trio", "Bill Evans", "Monica Zetterlund, Bill Evans"
-- All normalized to: "bill evans"
-
----
-
-### Phase 3: Seed Selection
-**Duration:** ~0.2 seconds
-**Files:** `src/playlist_generator.py`
-
-#### 3.1 Seed Clustering
-```python
-# playlist_generator.py:1590-1605
-def _select_seeds_for_artist(self, artist_tracks, seed_count=5):
-    # K-means clustering on sonic embeddings
-    # Select medoid (most central track) from each cluster
-    from sklearn.cluster import KMeans
-    kmeans = KMeans(n_clusters=seed_count, random_state=0)
-    labels = kmeans.fit_predict(X_sonic[artist_indices])
-
-    seeds = []
-    for cluster_id in range(seed_count):
-        cluster_indices = np.where(labels == cluster_id)[0]
-        cluster_center = kmeans.cluster_centers_[cluster_id]
-        distances = np.linalg.norm(X_sonic[cluster_indices] - cluster_center, axis=1)
-        medoid_idx = cluster_indices[np.argmin(distances)]
-        seeds.append(artist_tracks[medoid_idx])
-```
-
-**Seed Selection Strategy:**
-- **Goal:** Representative diversity across artist's sonic range
-- **Method:** K-means on 32-dim PCA-reduced sonic embeddings
-- **Count:** 4-5 seeds (minimum 4 required for pier-bridge)
-
-**Example Seeds (Bill Evans Trio):**
-1. "Some Day My Prince Will Come (Remastered Mono 2025 / Take 1)" (ballad, lyrical)
-2. "Witchcraft (Remastered Stereo 2025)" (mid-tempo, swing)
-3. "Come Rain Or Come Shine (Remastered Mono 2025 / Take 4)" (bebop, energetic)
-4. "The Boy Next Door (Remastered Stereo 2025 / Take 1)" (intimate, introspective)
-
-**Why Clustering?**
-- Prevents all seeds from being similar ballads
-- Ensures playlist spans artist's stylistic range
-- Creates natural transition opportunities in pier-bridge
-
----
-
-### Phase 4: Last.fm History Retrieval
-**Duration:** ~0.5-2 seconds (cached) or ~5-10 seconds (fresh fetch)
-**Files:** `src/lastfm_client.py`
-
-#### 4.1 Cache Check
-```python
-# lastfm_client.py:89-124
-cache_file = f"data/lastfm_cache_{username}_{days}d.json"
-if os.path.exists(cache_file):
-    cache_age = (datetime.now() - file_modified_time).total_seconds() / 86400
-    if cache_age < 1.0:  # Cache valid for 1 day
-        return load_from_cache()
-```
-
-#### 4.2 API Fetching (if needed)
-```python
-# lastfm_client.py:137-201
-def get_recent_tracks(self, username: str, days: int = 90):
-    # Calculate timestamp for lookback period
-    since_ts = int((datetime.now() - timedelta(days=days)).timestamp())
-
-    # Paginated API calls
-    while page <= total_pages:
-        response = requests.get(
-            "http://ws.audioscrobbler.com/2.0/",
-            params={
-                "method": "user.getRecentTracks",
-                "user": username,
-                "from": since_ts,
-                "page": page,
-                "limit": 200,
-            }
+# artifacts.py:189-197
+if sonic_variant_override:
+    variant_key = f"X_sonic_{sonic_variant_override}"
+    if variant_key not in data:
+        raise ValueError(
+            f"artifacts.sonic_variant_override='{sonic_variant_override}' is configured "
+            f"but artifact {artifact_path} has no '{variant_key}' key. A configured knob "
+            "that cannot act is a startup error — remove the override or fold the "
+            "variant into the artifact first."
         )
 ```
 
-**Result:**
-- Total scrobbles retrieved: 4,241 tracks
-- Lookback period: 90 days
-- Used for: Recency filtering (exclude recently played tracks)
+If no override is set, the artifact-declared variant is used the same way, with a **warning**
+(not a raise) falling back to plain `X_sonic` only if the declared variant's key is genuinely
+absent (`artifacts.py:207–224`) — a legacy-artifact accommodation, not the normal path. Segment
+matrices (`X_sonic_start/mid/end`) resolve the same variant-aware way, with a fallback to legacy
+segment keys logged at INFO (`artifacts.py:228–254`).
 
-#### 4.3 Recency Key Extraction
-```python
-# playlist_generator.py:1630-1650
-def _extract_recency_keys(self, lastfm_tracks):
-    keys = set()
-    for track in lastfm_tracks:
-        artist_key = extract_primary_artist(track['artist'], lowercase=True)
-        title_key = normalize_title_for_dedupe(track['title'], mode='loose')
-        keys.add((artist_key, title_key))
-    return keys  # 938 unique (artist, title) pairs
-```
+### 2.4 What's in the bundle
 
----
-
-### Phase 5: Artist Style Clustering
-**Duration:** ~1-2 seconds
-**Files:** `src/playlist/artist_style_clustering.py`
-
-#### 5.1 Style Analysis
-```python
-# artist_style_clustering.py:156-248
-def cluster_artist_styles(
-    artist_tracks,
-    bundle,
-    k_min=3,
-    k_max=6,
-    target_k=5,
-):
-    # Step 1: Extract sonic embeddings for artist's tracks
-    artist_indices = [bundle.track_ids.index(t['track_id']) for t in artist_tracks]
-    X_artist = X_sonic[artist_indices]  # (66, 137)
-
-    # Step 2: PCA reduction to 32 dimensions
-    from sklearn.decomposition import PCA
-    pca = PCA(n_components=32)
-    X_reduced = pca.fit_transform(X_artist)  # (66, 32)
-
-    # Step 3: K-medoids clustering
-    from sklearn_extra.cluster import KMedoids
-    kmedoids = KMedoids(n_clusters=5, random_state=0)
-    labels = kmedoids.fit_predict(X_reduced)
-
-    # Step 4: Quality metrics
-    intra_cluster_sim = compute_intra_cluster_similarity(X_reduced, labels)
-    inter_cluster_sim = compute_inter_cluster_similarity(X_reduced, labels)
-```
-
-**Clustering Output (Bill Evans Trio):**
-- **k = 5 clusters** (auto-selected based on silhouette score)
-- **Cluster characteristics:**
-  - Cluster 0: Ballads, slow tempo (17 tracks)
-  - Cluster 1: Mid-tempo swing (14 tracks)
-  - Cluster 2: Bebop, up-tempo (12 tracks)
-  - Cluster 3: Modal jazz, atmospheric (11 tracks)
-  - Cluster 4: Blues-tinged, bluesy (12 tracks)
-- **Intra-cluster similarity:** 0.509 (median within-cluster cosine sim)
-- **Inter-cluster similarity:** 0.359 (median between-cluster cosine sim)
-- **Medoids:** 5 representative tracks (used as pier seeds)
-
-#### 5.2 Per-Cluster Candidate Pools
-```python
-# artist_style_clustering.py:280-340
-for cluster_id in range(n_clusters):
-    # Find external tracks similar to this cluster's medoid
-    medoid_idx = cluster_medoids[cluster_id]
-    similarities = cosine_similarity(
-        X_hybrid[medoid_idx].reshape(1, -1),
-        X_hybrid[allowed_indices]
-    )[0]
-
-    # Top N candidates per cluster (configurable; default 2000 in v4.1)
-    top_indices = np.argsort(similarities)[::-1][:per_cluster_candidate_pool_size]
-    cluster_pools[cluster_id] = top_indices
-```
-
-**Per-Cluster Pool Sizes (v4.1):**
-- Each cluster: `per_cluster_candidate_pool_size` (default **2000**, was 400-800 in earlier versions)
-- A genre-neighbor pool of size `genre_neighbor_pool_size` (default **1500**) is unioned in
-- **Total unique candidates:** typically 4,000-7,500 after dedupe (varies by overlap)
-
-**Why the increase (v4.1):** The top-K nearest-to-medoid tracks for a narrow-style band tend to be artist-clones. Genuine *bridging* candidates that lie between distinct sonic clusters of the same artist were getting cut off at the tail. Larger pools surface those mid-projection candidates without changing what the beam ultimately picks (the beam still selects on transition quality).
-
-**Internal Connectors:**
-- Tracks from seed artist allowed ONLY at pier positions
-- 61 Bill Evans tracks marked as "internal connectors"
-- Used exclusively as pier anchors (not in bridge segments)
+`ArtifactBundle` (`artifacts.py:45–80`) carries, beyond the sonic matrices: `X_genre_raw` /
+`X_genre_smoothed` (sparse tag-space matrices), `X_genre_dense` + `genre_emb` (the PMI-SVD dense
+sidecar used for admission gating and genre steering), and the layered-graph shadow matrices
+(`X_genre_leaf_idf`, `X_genre_family`, `X_genre_bridge`, `X_facet` + their vocabularies) used by
+diagnostics and taxonomy steering. `sonic_pre_scaled=True` signals "this matrix is already the
+final per-track vector, don't re-transform it" — read by `setup_embedding`
+(`src/playlist/pipeline/embedding_setup.py:70–82`) to skip a spurious re-scale.
 
 ---
 
-### Phase 6: Candidate Pool Generation
-**Duration:** ~2-3 seconds
-**Files:** `src/playlist/pipeline.py`, `src/playlist/candidate_pool.py` (legacy `candidate_generator.py` removed in v6.0)
+## Phase 3 — Seed → pier resolution
 
-#### 6.1 Hybrid Embedding Construction & Genre Vector Source Selection (v3.4+)
-```python
-# pipeline.py:289-335
-def build_hybrid_embedding(X_sonic, X_genre, sonic_weight=0.6, genre_weight=0.5):
-    # FIXED (v3.4): Align genre vector source with config
-    # Check dj_genre_vector_source to use matching base matrix
-    if config.dj_genre_vector_source == 'raw':
-        X_genre_base = X_genre_raw
-        if config.dj_genre_use_idf:
-            X_genre_base = X_genre_raw @ idf_diagonal_matrix
-        X_genre_for_sim = normalize(X_genre_base)
-    else:  # 'smoothed' mode (default)
-        X_genre_for_sim = X_genre_norm_idf if config.dj_genre_use_idf else X_genre_norm
+Two independent mechanisms decide which tracks become piers, and a third orders them.
 
-    # Normalize weights to sum to 1.0
-    total = sonic_weight + genre_weight  # 1.1
-    w_sonic = sonic_weight / total       # 0.545
-    w_genre = genre_weight / total       # 0.455
+### 3.1 Medoid clustering (`artist_style`) — artist mode only
 
-    # PCA reduction
-    pca_sonic = PCA(n_components=32)
-    X_sonic_reduced = pca_sonic.fit_transform(X_sonic)  # (35881, 32)
+When `playlists.ds_pipeline.artist_style.enabled` is true, `create_playlist_for_artist`
+(`src/playlist_generator.py:1340`) clusters the seed artist's own catalog into piers instead of
+using a single seed track:
 
-    pca_genre = PCA(n_components=32)
-    X_genre_reduced = pca_genre.fit_transform(X_genre_for_sim)  # (35881, 32)
+1. Build `ArtistStyleConfig` from `ds_cfg.get("artist_style", {})` (`playlist_generator.py:1710–
+   1747`) — includes `medoid_energy_weight`, `medoid_popularity_weight` (Last.fm hit bias), and
+   `medoid_tag_weight` (`playlist_generator.py:1744–1746`, read from
+   `pier_bridge.tag_steering_pier_weight`, default 0.3 — **the pier-side tag-steering lever**,
+   applied inside cluster scoring at `src/playlist/artist_style.py:680–700` only when a
+   `steering_target` is supplied and `medoid_tag_weight > 0`).
+2. `cluster_artist_tracks` (`artist_style.py:540`) clusters and picks one medoid per cluster
+   (`medoid_top_k` per cluster, `playlist_generator.py:1721,1802–1814`).
+3. If `popular_seeds_mode == "fire"`, the cluster medoids are overridden outright by
+   `select_popular_piers` — pure top-N Last.fm hits, no clustering (`playlist_generator.py:1882–
+   1898`).
+4. `order_clusters` (`artist_style.py:743`) orders the medoids; the result is capped to
+   `target_pier_count` (`playlist_generator.py:1902–1909`) and becomes `anchor_seed_ids` fed
+   into `generate_playlist_ds`.
 
-    # Weighted concatenation
-    X_hybrid = np.hstack([
-        X_sonic_reduced * w_sonic,
-        X_genre_reduced * w_genre
-    ])  # (35881, 64)
+> **Shipped-vs-live gap.** `config.example.yaml:173` ships `artist_style.enabled: false` — a
+> fresh clone runs the **legacy per-seed pier path** below, not medoid clustering, for artist
+> mode. The live config in this repo has it `true`. Tracked in `CLEANUP_LIST.md`.
 
-    return X_hybrid, X_genre_for_sim
-```
+### 3.2 Legacy / non-artist-style pier resolution
 
-**v3.4 Fix:** Genre vector source now aligns between candidate pool construction and waypoint scoring:
-- **Raw mode:** Uses `X_genre_raw` optionally with IDF weighting
-- **Smoothed mode (default):** Uses `X_genre_smoothed` with optional IDF weighting
-- **Prevents mismatch:** Targets and scoring now use same vector space (was: raw vs smoothed)
+When `artist_style.enabled` is false (the shipped default), or for genre mode / seed mode / a
+single explicit seed, piers come directly from the request: the primary `seed_track_id` plus any
+`--anchor-seed-ids` (CLI) or explicit seed list (GUI seed mode). `resolve_pier_seeds`
+(`src/playlist/pipeline/pier_resolver.py:24–95`, called at `pipeline/core.py:672`) maps those
+track_ids to bundle indices, dedupes by `(artist, title)` track key, and guarantees the primary
+seed is present (inserting it at position 0 if a caller's anchor list omitted it).
 
-**Hybrid Embedding Composition:**
-- **Sonic component:** 32 PCA dims from 137 raw sonic features
-  - Weight: 0.545 (normalized from 0.600)
-  - Captures: rhythm, timbre, harmony similarity
-- **Genre component:** 32 PCA dims from 732 genre tags (vector source aligned)
-  - Weight: 0.455 (normalized from 0.500)
-  - Captures: genre taxonomy, semantic similarity
-- **Combined:** 64-dimensional hybrid space
+### 3.3 Pier ordering
 
-#### 6.2 Candidate Filtering Pipeline
-```python
-# candidate_pool.py (DS engine; legacy candidate_generator.py removed in v6.0)
-def generate_candidate_pool(
-    bundle,
-    seed_track_ids,
-    allowed_track_ids,  # From artist style clustering
-    recency_keys,
-    config,
-):
-    # Step 1: Restrict to allowed tracks (artist style pools)
-    allowed_indices = [i for i, tid in enumerate(bundle.track_ids) if tid in allowed_track_ids]
-    # Before: 35,881 tracks → After: 1,564 tracks
+Inside `build_pier_bridge_playlist` (`src/playlist/pier_bridge_builder.py:438`),
+`_order_seeds_by_bridgeability` (`src/playlist/pier_bridge/seeds.py:77–140`) reorders the resolved
+piers to maximize bridgeability: **exhaustive permutation search for ≤6 seeds**, greedy
+nearest-neighbor for more. The per-pair score blends a bridgeability heuristic, raw sonic cosine,
+and genre cosine (`dj_seed_ordering_weight_{bridge,sonic,genre}`); when `roam_corridors_enabled`
+is set the objective switches from *sum* of pair scores to *min* (the weakest link is what
+matters, not the average) — `seeds.py:94–140`.
 
-    # Step 2: Compute sonic similarity to seeds
-    seed_indices = [bundle.track_ids.index(sid) for sid in seed_track_ids]
-    X_seeds = X_sonic[seed_indices]  # (5, 137)
+A single seed becomes both start and end pier — an **arc** — by duplicating it
+(`pier_bridge_builder.py:849–855`, `is_single_seed_arc`), producing one segment instead of zero.
 
-    # Max similarity across all seeds (multi-seed admission)
-    similarities = np.max([
-        cosine_similarity(X_sonic[allowed_indices], seed.reshape(1, -1))
-        for seed in X_seeds
-    ], axis=0)
-
-    # Step 3: Sonic floor filter (mode-specific)
-    sonic_floor = config.get('min_sonic_similarity_dynamic', 0.00)
-    sonic_pass = similarities >= sonic_floor
-    # Before: 1,559 → After: 901 (rejected: 658)
-
-    # Step 3.5: Duration penalty (seed-relative)
-    # Penalize candidates longer than the median seed duration before gating
-    # Hard exclude candidates longer than duration_cutoff_multiplier * median seed duration
-
-    # Step 3.6: Title word exclusions
-    # Hard exclude candidates whose titles contain configured standalone words
-    # such as "interlude" or "skit" before ordering.
-
-    # Step 4: Genre hard gate
-    for idx in allowed_indices:
-        genre_sim = max([
-            compute_genre_similarity(bundle, idx, seed_idx)
-            for seed_idx in seed_indices
-        ])
-        if genre_sim < config.get('min_genre_similarity', 0.30):
-            genre_reject.add(idx)
-    # Rejected: 162 tracks (below genre threshold)
-
-    # Step 5: Artist diversity cap
-    artist_counts = Counter()
-    for idx in candidate_indices:
-        artist_key = identity_keys_for_index(bundle, idx).artist_key
-        artist_counts[artist_key] += 1
-
-    max_per_artist = int(30 * 0.125)  # 3 tracks max per artist
-    # Rejected: 323 tracks (artist cap exceeded)
-
-    # Step 6: Recency filtering
-    for idx in candidate_indices:
-        keys = identity_keys_for_index(bundle, idx)
-        if keys.track_key in recency_keys:
-            recency_reject.add(idx)
-    # Rejected: 0 tracks (none recently played from candidate pool)
-
-    # FINAL POOL: 416 candidates from 131 unique artists
-```
-
-**Candidate Pool Statistics:**
-- **Input:** 1,564 tracks (from artist style clustering)
-- **Sonic filter:** 901 passed (658 rejected, floor=0.00)
-- **Genre gate:** 739 passed (162 rejected, min_sim=0.30)
-- **Artist cap:** 416 eligible (323 rejected, max 3 per artist)
-- **Recency filter:** 416 final (0 rejected)
-- **Distinct artists:** 131
-- **Avg tracks per artist:** 3.2
+Structural mini-pier insertion (SP3) happens *after* this ordering step, splitting long segments
+by pinning extra waypoint piers — that's part of anti-sag scoring, covered in Phase 6.1.
 
 ---
 
-### Phase 7: Pier-Bridge Construction
-**Duration:** ~3-5 seconds
-**Files:** `src/playlist/pier_bridge_builder.py`
+## Phase 4 — Candidate pool construction (`build_candidate_pool`)
 
-This is the most complex and critical phase.
+`build_candidate_pool` (`src/playlist/candidate_pool.py:518–565`) is called once per generation
+(twice if the Oops-All-Bangers relax-to-fill cascade needs a rebuild) from a closure in
+`pipeline/core.py:576–619`. It admits tracks against **three independent axes** — sonic, genre,
+pace — plus artist diversity and the tag-steering pool lever, and returns a ranked, capped pool.
 
-#### 7.1 Seed Ordering Optimization
-```python
-# pier_bridge_builder.py:1715-1761
-def optimize_seed_order(seed_indices, X_transition):
-    """Find optimal ordering of pier seeds to maximize flow."""
-    best_score = -np.inf
-    best_order = None
+### 4.1 The ranking embedding vs. the gating spaces
 
-    # Try all permutations (5! = 120 permutations)
-    for perm in itertools.permutations(seed_indices):
-        score = 0.0
-        for i in range(len(perm) - 1):
-            # Transition quality between consecutive piers
-            score += X_transition[perm[i], perm[i+1]]
+Two different vector spaces are in play, and it's easy to conflate them:
 
-        if score > best_score:
-            best_score = score
-            best_order = perm
+- **`embedding`** (the function's primary argument) is a legacy 32+32-dim PCA-reduced hybrid of
+  sonic and genre (`setup_embedding` → `build_hybrid_embedding`,
+  `src/similarity/hybrid.py:27`), built once per run in `pipeline/embedding_setup.py:47`. Its
+  cosine to the seed(s) (`seed_sim_all`, `candidate_pool.py:577–586`) is the base ranking score
+  used for per-artist ordering and pool truncation.
+- **Admission floors** are computed separately against the *actual* current sonic/genre spaces:
+  raw `X_sonic` (MuQ) cosine for the sonic hard floor (`candidate_pool.py:642–676`), and the dense
+  PMI-SVD `X_genre_dense` sidecar (preferred) or sparse raw/smoothed cosine for the genre floor
+  (`candidate_pool.py:775–870`).
 
-    return best_order, best_score
-```
+### 4.2 Sonic admission
 
-**Optimal Seed Order (Bill Evans Trio):**
-```
-Original: [seed_0, seed_1, seed_2, seed_3, seed_4]
-Optimized: [seed_4, seed_3, seed_2, seed_1, seed_0]
-Score: 0.8890 (high inter-pier transition quality)
+`sonic_seed_sim` = max-over-seeds cosine on raw `X_sonic` (`candidate_pool.py:647–652`). The gate
+is either a fixed floor (`cfg.min_sonic_similarity`) or, when `sonic_admission_percentile` is set,
+a **per-seed adaptive percentile floor** — distribution-relative, so it survives embedding
+rebuilds instead of hardcoding a cosine value calibrated for a since-replaced space
+(`candidate_pool.py:654–676`). A duration penalty/cutoff (geometric curve vs. median seed
+duration, hard-excludes beyond `duration_cutoff_multiplier`) is applied to `seed_sim_all` before
+any floor (`candidate_pool.py:588–640`).
 
-Ordered seeds:
-1. Blue In Green (Remastered Stereo 2025)
-2. Elsa (Remastered Stereo 2025 / Take 6)
-3. Spring Is Here (Remastered Mono 2025 / Take 4)
-4. All Of You (Take 2 / Live At The Village Vanguard / 1961)
-5. Sweet And Lovely (Remastered Stereo 2025)
-```
+### 4.3 Genre admission (+ the tag-steering pool lever)
 
-#### 7.2 Segment Length Distribution
-```python
-# pier_bridge_builder.py:1763-1789
-def compute_segment_lengths(n_piers, target_length):
-    """Distribute interior tracks across bridge segments."""
-    n_segments = n_piers - 1  # 4 segments
-    interior_tracks = target_length - n_piers  # 30 - 5 = 25
+When `X_genre_dense` is available, the dense path is preferred (`candidate_pool.py:775–870`):
+either a **centroid** aggregate (mean of all seed dense vectors, the default) or a **per_seed**
+union-of-neighborhoods aggregate (each seed contributes its own floor; a track passes if it clears
+*any* seed's floor). Tag-steering forces `centroid` even if `per_seed` was requested
+(`candidate_pool.py:784–786`, `core.py:540–542`) because the steering blend only makes sense
+against one target vector.
 
-    # Base length per segment
-    base_len = interior_tracks // n_segments  # 25 // 4 = 6
-    remainder = interior_tracks % n_segments  # 25 % 4 = 1
-
-    # Distribute remainder to first segments
-    segment_lengths = [base_len + 1 if i < remainder else base_len
-                      for i in range(n_segments)]
-
-    return segment_lengths  # [7, 6, 6, 6]
-```
-
-**Segment Structure:**
-```
-Segment 0: Pier 1 → [7 bridge tracks] → Pier 2  (positions 1-9)
-Segment 1: Pier 2 → [6 bridge tracks] → Pier 3  (positions 10-16)
-Segment 2: Pier 3 → [6 bridge tracks] → Pier 4  (positions 17-23)
-Segment 3: Pier 4 → [6 bridge tracks] → Pier 5  (positions 24-30)
-```
-
-#### 7.2a Genre Waypoint Guidance (v3.4 Enhancement)
-
-**NEW in v3.4:** Vector mode genre bridging with IDF weighting and coverage bonus scoring.
+The **tag-steering pool lever** blends the resolved tag target into the admission centroid:
 
 ```python
-# pier_bridge_builder.py:2500-2650
-def compute_genre_waypoint_score(candidate_idx, pier_a_idx, pier_b_idx, step, total_steps):
-    """
-    Score candidate based on genre signature alignment with bridge progression.
-
-    Three-pronged solution for robust genre bridging:
-    1. Vector Mode: Direct multi-genre interpolation (not single-label collapse)
-    2. IDF Weighting: Emphasize rare genres, de-emphasize common ones
-    3. Coverage Bonus: Reward matching anchor track signatures
-    """
-
-    # Get genre vectors (X_genre_for_sim set based on dj_genre_vector_source config)
-    waypoint_genre = compute_waypoint_genre(
-        X_genre_for_sim[pier_a_idx],
-        X_genre_for_sim[pier_b_idx],
-        step / total_steps,  # progress: 0.0 → 1.0
-        mode='vector'  # Direct interpolation, not one-hot label collapse
-    )
-
-    # Apply IDF weighting to emphasize rare genres
-    if config.dj_genre_use_idf:
-        waypoint_genre = apply_idf_weighting(
-            waypoint_genre,
-            idf_weights=X_genre_idf,  # High: 0.8+ for rare genres (shoegaze, slowcore)
-                                       # Low: 0.1-0.3 for common (indie rock, alternative)
-            power=config.dj_genre_idf_power,  # 1.0
-            norm=config.dj_genre_idf_norm     # 'max1'
-        )
-
-    # Compute genre similarity
-    cand_genre = X_genre_for_sim[candidate_idx]
-    genre_sim = cosine_similarity(cand_genre, waypoint_genre)
-
-    # Coverage bonus: reward matching anchor signature top-K genres
-    coverage_bonus = 0.0
-    if config.dj_genre_use_coverage:
-        anchor_genres_a = get_top_genres(X_genre_for_sim[pier_a_idx], k=config.dj_genre_coverage_top_k)
-        anchor_genres_b = get_top_genres(X_genre_for_sim[pier_b_idx], k=config.dj_genre_coverage_top_k)
-
-        # Candidate overlap with anchor signatures
-        cand_top_genres = get_top_genres(cand_genre, k=config.dj_genre_coverage_top_k)
-        overlap = len(cand_top_genres & (anchor_genres_a | anchor_genres_b))
-
-        # Schedule decay: bonus decreases as we progress
-        schedule = max(0, 1.0 - (step / total_steps) ** 2)
-        coverage_bonus = config.dj_genre_coverage_weight * overlap * schedule
-
-    return genre_sim + coverage_bonus
+# candidate_pool.py:824-835
+if steering_target is not None:
+    _blend = float(np.clip(steering_blend, 0.0, 1.0))
+    _steered = (1.0 - _blend) * seed_dense + _blend * np.asarray(steering_target, ...)
+    ...
+    seed_dense = _steered / _steered_norm
 ```
 
-**Results (vs v3.3):**
-- **+400% genre diversity in targets:** 4-5 genres/step vs 1 label collapse
-- **Rare genres preserved:** shoegaze, dreampop, slowcore maintained throughout bridges
-- **Smoother transitions:** Genre vectors naturally interpolate instead of discrete jumps
-- **No single-label collapse:** Hub genres no longer default to generic "indie rock"
+`steering_blend` defaults to 0.5 (`tag_steering_pool_blend`, `config.example.yaml:294`);
+`steering_target` is resolved once per run in `pipeline/core.py:544–559` via
+`src.playlist.tag_steering.resolve_tag_steering_target` — no tags selected means `steering_target
+is None` and this whole block is a no-op (byte-identical to legacy). The dense genre admission
+floor is itself either fixed (`min_genre_similarity`) or an adaptive percentile
+(`genre_admission_percentile`) computed against the (possibly steered) centroid's similarity
+distribution (`candidate_pool.py:842–863`).
+
+### 4.4 Pace admission
+
+Two independent hard gates, both log-distance based (`src/playlist/bpm_axis.py:35–40`):
+
+- **BPM** (`candidate_pool.py:680–710`): rejects candidates whose log-BPM distance to the nearest
+  seed exceeds `bpm_admission_max_log_distance`, *unless* BPM is missing (NaN) or
+  `tempo_stability` is below `bpm_stability_min` — a beatless/ambient track's BPM reading is
+  meaningless, so low-stability tracks bypass the gate rather than being wrongly rejected or
+  wrongly admitted on a garbage BPM.
+- **Onset rate** (`candidate_pool.py:716–730`): same log-distance mechanism, **NaN-only** bypass
+  (no stability escape hatch — onset rate is the more trustworthy beat-presence signal on
+  beatless material; see `DESIGN_RATIONALE.md`).
+
+Tracks rejected *only* by these bands (not by sonic/genre) can be re-admitted by
+`select_energy_rescue` (`src/playlist/energy_rescue.py`, called at `candidate_pool.py:1075`),
+evenly spaced across the sorted arousal distribution, up to `pace_rescue_k_energy` (0 in `dynamic`
+mode — off by default; active in `strict`/`narrow`).
+
+### 4.5 Diversity + recency (pre-order, never post-order)
+
+A per-artist cap (`candidates_per_artist` (+ `seed_artist_bonus` for the seed's own artist),
+`candidate_pool.py:1167–1250`) is applied at pool-build time — this is a *pool composition* cap,
+separate from the beam's own per-segment one-artist-per-segment + cross-segment `min_gap`
+enforcement (Phase 5.5).
+
+**Recency exclusion never happens inside `build_candidate_pool`.** It happens earlier, in
+`restrict_bundle` (`src/playlist/pipeline/bundle_restrict.py:38–162`), which masks
+`excluded_track_ids` (recently-played Last.fm keys, resolved in `playlist_generator.py:978–990`)
+out of the bundle *before* the pool is ever built — a hard architectural rule (see CLAUDE.md's
+"don't re-introduce post-order recency filtering" gotcha): seed tracks at pier positions may be
+recently played but are explicitly requested, so recency must never re-filter after ordering.
+
+### 4.6 Oops-All-Bangers popularity gate (brief)
+
+Separate from `popular_seeds_mode` (Phase 3's *pier* selection lever), `popularity_mode` gates
+*pool admission*: `on`/`oops` hard-exclude below a Last.fm popularity-rank cutoff plus a beam soft
+penalty. If the gated pool is too small, a relax-to-fill cascade loosens sonic → pace → genre →
+popularity (in that order, popularity last — the only purity-breaking rung) and rebuilds
+(`pipeline/core.py:632–652`). Off by default; see `ARCHITECTURE.md` and `CONFIG.md` for the full
+knob set.
+
+### 4.7 Output
+
+`pool.eligible_indices` is deduped by `(artist, normalized title)` track key, keeping the
+best-scored version per group (`dedupe_pool_by_track_key`, `pier_resolver.py:98–138`, called at
+`pipeline/core.py:679–680`) before being handed to the pier-bridge builder as
+`candidate_pool_indices`.
 
 ---
 
-#### 7.3 Per-Segment Bridge Construction (v3.4 Optimized)
+## Phase 5 — Per-segment beam search + transition scoring
+
+For each adjacent pier pair (a "segment"), `build_pier_bridge_playlist`
+(`pier_bridge_builder.py:438`) computes an interior length (even split with remainder to earlier
+segments, `pier_bridge_builder.py:886–892` — see Phase 6.2 for how variable-length flexing
+overrides this) and calls `_beam_search_segment` (`src/playlist/pier_bridge/beam.py:230`,
+imported/re-exported at `pier_bridge_builder.py:135–137`, invoked at
+`pier_bridge_builder.py:1479`) to fill it.
+
+**This doc describes the beam at the level needed to follow scoring; for the full beam-search
+mechanics — the per-step scoring formula, transition calibration, anti-sag levers, and the
+weak-edge recovery cascade — see [`DJ_BRIDGE_ARCHITECTURE.md`](DJ_BRIDGE_ARCHITECTURE.md), which
+documents the current taxonomy-steering arc as well as the separate, off-by-default legacy
+`dj_bridging` lever (the S1/S2/S3 IDF/coverage system).**
+
+### 5.1 Per-candidate combined score
+
+At each step, for each beam-surviving path, each candidate's score (`beam.py:1256–1309`) is:
+
+```
+combined_score = weight_bridge * bridge_score + weight_transition * trans_score
+                - anti_center_penalty(...)          # SP2, Phase 6.1
+                - pace_penalty                       # BPM/onset out-of-band soft demotion
+                - progress_penalty                   # monotonic pull toward pier B
+                + weight_genre * arc_sim              # taxonomy genre-arc vote, §5.4
+                (+ genre_tiebreak / genre_penalty when steering is off)
+```
+
+`bridge_score` is the harmonic mean of cosine-to-pier-A and cosine-to-pier-B
+(`beam.py:1256–1259`) — a candidate must be plausible toward *both* endpoints, not just closer to
+one. `dest_pull` (`eta_destination_pull`) adds a small linear bias toward pier B
+(`beam.py:1262`).
+
+### 5.2 Transition scoring: the calibrated MuQ cosine
+
+`trans_score` comes from `src/playlist/transition_metrics.py` — the **single source of truth**
+shared by the beam, the builder's own edge-stat bookkeeping, the reporter (Phase 7), and the
+opt-in edge-repair pass, so none of them can silently diverge on the same edge. The raw signal is
+end-of-track → start-of-track cosine on the segment-level sonic matrices; it's rescaled through a
+calibrated logistic (`_calibrate_transition_cos`, `src/playlist/pier_bridge/vec.py:35–61`):
+
 ```python
-# pier_bridge_builder.py:1791-1920
-def build_bridge_segment(
-    pier_a_idx,
-    pier_b_idx,
-    interior_length,
-    candidate_pool,
-    X_sonic,
-    X_transition,
-    config,
-):
-    """
-    Build one bridge segment using beam search with progress constraint.
-
-    Key insight: We're navigating from Pier A to Pier B in sonic space,
-    progressively moving toward the destination while maintaining smooth transitions.
-
-    OPTIMIZED (v3.4): Precompute transition scores once per segment, not per step.
-    """
-
-    # OPTIMIZATION (v3.4): Precompute transition scores for blend candidates
-    # This was previously computed O(steps × N) times; now O(N) once per segment
-    # Estimated speedup: 30× for typical parameters (30 steps × ~1000 candidates)
-    transition_scores = None
-    use_blend = config.get('use_transition_blend', True)
-    if use_blend:
-        transition_scores = np.zeros(len(candidate_pool), dtype=float)
-        for i in range(len(candidate_pool)):
-            cand_idx = candidate_pool[i]
-            sa = float(X_sonic[pier_a_idx] @ X_sonic[cand_idx])
-            sb = float(X_sonic[pier_b_idx] @ X_sonic[cand_idx])
-            denom = sa + sb
-            if denom > 1e-9:
-                transition_scores[i] = (2.0 * sa * sb) / denom
-
-    # STEP 1: Segment-scored candidate pool
-    # Score each candidate by its bridge quality to BOTH piers
-    pool_scores = []
-    for i, cand_idx in enumerate(candidate_pool):
-        # Harmonic mean of similarity to both endpoints (or use precomputed)
-        if transition_scores is not None:
-            bridge_score = transition_scores[i]
-        else:
-            sim_a = X_sonic[cand_idx] @ X_sonic[pier_a_idx]
-            sim_b = X_sonic[cand_idx] @ X_sonic[pier_b_idx]
-            bridge_score = 2 * sim_a * sim_b / (sim_a + sim_b + 1e-9)
-        pool_scores.append((cand_idx, bridge_score))
-
-    # Sort by bridge score, take top 400
-    pool_scores.sort(key=lambda x: x[1], reverse=True)
-    segment_pool = [idx for idx, _ in pool_scores[:400]]
-    # Segment 0 pool: 49 candidates (after bridge floor gate)
-
-    # STEP 2: Bridge floor gating
-    bridge_floor = config.get('bridge_floor_dynamic', 0.03)
-    for cand_idx in segment_pool:
-        sim_a = X_sonic[cand_idx] @ X_sonic[pier_a_idx]
-        sim_b = X_sonic[cand_idx] @ X_sonic[pier_b_idx]
-        if min(sim_a, sim_b) < bridge_floor:
-            segment_pool.remove(cand_idx)
-    # After gate: 49 candidates
-
-    # STEP 3: Beam search with progress constraint
-    beam_width = 20
-    beam = [(pier_a_idx, [pier_a_idx], 0.0)]  # (current_idx, path, score)
-
-    for step in range(interior_length):
-        next_beam = []
-
-        for current_idx, path, score in beam:
-            # For each candidate in pool
-            for cand_idx in segment_pool:
-                # Skip if already used
-                if cand_idx in path:
-                    continue
-
-                # Skip if violates artist constraints
-                if violates_artist_gap(cand_idx, path, min_gap=6):
-                    continue
-                if violates_seed_artist_policy(cand_idx, seed_artist_key):
-                    continue
-
-                # Compute edge score
-                transition_score = X_transition[current_idx, cand_idx]
-                bridge_score = compute_bridge_score(cand_idx, pier_a_idx, pier_b_idx)
-                edge_score = (
-                    config.weight_transition * transition_score +
-                    config.weight_bridge * bridge_score
-                )
-
-                # Progress constraint penalty
-                progress_penalty = compute_progress_penalty(
-                    cand_idx, pier_a_idx, pier_b_idx,
-                    step, interior_length,
-                    X_sonic,
-                    epsilon=0.05,
-                    weight=0.15
-                )
-
-                # Genre soft penalty (whiplash reduction)
-                genre_penalty = 0.0
-                genre_sim = compute_genre_similarity(cand_idx, current_idx)
-                if genre_sim < config.genre_penalty_threshold:
-                    genre_penalty = config.genre_penalty_strength
-
-                # Final score
-                final_score = score + edge_score - progress_penalty - genre_penalty
-
-                next_beam.append((cand_idx, path + [cand_idx], final_score))
-
-        # Keep top beam_width candidates
-        next_beam.sort(key=lambda x: x[2], reverse=True)
-        beam = next_beam[:beam_width]
-
-        # Expand beam if needed
-        if len(beam) < beam_width * 0.5:
-            beam_width = min(beam_width * 2, 100)
-
-    # STEP 4: Connect to Pier B
-    best_path = None
-    best_final_score = -np.inf
-
-    for current_idx, path, score in beam:
-        # Add Pier B as final track
-        transition_score = X_transition[current_idx, pier_b_idx]
-        final_score = score + transition_score
-
-        if final_score > best_final_score:
-            best_final_score = final_score
-            best_path = path + [pier_b_idx]
-
-    return best_path  # [pier_a, track1, track2, ..., track7, pier_b]
+z = gain * (value - center) / scale
+sigmoid(z)   # numerically stable both branches
 ```
 
-**Beam Search Visualization (Segment 0):**
-```
-Step 0: Start at Pier A (Blue In Green)
-  Beam: [Blue In Green]
+This replaced a linear `(x + 1) / 2` rescale that wasted its output range on negative cosines real
+edges never produce, compressing the realistic band into a narrow slice near 0.6–0.75 (gap
+between good and bad edges: 72% → 8%). Calibration is **keyed to the active sonic variant**
+(`TRANSITION_CALIB_BY_VARIANT`, `transition_metrics.py:21–26`) — today only `"muq": (0.594,
+0.092)` is registered (the MERT band was deleted along with MERT itself). `resolve_transition_calib`
+(`transition_metrics.py:29–56`) **raises** for an unregistered variant rather than silently
+reusing the wrong band — a mismatched calibration saturates every edge toward 1.0, which is a
+much harder failure to notice than a startup error.
 
-Step 1: Expand to 20 candidates
-  Beam: [Blue In Green → Milt Jackson "Heartstrings"]  (score: 0.85)
-        [Blue In Green → Freddie Hubbard "Lament"]     (score: 0.82)
-        [Blue In Green → Wayne Shorter "Infant Eyes"]  (score: 0.80)
-        ... (17 more)
+### 5.3 Genre during the beam: taxonomy arc steering (the default) vs. `dj_bridging` (opt-in, off)
 
-Step 2: Expand each path
-  Beam: [Blue In Green → Heartstrings → Lament For Booker]  (score: 1.67)
-        [Blue In Green → Heartstrings → Infant Eyes]         (score: 1.64)
-        ... (18 more)
+Two *separate* genre mechanisms can influence beam scoring; only the first is on by default:
 
-... (steps 3-7)
+1. **Taxonomy arc steering** (`genre_steering_enabled: true`, `genre_steering_source: taxonomy` —
+   `config.example.yaml:323,334`). `_require_usable_genre_steering`
+   (`pier_bridge_builder.py:415–435`, called at `:645`) raises loudly if a configured source
+   can't act (e.g. `source=dense` with no dense sidecar) rather than silently producing zero
+   targets on every segment. Under `taxonomy` (which can always act, reading in-artifact
+   `X_genre_raw`), per-segment target vectors are built via
+   `TaxonomySteering.build_taxonomy_genre_targets`
+   (`src/playlist/pier_bridge/taxonomy_steering.py:263`) — it walks the shortest taxonomy path
+   between the two piers' genres and produces smoothed per-step targets. In the beam, a
+   candidate's cosine to that step's target (`arc_sim`) is added to `combined_score` weighted by
+   `weight_genre`, gated by a per-segment on-arc percentile floor and an absolute
+   `genre_arc_floor` safeguard (`beam.py:1292–1306`).
+2. A **pairwise genre-edge soft floor** runs alongside arc steering when `genre_pair_floor > 0`:
+   built from a **tag-level max-similarity provider**
+   (`taxonomy_steering.build_taxonomy_pair_provider`, wired at `pier_bridge_builder.py:661–685`
+   because the *smoothed-vector* cosine was shown unable to separate bad edges from good — see
+   `DESIGN_RATIONALE.md` "genre metric = max"). Below-floor adjacent edges are **demoted, not
+   rejected** (`genre_pair_penalty`, subtracted in `beam.py:842–859`) — a hard gate here was shown
+   to detonate the relaxation cascade on broad-genre segments.
 
-Step 7: Connect to Pier B (Elsa)
-  Best path: [Blue In Green → Heartstrings → Lament For Booker →
-              Infant Eyes → Love Is Blindness → Stella By Starlight →
-              The Christmas Song → Very Early → Elsa]
-  Final score: 6.34
-```
+The legacy `dj_bridging` system (vector-mode/onehot targets, IDF weighting, coverage bonus —
+fully documented in `DJ_BRIDGE_ARCHITECTURE.md`) is a **separate, mutually-independent** code
+path gated by `dj_bridging_enabled` (dataclass default `False`, `pier_bridge/config.py:226`;
+shipped `config.example.yaml:457` also `false`). It is not wired to run alongside taxonomy
+steering in normal operation — leave it off unless you're specifically experimenting with the
+legacy ladder-routing behavior that doc describes.
 
-**Artist Diversity Enforcement (v3.4+):**
-```python
-# pier_bridge_builder.py:1157-1195
-# Seed artist disallowed in bridge interiors
-if disallow_seed_artist_in_interiors and seed_artist_key:
-    seed_identity_keys = resolve_artist_identity_keys(seed_artist_key)
-    # "bill evans" blocked from positions 2-8, 10-15, 17-22, 24-29
+### 5.4 Diversity enforcement during the beam
 
-# Min gap constraint (6 positions)
-# FIXED (v3.4): Use raw artist strings from bundle.track_artists instead of
-# pre-normalized artist_key_by_idx to properly capture collaborations
-used_artists = {}  # artist_key → last_position
-for step, cand_idx in enumerate(path):
-    # Fetch raw artist string to properly handle collaborations
-    cand_artist_str = ""
-    if bundle is not None and bundle.track_artists is not None:
-        try:
-            cand_artist_str = str(bundle.track_artists[int(cand_idx)] or "")
-        except Exception:
-            cand_artist_str = str(artist_key_by_idx.get(int(cand_idx), "") or "")
-    else:
-        cand_artist_str = str(artist_key_by_idx.get(int(cand_idx), "") or "")
-
-    # Normalize and extract identity
-    artist_key = normalize_primary_artist_key(cand_artist_str)
-    if artist_key in used_artists:
-        gap = step - used_artists[artist_key]
-        if gap < 6:
-            reject_candidate()  # Too soon!
-    used_artists[artist_key] = step
-```
-
-**Key Fix:** The system now uses raw `bundle.track_artists` strings instead of pre-normalized `artist_key_by_idx`. This allows proper handling of collaborations:
-- "Charli XCX feat. MØ" → resolves to `{"charli xcx", "mø"}` (both counted for diversity)
-- "Bill Evans Trio" → "bill evans" (ensemble suffix stripped correctly)
-
-**Constraint Summary:**
-- **Bridge floor:** 0.02 (min similarity to both piers; lowered from 0.03 in v3.4.1)
-- **Transition floor:** 0.20 (min local transition quality)
-- **Min artist gap:** 6 positions (cross-segment); strict 1-per-artist *within* a segment via the beam's `used_artists` set
-- **Seed artist policy:** Disallowed in bridge interiors
-- **Progress constraint:** Monotonic movement toward destination
-- **Duration penalty:** Applied in candidate pool (geometric curve vs max seed duration)
-- **Genre soft penalty:** Reduce whiplash below 0.20 similarity
-- **Title hard exclusions:** `interlude`, `skit`, `acapella`, `a cappella`, `a capella` (case-insensitive, `candidate_pool.title_exclusion_words`)
-- **Title soft penalty (opt-in, v4.1):** demote `demo`/`live`/`medley`/`remix`/`instrumental`/`take`/`outtake`/`alternate`/`version` via `pier_bridge.title_artifact_penalty`
-
-#### 7.3a Shared transition metric (v4.2)
-
-Beam scoring, builder edge stats, reporter edge scores, and opt-in edge repair all use `src/playlist/transition_metrics.py`:
-
-- `build_transition_metric_context(...)` constructs the weighted sonic, start, mid, end, genre, and hybrid context.
-- `score_transition_edge(context, prev_idx, cur_idx)` returns the canonical edge dict (`T`, `T_raw`, `T_centered_cos`, `H`, `S`, optional `G`).
-- `is_broken_transition(...)` applies the transition floor and centered-cos catastrophic gate.
-
-This replaces the previous situation where the beam and reporter could score the same final edge from different matrices. `transition_weights` still controls the rhythm/timbre/harmony balance inside transition scoring, but it is now applied through the shared context before either the beam or reporter reads the edge score.
-
-**Design principle:** `trans_score_in_beam` and final reporter `T` should match for the same edge. A `T-mismatch` warning is a regression signal or missing-data fallback, not expected diagnostic drift.
-
-#### 7.4 Full Playlist Assembly
-```python
-# pier_bridge_builder.py:1920-1975
-segments = []
-for seg_id in range(n_segments):
-    pier_a = ordered_seeds[seg_id]
-    pier_b = ordered_seeds[seg_id + 1]
-    interior_len = segment_lengths[seg_id]
-
-    segment_path = build_bridge_segment(
-        pier_a, pier_b, interior_len,
-        candidate_pool, X_sonic, X_transition, config
-    )
-
-    segments.append(segment_path)
-
-# Concatenate segments (remove duplicate piers at boundaries)
-playlist = [segments[0]]  # Include first segment fully
-for segment in segments[1:]:
-    playlist.extend(segment[1:])  # Skip first pier (already added)
-
-return playlist  # 30 tracks
-```
-
-**Final Playlist Structure:**
-```
-Position 01: [PIER 1] Bill Evans Trio - Blue In Green
-Position 02: [BRIDGE] Milt Jackson - Heartstrings
-Position 03: [BRIDGE] Freddie Hubbard - Lament For Booker
-Position 04: [BRIDGE] Wayne Shorter - Infant Eyes
-Position 05: [BRIDGE] Cassandra Wilson - Love Is Blindness
-Position 06: [BRIDGE] Ryo Fukui - Stella By Starlight
-Position 07: [BRIDGE] Vince Guaraldi Trio - The Christmas Song
-Position 08: [BRIDGE] Bill Evans - Very Early  ← BLOCKED after fix!
-Position 09: [PIER 2] Bill Evans Trio - Elsa
-Position 10: [BRIDGE] Red Garland Trio - Summertime
-Position 11: [BRIDGE] Red Garland - We Kiss in a Shadow  ← BLOCKED after fix!
-...
-Position 16: [PIER 3] Bill Evans Trio - Spring Is Here
-...
-Position 23: [PIER 4] Bill Evans Trio - All Of You
-...
-Position 30: [PIER 5] Bill Evans Trio - Sweet And Lovely
-```
+Per-segment one-track-per-artist and cross-segment `min_gap` are enforced **during** expansion,
+not as a post-hoc filter: candidate artist identity is resolved via `resolve_artist_identity_keys`
+(handles collaborations/ensemble suffixes) at each candidate-check site
+(`beam.py:975–990, 1220, 1446, 1589`), and `disallow_seed_artist_in_interiors` blocks the seed
+artist's own tracks from non-pier positions (`beam.py:981–990`) when configured. Boundary context
+carried from the previous segment (`beam.py:951`) makes `min_gap` a true cross-segment constraint,
+not a per-segment-only one.
 
 ---
 
-### Phase 8: Post-Processing & Validation
-**Duration:** ~0.5 seconds
-**Files:** `src/playlist/pipeline.py`, `src/playlist_generator.py`
+## Phase 6 — Anti-sag scoring + the weak-edge recovery cascade
 
-#### 8.1 Playlist Length Validation (v3.4+)
-```python
-# pipeline.py:580-610
-def validate_playlist_output(playlist):
-    """Validate playlist meets length requirement.
+Long bridges tend to **sag**: interiors drift toward the dense, genre-blurred local average
+instead of representing the piers' actual character. Two levers counter this at selection time;
+a four-pass cascade cleans up whatever slips through.
 
-    NOTE: Recency validation removed in v3.4
-    All recency exclusions are applied during candidate pool construction (pre-order),
-    not post-order. This prevents blocking legitimate seed tracks at pier positions.
-    """
-    if len(playlist) != target_length:
-        raise ValidationError(f"Playlist length {len(playlist)} != {target_length}")
+### 6.1 Anti-center (SP2)
 
-    logger.info(f"✓ Playlist length validated: {len(playlist)} tracks")
-```
-
-**v3.4 Change:** Recency filtering is now strictly applied during candidate pool construction (Phase 6). Post-order validation no longer checks for recency overlaps, as seed tracks at pier positions may have been recently played but are explicitly requested.
-
-#### 8.2 Quality Metrics Computation
-```python
-# pier_bridge_builder.py:1980-2050
-def compute_playlist_metrics(playlist_indices, X_transition, X_sonic):
-    transitions = []
-    for i in range(len(playlist_indices) - 1):
-        score = X_transition[playlist_indices[i], playlist_indices[i+1]]
-        transitions.append(score)
-
-    return {
-        "min_transition": min(transitions),      # 0.572
-        "mean_transition": np.mean(transitions), # 0.754
-        "p10_transition": np.percentile(transitions, 10),  # 0.679
-        "p90_transition": np.percentile(transitions, 90),  # 0.990
-        "below_floor": sum(t < 0.20 for t in transitions), # 0
-    }
-```
-
-**Quality Report (Bill Evans Trio):**
-```
-Transition Quality (T):
-  Min:  0.572  ✓ (above floor 0.20)
-  Mean: 0.754  ✓ (strong overall flow)
-  P10:  0.679  ✓ (no weak transitions)
-  P90:  0.990  ✓ (many perfect transitions)
-
-Sonic Similarity (S):
-  Min:  -0.032 (one slightly negative edge)
-  Mean:  0.540 (balanced diversity)
-  P90:   0.716 (cohesive high end)
-
-Genre Similarity (G):
-  Min:   0.492 (solid minimum)
-  Mean:  0.828 (strong genre coherence)
-  P90:   0.958 (very tight at high end)
-
-Artist Diversity:
-  Unique artists: 19 / 30 tracks (63%)
-  Max per artist: 5 tracks (Bill Evans Trio at piers)
-  Avg gap: 6.2 positions
-```
-
-#### 8.3 Weakest Edge Reporting
-```python
-# pier_bridge_builder.py:2051-2090
-weakest_edges = sorted(enumerate(transitions), key=lambda x: x[1])[:3]
-for idx, score in weakest_edges:
-    track_a = playlist[idx]
-    track_b = playlist[idx + 1]
-    logger.info(f"Weak edge #{idx+1}: T={score:.3f} S={sonic_sim:.3f} G={genre_sim:.3f}")
-    logger.info(f"  {track_a['artist']} - {track_a['title']}")
-    logger.info(f"  → {track_b['artist']} - {track_b['title']}")
-```
-
-**Weakest Transitions (Bill Evans Trio):**
-```
-#22 T=0.241  S=0.553  G=0.610
-  Sonny Rollins - Softly, as in a Morning Sunrise
-  → Bill Evans Trio - All Of You (Take 2 / Live At The Village Vanguard / 1961)
-  [Jump back to seed artist at pier]
-
-#14 T=0.286  S=0.406  G=0.712
-  Cassandra Wilson - Skylark
-  → Ryo Fukui - I Want To Talk About You
-  [Genre shift: vocal jazz → instrumental]
-
-#03 T=0.597  S=0.715  G=0.955
-  Freddie Hubbard - Lament For Booker
-  → Wayne Shorter - Infant Eyes
-  [Strong overall, just lowest of high-quality edges]
-```
-
----
-
-### Phase 9: Export & Delivery
-**Duration:** ~1-2 seconds
-**Files:** `src/m3u_exporter.py`, `src/plex_exporter.py`
-
-#### 9.1 M3U8 Export
-```python
-# m3u_exporter.py:45-98
-def export_playlist(self, playlist_data, name):
-    """Generate M3U8 file with EXTINF metadata."""
-    filepath = os.path.join(self.output_dir, f"{name}.m3u8")
-
-    with open(filepath, 'w', encoding='utf-8') as f:
-        f.write("#EXTM3U\n")
-
-        for track in playlist_data['tracks']:
-            duration_sec = int(track.get('duration_ms', 0) / 1000)
-            f.write(f"#EXTINF:{duration_sec},{track['artist']} - {track['title']}\n")
-            f.write(f"{track['filepath']}\n")
-
-    return filepath
-```
-
-**M3U8 Output (E:\PLAYLISTS\Auto - Bill Evans Trio 2026-01-03.m3u8):**
-```m3u8
-#EXTM3U
-#EXTINF:316,Bill Evans Trio - Blue In Green (Remastered Stereo 2025)
-E:\Music\Bill Evans Trio\Portrait In Jazz (Remastered)\05 Blue In Green.flac
-#EXTINF:284,Milt Jackson - Heartstrings
-E:\Music\Milt Jackson\Bags & Trane\03 Heartstrings.flac
-#EXTINF:442,Freddie Hubbard - Lament For Booker
-E:\Music\Freddie Hubbard\Breaking Point!\05 Lament For Booker.flac
-... (27 more tracks)
-```
-
-#### 9.2 Plex Export
-```python
-# plex_exporter.py:156-245
-def create_or_update_playlist(self, name, track_filepaths):
-    """Create playlist in Plex Media Server."""
-    # Step 1: Build path index (map filepaths → Plex track objects)
-    path_index = {}
-    for track in plex_music.all():
-        for location in track.locations:
-            normalized_path = self._normalize_path(location)
-            path_index[normalized_path] = track
-
-    # Step 2: Match playlist tracks to Plex objects
-    plex_tracks = []
-    for filepath in track_filepaths:
-        normalized = self._normalize_path(filepath)
-        if normalized in path_index:
-            plex_tracks.append(path_index[normalized])
-        else:
-            logger.warning(f"Track not found in Plex: {filepath}")
-
-    # Step 3: Create or update playlist
-    existing = plex.playlist(name) if name in plex.playlists() else None
-    if existing:
-        if config.get('plex.replace_existing', True):
-            existing.delete()
-            playlist = plex.createPlaylist(name, items=plex_tracks)
-        else:
-            existing.addItems(plex_tracks)
-    else:
-        playlist = plex.createPlaylist(name, items=plex_tracks)
-
-    return playlist
-```
-
-**Plex Result:**
-- Playlist name: "Auto - Bill Evans Trio 2026-01-03"
-- Matched tracks: 30/30 (100%)
-- Smart collection: No (static playlist)
-- Visibility: Public
-
----
-
-## Key Algorithms & Data Structures
-
-### 1. Tower-Weighted Sonic Blend
-**Purpose:** Combine rhythm, timbre, and harmony into a single comparable space with
-explicit perceptual weighting baked in at build time.
+`seed_character_mode: anti_center` (dataclass default `"off"`,
+`pier_bridge/config.py:106`; shipped `config.example.yaml:288–289` turns it on at strength 2.0).
+Precomputed once per segment (`beam.py:823–836`): the local pool centroid is the mean of the
+segment's L2-normalized candidates (piers excluded). Applied per candidate
+(`beam.py:1268–1272`):
 
 ```python
-# src/features/sonic_rebuild.py — applied by scripts/fold_2dftm_into_artifact.py
-def tower_weighted(rhythm, timbre, harmony, weights=(0.20, 0.50, 0.30)):
-    """Per-tower L2-normalize, scale each by sqrt(weight), concatenate.
-
-    Each output row's per-tower sub-vector has norm sqrt(weight), so the tower
-    weighting is exact and invariant to the towers' raw scales.
-    """
-    w_r, w_t, w_h = weights
-    return np.concatenate([
-        sqrt(w_r) * L2(rhythm),    # rhythm: 9-dim  → sub-norm √0.20
-        sqrt(w_t) * L2(timbre),    # timbre: 57-dim → sub-norm √0.50
-        sqrt(w_h) * L2(harmony),   # harmony: 96-dim (2DFTM) → sub-norm √0.30
-    ], axis=1)  # (N, 162)
+# src/playlist/pier_bridge/seed_character.py:18-22
+def anti_center_penalty(cand_center_sim, bridge_score, strength):
+    return strength * max(0.0, cand_center_sim - bridge_score)
 ```
 
-**Current tower representations (2026-06-03):**
-- **Rhythm (9-dim):** librosa beat features — tempo, beat strength, onset patterns
-- **Timbre (57-dim):** MFCCs, spectral centroid, rolloff, contrast — textural identity
-- **Harmony (96-dim — 2DFTM):** `|FFT2(chroma_cqt)|[:, :8].flatten()` on the
-  HPSS-separated harmonic signal. Key-invariant: transposing a track by any interval
-  leaves cosine similarity at 0.99+. Replaces the legacy 20-dim chroma-median tower
-  that encoded absolute pitch class (noise for harmonic-character similarity).
+i.e. subtract a penalty proportional to *how much closer* a candidate sits to the pool's generic
+center than to its own piers; zero penalty for a candidate that's more pier-like than central.
+The "hubness" alternative (kNN in-degree deflation) was tested and retired (weak, didn't scale) —
+`anti_center` is the only surviving mode besides `off`.
 
-**Why 2DFTM for harmony?** The 2D Fourier Transform of a chromagram (pitch × time)
-captures chordal texture and voice-leading patterns as spatial frequencies. Transposition
-= circular shift on the pitch axis → becomes a phase change → discarded by taking the
-magnitude. Validated 2026-06-03: +1.66 verdict score improvement on a classical piano
-seed (Jean-Yves Thibaudet) where the legacy tower returned bossa nova and noise rock.
-Full write-up: `docs/SONIC_PHASE2_HARMONY_FINDINGS.md`.
+### 6.2 Mini-piers (SP3) — structural anti-sag
 
-**Why Towers?**
-- Rhythm: Captures tempo/energy changes (important for flow); gated independently by `pace_mode`
-- Timbre: Dominant tower for sonic texture (50% weight); most reliable for genre adjacency
-- Harmony: Captures harmonic character independent of musical key (2DFTM)
+`mini_pier_enabled` (dataclass default `False`, `pier_bridge/config.py:110`; shipped
+`config.example.yaml:272` = `true`). Where anti-center *nudges* scoring, mini-piers *structurally*
+prevents sag: after pier ordering (Phase 3.3) and before segment-length allocation,
+`plan_pier_sequence` (`src/playlist/pier_bridge/mini_pier_select.py:60`, called at
+`pier_bridge_builder.py:857–882`) greedily splits the longest segment by pinning a
+`select_waypoint` pick (`mini_pier_select.py:17–52`) as an extra pier — chosen as the most
+"between" candidate (within `margin` of the best min-similarity-to-both-piers) that is *also* the
+least central relative to that between-region (an anti-center pick among the smooth set), so the
+inserted waypoint is on-character rather than the wallpaper average. Waypoint artists are excluded
+from being the seed's or an existing pier's artist (`pier_bridge_builder.py:861–870`); a hard cap
+(`total_tracks // 4`) bounds how many waypoints can be inserted.
 
-### 2. Genre Smoothing
-**Purpose:** Propagate genre similarity through the semantic graph
+Variable bridge length (see the cascade below) then still applies per-segment on top of this
+structural split.
 
-```python
-# src/genre/similarity.py (legacy genre_similarity_v2.py removed in v6.0)
-def smooth_genre_embeddings(X_genre_raw, genre_similarity_matrix, alpha=0.3):
-    """
-    Apply label propagation to genre vectors.
+### 6.3 The weak-edge recovery cascade
 
-    Similar genres reinforce each other, creating a smooth genre space
-    that captures semantic relationships beyond exact tag matching.
-    """
-    # X_genre_raw: (N, 732) one-hot encoded genre tags
-    # genre_similarity_matrix: (732, 732) pairwise genre similarity
+After the beam assembles all segments, a **fixed four-pass cascade** lifts weak/broken transition
+edges, escalating from least- to most-destructive. **It runs once, top to bottom — not a retry
+loop**; each pass hands its (possibly mutated) playlist to the next, so a late deletion is never
+re-optimized by an earlier pass.
 
-    # Normalize similarity matrix to stochastic matrix
-    row_sums = genre_similarity_matrix.sum(axis=1, keepdims=True)
-    P = genre_similarity_matrix / (row_sums + 1e-9)
+| # | Pass | File:line | Scope | Trigger |
+|---|------|-----------|-------|---------|
+| 1 | **Variable bridge length** (add-only) | gate check `pier_bridge_builder.py:1724`; mechanics in `src/playlist/pier_bridge/var_bridge.py:25–49` | per-segment, pre-assembly | worst edge `< variable_bridge_min_edge` (0.30, `pier_bridge_builder.py:1731`) |
+| 2 | **Tail-DP** | `pier_bridge_builder.py:2434–2514`, engine `src/playlist/pier_bridge/tail_dp.py` | per-segment, pre-assembly (re-opens last ≤2 interior slots) | window min-edge below `tail_dp.floor` |
+| 3 | **Edge repair** (break-glass) | `pier_bridge_builder.py:2877–2908`, engine `src/playlist/repair/edge_repair.py:233` (`repair_playlist_edges`) | global, post-assembly (swaps ONE interior track, never changes length) | `T < t_floor` (0.30) **or** catastrophic `T_centered_cos < centered_cos_floor` (−0.5) |
+| 4 | **Edge delete** (remove-only, last resort) | `pier_bridge_builder.py:2919–2939`, engine `src/playlist/repair/edge_delete.py:46` | global, post-repair (deletes ONE interior endpoint) | worst `T` below `edge_delete.floor`, up to `max_deletions` |
 
-    # Label propagation: X_smooth = (1-α)X + αXP
-    X_propagated = X_genre_raw @ P  # (N, 732)
-    X_smoothed = (1 - alpha) * X_genre_raw + alpha * X_propagated
+Variable bridge length works by building the nominal even-split segment, and if its bottleneck
+edge (including the pier-return edge) is already `>= good_enough`, keeping it; otherwise it
+greedily builds every interior length within `[nominal - flex, nominal + flex]` (deterministic
+cap, `variable_bridge_max_flex_segments`), takes the best bottleneck, and prefers the length
+closest to nominal within `epsilon` — a "prefer-N, don't pad for the sake of N" tie-break.
+Edge-delete respects a bystander artist's `min_gap` (`_violates_min_gap_after_delete`,
+`edge_delete.py:27`) so a deletion can't silently create an artist-spacing violation elsewhere.
 
-    return X_smoothed
-```
+Full knob table, per-pass config keys, the "fixer deadzone" (0.30–~0.75, where an
+ugly-but-legal edge gets no fixer attention), and the edge-repair-vs-reporter `T`-mismatch caveat
+are in [`PLAYLIST_ORDERING_TUNING.md`](PLAYLIST_ORDERING_TUNING.md) Knob 4. Dataclass rollback
+defaults are **off** for variable-bridge and edge-repair, **on** for tail-DP and edge-delete;
+`config.example.yaml` turns all but edge-repair on (edge-repair is live-only — a shipped-template
+gap tracked in `CLEANUP_LIST.md`).
 
-**Effect:**
-- Track tagged "cool jazz" gets boost for "post-bop", "hard bop"
-- Semantic relationships: bebop ↔ hard bop (0.85), jazz ↔ blues (0.72)
-- Reduces false negatives from incomplete tagging
-
-### 3. Ensemble Normalization
-**Purpose:** Treat artist name variants as the same entity
-
-```python
-# src/artist_utils.py:13-54
-def extract_primary_artist(artist: str, lowercase: bool = True) -> str:
-    """
-    Normalize artist identity with ensemble suffix handling.
-
-    "Bill Evans Trio" → "bill evans"
-    "The Red Garland Trio" → "red garland"
-    "Vince Guaraldi Trio" → "vince guaraldi"
-    """
-    # Remove feat/with/vs
-    base_artist = re.split(r"\s+(?:feat\.|ft\.|featuring|with|vs\.)\s+", artist)[0]
-
-    # Check for ensemble suffix
-    has_ensemble = re.search(r"\s+(Trio|Quartet|Quintet|Sextet|Septet|Octet)$",
-                              base_artist, flags=re.IGNORECASE)
-
-    if has_ensemble:
-        # Remove leading "The"
-        base_artist = re.sub(r"^The\s+", "", base_artist, flags=re.IGNORECASE)
-        # Remove ensemble suffix
-        base_artist = re.sub(r"\s+(Trio|Quartet|Quintet|Sextet|Septet|Octet)$",
-                             "", base_artist, flags=re.IGNORECASE)
-
-    return base_artist.lower() if lowercase else base_artist
-```
-
-**Critical for:**
-- Seed artist exclusion policy (block all "Bill Evans" variants)
-- Artist diversity constraints (gap enforcement across variants)
-- Dedupe detection (prevent duplicate artists)
-
-### 4. Progress Constraint
-**Purpose:** Ensure bridge segments move monotonically toward destination
-
-```python
-# pier_bridge_builder.py:458-505
-def compute_progress_penalty(
-    candidate_idx,
-    pier_a_idx,
-    pier_b_idx,
-    step,
-    total_steps,
-    X_sonic,
-    epsilon=0.05,
-    weight=0.15,
-):
-    """
-    Penalize candidates that violate monotonic progress in sonic space.
-
-    We project the candidate onto the A→B direction and ensure it's
-    moving forward relative to the expected position.
-    """
-    # Direction vector from A to B in sonic space
-    direction = X_sonic[pier_b_idx] - X_sonic[pier_a_idx]
-    direction_norm = direction / (np.linalg.norm(direction) + 1e-9)
-
-    # Project candidate onto A→B line
-    candidate_vec = X_sonic[candidate_idx] - X_sonic[pier_a_idx]
-    projection = np.dot(candidate_vec, direction_norm)
-
-    # Expected progress at this step
-    expected_progress = step / total_steps
-    actual_progress = projection / np.linalg.norm(direction)
-
-    # Penalty if moving backward
-    if actual_progress < (expected_progress - epsilon):
-        penalty = weight * (expected_progress - actual_progress)
-    else:
-        penalty = 0.0
-
-    return penalty
-```
-
-**Effect:**
-- Prevents "teleporting" (jumping back to Pier A area)
-- Reduces ping-ponging between sonic regions
-- Creates smooth sonic arc from A → B
-
-### 5. Duration Penalty (Geometric Curve)
-**Purpose:** Discourage overly long tracks in candidate pool selection
-**Reference:** Median seed track duration (penalty applied before similarity floors)
-**Hard cutoff:** Candidates > duration_cutoff_multiplier * median seed duration are excluded
-
-```python
-# candidate_pool.py:91-140
-def compute_duration_penalty(candidate_duration_ms, reference_duration_ms, weight=0.60):
-    """
-    Four-phase geometric penalty based on percentage excess.
-
-    0-20%:   Gentle (barely noticeable)
-    20-50%:  Moderate (increasing)
-    50-100%: Steep (strong discouragement)
-    >100%:   Severe (track is 2x+ longer)
-    """
-    excess_ratio = (candidate_duration_ms - reference_duration_ms) / reference_duration_ms
-
-    if excess_ratio <= 0:
-        return 0.0  # Shorter tracks have no penalty
-
-    if excess_ratio <= 0.20:
-        # Phase 1: Gentle (power 1.5)
-        penalty = weight * 0.05 * (excess_ratio / 0.20) ** 1.5
-    elif excess_ratio <= 0.50:
-        # Phase 2: Moderate (power 2.0)
-        phase_ratio = (excess_ratio - 0.20) / 0.30
-        penalty = weight * 0.05 + weight * 0.25 * (phase_ratio ** 2.0)
-    elif excess_ratio <= 1.00:
-        # Phase 3: Steep (power 2.5)
-        phase_ratio = (excess_ratio - 0.50) / 0.50
-        penalty = weight * 0.30 + weight * 0.45 * (phase_ratio ** 2.5)
-    else:
-        # Phase 4: Severe (power 3.0)
-        phase_ratio = excess_ratio - 1.00
-        penalty = weight * 0.75 + weight * 2.25 * (phase_ratio ** 3.0)
-
-    return penalty
-```
-
-**Example Penalties (200s reference track):**
-- 220s (+10%): penalty = 0.026 (negligible)
-- 260s (+30%): penalty = 0.190 (moderate)
-- 340s (+70%): penalty = 0.574 (steep)
-- 440s (+120%): penalty = 1.524 (severe)
-- 520s (+160%): excluded (hard cutoff at 2.5x)
+**Time budget.** `generation_budget_s` (dataclass default 60.0, `pier_bridge/config.py:347`; live
+`0` = disabled) bounds the whole generation, computed once as a shared deadline
+(`pipeline/core.py:852–859`) so every segment loop and relaxation retry inside
+`build_pier_bridge_playlist` shares one budget instead of resetting its own clock. `<= 0` disables
+both the soft deadline and the per-build relaxation cap entirely — "quality-first while tuning."
+90s is a design-target ceiling, not a separately enforced hard cutoff; see
+[`feedback_generation_time_budget`](../CLAUDE.md) discipline and Knob 10 in
+`PLAYLIST_ORDERING_TUNING.md`.
 
 ---
 
-## Performance Characteristics
+## Phase 7 — Reporter / quality metrics
 
-### Computational Complexity
+`src/playlist/reporter.py` computes and logs post-hoc quality metrics from the **final assembled
+order** — independent of whatever the beam scored internally, so a beam-vs-reporter mismatch is
+itself a diagnostic signal (see the `T-mismatch` warning below).
 
-| Phase | Time | Complexity | Bottleneck |
-|-------|------|------------|------------|
-| Artifact Loading | 1-2s | O(N) | Disk I/O, numpy array loading |
-| Artist Clustering | 1-2s | O(k·n·d²) | K-medoids on artist tracks |
-| Candidate Pool | 2-3s | O(N·M·d) | Cosine similarity (N=35k, M=5 seeds) |
-| Seed Ordering | 0.1s | O(k!) | Permutation search (5! = 120) |
-| Pier-Bridge | 3-5s | O(s·b·p²) | Beam search per segment |
-| **Total** | **7-13s** | | End-to-end generation |
+### 7.1 Edge scores
 
-**Variables:**
-- N = Total tracks in library (35,881)
-- n = Artist tracks (66 for Bill Evans)
-- M = Number of seeds (5)
-- k = Number of clusters (5)
-- d = Embedding dimension (32-137)
-- s = Segments (4)
-- b = Beam width (20-100)
-- p = Pool size per segment (50-400)
+`compute_edge_scores_from_artifact` (`reporter.py:237–447`) re-loads the artifact, resolves the
+transition calibration for the active variant exactly as the beam did
+(`resolve_transition_calib`, `reporter.py:305`, mirroring `pier_bridge_builder.py:490`), builds a
+`TransitionMetricContext` (`reporter.py:306–318`), and scores every adjacent pair with
+`score_transition_edge` — the same function the beam and edge-repair use
+(`transition_metrics.score_transition_edge`). Each edge dict carries `T`, `T_raw`,
+`T_centered_cos`, `S` (sonic), `G` (genre), and `H` (hybrid).
 
-### Memory Usage
+### 7.2 Percentile summary + weakest edges
 
-| Component | Size | Notes |
-|-----------|------|-------|
-| Artifact Bundle | ~500 MB | X_sonic (35881×137), X_genre (35881×732) |
-| Hybrid Embeddings | ~20 MB | Reduced to 64-dim (35881×64) |
-| Distance Matrices | ~10 GB | Full pairwise (avoided via sparse computation) |
-| Candidate Pool | ~50 MB | 416 tracks × metadata |
-| Working Memory | ~1 GB | Peak during beam search |
+`print_playlist_report` (`reporter.py:450–907`) logs, per generation:
 
-**Optimization:**
-- Sparse similarity computation (only compute N×M, not N×N)
-- On-demand matrix access (no full distance matrix)
-- Candidate pool pruning (416 instead of 35,881)
+- **T / S / G distributions**: mean, p10, p50, p90, p99, min (`_summ`, `reporter.py:706–721`) —
+  the project convention is to report the **distribution and the floor**, never just the mean
+  (Design Principle 21 — a strong mean can hide one broken edge).
+- **`below_floor` count** against `transition_floor`.
+- **Weakest transitions (bottom 3 by T)** with both endpoints' artist/title
+  (`reporter.py:866–886`) — the first thing to read when a playlist "feels" wrong.
+- **`diagnose_t_mismatch`** (`reporter.py:101–126`): warns when the beam's own recorded
+  `trans_score_in_beam` disagrees with the final reporter `T` on a below-floor edge — a real
+  regression signal (the beam and reporter should never diverge on the same edge; see CLAUDE.md's
+  "don't change `transition_weights` without `tower_weights`" gotcha for the historical version of
+  this failure mode, now moot post-tower-removal but the shared-metric discipline that replaced it
+  still applies).
+- **BPM summary**, distinct-artist count, and (with `verbose_edges`) baseline library percentiles
+  for comparison.
 
----
+`emit_selected_edge_audit` (`reporter.py:129–197`) and `emit_edge_repair_log`
+(`reporter.py:200–234`) are opt-in per-edge diagnostic dumps (full scoring breakdown per edge;
+repair swap accept/reject log) — see the `playlist-testing` skill's "diagnosing a generation
+outcome" section for when to reach for these instead of trusting summary metrics alone.
 
-## Configuration Impact
+### 7.3 What ships in the report
 
-### Mode Presets (Genre × Sonic)
-
-| Mode | Genre Weight | Sonic Weight | Min Genre Sim | Pool Multiplier | Character |
-|------|-------------|--------------|---------------|-----------------|-----------|
-| **Strict + Strict** | 0.80 | 0.85 | 0.50 | 0.6 | Ultra-cohesive, tight genre match |
-| **Narrow + Narrow** | 0.65 | 0.70 | 0.40 | 0.8 | Cohesive, same genre family |
-| **Dynamic + Dynamic** | 0.50 | 0.50 | 0.30 | 1.0 | Balanced exploration ← DEFAULT |
-| **Discover + Discover** | 0.35 | 0.35 | 0.20 | 1.2 | Maximum exploration |
-| **Off + Dynamic** | 0.00 | 1.00 | N/A | 1.0 | Sonic-only (ignore genre tags) |
-| **Dynamic + Off** | 1.00 | 0.00 | 0.30 | N/A | Genre-only (ignore audio features) |
-
-**Effect on Candidate Pool:**
-- Strict: ~200-300 candidates (very selective)
-- Narrow: ~300-500 candidates
-- **Dynamic: ~400-600 candidates** ← Bill Evans example
-- Discover: ~800-1200 candidates (wide net)
-
-### Artist Style Clustering (k parameter)
-
-| k | Effect | Use Case |
-|---|--------|----------|
-| 3 | Broad styles | Artists with narrow range |
-| 4-5 | Balanced | Most artists (DEFAULT) |
-| 6-8 | Fine-grained | Artists with wide stylistic range |
-
-**Auto-selection:** Uses silhouette score to pick optimal k in range [k_min, k_max]
+`build_pier_bridge_playlist`'s own `stats` dict (`pier_bridge_builder.py:3048–3140+`) carries
+`min_transition`/`mean_transition`, per-segment bridge-floor/backoff usage, edge-repair and
+edge-delete logs, soft-genre-penalty hit counts, and the full effective config snapshot — this is
+what `docs/run_audits/` audit reports and the GUI diagnostics panel read from.
 
 ---
 
-## Common Edge Cases
+## Phase 8 — Export
 
-### Edge Case 1: Artist with <4 Tracks
-**Problem:** Pier-bridge requires minimum 4 seeds
-**Solution:** Error message, suggest History mode
-**Example:** "Haruomi Hosono has 2 tracks, need at least 4"
+### 8.1 M3U
 
-### Edge Case 2: All Candidates Recently Played
-**Problem:** Recency filter removes entire candidate pool
-**Solution:** Widen lookback window or disable recency filter
-**Fallback:** Use artist's own tracks as connectors
+`M3UExporter.export_playlist` (`src/m3u_exporter.py:34–100`) writes an EXTM3U file with one
+`#EXTINF` + file-path line per track, plus a non-standard `#EXTVARIANT:<sonic_variant>` line
+per track for provenance. The filename gets a `_sonic-<variant>` suffix when the variant isn't
+`"raw"` (`m3u_exporter.py:49`). Called from `main_app.py:436–445` for CLI runs (worker/web calls
+the equivalent export path after generation).
 
-### Edge Case 3: Infeasible Bridge Segment
-**Problem:** No path exists that satisfies all constraints
-**Solution:**
-1. Reduce bridge_floor in steps (0.08 → 0.06 → 0.04 → 0.00)
-2. Widen candidate pool (400 → 600 → 800)
-3. Increase beam width (20 → 50 → 100)
-4. As last resort, relax min_gap constraint
+### 8.2 Plex (optional)
 
-**Audit Report:** Generated to `docs/run_audits/` when enabled
-
-### Edge Case 4: Ensemble Name Confusion
-**Problem:** "Bill Evans Trio" vs "Bill Evans" treated as different artists
-**Solution:** Ensemble normalization in `identity_keys.py`
-**Fixed:** 2026-01-03 (commit 5fa9549)
+`PlexExporter.export_playlist` (`src/plex_exporter.py:279`) is called only if a Plex exporter was
+configured (`main_app.py:447–454`) and only when `dry_run` is false. Failures are caught and
+logged, never fatal to the generation itself — Plex export is a local-first *enrichment* of the
+result, never a gate (Design Principle 14).
 
 ---
 
-## Debug & Introspection
+## See also
 
-### Enable Audit Reports
-```yaml
-# config.yaml
-playlists:
-  ds_pipeline:
-    pier_bridge:
-      audit_run:
-        enabled: true
-        out_dir: "docs/run_audits"
-        include_top_k: 25
-        max_bytes: 350000
-```
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — system map, the four mode axes, GUI wiring, offline
+  pipeline.
+- [`DJ_BRIDGE_ARCHITECTURE.md`](DJ_BRIDGE_ARCHITECTURE.md) — beam pooling/scoring deep-dive
+  (with the `dj_bridging`-vs-taxonomy caveat above).
+- [`DESIGN_RATIONALE.md`](DESIGN_RATIONALE.md) — why each current method beat its predecessor.
+- [`PLAYLIST_ORDERING_TUNING.md`](PLAYLIST_ORDERING_TUNING.md) — knob-by-knob tuning recipes for
+  Phases 5–6.
+- [`CONFIG.md`](CONFIG.md) — full config key reference.
+- [`GOLDEN_COMMANDS.md`](GOLDEN_COMMANDS.md) — canonical CLI invocations, including the analyze
+  pipeline stage list.
 
-**Output:** `docs/run_audits/pier_bridge_audit_<timestamp>.md`
-
-**Contains:**
-- Segment-by-segment construction log
-- Top 25 candidates per segment with scores
-- Bridge floor gates, penalties applied
-- Edge quality breakdown
-- Constraint violation tracking
-
-### Verbose Logging
-```bash
-python main_app.py --artist "Bill Evans Trio" --verbose
-```
-
-**Enables:**
-- DEBUG-level logs from `src.playlist_generator`
-- Per-edge transition scores
-- Candidate pool statistics
-- Beam search state snapshots
-
-### Quality Metrics
-```python
-# Logged automatically after generation
-{
-    "min_transition": 0.572,      # Weakest edge (should be >0.20)
-    "mean_transition": 0.754,     # Average flow quality
-    "below_floor": 0,             # Count of edges <0.20 (should be 0)
-    "distinct_artists": 19,       # Unique artists (target: 15-25)
-    "max_artist_count": 5,        # Most tracks per artist
-}
-```
-
----
-
-## Future Optimizations
-
-### Potential Improvements
-
-1. **Cached Similarity Matrices**
-   - Pre-compute X_hybrid for frequent artist/genre queries
-   - Store in SQLite for O(1) lookup
-   - Estimated speedup: 40-50%
-
-2. **GPU Acceleration**
-   - Move cosine similarity to GPU (CuPy/PyTorch)
-   - Batch beam search expansions
-   - Estimated speedup: 3-5x on CUDA hardware
-
-3. **Incremental Candidate Pool**
-   - Cache per-artist candidate pools
-   - Only recompute when artifacts change
-   - Estimated speedup: 60-70% on repeat generations
-
-4. **Parallel Segment Construction**
-   - Build bridge segments in parallel threads
-   - Merge results with global conflict resolution
-   - Estimated speedup: 2-3x on multi-core CPUs
-
-5. **Smart Beam Pruning**
-   - Use A* heuristic (distance to destination)
-   - Prune beam more aggressively early in search
-   - Estimated speedup: 20-30%
-
----
-
-## Appendix: File Reference
-
-### Core Pipeline Files
-- `main_app.py`: Entry point, orchestration
-- `src/playlist_generator.py`: High-level playlist logic
-- `src/playlist/pipeline.py`: DS pipeline orchestrator
-- `src/playlist/pier_bridge_builder.py`: Bridge construction (1,900+ lines)
-- `src/playlist/candidate_pool.py`: Candidate pool filtering (was `candidate_generator.py`, removed v6.0)
-- `src/playlist/artist_style_clustering.py`: Style analysis
-
-### Supporting Modules
-- `src/features/artifacts.py`: Artifact loading
-- `src/playlist/identity_keys.py`: Artist/track normalization
-- `src/similarity/sonic_variant.py`: Tower PCA embeddings
-- `src/genre/similarity.py`: Genre smoothing, taxonomy (was `genre_similarity_v2.py`, removed v6.0)
-- `src/lastfm_client.py`: Scrobble history retrieval
-- `src/m3u_exporter.py`: M3U8 file generation
-- `src/plex_exporter.py`: Plex integration
-
-### Configuration Files
-- `config.yaml`: Main configuration
-- `data/genre_similarity.yaml`: Genre taxonomy overrides
-- `data/artifacts/beat3tower_32k/data_matrices_step1.npz`: Sonic embeddings
-
-### Database Files
-- `data/metadata.db`: SQLite library database
-- `data/lastfm_cache_<user>_90d.json`: Scrobble cache
-
----
-
-## Glossary
-
-**Artifact Bundle**: Pre-computed sonic/genre embeddings for entire library
-**Beam Search**: Heuristic search maintaining top-k candidates at each step
-**Bridge Floor**: Minimum similarity to both pier endpoints
-**Coverage Bonus**: Schedule-decay bonus for matching anchor track genre signatures
-**Ensemble Normalization**: Stripping "Trio", "Quartet" suffixes from artist names
-**Hybrid Embedding**: Combined sonic + genre similarity space
-**IDF Weighting**: Inverse Document Frequency emphasizing rare genres over common ones
-**Medoid**: Most central point in a cluster (unlike centroid, always a real data point)
-**Pier**: Structural anchor point in playlist (seed track)
-**Progress Constraint**: Monotonic movement toward destination in sonic space
-**Tower PCA**: Separate dimensionality reduction per sonic domain (rhythm/timbre/harmony)
-**Transition Matrix**: Pairwise similarity of track endings to track beginnings
-**Vector Mode**: Direct multi-genre interpolation (not one-hot label collapse)
-**Waypoint Guidance**: Genre-aware beam search with interpolated target vectors
-
----
-
-## v3.4 Release Summary
-
-This document was updated to reflect the major improvements released in v3.4 (2026-01-10):
-
-### Critical Fixes
-1. **Artist Identity Resolution** - Fixed to use raw `bundle.track_artists` instead of pre-normalized strings, properly capturing collaborations
-2. **Genre Vector Source Alignment** - Fixed mismatch between candidate pool and waypoint scoring to use same vector space
-3. **Recency Post-Order Validation Removed** - Recency filtering now applies only during candidate pool construction (pre-order), preventing false negatives for seed tracks
-4. **Transition Score Optimization** - Moved computation outside per-step loop, achieving 30× speedup for genre pool generation
-
-### Feature Enhancements
-1. **Vector Mode Genre Bridging** - Direct multi-genre interpolation prevents single-label collapse (hub genre problem)
-2. **IDF Weighting** - Rare genres (shoegaze, slowcore) emphasized with 0.8+ weights, common genres de-emphasized (0.1-0.3)
-3. **Coverage Bonus** - Schedule-decay bonuses for matching anchor track genre signatures
-4. **DJ Bridge Mode** - Primary mode for multi-seed playlists with intelligent genre routing (see [DJ_BRIDGE_ARCHITECTURE.md](DJ_BRIDGE_ARCHITECTURE.md))
-
-### Results
-- **+400% genre diversity** in bridge targets (4-5 genres/step vs 1 label)
-- **Rare genres preserved** throughout bridges (no hub genre collapse)
-- **-84% waypoint saturation** (mean_delta: 0.095 → 0.015)
-- **+100% ranking influence** (winner_changed: 1/3 → 2/3)
-- **30× speedup** in genre pool computation
-
-### See Also
-- **[CHANGELOG.md](CHANGELOG.md)** - Comprehensive v3.4 release notes
-- **[DJ_BRIDGE_ARCHITECTURE.md](DJ_BRIDGE_ARCHITECTURE.md)** - Multi-seed DJ Bridge Mode design
-- **[README.md](../README.md)** - Feature overview
-
----
-
-## Offline Album Model Prior
-
-The album model prior is a separate, CLI-only offline flow that generates provisional genre
-hypotheses for albums using local metadata and the OpenAI Responses API (no web access).
-
-**Isolation guarantee:** Prior terms are stored in dedicated sidecar tables
-(`ai_genre_model_priors`, `ai_genre_model_prior_terms`) and never enter normal
-`enriched_genre_signatures` or affect artifact builds or playlist generation.
-
-**Provenance:** Every prior run is keyed by release, input hash, provider, model, prompt version,
-taxonomy version, schema version, and policy version. Cache reuse requires an exact identity match.
-
-**Auto-apply: off.** All terms persist with `auto_apply_eligible=0`. Mapped terms
-(`accepted_for_shadow=1`) may be promoted to a `hybrid_shadow` comparison artifact in a later
-milestone after human review — that milestone is not yet implemented.
-
-See `docs/AI_GENRE_ENRICHMENT.md` § Album Model Prior for CLI usage.
-
----
-
-**End of Document**
+**End of document.**

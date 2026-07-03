@@ -13,10 +13,10 @@ the experiment behind it.
 > machine. Each knob below names its config key and states which of the three layers it ships
 > at, so you can always see the rollback path.
 
-**Scope note:** this doc is sonic-variant-independent. It does not document which sonic
-embedding (`tower_weighted` / `mert` / `muq`) is active — see `ARCHITECTURE.md` §"Sonic feature
-space" for that axis. Where a knob's behavior differs across variants (Knob 0), it says so and
-cross-links rather than picking a variant.
+**Scope note:** sonic similarity is a single MuQ contrastive embedding — there is no
+rhythm/timbre/harmony tower to reweight and no variant switch to document. See
+`ARCHITECTURE.md` §"Sonic feature space" for the embedding itself; the knobs below are all about
+pool composition, beam scoring, and post-beam repair, not sonic-space choice.
 
 ---
 
@@ -63,62 +63,24 @@ a missing-data fallback, not normal tuning drift.
 
 ---
 
-## Knob 0: Align `transition_weights` with `tower_weights` — tower-rollback space only
+## Knob 0 (removed): sonic is a single MuQ embedding
 
-**Applies only if you've rolled back to the `tower_weighted` sonic variant.** On the live
-learned-embedding variants (MERT / MuQ) this knob is **inert** — read the caveat below before
-touching it.
+**There is nothing to align here anymore.** SP-B (merged 2026-07-01/02) deleted the hand-built
+rhythm/timbre/harmony towers and the MERT/tower-variant switch entirely — sonic similarity now
+runs on one contrastive **MuQ** embedding (`OpenMuQ/MuQ-MuLan-large`, 512-d, `center_l2`
+post-processed). `tower_weights` and `transition_weights` are gone from `config.example.yaml`,
+and the runtime call site hardcodes the diagnostic field to `None`
+(`src/playlist/pipeline/core.py:1037`, kept only for downstream consumers that still read the
+key). There's no rhythm/timbre/harmony split left to reweight, so the beam and the reporter score
+plain cosine in the same MuQ space by construction — not because two config blocks happen to
+match. If an old `config.yaml` still sets `tower_weights` / `transition_weights`, they're inert
+and safe to delete; nothing reads them.
 
-`transition_weights` controls how the rhythm/timbre/harmony towers are weighted *inside the
-beam's transition scoring*. `tower_weights` controls how those towers are weighted in the
-candidate-similarity embedding. On the tower artifact, **these must match** — otherwise the beam
-scores transitions in a different feature space than the reporter (and the listener) judges them
-in, and approves edges that score poorly post-hoc.
+This heading stays numbered "Knob 0" so older cross-references in this doc ("do Knob 0 first")
+still resolve, but there's nothing to do here anymore — go straight to Knob 1.
 
-```yaml
-playlists:
-  ds_pipeline:
-    tower_weights:
-      rhythm: 0.20
-      timbre: 0.50
-      harmony: 0.30
-    transition_weights:        # MUST match tower_weights on the tower variant
-      rhythm: 0.20
-      timbre: 0.50
-      harmony: 0.30
-```
-
-Shipped in `config.example.yaml`: `tower_weights` 0.20/0.50/0.30 but `transition_weights`
-**0.40/0.35/0.25** — a **stale misalignment** (the pre-v4.1 rhythm-heavy default), not
-intentional. On a tower-rollback install, set `transition_weights` to match `tower_weights`
-(0.20/0.50/0.30) before trusting tower-space audits.
-
-> **⚠️ This misalignment is also a live bug on the default learned variants.** Because
-> 0.40/0.35/0.25 is non-default, `validate_tower_knobs` (see the callout below) *raises* on a
-> mert/muq artifact — so a fresh clone that copies `config.example.yaml` onto the default MERT
-> artifact hits a `ValueError` on first generation until `transition_weights` is set to the
-> default. Tracked in [`CLEANUP_LIST.md`](CLEANUP_LIST.md).
-
-**Empirical impact on the tower artifact (Geese / 5 piers / 30 tracks):**
-
-| Metric | Rhythm-dominant (0.50/0.25/0.15) | Aligned (0.20/0.50/0.30) | Change |
-|---|---|---|---|
-| `min_transition` | 0.366 | 0.459 | +0.09 |
-| `mean_transition` | 0.828 | 0.898 | +0.07 |
-| `p10` | 0.567 | 0.709 | +0.14 |
-
-**How to verify alignment:** enable `emit_selected_edge_audit` and compare `T` vs `trans_beam`
-per row on the tower artifact. They should track together; a persistent gap > 0.3 means weights
-still diverge.
-
-> **Why this knob goes inert on MERT/MuQ.** A learned embedding is a single space — there is no
-> rhythm/timbre/harmony split to reweight, so the beam and reporter both score plain cosine in
-> the variant space, and the beam/reporter alignment holds by construction, not by matching
-> weights. `validate_tower_knobs` (`src/features/artifacts.py`) enforces this at load time: the
-> default 0.20/0.50/0.30 logs an INFO note that the knobs are inert; **any non-default
-> `transition_weights` against a mert/muq artifact raises at startup** rather than silently doing
-> nothing. See `ARCHITECTURE.md` §"Sonic feature space" for the variant picture, and
-> `DESIGN_RATIONALE.md` for why learned embeddings replaced the tower blend as the live default.
+See `ARCHITECTURE.md` §"Sonic feature space" for the current single-embedding picture and
+`DESIGN_RATIONALE.md` for the towers → MERT → MuQ removal arc.
 
 ---
 
@@ -270,9 +232,10 @@ example; effective default even when absent). Presets live in
 
 **Effect:** `pace_mode` is **embedding-independent** — it gates on BPM and onset-rate log-distance
 bands plus a soft rhythm penalty read from DB features, so it survives any sonic-embedding
-change (this is why the old rhythm-cosine tower penalty is inert on MERT/MuQ, and why pace
-exists as its own axis rather than folding into `sonic_mode`). It applies an admission floor when
-building the candidate pool, then a per-step moving target inside the pier-bridge beam.
+change (this is why the old rhythm-cosine tower penalty is inert now — there's no rhythm tower
+left to slice on the MuQ embedding, and why pace exists as its own axis rather than folding into
+`sonic_mode`). It applies an admission floor when building the candidate pool, then a per-step
+moving target inside the pier-bridge beam.
 
 **Starting values (from the live presets):**
 
@@ -367,6 +330,64 @@ real keys are `genre_compatibility_*` as above.
 **Relationship to `genre_tiebreak_weight`.** The tiebreaker (default 0.05) nudges near-tied
 edges; the penalty actively demotes below-threshold edges. They're independent — leave the
 tiebreaker at 0.05 unless you have a specific reason to change it.
+
+---
+
+## Knob 6b: Tag steering (artist-mode soft genre lean)
+
+**Use when:** an artist-mode playlist should lean toward one facet of the seed artist's own
+catalog (e.g. their shoegaze-tagged tracks over their dreampop-tagged tracks) without hard
+filtering out everything else.
+
+**What it is.** A per-request, GUI-only feature — not a config default anyone tunes once and
+forgets. The artist-mode generate screen shows up to 3 chips drawn from the seed artist's *own*
+published genres (`GET /api/genres/for_artist` → `src/genre/authority.py::resolved_genres_for_artist`
+— excludes `inferred_family` hub genres, top-12 by weight). Selected chips travel as
+`steering_tags` on the request → `policy.derive_runtime_config` (`src/playlist_gui/policy.py:267-276`,
+capped at 3, **web-only** like the other policy-owned knobs — there's no CLI flag) →
+`playlists.ds_pipeline.pier_bridge.tag_steering_tags` override.
+
+**It is always a soft lean, never a gate.** `src/playlist/tag_steering.py::resolve_tag_steering_target`
+maps the chosen tags to a unit-norm mean of their dense-genre-embedding vocabulary rows. With no
+tags selected it returns `None` silently — **byte-identical to legacy generation**, zero overhead.
+
+Two independent, additive levers, both soft:
+
+```yaml
+playlists:
+  ds_pipeline:
+    pier_bridge:
+      tag_steering_pool_blend: 0.5    # 0 = ignore tags (legacy), 1 = pool centroid is pure target
+      tag_steering_pier_weight: 0.3   # on-tag bonus in artist medoid (pier) scoring
+```
+
+- **Pool lever** (`tag_steering_pool_blend`, shipped `0.5`): blends the tag target into the
+  dense genre-admission centroid used for candidate-pool admission
+  (`candidate_pool.py:824-835`) — `(1-blend) * seed_centroid + blend * tag_target`, re-normalized.
+  Selecting tags **forces `genre_admission_aggregate=centroid`** even if the config asked for
+  `per_seed` (`candidate_pool.py:784-785`, logged), since the blend only makes sense against a
+  single centroid.
+- **Pier lever** (`tag_steering_pier_weight`, shipped `0.3`): adds an on-tag affinity bonus to
+  each candidate's medoid score during artist-style pier clustering (`artist_style.py:476-480`,
+  wired from config as `medoid_tag_weight` at `playlist_generator.py:1744-1745`). **This lever is
+  dormant unless `artist_style.enabled: true`** — the medoid-clustering code path it lives in
+  only runs for style-aware artist playlists, and `artist_style.enabled` ships `false` in
+  `config.example.yaml` (it's `true` in Dylan's live `config.yaml`). If pier steering seems
+  inert, check `artist_style.enabled` before suspecting the tag weight.
+
+**Degenerate cases (both loud, not silent):**
+- No tags picked → resolver returns `None`, nothing logged beyond the normal path — this is the
+  intentional legacy-identical no-op.
+- Tags picked but the artifact has **no dense genre-embedding sidecar** (`X_genre_dense` /
+  vocabulary missing) → `resolve_tag_steering_target` logs a **WARNING** ("dense genre sidecar
+  has no vocabulary embedding — steering disabled for this run") and proceeds inert for that run.
+  Same for tags that don't map to the vocabulary (per-tag WARNING) or that all map but net to a
+  zero-norm target.
+
+**Status:** pool + pier levers are shipped and live behind the GUI chips (`config.example.yaml`
+lines ~292-295). A designed-but-not-built third lever — a beam-stage (per-edge) tag bonus — does
+not exist yet; don't look for a `tag_steering_beam_weight` key. Tests:
+`test_tag_steering*`, `test_authority_artist_genres`.
 
 ---
 

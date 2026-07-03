@@ -1,98 +1,96 @@
-# Three-Axis Wiring & Calibration Status
+# Wiring Status
 
-**Living tracker** of what is actually *wired and live* vs *inert / broken / mis-calibrated* across the three matching axes — **sonic ⊗ genre ⊗ pace** — plus the pier-bridge infra they run on. Update this doc whenever a wiring state changes. Verified by reading real generation logs, not by reading config.
+**Living tracker** of what is actually *wired and live* vs *shipped-default* vs *off* vs
+*known-broken*, across the sonic ⊗ genre ⊗ pace axes and the pier-bridge infrastructure. Verified
+against `config.yaml` + code, **not** intentions. Update this doc whenever a wiring state changes.
 
-Last updated: 2026-06-21.
+Last verified: **2026-07-03** (post-SP-B, post-tag-steering).
 
-## Governing principle (paid for in full)
+## Governing principle
 
-**Data-first, calibrate-last.** Calibration fits numbers to a *fixed* feature geometry. If a wiring change moves the geometry afterward, the numbers are invalid. We learned this the expensive way: the entire pace co-equal-axis calibration (strict k=20 / narrow k=5 / arc strengths / worst-edge eval-gate) was fit against the **legacy `robust_whiten` sonic space** because MERT had been silently reverted — all of it is provenance-invalid and must be re-run against MERT. Do **not** calibrate any axis until the wiring that changes what that axis sees has landed.
+Behavior resolves through three layers, and they deliberately differ (see
+[`ARCHITECTURE.md`](ARCHITECTURE.md) "Reading the defaults"):
 
-**Verification is mandatory and specific.** Every wiring change is proven on a **real playlist with real logs** (see Verification Protocol). "It should work" / "config looks right" / a green metric is not proof — read the log lines that show the feature firing.
+1. **Dataclass defaults** (`src/playlist/pier_bridge/config.py`) — rollback baseline, every
+   experimental lever `off`.
+2. **`config.example.yaml`** — the *shipped* template a fresh clone copies.
+3. **`config.yaml`** (gitignored) — the *live* config on one machine.
+
+This doc's job is to flag where **shipped ≠ live** — those are the drifts that bite. Verification
+is by reading real config + generation logs, not "the config looks right."
+
+**States:** ✅ LIVE (shipped on) · 🟡 LIVE-ONLY (on in `config.yaml`, absent from
+`config.example.yaml` — a shipped gap) · ⚪ OFF (default off) · 🔴 KNOWN BUG · 📦 REMOVED/ARCHIVED
 
 ---
 
-## Status table
+## Sonic
 
-States: ✅ LIVE · 🟢 FIXED (this session, verified) · 🔴 BROKEN (configured but cannot act) · ⚪ INERT (no-op / cosmetic) · 🟡 DESIGN-NEEDED · ⏳ DEFERRED/BLOCKED · 🤝 IN-FLIGHT (another session)
-
-### Sonic axis
-| Component | State | Evidence / Notes | Action |
-|---|---|---|---|
-| MERT embedding (`X_sonic_variant=mert`, 768-d) | 🟢 FIXED | Re-folded 2026-06-21; log `Using precomputed sonic variant 'mert' from artifact key X_sonic_mert`, X_sonic (40393,768). Was 🔴 (06-18 rebuild reverted to `robust_whiten`). | After ANY analyze/rebuild, re-fold + verify variant in log (see [project_mert_migration]). |
-| 2DFTM key-invariant harmony (96-d) | 🟢 FIXED | Re-folded 2026-06-21; `X_sonic_harmony=(N,96)`, tower_dims `[9,57,96]`. Was 20-d absolute-key legacy. | Same re-fold discipline. |
-| Tower blend rollback (`X_sonic_tower_weighted`, 162-d) | ✅ LIVE | Present as rollback; loader pre-scaled path uses baked variant directly (`embedding_setup.py:77`). | — |
-| Sonic admission floors (MERT-recal: strict 0.28 / narrow 0.18 / dynamic 0.08) | 🟡 PARTIAL | Committed & MERT-scaled, but narrow 0.18 + genre hard gate starved Charli XCX to 47 candidates. Floor may be right; the *combination* with genre is the problem. | Revisit in three-axis calibration (after genre wiring). |
-| `playlists.sonic.sim_variant: tower_weighted` | ⚪ INERT | Stale config key; inert under the pre-scaled path (`embedding_setup.py` ignores it when a variant is baked). | Align to `mert` or remove (cosmetic). |
-
-### Genre axis
-| Component | State | Evidence / Notes | Action |
-|---|---|---|---|
-| Graph-sourced genre vectors (`X_genre_raw/smoothed` from `release_effective_genres`) | ✅ LIVE | `build_config.genre_source=graph`, `graph_authority=True`, 39,104 graph tracks. Preserved through the re-fold. | — |
-| Genre **arc steering** (`genre_steering_source=dense`) | 🔴 BROKEN | Dense sidecar `data_matrices_step1_genre_emb_dim64.npz` (built 06-12) has a vocab mismatch → silently ignored → `X_genre_dense=None` → `no usable g_targets` on **every** segment → genre arc INACTIVE. | **Decide:** switch source → `taxonomy` (uses in-artifact `X_genre_raw`, rebuild-robust) **or** rebuild dense sidecar. Recommend taxonomy. Part of #3. |
-| Genre **hard admission gate** (`min_genre_sim=0.4`, ensemble) | 🟡 DESIGN-NEEDED | Hard gate rejected 310 + sonic floor → 47-candidate pool → 14/30 one-artist playlist + cascade grind. | **#3 brainstorm:** hard → soft/relaxable? Changes the pool all axes see. |
-| Genre compatibility soft penalty | ✅ LIVE | `Genre compatibility penalty applied: penalized=6721 strength=0.200`. | — |
-| Genre runtime **layered admission** flip (SP4 item E) | ⏳ KNOWN-PENDING | Artifact genre is graph-sourced; the *layered runtime admission* enhancement is not flipped on. | Decide in #3 whether needed. |
-| Dense genre sidecar (dim64) | 🔴 BROKEN | Vocab mismatch, ignored at load. Root cause of dead arc steering above. | Resolve with steering-source decision. |
-
-### Pace axis
-| Component | State | Evidence / Notes | Action |
-|---|---|---|---|
-| Energy soft penalty in beam (`energy_arc_*`, `energy_step_*`) | ⚪/⏳ | Wired (merged b337835). strict/narrow values are **legacy-space, invalid**; dynamic=0.0 (reverted); off=0.0. | Recalibrate vs MERT (last). |
-| Energy admission rescue (`pace_rescue_k_energy`) | ⚪/⏳ | Wired. strict k=20 / narrow k=5 are **legacy-space, invalid**; dynamic/off=0. Mechanism is space-independent and sound. | Recalibrate vs MERT (last). |
-| BPM / onset admission bands | ✅ LIVE | `BPM admission gate ... rejected=N`, `Onset admission band ... rejected=N`. | — |
-| `bpm_trust_min_onset_rate` (beatless) | ✅ LIVE | Shipped master `ad9403e`. | — |
-| GUI pace `off` option | ✅ LIVE | Added this session (b337835). | — |
-
-### Pier-bridge / infra
-| Component | State | Evidence / Notes | Action |
-|---|---|---|---|
-| Generation wall-clock bound (empty-pool short-circuit + total-generation deadline) | 🟢 FIXED | `bc942d5` (tiers 2-3) + `955f542..4302cfe` (the real fix): single shared `generation_budget_s` deadline (default 60s) threaded through tier-1 base beam, micro-pier, and `core.py` One-Each retries (one deadline across retries, not reset). strict/hyperpop **1402s → 79s**. Bails to the guaranteed-fill fallback. On the v6 branch only — cherry-pick to master if production needs it before the branch merges. | Confirm in real artist-mode GUI; (minor) greedy fallback per-artist cap |
-| `no usable g_targets` warning flood | 🟢 FIXED | Demoted to debug in beam; logged once/segment in builder (`bc942d5`). Confirm on real artist-mode run. | Confirm in GUI. |
-| Generation **cancellation** | 🟢 INTEGRATED | Cherry-picked `87401b9` (from `fix/generation-cancellation`) 2026-06-21. Process-global hook + `OperationCancelled(BaseException)` (not swallowed by `except Exception`); checkpoints at segment boundary / expansion attempt / beam step (verified in valid loops); 6 unit tests pass; full suite green. Composes with the cascade budget. | Confirm click-cancel end-to-end in the GUI. |
-| Never-fail greedy fallback (term-pool) | ✅ LIVE / 🤝 | Fills segments when the beam can't; genre-aware version in-flight `worktree-genre-aware-greedy-fallback` (`0b028d4`). | Coordinate before editing the fallback. |
-| dj_bridging | ✅ LIVE (when enabled) | Ladder route + waypoints fire when `dj_bridging_enabled`. | — |
-
-### Calibration (depends on ALL wiring above)
-| Item | State | Action |
+| Component | State | Notes |
 |---|---|---|
-| Three-axis calibration (sonic floors + genre gate + pace rescue/arc), eval-gated on worst-edge | ⏳ BLOCKED | Run **once**, on the stable post-wiring foundation, against MERT. Diverse seeds, real playlists, `BPM loaded` verified. |
+| **MuQ embedding** (`X_sonic_muq`, 512-d, `MuQ-MuLan-large`, `center_l2`) | ✅ LIVE | The **sole** sonic space. `sonic_variant_override` resolves to `muq` (shipped, live, artifact all agree). Reproducible: `muq` stage → `muq_runner.py` → `muq_sidecar.npz` → `fold_muq`. |
+| MERT (768-d) + tower blend (163-d) + `transition_weights`/`tower_weights` | 📦 REMOVED | Deleted by SP-B. Data archived at `data/archive/mert_2026/`. No runtime path, no config keys. |
+| Transition calibration (`TRANSITION_CALIB_BY_VARIANT`) | ✅ LIVE | `muq` centered at 0.594; single-sourced logistic; unresolvable variant raises. |
 
----
+## Selection / pier-bridge
 
-## Other sessions' in-flight branches (coordinate — do not merge blindly)
-| Branch | Commit | Overlaps our scope? |
+| Component | State | Notes |
 |---|---|---|
-| `fix/generation-cancellation` | `6a8bd28` | ✅ INTEGRATED to master (`87401b9`, 2026-06-21). Owner can delete the branch. |
-| `worktree-genre-aware-greedy-fallback` | `0b028d4` | YES — pier-bridge fallback quality (#3). |
-| `wip-gui-logging-genre-vocab` | `f9ec957` | Maybe — genre vocab/logging. |
-| `worktree-phase1-album-adjudicator` | — | Genre adjudication (longer-horizon). |
-| `codex/ai-genre-model-prior` | — | Genre model prior (longer-horizon). |
+| Pier-bridge beam search | ✅ LIVE | Sole topology; legacy greedy constructor is dead code. |
+| **`artist_style.enabled`** (medoid-clustered piers) | 🟡 **LIVE-ONLY** | `config.yaml: true`, **`config.example.yaml: false`** → the shipped template runs the *legacy per-seed* pier path, not medoid clustering. Big shipped-vs-live divergence; likely a template gap. |
+| Cohesion / genre / sonic / pace mode axes | ✅ LIVE | Default `dynamic`. `pace_mode` has no `discover` level (the other three do). |
+
+## Collapse prevention (anti-sag scoring)
+
+| Component | State | Notes |
+|---|---|---|
+| Anti-center (SP2, `seed_character_mode: anti_center` @ 2.0) | ✅ LIVE | Scoring anti-sag; partial (dreampop plateaus ~101%). "hubness" variant deleted. |
+| Mini-piers (SP3, `mini_pier_enabled`) | ✅ LIVE | Structural anti-sag; closes the residual (dreampop 103%→63%). |
+
+## Weak-edge recovery cascade (post-beam)
+
+| Pass | State | Notes |
+|---|---|---|
+| Variable bridge length (add-only) | ✅ LIVE | `variable_bridge_length: true` shipped. |
+| tail-DP | ✅ LIVE | `tail_dp` shipped on. |
+| **Edge repair (break-glass)** | 🟡 **LIVE-ONLY** | `config.yaml` has `edge_repair: {enabled: true, ...}`; **`config.example.yaml` has no `edge_repair:` block** → a fresh clone runs it OFF. Shipped gap (`CLEANUP_LIST.md`). |
+| Edge delete (remove-only) | ✅ LIVE | `edge_delete` shipped on. |
+| Roam corridors | 🟡 LIVE-ONLY | On in `config.yaml`, absent from `config.example.yaml`. Advanced/opt-in. |
+| `generation_budget_s` | ✅ LIVE (=0) | Shipped `0` = time limit disabled (quality-first). 90 s ceiling is a design target. |
+
+## Genre
+
+| Component | State | Notes |
+|---|---|---|
+| Authority (`release_effective_genres` via `authority.py`) | ✅ LIVE | Sole writer = `publish`; sole reader = `authority.py`. Artifact bakes it (`genre_source: graph`). |
+| Taxonomy graph (`layered_genre_taxonomy.yaml`, ~v0.26) | ✅ LIVE | Living, GUI-grown; hub-guarded similarity. |
+| Genre metric = `max` (soft penalty, never a hard gate) | ✅ LIVE | Soft-cosine alternative rejected, never merged. Two soft demotions (pool compatibility + beam pair-floor). |
+| Genre arc steering (`genre_steering_source: taxonomy`) | ✅ LIVE | Rebuild-robust; `dense` source raises if its sidecar is unusable. |
+
+## Pace / energy
+
+| Component | State | Notes |
+|---|---|---|
+| BPM + onset-rate hard bands + soft rhythm penalty | ✅ LIVE | Embedding-independent (DB features); survived the MuQ migration. Beatless pier disables its own BPM band. |
+| Energy arc / pace-contour (`energy_*_strength`) | ⚪ OFF | Parked — measured redundant with MuQ for smoothness; revive only for *intentional* directional arcs (`CLEANUP_LIST.md`). |
+
+## Features
+
+| Component | State | Notes |
+|---|---|---|
+| Tag-steering — **pool lever** (`tag_steering_pool_blend` 0.5) | ✅ LIVE | Blends the tag target into the dense admission centroid; mode-agnostic. Inert with no tags. |
+| Tag-steering — **pier lever** (`tag_steering_pier_weight` 0.3) | 🟡 partial | Gated by `artist_style.enabled` — so dormant in the shipped template (see above), live in `config.yaml`. |
+| Tag-steering stage-2 (beam lever) | 📦 not built | Designed; gate never tripped. |
+| Popular-seeds (`popular_seeds_mode`) / Oops-All-Bangers (`popularity_mode`) | ⚪ OFF | Both default off. |
 
 ---
 
-## Wiring sequence (dependency-ordered)
+## Known open gaps / bugs (see `CLEANUP_LIST.md` for detail)
 
-1. **Sonic geometry** — ✅ DONE (MERT + 2DFTM re-folded, verified live).
-2. **Genre arc steering source** — reactivate dead arc (`dense → taxonomy`, or rebuild dense). 🟡 part of #3.
-3. **Genre admission policy** — hard gate → soft/relaxable (the starvation fix). 🟡 #3 design decision.
-4. **(Optional) Genre layered admission flip** — decide in #3.
-5. **Coordinate in-flight branches** — integrate `fix/generation-cancellation`; align with `worktree-genre-aware-greedy-fallback`.
-6. **Cosmetic** — `sim_variant` key cleanup.
-7. **THEN: three-axis calibration vs MERT** — pace last (it acts on the pool genre+sonic admission produces).
-
-Steps 2–4 are the **#3 brainstorm** (genre steering + admission are entangled — one design pass).
-
----
-
-## Verification protocol (every change)
-
-Per change, generate a **real playlist** and **read the log** (CLAUDE.md + `playlist-testing` skill). Confirm:
-
-1. **Data present:** `BPM loaded: N/N`, `Using precomputed sonic variant 'mert'`, no `vocabulary mismatch` for the sidecar you rely on.
-2. **The change fired:** the specific log line for the feature (e.g. genre arc targets built, gate tally shifted, rescue `admitted=N`).
-3. **Gate tally / pool health:** `admission gate ... rejected`, `Candidate pool: ... admitted=N`, `pool_after_gate`, `pool too small` / `budget exceeded` (should be rare).
-4. **Completion + budget:** `Pier+Bridge complete`, wall-time < 90s (hard ceiling).
-5. **No regression adjacent to the change.**
-
-Artist-mode (typed-artist) paths go through the **real worker** (DB clustering is not covered by `generate_like_gui`); seeds-mode goes through `generate_like_gui`. Use the path that matches what you changed.
+- 🟡 **`edge_repair:` absent from `config.example.yaml`** — fresh clone runs break-glass repair off while live runs it on.
+- 🟡 **`artist_style.enabled: false` in `config.example.yaml`** — fresh clone runs the legacy per-seed pier path (no medoid clustering; tag-steering pier lever dormant).
+- 🔴 **Edge-repair vs reporter T-mismatch** — repair has flagged edges the final reporter scores healthy (T ≈ 0.66–0.79 vs a 0.30 floor); root-cause blocked until `edge_repair` logs which trigger arm fired. Do not retune floors against the reporter until resolved.
+- ⚪ **Fixer deadzone (0.30–~0.75)** — ugly-but-legal edges above every trigger floor get no attention; a deliberate policy question, not a bug.
+- 📝 **`CLAUDE.md:115` stale** — "until the Task-10 rebuild" describes a rebuild that already happened (the live artifact has only `X_sonic_muq*`).
+- 🔴 **`sonic_mode` admission floors are MERT-calibrated, not MuQ.** `min_sonic_similarity` in `mode_presets.py` (strict 0.28 / narrow 0.18 / dynamic 0.08) are MERT cosine percentiles (p75/p50/p25/p10, "recalibrated 2026-06" — for MERT). SP-B removed MERT but left these absolute floors; MuQ's cosine distribution differs (its transition calibration centers at 0.594 vs MERT's 0.32), so `sonic_mode` strict/narrow may over- or under-gate on MuQ. **Needs recalibration against the MuQ distribution** (cf. `FLOOR_RECALIBRATION_DISTRIBUTIONS.md`). The blend weights are embedding-agnostic and fine; only the absolute floors are suspect.
+- ✅ **RESOLVED (moot):** the earlier `config.example` `transition_weights` mismatch bug — SP-B removed the knob entirely.
