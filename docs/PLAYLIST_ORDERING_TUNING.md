@@ -1,18 +1,33 @@
-# Playlist Ordering Tuning Recipe (updated 2026-05-21)
+# Playlist Ordering Tuning Recipe
 
-Opt-in ordering & track-quality knobs added in
-`docs/superpowers/plans/2026-05-20-playlist-ordering-and-track-quality.md`,
-plus the foundational `transition_weights` alignment learned via the
-diagnostic audit on 2026-05-21.
+A practical, knob-by-knob guide for playlist ordering and track-quality problems in the
+pier-bridge engine. For orientation on *what the pieces are*, see
+[`ARCHITECTURE.md`](ARCHITECTURE.md); for *why* a default landed where it did, see
+[`DESIGN_RATIONALE.md`](DESIGN_RATIONALE.md) — this doc states the knob and the trade-off, not
+the experiment behind it.
+
+> **Reading the defaults below.** Same three layers as `ARCHITECTURE.md`: (1) **dataclass
+> defaults** (`src/playlist/pier_bridge/config.py`) are the rollback baseline — every
+> experimental lever is off/legacy here; (2) **`config.example.yaml`** is the shipped default —
+> what a clean install actually runs; (3) **`config.yaml`** is the live, gitignored config on one
+> machine. Each knob below names its config key and states which of the three layers it ships
+> at, so you can always see the rollback path.
+
+**Scope note:** this doc is sonic-variant-independent. It does not document which sonic
+embedding (`tower_weighted` / `mert` / `muq`) is active — see `ARCHITECTURE.md` §"Sonic feature
+space" for that axis. Where a knob's behavior differs across variants (Knob 0), it says so and
+cross-links rather than picking a variant.
 
 ---
 
 ## Symptoms that suggest these knobs may help
 
-- High-T transitions still feel jarring (texture/density mismatch despite 0.9+ scores)
+- High-`T` transitions still feel jarring (texture/density mismatch despite 0.9+ scores)
 - Demo, live, or medley tracks appearing unprompted in playlists
-- A few catastrophically bad edges (T < 0.20) per playlist despite high mean T
-- "min_transition" in stats is much lower than mean_transition
+- A few catastrophically bad edges (`T < 0.20`) per playlist despite a high mean `T`
+- `min_transition` in stats is much lower than `mean_transition`
+- A long bridge's interior tracks feel like generic filler, not like either pier ("sag")
+- Ambient/beatless seeds strand a segment, or a playlist takes far longer than others to build
 
 ---
 
@@ -25,27 +40,40 @@ playlists:
       emit_selected_edge_audit: true
 ```
 
-Generate a playlist. The log will include a **"Selected-edge audit"** section with per-edge:
+Dataclass default: `False`. Not set in `config.example.yaml` (diagnostic-only, zero behavior
+change, opt in per debugging session).
+
+Generate a playlist. The log will include a **"Selected-edge audit"** section
+(`src/playlist/reporter.py::emit_selected_edge_audit`) with per-edge:
+
 - `T`, `T_centered_cos`, `S` (sonic cosine), `G` (genre similarity)
 - `bridge_score` (harmonic mean sim to both piers)
-- `trans_beam` (beam's internal transition score — comparable to T)
+- `trans_beam` (beam's internal transition score — comparable to `T`)
 - `progress_t`, `progress_jump`
 - `local_sonic_cos` (raw cosine of the edge, uncentered)
 - `local_pen`, `genre_pen` (penalties applied)
 - `title_flags` (artifact flags for the destination track)
+- `bpm=A->B dist=D` (BPM values + log-distance, when both tracks have trusted BPM)
 - `⚠` prefix on edges below the transition floor
 
-Also watch for `WARNING: T-mismatch edge` lines. These are now regression signals: the beam and final reporter share the same transition metric, so a mismatch usually means stale audit data or a missing-data fallback, not normal tuning drift.
+Also watch for `WARNING: T-mismatch edge` lines
+(`src/playlist/reporter.py::diagnose_t_mismatch`). These are regression signals: the beam and
+final reporter share the same transition metric, so a mismatch usually means stale audit data or
+a missing-data fallback, not normal tuning drift.
 
 ---
 
-## Knob 0: Align `transition_weights` with `tower_weights` (BIGGEST IMPACT)
+## Knob 0: Align `transition_weights` with `tower_weights` — tower-rollback space only
 
-**Do this first.** Skip the other knobs until this is correct.
+**Applies only if you've rolled back to the `tower_weighted` sonic variant.** On the live
+learned-embedding variants (MERT / MuQ) this knob is **inert** — read the caveat below before
+touching it.
 
-`transition_weights` controls how the rhythm/timbre/harmony towers are weighted *inside the beam's transition scoring*. `tower_weights` controls how those towers are weighted in the hybrid embedding used for candidate similarity and the rest of the pipeline.
-
-**These must match.** When they don't, the beam scores transitions in a different feature space than the reporter (and the listener) uses to judge them. The beam will systematically approve edges that score poorly post-hoc.
+`transition_weights` controls how the rhythm/timbre/harmony towers are weighted *inside the
+beam's transition scoring*. `tower_weights` controls how those towers are weighted in the
+candidate-similarity embedding. On the tower artifact, **these must match** — otherwise the beam
+scores transitions in a different feature space than the reporter (and the listener) judges them
+in, and approves edges that score poorly post-hoc.
 
 ```yaml
 playlists:
@@ -54,32 +82,49 @@ playlists:
       rhythm: 0.20
       timbre: 0.50
       harmony: 0.30
-    transition_weights:        # MUST match tower_weights
+    transition_weights:        # MUST match tower_weights on the tower variant
       rhythm: 0.20
       timbre: 0.50
       harmony: 0.30
 ```
 
-**Empirical impact on a representative seeded playlist (Geese / 5 piers / 30 tracks):**
+Shipped in `config.example.yaml`: `tower_weights` 0.20/0.50/0.30 but `transition_weights`
+**0.40/0.35/0.25** — a **stale misalignment** (the pre-v4.1 rhythm-heavy default), not
+intentional. On a tower-rollback install, set `transition_weights` to match `tower_weights`
+(0.20/0.50/0.30) before trusting tower-space audits.
+
+> **⚠️ This misalignment is also a live bug on the default learned variants.** Because
+> 0.40/0.35/0.25 is non-default, `validate_tower_knobs` (see the callout below) *raises* on a
+> mert/muq artifact — so a fresh clone that copies `config.example.yaml` onto the default MERT
+> artifact hits a `ValueError` on first generation until `transition_weights` is set to the
+> default. Tracked in [`CLEANUP_LIST.md`](CLEANUP_LIST.md).
+
+**Empirical impact on the tower artifact (Geese / 5 piers / 30 tracks):**
 
 | Metric | Rhythm-dominant (0.50/0.25/0.15) | Aligned (0.20/0.50/0.30) | Change |
 |---|---|---|---|
 | `min_transition` | 0.366 | 0.459 | +0.09 |
 | `mean_transition` | 0.828 | 0.898 | +0.07 |
 | `p10` | 0.567 | 0.709 | +0.14 |
-| Worst edges | METZ→DinoJr (0.366), DinoJr→Ride (0.537) | Those edges gone | — |
 
-**How to verify alignment:** Generate with `emit_selected_edge_audit: true` and compare `T` vs `trans_beam` per row. They should track together. Persistent large gaps (>0.3) indicate weights still diverge somewhere.
+**How to verify alignment:** enable `emit_selected_edge_audit` and compare `T` vs `trans_beam`
+per row on the tower artifact. They should track together; a persistent gap > 0.3 means weights
+still diverge.
 
-**Why timbre-dominant works for indie/rock libraries:** In a relatively homogeneous neighborhood (e.g., indie pop), most tracks share tempo and time-feel — rhythm is a poor discriminator. What listeners actually notice is production style, density, and tone color, which are timbre. The previous rhythm-dominant default approved loud-to-loud handoffs (METZ → Dinosaur Jr) that felt jarring in texture.
-
-**Structural alignment as of 2026-06-02:** The `transition_weights == tower_weights` invariant is now satisfied structurally at build time. The production artifact (`tower_weighted` variant) bakes the 0.20/0.50/0.30 per-tower L2 + √weight scaling into the vectors themselves, so both the full embedding and the start/end vectors are already tower-weighted. The `apply_transition_weights` call in the runtime path is therefore a legitimate no-op (identity multiply against a pre-scaled space), not a silent fallback caused by dim-mismatch. You no longer need to manually verify weight alignment unless a new artifact rebuild resets the variant away from `tower_weighted`.
+> **Why this knob goes inert on MERT/MuQ.** A learned embedding is a single space — there is no
+> rhythm/timbre/harmony split to reweight, so the beam and reporter both score plain cosine in
+> the variant space, and the beam/reporter alignment holds by construction, not by matching
+> weights. `validate_tower_knobs` (`src/features/artifacts.py`) enforces this at load time: the
+> default 0.20/0.50/0.30 logs an INFO note that the knobs are inert; **any non-default
+> `transition_weights` against a mert/muq artifact raises at startup** rather than silently doing
+> nothing. See `ARCHITECTURE.md` §"Sonic feature space" for the variant picture, and
+> `DESIGN_RATIONALE.md` for why learned embeddings replaced the tower blend as the live default.
 
 ---
 
-## Knob 1: Title-artifact penalty (Task 4)
+## Knob 1: Title-artifact penalty
 
-**Use when:** The audit shows `title_flags` like `demo`, `live`, `medley` on bad-feeling tracks.
+**Use when:** the audit shows `title_flags` like `demo`, `live`, `medley` on bad-feeling tracks.
 
 ```yaml
 playlists:
@@ -99,17 +144,23 @@ playlists:
           alternate: 0.10
 ```
 
-**Tuning:** Higher weights = stronger demotion. These values are starting points.
-`0.10` demotes a demo track by roughly the same magnitude as a moderate bridge score difference.
-`0.20` (medley) strongly discourages medleys unless no alternatives exist.
+Dataclass default: `title_artifact_penalty_enabled: False`, no weights. Not set in
+`config.example.yaml` — opt-in, add it yourself once the audit shows a real problem.
 
-**Warning:** Setting weights above `0.30` may strand long narrow-style segments (One Each / artist mode). If generation starts failing, dial weights down by 50%.
+**Tuning:** higher weights demote more strongly. `0.10` demotes roughly on the order of a
+moderate bridge-score difference; `0.20` (medley) strongly discourages medleys unless there's no
+alternative. Recognized flags are detected by `src/playlist/title_quality.py::detect_title_artifacts`
+(word-boundary, case-insensitive); a flag missing from the `weights` dict contributes nothing.
+
+**Warning:** weights above `0.30` can strand long narrow-style segments (artist mode). If
+generation starts failing, dial weights down by half.
 
 ---
 
-## Knob 2: Scaled local-sonic-edge penalty (Task 5)
+## Knob 2: Scaled local-sonic-edge penalty
 
-**Use when:** The audit shows many `local_sonic_cos` values below 0.10 and `local_pen` is tiny (< 0.03). The penalty is decorative in `legacy` mode.
+**Use when:** the audit shows many `local_sonic_cos` values below 0.10 and `local_pen` is tiny
+(< 0.03) — the penalty is decorative in `legacy` mode.
 
 ```yaml
 playlists:
@@ -121,128 +172,379 @@ playlists:
       local_sonic_edge_penalty_scale: 2.0
 ```
 
+Dataclass default: `enabled: False`, `mode: legacy`. Not set in `config.example.yaml`.
+
 **Tuning:**
-- `threshold: 0.15` flags edges with raw sonic cosine below 0.15 (sonically anti-correlated or orthogonal).
-- `scale: 2.0` produces penalties of 0.05–0.30 — comparable to bridge score differences.
+- `threshold: 0.15` flags edges with raw sonic cosine below 0.15 (sonically anti-correlated or
+  orthogonal).
+- `scale: 2.0` produces penalties of 0.05–0.30 — comparable to bridge-score differences.
+  `legacy` mode's `strength * (threshold - edge_cos)` math is preserved for anyone who explicitly
+  wants it, but it under-penalizes; `scaled` is the recommended mode.
 - Verify in the audit that `local_pen` values are now non-trivial (0.05+) on triggering edges.
-- Suggested experiment: start at `scale: 1.5`, observe `min_transition` in stats, increase to 2.0 if still getting jarring edges.
+- Start at `scale: 1.5`, watch `min_transition` in stats, raise to 2.0 if edges are still jarring.
 
 ---
 
-## Knob 3: Worst-edge lexicographic beam objective (Task 6)
+## Knob 3: Worst-edge lexicographic beam objective
 
-**Use when:** `min_transition` in stats is dramatically lower than `mean_transition`, and a few single bad edges ruin otherwise good playlists.
+**Use when:** `min_transition` in stats is dramatically lower than `mean_transition`, and a few
+single bad edges ruin an otherwise good playlist.
 
 ```yaml
 playlists:
   ds_pipeline:
     pier_bridge:
-      min_edge_objective: min_edge
+      min_edge_objective: min_edge   # default: total_score
 ```
 
-**Effect:** The beam selects paths that maximize the worst edge, breaking ties by total score. Expected: `min_transition` rises noticeably; `mean_transition` may drop slightly.
+Dataclass default: `"total_score"`. Not set in `config.example.yaml`.
 
-**Warning:** This changes what the beam optimizes for. If playlists start feeling "safe but flat", revert to `total_score`.
+**Effect:** the beam picks the path that maximizes the worst edge, breaking ties by total score
+— the direct implementation of Layer-1 principle 5 ("the worst edge defines the experience").
+Expected: `min_transition` rises noticeably; `mean_transition` may drop slightly.
+
+**Warning:** if playlists start feeling "safe but flat," revert to `total_score`. Consider
+**variable bridge length (Knob 7)** first — it targets the same symptom by flexing segment length
+rather than changing what the beam optimizes for, and is the shipped default lever for this
+symptom.
 
 ---
 
-## Knob 4: Edge repair fallback (last-mile guardrail)
+## Knob 4: The weak-edge recovery cascade (edge repair · tail-DP · edge-delete)
 
-**Use when:** The beam is already aligned (`T` and `trans_beam` match in the audit), but rare bad edges remain because the local candidate pool had a better adjacent replacement available after final assembly.
+After the beam assembles a playlist, a fixed **four-pass cascade** lifts weak or broken transition
+edges, escalating from least-destructive (swap) to most-destructive (delete). It runs **once, top
+to bottom — it is not a retry loop:** each pass hands its (possibly mutated) playlist to the next
+and no earlier pass re-runs, so a late deletion is never re-optimized by tail-DP.
 
-```yaml
-playlists:
-  ds_pipeline:
-    pier_bridge:
-      edge_repair:
-        enabled: true
-        centered_cos_floor: -0.5
-        margin: 0.05
-        variety_guard:
-          enabled: false
-          threshold: 0.85
-```
+| # | Pass | Scope | What it does | Trigger | Config (shipped default) |
+|---|------|-------|--------------|---------|--------------------------|
+| 1 | **variable bridge length** (add-only) | per-segment, pre-assembly | lengthens a weak segment's interior (never shortens) to land more smoothly — documented as **Knob 7** | worst edge `< variable_bridge_min_edge` (0.30) | `variable_bridge_length: true` |
+| 2 | **tail-DP** | per-segment, pre-assembly | re-opens the last ≤2 interior slots of each just-finalized segment and exactly maximizes the landing-window min-edge over the segment pool (never-worse) | window min-edge `< tail_dp.floor` (0.30; 0 = always) | `tail_dp: {enabled: true, floor: 0.3, epsilon: 0.02}` |
+| 3 | **edge repair** (break-glass) | global, post-assembly | swaps ONE interior track for a pool candidate that lifts the local `min(T_in, T_out)` by ≥ `margin` (never changes length) | `T < t_floor` (0.30) **or** catastrophic `T_centered_cos < centered_cos_floor` (−0.5) | ⚠️ **absent from `config.example` → off** (gap below) |
+| 4 | **edge delete** (remove-only, last resort) | global, post-repair | deletes ONE interior endpoint of the worst edge — only if the merged edge strictly beats it (never-worse) and it won't breach a bystander artist's `min_gap` | worst `T < edge_delete.floor` (0.30), up to `max_deletions` (4) | `edge_delete: {enabled: true, floor: 0.3, max_deletions: 4}` |
 
-**Effect:** After the beam emits the playlist, repair scans broken edges using the same final transition metric. It may replace one non-seed, non-pier interior track only when both adjacent edges clear the transition floor, neither centered cosine is catastrophic, and the worst adjacent `T` improves by at least `margin`.
+Each pass is independently disableable via its `*_enabled` key. Dataclass rollback defaults are
+**off** for variable-bridge and edge-repair, **on** for tail-DP and edge-delete; shipped
+`config.example.yaml` turns them all on *except* edge-repair (see the gap). Design intent
+(swap → add → remove) and the reorder reasoning live in `DESIGN_RATIONALE.md`.
 
-**Warning:** Keep this as a fallback, not the primary solution. If `WARNING: T-mismatch edge` appears, fix the metric regression first. Enable `variety_guard` only for dynamic/discover-style playlists where extra similarity between neighbors is acceptable.
+> **⚠️ Shipped-template gap.** `config.example.yaml` ships `tail_dp` and `edge_delete` on but has
+> **no `edge_repair:` block at all** — so a fresh clone runs edge-repair *off* (dataclass default)
+> while the live config runs it on. Add `edge_repair: {enabled: true, t_floor: 0.30,
+> centered_cos_floor: -0.5, margin: 0.05}` to the template. Tracked in [`CLEANUP_LIST.md`](CLEANUP_LIST.md).
+
+**When to reach for these:** the cascade is a post-beam safety net for weak edges the beam couldn't
+avoid — prefer fixing the cause upstream first (Knobs 0–3, variable bridge length). The
+`edge_repair.variety_guard` sub-knob (default off) rejects a repair swap whose new edge is *too*
+similar to its neighbours — enable only for dynamic/discover playlists.
+
+**Known limits (documented, not yet resolved — see `CLEANUP_LIST.md`):**
+- **The fixer deadzone (0.30 – ~0.75).** Every trigger floor sits at 0.30, so an *ugly-but-legal*
+  edge (e.g. a rough pier on-ramp at T ≈ 0.46) gets no fixer attention. If your worst edges cluster
+  in this band, the deliberate levers are raising the floors or making them percentile-relative to
+  the run — a policy choice, not a bug.
+- **Edge-repair vs reporter T can disagree.** Edge-repair has been seen flagging edges the final
+  reporter scores as healthy (T ≈ 0.66–0.79 against a 0.30 floor). Until that's root-caused, don't
+  retune the floors against reporter numbers, and treat a `WARNING: T-mismatch edge` as a reason to
+  distrust that run's quality metrics.
+- **90 s ceiling can be breached** on large multi-seed runs (e.g. 10-seed / 50-track), since the
+  shipped `generation_budget_s: 0` disables the time cap and the cascade adds work (see Knob 10).
 
 ---
 
 ## Knob 5: `pace_mode` (rhythm/tempo control)
 
-**Use when:** A playlist has the right color/texture but drifts too far in pace or energy, especially with slow/meditative seeds or deliberately high-energy seeds.
+**Use when:** a playlist has the right color/texture but drifts too far in pace or energy,
+especially with slow/meditative seeds, deliberately high-energy seeds, or a beatless
+(drone/ambient) pier.
 
 ```yaml
 playlists:
   pace_mode: narrow   # strict | narrow | dynamic | off
 ```
 
-**Effect:** `pace_mode` separates rhythm from the broader sonic axis. It applies a rhythm-axis admission floor when building the candidate pool, then applies a per-step moving rhythm target inside pier-bridge beam search. `dynamic` is the default and catches the most egregious tempo mismatches (2:1 BPM ratio) while allowing natural drift; `off` disables explicit pace gating for multi-tempo playlists that need no constraint.
+Shipped default: `dynamic` (`config.example.yaml`, top-level `playlists.pace_mode`, commented
+example; effective default even when absent). Presets live in
+`src/playlist/mode_presets.py::PACE_MODE_PRESETS`.
 
-**Starting values:**
+**Effect:** `pace_mode` is **embedding-independent** — it gates on BPM and onset-rate log-distance
+bands plus a soft rhythm penalty read from DB features, so it survives any sonic-embedding
+change (this is why the old rhythm-cosine tower penalty is inert on MERT/MuQ, and why pace
+exists as its own axis rather than folding into `sonic_mode`). It applies an admission floor when
+building the candidate pool, then a per-step moving target inside the pier-bridge beam.
 
-| Mode | Rhythm adm/bridge | BPM adm/bridge | Use case |
-|---|---|---|---|
-| `strict` | 0.55 / 0.65 | 0.30 / 0.40 | Tight tempo fidelity |
-| `narrow` | 0.35 / 0.45 | 0.50 / 0.60 | Moderate anchoring |
-| `dynamic` | 0.20 / 0.25 | 0.75 / 0.85 | Gentle — catches double-time (default) |
-| `off` | 0 / 0 | ∞ / ∞ | No pace constraint |
+**Starting values (from the live presets):**
 
-**Interaction with `sonic_mode`:** Orthogonal. `sonic_mode` still controls overall sonic similarity; `pace_mode` says how much the rhythm sub-vector must match. In multi-seed/DJ bridging runs, the beam target interpolates between adjacent piers' rhythm vectors, so a slow-to-fast route can still arc naturally when the piers themselves differ.
+| Mode | BPM adm/bridge log-dist | Onset adm/bridge log-dist | Bridge soft-penalty strength | Use case |
+|---|---|---|---|---|
+| `strict` | 0.30 / 0.40 | 0.30 / 0.40 | 0.50 | Tight tempo fidelity — slow/meditative seeds |
+| `narrow` | 0.50 / 0.60 | 0.50 / 0.60 | 0.40 | Moderate anchoring |
+| `dynamic` | 0.75 / 0.85 | 0.75 / 0.85 | 0.30 | Gentle — catches double-time, allows drift (default) |
+| `off` | ∞ / ∞ | ∞ / ∞ | 0.0 | No pace gate — rhythm still influences via the sonic embedding |
 
-**Diagnostics:** Watch for `Pace admission floor applied: floor=X rejected=N` in logs. If strict mode rejects too much of the candidate pool or makes segments infeasible, drop to `narrow` or use `dynamic`. In the edge audit, compare rhythm-sensitive transitions alongside `T`, `S`, and the weakest-edge report.
+Bands are **soft penalties, not hard gates** (`bpm_bridge_soft_penalty_strength` /
+`onset_bridge_soft_penalty_strength` > 0) — a hard gate on an outlier pier (e.g. a near-silent
+ambient track) can strand a segment and detonate the relaxation cascade into minutes. The hard
+gate still exists at `strength: 0` for anyone who wants the old behavior back.
+
+**Beatless piers:** `bpm_trust_min_onset_rate` (preset 0.5 for strict/narrow/dynamic; dataclass
+default 0.0/off) disables a segment's BPM band when its pier's onset rate is below this
+threshold — BPM is meaningless on drone (a beatless track can read a confident, wrong BPM). The
+onset band, which is reliable on beatless audio, stays active.
+
+**Interaction with `sonic_mode`:** orthogonal. `sonic_mode` controls overall sonic similarity;
+`pace_mode` constrains rhythm specifically. In multi-seed runs the beam's rhythm target
+interpolates between adjacent piers, so a slow-to-fast route can still arc naturally when the
+piers themselves differ.
+
+**Energy admission-rescue** (`pace_rescue_k_energy`, part of the same preset table): re-admits
+candidates rejected *only* by the BPM/onset bands, evenly spaced across sorted arousal — a relief
+valve so pace gating doesn't starve a segment of arc range. Shipped `0` (off) in `dynamic`;
+`strict`/`narrow` presets set 20/5. Off by default because the broader energy arc/contour feature
+is still unvalidated — see `DESIGN_RATIONALE.md` "Pace / energy."
+
+**Diagnostics:** watch for `Pace admission floor applied: floor=X rejected=N` in logs and the
+`bpm=A->B dist=D` line in the selected-edge audit. If strict mode rejects too much of the pool or
+makes segments infeasible, drop to `narrow` or `dynamic`.
 
 ---
 
 ## Knob 6: Local genre continuity (`soft_genre_penalty_*`)
 
-**What it does.** Penalizes any beam edge whose candidate-to-previous-track
-genre similarity drops below a per-mode threshold. The penalty multiplies the
-edge's combined beam score by `(1 - strength)`, demoting (but not gating)
-genre-jarring transitions. This is what suppresses single-track genre detours
-like a one-off folk-punk track in the middle of a dream-pop run.
+**What it does.** Penalizes any beam edge whose candidate-to-previous-track genre similarity
+drops below a per-mode threshold. The penalty multiplies the edge's combined beam score by
+`(1 - strength)`, demoting (not gating) genre-jarring transitions — what suppresses a single-track
+genre detour like a folk-punk track in the middle of a dream-pop run.
 
-**Where it lives.** `src/playlist/pier_bridge/beam.py:1030` (penalty
-application); `src/playlist/config.py:268-276` (per-mode resolution); flat
-default `0.20 / 0.10` if no per-mode key is set.
+**Where it lives.** `src/playlist/pier_bridge/beam.py` (penalty application);
+`src/playlist/config.py` (per-mode resolution). Genre similarity here is the taxonomy-graph
+**`max`** metric (the max canonicalized-tag-pair similarity over the two tracks) — a soft-cosine
+alternative was built and evaluated but rejected; see `DESIGN_RATIONALE.md` §"Genre metric."
 
-**Note:** Per-mode knobs (`bridge_floor_strict`, `soft_genre_penalty_threshold_narrow`, etc.) are resolved by `playlists.cohesion_mode`. With the default `cohesion_mode: dynamic`, only `*_dynamic` keys apply. Set `cohesion_mode` to `strict`/`narrow`/`discover` to activate those per-mode values. Use `--cohesion-mode` on the CLI to override for a single run.
+**Note:** per-mode knobs (`soft_genre_penalty_threshold_narrow`, etc.) are resolved by
+`playlists.cohesion_mode`. With the default `cohesion_mode: dynamic`, only `*_dynamic` keys
+apply. Set `cohesion_mode` to `strict`/`narrow`/`discover` (or use `--cohesion-mode` on the CLI
+for one run) to activate those per-mode values.
 
-**Per-mode defaults (post-recalibration).** Adjust in `config.yaml`:
+**Per-mode defaults, shipped in `config.example.yaml`:**
 
 | Mode      | threshold | strength | Role                                    |
-|-----------|-----------|----------|-----------------------------------------|
-| strict    | 0.82      | 0.40     | Hard enforcement of local continuity    |
-| narrow    | 0.78      | 0.30     | Suppress single-track detours           |
-| dynamic   | 0.55      | 0.15     | Light continuity nudge                  |
-| discover  | 0.20      | 0.10     | Safety net only — allow variety         |
-| off       | 0.20      | 0.10     | Safety net only — allow variety         |
+|-----------|-----------|----------|------------------------------------------|
+| strict    | 0.82      | 0.40     | Hard enforcement of local continuity     |
+| narrow    | 0.78      | 0.30     | Suppress single-track detours            |
+| dynamic   | 0.73      | 0.15     | Light continuity nudge                   |
+| discover  | 0.20      | 0.10     | Safety net only — allow variety          |
+| off       | 0.20      | 0.10     | Safety net only — allow variety          |
 
 **How to diagnose.** Run with `--log-level DEBUG` and look for per-segment
-`Segment N: soft_genre_penalty_hits=H edges_scored=E threshold=T strength=S`
-lines. The post-generation summary also reports total `soft_genre_penalty_hits`.
+`Segment N: soft_genre_penalty_hits=H edges_scored=E threshold=T strength=S` lines
+(`pier_bridge_builder.py`). The post-generation summary also reports total
+`soft_genre_penalty_hits`.
 
-- If `hits == 0` across all segments in a non-discover mode, the threshold
-  is too low to be doing anything — raise it toward the observed `G genre`
-  median (look at the `G genre: mean=... p50=...` line in the summary).
-- If `hits > 50%` of `edges_scored` in narrow or strict mode, the threshold
-  is too high — you're penalizing the median edge, not just outliers. Lower
-  toward the `G genre` p25-p33 range.
-- If you see bridge relaxation warnings (`Segment N attempt 2: widened=True`)
-  appearing in narrow mode after recalibration, the penalty plus the gate
-  is starving segments — lower `strength` first, then `threshold`.
+- If `hits == 0` across all segments in a non-discover mode, the threshold is too low to be
+  doing anything — raise it toward the observed `G genre` median in the summary.
+- If `hits > 50%` of `edges_scored` in narrow or strict mode, the threshold is too high — you're
+  penalizing the median edge, not just outliers. Lower toward the `G genre` p25–p33 range.
+- If bridge relaxation warnings (`Segment N attempt 2: widened=True`) appear in narrow mode after
+  recalibration, the penalty plus the gate is starving segments — lower `strength` first, then
+  `threshold`.
 
-**Caveat.** This knob was originally designed as a safety net against
-genuine genre conflicts (raw overlap near zero). The recalibration extends
-it to continuity enforcement. If you ever need both behaviors at different
-thresholds, that's the signal to split into a separate
-`local_genre_edge_penalty` mechanism (see brainstorm 2026-05-23 Strategy B).
+**Caution.** A flat threshold of 0.80 was tried and reverted — it introduced worse worst-case
+edges by shifting the beam onto paths with low `T` but high `G`, which the penalty can't see.
+Raise only after confirming `min_T` and `below_floor` hold.
 
-**Relationship to `genre_tiebreak_weight`.** The tiebreaker (default 0.05)
-nudges near-tied edges; the penalty actively demotes below-threshold edges.
-They are independent — leave tiebreaker at 0.05 unless you have a specific
-reason.
+**Related, independent mechanism — raw-tag pool compatibility.** A second, separate soft
+demotion (`genre_compatibility_enabled` / `genre_compatibility_penalty_strength`, live-only —
+dataclass default off, not in `config.example.yaml`) applies during *candidate-pool
+construction*, not at the beam edge: it demotes a candidate whose raw-tag overlap with the seed
+is below `genre_compatibility_conflict_threshold` (0.15) — a pool-level filter, complementary to
+this beam-level continuity penalty. Both are soft; a hard genre gate anywhere in the pipeline
+detonates the relaxation cascade. **CLAUDE.md gotcha caveat:** the project doc's
+`genre_conflict_min_confidence` / `genre_conflict_penalty_strength` key names are stale — the
+real keys are `genre_compatibility_*` as above.
+
+**Relationship to `genre_tiebreak_weight`.** The tiebreaker (default 0.05) nudges near-tied
+edges; the penalty actively demotes below-threshold edges. They're independent — leave the
+tiebreaker at 0.05 unless you have a specific reason to change it.
+
+---
+
+## The collapse-prevention stack (Knobs 7–9)
+
+Long bridges tend to **sag**: interior tracks drift toward the dense, genre-blurred "average" of
+the local pool rather than representing the seeds' actual character. This is now understood as
+two related failure modes — cross-seed convergence and within-bridge sag — and three levers
+target it, in the order you should reach for them. See `ARCHITECTURE.md` §"The
+collapse-prevention stack" for the map and `DESIGN_RATIONALE.md` for the evidence (including the
+density-floor approach that was tried and abandoned).
+
+### Knob 7: Variable bridge length
+
+```yaml
+playlists:
+  ds_pipeline:
+    pier_bridge:
+      variable_bridge_length: true
+      # variable_bridge_flex: 2
+      # variable_bridge_band: 5
+      # variable_bridge_min_edge: 0.30
+      # variable_bridge_max_flex_segments: 3
+```
+
+Dataclass default: `False` (even split, rollback). **Shipped `true` in `config.example.yaml`** —
+part of the collapse-core.
+
+**What it does.** A rigid even split pads every segment to the same interior length regardless
+of whether the pier-to-pier distance actually calls for it. Variable length instead builds the
+nominal even split, and — only for a segment whose worst edge is below `variable_bridge_min_edge`
+(0.30) — greedily tries every interior length in `[nominal-flex, nominal+flex]` (flex=2), keeps
+the one with the best worst-edge (the "bottleneck," which includes the pier-return edge), and
+prefers the nominal length unless a flexed length beats it by more than `variable_bridge_epsilon`
+(0.02 — a prefer-nominal-first anti-crutch so it doesn't flex when it doesn't need to). The total
+track count is allowed to land within `±variable_bridge_band` (5) of the requested playlist
+length. `variable_bridge_max_flex_segments` (3) is a **deterministic cap** on how many segments
+may actually flex per generation — it replaced an earlier wall-time guard so the cost is
+predictable, not time-boxed.
+
+**When to reach for it:** this is the first lever for "worst-edge is bad but average is fine" —
+it's structurally cheaper than Knob 3's global objective change because it only perturbs the
+specific segment that needs it.
+
+**Trade-off:** flexing costs roughly 2.5–3x the generation time of the segments that actually
+flex (every candidate length in the flex range gets a full trial build). It's inert on a seed set
+where every segment nominal length is already the best fit (about half of real seed sets in
+validation).
+
+### Knob 8: Seed-character anti-collapse (SP2, `anti_center`)
+
+```yaml
+playlists:
+  ds_pipeline:
+    pier_bridge:
+      seed_character_mode: anti_center   # off | anti_center
+      seed_character_strength: 2.0
+```
+
+Dataclass default: `seed_character_mode: "off"`, `strength: 0.0`. **Shipped
+`anti_center` @ `2.0` in `config.example.yaml`.**
+
+**What it does.** A *scoring* fix for within-bridge sag: it subtracts
+`strength * max(0, cos(candidate, pool_centroid) - bridge_score)` from a candidate's combined
+score — directly penalizing a candidate for sitting closer to the local segment's generic pool
+center than to its own piers. The centroid is the mean of the segment's L2-normalized candidates,
+**excluding the piers themselves**, so a candidate can't get credit just for being near the
+seeds.
+
+**Note — hubness was deleted.** An earlier second selector (`hubness`, a kNN in-degree
+deflation) was evaluated alongside `anti_center` and lost (weaker effect, didn't scale) — it has
+been **removed from the codebase**. `seed_character_mode` now accepts only `off` or
+`anti_center`; don't look for a `hubness` option, and don't reintroduce it without new evidence.
+
+**When to reach for it:** the default always-on lever against sag. `strength: 2.0` is the
+validated sweet spot (measured sag reduction: electronic 60%→46%, dreampop 117%→101% on the
+collapse harness, with playlist quality held). Turning it up further hasn't been validated —
+treat this as a tuned constant, not a dial to crank.
+
+**Trade-off / known limit:** it's a **partial** dent, not a fix. On some seed pairs (dreampop) it
+plateaus around 101% — scoring alone can't fully prevent a long, genre-blurred segment from
+sagging. That's what Knob 9 (mini-piers) exists to close.
+
+### Knob 9: Mini-piers (SP3, structural anti-sag)
+
+```yaml
+playlists:
+  ds_pipeline:
+    pier_bridge:
+      mini_pier_enabled: true
+      mini_pier_max_interior: 5
+      mini_pier_smoothness_margin: 0.12
+```
+
+Dataclass default: `mini_pier_enabled: False`. **Shipped `true` / `max_interior: 5` /
+`margin: 0.12` in `config.example.yaml`.**
+
+**What it does.** Where Knob 8 nudges scoring, this is a *structural* fix: it splits any segment
+whose interior would exceed `mini_pier_max_interior` (5) tracks by picking a high-character
+waypoint — selected via a smoothness floor plus the same anti-center scoring as Knob 8 — and
+pinning it as an **extra pier**. The beam then can't drift past that anchor; it's structurally
+forced to route through a high-character point rather than the pool's generic average.
+`mini_pier_smoothness_margin` trades some worst-edge quality for character (a smoother, more
+generic waypoint is easier to bridge to but defeats the purpose; the margin bounds how much
+smoothness you'll sacrifice character for).
+
+**When to reach for it:** the residual-sag case Knob 8 plateaus on — long segments (interior >
+5) with a diffuse local pool. Measured effect: dreampop within-bridge sag 103%→63%.
+
+**Trade-off:** more piers means more segments, each independently beam-searched, so cost scales
+with how many segments actually split. It composes with Knob 8 rather than replacing it — anti-
+center still scores every candidate; mini-piers just adds structure the scoring alone can't
+enforce.
+
+### Roam corridors — live-only, advanced
+
+Roam corridors (on-manifold kNN geodesic routing + minimax worst-edge ordering,
+`playlists.ds_pipeline.pier_bridge.roam.*`) are a real, tested lever that is **live in the local
+`config.yaml` but not in `config.example.yaml`** — genuinely advanced/opt-in, outside the
+validated default bundle. Copy the relevant block from `config.yaml`'s comments if you want to try
+it, and expect to tune `roam.width_sonic` / `genre_pair_floor` per library. (Edge repair, which an
+earlier version of this note lumped in here, is part of the weak-edge recovery cascade in Knob 4
+above — its absence from `config.example` is a template gap to fix, not an intentional exclusion.)
+
+---
+
+## Knob 10: `generation_budget_s` (time budget)
+
+```yaml
+playlists:
+  ds_pipeline:
+    pier_bridge:
+      generation_budget_s: 0   # 0 = disabled
+```
+
+Dataclass default: `60.0`. **Shipped `0` (disabled) in `config.example.yaml`.**
+
+**What it does.** A single shared deadline computed once at generation start, threaded into
+every segment loop and relaxation tier, so no combination of retries can collectively exceed the
+budget. `0` **disables the time limit entirely** — every lever (beam, variable bridge length,
+mini-piers) runs to completion regardless of wall-clock cost.
+
+**Trade-off.** This is a deliberate quality-first choice while the collapse-prevention stack
+(Knobs 7–9) is still being dialed in — none of those levers currently bail early to protect a
+time budget, so a positive budget interacts with them by potentially truncating a flex/mini-pier
+search mid-way rather than letting it finish. There's still a **90s hard ceiling as a design
+target** (not separately enforced when the budget is 0) — a full generation should never
+approach it in practice, but nothing currently kills a run that does. Set a positive value (the
+dataclass default `60` is a reasonable starting point) once you want a hard speed guarantee back;
+expect variable-bridge-length and mini-pier segments to be the first casualties of a tight
+budget, since they're the ones that do extra trial work per segment.
+
+---
+
+## The four mode axes and per-cohesion-mode knobs
+
+Cohesion-vs-discovery is exposed as four independent axes (`ARCHITECTURE.md` §"The four mode
+axes"): `cohesion_mode` drives the beam; `genre_mode`, `sonic_mode`, `pace_mode` gate the
+candidate pool. All default to `dynamic`.
+
+The pier-bridge per-mode knobs — `bridge_floor_<mode>`, `weight_bridge_<mode>` /
+`weight_transition_<mode>`, `soft_genre_penalty_threshold_<mode>` /
+`soft_genre_penalty_strength_<mode>`, `genre_pair_floor_<mode>`, `genre_arc_floor_<mode>`,
+`sonic_admission_percentile_<mode>`, etc. — are **keyed by `cohesion_mode`**, not by
+`genre_mode`/`sonic_mode`. With `cohesion_mode: dynamic` (the default), only the `_dynamic` suffix
+of each of these keys is read; setting `cohesion_mode: strict` activates the `_strict` values
+across all of them at once. Use `--cohesion-mode` on the CLI to override for a single run without
+editing config.
+
+Two gotchas worth restating here (full detail in `ARCHITECTURE.md`):
+- **Only the web GUI goes through the policy layer** (`src/playlist_gui/policy.py`). The CLI
+  sets mode strings directly. A test/harness that bypasses policy will see modes as inert — the
+  `playlist-testing` skill's harness routes through policy for exactly this reason.
+- **Beam width is global, not per-mode**: `initial_beam_width` / `max_beam_width` (shipped
+  default 20/100; `config.example.yaml` doesn't override the dataclass), doubling toward the cap
+  on infeasibility, regardless of `cohesion_mode`. Raising both (e.g. to 40/200) widens the
+  search at a roughly linear cost in generation time — a reasonable knob to reach for if
+  infeasibility retries are common on your library, independent of any mode setting.
 
 ---
 
@@ -253,20 +555,39 @@ Example bad edge entry:
 ⚠ Edge #15: Hideous Sun Demon - Gimmicks -> Stove - Nightwalk
   T=0.092 T_centered_cos=-0.817 S=0.306 G=1.000 | bridge=0.55 trans_beam=0.25 title_flags=-
   progress_t=0.850 progress_jump=0.100 local_sonic_cos=0.030 local_pen=0.021 genre_pen=0.000 below_floor=True
+  bpm=118->131 dist=0.152
 ```
 
 Interpretation:
-- `⚠` + `below_floor=True` — this edge fell below the transition floor in the final emitted playlist.
-- `T_centered_cos=-0.817` — the underlying centered cosine is strongly anti-correlated. The rescaled T=0.092 obscures how bad this is.
+- `⚠` + `below_floor=True` — this edge fell below the transition floor in the final emitted
+  playlist.
+- `T_centered_cos=-0.817` — the underlying centered cosine is strongly anti-correlated; the
+  calibrated `T=0.092` reflects that correctly (this is the current sigmoid rescale, not the
+  crushed linear rescale it replaced — see `DESIGN_RATIONALE.md` "Centered-transition sigmoid").
 - `bridge=0.55` — candidate was moderately positioned between both piers.
-- `trans_beam=0.25` with `T=0.092` would now be a metric regression. In a healthy run, `trans_beam` should match `T` for the same edge unless the row is stale after repair or metric inputs were missing.
-- `local_sonic_cos=0.030` — very low raw cosine. **Scaled local-sonic penalty would demote this significantly.**
-- `local_pen=0.021` — current legacy penalty is tiny; confirms the scaled mode would help.
+- `trans_beam=0.25` vs `T=0.092` would be a metric regression in a healthy run — `trans_beam`
+  should match `T` for the same edge unless the row is stale after repair or an input was
+  missing.
+- `local_sonic_cos=0.030` — very low raw cosine; scaled local-sonic penalty (Knob 2) would demote
+  this significantly.
+- `local_pen=0.021` — current legacy-mode penalty is tiny; confirms `scaled` mode would help.
+- `bpm=118->131 dist=0.152` — within the `dynamic` pace band (0.75); pace is not the cause of
+  this edge's badness.
 
-Likely fix for this edge: first investigate any `T`/`trans_beam` mismatch. If they match and are both low, tune upstream scoring (`local_sonic_edge_penalty_mode: scaled`, `min_edge_objective: min_edge`) before enabling edge repair as a fallback.
+Likely fix for this edge: check `T` vs `trans_beam` first. If they match and are both low, tune
+upstream scoring (`local_sonic_edge_penalty_mode: scaled`, `min_edge_objective: min_edge`, or
+variable bridge length if this segment's nominal length is a poor fit) before reaching for edge
+repair as a fallback.
 
 ---
 
 ## Track replacement as post-generation refinement
 
-Single-track replacement is a GUI refinement tool, not a pre-generation tuning knob. It uses the most recent generation's in-memory artifact bundle and transition metric to search for one local substitute between the previous and next playlist tracks. **Best Match** ranks by transition quality; **Different Pace**, **Different Genre**, and **Different Sound** first keep high-transition candidates, then re-rank the top 50 by BPM/rhythm, genre-vector, or timbre+harmony divergence from the current track. If replacement suggestions are consistently weak, tune candidate admission, transition weights, and pace/genre/sonic modes upstream before relying on manual replacement.
+Single-track replacement is a GUI refinement tool, not a pre-generation tuning knob. It uses the
+most recent generation's in-memory artifact bundle and transition metric to search for one local
+substitute between the previous and next playlist tracks. **Best Match** ranks by transition
+quality; **Different Pace**, **Different Genre**, and **Different Sound** first keep
+high-transition candidates, then re-rank the top 50 by BPM/rhythm, genre-vector, or
+timbre+harmony divergence from the current track. If replacement suggestions are consistently
+weak, tune candidate admission, transition weights, and pace/genre/sonic modes upstream before
+relying on manual replacement.

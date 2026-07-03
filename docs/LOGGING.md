@@ -1,283 +1,391 @@
 # Logging Standards
 
-This document defines the logging policy for the playlist generator codebase.
+The logging policy for this codebase: what goes at each level, how loggers are named, how the
+CLI controls verbosity, and how secrets stay out of log output. This doc is deliberately
+**sonic/genre-independent** — it doesn't change with the embedding or genre-scoring stack. For
+the system it's instrumenting, see [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
-## Levels Policy
+All of the machinery below lives in `src/logging_utils.py` — the single module every entrypoint
+imports from.
 
-| Level | When to Use | Examples |
+---
+
+## Levels policy
+
+| Level | When to use | Examples |
 |-------|-------------|----------|
-| `ERROR` | Operation failed, requires attention | Database connection failed, API error after retries |
-| `WARNING` | Recoverable issue, degraded operation | Missing optional config, skipped item, rate limit hit |
-| `INFO` | Milestones and summaries only | Stage start/complete, final counts, run summary |
-| `DEBUG` | Per-item details, diagnostic data | Per-track processing, per-candidate scoring, edge weights |
+| `ERROR` | Operation failed, requires attention | DB connection failed, API error after retries |
+| `WARNING` | Recoverable issue, degraded operation | Missing optional config, skipped item, paused stage |
+| `INFO` | Milestones and summaries only | Stage start/complete, final counts, run recap |
+| `DEBUG` | Per-item details, diagnostic data | Per-track processing, per-candidate scoring, per-edge weights |
 
-### Key Rules
-
-1. **INFO is for humans scanning logs** - Should produce ~10-50 lines for a typical run
-2. **DEBUG is for troubleshooting** - Enable when investigating issues
-3. **Never log per-item at INFO** - Move all per-track, per-artist, per-edge logs to DEBUG
-4. **Summaries replace streams** - Instead of logging each item, log "Processed 500/500 tracks"
-
-### Before/After Examples
+1. **INFO is for humans scanning logs.** A typical run should produce a manageable number of
+   lines, not a stream.
+2. **Never log per-item at INFO.** Per-track, per-artist, per-edge, per-album logs belong at
+   DEBUG — the real code follows this: MBID/Discogs per-item failures (`scripts/analyze_library.py`)
+   log at `logger.debug(...)`, only the stage totals log at `logger.info(...)`.
+3. **Summaries replace streams.** Log "Processed 500/500 tracks", not each of the 500.
 
 ```python
-# BAD - Per-item at INFO
+# BAD - per-item at INFO
 for track in tracks:
     logger.info(f"Processing: {track.title}")
 
-# GOOD - Summary at INFO, details at DEBUG
+# GOOD - detail at DEBUG, summary at INFO
 for track in tracks:
     logger.debug(f"Processing: {track.title}")
 logger.info(f"Processed {len(tracks)} tracks")
 ```
 
-```python
-# BAD - Logging every edge
-for edge in edges:
-    logger.info(f"Edge: {edge.from_track} -> {edge.to_track} score={edge.score}")
+---
 
-# GOOD - Summary only at INFO
-logger.debug(f"Edge scores: min={min_score:.3f} max={max_score:.3f} mean={mean_score:.3f}")
-logger.info(f"Built {len(edges)} edges")
-```
+## Logger naming
 
-## Logger Naming
-
-Use `__name__` for all loggers to maintain Python package hierarchy:
+Every module gets its own logger via `__name__`, so the hierarchy mirrors the package tree
+(`src.playlist.pipeline.core`, `src.playlist.pier_bridge_builder`, `src.playlist_web.app`, ...).
+This is universal in `src/` — there is no module in the codebase that instantiates a
+custom-named logger instead.
 
 ```python
 # CORRECT
 logger = logging.getLogger(__name__)
 
-# AVOID - Breaks hierarchy
+# AVOID - breaks the hierarchy, can't be filtered by package
 logger = logging.getLogger("my_custom_name")
 ```
 
-This produces natural hierarchies like:
-- `src.playlist.pipeline`
-- `src.playlist.ordering`
-- `src.features.librosa_analyzer`
+Standalone scripts are the one deliberate exception — they name the logger after the script so
+log lines are legible without a package prefix, e.g. `scripts/scan_library.py` uses
+`logging.getLogger('scan_library')` and `scripts/analyze_library.py` re-fetches
+`logging.getLogger("analyze_library")` after `configure_logging()` runs.
 
-For scripts, use the script name:
-```python
-logger = logging.getLogger("scan_library")
+---
+
+## Message format and run IDs
+
+```
+%(asctime)s | %(levelname)-5s | %(name)s | %(message)s
 ```
 
-## Message Style
+is the console default. `configure_logging()` injects a `run_id` (a `RunIdFilter` on the root
+logger, defaulting to `-` when none is set) but **console output omits it by default** —
+it only appears when the console level is `DEBUG` or `--show-run-id` is passed:
 
-### Format
-
-All log messages use this format:
 ```
-%(asctime)s | %(levelname)-5s | %(name)s | run_id=%(run_id)s | %(message)s
-```
-`run_id` is injected automatically by `configure_logging` (defaults to `-` when not provided).
-
-Run IDs:
-- Console output **omits run_id by default** for readability.
-- File logs always include run_id.
-- Add `--show-run-id` (or set log level DEBUG) to include run_id on console.
-Example default console output:
-```
-10:30:45 | INFO  | src.playlist.pipeline | Starting playlist generation
-```
-Example with `--show-run-id` or DEBUG:
-```
-10:30:45 | INFO  | src.playlist.pipeline | run_id=abcd1234 | Starting playlist generation
+10:30:45 | INFO  | src.playlist.pipeline.core | Starting playlist generation
+10:30:45 | DEBUG | src.playlist.pipeline.core | run_id=3f2a9c1e | Candidate pool: 812 tracks
 ```
 
-### Message Guidelines
+File output always includes `run_id` **and** `funcName:lineno` — the file format is strictly
+more detailed than console, never less:
 
-1. **Start with action verb** - "Processing...", "Found...", "Completed..."
-2. **Include counts** - "Found 150 candidates" not "Found candidates"
-3. **Include timing for stages** - "Completed in 1.2s"
-4. **No trailing punctuation** - "Processing tracks" not "Processing tracks."
-5. **Truncate long lists** - "Genres: rock, pop, jazz (+5 more)"
-
-### Structured Data
-
-For complex data, use key=value format:
-```python
-logger.info(f"Playlist complete: tracks={len(tracks)} duration={duration:.1f}min unique_artists={n_artists}")
+```
+%(asctime)s | %(levelname)-5s | %(name)s | %(funcName)s:%(lineno)d | run_id=%(run_id)s | %(message)s
 ```
 
-## Progress + ETA
+### Message guidelines
 
-- Default runs show **periodic INFO summaries** using `ProgressLogger` every `--progress-interval` seconds or `--progress-every` items (defaults: 15s or 500 items). Each summary includes percent, rate, and ETA when a total is known.
-- Verbose runs (`--verbose`) enable **per-item DEBUG logs** while still emitting periodic INFO summaries. Use when debugging a specific item flow.
-- Disable progress output with `--no-progress` if you prefer silent runs or need clean stdout for piping.
-- All entrypoints accept: `--progress/--no-progress`, `--progress-interval`, `--progress-every`, `--verbose`, plus standard `--log-level/--debug/--quiet/--log-file`.
+1. Start with an action verb — "Processing...", "Found...", "Completed...".
+2. Include counts — "Found 150 candidates", not "Found candidates".
+3. Include timing for stages — "Completed in 1.2s".
+4. No trailing punctuation.
+5. Truncate long lists (`truncate_list()` in `logging_utils.py`) — "rock, pop, jazz (+5 more)".
+6. For structured data, use `key=value` pairs, pipe-delimited. This is the real convention in
+   `scripts/analyze_library.py`, not a hypothetical style:
+   ```
+   run_id=3f2a9c1e | stage=sonic | decision=ran | reason=fingerprint_changed | processed=142 | elapsed_s=38.40 | throughput=3.7/s | errors=0 | top_error_categories=-
+   ```
 
-### Recommended defaults and examples
+---
 
-- Default scan (`python scripts/scan_library.py --quick`):
-  - INFO: `scan_library: 1,250/3,210 files (38.9%) | 82.3 files/s | ETA 25s`
-  - INFO final: `scan_library complete: 3,210 files | elapsed 1m02s | avg 51.6 files/s`
-- Verbose scan (`python scripts/scan_library.py --verbose`):
-  - DEBUG per file: `scan_library item 125/3210: Artist - Title (song.flac)`
-  - INFO periodic summaries as above.
-- Quiet mode (`--quiet`):
-  - Suppresses INFO progress; WARNING/ERROR still emitted.
-- Run IDs:
-  - Normal runs: default console (no run_id), add `--log-file` to capture run_id in file.
-  - Debugging or correlation: `--show-run-id` to include run_id on console, or run with `--debug`.
+## CLI controls
 
-Always redact secrets and sensitive paths when logging; prefer basename/relative paths and avoid logging tokens, API keys, or credentials.
-
-## Timings and Metrics
-
-### Stage Timer Context Manager
-
-Use `stage_timer` for automatic timing of pipeline stages:
-
-```python
-from src.logging_utils import stage_timer
-
-with stage_timer("Candidate generation"):
-    candidates = generate_candidates(anchor)
-# Logs: "Candidate generation completed in 2.3s"
-```
-
-### Run Summaries
-
-Each entrypoint should log a final summary:
-
-```python
-logger.info("=" * 60)
-logger.info("RUN SUMMARY")
-logger.info(f"  Tracks processed: {n_tracks}")
-logger.info(f"  Success rate: {success_rate:.1%}")
-logger.info(f"  Total time: {elapsed:.1f}s")
-logger.info("=" * 60)
-```
-
-### Metrics to Always Include
-
-| Workflow | Required Metrics |
-|----------|------------------|
-| scan_library | tracks_found, tracks_added, tracks_updated, errors |
-| update_sonic | tracks_analyzed, features_extracted, failures |
-| update_genres | artists_updated, albums_updated, api_calls, empty_results |
-| main_app | anchor_track, candidates_considered, final_tracks, generation_time |
-
-## Analyze Library Logging
-
-- Startup logs include `run_id`, db path, out_dir, selected stages, config hash, git commit, and progress settings.
-- Each stage logs a **plan line** with current/last fingerprints, skip eligibility, and pending counts; skips record explicit reasons (e.g., fingerprint unchanged).
-- Stage execution logs start/end with durations; periodic progress/ETA comes from stage-specific `ProgressLogger` instances.
-- End-of-run summary lists stage, decision, reason, items (when known), duration, plus verify issues if present.
-- `--verbose` enables per-item DEBUG logs within stages; `--no-progress` disables periodic summaries.
-
-## Redaction Policy
-
-### Never Log
-
-- API keys or tokens
-- Full file paths containing usernames
-- Database connection strings with credentials
-
-### Redaction Helper
-
-```python
-from src.logging_utils import redact
-
-# Redacts sensitive patterns
-logger.info(f"Config loaded from {redact(config_path)}")
-# Output: "Config loaded from .../config.yaml"
-
-logger.debug(f"API response: {redact(response, keys=['token', 'key'])}")
-```
-
-### Path Redaction
-
-Always use relative paths or redact absolute paths:
-```python
-# BAD
-logger.info(f"Scanning: C:/Users/john/Music/library")
-
-# GOOD
-logger.info(f"Scanning: {path.relative_to(library_root)}")
-```
-
-## CLI Controls
-
-All entrypoints support these flags:
+Every entrypoint calls `add_logging_args(parser)` from `logging_utils.py`, which adds these
+flags uniformly:
 
 | Flag | Effect |
 |------|--------|
-| `--log-level LEVEL` | Set level (DEBUG, INFO, WARNING, ERROR) |
-| `--debug` | Shortcut for `--log-level DEBUG` |
+| `--log-level {DEBUG,INFO,WARNING,ERROR}` | Console level (default `INFO`) |
+| `--debug` | Shortcut for `--log-level DEBUG`; wins over `--quiet` |
 | `--quiet` | Shortcut for `--log-level WARNING` |
-| `--log-file PATH` | Also write logs to file |
+| `--log-file PATH` | Also write full-detail logs to this file |
+| `--show-run-id` | Include `run_id` in console output even below DEBUG |
+
+`resolve_log_level(args)` applies the precedence (`--debug` > `--quiet` > `--log-level`).
+
+> **Not every flag is wired at every entrypoint.** `--verbose` exists on `main_app.py`,
+> `scripts/analyze_library.py`, and `scripts/scan_library.py`, but means something different at
+> each: on `main_app.py` it's a blanket `log_level = 'DEBUG'`; on the two analyze-side scripts it
+> also flips `ProgressLogger` into per-item DEBUG mode (see below). The
+> `--progress` / `--no-progress` / `--progress-interval` / `--progress-every` flags exist **only**
+> on `scripts/analyze_library.py` and `scripts/scan_library.py` — `main_app.py` has no progress
+> flags (a single generation run doesn't have a meaningful progress bar). And `main_app.py`
+> parses `--show-run-id` via `add_logging_args()` but never forwards it to `configure_logging()`
+> — on that entrypoint the flag is currently inert. If you need `run_id` on a CLI generation run,
+> use `--log-file` (file output always includes it) or `--debug`.
 
 ### Implementation
 
 ```python
-import argparse
-from src.logging_utils import configure_logging
+from src.logging_utils import add_logging_args, resolve_log_level, configure_logging
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--log-level', default='INFO',
-                    choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'])
-parser.add_argument('--debug', action='store_true')
-parser.add_argument('--quiet', action='store_true')
-parser.add_argument('--log-file', type=str)
+add_logging_args(parser)
 args = parser.parse_args()
 
-# Resolve level
-level = 'DEBUG' if args.debug else 'WARNING' if args.quiet else args.log_level
-
+level = resolve_log_level(args)
 configure_logging(level=level, log_file=args.log_file)
 ```
 
-## Single Setup Rule
+---
 
-**Logging is configured exactly once, at the entrypoint.**
+## Single setup rule
+
+**Logging is configured exactly once, at the entrypoint.** Library modules only ever call
+`logging.getLogger(__name__)` — never `configure_logging()`, never `logging.basicConfig()`.
 
 ```python
 # main_app.py (entrypoint)
 from src.logging_utils import configure_logging
-configure_logging(level='INFO')
+configure_logging(level='INFO', log_file='playlist_generator.log')
 
-# src/playlist/pipeline.py (library module)
+# src/playlist/pipeline/core.py (library module)
 import logging
-logger = logging.getLogger(__name__)  # Just get logger, don't configure
+logger = logging.getLogger(__name__)  # get a logger, never configure one
 ```
 
-### What NOT to Do
+`configure_logging()` is itself idempotent without `force=True` — a second call is a no-op, so an
+accidental double-call from a library module can't silently duplicate handlers (verified by
+`tests/unit/test_logging_config_idempotent.py`). A repo-wide test
+(`test_no_basicconfig_in_src_scripts`) greps every file under `src/` and `scripts/` for a literal
+`basicConfig(` call and fails the suite if one exists — this is enforced, not just convention.
+
+The browser-GUI worker (`src/playlist_gui/worker.py`, a separate subprocess) is the one place
+that legitimately reconfigures the root logger itself, via its own `setup_worker_logging()` —
+it *is* an entrypoint (its own process), just not one that goes through `configure_logging()`.
+See "Browser GUI / worker logging" below.
+
+### What NOT to do
 
 ```python
-# BAD - Module configures its own logging
-# src/some_module.py
+# BAD - module configures its own logging
 import logging
-logging.basicConfig(level=logging.DEBUG)  # NO!
+logging.basicConfig(level=logging.DEBUG)
 
-# BAD - Multiple setup calls
+# BAD - re-configuring in a __main__ block of a library module
 if __name__ == "__main__":
-    logging.basicConfig(...)  # Don't do this in __main__ blocks
+    logging.basicConfig(...)
 ```
 
-## Migration Checklist
+---
 
-When updating a module:
+## Progress + ETA
 
-1. [ ] Remove any `logging.basicConfig()` calls
-2. [ ] Replace `print()` with appropriate `logger.info/debug/warning`
-3. [ ] Change per-item INFO logs to DEBUG
-4. [ ] Add summary logs at INFO level
-5. [ ] Use `__name__` for logger
-6. [ ] Add timing for major operations
-7. [ ] Verify no secrets in log output
+`ProgressLogger` (`logging_utils.py`) is the shared mechanism for long-running stages —
+currently used by `scripts/analyze_library.py` and `scripts/scan_library.py`, not by
+`main_app.py` (a single playlist generation doesn't run long enough to need one).
 
-## Console vs File Output
+- Default: periodic **INFO** summaries every `interval_s` (15s) or `every_n` items (500),
+  whichever comes first. Each summary includes rate and, when a total is known, percent and ETA.
+- `--verbose` switches a stage into `verbose_each=True`: **DEBUG** per item. The class docstring
+  says verbose mode keeps the periodic INFO summaries too, but `_should_emit()` currently
+  short-circuits to `False` whenever `verbose_each` is set (`logging_utils.py`), so that branch
+  is dead — in practice a verbose run gets DEBUG-per-item plus one final INFO summary from
+  `finish()`, not periodic INFO summaries along the way. Worth knowing if a verbose log looks
+  DEBUG-only for a long stretch — that's the current (buggy) behavior, not a hang.
+- `finish()` always emits a final summary regardless of interval/count timing — this one path is
+  unconditional in both modes.
+- `--no-progress` disables the periodic summaries; `WARNING`/`ERROR` still emit.
 
-- **Console**: Colored output, shows INFO and above by default
-- **File**: Full detail, includes DEBUG, uses plain text format
+Real output shapes (from `ProgressLogger._progress_msg` / `.finish()`):
+
+```
+INFO  stub_scan: 1,250/3,210 (38.9%) | 82.3 items/s | ETA 25s
+INFO  stub_scan complete: 3,210 items | elapsed 1m02s | avg 51.6 items/s
+DEBUG stub_scan item 125/3210: Artist - Title (song.flac)
+```
+
+---
+
+## Analyze library logging
+
+`scripts/analyze_library.py` (`run_pipeline`) is the most heavily instrumented entrypoint —
+every stage's decision is auditable from the log alone. This is the actual, verified format
+(pinned down by `tests/unit/test_analyze_library_logging.py`), not an aspirational example:
+
+```
+INFO  Analyze run start | run_id=3f2a9c1e | db=data/metadata.db | out_dir=data/artifacts/beat3tower_32k | stages=scan, sonic, artifacts, verify
+INFO    config_hash=a91f... | git=d48bae9
+INFO    progress=on interval=15.0s every=500 verbose_each=False
+INFO    pending_estimates: sonic=142 tracks
+INFO  run_id=3f2a9c1e | stage=sonic | decision=ran | reason=fingerprint_changed | pending=142
+INFO  run_id=3f2a9c1e | stage=sonic | decision=ran | reason=fingerprint_changed | processed=142 | elapsed_s=38.40 | throughput=3.7/s | errors=0 | top_error_categories=-
+INFO  Wrote run report to data/artifacts/beat3tower_32k/analyze_run_report.json
+INFO  RUN RECAP | run_id=3f2a9c1e | config_hash=a91f... | report=...analyze_run_report.json
+INFO    verify_issues=none
+INFO    stage=sonic | decision=ran | reason=fingerprint_changed | pending_before=142 | processed=142 | elapsed=38.40s | rate=3.70/s | errors=0 | top_error_categories=-
+INFO  Total elapsed: 41.20s
+```
+
+Key mechanics:
+
+- **Startup line** includes `run_id`, `db`, `out_dir`, `stages`, `config_hash`, the current git
+  commit, and the progress settings in effect.
+- **Every stage logs a decision** before and after it runs: `decision` is one of
+  `skipped` / `ran` / `forced` / `paused`; `reason` explains why (`fingerprint_same`,
+  `fingerprint_changed`, `required`, `forced`, or a pause reason). A skip due to an unchanged
+  fingerprint is logged explicitly — it is never a silent no-op.
+- **`scan` gets an extra breakdown line** (`  scan modified breakdown: stat_changed=12, ...`);
+  with `--verbose` it also logs per-reason example paths at DEBUG.
+- **The run ends with a written JSON report** (`analyze_run_report.json`) plus a `RUN RECAP` line
+  and a per-stage recap table at INFO, so a human can read the whole run's outcome without
+  opening the JSON.
+- **Cancellation is checked between stages** (`cancellation_check`), and the web worker calls
+  `run_pipeline(args, console_logging=False)` to suppress stdout duplication while still writing
+  the log file — the NDJSON handler (see below) is the console for that path instead.
+
+---
+
+## Timings and metrics: available helpers vs. what's actually used
+
+`logging_utils.py` ships two general-purpose helpers:
+
+```python
+from src.logging_utils import stage_timer
+
+with stage_timer("Candidate generation", logger=logger):
+    candidates = generate_candidates(anchor)
+# DEBUG "Candidate generation starting...", INFO "Candidate generation completed in 2.3s"
+```
+
+```python
+from src.logging_utils import RunSummary
+
+summary = RunSummary("Genre Update")
+summary.add("artists_processed", 150)
+summary.increment("api_calls")
+summary.log()
+# INFO block: "GENRE UPDATE SUMMARY" / "  Artists Processed: 150" / ... / "  Total Time: 12.3s"
+```
+
+Both are unit-tested (`tests/unit/test_logging_utils.py`) and safe to reach for in new code.
+**Neither is currently called by a production entrypoint.** `main_app.py` and
+`scripts/analyze_library.py` each have their own bespoke summary format instead — the analyze
+pipeline's `RUN RECAP` block above is the real production pattern for that entrypoint. Don't
+assume `stage_timer`/`RunSummary` output appears somewhere in a real log just because they exist
+in the module.
+
+---
+
+## Redaction policy
+
+### Never log
+
+- API keys, tokens, or passwords
+- Full file paths containing usernames
+- Database connection strings with credentials
+- Config contents wholesale — log a hash (`config_hash` in the analyze recap above) or a redacted
+  render instead
+
+### Two redaction paths — know which one actually runs
+
+There are **two independent redaction implementations**, and only one of them is wired into a
+production call site:
+
+1. **`src.logging_utils.redact()`** — regex-based, redacts API-key/token/secret/password
+   patterns, Windows/Unix home directories, and email addresses; accepts extra `keys=[...]` for
+   dict-shaped text. It is unit-tested and safe to use, but as of this writing **no production
+   log call in `src/` or `scripts/` actually invokes it** — it's available infrastructure, not a
+   proven-in-use guard. If you add logging that might surface a path or secret from `main_app.py`
+   or `scripts/analyze_library.py`, wrap it in `redact()` yourself; don't assume it already
+   happens.
+2. **`src.playlist_gui.utils.redaction.redact_text()` / `redact_mapping()`** — the GUI/worker
+   equivalent, covering API keys, `Authorization: Bearer`, URL query tokens, and CLI-flag-style
+   secrets. This one **is** on every production path: `src/playlist_gui/worker.py` calls
+   `redact_text()` inside `emit_log()` and `emit_error()`, so every NDJSON log/error event sent
+   to the browser GUI is redacted before it leaves the worker process.
+
+```python
+# CLI / analyze side — available, call it explicitly
+from src.logging_utils import redact
+logger.info(f"Config loaded from {redact(config_path)}")
+
+# GUI worker side — already wired, redacts every emitted log line
+from src.playlist_gui.utils.redaction import redact_text
+emit_log("INFO", redact_text(msg))  # worker.py does this inside emit_log() itself
+```
+
+### Path redaction
+
+Prefer relative or basename paths over absolute ones in any log line a user might paste
+somewhere public:
+
+```python
+# Avoid
+logger.info(f"Scanning: C:/Users/dylan/Music/library")
+
+# Prefer
+logger.info(f"Scanning: {path.relative_to(library_root)}")
+```
+
+---
+
+## Console vs. file output
+
+There is no color/ANSI formatting in either handler — `configure_logging()` uses a plain
+`logging.Formatter` for both. The two handlers differ in **level and detail**, not styling:
+
+| | Console | File (`--log-file`) |
+|---|---------|----------------------|
+| Level | Configured level (`--log-level`, default INFO) | Always `DEBUG` and above (`file_level` param) |
+| `run_id` | Omitted unless level is DEBUG or `--show-run-id` | Always included |
+| `funcName:lineno` | Never | Always |
 
 ```python
 configure_logging(
-    level='INFO',           # Console shows INFO+
-    log_file='run.log',     # File captures everything
-    file_level='DEBUG'      # File gets DEBUG+
+    level='INFO',           # console shows INFO+
+    log_file='run.log',     # file captures everything
+    file_level='DEBUG',     # file gets DEBUG+ regardless of console level
 )
 ```
+
+This means `--log-file` is the right answer whenever you need full detail without cluttering the
+console — the file always has more than the screen, never less.
+
+---
+
+## Browser GUI / worker logging
+
+The worker (`src/playlist_gui/worker.py`, spawned once by `src/playlist_web/app.py` — see
+[`ARCHITECTURE.md`](ARCHITECTURE.md) "Browser GUI wiring") is a separate process with its own
+logging setup, `setup_worker_logging()`:
+
+- It replaces the root logger's handlers with a single `WorkerLogHandler` that emits every log
+  record as an NDJSON `{"type": "log", "level": ..., "msg": ...}` event over stdout, rather than
+  formatting to a stream — the browser (not a terminal) is the console here.
+- `emit_log()` runs every message through `redact_text()` before it's ever serialized (see
+  Redaction above) — this is the one redaction path that's actually load-bearing.
+- The GUI can change the worker's live log level at runtime via the `set_logging_level` command
+  (`handle_set_logging_level` → `logging_utils.set_log_level()`), without restarting the worker
+  subprocess.
+- When the worker drives `scripts/analyze_library.py`'s `run_pipeline()` for the Tools panel, it
+  passes `console_logging=False` so the analyze pipeline's own stdout logging doesn't fight with
+  the NDJSON stream; a separate `AnalyzeLibraryProgressLogHandler` bridges analyze's log records
+  into worker progress events instead.
+
+---
+
+## Migration checklist
+
+When touching logging in an existing module:
+
+1. Remove any `logging.basicConfig()` call (there should be none — see "Single setup rule").
+2. Replace `print()` with `logger.info/debug/warning/error`.
+3. Move per-item logging from INFO to DEBUG.
+4. Add a summary log at INFO for anything that loops.
+5. Use `logging.getLogger(__name__)`.
+6. Add timing for anything that could plausibly take >1s (`stage_timer` or a manual
+   `time.perf_counter()` pair).
+7. Check for secrets or raw absolute paths in any new log line; redact if a user is likely to
+   paste the log somewhere (see "Redaction policy" — know which redaction path actually applies
+   to your entrypoint).
