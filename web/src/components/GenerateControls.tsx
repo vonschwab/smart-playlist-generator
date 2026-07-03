@@ -102,6 +102,34 @@ export function GenerateControls({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
 
+  // Tag steering (artist mode): the artist's published genres as selectable chips.
+  const [artistTags, setArtistTags] = useState<
+    { name: string; release_count: number; confidence: number }[]
+  >([]);
+  const [steeringTags, setSteeringTags] = useState<string[]>([]);
+  const [tagsFetched, setTagsFetched] = useState(false);
+
+  // Fetch chips whenever a confirmed artist is selected; reset both on change.
+  useEffect(() => {
+    setSteeringTags([]);
+    setArtistTags([]);
+    setTagsFetched(false);
+    if (mode !== "artist" || !seed.trim() || seed !== selectedRef.current) return;
+    let cancelled = false;
+    api.artistGenres(seed)
+      .then((r) => { if (!cancelled) { setArtistTags(r.genres); setTagsFetched(true); } })
+      .catch(() => { /* chips are best-effort; generation works without them */ });
+    return () => { cancelled = true; };
+  }, [seed, mode]);
+
+  function toggleSteeringTag(name: string) {
+    setSteeringTags((prev) =>
+      prev.includes(name) ? prev.filter((t) => t !== name)
+        : prev.length >= 3 ? prev
+        : [...prev, name],
+    );
+  }
+
   // Apply initialValues (re-run prefill) once per change
   useEffect(() => {
     if (!initialValues) return;
@@ -172,6 +200,7 @@ export function GenerateControls({
       popular_seeds_mode: popularityMode === "oops" ? "fire" : popularSeedsMode,
       popularity_mode: popularityMode,
       seed_epoch: epoch,
+      steering_tags: mode === "artist" && steeringTags.length ? steeringTags : undefined,
     };
     onSubmit(body);
   }
@@ -361,6 +390,42 @@ export function GenerateControls({
           </button>
         </Cell>
       </div>
+
+      {/* ── Tag steering (artist mode): the seed artist's published genres ── */}
+      {mode === "artist" && artistTags.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 px-3 py-[6px] bg-[#16181d] border-b border-[#1e2128]" data-testid="steering-chips">
+          {artistTags.map((t) => {
+            const on = steeringTags.includes(t.name);
+            const capped = !on && steeringTags.length >= 3;
+            return (
+              <button
+                key={t.name}
+                type="button"
+                disabled={capped}
+                onClick={() => toggleSteeringTag(t.name)}
+                title={`${t.release_count} release${t.release_count === 1 ? "" : "s"}`}
+                className={
+                  "rounded-full border px-2 py-0.5 text-[11px] transition-colors " +
+                  (on
+                    ? "border-[#5eead4] bg-[#5eead4]/15 text-[#5eead4]"
+                    : capped
+                      ? "border-[#23262d] text-[#8b939d] opacity-40"
+                      : "border-[#23262d] text-[#8b939d] hover:bg-[#1e2229]")
+                }
+              >
+                {t.name}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {mode === "artist" && tagsFetched && artistTags.length === 0 && seed.trim() !== "" && (
+        <div className="px-3 py-[6px] bg-[#16181d] border-b border-[#1e2128]">
+          <p className="text-[11px] text-[#5b6470]">
+            No published genres for this artist — run enrichment publish to enable tag steering.
+          </p>
+        </div>
+      )}
 
       {/* ── Advanced controls: Rows 2–3 (collapse below @md container width) ── */}
       <div id="advanced-controls-region" data-testid="advanced-controls" className={showMore ? "" : "@max-md:hidden"}>

@@ -25,6 +25,7 @@ export interface GenerateRequestBody {
   artist_diversity_mode?: string;
   artist_presence?: string;
   artist_variety?: string;
+  steering_tags?: string[];
 }
 
 export interface SeedTrack {
