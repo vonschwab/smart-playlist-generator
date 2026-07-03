@@ -4,6 +4,45 @@ Running list of built-but-parked, superseded, or minor tech-debt items to revisi
 Per CLAUDE.md Layer 4 ("activate fixes, never default to legacy"), parked items are
 either revived+validated later or deleted — not left inert as the default. Newest first.
 
+## Fixer-cascade / reporting warts (surfaced 2026-07-02, seeds + Herbie Hancock log reads)
+
+Evidence: `logs/playlists/2026-07-02_174010_seeds_fb3bb8.log` (10-seed, 50 trk) and
+`logs/playlists/2026-07-02_175339_Herbie_Hancock_8552c5.log` (artist mode, 51 trk).
+
+- **🔴 Edge repair and the reporter disagree on T for the SAME edges — one ruler is wrong.**
+  Herbie run: `Edge repair summary: triggered=2 repaired=0 left_alone=2 (t_floor=0.30)`
+  on edges 44/45 (the two edges around Aretha "Respect", pos 44 — repair tried to swap her,
+  1,016-entry refusal log, ~5s spent), but the final report scores those same edges
+  **T=0.790 and T=0.664** — nowhere near the 0.30 trigger. Repair ran *after* tail-DP
+  (17:55:02 vs 17:54:57) and `repaired=0`, so it saw the identical final playlist; the two
+  components computed incompatible T values for identical edges. Either repair over-triggers
+  on healthy edges (wasted budget + could someday "fix" a good edge) or the reporter inflates
+  (and every min_T/weakest-edge claim we trust is wrong). Layer-3 item 18's admission/reporter
+  alignment lesson resurfacing inside the fixer cascade. Note: the 07-02 break-glass validation
+  saw repair agree with reporter scale (`min_T 0.003→0.216`), so this may be a regression from
+  the 07-02 weak-edge cascade reorder — verify against a fresh worker first (stale-worker trap),
+  then diff repair's T computation (`src/playlist/repair/edge_repair.py`) vs the reporter's
+  (`edge_metric_source: final_emitted_playlist`). **Blocker for trusting quality metrics.**
+- **Var-bridge flex counter runs past its cap and flags non-flexed segments as flexed.**
+  Herbie run, `variable_bridge_max_flex_segments=3`: segs 4–6 each ran 3 beam attempts then
+  logged `flexed=True (1/3)…(3/3)` — correct. Segs 7–8 ran ONE attempt each (no extra beam
+  work — the cap does bound the cost) yet logged `flexed=True (4/3)`, `(5/3)` with
+  `chosen==nominal`. Accounting/logging only, but "diagnostic logging is part of the feature";
+  cheap fix near `pier_bridge_builder.py:2011`.
+- **90s generation ceiling breached on multi-seed 50-track runs.** Seeds run: 127s wall-clock
+  (17:40:10→17:42:17; ~10s/segment × 9 segments + 3× var-bridge beam re-runs on seg 8). Herbie:
+  85s — just under. Also `generation_budget_s: 0.0` in the effective config — if that's the
+  budget knob, it's configured-but-inert (the "knob that can't act" failure mode); confirm 0.0
+  means "disabled by intent" or wire it. Interacts with the artist-path beam-width item below
+  (restoring full widths ≈ 2× beam cost) — this is a quality/time decision, not an auto-fix.
+- **Fixer deadzone 0.30–~0.75: ugly-but-legal edges get no attention (policy gap, not a bug).**
+  Seeds run min edge T=0.457 (Dinosaur Jr → Springsteen "Dancing in the Dark" pier on-ramp) got
+  zero fixer help — every fixer floor sits at 0.30 (`tail_dp_floor`, `edge_repair_t_floor`,
+  `edge_delete_floor`) and the edge is legal, just rough. Decide deliberately: raise the trigger
+  floors, make them percentile-relative to the run, or accept that outlier seeds produce one
+  rough seam (and surface it in the GUI instead). Blocked on the T-mismatch item above —
+  retuning floors against an untrusted ruler is wasted work.
+
 ## Parked features
 
 ### Energy arc / pace-contour — PARKED 2026-07-01
@@ -61,12 +100,85 @@ both degrade diversity accuracy and let a near-duplicate slip in. Evidence: the
   two different artist strings on the same recording are not caught. Confirm it's one
   recording (metadata) vs two genuine tracks; if the former, identity-normalized dedup
   (or the alias map below) would catch it.
+- **Trailing-punctuation variant counted separately (`PORCHES.` vs `Porches`), surfaced
+  2026-07-02 Porches run.** The pier track "PORCHES. - Headsgiving" (trailing period)
+  resolved to a distinct identity in the *reporter* path but not the *metrics* path: the
+  run's `artist_counts` merged it (`porches`=10, distinct=37) while `print_playlist_report`
+  counted it apart (Porches=9 @17.3%, unique=38). Same class as the CJK/alias items above —
+  two counters normalize differently, so per-artist counts disagree. Narrow fix: strip
+  trailing punctuation in the reporter's artist normalization to match the metrics path
+  (`src/playlist/reporter.py`); the alias tool below also covers it.
 
 **Proposed fix — GUI context-menu artist-alias tool.** Right-click an artist →
 "alias to…" → writes `alias → canonical identity` mappings that feed
 `artist_identity` resolution (min_gap, per-artist cap, seed-artist exclusion) *and*
 pool dedup. Solves all three above with one authoritative, user-editable source, and
 is the same capability the Smog/Bill-Callahan follow-up needs. Priority: low–medium.
+
+## Artist-style path drops resolved-tuning fields: beam widths (½) + genre knobs (surfaced 2026-07-02, Porches runs)
+
+The artist-style / popular-seeds path hand-builds `PierBridgeConfig`
+(`playlist_generator.py:1974` **and** the sibling at `:2845`) and passes it as
+`pier_bridge_config=`. In `apply_pier_bridge_overrides` (`pier_bridge_overrides.py:77`),
+`pb_cfg = pier_bridge_config or PierBridgeConfig(...)` means a pre-built config
+**short-circuits** the resolved-tuning construction — the mode tuning is resolved, logged,
+then discarded (live log line: *"pre-built pier config supplied; the resolved-tuning weights
+above were NOT applied"*). The complete wiring on the non-artist path threads every genre knob
+(`pier_bridge_overrides.py:89,94`); the two hand-built artist constructors **omit a whole set of
+resolved-tuning fields**, so they fall to their `PierBridgeConfig` dataclass defaults:
+
+- **🔴 Beam + pooling widths run at HALF config — the "beam widths ran at half config for months"
+  incident (CLAUDE.md) recurring on the artist path.** config.yaml (`:279-292`) sets
+  `initial_beam_width=40, max_beam_width=200, initial_neighbors_m=200, max_neighbors_m=800,
+  initial_bridge_helpers=100, max_bridge_helpers=400` — all exactly 2× the `PierBridgeConfig`
+  dataclass defaults. The artist constructors set NONE of the six, so every artist-style /
+  popular-seeds playlist runs the beam at `20/100`, neighbors `100/400`, helpers `50/200` — half
+  the configured exploration (confirmed in both 2026-07-02 Porches runs' effective `pier_config`).
+  This is a direct bridge-QUALITY lever (wider beam explores more paths → better worst-edge), i.e.
+  the exact thing the weak-edge repair work is compensating for. **Fixing it has a real time cost**
+  (≈2× beam+pool work; the 17:28 run just landed at 72s under the 90s ceiling), so restoring full
+  width vs. setting a deliberate artist-mode width is a quality/time decision, not an auto-fix.
+  **MEASURED 2026-07-02 (branch `fix/artist-pier-config-restore-tuning`):** the fix (thread all
+  nine via a shared `_build_artist_pier_config` helper; verified live through the artist path —
+  effective `initial_beam_width=40` etc. + `weight_bridge=0.60`) makes a full-width artist run take
+  **~151s** (2026-07-02_180247 Porches, medoid piers) — ~2× the 72s half-width run, well over the
+  hard 90s ceiling. So **full config width is OUT** under `feedback_generation_time_budget`.
+  Decision pending: keep the (cheap) genre guardrails ON; set the beam to a deliberate under-90s
+  artist width (little headroom above 20/100 → ~72s), OR cut generation time first — the var-bridge
+  *flex retries* re-run whole segments at full beam and are a big multiplier, so a cheaper
+  flex-retry beam could buy headroom for a wider base. Quality delta not yet measurable via CLI
+  (medoid piers ≠ the GUI's popular-seed piers); needs a GUI re-run of the exact seed.
+- **`segment_pool_genre_weight`: config `0.25` → effective `0.0`.** Per-segment candidate pool
+  is ranked pure-sonic (passed as `genre_bridge_weight=0` at
+  `pier_bridge_builder.py:1297/1360/1434`); genre does not shape what the beam considers.
+- **`genre_pair_floor`: config `0.10` (dynamic) → effective `0.0`.** The per-edge genre-pair
+  soft penalty (`beam.py:854`) never fires (nothing is below a 0 floor), so a sonically-close
+  but genre-clashing edge is never demoted — the exact "guardrail against false-positive sonic
+  matches" this lever exists for. The `genre_pair_floor > 0` DEGRADED warning
+  (`pier_bridge_builder.py:665`) is silent as a side effect.
+- (`genre_pair_penalty` is dropped too, but its dataclass default `0.5` == config `0.5`, so
+  currently harmless — would bite if the config value changed.)
+
+Everything else genre threads fine on this path (tiebreak 0.05, soft_genre_penalty 0.73/0.15,
+`weight_genre` 0.0, genre_arc_*, the dense candidate-pool admission gate, taxonomy steering). On
+the Porches run the drop was harmless (G already high — sonic and genre agreed; all chosen edges
+`baseline_only`), but the two levers are silently disarmed for **every** artist-style /
+popular-seeds playlist. Not a problem the day sonic is right; a missed guardrail the day sonic
+gives a false positive.
+
+**Fix (the real one, not the two-line patch):** stop hand-building a partial `PierBridgeConfig`
+in the artist path. Either (a) thread the missing fields into both constructors now, or better
+(b) route the artist path through the same resolved-tuning construction as
+`apply_pier_bridge_overrides` and `replace()` only the genuinely artist-specific fields
+(`bridge_score_weights`, `bridge_floor`, popularity, variable-bridge). (b) kills the whole class:
+any tuning field added later is otherwise silently dropped on the artist path — the "config that
+looks wired but isn't" failure mode.
+
+**Not a bug, noted for clarity:** `artist_style.bridge_score_weights.dynamic` (0.6/0.4,
+`config.yaml:42`) intentionally overrides the global `pier_bridge.weight_bridge_dynamic` (0.40),
+so the global per-mode weight key is dead for artist playlists (they ran bridge-heavy 0.6/0.4,
+not the config-global transition-heavy 0.4/0.6). Two sources, one silently shadows the other —
+worth collapsing when the refactor above happens.
 
 ## Minor tech-debt (from `docs/HANDOFF_2026-06-30_muq_collapse_merge.md`, non-blocking)
 - **Analyze stage-list triple-drift (item 2):** `web/src/components/ToolsPanel.tsx`
