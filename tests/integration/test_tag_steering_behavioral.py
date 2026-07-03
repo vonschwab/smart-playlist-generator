@@ -13,7 +13,6 @@ import sys
 sys.path.insert(0, "tests")
 from support.gui_fidelity import (  # noqa: E402
     generate_like_gui,
-    gui_ui_state,
     resolved_artifact_path,
 )
 
