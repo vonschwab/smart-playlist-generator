@@ -55,3 +55,21 @@ def test_artist_spacing_slider_maps_to_min_gap(spacing, expected_min_gap):
     ui = gui_ui_state(cohesion_mode="narrow", artist_spacing=spacing)
     ov = resolve_gui_overrides(ui, config_path=EXAMPLE_CONFIG)
     assert ov.get("constraints", {}).get("min_gap") == expected_min_gap
+
+
+def test_steering_tags_flow_into_pier_bridge_overrides():
+    """Tag steering rides the policy->config channel (never hand-carried)."""
+    ui = gui_ui_state(steering_tags=["jazz-funk", "soul jazz"])
+    overrides = resolve_gui_overrides(ui)
+    assert overrides["pier_bridge"]["tag_steering_tags"] == ["jazz-funk", "soul jazz"]
+
+
+def test_no_steering_tags_leaves_config_untouched():
+    overrides = resolve_gui_overrides(gui_ui_state())
+    assert "tag_steering_tags" not in overrides["pier_bridge"]
+
+
+def test_steering_tags_capped_at_three():
+    ui = gui_ui_state(steering_tags=["a", "b", "c", "d"])
+    overrides = resolve_gui_overrides(ui)
+    assert overrides["pier_bridge"]["tag_steering_tags"] == ["a", "b", "c"]

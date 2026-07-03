@@ -178,6 +178,7 @@ def create_app(
             pace_mode=body.pace_mode or "dynamic",  # type: ignore[arg-type]
             track_count=body.tracks,
             seed_track_ids=list(body.seed_track_ids),
+            steering_tags=list(body.steering_tags),
             recency_enabled=body.recency_enabled,
             recency_days=body.recency_days,
             recency_plays_threshold=body.recency_plays_threshold,

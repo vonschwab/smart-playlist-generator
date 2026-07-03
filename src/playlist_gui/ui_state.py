@@ -130,6 +130,14 @@ class UIStateModel:
     The Seeds UI must resolve track names to IDs before populating this field.
     """
 
+    steering_tags: List[str] = field(default_factory=list)
+    """
+    Genre-tag steering: canonical tag names selected in the GUI (≤3; the GUI
+    only surfaces the picker in artist mode, but the engine honors tags in any
+    mode). Empty = steering off. Single writer of the runtime knob:
+    policy.derive_runtime_config() → playlists.ds_pipeline.pier_bridge.tag_steering_tags.
+    """
+
     seed_auto_order: bool = True
     """
     When True, seeds are reordered for optimal bridging flow.

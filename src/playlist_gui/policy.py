@@ -264,6 +264,16 @@ def derive_runtime_config(
     if cohesion_mode not in VALID_COHESION_MODES:
         cohesion_mode = "dynamic"
     _set_nested(overrides, "playlists.cohesion_mode", cohesion_mode)
+    steering_tags = [
+        str(t).strip() for t in getattr(ui, "steering_tags", []) if str(t).strip()
+    ][:3]
+    if steering_tags:
+        _set_nested(
+            overrides,
+            "playlists.ds_pipeline.pier_bridge.tag_steering_tags",
+            steering_tags,
+        )
+        notes.append(f"Tag steering: {', '.join(steering_tags)}")
     notes.append(f"Genre mode: {genre_mode}")
     notes.append(f"Sonic mode: {sonic_mode}")
     notes.append(f"Pace mode: {pace_mode}")
