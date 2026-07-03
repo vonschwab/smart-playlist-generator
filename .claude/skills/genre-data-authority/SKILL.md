@@ -31,6 +31,9 @@ There is no "or". Answers like "read the authority *or* query `album_genres` dir
 - Display names for a track's album: `display_genre_names_for_track(conn, track_id)` — deduped, id→name mapped, `[]` if unpublished. Order for chips with `src/genre/granularity.py::order_genres_for_display`.
 - Structured rows (layer/confidence/source): `resolved_genres_for_album(conn, album_id)` / `resolved_genres_for_track(conn, track_id)`.
 - Bulk (no N+1): `resolved_genres_by_album(conn)`, `canonical_genre_names(conn)`.
+- Artist-level aggregation (tag-steering chips): `resolved_genres_for_artist(conn, artist_name)`
+  — observed_leaf+legacy only (inferred hub families excluded by design), exact
+  case-insensitive match on `tracks.artist`, ordered by (release_count, max_confidence).
 
 Display fallback chain (legacy tolerance, NOT preference): **authority → signature → raw tags**. Never reorder it; never add an internal layer to it.
 
