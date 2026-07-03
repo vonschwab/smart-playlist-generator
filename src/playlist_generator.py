@@ -8,6 +8,7 @@ import random
 import logging
 import os
 import math
+import numpy as np
 from .string_utils import normalize_artist_key
 from src.features.artifacts import load_artifact_bundle
 from src.playlist.ds_pipeline_runner import DsRunResult, generate_playlist_ds as run_ds_pipeline
@@ -1740,6 +1741,9 @@ class PlaylistGenerator:
             energy_slot_hi_pct=float(style_cfg_raw.get("energy_slot_hi_pct", 90.0)),
             dedupe_versions=bool(style_cfg_raw.get("dedupe_versions", True)),
             medoid_popularity_weight=float(style_cfg_raw.get("medoid_popularity_weight", 0.0)),
+            medoid_tag_weight=float(
+                (ds_cfg.get("pier_bridge", {}) or {}).get("tag_steering_pier_weight", 0.3)
+            ),
         )
         playlists_cfg = self.config.config.get("playlists", {}) or {}
         cohesion_mode_effective = cohesion_mode_override or ("dynamic" if dynamic else resolve_cohesion_mode(playlists_cfg))
@@ -1764,6 +1768,21 @@ class PlaylistGenerator:
         if style_cfg.enabled and artifact_path and (not artist_only) and (not track_title) and not fixed_seed_tracks:
             try:
                 bundle = load_artifact_bundle(artifact_path)
+
+                # Tag steering (artist mode): resolve the user's selected tags once per run.
+                _pb_cfg_dict = ds_cfg.get("pier_bridge", {}) or {}
+                _steering_tag_list = [
+                    str(t) for t in (_pb_cfg_dict.get("tag_steering_tags") or []) if str(t).strip()
+                ]
+                steering_target = None
+                if _steering_tag_list:
+                    from src.playlist.tag_steering import resolve_tag_steering_target
+                    steering_target, _, _ = resolve_tag_steering_target(
+                        _steering_tag_list,
+                        genre_vocab=[str(v) for v in getattr(bundle, "genre_vocab", [])],
+                        genre_emb=getattr(bundle, "genre_emb", None),
+                    )
+
                 base_seed = int(ds_cfg.get("random_seed", 0) or 0)
                 seed_epoch_val = int(seed_epoch or 0)
                 cluster_seed = base_seed + seed_epoch_val
@@ -1858,6 +1877,7 @@ class PlaylistGenerator:
                     excluded_track_ids=_relaxed_excluded,
                     popularity_values=popularity_values,
                     metadata_db_path=self.config.get("library", "database_path", default="data/metadata.db"),
+                    steering_target=steering_target,
                 )
                 # 🔥 Pure-hits piers: override cluster medoids with the artist's top-N
                 # most-popular tracks (selection only — order_clusters still sequences them).
@@ -1934,6 +1954,12 @@ class PlaylistGenerator:
                 # Internal connectors disabled for Artist mode - seed artist should ONLY appear as piers
                 internal_connector_ids = []
                 pier_ids = [str(bundle.track_ids[m]) for m in ordered_medoids]
+                if steering_target is not None and getattr(bundle, "X_genre_dense", None) is not None:
+                    _pier_aff = [
+                        round(float(np.dot(bundle.X_genre_dense[m], steering_target)), 3)
+                        for m in ordered_medoids
+                    ]
+                    logger.info("Tag steering piers: affinity per selected pier = %s", _pier_aff)
                 if popular_seeds_mode in {"on", "fire"}:
                     # Diagnostic: log where each chosen pier sits on the artist's
                     # Last.fm popularity list (the cache is warm from the lazy fetch).

@@ -94,6 +94,9 @@ class ArtistStyleConfig:
     # "Popular Seeds" checkbox (overrides this to popular_seeds_weight). Keep
     # below medoid_energy_weight so energy-spread keeps the slot structure.
     medoid_popularity_weight: float = 0.0
+    # Tag steering (GUI genre-tag chips, artist mode): on-tag bonus in the
+    # within-cluster medoid pick. 0.0 => inert (today's behavior).
+    medoid_tag_weight: float = 0.0  # tag-steering on-tag bonus in pier scoring
 
 
 def load_artist_energy_values(bundle, cfg: "ArtistStyleConfig") -> Optional[np.ndarray]:
@@ -411,6 +414,8 @@ def _medoids_for_cluster(
     energy_proximity: Optional[np.ndarray] = None,
     popularity_weight: float = 0.0,
     popularity_values: Optional[np.ndarray] = None,
+    tag_weight: float = 0.0,
+    tag_affinity: Optional[np.ndarray] = None,
 ) -> List[int]:
     """
     Select medoids using weighted scoring that penalizes duration outliers.
@@ -467,6 +472,12 @@ def _medoids_for_cluster(
             logger.warning(
                 "artist_style: popularity_values len %d != cluster size %d; skipping",
                 pv.shape[0], len(indices))
+
+    # Tag steering: prefer the artist's on-tag tracks WITHIN this cluster's slot.
+    if tag_affinity is not None and tag_weight > 0:
+        ta = np.asarray(tag_affinity, dtype=float)
+        if ta.shape[0] == len(indices):
+            scores = scores + ta * tag_weight
 
     # Select from top-k by combined score
     order = np.argsort(-scores)
@@ -538,6 +549,7 @@ def cluster_artist_tracks(
     energy_values: Optional[np.ndarray] = None,
     popularity_values: Optional[np.ndarray] = None,
     metadata_db_path: Optional[str] = None,
+    steering_target: Optional[np.ndarray] = None,
 ) -> Tuple[List[List[int]], List[int], List[List[int]], np.ndarray]:
     """Cluster artist tracks in sonic space and return clusters + medoids."""
     track_ids = bundle.track_ids
@@ -663,6 +675,12 @@ def cluster_artist_tracks(
         pop_slice = None
         if popularity_values is not None and cfg.medoid_popularity_weight > 0:
             pop_slice = np.asarray(popularity_values, dtype=float)[members_local]
+        tag_slice: Optional[np.ndarray] = None
+        _xgd = getattr(bundle, "X_genre_dense", None)
+        if steering_target is not None and _xgd is not None and cfg.medoid_tag_weight > 0:
+            tag_slice = np.asarray(_xgd, dtype=float)[members_local] @ np.asarray(
+                steering_target, dtype=float
+            )
         medoid_list = _medoids_for_cluster(
             X_norm,
             members_local,
@@ -679,6 +697,8 @@ def cluster_artist_tracks(
             energy_prox,
             cfg.medoid_popularity_weight,
             pop_slice,
+            cfg.medoid_tag_weight,
+            tag_slice,
         )
         medoids_by_cluster.append(medoid_list)
         medoids.extend(medoid_list)
