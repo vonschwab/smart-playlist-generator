@@ -521,6 +521,63 @@ def _medoids_for_cluster(
     return medoids
 
 
+def allocate_piers_by_tag_affinity(
+    medoids_by_cluster: list[list[int]],
+    cluster_affinities: list[float],
+    target_pier_count: int,
+    skew: float,
+) -> list[int]:
+    """Distribute ``target_pier_count`` pier slots across clusters, skewed toward
+    high tag-affinity clusters (soft). Each cluster's medoid list is already
+    tag-ranked (``_medoids_for_cluster``), so we take its top ``n_c``.
+
+    ``skew=0`` -> uniform across clusters (affinity ignored); ``skew=1`` -> pure
+    affinity weighting. A floor of 1 pier per non-empty cluster preserves the sonic
+    arc; the cap is each cluster's available medoid count. Returns the selected
+    bundle indices (unordered; the caller orders them).
+    """
+    sizes = [len(m) for m in medoids_by_cluster]
+    nonempty = [c for c, s in enumerate(sizes) if s > 0]
+    total_available = sum(sizes)
+    P = int(target_pier_count)
+    if P <= 0 or not nonempty:
+        return []
+    # Few tracks: everything becomes a pier (matches legacy under-target behavior).
+    if total_available <= P:
+        return [i for cluster in medoids_by_cluster for i in cluster]
+
+    K = len(nonempty)
+    affs = [float(cluster_affinities[c]) for c in nonempty]
+    amin, amax = min(affs), max(affs)
+    if amax > amin:
+        norm = {c: (float(cluster_affinities[c]) - amin) / (amax - amin) for c in nonempty}
+    else:
+        norm = {c: 0.5 for c in nonempty}
+    nsum = sum(norm.values()) or 1.0
+    s = float(skew)
+    weight = {c: (1.0 - s) * (1.0 / K) + s * (norm[c] / nsum) for c in nonempty}
+
+    alloc = {c: 0 for c in nonempty}
+    # Floor: 1 per non-empty cluster, highest-weight first (handles P < K gracefully).
+    for c in sorted(nonempty, key=lambda c: (weight[c], -c), reverse=True):
+        if sum(alloc.values()) >= P:
+            break
+        alloc[c] = 1
+    # Fill: each remaining slot goes to the cluster furthest below its weighted
+    # target (weight[c] * P), respecting each cluster's available-medoid cap.
+    while sum(alloc.values()) < P:
+        cands = [c for c in nonempty if alloc[c] < sizes[c]]
+        if not cands:
+            break
+        c = max(cands, key=lambda c: (weight[c] * P - alloc[c], weight[c], -c))
+        alloc[c] += 1
+
+    selected: list[int] = []
+    for c in nonempty:
+        selected.extend(medoids_by_cluster[c][: alloc[c]])
+    return selected
+
+
 def select_popular_piers(
     member_indices: list[int],
     popularity_values: np.ndarray,
