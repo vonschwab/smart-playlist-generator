@@ -60,7 +60,7 @@ The destination. These don't change if we rewrite the engine tomorrow.
 What we believe is *necessary* to reach the north star. Stronger than any one algorithm.
 
 7. **Sonic ⊗ genre fusion is necessary.** Sonic alone misses cultural context; genre alone misses sonic feel. The fusion is the value prop.
-8. **Sonic feel is multi-dimensional.** Rhythm, timbre, and harmony each carry independent musical meaning. Collapsing them into a single embedding loses signal.
+8. **Sonic feel is multi-dimensional.** Rhythm, timbre, and harmony each carry independent musical meaning. A *naive* collapse of hand-built axes loses signal — the tower era proved this — but a *learned contrastive* embedding (MuQ) can capture the multi-dimensional feel holistically, without explicit decomposition. The commitment is to preserving the feel, not to any one representation of it.
 9. **Multi-genre signatures must be preserved.** A track tagged "shoegaze + dreampop + slowcore" is not "indie rock." Reducing to a single label destroys taste fidelity.
 10. **Identity is computed, not raw.** Ensemble suffixes ("Trio", "Quartet"), collaborations ("X feat. Y"), and "The"-prefixes are normalized before any counting. Underpins diversity, dedup, and seed-artist exclusion.
 11. **Diversity is part of the experience, enforced as a hard constraint.** Min-gap, per-artist cap, seed-artist disallowed in bridge interiors. Enforce; don't recommend.
