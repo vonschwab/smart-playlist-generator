@@ -303,6 +303,21 @@ def _table_columns(conn: sqlite3.Connection, table: str) -> List[str]:
     return cols
 
 
+def _taxonomy_version(ctx: Dict) -> str:
+    """Current taxonomy YAML version, memoized per run (the YAML parses once).
+
+    Stages that consume the taxonomy graph (apply/publish/genre-sim/artifacts)
+    fold this into their fingerprint so a taxonomy growth invalidates the skip
+    gate — otherwise a grown YAML with unchanged row counts fingerprint-same-skips
+    (2026-07-02 incident: publish skipped after a GUI growth)."""
+    v = ctx.get("_taxonomy_version")
+    if v is None:
+        from src.ai_genre_enrichment.layered_taxonomy import load_default_layered_taxonomy
+        v = load_default_layered_taxonomy().version
+        ctx["_taxonomy_version"] = v
+    return v
+
+
 def compute_stage_fingerprint(ctx: Dict, stage: str) -> str:
     """
     Build a small stable fingerprint for the inputs a stage depends on.
@@ -467,16 +482,18 @@ def compute_stage_fingerprint(ctx: Dict, stage: str) -> str:
     if stage == "apply":
         complete = _sidecar_count(
             "SELECT COUNT(*) FROM adjudications WHERE status='complete'")
-        from src.ai_genre_enrichment.layered_taxonomy import load_default_layered_taxonomy
-        tax_version = load_default_layered_taxonomy().version
-        return _hash_obj({"stage": stage, "complete": complete, "taxonomy": tax_version})
+        return _hash_obj({"stage": stage, "complete": complete,
+                          "taxonomy": _taxonomy_version(ctx)})
 
     if stage == "publish":
         side_assignments = _sidecar_count(
             "SELECT COUNT(*) FROM genre_graph_release_genre_assignments")
         published_rows = _safe_count(conn, "SELECT COUNT(*) FROM release_effective_genres")
+        # taxonomy version: a GUI growth re-resolves ids at unchanged row counts,
+        # so without this publish fingerprint-same-skips the re-publish.
         key = {"stage": stage, "side_assignments": side_assignments,
-               "published_rows": published_rows}
+               "published_rows": published_rows,
+               "taxonomy": _taxonomy_version(ctx)}
         return _hash_obj(key)
 
     if stage == "genre-sim":
@@ -493,6 +510,8 @@ def compute_stage_fingerprint(ctx: Dict, stage: str) -> str:
             "config": cfg_hash,
             "artifact_exists": out_path.exists(),
             "artifact_mtime": out_mtime,
+            # graph similarity is built from the taxonomy — a growth must rebuild it
+            "taxonomy": _taxonomy_version(ctx),
         }
         return _hash_obj(key)
 
@@ -516,6 +535,9 @@ def compute_stage_fingerprint(ctx: Dict, stage: str) -> str:
             "config": cfg_hash,
             "artifact_exists": out_path.exists(),
             "artifact_mtime": out_mtime,
+            # a taxonomy growth re-bakes canonical names into the genre matrices
+            # even when effective_genre_rows counts are unchanged
+            "taxonomy": _taxonomy_version(ctx),
             # NOTE: manifest_mtime is deliberately NOT folded in. The manifest is
             # written AFTER this fingerprint is computed and stores the fingerprint
             # itself — folding its mtime made the fingerprint self-invalidating:

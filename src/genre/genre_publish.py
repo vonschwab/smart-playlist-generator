@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import sqlite3
 from collections import defaultdict
 from dataclasses import dataclass, asdict
@@ -23,6 +24,8 @@ try:
     _NORMALIZE_AVAILABLE = True
 except Exception:  # pragma: no cover - normalization optional
     _NORMALIZE_AVAILABLE = False
+
+logger = logging.getLogger(__name__)
 
 _WEIGHT_TRACK = 1.0
 _WEIGHT_ALBUM = 0.8
@@ -556,9 +559,44 @@ def unpublish(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _sync_sidecar_taxonomy(sidecar_db: str, taxonomy) -> bool:
+    """Re-import the taxonomy into the sidecar graph tables if it's out of date.
+
+    The YAML (`data/layered_genre_taxonomy.yaml`) is the source of truth; the
+    sidecar's `genre_graph_*` tables are a materialized copy that ``copy_taxonomy``
+    then copies verbatim into metadata.db. Growing the YAML (e.g. via the GUI
+    adjudication panel) without re-importing leaves the sidecar stale, so publish
+    copies an old canonical table and downstream ids fall back to raw tokens
+    (2026-07-02 incident). Syncing here makes every full publish reflect the
+    current YAML. Version-gated so it's a no-op when already in sync. Returns
+    True iff a re-import was performed.
+    """
+    from src.ai_genre_enrichment.storage import SidecarStore
+
+    store = SidecarStore(sidecar_db)
+    store.initialize()  # idempotent; ensures the graph tables exist
+    with store.connect() as sconn:
+        row = sconn.execute(
+            "SELECT taxonomy_version FROM genre_graph_canonical_genres LIMIT 1"
+        ).fetchone()
+    if row is not None and row[0] == taxonomy.version:
+        return False
+    stale = row[0] if row is not None else "(empty)"
+    logger.info(
+        "publish: sidecar taxonomy %s is stale (YAML is %s); re-importing before copy",
+        stale, taxonomy.version,
+    )
+    store.upsert_layered_taxonomy(taxonomy)
+    return True
+
+
 def publish(metadata_db: str, sidecar_db: str, dry_run: bool = False) -> PublishStats:
     """Publish authoritative genres from sidecar into metadata.db (one transaction)."""
     taxonomy = load_default_layered_taxonomy()
+    # Self-heal the sidecar from the YAML before copying it into metadata.db.
+    # Skipped on dry_run so a preview mutates nothing.
+    if not dry_run:
+        _sync_sidecar_taxonomy(sidecar_db, taxonomy)
     conn = sqlite3.connect(metadata_db)
     conn.row_factory = sqlite3.Row
     # isolation_level=None = autocommit mode. Without this, Python's sqlite3

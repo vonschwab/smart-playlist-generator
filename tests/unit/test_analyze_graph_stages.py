@@ -379,6 +379,43 @@ def test_artifacts_fingerprint_tracks_published_genres_in_graph_mode(tmp_path, m
     assert fp_before != fp_after
 
 
+def test_taxonomy_version_folds_into_downstream_fingerprints(tmp_path, monkeypatch):
+    """A taxonomy growth must invalidate publish/genre-sim/artifacts fingerprints.
+
+    Regression: publish's fingerprint keyed only on row counts, so a growth
+    (same counts, re-resolved ids) fingerprint-same-skipped publish (2026-07-02).
+    """
+    db_path = _metadata_db(tmp_path)
+    _write_graph_config(tmp_path)
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "CREATE TABLE release_effective_genres (album_id TEXT, genre_id TEXT, "
+        "assignment_layer TEXT, confidence REAL, source TEXT)")
+    conn.commit()
+    conn.close()
+
+    import src.ai_genre_enrichment.layered_taxonomy as lt
+
+    class _StubTax:
+        def __init__(self, version):
+            self.version = version
+
+    def _fp(stage, version):
+        monkeypatch.setattr(lt, "load_default_layered_taxonomy", lambda: _StubTax(version))
+        ctx = _ctx(tmp_path, db_path)
+        try:
+            return al.compute_stage_fingerprint(ctx, stage)
+        finally:
+            ctx["conn"].close()
+
+    for stage in ("publish", "genre-sim", "artifacts"):
+        a = _fp(stage, "0.1.0")
+        b = _fp(stage, "0.2.0")
+        a_again = _fp(stage, "0.1.0")
+        assert a != b, f"{stage} fingerprint ignored taxonomy version change"
+        assert a == a_again, f"{stage} fingerprint unstable within a version"
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Integration tests
 # ─────────────────────────────────────────────────────────────────────────────

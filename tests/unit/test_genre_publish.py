@@ -474,3 +474,54 @@ def test_escalated_album_retains_prior_assignments(tmp_path):
     _conn.close()
     meta.close()
     assert after == before  # prior assignments preserved; nothing cleared
+
+
+def test_publish_reimports_stale_sidecar_taxonomy(tmp_path):
+    """publish() re-syncs a stale sidecar taxonomy from the YAML before copying.
+
+    Regression: growing the taxonomy via the GUI wrote only the YAML; the sidecar
+    graph tables stayed at the old version, so publish copied a stale canonical
+    table and downstream ids fell back to raw tokens (2026-07-02).
+    """
+    meta, side = _full_fixture(tmp_path)
+    real = load_default_layered_taxonomy()
+
+    # Stale the sidecar: fake old version + drop all but a handful of genres.
+    sconn = sqlite3.connect(side)
+    keep = [r[0] for r in sconn.execute(
+        "SELECT genre_id FROM genre_graph_canonical_genres LIMIT 3")]
+    sconn.execute("UPDATE genre_graph_canonical_genres SET taxonomy_version='0.0.1-stale'")
+    sconn.execute(
+        "DELETE FROM genre_graph_canonical_genres WHERE genre_id NOT IN (?,?,?)", keep)
+    sconn.commit()
+    assert sconn.execute(
+        "SELECT COUNT(*) FROM genre_graph_canonical_genres").fetchone()[0] == 3
+    sconn.close()
+
+    genre_publish.publish(str(meta), str(side), dry_run=False)
+
+    sconn = sqlite3.connect(side)
+    versions = [r[0] for r in sconn.execute(
+        "SELECT DISTINCT taxonomy_version FROM genre_graph_canonical_genres")]
+    count = sconn.execute(
+        "SELECT COUNT(*) FROM genre_graph_canonical_genres").fetchone()[0]
+    sconn.close()
+    assert versions == [real.version]      # re-synced to the current YAML version
+    assert count == len(real.genres)       # full canonical genre set restored
+
+
+def test_publish_dry_run_does_not_reimport_sidecar(tmp_path):
+    """A dry run previews without mutating the sidecar (re-import is skipped)."""
+    meta, side = _full_fixture(tmp_path)
+    sconn = sqlite3.connect(side)
+    sconn.execute("UPDATE genre_graph_canonical_genres SET taxonomy_version='0.0.1-stale'")
+    sconn.commit()
+    sconn.close()
+
+    genre_publish.publish(str(meta), str(side), dry_run=True)
+
+    sconn = sqlite3.connect(side)
+    versions = [r[0] for r in sconn.execute(
+        "SELECT DISTINCT taxonomy_version FROM genre_graph_canonical_genres")]
+    sconn.close()
+    assert versions == ["0.0.1-stale"]     # untouched by the dry run
