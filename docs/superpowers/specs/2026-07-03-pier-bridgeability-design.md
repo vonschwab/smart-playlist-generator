@@ -116,3 +116,58 @@ Discipline: enabled-but-can't-act (missing `X_sonic`, missing calibration) **rai
 - Bridgeability against the *run-specific candidate pool* (circular: the pool is built from the
   piers). Library-wide is the non-circular signal; if nothing in the library is close, no pool
   can contain a good neighbor.
+
+---
+
+## Revision 2026-07-04 — genre-relevant neighbor set (library-wide signal failed live)
+
+The original library-wide signal (above) SHIPPED (Tasks 1–3, commits `46279b9`/`97b17f5`/`36dac4c`)
+and passed all unit tests, but the **live Torrey verify (Task 4) proved it does not veto First Jam.**
+Root cause: the incident was originally diagnosed under the **MERT** sonic space, where First Jam was
+an *isolated* outlier (best library cosine ≈ 0.10). After the SP-B MERT→MuQ swap, First Jam is instead
+a **degenerate/collapsed MuQ embedding**: it has cosine ≈ **1.0000** with ~5 acoustically-unrelated
+near-silent tracks (Neil Young "Break (Silent Track)", Bad Brains "Intro", Boards of Canada "Magic
+Window", Beach House "Irene", a Dirty Projectors untitled). MuQ maps quiet/near-silent audio to one
+near-identical point. So its k-th library neighbor T = **0.988**, sailing past the 0.30 floor — the
+library-wide count says "many great neighbors" when they are all junk that no Torrey playlist would
+admit. Min-T improved only 0.002 → 0.039 and First Jam stayed a pier. (The broader MuQ collapse is a
+separate tracked TODO — see `memory/project_muq_collapse_quiet_audio.md`.)
+
+**Fix: gate the neighbor set by genre-relevance to the seed artist.** A library track only counts as
+a bridge neighbor if it is genre-compatible with the seed artist's own genre profile. First Jam's
+silent-junk neighbors are genre-incompatible with Torrey (shoegaze/indie), so they are masked out; its
+k-th *genre-relevant* sonic neighbor falls back to its true ≈0.10 and it fails the floor → vetoed.
+
+### Signal (revised)
+
+1. **Seed-artist genre profile** (available inside `cluster_artist_tracks` pre-pier, gated on the
+   artist's own tracks — NOT the piers, so non-circular): `seed_g = L2normalize(max over
+   X_genre_smoothed[artist_indices])`. Uses the artist's genre footprint (union across their tracks).
+2. **Library genre-relevance mask**: `genre_sim = L2normalize_rows(X_genre_smoothed) @ seed_g`; a
+   library row is an eligible neighbor iff `genre_sim >= pier_bridgeability_genre_floor` AND not
+   same-artist.
+3. **Bridgeability(i)** = calibrated-T of pier-candidate *i*'s k-th best **sonic** cosine among only
+   the genre-eligible, non-same-artist rows.
+
+### Representation choice: `X_genre_smoothed` (432-dim raw/smoothed vocab), NOT `X_genre_dense`
+
+Verified against the live artifact (`beat3tower_32k`, per the 2026-07-03_233536 Torrey log):
+`X_sonic=(N,512) muq`, `X_genre_smoothed=(N,432)`, `X_genre_dense=(N,64)` — all current (432 is the
+grown vocab). The smoothed matrix is used because it is unambiguously present and current and needs no
+assumptions about the dense sidecar's provenance. (An earlier draft's claim that the dense sidecar was
+stale was an out-of-date memory; it is not a factor. A stray old `ab_cooc` artifact, 162-dim tower /
+775-vocab / no dense, exists on disk but is NOT the live artifact.)
+
+### New config
+
+`artist_style.pier_bridgeability_genre_floor: float = 0.30` (live default, tunable). Enabled-but-
+`X_genre_smoothed` absent → the mask is `None` and the signal degrades to library-wide with a WARNING
+(never a silent change of behavior). Over-masking (genre floor too high → legit piers lose all
+eligible neighbors → whole-artist never-fail fallback → veto inert) is the failure mode to watch in
+the live re-verify — validate BOTH directions: First Jam vetoed AND legit shoegaze piers retained.
+
+### Non-circularity
+
+The mask is gated on `artist_indices` (the seed artist's own tracks) and `X_genre_smoothed` — neither
+depends on which medoids were chosen as piers, so this is a THIRD option distinct from both the
+rejected pool-vs-piers (circular) and the failed library-wide (junk-neighbor-blind) signals.
