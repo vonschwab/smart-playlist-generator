@@ -4,6 +4,41 @@ Running list of built-but-parked, superseded, or minor tech-debt items to revisi
 Per CLAUDE.md Layer 4 ("activate fixes, never default to legacy"), parked items are
 either revived+validated later or deleted — not left inert as the default. Newest first.
 
+## Test-suite: synthetic-artifact golden tests fail — pool starvation from artist-style genre gating (surfaced 2026-07-04)
+
+**6 integration tests fail on master.** Verified **NOT** a lossless-speedup regression — they fail
+identically with the 2026-07-04 edge_repair memo reverted to `a8e63b6` (repro:
+`git stash push -- src/playlist/repair/edge_repair.py`, re-run, `git stash pop`). Failing tests:
+- `tests/integration/test_ds_pipeline_smoke.py::TestDSPipelineSmoke::test_dynamic_mode_10_tracks`
+- `tests/integration/test_ds_pipeline_smoke.py::TestDSPipelineSmoke::test_narrow_mode_10_tracks`
+- `tests/integration/test_playlist_golden_files.py::test_synthetic_playlist_golden` — all 4 params
+  (`narrow-…0000`, `dynamic-…0001`, `dynamic-…0010`, `discover-…0020`).
+
+**Symptom:** length shortfall on the synthetic 100-track artifact — `generated 6/8 tracks but
+expected 10` (`variable_bridge_length=False`) — so the synthetic golden track_id lists no longer
+match. Run log shows `BPM data missing for 100/100` and `Pier-bridge length mismatch … expected 10`.
+
+**Root cause (hypothesis, high confidence):** the artist-style pier-bridgeability genre gating that
+landed on master this window — `aa1b1f4` (gate pier-bridgeability neighbors by genre relevance),
+`77f9b63` (zero-genre rows always ineligible + genre-gate fallback), `4103664` (warn on pier
+shortfall after reallocation) — starves the candidate pool on the **synthetic** artifact, whose rows
+carry no real genres. "Zero-genre rows always ineligible" plausibly makes most synthetic rows
+ineligible → pool < interior_len → the shortfall. `edge_repair` is length-preserving and cannot
+change the track count, which exonerates the memo.
+
+**Handoff / decide before fixing** — is the new gating *correct and the fixtures merely stale*, or a
+*bug on genre-sparse artifacts*?
+- If intended: regenerate the synthetic goldens (`pytest tests/integration/test_playlist_golden_files.py
+  --generate-golden`) and update the smoke-test length expectations — or give the synthetic artifact
+  non-empty genre rows so it isn't all-zero-genre.
+- If the gate over-fires when genre data is absent: it likely needs a "genre data present" guard so it
+  no-ops on genre-less/synthetic artifacts (making *every* zero-genre row ineligible when the WHOLE
+  artifact is zero-genre is what starves the pool). Read a synthetic run at INFO + the three commits
+  above before regenerating — regenerating stale-but-correct goldens is fine; regenerating to paper
+  over a real pool-starvation bug is not.
+
+Owner: the artist-style pier-bridgeability work (not the lossless-speedup track).
+
 ## ✅ Resolved 2026-07-03 (verified-fixes cleanup pass)
 
 Buckets A/B/C of the triage; each re-verified against master before fixing. Scoped OUT of
