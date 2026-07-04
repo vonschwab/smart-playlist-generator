@@ -1365,3 +1365,81 @@ def test_bridgeability_empty_members_and_k_clamp():
                                    calib_center=c, calib_scale=s, calib_gain=g)
     # kth clamps to 2nd best = cos(e0, e1) = 0 -> low T, but finite (no crash/inf)
     assert np.isfinite(t[0]) and t[0] < 0.05
+
+
+# ---------------------------------------------------------------------------
+# Task 2: bridgeability veto + slot reallocation wired into cluster_artist_tracks
+# ---------------------------------------------------------------------------
+
+def _bridgeability_fixture():
+    """Artist 'a' with 2 sonic clusters; only cluster A has library mass near it.
+
+    Rows 0-2: artist cluster A (~e1, tiny jitter so kmeans is stable).
+    Rows 3-5: artist cluster B (~e2) — isolated, no library neighbors.
+    Rows 6-11: library tracks near e1 (cluster A's bridges).
+    Rows 12-13: library filler on e3.
+    """
+    e = np.eye(4)
+    jit = [0.00, 0.01, -0.01]
+    a_rows = [e[0] + j * e[3] for j in jit] + [e[1] + j * e[3] for j in jit]
+    lib_rows = [e[0] + j * e[3] for j in (0.02, -0.02, 0.03, -0.03, 0.04, -0.04)]
+    fill = [e[2], e[2] + 0.01 * e[3]]
+    X = _unit_rows(a_rows + lib_rows + fill)
+    artist_keys = np.array(["a"] * 6 + ["lib"] * 8)
+    track_ids = np.array([f"t{i}" for i in range(14)])
+    return DummyBundle(X_sonic=X, artist_keys=artist_keys, track_ids=track_ids)
+
+
+def _cfg_bridge(**kw):
+    base = dict(cluster_k_min=2, cluster_k_max=2, piers_per_cluster=1, enabled=True,
+                dedupe_versions=False, pier_bridgeability_k=3,
+                pier_bridgeability_floor_t=0.30)
+    base.update(kw)
+    return ArtistStyleConfig(**base)
+
+
+def test_outlier_cluster_contributes_no_piers_and_slots_reallocate():
+    bundle = _bridgeability_fixture()
+    clusters, medoids, by_cluster, X_norm = cluster_artist_tracks(
+        bundle=bundle, artist_name="A", cfg=_cfg_bridge(), random_seed=0,
+        medoid_top_k=2, target_pier_count=4,
+    )
+    assert len(clusters) == 2                      # cluster membership untouched
+    assert sorted(len(m) for m in by_cluster) == [0, 3]   # B empty; A bumped to all 3
+    assert all(m in {0, 1, 2} for m in medoids)    # every pier from cluster A
+    assert len(medoids) == 3                       # ceil(4/1)=4 capped by cluster size
+
+
+def test_bridgeability_all_fail_falls_back_unchecked():
+    # Shrink the library to filler only: no artist track has 3 neighbors anywhere.
+    e = np.eye(4)
+    X = _unit_rows([e[0], e[0] + 0.01 * e[3], e[1], e[1] + 0.01 * e[3], e[2], e[3]])
+    bundle = DummyBundle(X_sonic=X, artist_keys=np.array(["a"] * 4 + ["lib"] * 2),
+                         track_ids=np.array([f"t{i}" for i in range(6)]))
+    checked = cluster_artist_tracks(
+        bundle=bundle, artist_name="A", cfg=_cfg_bridge(), random_seed=0, medoid_top_k=1)
+    unchecked = cluster_artist_tracks(
+        bundle=bundle, artist_name="A",
+        cfg=_cfg_bridge(pier_bridgeability_enabled=False), random_seed=0, medoid_top_k=1)
+    assert checked[1] == unchecked[1]              # same medoids: never-fail fallback
+
+
+def test_bridgeability_no_veto_is_byte_identical():
+    bundle = _bridgeability_fixture()
+    # Floor 0.0 => nothing vetoed => identical to disabled.
+    on = cluster_artist_tracks(
+        bundle=bundle, artist_name="A",
+        cfg=_cfg_bridge(pier_bridgeability_floor_t=0.0), random_seed=0,
+        medoid_top_k=2, target_pier_count=4)
+    off = cluster_artist_tracks(
+        bundle=bundle, artist_name="A",
+        cfg=_cfg_bridge(pier_bridgeability_enabled=False), random_seed=0,
+        medoid_top_k=2, target_pier_count=4)
+    assert on[1] == off[1] and on[2] == off[2]
+
+
+def test_artist_style_config_has_bridgeability_defaults():
+    cfg = ArtistStyleConfig()
+    assert cfg.pier_bridgeability_enabled is True   # live default (activate-fixes rule)
+    assert cfg.pier_bridgeability_floor_t == 0.30
+    assert cfg.pier_bridgeability_k == 10

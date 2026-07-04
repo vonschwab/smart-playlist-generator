@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -98,6 +99,12 @@ class ArtistStyleConfig:
     # Tag steering (GUI genre-tag chips, artist mode): on-tag bonus in the
     # within-cluster medoid pick. 0.0 => inert (today's behavior).
     medoid_tag_weight: float = 0.0  # tag-steering on-tag bonus in pier scoring
+    # Pier bridgeability veto (spec 2026-07-03): a medoid candidate needs >= k
+    # non-seed-artist library neighbors at calibrated T >= floor_t to seat as a
+    # pier. Vetoes medoid candidacy only; cluster membership is untouched.
+    pier_bridgeability_enabled: bool = True
+    pier_bridgeability_floor_t: float = 0.30
+    pier_bridgeability_k: int = 10
 
 
 def load_artist_energy_values(bundle, cfg: "ArtistStyleConfig") -> Optional[np.ndarray]:
@@ -649,6 +656,7 @@ def cluster_artist_tracks(
     popularity_values: Optional[np.ndarray] = None,
     metadata_db_path: Optional[str] = None,
     steering_target: Optional[np.ndarray] = None,
+    target_pier_count: Optional[int] = None,
 ) -> Tuple[List[List[int]], List[int], List[List[int]], np.ndarray]:
     """Cluster artist tracks in sonic space and return clusters + medoids."""
     track_ids = bundle.track_ids
@@ -698,6 +706,45 @@ def cluster_artist_tracks(
             )
     if len(artist_indices) < max(3, cfg.cluster_k_min):
         raise ValueError(f"Not enough tracks to cluster for artist {artist_name}")
+
+    # Pier bridgeability veto (medoid candidacy only — never mutates clusters).
+    bridgeable_set: Optional[set] = None
+    if cfg.pier_bridgeability_enabled:
+        from src.playlist.transition_metrics import resolve_transition_calib
+        _cal_c, _cal_s, _cal_g = resolve_transition_calib(
+            getattr(bundle, "sonic_variant", None)
+        )
+        _excl_cols = _artist_indices_in_bundle(
+            bundle, artist_name, include_collaborations=True
+        )
+        _bt = compute_pier_bridgeability(
+            X_norm, artist_indices, _excl_cols, cfg.pier_bridgeability_k,
+            calib_center=_cal_c, calib_scale=_cal_s, calib_gain=_cal_g,
+        )
+        _floor = float(cfg.pier_bridgeability_floor_t)
+        bridgeable_set = {
+            idx for idx, t in zip(artist_indices, _bt) if float(t) >= _floor
+        }
+        _vetoed = [
+            (idx, float(t)) for idx, t in zip(artist_indices, _bt) if float(t) < _floor
+        ]
+        if _vetoed:
+            logger.info(
+                "Pier bridgeability: vetoed %d/%d member(s) (floor_t=%.2f k=%d): %s",
+                len(_vetoed), len(artist_indices), _floor,
+                int(cfg.pier_bridgeability_k),
+                [
+                    f"{bundle.track_ids[i]} kth-T={t:.3f}"
+                    for i, t in sorted(_vetoed, key=lambda p: p[1])[:10]
+                ],
+            )
+        if not bridgeable_set:
+            logger.warning(
+                "Pier bridgeability: ALL %d members failed floor_t=%.2f — running "
+                "unchecked for this generation (a playlist never fails on a soft axis)",
+                len(artist_indices), _floor,
+            )
+            bridgeable_set = None
 
     # Energy-aware spread: load energy if not injected, then derive the artist's
     # robust arousal span (slots are spaced across it). None => term stays inert.
@@ -761,31 +808,58 @@ def cluster_artist_tracks(
             [round(t, 3) if np.isfinite(t) else None for t in slot_targets],
         )
 
+    eff_top_k = medoid_top_k
+    if bridgeable_set is not None:
+        n_eligible_clusters = sum(
+            1 for _c, _ml in nonempty if any(m in bridgeable_set for m in _ml)
+        )
+        if target_pier_count and 0 < n_eligible_clusters < len(nonempty):
+            eff_top_k = max(
+                medoid_top_k, math.ceil(int(target_pier_count) / n_eligible_clusters)
+            )
+            logger.warning(
+                "Pier bridgeability: %d/%d cluster(s) have no eligible member — "
+                "bumping per-cluster medoids to %d to reallocate slots",
+                len(nonempty) - n_eligible_clusters, len(nonempty), eff_top_k,
+            )
+
     clusters: List[List[int]] = []
     medoids: List[int] = []
     medoids_by_cluster: List[List[int]] = []
     span_width = (energy_span[1] - energy_span[0]) if energy_span is not None else 0.0
     for ci, (c, members_local) in enumerate(nonempty):
         clusters.append(members_local)
+        members_eligible = (
+            members_local if bridgeable_set is None
+            else [m for m in members_local if m in bridgeable_set]
+        )
+        if not members_eligible:
+            logger.warning(
+                "Pier bridgeability: cluster %d has 0/%d eligible members — "
+                "contributes no piers; slots reallocate to passing clusters",
+                ci, len(members_local),
+            )
+            medoids_by_cluster.append([])
+            continue
         energy_prox: Optional[np.ndarray] = None
         if slot_targets is not None:
-            member_energy = np.asarray(energy_values, dtype=float)[members_local]
+            member_energy = np.asarray(energy_values, dtype=float)[members_eligible]
             energy_prox = _slot_proximity(member_energy, slot_targets[ci], span_width)
         pop_slice = None
         if popularity_values is not None and cfg.medoid_popularity_weight > 0:
-            pop_slice = np.asarray(popularity_values, dtype=float)[members_local]
+            pop_slice = np.asarray(popularity_values, dtype=float)[members_eligible]
         tag_slice: Optional[np.ndarray] = None
         _xgd = getattr(bundle, "X_genre_dense", None)
         if steering_target is not None and _xgd is not None and cfg.medoid_tag_weight > 0:
-            tag_slice = np.asarray(_xgd, dtype=float)[members_local] @ np.asarray(
+            tag_slice = np.asarray(_xgd, dtype=float)[members_eligible] @ np.asarray(
                 steering_target, dtype=float
             )
         medoid_list = _medoids_for_cluster(
             X_norm,
-            members_local,
+            members_eligible,
             centroids[c],
             track_ids,
-            medoid_top_k,
+            eff_top_k,
             rng,
             medoid_top_k,
             artist_duration_stats,
