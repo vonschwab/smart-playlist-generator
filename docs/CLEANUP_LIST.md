@@ -537,9 +537,12 @@ Original findings retained below (with the corrections above applied):
 
 ### Tier 3 — needs Dylan's intent before removal
 
-- **`src/playlist/popularity_loader.py` (`load_popularity_vector`)** — zero production call sites
-  (live popularity path uses `analyze/popularity_runner.py`). Retained per its design doc for the
-  un-built "Oops, All Bangers" feature (design-stage only). Keep-or-kill pending roadmap decision.
+- **✅ RESOLVED 2026-07-04 (commit `76dd0ce`, Dylan-approved kill)** — deleted
+  `src/playlist/popularity_loader.py` + its only-caller test. NOT a live feature's scaffolding: the
+  "Oops, All Bangers" feature IS alive (substrate + beam penalty + fire mode on master), but it loads
+  popularity from the Last.fm cache via `popularity_runner.py`; the sidecar-vector `load_popularity_vector`
+  was a superseded early approach the shipped + planned (poolgate) implementation abandoned (the poolgate
+  design/plan/handoff never reference it). Zero production callers.
 - **`mutual_proximity` (`pier_bridge/manifold.py:21-38`)** — only ref is `test_manifold.py` (the
   ruff F401). The live roam path uses `build_knn_graph`/`geodesic_from_source` (gated behind
   `roam_corridors_enabled`), not this dense form. Roam-corridors plan said "both ship" (deliberate
