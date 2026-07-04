@@ -33,6 +33,15 @@ def resolve_genre_ds_params(playlists_cfg: Dict[str, Any], mode: str) -> Dict[st
         genre_cfg.get("min_genre_similarity", 0.30) if genre_enabled else None
     )
 
+    # Fix 2 (2026-07-04): per-genre-mode adaptive admission percentile
+    # (positive-mass, sparse flat gate) — the live genre gate; the absolute
+    # floor above is the rollback path (acts only when this is None/0).
+    genre_admission_percentile: Optional[float] = None
+    if genre_enabled:
+        _gap = genre_cfg.get("admission_percentile")
+        if _gap is not None:
+            genre_admission_percentile = float(_gap)
+
     genre_method: Optional[str] = genre_cfg.get("method", "ensemble") if genre_enabled else None
     sonic_weight: Optional[float] = genre_cfg.get("sonic_weight", 0.50) if genre_enabled else None
     genre_weight: Optional[float] = genre_cfg.get("weight", 0.50) if genre_enabled else None
@@ -48,10 +57,12 @@ def resolve_genre_ds_params(playlists_cfg: Dict[str, Any], mode: str) -> Dict[st
         genre_method = None
         genre_weight = 0.0
         sonic_weight = 1.0
+        genre_admission_percentile = None
 
     return {
         "sonic_weight": sonic_weight,
         "genre_weight": genre_weight,
         "min_genre_similarity": min_genre_sim,
         "genre_method": genre_method,
+        "genre_admission_percentile": genre_admission_percentile,
     }

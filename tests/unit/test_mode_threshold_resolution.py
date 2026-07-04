@@ -54,6 +54,28 @@ class TestGenreFloorResolution:
         for preset in GENRE_MODE_PRESETS.values():
             assert "min_genre_similarity_narrow" not in preset
 
+    def test_genre_admission_percentile_ladder(self):
+        """Fix 2 (2026-07-04): per-genre-mode adaptive percentile (over the
+        POSITIVE genre-sim mass) replaces the absolute floor as the live gate —
+        the sonic-axis pattern. Distinct values per mode by construction."""
+        assert GENRE_MODE_PRESETS["strict"]["genre_admission_percentile"] == 0.75
+        assert GENRE_MODE_PRESETS["narrow"]["genre_admission_percentile"] == 0.60
+        assert GENRE_MODE_PRESETS["dynamic"]["genre_admission_percentile"] == 0.40
+        assert GENRE_MODE_PRESETS["discover"]["genre_admission_percentile"] == 0.20
+        assert GENRE_MODE_PRESETS["off"]["genre_admission_percentile"] == 0.0
+
+    def test_apply_mode_presets_writes_admission_percentile(self):
+        """apply_mode_presets writes the genre-mode percentile into genre_cfg
+        (admission_percentile) unless the user set one explicitly."""
+        cfg = {"genre_mode": "narrow"}
+        apply_mode_presets(cfg)
+        assert cfg["genre_similarity"]["admission_percentile"] == 0.60
+
+        cfg_user = {"genre_mode": "narrow",
+                    "genre_similarity": {"admission_percentile": 0.33}}
+        apply_mode_presets(cfg_user)
+        assert cfg_user["genre_similarity"]["admission_percentile"] == 0.33
+
 
 class TestBridgeFloorResolution:
     """Test bridge floor resolution for all modes."""

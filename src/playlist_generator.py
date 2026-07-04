@@ -800,6 +800,7 @@ class PlaylistGenerator:
         genre_weight = _genre_params["genre_weight"]
         min_genre_sim = _genre_params["min_genre_similarity"]
         genre_method = _genre_params["genre_method"]
+        genre_admission_pct = _genre_params["genre_admission_percentile"]
         genre_enabled = min_genre_sim is not None
 
         if artist_style_enabled and not allowed_track_ids:
@@ -863,6 +864,7 @@ class PlaylistGenerator:
             genre_weight=genre_weight,
             min_genre_similarity=min_genre_sim,
             genre_method=genre_method,
+            genre_admission_percentile=genre_admission_pct,
             internal_connector_ids=internal_connector_ids,
             internal_connector_max_per_segment=internal_connector_max_per_segment,
             internal_connector_priority=internal_connector_priority,

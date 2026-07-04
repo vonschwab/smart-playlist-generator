@@ -37,6 +37,22 @@ def test_cohesion_mode_does_not_alter_genre_floor():
         assert out["min_genre_similarity"] == 0.25, cohesion_mode
 
 
+def test_admission_percentile_resolved_from_genre_cfg():
+    """Fix 2 (2026-07-04): the genre-mode admission percentile rides genre_cfg
+    (written by apply_mode_presets from GENRE_MODE_PRESETS) and is resolved
+    here like the other genre-gate params, keyed by genre_mode NOT cohesion."""
+    cfg = _cfg(enabled=True, min_genre_similarity=0.25, admission_percentile=0.60)
+    out = resolve_genre_ds_params(cfg, "dynamic")
+    assert out["genre_admission_percentile"] == 0.60
+
+
+def test_admission_percentile_none_when_absent_or_disabled():
+    out = resolve_genre_ds_params(_cfg(enabled=True, min_genre_similarity=0.25), "dynamic")
+    assert out["genre_admission_percentile"] is None
+    out = resolve_genre_ds_params(_cfg(enabled=False, admission_percentile=0.60), "dynamic")
+    assert out["genre_admission_percentile"] is None
+
+
 def test_genre_disabled_zeros_genre_weight():
     cfg = _cfg(enabled=False, sonic_weight=0.7)
     out = resolve_genre_ds_params(cfg, "dynamic")

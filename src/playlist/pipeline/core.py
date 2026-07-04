@@ -263,6 +263,7 @@ def generate_playlist_ds(
     genre_weight: Optional[float] = None,
     min_genre_similarity: Optional[float] = None,
     genre_method: Optional[str] = None,
+    genre_admission_percentile: Optional[float] = None,
     allowed_track_ids_set: Optional[set[str]] = None,
     internal_connector_ids: Optional[List[str]] = None,
     internal_connector_max_per_segment: int = 0,
@@ -503,6 +504,20 @@ def generate_playlist_ds(
             _genre_admission_percentile = float(_roam.get("genre_gate_percentile", 0.0))
         except (TypeError, ValueError):
             _genre_admission_percentile = 0.0
+
+    # Fix 2 (2026-07-04): the genre-mode ladder (GENRE_MODE_PRESETS ->
+    # genre_ds_params -> explicit param) OWNS the flat-gate percentile when set.
+    # The pb_overrides keys above are cohesion-keyed legacy, and the roam clamp
+    # was calibrated against the DENSE gate — neither may silently disable the
+    # user's genre axis (the 2026-07-04 slider eval found the roam clamp zeroed
+    # the percentile in every live run, leaving only the quantization-prone
+    # absolute floor acting).
+    if genre_admission_percentile is not None:
+        _genre_admission_percentile = float(genre_admission_percentile)
+        logger.info(
+            "Genre admission percentile (genre_mode ladder): p=%.2f",
+            _genre_admission_percentile,
+        )
 
     # Per-seed adaptive sonic admission percentile (Task 1).
     # Mode-specific key (e.g. sonic_admission_percentile_narrow) takes priority

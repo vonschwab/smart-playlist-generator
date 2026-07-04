@@ -22,11 +22,18 @@ COHESIVE_BROAD_FILTERS = ["rock", "indie", "alternative", "pop"]
 # ============================================================================
 
 GENRE_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
+    # genre_admission_percentile (Fix 2, 2026-07-04): per-genre-mode adaptive
+    # floor over the POSITIVE genre-sim mass (candidate_pool sparse gate) — the
+    # live gate, replacing the absolute min_genre_similarity floor whose fixed
+    # thresholds collapsed strict==narrow / dynamic==discover on the post-sonic
+    # eligible set (slider-differentiation eval 2026-07-04). The absolute floor
+    # keys are kept as the rollback path (act only when percentile is 0/unset).
     "strict": {
         "enabled": True,
         "weight": 0.80,
         "sonic_weight": 0.20,
-        "min_genre_similarity": 0.50,
+        "min_genre_similarity": 0.50,  # rollback-only; inert while percentile > 0
+        "genre_admission_percentile": 0.75,
         "genre_idf_enabled": True,
         "description": "Ultra-tight genre coherence - stay within seed genre",
         "use_case": "Highly cohesive playlists with minimal genre variation",
@@ -35,7 +42,8 @@ GENRE_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "enabled": True,
         "weight": 0.65,
         "sonic_weight": 0.35,
-        "min_genre_similarity": 0.40,
+        "min_genre_similarity": 0.40,  # rollback-only; inert while percentile > 0
+        "genre_admission_percentile": 0.60,
         "genre_idf_enabled": True,
         "description": "Stay close to seed genre with some flexibility",
         "use_case": "Familiar playlists that stay within genre boundaries",
@@ -44,7 +52,8 @@ GENRE_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "enabled": True,
         "weight": 0.50,
         "sonic_weight": 0.50,
-        "min_genre_similarity": 0.25,  # Relaxed from 0.30 (Phase 2B)
+        "min_genre_similarity": 0.25,  # rollback-only; inert while percentile > 0
+        "genre_admission_percentile": 0.40,
         "genre_idf_enabled": True,
         "description": "Balanced genre exploration (default)",
         "use_case": "Standard playlists with balanced genre/sonic weighting",
@@ -53,7 +62,8 @@ GENRE_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "enabled": True,
         "weight": 0.35,
         "sonic_weight": 0.65,
-        "min_genre_similarity": 0.20,
+        "min_genre_similarity": 0.20,  # rollback-only; inert while percentile > 0
+        "genre_admission_percentile": 0.20,
         "genre_idf_enabled": False,  # Exploration mode: don't reward narrow tag matches
         "description": "Genre-adjacent exploration - venture into related genres",
         "use_case": "Exploratory playlists that cross genre boundaries",
@@ -63,6 +73,7 @@ GENRE_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "weight": 0.0,
         "sonic_weight": 1.0,
         "min_genre_similarity": None,
+        "genre_admission_percentile": 0.0,
         "genre_idf_enabled": True,
         "description": "Sonic-only mode - ignore genre completely",
         "use_case": "Pure audio similarity, disregard genre tags",
@@ -399,6 +410,13 @@ def apply_mode_presets(playlists_cfg: Dict[str, Any]) -> None:
         genre_weight = float(genre_settings["weight"])
         min_genre_sim = genre_settings.get("min_genre_similarity")
         genre_idf_enabled = bool(genre_settings.get("genre_idf_enabled", True))
+        # Fix 2 (2026-07-04): write the genre-mode admission percentile into
+        # genre_cfg for genre_ds_params to resolve. Respect an explicit user
+        # value (mirrors the sonic_admission_percentile pattern below).
+        if "admission_percentile" not in genre_cfg:
+            _gap_preset = genre_settings.get("genre_admission_percentile")
+            if _gap_preset is not None:
+                genre_cfg["admission_percentile"] = float(_gap_preset)
         if (
             str(genre_mode).strip().lower() in {"strict", "narrow"}
             and "broad_filters" not in candidate_pool

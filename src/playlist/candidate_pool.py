@@ -923,13 +923,30 @@ def build_candidate_pool(
             for _si in seed_list:
                 if 0 <= int(_si) < _gdist.shape[0]:
                     _gdist[int(_si)] = np.nan
-            _gfin = _gdist[np.isfinite(_gdist)]
-            effective_genre_floor = floor_at_percentile(_gfin, float(genre_admission_percentile))
-            logger.info(
-                "Genre admission percentile (sparse) active: p=%.2f -> effective_genre_floor=%.3f",
-                float(genre_admission_percentile),
-                float(effective_genre_floor),
-            )
+            # Fix 2 (2026-07-04): percentile over the POSITIVE mass only. The
+            # zero/no-overlap fraction varies wildly per seed (6%..58% positive
+            # across the eval corpus), so a full-distribution percentile goes
+            # inert on sparse-genre seeds (floor lands at 0) and over-tightens
+            # on dense ones. Positive-mass semantics: "admit the top (1-p)
+            # fraction of tracks with any genre affinity".
+            _gfin = _gdist[np.isfinite(_gdist) & (_gdist > 0.0)]
+            if _gfin.size:
+                effective_genre_floor = floor_at_percentile(_gfin, float(genre_admission_percentile))
+                logger.info(
+                    "Genre admission percentile (sparse, positive-mass) active: "
+                    "p=%.2f positive_n=%d -> effective_genre_floor=%.3f",
+                    float(genre_admission_percentile),
+                    int(_gfin.size),
+                    float(effective_genre_floor),
+                )
+            else:
+                logger.warning(
+                    "Genre admission percentile configured (p=%.2f) but NO positive "
+                    "genre similarities exist for this seed — percentile gate cannot "
+                    "act; falling back to absolute floor=%s",
+                    float(genre_admission_percentile),
+                    min_genre_similarity,
+                )
 
     genre_compatibility_result = None
     if (
@@ -1016,36 +1033,38 @@ def build_candidate_pool(
         except Exception:
             logger.debug("Candidate filter (sonic floor): summary unavailable (stats error)")
 
-    # Apply genre gate (hard gate for dynamic/narrow, soft for discover)
+    # Apply genre gate. Fix 2 (2026-07-04): applicability is keyed by the GENRE
+    # axis (a configured floor/percentile), not the DS/cohesion mode — the old
+    # `mode in ("dynamic","narrow")` keying silently disabled the genre gate
+    # under cohesion strict/discover and force-enabled the guard under cohesion
+    # narrow (slider-differentiation eval, cross-axis coupling).
     if genre_sim_all is not None:
         # Optional overlap guard: require at least one raw shared tag after broad
         # filters. This prevents smoothed vectors from admitting tracks that only
-        # match through generic tags such as "rock" or "pop".
-        overlap_guard_enabled = genre_raw_matrix is not None and (
-            mode == "narrow" or (mode == "dynamic" and bool(broad_filters))
-        )
+        # match through generic tags such as "rock" or "pop". broad_filters is
+        # owned by the genre presets (strict/narrow set COHESIVE_BROAD_FILTERS),
+        # so the guard follows the genre axis.
+        overlap_guard_enabled = genre_raw_matrix is not None and bool(broad_filters)
         if overlap_guard_enabled:
             seed_binary = (np.max(genre_raw_matrix[seed_list], axis=0) > 0).astype(float)
             overlaps = (genre_raw_matrix > 0) & (seed_binary > 0)
             zero_overlap_mask = overlaps.sum(axis=1) == 0
-            if mode in ("dynamic", "narrow"):
-                genre_overlap_guard_rejected = int(
-                    sum(1 for i in eligible if bool(zero_overlap_mask[i]))
-                )
+            genre_overlap_guard_rejected = int(
+                sum(1 for i in eligible if bool(zero_overlap_mask[i]))
+            )
             genre_sim_all = np.where(zero_overlap_mask, 0.0, genre_sim_all)
 
-        if mode in ("dynamic", "narrow"):
+        if effective_genre_floor is not None:
             # Hard gate: exclude candidates below threshold.
-            # Uses effective_genre_floor (which equals min_genre_similarity when
-            # genre_admission_percentile is None — exact legacy behavior).
+            # effective_genre_floor = percentile-derived when the genre-mode
+            # ladder is active, else min_genre_similarity (legacy/rollback).
             eligible_before_genre = len(eligible)
             eligible = [i for i in eligible if genre_sim_all[i] >= effective_genre_floor]
             below_genre_count = eligible_before_genre - len(eligible)
             logger.info(
-                "Genre hard gate applied: %d candidates excluded (mode=%s)",
-                below_genre_count, mode
+                "Genre hard gate applied: %d candidates excluded (floor=%.3f, mode=%s)",
+                below_genre_count, float(effective_genre_floor), mode
             )
-        # For "discover" mode, we compute genre_sim but don't exclude (soft penalty later if needed)
 
     # ── Energy admission-rescue (pace as a co-equal axis) ────────────────────
     # Re-admit tracks rejected ONLY by the rhythm bands (onset/BPM) that still
