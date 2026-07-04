@@ -6,7 +6,7 @@ from typing import Iterable, Optional, Sequence
 
 from src.features.artifacts import ArtifactBundle
 from src.playlist.artist_identity_resolver import ArtistIdentityConfig, resolve_artist_identity_keys
-from src.playlist.identity_keys import identity_keys_for_index
+from src.playlist.identity_keys import TrackIdentityKeys, identity_keys_for_index
 from src.playlist.title_quality import detect_title_artifacts
 from src.playlist.transition_metrics import (
     TransitionMetricContext,
@@ -140,6 +140,42 @@ def _cap_artist_keys_for_idx(
     except Exception:
         artist_key = ""
     return {str(artist_key)} if artist_key else set()
+
+
+@dataclass
+class _IdentityMemo:
+    """Per-repair-pass memo for the pure-per-index identity lookups.
+
+    Within one ``repair_playlist_edges`` call the ``bundle`` is immutable and
+    ``artist_identity_cfg`` is fixed, so ``identity_keys_for_index(bundle, idx)``
+    and ``_cap_artist_keys_for_idx(bundle, idx, cfg)`` are pure functions of the
+    integer track index. This memoizes them by index; lifetime is one repair pass
+    (a fresh instance per call), mirroring beam.py's per-segment genre_cache /
+    trans_cache. Keyed by index only (never by playlist position), so an accepted
+    swap never invalidates an entry — the index->keys mapping is immutable.
+    """
+
+    _ident: dict[int, TrackIdentityKeys] = field(default_factory=dict)
+    _cap: dict[int, set[str]] = field(default_factory=dict)
+
+    def keys_for_index(self, bundle: ArtifactBundle, idx: int) -> TrackIdentityKeys:
+        i = int(idx)
+        cached = self._ident.get(i)
+        if cached is None:  # identity_keys_for_index never returns None -> safe sentinel
+            cached = identity_keys_for_index(bundle, i)
+            self._ident[i] = cached
+        return cached
+
+    def cap_keys(
+        self,
+        bundle: ArtifactBundle,
+        idx: int,
+        artist_identity_cfg: Optional[ArtistIdentityConfig],
+    ) -> set[str]:
+        i = int(idx)
+        if i not in self._cap:  # membership, not truthiness: an empty set is a valid value
+            self._cap[i] = _cap_artist_keys_for_idx(bundle, i, artist_identity_cfg)
+        return self._cap[i]
 
 
 def _candidate_refusal_reasons(
