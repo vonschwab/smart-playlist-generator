@@ -12,6 +12,37 @@ instead, and cut it deliberately later.
 
 ---
 
+## LOSSLESS wins landed (2026-07-03)
+
+A separate, orthogonal track: **bit-identical** speedups (same track_ids, same order), golden-diff
+gated — no search shrinkage, so these compose with the (still-suspended) ceiling. Spec/plan:
+`docs/superpowers/specs/2026-07-03-lossless-generation-speedup-design.md`. Measured by
+**load-independent cProfile** — single-run wall-clock is unusable here (a concurrent session's
+generations swing it 60→100s; trust the profiler + the bit-diff, not wall-clock).
+
+Porches golden replay, profiled total **377.5s → 117.5s (3.2×)**:
+
+| Hotspot | Baseline | After | Change |
+|---------|----------|-------|--------|
+| `resolve_artist_identity_keys` | 2.35M calls / 230.5s | 128K / 12.0s | **T1-a** — cache the parse per candidate (16477ff) |
+| transition scoring (`score_transition_edge`) | 1.22M / 24.2s | 636K / 11.1s | **T1-e** — memoize by (prev,cur); diamonds ~halve it (2394637) |
+| `compute_step_log_*_target` | ~15s | out of top-30 | **T1-c** — hoist per-step out of the candidate loop (03cbe4a) |
+| `compute_energy_pace_penalty` | per-candidate | skipped | **T1-d** — skip when energy weights 0 (2394637) |
+
+Foundation (golden capture + bit-diff gate + timing/profile harness + Porches fixture + absolute-path
+overrides so the gate runs from a worktree): `d087b69 d0024cc ca90825 4efaddb`. Baseline/after profiles:
+`docs/run_audits/lossless_speedup_baseline_profile.txt`, `..._after_t1_profile.txt`.
+
+**Biggest remaining lossless levers** (not yet done):
+- `bpm_log_distance` still **4M calls / 31.7s** — scalar `math` fast-path (plan T2-c, Tier-2 float-reassoc,
+  must pass ΔT==0). Now the #1 remaining function-time cost after the beam's own body.
+- **T1-g** — hoist the flex re-run invariant work (pool / genre-route / roam): the profile shows **15
+  beam calls for 9 segments** (6 flex re-runs), `choose_segment_length` at 86.8s cumulative. Touches
+  `pier_bridge_builder.py` (god-class) — do in an isolated worktree, see [[feedback_worktree_data_absolute_overrides]].
+- `edge_repair` (post-loop) is 21.4s — out of the beam, a separate future target.
+
+---
+
 ## Lever #1 (headline): artist-path beam + pooling width
 
 **What.** The pier-bridge beam explores `beam_width` candidate paths per segment, pulling from
