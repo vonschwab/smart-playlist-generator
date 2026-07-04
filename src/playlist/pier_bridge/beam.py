@@ -1041,6 +1041,21 @@ def _beam_search_segment(
             and _oa >= _bpm_trust_min_onset and _ob >= _bpm_trust_min_onset
         )
 
+    # Cache the artist-identity parse per candidate index. It is a pure function
+    # of the candidate's artist string (bundle.track_artists[cand]), fixed for a
+    # given cand, so it is identical across every beam state/step. Uncached it was
+    # ~2/3 of beam time (millions of 11-delimiter regex parses). Bit-identical:
+    # every call site derives cand_artist_str the same way, and the returned set
+    # is only read / used with `|` (never mutated), so sharing it is safe.
+    _identity_keys_cache: Dict[int, Set[str]] = {}
+
+    def _cand_identity_keys(cand_int: int, cand_artist_str: str) -> Set[str]:
+        keys = _identity_keys_cache.get(cand_int)
+        if keys is None:
+            keys = resolve_artist_identity_keys(cand_artist_str, artist_identity_cfg)
+            _identity_keys_cache[cand_int] = keys
+        return keys
+
     for step in range(interior_length):
         # Cooperative cancellation: the per-step poll is what bounds cancel
         # latency inside a single long beam run (the reported segment-0 hang).
@@ -1217,7 +1232,7 @@ def _beam_search_segment(
                         else:
                             cand_artist_str = str(artist_key_by_idx.get(int(cand), "") or "")
                         if cand_artist_str:
-                            cand_identity_keys = resolve_artist_identity_keys(cand_artist_str, artist_identity_cfg)
+                            cand_identity_keys = _cand_identity_keys(int(cand), cand_artist_str)
                             # Reject if ANY identity key overlaps with used_artists
                             if any(key in state.used_artists for key in cand_identity_keys):
                                 continue
@@ -1443,7 +1458,7 @@ def _beam_search_segment(
                             else:
                                 cand_artist_str = str(artist_key_by_idx.get(int(cand), "") or "")
                             if cand_artist_str:
-                                cand_identity_keys = resolve_artist_identity_keys(cand_artist_str, artist_identity_cfg)
+                                cand_identity_keys = _cand_identity_keys(int(cand), cand_artist_str)
                                 new_used_artists = state.used_artists | cand_identity_keys
                         else:
                             # Legacy mode: add single artist key
@@ -1586,7 +1601,7 @@ def _beam_search_segment(
                             else:
                                 cand_artist_str = str(artist_key_by_idx.get(int(cand), "") or "")
                             if cand_artist_str:
-                                cand_identity_keys = resolve_artist_identity_keys(cand_artist_str, artist_identity_cfg)
+                                cand_identity_keys = _cand_identity_keys(int(cand), cand_artist_str)
                                 new_used_artists = state.used_artists | cand_identity_keys
                         else:
                             cand_artist = str(artist_key_by_idx.get(int(cand), "") or "")
