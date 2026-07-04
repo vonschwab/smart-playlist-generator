@@ -608,8 +608,7 @@ def seed_genre_relevance_mask(
     seed_g = seed_g / sn
     row_norms = np.linalg.norm(G, axis=1)
     safe = np.where(row_norms < 1e-12, 1.0, row_norms)
-    genre_sim = (G @ seed_g) / safe
-    genre_sim = np.where(row_norms < 1e-12, 0.0, genre_sim)
+    genre_sim = np.where(row_norms < 1e-12, -np.inf, (G @ seed_g) / safe)
     return genre_sim >= float(genre_floor)
 
 
@@ -760,10 +759,9 @@ def cluster_artist_tracks(
         _excl_cols = _artist_indices_in_bundle(
             bundle, artist_name, include_collaborations=True
         )
+        _xg = getattr(bundle, "X_genre_smoothed", None)
         _genre_mask = seed_genre_relevance_mask(
-            getattr(bundle, "X_genre_smoothed", None),
-            artist_indices,
-            cfg.pier_bridgeability_genre_floor,
+            _xg, artist_indices, cfg.pier_bridgeability_genre_floor,
         )
         if _genre_mask is not None:
             logger.info(
@@ -771,10 +769,12 @@ def cluster_artist_tracks(
                 int(_genre_mask.sum()), int(_genre_mask.size),
                 float(cfg.pier_bridgeability_genre_floor),
             )
-        elif getattr(bundle, "X_genre_smoothed", None) is None:
+        else:
             logger.warning(
-                "Pier bridgeability: X_genre_smoothed absent — genre-relevance gate "
-                "disabled; falling back to the ungated library-wide neighbor set."
+                "Pier bridgeability: genre-relevance gate inactive (%s) — falling back to "
+                "the ungated library-wide neighbor set.",
+                "X_genre_smoothed absent" if _xg is None
+                else "seed artist has no genre profile",
             )
         _bt = compute_pier_bridgeability(
             X_norm, artist_indices, _excl_cols, cfg.pier_bridgeability_k,

@@ -1515,6 +1515,16 @@ def test_seed_genre_relevance_mask_none_paths():
     assert seed_genre_relevance_mask(np.eye(3), [], 0.3) is None         # no artist rows
 
 
+def test_seed_genre_relevance_mask_zero_genre_ineligible_at_zero_floor():
+    from src.playlist.artist_style import seed_genre_relevance_mask
+    # row 2 has NO genre data; even at genre_floor=0.0 it must NOT be an eligible neighbor.
+    Xg = np.array([[1., 0., 0.], [1., 1., 0.], [0., 0., 0.]])
+    mask = seed_genre_relevance_mask(Xg, [0, 1], genre_floor=0.0)
+    assert mask is not None
+    assert bool(mask[2]) is False
+    assert bool(mask[0]) is True   # a real on-genre row is still eligible at floor 0.0
+
+
 def _genre_bridge_fixture():
     """Artist 'a': cluster A (~e0) has genre-COMPATIBLE library neighbors; the outlier
     cluster B (~e1) is sonically close ONLY to genre-INCOMPATIBLE near-silent junk
