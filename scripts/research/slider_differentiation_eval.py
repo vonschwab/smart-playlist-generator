@@ -1,10 +1,12 @@
 """Slider-differentiation harness.
 
-Answers, per axis (genre / sonic / pace), three distinct questions on diverse
-seeds (artist-mode AND seeds-mode):
+Answers, per axis (genre / sonic / pace / cohesion), three distinct questions on
+diverse seeds (artist-mode AND seeds-mode):
   1. differentiation  - does sweeping the slider MOVE the playlist? (track overlap)
   2. direction        - does it move the RIGHT way? (the axis's own signal)
-  3. quality floor     - does the worst MERT edge stay sane? (no cratering)
+  3. quality floor     - does the worst LIVE transition (calibrated T, parsed from
+                         the DS-success log line) stay sane? (no cratering)
+                         Raw MuQ adjacent cosine is kept as a secondary signal.
 
 Behavior-change (1,2) is separate from quality (3): a dead slider hides behind a
 good-anyway playlist; a differentiating slider can still produce garbage.
@@ -14,8 +16,10 @@ FAITHFULNESS: modes are applied through the real policy layer
 as the worker does. Setting playlists.*_mode strings directly does NOT translate
 them into knobs — the validation slice proved that (gates identical across modes).
 
-Provenance guard (evaluation-methodology pre-flight): assert build_config
-X_sonic_variant=='mert' once at startup, and BPM loaded per cell.
+Provenance guard (evaluation-methodology pre-flight): assert artifact
+X_sonic_variant=='muq' once at startup, and BPM loaded per cell.
+(MuQ caveat: quiet/near-silent tracks collapse to ~one vector — raw cosine means
+can be inflated by such pairs; the live T + overlap metrics are primary.)
 
   python scripts/research/slider_differentiation_eval.py --artist Codeine --axis genre
   python scripts/research/slider_differentiation_eval.py --grid artist
@@ -40,7 +44,14 @@ ENERGY = ROOT / "data/artifacts/beat3tower_32k/energy/energy_sidecar.npz"
 CONFIG = ROOT / "config.yaml"
 LOGF = ROOT / "_sde.log"
 
-MODES = ["strict", "narrow", "dynamic", "off"]
+# Per-axis mode values (ui_state.py Literals): pace has no 'discover';
+# cohesion has no 'off'. 'dynamic' is the shared baseline for overlap.
+AXIS_MODES = {
+    "genre": ["strict", "narrow", "dynamic", "discover", "off"],
+    "sonic": ["strict", "narrow", "dynamic", "discover", "off"],
+    "pace": ["strict", "narrow", "dynamic", "off"],
+    "cohesion": ["strict", "narrow", "dynamic", "discover"],
+}
 ARTIST_CORPUS = ["Bill Evans Trio", "Codeine", "Herbie Hancock", "Yo La Tengo", "Deerhunter", "Modest Mouse"]
 MAIN_OV = {
     "library": {"database_path": str(DB)},
@@ -57,11 +68,17 @@ def art() -> dict[str, Any]:
         a = np.load(ARTIFACT, allow_pickle=True)
         ids = [str(t) for t in a["track_ids"]]
         _ART["id2idx"] = {t: i for i, t in enumerate(ids)}
-        _ART["mert"] = np.asarray(a["X_sonic_mert"], dtype=np.float32)
-        _ART["bpm"] = np.asarray(a["bpm_array"], dtype=np.float64) if "bpm_array" in a.files else None
+        _ART["sonic"] = np.asarray(a["X_sonic_muq"], dtype=np.float32)
         _ART["artists"] = [str(x) for x in a["track_artists"]] if "track_artists" in a.files else None
         _ART["genre"] = np.asarray(a["X_genre_raw"], dtype=np.float32)
         _ART["vocab"] = [str(x) for x in a["genre_vocab"]]
+        # BPM/onset live in the DB post-SP-B (no bpm_array in the artifact).
+        # Reuse the production loader so the direction metric matches the gates.
+        sys.path.insert(0, str(CODE_ROOT))
+        from src.playlist.bpm_loader import load_bpm_arrays
+        arrs = load_bpm_arrays(np.asarray(ids, dtype=object), db_path=str(DB))
+        _ART["bpm"] = arrs["perceptual_bpm"]
+        _ART["onset"] = arrs["onset_rate"]
     return _ART
 
 
@@ -76,7 +93,7 @@ def playlist_metrics(track_ids: list[str]) -> dict[str, Any]:
     idx = [A["id2idx"][t] for t in track_ids if t in A["id2idx"]]
     out: dict[str, Any] = {"n": len(idx)}
     if len(idx) >= 2:
-        M = _norm(np.asarray(A["mert"][idx], dtype=np.float64))
+        M = _norm(np.asarray(A["sonic"][idx], dtype=np.float64))
         adj = np.einsum("ij,ij->i", M[:-1], M[1:])
         out["sonic_mean"] = round(float(adj.mean()), 3)
         out["sonic_worst"] = round(float(adj.min()), 3)
@@ -86,6 +103,11 @@ def playlist_metrics(track_ids: list[str]) -> dict[str, Any]:
         if b.size:
             out["bpm_mean"] = round(float(b.mean()), 1)
             out["bpm_std"] = round(float(b.std()), 1)
+    if A.get("onset") is not None and idx:
+        o = A["onset"][idx]
+        o = o[np.isfinite(o)]
+        if o.size:
+            out["onset_std"] = round(float(o.std()), 2)
     if A["artists"] is not None and idx:
         out["distinct_artists"] = len({A["artists"][i] for i in idx})
     if idx:
@@ -190,10 +212,10 @@ def build_generator(merged_cfg: dict):
     return I["PlaylistGenerator"](lib, mc, lastfm_client=None, track_matcher=matcher, metadata_client=meta)
 
 
-def _run_and_parse(merged: dict, gen_call) -> dict[str, Any]:
-    """Build a generator from `merged`, run `gen_call(g)` (artist or seeds mode),
-    capture the INFO log, and parse the standard cell metrics."""
-    g = build_generator(merged)
+def _run_and_parse(cfg_fn, gen_call) -> dict[str, Any]:
+    """Build the merged config via `cfg_fn()` INSIDE the log-capture window (the
+    mode-preset echoes fire in Config.__init__), build a generator, run
+    `gen_call(g)` (artist or seeds mode), and parse the standard cell metrics."""
     open(LOGF, "w").close()
     fh = logging.FileHandler(LOGF, encoding="utf-8", mode="a")
     fh.setFormatter(logging.Formatter("%(message)s"))
@@ -204,6 +226,7 @@ def _run_and_parse(merged: dict, gen_call) -> dict[str, Any]:
     err = None
     track_ids: list[str] = []
     try:
+        g = build_generator(cfg_fn())
         res = gen_call(g)
         tracks = res.get("tracks", []) if isinstance(res, dict) else []
         track_ids = [str(t.get("rating_key") or t.get("id") or t.get("track_id") or "") for t in tracks]
@@ -222,10 +245,11 @@ def _run_and_parse(merged: dict, gen_call) -> dict[str, Any]:
     m = re.search(r"BPM loaded: (\d+)/(\d+)", log)
     out = {
         "wall": wall, "err": err, "bpm_ok": bool(m) and int(m.group(1)) > 0, "track_ids": track_ids,
-        "r_genre": grp(r"Genre mode: (\w+)"),
-        "r_sonic": grp(r"Sonic mode: (\w+)"),
+        "r_genre": grp(r"Genre mode '(\w+)'"),
+        "r_sonic": grp(r"Sonic mode '(\w+)'"),
         "r_pace": grp(r"Pace mode:? '?(\w+)"),
-        "r_cohesion": grp(r"Cohesion mode: (\w+)"),
+        "r_cohesion": grp(r"Running pipeline with mode=(\w+)"),
+        "bridge_floor": grp(r"attempt 1: bridge_floor=([0-9.]+)", float),
         "admitted": grp(r"Candidate pool:.*?admitted=(\d+)", int),
         "rej_genre": grp(r"Candidate pool:.*?rejected_genre=(\d+)", int),
         "sonic_floor": grp(r"effective sonic_floor=([\d.]+)", float),
@@ -236,7 +260,10 @@ def _run_and_parse(merged: dict, gen_call) -> dict[str, Any]:
     _rl = re.findall(r"Roam\[seg \d+\]: sonic detour mean=([\d.]+) max=([\d.]+)", log)
     out["roam_segs"] = len(_rl)
     out["roam_detour_mean"] = round(float(np.mean([float(x[0]) for x in _rl])), 3) if _rl else None
-    out["min_transition"] = grp(r'"min_transition": ([0-9.]+)', float)  # worst edge
+    # Worst live edge (calibrated T): "DS pipeline success ... min_transition=0.240"
+    # (also matches the older '"min_transition": 0.240' JSON form).
+    out["min_transition"] = grp(r'min_transition[="\s:]+([0-9.]+)', float)
+    out["mean_transition"] = grp(r'mean_transition[="\s:]+([0-9.]+)', float)
     _A = art()
     out["artists"] = (
         sorted({_A["artists"][_A["id2idx"][t]].strip().lower() for t in track_ids if t in _A["id2idx"]})
@@ -248,46 +275,52 @@ def _run_and_parse(merged: dict, gen_call) -> dict[str, Any]:
 
 
 def run_artist_cell(artist: str, genre_m: str, sonic_m: str, pace_m: str, cohesion_m: str, length: int = 30, roam: dict | None = None, extra_ov: dict | None = None) -> dict[str, Any]:
-    merged = policy_config(genre_m, sonic_m, pace_m, cohesion_m, roam=roam, extra_ov=extra_ov)
-    return _run_and_parse(merged, lambda g: g.create_playlist_for_artist(
-        artist, track_count=length, dynamic=(cohesion_m == "dynamic"), cohesion_mode_override=cohesion_m))
+    return _run_and_parse(
+        lambda: policy_config(genre_m, sonic_m, pace_m, cohesion_m, roam=roam, extra_ov=extra_ov),
+        lambda g: g.create_playlist_for_artist(
+            artist, track_count=length, dynamic=(cohesion_m == "dynamic"), cohesion_mode_override=cohesion_m))
 
 
 def run_seed_cell(seed_ids: list[str], length: int = 30, roam: dict | None = None, extra_ov: dict | None = None) -> dict[str, Any]:
     """Diverse-seed (seeds-mode) generation from explicit track IDs."""
-    merged = policy_config("dynamic", "dynamic", "dynamic", "dynamic", roam=roam, extra_ov=extra_ov)
     disp = [f"seed{i}" for i in range(len(seed_ids))]
-    return _run_and_parse(merged, lambda g: g.create_playlist_from_seed_tracks(
-        seed_tracks=disp, track_count=length, dynamic=True,
-        cohesion_mode_override="dynamic", seed_track_ids=list(seed_ids)))
+    return _run_and_parse(
+        lambda: policy_config("dynamic", "dynamic", "dynamic", "dynamic", roam=roam, extra_ov=extra_ov),
+        lambda g: g.create_playlist_from_seed_tracks(
+            seed_tracks=disp, track_count=length, dynamic=True,
+            cohesion_mode_override="dynamic", seed_track_ids=list(seed_ids)))
 
 
 def sweep_artist_axis(artist: str, axis: str, length: int = 30) -> None:
+    modes = AXIS_MODES[axis]
     print(f"\n=== ARTIST-MODE  {artist}  | sweep {axis} (others=dynamic) ===")
     cells: dict[str, dict[str, Any]] = {}
-    for m in MODES:
+    for m in modes:
         gm = m if axis == "genre" else "dynamic"
         sm = m if axis == "sonic" else "dynamic"
         pm = m if axis == "pace" else "dynamic"
-        cells[m] = run_artist_cell(artist, gm, sm, pm, "dynamic", length)
+        cm = m if axis == "cohesion" else "dynamic"
+        cells[m] = run_artist_cell(artist, gm, sm, pm, cm, length)
     base = cells["dynamic"].get("track_ids", [])
     print("  -- resolved (did the mode move the gates?) --")
-    print(f"  {'mode':8s} {'g/s/p/c resolved':22s} {'admitted':>8s} {'rejGenre':>8s} {'sonicFloor':>10s} {'genrePct':>8s} {'minGenSim':>9s}")
-    for m in MODES:
+    print(f"  {'mode':8s} {'g/s/p/c resolved':26s} {'admitted':>8s} {'rejGenre':>8s} {'sonicFloor':>10s} {'brFloor':>7s} {'minGenSim':>9s}")
+    for m in modes:
         c = cells[m]
         if c.get("err"):
             continue
         res = f"{c.get('r_genre')}/{c.get('r_sonic')}/{c.get('r_pace')}/{c.get('r_cohesion')}"
-        print(f"  {m:8s} {res:22s} {str(c.get('admitted')):>8s} {str(c.get('rej_genre')):>8s} {str(c.get('sonic_floor')):>10s} {str(c.get('genre_pct')):>8s} {str(c.get('min_genre_sim')):>9s}")
+        print(f"  {m:8s} {res:26s} {str(c.get('admitted')):>8s} {str(c.get('rej_genre')):>8s} {str(c.get('sonic_floor')):>10s} {str(c.get('bridge_floor')):>7s} {str(c.get('min_genre_sim')):>9s}")
     print("  -- outcome (did the playlist change, the right way, without cratering?) --")
-    print(f"  {'mode':8s} {'n':>3s} {'overlapVdyn':>11s} {'sonicMean':>9s} {'sonicWorst':>10s} {'bpmStd':>6s} {'distArt':>7s} {'wall':>5s} bpm | genre_top")
-    for m in MODES:
+    print(f"  {'mode':8s} {'n':>3s} {'overlapVdyn':>11s} {'minT':>6s} {'sonicMean':>9s} {'sonicWorst':>10s} {'bpmStd':>6s} {'onsetStd':>8s} {'distArt':>7s} {'wall':>5s} bpm | genre_top")
+    for m in modes:
         c = cells[m]
         if c.get("err"):
             print(f"  {m:8s} ERR {c['err'][:80]}")
             continue
         ov = jaccard(c.get("track_ids", []), base)
-        print(f"  {m:8s} {c.get('n',0):>3d} {ov:>11.3f} {str(c.get('sonic_mean')):>9} {str(c.get('sonic_worst')):>10} {str(c.get('bpm_std')):>6} {c.get('distinct_artists',0):>7d} {c['wall']:>5} {'ok' if c['bpm_ok'] else 'NOBPM':3s} | {','.join(c.get('genre_top',[])[:4])}")
+        mt = c.get("min_transition")
+        mt = f"{mt:.3f}" if isinstance(mt, float) else str(mt)
+        print(f"  {m:8s} {c.get('n',0):>3d} {ov:>11.3f} {mt:>6} {str(c.get('sonic_mean')):>9} {str(c.get('sonic_worst')):>10} {str(c.get('bpm_std')):>6} {str(c.get('onset_std')):>8} {c.get('distinct_artists',0):>7d} {c['wall']:>5} {'ok' if c['bpm_ok'] else 'NOBPM':3s} | {','.join(c.get('genre_top',[])[:4])}")
 
 
 def sweep_artist_roam(artist: str, length: int = 30) -> None:
@@ -412,7 +445,7 @@ def sweep_gates(label: str, run_fn, length: int = 30) -> None:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--artist", default="Codeine")
-    ap.add_argument("--axis", default="genre", choices=["genre", "sonic", "pace"])
+    ap.add_argument("--axis", default="genre", choices=["genre", "sonic", "pace", "cohesion"])
     ap.add_argument("--length", type=int, default=30)
     ap.add_argument("--grid", choices=["artist"], default=None)
     ap.add_argument("--roam", action="store_true", help="Roam-corridor sonic-width sweep (proof-of-life)")
@@ -425,8 +458,8 @@ def main():
     variant = str(bc["X_sonic_variant"]) if "X_sonic_variant" in bc.files else "?"
     gsrc = bc["build_config"].item().get("genre_source") if "build_config" in bc.files else "?"
     print(f"PRE-FLIGHT: artifact X_sonic_variant={variant!r} genre_source={gsrc!r}")
-    if variant != "mert":
-        print(f"ABORT: live sonic variant is {variant!r}, not 'mert' — re-fold before calibrating.")
+    if variant != "muq":
+        print(f"ABORT: live sonic variant is {variant!r}, not 'muq' — re-fold before calibrating.")
         return
     if args.gate_sweep:
         if args.seed_artists:
@@ -442,7 +475,7 @@ def main():
         sweep_artist_roam(args.artist, args.length)
     elif args.grid == "artist":
         for a in ARTIST_CORPUS:
-            for ax in ("genre", "sonic", "pace"):
+            for ax in ("genre", "sonic", "pace", "cohesion"):
                 sweep_artist_axis(a, ax, args.length)
     else:
         sweep_artist_axis(args.artist, args.axis, args.length)
