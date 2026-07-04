@@ -442,7 +442,11 @@ linters. All items are NEW (not already tracked above) unless noted. Spot-checke
 
 ### Dead config (Tier 1 — safe, high value)
 
-- **🔴 `RepairConfig` is 100% dead but SHIPS a live-looking `repair:` block** in both
+- **✅ RESOLVED 2026-07-04 (commit `229fdb7`)** — removed the dead `RepairConfig` (dataclass,
+  DSPipelineConfig field, parse/override-merge/effective-dump in `config.py`+`core.py`,
+  `config_loader.py` getters + tuning-dict block, the `playlist_generator.py` overrides entry, and
+  both yaml `repair:` blocks). mypy clean, 1887 unit tests pass. Original report retained:
+  — **🔴 `RepairConfig` is 100% dead but SHIPS a live-looking `repair:` block** in both
   `config.yaml` (~`:346-350`) and `config.example.yaml` (`:722-726`) — ✔ verified zero reads of
   any `cfg.repair.<field>` in `src/`. The real repair feature is the unrelated `edge_repair:`
   block (`config.example.yaml:304`). Classic "config that looks wired but isn't" — a user tuning
