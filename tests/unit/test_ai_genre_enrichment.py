@@ -68,6 +68,23 @@ def test_release_key_normalization_uses_existing_artist_identity_rules():
     assert make_release_key("The Bill Evans Trio", "  Waltz   For Debby  ") == "bill evans::waltz for debby"
 
 
+def test_release_key_falls_back_to_raw_title_when_normalized_is_empty():
+    # Punctuation/symbol-only titles normalize to empty; distinct releases must
+    # not collapse onto one release_key (Beak> ">>>" vs ">>>>"; Sigur Rós "( )").
+    k1 = make_release_key("Beak>", ">>>")
+    k2 = make_release_key("Beak>", ">>>>")
+    assert k1 != k2, "distinct punctuation-only titles must yield distinct keys"
+    assert not k1.endswith("::") and not k2.endswith("::")
+    # Stable across calls (must survive resume / re-publish).
+    assert make_release_key("Beak>", ">>>") == k1
+    assert make_release_key("Some Artist", "!!!") != make_release_key("Some Artist", "???")
+    # A genuinely titleless release still yields an empty title component.
+    assert make_release_key("Some Artist", "").endswith("::")
+    assert make_release_key("Some Artist", None).endswith("::")
+    # Regression guard: normal titles are byte-for-byte unchanged.
+    assert make_release_key("The Bill Evans Trio", "  Waltz   For Debby  ") == "bill evans::waltz for debby"
+
+
 def test_input_hash_is_stable_across_ordering_noise():
     payload_a = ReleasePayload(
         artist="Artist",

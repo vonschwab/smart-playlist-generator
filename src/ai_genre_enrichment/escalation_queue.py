@@ -189,13 +189,12 @@ class EscalationQueue:
 
     def revert(self, album_id: str, *, sidecar_store: Any) -> None:
         """Re-open an escalation to pending and un-materialize its genre assignment."""
-        from .normalization import normalize_release_artist, normalize_release_name
+        from .normalization import make_release_key
 
         row = self.get(album_id)
         if row is None:
             raise KeyError(f"no escalation queued for album_id={album_id!r}")
-        release_id = row["release_key"] or (
-            f"{normalize_release_artist(row['artist'])}::{normalize_release_name(row['album'])}")
+        release_id = row["release_key"] or make_release_key(row['artist'], row['album'])
         sidecar_store.replace_layered_assignments_for_release(
             release_id=release_id, artist=row["artist"], album=row["album"],
             genre_assignments=[], facet_assignments=[])

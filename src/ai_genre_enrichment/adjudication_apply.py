@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from .adjudication_materializer import materialize_adjudication
 from .album_adjudicator import canonicalize_proposed
 from .album_evidence import build_evidence
-from .normalization import normalize_release_artist, normalize_release_name
+from .normalization import make_release_key
 
 
 def best_results(rows, *, thorough_pv) -> dict[str, dict]:
@@ -50,7 +50,7 @@ def apply_adjudications(*, rows, thorough_pv, std_pv, meta_conn, id2name, taxono
         ev = build_evidence(meta_conn, album_id, id2name)
         if resp.get("escalate"):
             proposed = resp.get("genres", [])
-            release_key = f"{normalize_release_artist(ev['artist'])}::{normalize_release_name(ev['album'])}"
+            release_key = make_release_key(ev['artist'], ev['album'])
             # Provisional fallback: an escalated album with proposed genres but NO prior
             # assignment is materialized at reduced confidence so it is never worse than
             # legacy, while staying queued for human confirmation. Never clobbers an

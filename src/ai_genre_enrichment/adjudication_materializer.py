@@ -13,7 +13,7 @@ from typing import Any
 
 from .layered_assignment import classify_layered_term
 from .layered_taxonomy import CanonicalGenre, LayeredTaxonomy
-from .normalization import normalize_release_artist, normalize_release_name
+from .normalization import make_release_key
 
 ADJUDICATOR_SOURCE = "claude_adjudicator"
 ADJUDICATOR_SOURCE_RELIABILITY = 0.85
@@ -119,7 +119,7 @@ def materialize_adjudication(
     prompt_version: str,
     model: str,
 ) -> AdjudicationMaterializeSummary:
-    release_id = f"{normalize_release_artist(artist)}::{normalize_release_name(album)}"
+    release_id = make_release_key(artist, album)
     genre_rows, facet_rows, skipped = compute_adjudication_rows(
         response, taxonomy, prompt_version=prompt_version, model=model)
     store.replace_layered_assignments_for_release(

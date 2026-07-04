@@ -14,10 +14,7 @@ from datetime import datetime, timezone
 
 from src.ai_genre_enrichment.layered_assignment import classify_layered_term
 from src.ai_genre_enrichment.layered_taxonomy import load_default_layered_taxonomy
-from src.ai_genre_enrichment.normalization import (
-    normalize_release_artist,
-    normalize_release_name,
-)
+from src.ai_genre_enrichment.normalization import make_release_key
 
 try:
     from src.genre.normalize import normalize_and_split_genre
@@ -239,7 +236,7 @@ def resolve_release_key_to_album_id(
         "SELECT album_id, title, artist FROM albums "
         "WHERE album_id IS NOT NULL AND album_id != ''"
     ):
-        key = f"{normalize_release_artist(artist)}::{normalize_release_name(title)}"
+        key = make_release_key(artist, title)
         if not key or key == "::":
             continue
         if key in computed and computed[key] != album_id:
@@ -263,7 +260,7 @@ def resolve_release_key_to_album_id(
             "SELECT DISTINCT album_id, artist, album FROM tracks "
             "WHERE album_id IS NOT NULL AND album_id != ''"
         ):
-            key = f"{normalize_release_artist(artist)}::{normalize_release_name(album)}"
+            key = make_release_key(artist, album)
             if not key or key == "::":
                 continue
             mapping.setdefault(key, album_id)
@@ -295,7 +292,7 @@ def release_key_to_album_ids(conn: sqlite3.Connection) -> dict[str, list[str]]:
         "SELECT album_id, title, artist FROM albums "
         "WHERE album_id IS NOT NULL AND album_id != ''"
     ):
-        key = f"{normalize_release_artist(artist)}::{normalize_release_name(title)}"
+        key = make_release_key(artist, title)
         if key and key != "::":
             acc[key].add(album_id)
 
@@ -305,7 +302,7 @@ def release_key_to_album_ids(conn: sqlite3.Connection) -> dict[str, list[str]]:
             "SELECT DISTINCT album_id, artist, album FROM tracks "
             "WHERE album_id IS NOT NULL AND album_id != ''"
         ):
-            key = f"{normalize_release_artist(artist)}::{normalize_release_name(album)}"
+            key = make_release_key(artist, album)
             if key and key != "::":
                 acc[key].add(album_id)
 
@@ -595,8 +592,9 @@ def publish(metadata_db: str, sidecar_db: str, dry_run: bool = False) -> Publish
     taxonomy = load_default_layered_taxonomy()
     # Self-heal the sidecar from the YAML before copying it into metadata.db.
     # Skipped on dry_run so a preview mutates nothing.
+    resynced = False
     if not dry_run:
-        _sync_sidecar_taxonomy(sidecar_db, taxonomy)
+        resynced = _sync_sidecar_taxonomy(sidecar_db, taxonomy)
     conn = sqlite3.connect(metadata_db)
     conn.row_factory = sqlite3.Row
     # isolation_level=None = autocommit mode. Without this, Python's sqlite3
@@ -638,8 +636,22 @@ def publish(metadata_db: str, sidecar_db: str, dry_run: bool = False) -> Publish
         )
         if dry_run:
             conn.execute("ROLLBACK")
+            logger.info(
+                "publish: DRY-RUN complete (no changes written) at taxonomy %s; albums: "
+                "%d total, %d graph, %d legacy, %d user-override; %d unlinked, %d collisions",
+                taxonomy.version, total, len(graph), len(legacy),
+                overrides_applied, unlinked, collisions,
+            )
         else:
             conn.execute("COMMIT")
+            logger.info(
+                "publish: SUCCESS — metadata.db committed at taxonomy %s%s; albums: "
+                "%d total, %d graph, %d legacy, %d user-override; %d unlinked, %d collisions",
+                taxonomy.version,
+                " (sidecar re-synced from YAML first)" if resynced else "",
+                total, len(graph), len(legacy),
+                overrides_applied, unlinked, collisions,
+            )
         return stats
     finally:
         try:

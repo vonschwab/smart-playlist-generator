@@ -28,5 +28,21 @@ def normalize_release_artist(value: str | None) -> str:
     return normalize_artist_key(normalized) or normalize_artist_key(value or "")
 
 
+def _release_name_or_symbol_fallback(album: str | None) -> str:
+    """Release-name component for a key, resilient to symbol-only titles.
+
+    ``normalize_release_name`` maps punctuation/symbol categories to spaces, so
+    an all-symbol title (Beak> ">>>" vs ">>>>", Sigur Rós "( )") collapses to
+    the empty string — distinct releases would then share one release_key and
+    publish would merge their genres onto a single album. When the normalized
+    name is empty but the raw title has content, fall back to an NFKC-casefolded
+    raw title (symbols preserved) so the releases stay distinct and stable.
+    """
+    name = normalize_release_name(album)
+    if name or not album:
+        return name
+    return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", str(album)).casefold().strip())
+
+
 def make_release_key(artist: str | None, album: str | None) -> str:
-    return f"{normalize_release_artist(artist)}::{normalize_release_name(album)}"
+    return f"{normalize_release_artist(artist)}::{_release_name_or_symbol_fallback(album)}"
