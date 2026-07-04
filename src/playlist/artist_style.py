@@ -935,6 +935,12 @@ def cluster_artist_tracks(
         )
         medoids_by_cluster.append(medoid_list)
         medoids.extend(medoid_list)
+    if bridgeable_set is not None and target_pier_count and len(medoids) < int(target_pier_count):
+        logger.warning(
+            "Pier bridgeability: after veto+reallocation only %d medoid(s) available vs "
+            "target_pier_count=%d — playlist will have fewer seed-artist piers.",
+            len(medoids), int(target_pier_count),
+        )
     logger.info(
         "Artist style clustering: artist=%s k=%d clusters=%d medoids=%d variant=%s dim=%d",
         artist_name,

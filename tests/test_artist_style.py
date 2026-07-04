@@ -1496,7 +1496,6 @@ def test_eligible_mask_none_is_identical_to_no_mask():
 
 
 def test_seed_genre_relevance_mask_basic():
-    from src.playlist.artist_style import seed_genre_relevance_mask
     # 4 genres. Artist tracks (rows 0,1) genre [1,0,0,0]/[1,1,0,0] -> profile ~ genre0/1.
     # Library rows: 2 = [1,0,0,0] compatible; 3 = [0,0,1,0] incompatible; 4 = zero-genre.
     Xg = np.array([[1.,0,0,0],[1.,1,0,0],[1.,0,0,0],[0,0,1.,0],[0,0,0,0]])
@@ -1508,7 +1507,6 @@ def test_seed_genre_relevance_mask_basic():
 
 
 def test_seed_genre_relevance_mask_none_paths():
-    from src.playlist.artist_style import seed_genre_relevance_mask
     assert seed_genre_relevance_mask(None, [0, 1], 0.3) is None          # no genre data
     Xg = np.array([[0.,0.],[0.,0.]])
     assert seed_genre_relevance_mask(Xg, [0, 1], 0.3) is None            # empty seed profile
@@ -1516,7 +1514,6 @@ def test_seed_genre_relevance_mask_none_paths():
 
 
 def test_seed_genre_relevance_mask_zero_genre_ineligible_at_zero_floor():
-    from src.playlist.artist_style import seed_genre_relevance_mask
     # row 2 has NO genre data; even at genre_floor=0.0 it must NOT be an eligible neighbor.
     Xg = np.array([[1., 0., 0.], [1., 1., 0.], [0., 0., 0.]])
     mask = seed_genre_relevance_mask(Xg, [0, 1], genre_floor=0.0)
