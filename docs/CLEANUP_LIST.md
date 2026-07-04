@@ -453,7 +453,16 @@ linters. All items are NEW (not already tracked above) unless noted. Spot-checke
   `repair:` changes nothing. Remove: the `RepairConfig` dataclass (`config.py:100-105`, `673-678`),
   the override-merge (`pipeline/core.py:66-68`), the effective-dump line (`core.py:78`), and both
   yaml blocks. No tests reference `RepairConfig`.
-- **`ConstructionConfig` scoring fields — 10 dead** (`local_top_m`, `alpha_schedule`, `alpha`,
+- **⏸️ HELD 2026-07-04 — entangled, needs a focused reviewed pass (not a mechanical delete):**
+  removing the dead scoring fields touches `policy.py`'s single-writer registry
+  (`"…scoring.gamma"` at `:41`/`:299`), the yaml `scoring:` blocks, `config_loader.py` getters,
+  `AlphaSchedule` (+ its `__init__` export), and MULTIPLE tests — including the currently-failing
+  golden tests (`test_playlist_golden_files`, `test_ds_pipeline_smoke`) another session is actively
+  working, so touching this area now risks a collision. **CORRECTION:** `transition_gamma` is NOT
+  log-only/dead — it is threaded live through the whole reporting chain (`core.py`,
+  `transition_metrics.py`, `reporter.py`, `ds_pipeline_runner`, `worker`, `playlist_generator`);
+  KEEP it. Original finding retained:
+  — **`ConstructionConfig` scoring fields — 10 dead** (`local_top_m`, `alpha_schedule`, `alpha`,
   `alpha_start/mid/end`, `arc_midpoint`, `beta`, `gamma`, `hard_floor` — `config.py:81-90`,
   `631-663`) + `transition_gamma` (log-only, embedded for the reporter). ✔ Root cause verified:
   their only consumer `construct_playlist()` is retired (`pipeline/core.py:17` "no longer calling",
@@ -461,16 +470,26 @@ linters. All items are NEW (not already tracked above) unless noted. Spot-checke
   `config_loader.py` are equally dead (only caller `get_ds_tuning_dict()` is used by one unit test).
   KEEP the live siblings on `ConstructionConfig`: `transition_floor`, `min_gap`,
   `max_artist_fraction_final`(see below), `center_transitions`.
-- **`src/features/beat3tower_normalizer.py` — entire dead module.** Zero non-test refs; only
+- **✅ RESOLVED 2026-07-04 (commits `a5fc338`+`b52c16a`)** — deleted the module + removed the smoke
+  test. Original: **`src/features/beat3tower_normalizer.py` — entire dead module.** Zero non-test refs; only
   `tests/test_smoke_imports.py:57-59` import-checks it. SP-B's design doc kept it "as used by
   extraction," but `beat3tower_extractor.py` does not import it (imports only `beat3tower_types`).
   Its artifact output key `normalizer_params` was already found zero-reader. Delete module + adjust
   the smoke test. (The rest of the `beat3tower_*` family IS live — SP-C territory.)
-- **`variable_bridge_band` (`pier_bridge/config.py:356`)** — unused since the 2026-07-02 add-only
+- **✅ RESOLVED 2026-07-04 (commit `3d8b78e`)** — removed the field, override cast, construction
+  site, and the commented `config.example.yaml` line. Original:
+  **`variable_bridge_band` (`pier_bridge/config.py:356`)** — unused since the 2026-07-02 add-only
   reorder (own code comment says so); already commented out in `config.example.yaml:274`, but the
   dataclass field + override cast (`pier_bridge_overrides.py:117`) + construction
   (`playlist_generator.py:256`) are still live plumbing that silently accepts/discards it.
-- **`PierBridgeConfig.duration_penalty_enabled/_weight` (`pier_bridge/config.py:169-170`)** — dead
+- **⏸️ HELD 2026-07-04 — duplicate-function + orphaned-test tangle (not a clean delete):**
+  `beam.py:150`'s `_compute_duration_penalty` is a DUPLICATE of the live `candidate_pool.py:111`
+  one, and it is the copy that `tests/unit/test_duration_penalty.py` (30+ assertions) actually
+  tests via the `pier_bridge_builder` re-export — while production scoring calls the candidate_pool
+  copy (`candidate_pool.py:626`). `PierBridgeConfig.duration_penalty_*` is asserted by that same
+  test (`:174/180/189/190`). Proper fix = DRY consolidation (repoint the test at the live copy, then
+  drop the duplicate + the dead PierBridge fields), NOT a blind delete. Original finding:
+  **`PierBridgeConfig.duration_penalty_enabled/_weight` (`pier_bridge/config.py:169-170`)** — dead
   name-collision copies of the LIVE `CandidatePoolConfig` fields (same names). Nothing reads the
   PierBridge copies. Plus a second unused `_compute_duration_penalty()` in `beam.py:150-189`,
   re-exported `# noqa: F401` from `pier_bridge_builder.py:138` for back-compat only.
