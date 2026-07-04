@@ -215,6 +215,11 @@ playlists:
       pier_bridgeability_enabled: true
       pier_bridgeability_floor_t: 0.30
       pier_bridgeability_k: 10
+      # Genre-relevance gate on the bridgeability neighbor set: a library track only
+      # counts as a bridge neighbor if its genre cosine to the seed artist's profile
+      # is >= this floor. Prevents degenerate/collapsed sonic neighbors (e.g. MuQ maps
+      # near-silent audio to one point) from faking bridgeability. Lower = more lenient.
+      pier_bridgeability_genre_floor: 0.30
 
     # Construction scoring weights
     # score = alpha*seed_sim + beta*transition_sim + gamma*diversity - penalty

@@ -18,6 +18,7 @@ from src.playlist.artist_style import (
     _dedupe_artist_indices,
     load_artist_energy_values,
     compute_pier_bridgeability,
+    seed_genre_relevance_mask,
 )
 
 
@@ -1457,3 +1458,104 @@ def test_bridgeability_config_keys_parse():
     )
     assert (cfg.pier_bridgeability_enabled, cfg.pier_bridgeability_floor_t,
             cfg.pier_bridgeability_k) == (False, 0.42, 7)
+
+
+# ---------------------------------------------------------------------------
+# Task 5: genre-relevant neighbor set for pier bridgeability
+# ---------------------------------------------------------------------------
+
+def test_eligible_mask_excludes_ineligible_high_cosine_neighbor():
+    # member 0 = e0. Two perfect e0 neighbors exist (rows 1,2) but are marked
+    # INELIGIBLE by the mask; the only ELIGIBLE neighbors are far (e2). So the
+    # masked kth-T must collapse even though ungated it would be ~1.0.
+    from src.playlist.artist_style import compute_pier_bridgeability
+    from src.playlist.transition_metrics import resolve_transition_calib
+    c, s, g = resolve_transition_calib(None)
+    e = np.eye(3)
+    X = _unit_rows([e[0], e[0], e[0], e[2], e[2]])  # rows 1,2 = perfect nbrs of 0; 3,4 = far
+    mask = np.array([True, False, False, True, True])  # rows 1,2 ineligible
+    ungated = compute_pier_bridgeability(X, [0], [0], k=1,
+                                         calib_center=c, calib_scale=s, calib_gain=g)
+    gated = compute_pier_bridgeability(X, [0], [0], k=1, eligible_mask=mask,
+                                       calib_center=c, calib_scale=s, calib_gain=g)
+    assert ungated[0] > 0.9      # perfect neighbor rescues it when ungated
+    assert gated[0] < 0.05       # only eligible neighbors are e2 (cos 0) -> fails
+
+
+def test_eligible_mask_none_is_identical_to_no_mask():
+    from src.playlist.artist_style import compute_pier_bridgeability
+    from src.playlist.transition_metrics import resolve_transition_calib
+    c, s, g = resolve_transition_calib(None)
+    e = np.eye(3)
+    X = _unit_rows([e[0], e[0], e[1], e[2]])
+    a = compute_pier_bridgeability(X, [0], [0], k=1,
+                                   calib_center=c, calib_scale=s, calib_gain=g)
+    b = compute_pier_bridgeability(X, [0], [0], k=1, eligible_mask=None,
+                                   calib_center=c, calib_scale=s, calib_gain=g)
+    assert a[0] == b[0]
+
+
+def test_seed_genre_relevance_mask_basic():
+    from src.playlist.artist_style import seed_genre_relevance_mask
+    # 4 genres. Artist tracks (rows 0,1) genre [1,0,0,0]/[1,1,0,0] -> profile ~ genre0/1.
+    # Library rows: 2 = [1,0,0,0] compatible; 3 = [0,0,1,0] incompatible; 4 = zero-genre.
+    Xg = np.array([[1.,0,0,0],[1.,1,0,0],[1.,0,0,0],[0,0,1.,0],[0,0,0,0]])
+    mask = seed_genre_relevance_mask(Xg, [0, 1], genre_floor=0.30)
+    assert mask is not None
+    assert bool(mask[2]) is True      # compatible
+    assert bool(mask[3]) is False     # orthogonal genre
+    assert bool(mask[4]) is False     # zero-genre row is never an eligible neighbor
+
+
+def test_seed_genre_relevance_mask_none_paths():
+    from src.playlist.artist_style import seed_genre_relevance_mask
+    assert seed_genre_relevance_mask(None, [0, 1], 0.3) is None          # no genre data
+    Xg = np.array([[0.,0.],[0.,0.]])
+    assert seed_genre_relevance_mask(Xg, [0, 1], 0.3) is None            # empty seed profile
+    assert seed_genre_relevance_mask(np.eye(3), [], 0.3) is None         # no artist rows
+
+
+def _genre_bridge_fixture():
+    """Artist 'a': cluster A (~e0) has genre-COMPATIBLE library neighbors; the outlier
+    cluster B (~e1) is sonically close ONLY to genre-INCOMPATIBLE near-silent junk
+    (mirrors First Jam's MuQ collapse)."""
+    e = np.eye(4)
+    jit = [0.0, 0.01, -0.01]
+    a_rows = [e[0] + j*e[3] for j in jit] + [e[1] + j*e[3] for j in jit]  # A~e0, B~e1
+    lib_compat = [e[0] + j*e[3] for j in (0.02, -0.02, 0.03, -0.03)]      # near A, on-genre
+    lib_junk = [e[1] + j*e[3] for j in (0.02, -0.02, 0.03, -0.03, 0.04)]  # near B, OFF-genre
+    X = _unit_rows(a_rows + lib_compat + lib_junk)
+    artist_keys = np.array(["a"]*6 + ["lib"]*9)
+    track_ids = np.array([f"t{i}" for i in range(15)])
+    b = DummyBundle(X_sonic=X, artist_keys=artist_keys, track_ids=track_ids)
+    # Genre: shoegaze=col0. Artist tracks + compatible lib are shoegaze; junk lib is col2.
+    G = np.zeros((15, 4))
+    G[list(range(6)) + [6, 7, 8, 9], 0] = 1.0   # artist + compatible-lib on shoegaze
+    G[[10, 11, 12, 13, 14], 2] = 1.0            # junk-lib on an unrelated genre
+    b.X_genre_smoothed = G
+    return b
+
+
+def test_genre_gate_vetoes_collapse_outlier_that_library_wide_missed():
+    bundle = _genre_bridge_fixture()
+    # genre_floor gates the junk. Cluster B (~e1) is sonically ~1.0 with junk rows
+    # (10-14) but those are genre-incompatible -> masked -> B has no eligible
+    # neighbors -> vetoed; cluster A keeps its on-genre neighbors -> survives.
+    clusters, medoids, by_cluster, X_norm = cluster_artist_tracks(
+        bundle=bundle, artist_name="A",
+        cfg=_cfg_bridge(pier_bridgeability_genre_floor=0.30), random_seed=0,
+        medoid_top_k=2, target_pier_count=4)
+    assert len(clusters) == 2
+    assert all(m in {0, 1, 2} for m in medoids)     # every pier from cluster A (~e0)
+    # Control: WITHOUT the genre gate (floor 0.0 => all eligible), B's junk neighbors
+    # rescue it -> both clusters contribute (proves the GATE, not the geometry, vetoed B).
+    _, _, by_ungated, _ = cluster_artist_tracks(
+        bundle=bundle, artist_name="A",
+        cfg=_cfg_bridge(pier_bridgeability_genre_floor=0.0), random_seed=0,
+        medoid_top_k=2, target_pier_count=4)
+    assert sum(1 for m in by_ungated if len(m) > 0) == 2
+
+
+def test_artist_style_config_has_genre_floor_default():
+    cfg = ArtistStyleConfig()
+    assert cfg.pier_bridgeability_genre_floor == 0.30

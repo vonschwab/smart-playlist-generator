@@ -1748,6 +1748,7 @@ class PlaylistGenerator:
             pier_bridgeability_enabled=bool(style_cfg_raw.get("pier_bridgeability_enabled", True)),
             pier_bridgeability_floor_t=float(style_cfg_raw.get("pier_bridgeability_floor_t", 0.30)),
             pier_bridgeability_k=int(style_cfg_raw.get("pier_bridgeability_k", 10)),
+            pier_bridgeability_genre_floor=float(style_cfg_raw.get("pier_bridgeability_genre_floor", 0.30)),
         )
         playlists_cfg = self.config.config.get("playlists", {}) or {}
         cohesion_mode_effective = cohesion_mode_override or ("dynamic" if dynamic else resolve_cohesion_mode(playlists_cfg))
@@ -2822,6 +2823,7 @@ class PlaylistGenerator:
                 pier_bridgeability_enabled=bool(style_cfg_raw.get("pier_bridgeability_enabled", True)),
                 pier_bridgeability_floor_t=float(style_cfg_raw.get("pier_bridgeability_floor_t", 0.30)),
                 pier_bridgeability_k=int(style_cfg_raw.get("pier_bridgeability_k", 10)),
+                pier_bridgeability_genre_floor=float(style_cfg_raw.get("pier_bridgeability_genre_floor", 0.30)),
             )
             playlists_cfg = self.config.config.get("playlists", {}) or {}
             cohesion_mode_effective = cohesion_mode_override or ("dynamic" if dynamic else resolve_cohesion_mode(playlists_cfg))

@@ -105,6 +105,12 @@ class ArtistStyleConfig:
     pier_bridgeability_enabled: bool = True
     pier_bridgeability_floor_t: float = 0.30
     pier_bridgeability_k: int = 10
+    # Genre-relevance gate on the bridgeability neighbor set (spec Revision
+    # 2026-07-04): a library track only counts as a bridge neighbor if its genre
+    # cosine to the seed artist's profile is >= this floor. Prevents a
+    # degenerate/collapsed sonic embedding (e.g. MuQ mapping near-silent audio to
+    # one point) from faking bridgeability via genre-unrelated neighbors.
+    pier_bridgeability_genre_floor: float = 0.30
 
 
 def load_artist_energy_values(bundle, cfg: "ArtistStyleConfig") -> Optional[np.ndarray]:
@@ -538,25 +544,31 @@ def compute_pier_bridgeability(
     calib_center: float,
     calib_scale: float,
     calib_gain: float,
+    eligible_mask: Optional[np.ndarray] = None,
 ) -> np.ndarray:
-    """Calibrated T of each member's k-th best library neighbor (pier bridgeability).
+    """Calibrated T of each member's k-th best ELIGIBLE library neighbor.
 
-    A pier must have at least k library tracks it could plausibly sit next to;
-    same-artist rows (``excluded_indices``, collabs and alternate versions
-    included) never count — interiors can't be seed-artist tracks. Returns a
-    float array aligned to ``member_indices``. See
-    docs/superpowers/specs/2026-07-03-pier-bridgeability-design.md.
+    A neighbor is eligible iff it is not in ``excluded_indices`` (same-artist rows)
+    AND, when ``eligible_mask`` is given, ``eligible_mask[col]`` is True. With
+    ``eligible_mask=None`` behavior is identical to the ungated library-wide signal.
+    See docs/superpowers/specs/2026-07-03-pier-bridgeability-design.md (Revision
+    2026-07-04 — genre-relevant neighbor set).
     """
     members = np.asarray(list(member_indices), dtype=int)
     if members.size == 0:
         return np.zeros(0, dtype=float)
+    n_cols = int(X_norm.shape[0])
+    ineligible = np.zeros(n_cols, dtype=bool)
     excl = np.asarray(sorted({int(i) for i in excluded_indices}), dtype=int)
-    n_avail = int(X_norm.shape[0]) - int(excl.size)
+    if excl.size:
+        ineligible[excl] = True
+    if eligible_mask is not None:
+        ineligible |= ~np.asarray(eligible_mask, dtype=bool)
+    n_avail = int(n_cols - int(ineligible.sum()))
     if n_avail <= 0:
         return np.zeros(members.size, dtype=float)
     sims = X_norm[members] @ X_norm.T  # (m, N) cosines; rows are already L2-normalized
-    if excl.size:
-        sims[:, excl] = -np.inf
+    sims[:, ineligible] = -np.inf
     kk = max(1, min(int(k), n_avail))
     kth = np.partition(sims, sims.shape[1] - kk, axis=1)[:, sims.shape[1] - kk]
     return np.asarray(
@@ -568,6 +580,37 @@ def compute_pier_bridgeability(
         ],
         dtype=float,
     )
+
+
+def seed_genre_relevance_mask(
+    X_genre: Optional[np.ndarray],
+    artist_indices: Sequence[int],
+    genre_floor: float,
+) -> Optional[np.ndarray]:
+    """Boolean mask (len N) of library rows genre-compatible with the seed artist.
+
+    Eligible iff the row's cosine to the seed artist's aggregate genre profile
+    (max over the artist's own tracks) is >= ``genre_floor``. Zero-genre rows are
+    never eligible. Returns None when genre data is missing or the seed profile is
+    empty, so the caller falls back to the ungated library-wide signal. Non-circular:
+    gated on ``artist_indices`` (the seed artist's tracks), not on the piers.
+    """
+    if X_genre is None:
+        return None
+    G = np.asarray(X_genre, dtype=float)
+    idx = np.asarray(list(artist_indices), dtype=int)
+    if idx.size == 0 or G.shape[0] == 0:
+        return None
+    seed_g = G[idx].max(axis=0)
+    sn = float(np.linalg.norm(seed_g))
+    if sn < 1e-12:
+        return None
+    seed_g = seed_g / sn
+    row_norms = np.linalg.norm(G, axis=1)
+    safe = np.where(row_norms < 1e-12, 1.0, row_norms)
+    genre_sim = (G @ seed_g) / safe
+    genre_sim = np.where(row_norms < 1e-12, 0.0, genre_sim)
+    return genre_sim >= float(genre_floor)
 
 
 def allocate_piers_by_tag_affinity(
@@ -717,9 +760,26 @@ def cluster_artist_tracks(
         _excl_cols = _artist_indices_in_bundle(
             bundle, artist_name, include_collaborations=True
         )
+        _genre_mask = seed_genre_relevance_mask(
+            getattr(bundle, "X_genre_smoothed", None),
+            artist_indices,
+            cfg.pier_bridgeability_genre_floor,
+        )
+        if _genre_mask is not None:
+            logger.info(
+                "Pier bridgeability genre gate: %d/%d library rows eligible (genre_floor=%.2f)",
+                int(_genre_mask.sum()), int(_genre_mask.size),
+                float(cfg.pier_bridgeability_genre_floor),
+            )
+        elif getattr(bundle, "X_genre_smoothed", None) is None:
+            logger.warning(
+                "Pier bridgeability: X_genre_smoothed absent — genre-relevance gate "
+                "disabled; falling back to the ungated library-wide neighbor set."
+            )
         _bt = compute_pier_bridgeability(
             X_norm, artist_indices, _excl_cols, cfg.pier_bridgeability_k,
             calib_center=_cal_c, calib_scale=_cal_s, calib_gain=_cal_g,
+            eligible_mask=_genre_mask,
         )
         _floor = float(cfg.pier_bridgeability_floor_t)
         bridgeable_set = {
