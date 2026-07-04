@@ -55,7 +55,6 @@ def _apply_overrides(cfg: DSPipelineConfig, overrides: Optional[dict]) -> DSPipe
         return cfg
     cand_cfg = cfg.candidate
     cons_cfg = cfg.construct
-    rep_cfg = cfg.repair
 
     if "candidate" in overrides:
         cand_updates = {**cand_cfg.__dict__, **overrides["candidate"]}
@@ -63,11 +62,8 @@ def _apply_overrides(cfg: DSPipelineConfig, overrides: Optional[dict]) -> DSPipe
     if "construct" in overrides:
         cons_updates = {**cons_cfg.__dict__, **overrides["construct"]}
         cons_cfg = type(cons_cfg)(**cons_updates)
-    if "repair" in overrides:
-        rep_updates = {**rep_cfg.__dict__, **overrides["repair"]}
-        rep_cfg = type(rep_cfg)(**rep_updates)
 
-    return replace(cfg, candidate=cand_cfg, construct=cons_cfg, repair=rep_cfg)
+    return replace(cfg, candidate=cand_cfg, construct=cons_cfg)
 
 
 def _params_from_config(cfg: DSPipelineConfig) -> Dict[str, Any]:
@@ -75,7 +71,6 @@ def _params_from_config(cfg: DSPipelineConfig) -> Dict[str, Any]:
         "mode": cfg.mode,
         "candidate": cfg.candidate.__dict__,
         "construct": cfg.construct.__dict__,
-        "repair": cfg.repair.__dict__,
     }
 
 

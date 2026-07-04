@@ -718,12 +718,6 @@ playlists:
         write_on_success: true
         write_on_failure: true
 
-    # Repair pass configuration (fixes weak transitions after construction)
-    repair:
-      enabled: true           # Enable post-construction repair pass
-      max_iters: 5            # Max repair iterations
-      max_edges: 5            # Max edges to fix per iteration
-      objective: gap_penalty  # "gap_penalty" or "below_floor_first"
   genre_similarity:
     enabled: true
     weight: 0.50

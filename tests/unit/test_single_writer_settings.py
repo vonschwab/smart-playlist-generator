@@ -14,7 +14,6 @@ def _build_playlists_cfg(cohesion: str, sonic: str, genre: str) -> dict:
             "candidate_pool": {},
             "scoring": {},
             "constraints": {},
-            "repair": {},
         },
     }
 

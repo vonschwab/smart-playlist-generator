@@ -8,7 +8,6 @@ import math
 
 Mode = Literal["strict", "narrow", "dynamic", "discover"]
 AlphaSchedule = Literal["constant", "arc"]
-RepairObjective = Literal["gap_penalty", "below_floor_first"]
 
 _logger = logging.getLogger(__name__)
 
@@ -96,21 +95,10 @@ class ConstructionConfig:
 
 
 @dataclass(frozen=True)
-class RepairConfig:
-    enabled: bool
-    objective: RepairObjective
-    max_iters: int
-    max_edges: int
-    allow_substitute_next: bool
-    allow_substitute_prev: bool
-
-
-@dataclass(frozen=True)
 class DSPipelineConfig:
     mode: Mode
     candidate: CandidatePoolConfig
     construct: ConstructionConfig
-    repair: RepairConfig
 
 
 @dataclass(frozen=True)
@@ -499,7 +487,6 @@ def default_ds_config(
     scoring = overrides.get("scoring", {})
     constraints = overrides.get("constraints", {})
     candidate_pool = overrides.get("candidate_pool", {})
-    repair = overrides.get("repair", {})
     pace_mode_name = candidate_pool.get("pace_mode") or overrides.get("pace_mode") or "dynamic"
     from src.playlist.mode_presets import resolve_pace_mode
     pace_settings = resolve_pace_mode(str(pace_mode_name))
@@ -668,16 +655,6 @@ def default_ds_config(
         center_transitions=constraints.get("center_transitions", False),
     )
 
-    # Repair config with config.yaml overrides
-    repair_cfg = RepairConfig(
-        enabled=repair.get("enabled", True),
-        objective=repair.get("objective", "gap_penalty"),
-        max_iters=repair.get("max_iters", 5 if mode != "discover" else 8),
-        max_edges=repair.get("max_edges", 5 if mode != "discover" else 8),
-        allow_substitute_next=True,
-        allow_substitute_prev=True,
-    )
-
     # Log resolved threshold values for diagnostic purposes (Phase 2A/2B/3A implementation)
     _logger.info(
         "DS Pipeline Resolved Thresholds: mode=%s | "
@@ -696,5 +673,4 @@ def default_ds_config(
         mode=mode,  # type: ignore[arg-type]
         candidate=candidate_cfg,
         construct=construct_cfg,
-        repair=repair_cfg,
     )

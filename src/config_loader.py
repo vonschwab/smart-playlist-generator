@@ -439,26 +439,6 @@ class Config:
         """Whether to center X_start/X_end matrices."""
         return self._get_ds_pipeline('constraints', 'center_transitions', default=True)
 
-    @property
-    def ds_repair_enabled(self) -> bool:
-        """Whether repair pass is enabled."""
-        return self._get_ds_pipeline('repair', 'enabled', default=True)
-
-    @property
-    def ds_repair_max_iters(self) -> int:
-        """Maximum repair iterations."""
-        return self._get_ds_pipeline('repair', 'max_iters', default=5)
-
-    @property
-    def ds_repair_max_edges(self) -> int:
-        """Maximum edges to fix per iteration."""
-        return self._get_ds_pipeline('repair', 'max_edges', default=5)
-
-    @property
-    def ds_repair_objective(self) -> str:
-        """Repair objective: 'gap_penalty' or 'below_floor_first'."""
-        return self._get_ds_pipeline('repair', 'objective', default='gap_penalty')
-
     def get_ds_tuning_dict(self) -> dict:
         """Return all DS tuning parameters as a dict for pipeline consumption."""
         return {
@@ -495,12 +475,6 @@ class Config:
                 'hard_floor': self.ds_constraints_hard_floor,
                 'transition_floor': self.ds_constraints_transition_floor,
                 'center_transitions': self.ds_constraints_center_transitions,
-            },
-            'repair': {
-                'enabled': self.ds_repair_enabled,
-                'max_iters': self.ds_repair_max_iters,
-                'max_edges': self.ds_repair_max_edges,
-                'objective': self.ds_repair_objective,
             },
         }
 

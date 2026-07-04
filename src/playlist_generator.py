@@ -60,12 +60,11 @@ def build_ds_overrides(ds_cfg: Dict[str, Any]) -> Dict[str, Any]:
         "pier_bridge": ds_cfg.get("pier_bridge", {}),
         "genre_graph": ds_cfg.get("genre_graph", {}),
         "genre_source": ds_cfg.get("genre_source", "legacy"),
-        "repair": ds_cfg.get("repair", {}),
         "embedding": ds_cfg.get("embedding", {}),
     }
 
     # Merge legacy overrides (if any) on top
-    for key in ["candidate", "construct", "repair"]:
+    for key in ["candidate", "construct"]:
         if key in legacy_overrides:
             overrides[key] = legacy_overrides[key]
 

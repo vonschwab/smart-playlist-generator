@@ -5,8 +5,6 @@ from .config import (
     ConstructionConfig,
     DSPipelineConfig,
     Mode,
-    RepairConfig,
-    RepairObjective,
     default_ds_config,
 )
 from .candidate_pool import CandidatePoolResult, build_candidate_pool
@@ -28,8 +26,6 @@ __all__ = [
     "ConstructionConfig",
     "DSPipelineConfig",
     "Mode",
-    "RepairConfig",
-    "RepairObjective",
     "default_ds_config",
     "CandidatePoolResult",
     "build_candidate_pool",
