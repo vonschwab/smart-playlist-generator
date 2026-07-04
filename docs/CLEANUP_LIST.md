@@ -543,10 +543,17 @@ Original findings retained below (with the corrections above applied):
   popularity from the Last.fm cache via `popularity_runner.py`; the sidecar-vector `load_popularity_vector`
   was a superseded early approach the shipped + planned (poolgate) implementation abandoned (the poolgate
   design/plan/handoff never reference it). Zero production callers.
-- **`mutual_proximity` (`pier_bridge/manifold.py:21-38`)** — only ref is `test_manifold.py` (the
-  ruff F401). The live roam path uses `build_knn_graph`/`geodesic_from_source` (gated behind
-  `roam_corridors_enabled`), not this dense form. Roam-corridors plan said "both ship" (deliberate
-  future option). Keep-or-kill pending roam Phase-3 decision.
+- **✅ RESOLVED 2026-07-04 (Dylan decision: KEEP) — investigation opened instead.** Digging into the
+  keep/kill surfaced a real finding: **Roam Corridors is LIVE** (enabled in `config.yaml:138`,
+  `corridor_penalty` applied in the beam at `beam.py:1303-1309`) but running on **MERT-era params it
+  was never re-tuned for after the 07-01 MERT→MuQ swap** — the "Phase-3 calibration" never happened
+  (`manifold.py`/`roam.py` frozen at 2026-06-24). The dense `mutual_proximity()` (exact Flexer/
+  Schnitzer hubness correction) was built but NEVER wired — only a cheap approx is live — and MuQ's
+  hubness/collapse problem ([[project_muq_collapse_quiet_audio]]) makes the exact form *more* relevant
+  now. So `mutual_proximity` is kept, and a **Roam Phase-3 MuQ-calibration investigation** is on the
+  roadmap: **`docs/superpowers/handoffs/2026-07-04_roam-muq-calibration-handoff.md`** (measure roam
+  ON-vs-OFF on MuQ first; then sweep params + A/B exact-vs-approx MP). Original keep/kill note:
+  only ref is `test_manifold.py`; roam-corridors plan said "both ship."
 
 ### Tier 4 — `scripts/research/` graveyard (67 scripts; triaged 2026-07-04)
 
