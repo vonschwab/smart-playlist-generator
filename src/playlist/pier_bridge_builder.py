@@ -135,7 +135,6 @@ from src.playlist.pier_bridge.percentiles import relax_percentile
 from src.playlist.pier_bridge.beam import (  # noqa: F401  (re-exported for tests/back-compat)
     BeamState,
     _beam_search_segment,
-    _compute_duration_penalty,
 )
 from src.playlist.pier_bridge.roam import (
     segment_sonic_detour as _segment_sonic_detour,

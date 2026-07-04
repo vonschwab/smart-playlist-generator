@@ -1,5 +1,5 @@
 """Unit tests for geometric duration penalty in DS pipeline."""
-from src.playlist.pier_bridge_builder import _compute_duration_penalty, PierBridgeConfig
+from src.playlist.candidate_pool import _compute_duration_penalty
 
 
 class TestDurationPenaltyFunction:
@@ -155,36 +155,3 @@ class TestDurationPenaltyFunction:
         # 33% excess should have higher penalty than 16.7% excess
         # even though absolute excess is the same
         assert penalty_3to4 > penalty_6to7
-
-
-class TestDurationPenaltyConfig:
-    """Test that config fields exist and have correct defaults."""
-
-    def test_config_fields_exist(self):
-        """Config should have duration_penalty_enabled and duration_penalty_weight fields."""
-        cfg = PierBridgeConfig()
-
-        assert hasattr(cfg, 'duration_penalty_enabled')
-        assert hasattr(cfg, 'duration_penalty_weight')
-
-    def test_default_enabled(self):
-        """Duration penalty should be ENABLED by default (medium-firm)."""
-        cfg = PierBridgeConfig()
-
-        assert cfg.duration_penalty_enabled is True
-
-    def test_default_weight(self):
-        """Default weight should be 0.30 (medium-firm strength)."""
-        cfg = PierBridgeConfig()
-
-        assert cfg.duration_penalty_weight == 0.30
-
-    def test_config_override(self):
-        """Should be able to override config values."""
-        cfg = PierBridgeConfig(
-            duration_penalty_enabled=False,
-            duration_penalty_weight=0.15
-        )
-
-        assert cfg.duration_penalty_enabled is False
-        assert cfg.duration_penalty_weight == 0.15

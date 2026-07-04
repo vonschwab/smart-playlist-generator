@@ -164,10 +164,6 @@ class PierBridgeConfig:
     local_sonic_edge_penalty_scale: float = 1.0
     """Multiplier used in 'scaled' mode. Typical values 1.0-3.0. Ignored in 'legacy' mode."""
     local_sonic_edge_floor: Optional[float] = None
-    # Medium-firm duration penalty: asymmetric penalty for candidates longer than pier reference
-    # (does not gate candidates, but significantly reduces score for long tracks)
-    duration_penalty_enabled: bool = True
-    duration_penalty_weight: float = 0.30
     # Segment candidate pool strategy:
     # - "segment_scored": score candidates jointly vs (pierA,pierB) and take top-K
     # - "legacy": neighbors(A) ∪ neighbors(B) ∪ helpers (debug/compat only)

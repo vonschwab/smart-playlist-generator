@@ -1,12 +1,8 @@
 """
-Tier-3.1 PR-8: beam search engine + duration penalty.
+Tier-3.1 PR-8: beam search engine.
 
 Extracted verbatim from pier_bridge_builder.py:
   BeamState              — dataclass carrying one beam-search path
-  _compute_duration_penalty — asymmetric duration penalty (defined here,
-                              not yet wired to _beam_search_segment; also
-                              lives in candidate_pool.py — duplication is
-                              pre-existing, not introduced here)
   _beam_search_segment   — constrained beam search from pier_a to pier_b
 """
 from __future__ import annotations
@@ -145,73 +141,6 @@ class BeamState:
     used_artists: Set[str] = field(default_factory=set)
     last_progress: float = 0.0
     edge_components: List[dict] = field(default_factory=list)
-
-
-def _compute_duration_penalty(
-    candidate_duration_ms: float,
-    reference_duration_ms: float,
-    weight: float,
-) -> float:
-    """
-    Compute asymmetric duration penalty based on percentage excess over reference track.
-
-    Uses a three-phase geometric curve:
-    - 0-20% excess: Gentle penalties (barely noticeable)
-    - 20-50% excess: Moderate increasing penalties
-    - 50-100% excess: Steep penalties
-    - >100% excess: Severe penalties (track is 2x+ longer than reference)
-
-    Args:
-        candidate_duration_ms: Candidate track duration in milliseconds
-        reference_duration_ms: Reference duration (max of two piers) in milliseconds
-        weight: Penalty weight (default 0.30, range typically 0.10-0.50)
-
-    Returns:
-        Penalty value (>= 0) to subtract from combined_score
-
-    Examples:
-        With weight=0.30 and reference=200s:
-        - 210s (+5% = +10s): penalty ≈ 0.003 (negligible)
-        - 240s (+20% = +40s): penalty ≈ 0.015 (gentle)
-        - 280s (+40% = +80s): penalty ≈ 0.10 (moderate)
-        - 360s (+80% = +160s): penalty ≈ 0.45 (steep)
-        - 400s (+100% = +200s): penalty ≈ 0.75 (severe threshold)
-        - 600s (+200% = +400s): penalty ≈ 3.0 (very severe!)
-    """
-    if candidate_duration_ms <= 0 or reference_duration_ms <= 0:
-        return 0.0
-
-    if candidate_duration_ms <= reference_duration_ms:
-        return 0.0  # No penalty for shorter or equal-length tracks
-
-    # Calculate excess as percentage of reference
-    excess_ratio = (candidate_duration_ms - reference_duration_ms) / reference_duration_ms
-
-    # Three-phase geometric penalty curve
-    if excess_ratio <= 0.20:
-        # Phase 1 (0-20%): Gentle - power 1.5 for sub-linear growth
-        # At 20%: penalty = weight * 0.05
-        penalty = weight * 0.05 * (excess_ratio / 0.20) ** 1.5
-
-    elif excess_ratio <= 0.50:
-        # Phase 2 (20-50%): Moderate - power 2.0 for quadratic growth
-        # At 20%: ~0.015, At 50%: ~0.30
-        phase_ratio = (excess_ratio - 0.20) / 0.30
-        penalty = weight * 0.05 + weight * 0.25 * (phase_ratio ** 2.0)
-
-    elif excess_ratio <= 1.00:
-        # Phase 3 (50-100%): Steep - power 2.5 for accelerating growth
-        # At 50%: ~0.30, At 100%: ~0.75
-        phase_ratio = (excess_ratio - 0.50) / 0.50
-        penalty = weight * 0.30 + weight * 0.45 * (phase_ratio ** 2.5)
-
-    else:
-        # Phase 4 (>100%): Severe - power 3.0 for very steep growth
-        # At 100%: 0.75, At 200%: 3.0, At 300%: 9.0
-        phase_ratio = excess_ratio - 1.00
-        penalty = weight * 0.75 + weight * 2.25 * (phase_ratio ** 3.0)
-
-    return penalty
 
 
 def _popularity_factor(p: float, strength: float) -> float:
