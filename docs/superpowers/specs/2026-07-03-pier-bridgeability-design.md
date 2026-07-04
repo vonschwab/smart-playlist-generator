@@ -55,6 +55,9 @@ Cost: one members×library matmul per generation (~100×40k×512 worst case), co
 
 - Computed once in `cluster_artist_tracks`; applied as a **member filter before**
   `_medoids_for_cluster` scoring. Surviving members are scored exactly as today.
+- The filter affects **medoid candidacy only** — `clusters` membership is not mutated. Vetoed
+  tracks remain ordinary cluster members (visible to fire's top-N member pool, tag affinities,
+  and interior candidacy elsewhere in the library); they just cannot be seated as piers.
 - Because it runs on the medoid path, it covers artist mode with popularity **off** and **on**
   (popularity only biases scoring among surviving members).
 - **Fire mode (`popular_seeds_mode == "fire"`) is exempt**: `select_popular_piers` output is
