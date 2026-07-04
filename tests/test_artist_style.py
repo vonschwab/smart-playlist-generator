@@ -17,6 +17,7 @@ from src.playlist.artist_style import (
     _medoids_for_cluster,
     _dedupe_artist_indices,
     load_artist_energy_values,
+    compute_pier_bridgeability,
 )
 
 
@@ -1316,3 +1317,51 @@ def test_medoid_popularity_weight_zero_is_regression_safe():
         np.random.default_rng(3), 1, None, None, 0.7, 0.3, 0.0, None,
         0.0, np.array([1.0, 0.0, 0.0]))   # popularity weight 0 -> ignored
     assert z == base
+
+
+def _unit_rows(rows):
+    X = np.array(rows, dtype=float)
+    return X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-12)
+
+
+def test_bridgeability_kth_rank_same_artist_exclusion():
+    # 5-dim basis geometry. Artist 'a' rows: 0 (e1), 1 (e2), 2 (e3), 9 (e2 twin of 1).
+    # Library rows: 3,4 (e1 — two neighbors for member 0), 5 (e3 — ONE neighbor for
+    # member 2), 6,7 (e4), 8 (e5) filler.
+    e = np.eye(5)
+    X = _unit_rows([e[0], e[1], e[2],          # members 0,1,2 (artist 'a')
+                    e[0], e[0], e[2],          # lib 3,4,5
+                    e[3], e[3], e[4],          # lib 6,7,8
+                    e[1]])                     # 9 = same-artist twin of member 1
+    # muq calibration band (what resolve_transition_calib(None) returns)
+    from src.playlist.transition_metrics import resolve_transition_calib
+    c, s, g = resolve_transition_calib(None)
+
+    t = compute_pier_bridgeability(X, [0, 1, 2], [0, 1, 2, 9], k=2,
+                                   calib_center=c, calib_scale=s, calib_gain=g)
+    assert t.shape == (3,)
+    assert t[0] > 0.9        # member 0: two e1 library neighbors -> kth cos = 1.0
+    assert t[1] < 0.05       # member 1: only close row is same-artist twin 9 -> excluded
+    assert t[2] < 0.05       # member 2: ONE library neighbor but k=2 -> kth cos = 0.0
+
+    # Same geometry, k=1, excluding ONLY self (callers must always exclude the
+    # member's own row — production passes all artist rows): the same-artist twin
+    # at row 9 now counts and rescues member 1 -> proves the artist mask (not the
+    # geometry) drove the failure above.
+    t_selfonly = compute_pier_bridgeability(X, [1], [1], k=1,
+                                            calib_center=c, calib_scale=s, calib_gain=g)
+    assert t_selfonly[0] > 0.9
+
+
+def test_bridgeability_empty_members_and_k_clamp():
+    from src.playlist.transition_metrics import resolve_transition_calib
+    c, s, g = resolve_transition_calib(None)
+    e = np.eye(3)
+    X = _unit_rows([e[0], e[0], e[1]])
+    assert compute_pier_bridgeability(X, [], [0], k=10,
+                                      calib_center=c, calib_scale=s, calib_gain=g).shape == (0,)
+    # k larger than available non-excluded columns clamps to what's there (2 columns).
+    t = compute_pier_bridgeability(X, [0], [0], k=10,
+                                   calib_center=c, calib_scale=s, calib_gain=g)
+    # kth clamps to 2nd best = cos(e0, e1) = 0 -> low T, but finite (no crash/inf)
+    assert np.isfinite(t[0]) and t[0] < 0.05

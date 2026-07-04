@@ -11,6 +11,7 @@ from src.string_utils import normalize_artist_key
 from src.playlist.history_analyzer import is_collaboration_of
 from src.playlist.candidate_pool import _compute_genre_similarity
 from src.playlist.genre_compatibility import compute_raw_genre_compatibility
+from src.playlist.pier_bridge.vec import _calibrate_transition_cos
 
 logger = logging.getLogger(__name__)
 
@@ -519,6 +520,47 @@ def _medoids_for_cluster(
         )
 
     return medoids
+
+
+def compute_pier_bridgeability(
+    X_norm: np.ndarray,
+    member_indices: Sequence[int],
+    excluded_indices: Sequence[int],
+    k: int,
+    *,
+    calib_center: float,
+    calib_scale: float,
+    calib_gain: float,
+) -> np.ndarray:
+    """Calibrated T of each member's k-th best library neighbor (pier bridgeability).
+
+    A pier must have at least k library tracks it could plausibly sit next to;
+    same-artist rows (``excluded_indices``, collabs and alternate versions
+    included) never count — interiors can't be seed-artist tracks. Returns a
+    float array aligned to ``member_indices``. See
+    docs/superpowers/specs/2026-07-03-pier-bridgeability-design.md.
+    """
+    members = np.asarray(list(member_indices), dtype=int)
+    if members.size == 0:
+        return np.zeros(0, dtype=float)
+    excl = np.asarray(sorted({int(i) for i in excluded_indices}), dtype=int)
+    n_avail = int(X_norm.shape[0]) - int(excl.size)
+    if n_avail <= 0:
+        return np.zeros(members.size, dtype=float)
+    sims = X_norm[members] @ X_norm.T  # (m, N) cosines; rows are already L2-normalized
+    if excl.size:
+        sims[:, excl] = -np.inf
+    kk = max(1, min(int(k), n_avail))
+    kth = np.partition(sims, sims.shape[1] - kk, axis=1)[:, sims.shape[1] - kk]
+    return np.asarray(
+        [
+            _calibrate_transition_cos(
+                float(v), center=calib_center, scale=calib_scale, gain=calib_gain
+            )
+            for v in kth
+        ],
+        dtype=float,
+    )
 
 
 def allocate_piers_by_tag_affinity(
