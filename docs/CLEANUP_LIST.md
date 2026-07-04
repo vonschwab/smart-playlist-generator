@@ -498,6 +498,26 @@ linters. All items are NEW (not already tracked above) unless noted. Spot-checke
 
 ### Dead config (Tier 2 — dead but the fix is a decision, not just a delete)
 
+**⚠️ VERIFIED 2026-07-04 — Tier 2 is NOT a clean deletion sweep; corrections below.** Investigated
+each item; the production-read analysis that flagged them missed test-construction, name-collisions,
+and indirect threading:
+- **`PierBridgeTuning.dj_route_shape` is LIVE, not dead** — `cfg.dj_route_shape` IS read at
+  `pier_bridge/genre_targets.py:78` and `pier_bridge_builder.py:762`, and `tuning.dj_route_shape` is
+  threaded via `pier_bridge/config.py:403`. Struck from the cleanup list.
+- **`piers_per_cluster`, `CandidatePoolConfig.max_artist_fraction_final`, `title_exclusion_enabled/_words`**
+  are unread in production but **constructed in tests** (`test_artist_style.py:61/1395`,
+  `test_candidate_filters.py:25/64/99`, `test_dense_genre_integration.py:62`,
+  `test_tag_steering_pool_lever.py:30`) — removing them means editing tests / dropping assertions; not
+  a pure delete.
+- **`pool_balance_mode` is read** (passed to `build_balanced_candidate_pool` at
+  `playlist_generator.py:1974/2903`; the function ignores it) — removal needs the param dropped too.
+- The genuinely-dead ArtistStyleConfig fields (`bridge_floor_strict/narrow/dynamic`, `bridge_weight`,
+  `transition_weight`, the ArtistStyle `genre_tiebreak_weight` copy) are best removed as part of the
+  tracked **"artist-style path drops resolved-tuning fields"** refactor (consolidate the double-parse,
+  option b) — piecemeal field-deletes leave a messy half-state. HELD for that refactor.
+
+Original findings retained below (with the corrections above applied):
+
 - **`ArtistStyleConfig` shadow-reparse — 8 fields populated but never read back**: the artist path
   builds `ArtistStyleConfig` from the raw YAML (`playlist_generator.py:~1712/2791`) then
   independently RE-PARSES the same dict (`~2075-2097/2960-2965`) for the values it actually uses,
