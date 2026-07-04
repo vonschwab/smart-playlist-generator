@@ -482,13 +482,15 @@ linters. All items are NEW (not already tracked above) unless noted. Spot-checke
   reorder (own code comment says so); already commented out in `config.example.yaml:274`, but the
   dataclass field + override cast (`pier_bridge_overrides.py:117`) + construction
   (`playlist_generator.py:256`) are still live plumbing that silently accepts/discards it.
-- **⏸️ HELD 2026-07-04 — duplicate-function + orphaned-test tangle (not a clean delete):**
-  `beam.py:150`'s `_compute_duration_penalty` is a DUPLICATE of the live `candidate_pool.py:111`
-  one, and it is the copy that `tests/unit/test_duration_penalty.py` (30+ assertions) actually
-  tests via the `pier_bridge_builder` re-export — while production scoring calls the candidate_pool
-  copy (`candidate_pool.py:626`). `PierBridgeConfig.duration_penalty_*` is asserted by that same
-  test (`:174/180/189/190`). Proper fix = DRY consolidation (repoint the test at the live copy, then
-  drop the duplicate + the dead PierBridge fields), NOT a blind delete. Original finding:
+- **✅ RESOLVED 2026-07-04 (commit `c0eec48`)** — DRY consolidation done: repointed
+  `test_duration_penalty.py` at the live `candidate_pool` copy (identical math, 10/10 pass), then
+  deleted `beam.py`'s duplicate `_compute_duration_penalty`, the `pier_bridge_builder` re-export,
+  the dead `PierBridgeConfig.duration_penalty_*` fields, and the config-field tests for them.
+  −111 lines. The tangle it required (not a blind delete):
+  `beam.py:150`'s `_compute_duration_penalty` was a DUPLICATE of the live `candidate_pool.py:111`
+  one, and it was the copy that `tests/unit/test_duration_penalty.py` actually
+  tested via the `pier_bridge_builder` re-export — while production scoring calls the candidate_pool
+  copy (`candidate_pool.py:626`). Original finding:
   **`PierBridgeConfig.duration_penalty_enabled/_weight` (`pier_bridge/config.py:169-170`)** — dead
   name-collision copies of the LIVE `CandidatePoolConfig` fields (same names). Nothing reads the
   PierBridge copies. Plus a second unused `_compute_duration_penalty()` in `beam.py:150-189`,
