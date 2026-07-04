@@ -102,13 +102,16 @@ def _non_seed_artist_counts_after_replacement(
     bundle: ArtifactBundle,
     seed_indices: set[int],
     artist_identity_cfg: Optional[ArtistIdentityConfig],
+    memo: Optional[_IdentityMemo] = None,
 ) -> dict[str, int]:
+    if memo is None:  # standalone call: local memo keeps results identical, just unshared
+        memo = _IdentityMemo()
     counts: dict[str, int] = {}
     for pos, idx in enumerate(current_indices):
         track_idx = int(candidate) if int(pos) == int(replace_position) else int(idx)
         if track_idx in seed_indices:
             continue
-        for artist_key in _cap_artist_keys_for_idx(bundle, track_idx, artist_identity_cfg):
+        for artist_key in memo.cap_keys(bundle, track_idx, artist_identity_cfg):
             counts[str(artist_key)] = counts.get(str(artist_key), 0) + 1
     return counts
 
@@ -194,8 +197,11 @@ def _candidate_refusal_reasons(
     max_non_seed_tracks_per_artist: Optional[int],
     artist_identity_cfg: Optional[ArtistIdentityConfig],
     min_gap: int = 0,
+    memo: Optional[_IdentityMemo] = None,
 ) -> list[str]:
     reasons: list[str] = []
+    if memo is None:  # standalone call: local memo keeps results identical, just unshared
+        memo = _IdentityMemo()
     candidate = int(candidate)
     if candidate in seed_indices:
         reasons.append("candidate_is_seed")
@@ -207,7 +213,7 @@ def _candidate_refusal_reasons(
         reasons.append("allowed_set")
 
     try:
-        cand_keys = identity_keys_for_index(bundle, candidate)
+        cand_keys = memo.keys_for_index(bundle, candidate)
     except Exception:
         cand_keys = None
     if cand_keys is not None:
@@ -216,7 +222,7 @@ def _candidate_refusal_reasons(
             if int(pos) == int(replace_position):
                 continue
             try:
-                existing_track_keys.add(identity_keys_for_index(bundle, int(idx)).track_key)
+                existing_track_keys.add(memo.keys_for_index(bundle, int(idx)).track_key)
             except Exception:
                 continue
         if cand_keys.track_key in existing_track_keys:
@@ -236,20 +242,21 @@ def _candidate_refusal_reasons(
                 bundle,
                 seed_indices,
                 artist_identity_cfg,
+                memo=memo,
             ).values()
         )
     ):
         reasons.append("max_non_seed_artist_cap")
 
     if int(min_gap) > 0:
-        cand_artist_keys = _cap_artist_keys_for_idx(bundle, candidate, artist_identity_cfg)
+        cand_artist_keys = memo.cap_keys(bundle, candidate, artist_identity_cfg)
         if cand_artist_keys:
             lo = max(0, int(replace_position) - int(min_gap))
             hi = min(len(current_indices) - 1, int(replace_position) + int(min_gap))
             for pos in range(lo, hi + 1):
                 if int(pos) == int(replace_position):
                     continue
-                other_keys = _cap_artist_keys_for_idx(
+                other_keys = memo.cap_keys(
                     bundle, int(current_indices[pos]), artist_identity_cfg
                 )
                 if cand_artist_keys & other_keys:
@@ -307,6 +314,7 @@ def repair_playlist_edges(
     allowed_set = _as_int_set(allowed_indices) if allowed_indices is not None else None
     disallowed_artist_set = {str(v) for v in (disallowed_artist_keys or []) if str(v)}
     candidates = [int(c) for c in candidate_indices]
+    identity_memo = _IdentityMemo()  # per-pass memo: pure-per-index identity lookups
 
     if repair_edge_position is not None:
         edge_positions = [int(repair_edge_position)]
@@ -377,6 +385,7 @@ def repair_playlist_edges(
                 max_non_seed_tracks_per_artist=max_non_seed_tracks_per_artist,
                 artist_identity_cfg=artist_identity_cfg,
                 min_gap=int(min_gap),
+                memo=identity_memo,
             )
             if reasons:
                 for reason in reasons:
