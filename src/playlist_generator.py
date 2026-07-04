@@ -1811,7 +1811,14 @@ class PlaylistGenerator:
 
                 # Tag steering: over-produce medoids per cluster so the tag-weighted
                 # allocator (below) has enough tag-ranked candidates to reallocate.
-                if steering_target is not None:
+                # Guard MUST match the allocator-branch guard exactly — otherwise a
+                # tags+fire+cache-miss run inflates medoid_top_k but falls through to
+                # the legacy path, silently changing piers for no benefit.
+                if (
+                    steering_target is not None
+                    and popular_seeds_mode != "fire"
+                    and getattr(bundle, "X_genre_dense", None) is not None
+                ):
                     medoid_top_k = max(medoid_top_k, target_pier_count)
 
                 logger.info(
