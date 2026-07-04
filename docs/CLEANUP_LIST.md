@@ -431,3 +431,96 @@ or take it as an explicit CLI arg instead of hardcoding `"mert"`. Not fixed now 
 - `energy_spread_eval.py:117` — hardcodes the `--sonic-variant` CLI default to `"mert"`.
 - `collapse_rescore.py:29,149,155` — hardcodes `VARIANTS = ["mert", "muq"]` and prints
   MERT-labeled columns unconditionally.
+
+## Dead-code sweep (2026-07-04, ruff/mypy-triggered investigation)
+
+Kicked off from the pre-existing linter noise. **`mypy` is clean (no issues, 178 files)** — the
+pyright diagnostics in-editor are stricter-than-project noise (test mocks + god-class debt), not a
+gate failure. The 49 ruff violations are ~36 style nits in `scripts/research/` + a few in live
+files (cosmetic). The real dead code below came from import-graph + knob-read analysis, not the
+linters. All items are NEW (not already tracked above) unless noted. Spot-checked items marked ✔.
+
+### Dead config (Tier 1 — safe, high value)
+
+- **🔴 `RepairConfig` is 100% dead but SHIPS a live-looking `repair:` block** in both
+  `config.yaml` (~`:346-350`) and `config.example.yaml` (`:722-726`) — ✔ verified zero reads of
+  any `cfg.repair.<field>` in `src/`. The real repair feature is the unrelated `edge_repair:`
+  block (`config.example.yaml:304`). Classic "config that looks wired but isn't" — a user tuning
+  `repair:` changes nothing. Remove: the `RepairConfig` dataclass (`config.py:100-105`, `673-678`),
+  the override-merge (`pipeline/core.py:66-68`), the effective-dump line (`core.py:78`), and both
+  yaml blocks. No tests reference `RepairConfig`.
+- **`ConstructionConfig` scoring fields — 10 dead** (`local_top_m`, `alpha_schedule`, `alpha`,
+  `alpha_start/mid/end`, `arc_midpoint`, `beta`, `gamma`, `hard_floor` — `config.py:81-90`,
+  `631-663`) + `transition_gamma` (log-only, embedded for the reporter). ✔ Root cause verified:
+  their only consumer `construct_playlist()` is retired (`pipeline/core.py:17` "no longer calling",
+  zero call sites). The parallel `ds_scoring_*` / `ds_constraints_hard_floor` props in
+  `config_loader.py` are equally dead (only caller `get_ds_tuning_dict()` is used by one unit test).
+  KEEP the live siblings on `ConstructionConfig`: `transition_floor`, `min_gap`,
+  `max_artist_fraction_final`(see below), `center_transitions`.
+- **`src/features/beat3tower_normalizer.py` — entire dead module.** Zero non-test refs; only
+  `tests/test_smoke_imports.py:57-59` import-checks it. SP-B's design doc kept it "as used by
+  extraction," but `beat3tower_extractor.py` does not import it (imports only `beat3tower_types`).
+  Its artifact output key `normalizer_params` was already found zero-reader. Delete module + adjust
+  the smoke test. (The rest of the `beat3tower_*` family IS live — SP-C territory.)
+- **`variable_bridge_band` (`pier_bridge/config.py:356`)** — unused since the 2026-07-02 add-only
+  reorder (own code comment says so); already commented out in `config.example.yaml:274`, but the
+  dataclass field + override cast (`pier_bridge_overrides.py:117`) + construction
+  (`playlist_generator.py:256`) are still live plumbing that silently accepts/discards it.
+- **`PierBridgeConfig.duration_penalty_enabled/_weight` (`pier_bridge/config.py:169-170`)** — dead
+  name-collision copies of the LIVE `CandidatePoolConfig` fields (same names). Nothing reads the
+  PierBridge copies. Plus a second unused `_compute_duration_penalty()` in `beam.py:150-189`,
+  re-exported `# noqa: F401` from `pier_bridge_builder.py:138` for back-compat only.
+
+### Dead config (Tier 2 — dead but the fix is a decision, not just a delete)
+
+- **`ArtistStyleConfig` shadow-reparse — 8 fields populated but never read back**: the artist path
+  builds `ArtistStyleConfig` from the raw YAML (`playlist_generator.py:~1712/2791`) then
+  independently RE-PARSES the same dict (`~2075-2097/2960-2965`) for the values it actually uses,
+  so these never feed anything: `piers_per_cluster`, `pool_balance_mode` (also:
+  `"proportional_capped"` was never implemented — `build_balanced_candidate_pool` ignores the
+  param), `bridge_floor_strict/narrow/dynamic`, `bridge_weight`, `transition_weight`,
+  `genre_tiebreak_weight`. Harmless today (both parses read the same YAML) but a footgun — editing
+  a field in isolation does nothing. Fix = delete the fields OR kill the double-parse (route the
+  artist path through one construction). Pairs with the tracked "artist-style path drops
+  resolved-tuning fields" item above — same root cause (partial hand-built config on the artist path).
+- Misc dead singles: `CandidatePoolConfig.max_artist_fraction_final` (`config.py:48` — only the
+  `ConstructionConfig` copy is read at `core.py:654`); `CandidatePoolConfig.title_exclusion_enabled`
+  / `title_exclusion_words` (`config.py:52-53` — real behavior reads raw YAML at
+  `playlist_generator.py:394-397`, bypassing the resolved fields); `PierBridgeTuning.dj_route_shape`
+  (`config.py:138` — resolved by `resolve_pier_bridge_tuning()` but never threaded into any
+  `PierBridgeConfig` construction; live value comes from `pier_bridge.dj_bridging.route_shape`).
+
+### Tier 3 — needs Dylan's intent before removal
+
+- **`src/playlist/popularity_loader.py` (`load_popularity_vector`)** — zero production call sites
+  (live popularity path uses `analyze/popularity_runner.py`). Retained per its design doc for the
+  un-built "Oops, All Bangers" feature (design-stage only). Keep-or-kill pending roadmap decision.
+- **`mutual_proximity` (`pier_bridge/manifold.py:21-38`)** — only ref is `test_manifold.py` (the
+  ruff F401). The live roam path uses `build_knn_graph`/`geodesic_from_source` (gated behind
+  `roam_corridors_enabled`), not this dense form. Roam-corridors plan said "both ship" (deliberate
+  future option). Keep-or-kill pending roam Phase-3 decision.
+
+### Tier 4 — `scripts/research/` graveyard (67 scripts; triaged 2026-07-04)
+
+25 LIVE-HARNESS (keep — sonic/genre audition builds, `slider_differentiation_eval`,
+`time_golden_replay`, `spb_artifact_checks`, `calibrate_transition_sigmoid`, the genre-adjudication
+family, current energy_probe_* WIP). ~10 broken-but-worth-modernizing (extends the
+"Research-harness modernization" list above: `run_admission_grid`, `pace_eval_features`+`_run`,
+`sonic_audition_build`, `verify_roam_transition`). **25 removed this pass** (each ✔ verified to
+have zero Python importers among kept files; doc-only mentions don't count); 7 more held below:
+- **Broken-dead (removed, 13):** `energy_neighborhood_probe`, `cutoff_probe`, `genre_traversal_probe`,
+  `pace_head_mert_redundancy`, `pace_head_probe_analyze`, `sonic_centering_probe`,
+  `sonic_beatsync_2dftm`, `sonic_gate1_blend`, `sonic_gate2_rhythm`, `sonic_harmony_richer_probe`,
+  `sonic_harmony_weight_sweep`, `sonic_tower_diagnostic`, `sonic_why_yuji` — all read removed
+  tower/MERT artifact keys or import deleted modules; their investigations shipped/concluded.
+- **Orphan-abandoned (removed, 12):** `energy_arc_proof`, `energy_blocker_pinpoint`,
+  `energy_ceiling_probe`, `energy_room_proof`, `energy_switch_proof` (concluded energy-arc, now
+  PARKED), `research_genre_similarity`, `research_sonic_hubness`+`research_sonic_transition`
+  (mutually-dependent pair, no external ref — delete together), `sonic_keyinvariance_check`,
+  `pace_head_probe_manifest`, `pace_head_edgetest_extract_wsl`, `pace_head_probe_extract_wsl`.
+- **HELD — test-coupled (deleting the script means deleting its test too; separate decision):**
+  `sonic_phase1_metrics` (unit test + imported by `scripts/research/__init__.py`),
+  `measure_genre_baseline`, `pace_audition_analyze`, `pace_audition_build`, `pace_audition_serve`
+  (each has a passing unit test; build↔serve import each other).
+- **HELD — low confidence:** `run_model_prior_album_tests`, `import_backfill_adjudications`
+  (borderline in the active adjudication family — confirm before removal).
