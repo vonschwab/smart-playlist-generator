@@ -35,6 +35,15 @@ def resolve_perceptual_bpm(
 
 def bpm_log_distance(a: ArrayLike, b: ArrayLike) -> ArrayLike:
     """|log2(a / b)|. Returns inf for non-positive inputs."""
+    # Scalar fast path (the per-candidate beam hot call, ~4M/gen). Skips the
+    # np.asarray + two np.where array allocations that dominate a scalar call.
+    # Keeps np.log2 (no math-lib swap) so it is bit-identical to the array path
+    # below — float(a)/float(b) and np.log2 produce the identical bits a 0-d
+    # array would; only the wasted array machinery is gone.
+    if isinstance(a, (int, float, np.floating)) and isinstance(b, (int, float, np.floating)):
+        if a <= 0 or b <= 0:
+            return np.inf
+        return abs(float(np.log2(a / b)))
     a_arr = np.asarray(a, dtype=float)
     b_arr = np.asarray(b, dtype=float)
     invalid = (a_arr <= 0) | (b_arr <= 0)
