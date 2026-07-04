@@ -33,13 +33,45 @@ Foundation (golden capture + bit-diff gate + timing/profile harness + Porches fi
 overrides so the gate runs from a worktree): `d087b69 d0024cc ca90825 4efaddb`. Baseline/after profiles:
 `docs/run_audits/lossless_speedup_baseline_profile.txt`, `..._after_t1_profile.txt`.
 
-**Biggest remaining lossless levers** (not yet done):
-- `bpm_log_distance` still **4M calls / 31.7s** — scalar `math` fast-path (plan T2-c, Tier-2 float-reassoc,
-  must pass ΔT==0). Now the #1 remaining function-time cost after the beam's own body.
-- **T1-g** — hoist the flex re-run invariant work (pool / genre-route / roam): the profile shows **15
-  beam calls for 9 segments** (6 flex re-runs), `choose_segment_length` at 86.8s cumulative. Touches
-  `pier_bridge_builder.py` (god-class) — do in an isolated worktree, see [[feedback_worktree_data_absolute_overrides]].
-- `edge_repair` (post-loop) is 21.4s — out of the beam, a separate future target.
+**Biggest remaining lossless levers** (updated 2026-07-04):
+- `bpm_log_distance` scalar `math` fast-path — **DONE (4fd9504)**; the 2026-07-04 profile shows it at
+  ~6.7s (was 31.7s), no longer a top lever.
+- `edge_repair` (post-loop) — **DONE (2026-07-04, see below)**: 24.9s → 2.0s.
+- **T1-g — DE-PRIORITIZED (see below)**: the fresh profile shows the flex cost is the *unhoistable* beam,
+  not the pool/genre/roam rebuilds; realistic win ~1%.
+- What's left is the beam search itself (`_beam_search_segment` ~28s tottime + `score_transition_edge`):
+  the actual search, needing in-beam memo/vectorization rather than structural hoists.
+
+## Edge-repair memoization landed (2026-07-04)
+
+Once the beam-body wins (T1-a…T1-e, bpm scalar) landed, **`edge_repair` was the top remaining hotspot —
+24.9s = 25.8% of the profiled 96.66s** — dominated by `_candidate_refusal_reasons` recomputing per-track
+identity keys hundreds of thousands of times (`identity_keys_for_index` 470K calls / 13.3s,
+`_cap_artist_keys_for_idx` 99K / 10.7s). Fix: a per-repair-pass memo (`_IdentityMemo`) over the two
+pure-per-index lookups — the same **T1-a** pattern, **bit-identical by construction** (string/set ops, no
+float). Spec/plan: `docs/superpowers/{specs,plans}/2026-07-04-edge-repair-identity-memoization*`.
+
+Porches golden replay, profiled total **96.66s → 75.8s** (−20.9s, 1.28×; the beam is untouched, so ~the
+whole saving is edge_repair):
+
+| Hotspot | Before | After | Change |
+|---------|--------|-------|--------|
+| `repair_playlist_edges` | 24.9s | **2.0s** | memoize per-index identity (a8e63b6 primitive, 11f11cb wiring) |
+| `resolve_artist_identity_keys` | 128K calls / 13.6s | 31K / 3.8s | edge_repair share memoized; residual is the beam's |
+| `identity_keys_for_index` / `_candidate_refusal_reasons` / `_cap_artist_keys_for_idx` | top-40 | out of top-40 | — |
+
+After-profile: `docs/run_audits/lossless_speedup_after_edge_repair_profile.txt`.
+
+### T1-g de-prioritized (the fresh profile refuted the static estimate)
+
+The 2026-07-04 profile re-ranked the flex loop: `choose_segment_length` is 61.9s, but **59.1s of it is
+`_beam_search_segment`** — length-dependent, so the beam *must* re-run per flex length and **cannot be
+hoisted losslessly**. The only hoistable work (pool / genre-route / roam) is the **2.67s** gap between the
+flex loop and the beam (taxonomy genre-route 0.06s; roam OFF by default). So T1-g's realistic win is
+**~1s (~1%)** for the riskiest refactor in the plan (god-class flex+backoff restructure). Reprioritized to
+edge_repair (~26%, low-risk, proven T1-a pattern) instead. Revisit T1-g only if a future config shifts the
+pool-build share (e.g. `dj_union` pooling, or much heavier flex). Full reasoning:
+`docs/superpowers/specs/2026-07-04-edge-repair-identity-memoization-design.md` § "Why this instead of T1-g".
 
 ---
 
