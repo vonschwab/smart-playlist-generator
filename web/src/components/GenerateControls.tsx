@@ -3,6 +3,7 @@ import { api } from "../lib/api";
 import { useInfiniteSearch } from "../lib/useInfiniteSearch";
 import { useLocalStorage } from "../lib/useLocalStorage";
 import type { AxisValue, GenerateRequestBody, Mode } from "../lib/types";
+import { StylePopover } from "./StylePopover";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -310,19 +311,14 @@ export function GenerateControls({
               </select>
             </Cell>
             <Cell>
-              <Lbl title="How much of the seed artist's stylistic range to draw from. Some artists span many styles across their catalog — Focused draws from one corner, Sprawling draws from across the full range.">
-                style spread
-              </Lbl>
-              <select
-                value={artistVariety}
-                onChange={(e) => setArtistVariety(e.target.value)}
-                className={SEL}
-                title="How much of the seed artist's stylistic range to draw from. Some artists span many styles across their catalog — Focused draws from one corner, Sprawling draws from across the full range."
-              >
-                <option value="focused">focused</option>
-                <option value="balanced">balanced</option>
-                <option value="sprawling">sprawling</option>
-              </select>
+              <StylePopover
+                artistVariety={artistVariety}
+                onVarietyChange={setArtistVariety}
+                artistTags={artistTags}
+                steeringTags={steeringTags}
+                onToggleTag={toggleSteeringTag}
+                tagsFetched={tagsFetched}
+              />
             </Cell>
             <Cell>
               <label
@@ -355,44 +351,6 @@ export function GenerateControls({
               </select>
             </Cell>
           </>
-        )}
-
-        {/* Tag steering chips — inline on the Generate row (left of the pushed buttons) to save a row */}
-        {mode === "artist" && artistTags.length > 0 && (
-          <Cell className="flex-wrap gap-1.5 border-r-0">
-            <div className="flex flex-wrap items-center gap-1.5" data-testid="steering-chips">
-              {artistTags.map((t) => {
-                const on = steeringTags.includes(t.name);
-                const capped = !on && steeringTags.length >= 3;
-                return (
-                  <button
-                    key={t.name}
-                    type="button"
-                    disabled={capped}
-                    onClick={() => toggleSteeringTag(t.name)}
-                    title={`${t.release_count} release${t.release_count === 1 ? "" : "s"}`}
-                    className={
-                      "rounded-full border px-2 py-0.5 text-[11px] transition-colors " +
-                      (on
-                        ? "border-[#5eead4] bg-[#5eead4]/15 text-[#5eead4]"
-                        : capped
-                          ? "border-[#23262d] text-[#8b939d] opacity-40"
-                          : "border-[#23262d] text-[#8b939d] hover:bg-[#1e2229]")
-                    }
-                  >
-                    {t.name}
-                  </button>
-                );
-              })}
-            </div>
-          </Cell>
-        )}
-        {mode === "artist" && tagsFetched && artistTags.length === 0 && seed.trim() !== "" && (
-          <Cell className="border-r-0">
-            <p className="text-[11px] text-[#5b6470]">
-              No published genres for this artist — run enrichment publish to enable tag steering.
-            </p>
-          </Cell>
         )}
 
         {/* Generate */}
