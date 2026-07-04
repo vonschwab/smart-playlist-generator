@@ -252,7 +252,6 @@ def _build_artist_pier_config(
         max_bridge_helpers=int(pb_tuning.get("max_bridge_helpers", 200)),
         variable_bridge_length=bool(pier.get("variable_bridge_length", False)),
         variable_bridge_flex=int(pier.get("variable_bridge_flex", 2)),
-        variable_bridge_band=int(pier.get("variable_bridge_band", 5)),
         variable_bridge_min_edge=float(pier.get("variable_bridge_min_edge", 0.30)),
         variable_bridge_epsilon=float(pier.get("variable_bridge_epsilon", 0.02)),
         variable_bridge_max_flex_segments=int(pier.get("variable_bridge_max_flex_segments", 3)),

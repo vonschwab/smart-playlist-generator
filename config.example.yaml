@@ -271,7 +271,6 @@ playlists:
       # deterministic cap on how many segments may flex.
       variable_bridge_length: true
       # variable_bridge_flex: 2
-      # variable_bridge_band: 5   # UNUSED since the 2026-07-02 add-only reorder (var-bridge only lengthens; removal is now the edge_delete pass)
       # variable_bridge_min_edge: 0.30
       # variable_bridge_max_flex_segments: 3
       # SP2 seed-character anti-collapse (live default): "anti_center" demotes bridge
