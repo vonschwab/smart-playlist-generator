@@ -1120,6 +1120,36 @@ def _beam_search_segment(
         step_is_sampled = rank_impact_enabled and step in rank_impact_sampled_steps
         step_candidates_for_ranking: List[Tuple[int, float, float, float, float]] = []  # (cand_idx, base_score, waypoint_delta, coverage_bonus, full_score)
 
+        # Per-step pace targets — depend only on (pier_a, pier_b, step, length),
+        # not on state/candidate. Hoisted out of the state+candidate loops so the
+        # target + its import run once per step, not once per (state x candidate).
+        # Same guard conditions as the per-candidate use below -> bit-identical.
+        _bpm_target_step = None
+        if (
+            _bpm_band_pier_trusted
+            and float(getattr(cfg, "bpm_bridge_max_log_distance", float("inf"))) < float("inf")
+            and perceptual_bpm is not None
+        ):
+            from src.playlist.pier_bridge.pace_gate import compute_step_log_bpm_target
+            _bpm_target_step = compute_step_log_bpm_target(
+                float(perceptual_bpm[int(pier_a)]),
+                float(perceptual_bpm[int(pier_b)]),
+                step=step,
+                segment_length=interior_length,
+            )
+        _onset_target_step = None
+        if (
+            float(getattr(cfg, "onset_bridge_max_log_distance", float("inf"))) < float("inf")
+            and onset_rate is not None
+        ):
+            from src.playlist.pier_bridge.pace_gate import compute_step_log_onset_target
+            _onset_target_step = compute_step_log_onset_target(
+                float(onset_rate[int(pier_a)]),
+                float(onset_rate[int(pier_b)]),
+                step=step,
+                segment_length=interior_length,
+            )
+
         for state in beam:
             current = state.path[-1]
             apply_tie_break = (
@@ -1142,16 +1172,8 @@ def _beam_search_segment(
                     and float(getattr(cfg, "bpm_bridge_max_log_distance", float("inf"))) < float("inf")
                     and perceptual_bpm is not None
                 ):
-                    from src.playlist.pier_bridge.pace_gate import (
-                        compute_step_log_bpm_target,
-                    )
                     from src.playlist.bpm_axis import bpm_log_distance as _bld
-                    _bpm_target = compute_step_log_bpm_target(
-                        float(perceptual_bpm[int(pier_a)]),
-                        float(perceptual_bpm[int(pier_b)]),
-                        step=step,
-                        segment_length=interior_length,
-                    )
+                    _bpm_target = _bpm_target_step
                     _cand_bpm = float(perceptual_bpm[int(cand)])
                     _cand_stab = (
                         float(tempo_stability[int(cand)])
@@ -1183,15 +1205,9 @@ def _beam_search_segment(
                     float(getattr(cfg, "onset_bridge_max_log_distance", float("inf"))) < float("inf")
                     and onset_rate is not None
                 ):
-                    from src.playlist.pier_bridge.pace_gate import compute_step_log_onset_target
                     from src.playlist.bpm_axis import bpm_log_distance as _old_dist
 
-                    _onset_target = compute_step_log_onset_target(
-                        float(onset_rate[int(pier_a)]),
-                        float(onset_rate[int(pier_b)]),
-                        step=step,
-                        segment_length=interior_length,
-                    )
+                    _onset_target = _onset_target_step
                     _cand_onset = float(onset_rate[int(cand)])
                     if not np.isnan(_cand_onset):
                         _onset_excess = float(_old_dist(_cand_onset, _onset_target)) - float(cfg.onset_bridge_max_log_distance)
