@@ -84,7 +84,7 @@ SONIC_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "enabled": True,
         "weight": 0.85,
         "candidate_pool_multiplier": 0.6,
-        "min_sonic_similarity": 0.28,  # MERT p75 (recalibrated 2026-06; see FLOOR_RECALIBRATION_DISTRIBUTIONS.md)
+        "min_sonic_similarity": 0.28,  # legacy absolute floor, INERT under MuQ — sonic_admission_percentile (below) replaces it at runtime (candidate_pool.py:658-666); applies only if percentile==0 (no shipped preset). MERT-era value, not MuQ-calibrated.
         # Adaptive percentile floor (Task 1): admits top (1-p) fraction of
         # the seed's sonic similarity distribution.  Initial conservative values —
         # calibration eval-gate sets finals.  0.0 = off (legacy absolute floor).
@@ -99,7 +99,7 @@ SONIC_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "enabled": True,
         "weight": 0.70,
         "candidate_pool_multiplier": 0.8,
-        "min_sonic_similarity": 0.18,  # MERT p50 (recalibrated 2026-06; see FLOOR_RECALIBRATION_DISTRIBUTIONS.md)
+        "min_sonic_similarity": 0.18,  # legacy absolute floor, INERT (see 'strict' above); MERT-era value, not MuQ-calibrated.
         "sonic_admission_percentile": 0.60,
         "min_pool_size": 16,
         "description": "Strict sonic coherence - familiar sound",
@@ -109,7 +109,7 @@ SONIC_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "enabled": True,
         "weight": 0.50,
         "candidate_pool_multiplier": 1.0,
-        "min_sonic_similarity": 0.08,  # MERT p25 (recalibrated 2026-06; see FLOOR_RECALIBRATION_DISTRIBUTIONS.md)
+        "min_sonic_similarity": 0.08,  # legacy absolute floor, INERT (see 'strict' above); MERT-era value, not MuQ-calibrated.
         "sonic_admission_percentile": 0.40,
         "min_pool_size": 20,
         "description": "Balanced sonic flow (default)",
@@ -119,7 +119,7 @@ SONIC_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "enabled": True,
         "weight": 0.35,
         "candidate_pool_multiplier": 1.2,
-        "min_sonic_similarity": 0.00,  # MERT p10 ≈ 0 (recalibrated 2026-06; see FLOOR_RECALIBRATION_DISTRIBUTIONS.md)
+        "min_sonic_similarity": 0.00,  # legacy absolute floor, INERT (see 'strict' above); MERT-era value, not MuQ-calibrated.
         "sonic_admission_percentile": 0.20,
         "min_pool_size": 24,
         "description": "Broader sonic palette - varied textures",

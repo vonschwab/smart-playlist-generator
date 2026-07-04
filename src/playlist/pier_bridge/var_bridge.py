@@ -43,6 +43,13 @@ def choose_segment_length(nominal: int, lo: int, hi: int,
         if l not in results:
             path, b = build_and_score(l)
             results[l] = (b, path)
+    if len(results) == 1:
+        # Only the nominal length was buildable (lo == hi == nom): no alternative
+        # was evaluated, so no flex actually occurred even though nominal fell short
+        # of good_enough.  Report flexed=False so the caller's flex budget/counter
+        # and the "flexed" log reflect real exploration work — this is what fixes
+        # the (N+1/N) over-count once the flex cap has forced lo==hi==nominal.
+        return nom, nom_path, False
     best_b = max(b for b, _ in results.values())
     near = [l for l, (b, _) in results.items() if b >= best_b - eps]
     chosen = min(near, key=lambda l: (abs(l - nom), l))    # closest to nominal, then smaller

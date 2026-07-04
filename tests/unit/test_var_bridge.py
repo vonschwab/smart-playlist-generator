@@ -43,3 +43,18 @@ def test_choose_respects_band_clamp():
     chosen_l, _, flexed = choose_segment_length(6, 6, 7, lambda l: ([l], scores[l]), good_enough=0.5, eps=0.02)
     assert chosen_l == 7
     assert flexed is True                      # nominal score 0.1 < good_enough 0.5, so flexed
+
+
+def test_choose_no_flex_when_no_room_even_if_nominal_weak():
+    # lo == hi == nominal: the flex cap has forced a single buildable length.
+    # Nominal is weak (0.1 < good_enough) but there is nothing else to evaluate,
+    # so flexed must be False (regression guard for the (N+1/N) flex-counter
+    # over-count where non-flexed segments logged flexed=True with chosen==nominal).
+    calls = []
+    def build(l):
+        calls.append(l)
+        return ([l], 0.1)
+    chosen_l, path, flexed = choose_segment_length(6, 6, 6, build, good_enough=0.5, eps=0.02)
+    assert chosen_l == 6 and path == [6]
+    assert calls == [6]                        # only nominal built — no extra beam work
+    assert flexed is False                     # no alternative length existed -> did NOT flex

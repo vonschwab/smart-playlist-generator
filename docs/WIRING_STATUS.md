@@ -37,7 +37,7 @@ is by reading real config + generation logs, not "the config looks right."
 | Component | State | Notes |
 |---|---|---|
 | Pier-bridge beam search | ✅ LIVE | Sole topology; legacy greedy constructor is dead code. |
-| **`artist_style.enabled`** (medoid-clustered piers) | 🟡 **LIVE-ONLY** | `config.yaml: true`, **`config.example.yaml: false`** → the shipped template runs the *legacy per-seed* pier path, not medoid clustering. Big shipped-vs-live divergence; likely a template gap. |
+| **`artist_style.enabled`** (medoid-clustered piers) | ✅ LIVE | `config.yaml: true` and **`config.example.yaml: true`** (aligned 2026-07-03) → both shipped template and live run medoid-clustered piers. |
 | Cohesion / genre / sonic / pace mode axes | ✅ LIVE | Default `dynamic`. `pace_mode` has no `discover` level (the other three do). |
 
 ## Collapse prevention (anti-sag scoring)
@@ -53,7 +53,7 @@ is by reading real config + generation logs, not "the config looks right."
 |---|---|---|
 | Variable bridge length (add-only) | ✅ LIVE | `variable_bridge_length: true` shipped. |
 | tail-DP | ✅ LIVE | `tail_dp` shipped on. |
-| **Edge repair (break-glass)** | 🟡 **LIVE-ONLY** | `config.yaml` has `edge_repair: {enabled: true, ...}`; **`config.example.yaml` has no `edge_repair:` block** → a fresh clone runs it OFF. Shipped gap (`CLEANUP_LIST.md`). |
+| **Edge repair (break-glass)** | ✅ LIVE | `edge_repair: {enabled: true, ...}` in both `config.yaml` and `config.example.yaml` (block added 2026-07-03). |
 | Edge delete (remove-only) | ✅ LIVE | `edge_delete` shipped on. |
 | Roam corridors | 🟡 LIVE-ONLY | On in `config.yaml`, absent from `config.example.yaml`. Advanced/opt-in. |
 | `generation_budget_s` | ✅ LIVE (=0) | Shipped `0` = time limit disabled (quality-first). 90 s ceiling is a design target. |
@@ -79,7 +79,7 @@ is by reading real config + generation logs, not "the config looks right."
 | Component | State | Notes |
 |---|---|---|
 | Tag-steering — **pool lever** (`tag_steering_pool_blend` 0.5) | ✅ LIVE | Blends the tag target into the dense admission centroid; mode-agnostic. Inert with no tags. |
-| Tag-steering — **pier lever** (`tag_steering_pier_weight` 0.3) | 🟡 partial | Gated by `artist_style.enabled` — so dormant in the shipped template (see above), live in `config.yaml`. |
+| Tag-steering — **pier lever** (`tag_steering_pier_weight` 0.3) | ✅ LIVE | Gated by `artist_style.enabled`, now `true` in both `config.yaml` and `config.example.yaml` (aligned 2026-07-03) — no longer dormant in the template. |
 | Tag-steering stage-2 (beam lever) | 📦 not built | Designed; gate never tripped. |
 | Popular-seeds (`popular_seeds_mode`) / Oops-All-Bangers (`popularity_mode`) | ⚪ OFF | Both default off. |
 
@@ -87,10 +87,9 @@ is by reading real config + generation logs, not "the config looks right."
 
 ## Known open gaps / bugs (see `CLEANUP_LIST.md` for detail)
 
-- 🟡 **`edge_repair:` absent from `config.example.yaml`** — fresh clone runs break-glass repair off while live runs it on.
-- 🟡 **`artist_style.enabled: false` in `config.example.yaml`** — fresh clone runs the legacy per-seed pier path (no medoid clustering; tag-steering pier lever dormant).
+- ✅ **RESOLVED 2026-07-03:** `edge_repair:` block added to `config.example.yaml` (mirrors live, on) — no longer a shipped gap.
+- ✅ **RESOLVED 2026-07-03:** `artist_style.enabled: true` set in `config.example.yaml` (matches live) — fresh clone now runs medoid piers + the tag-steering pier lever.
 - 🔴 **Edge-repair vs reporter T-mismatch** — repair has flagged edges the final reporter scores healthy (T ≈ 0.66–0.79 vs a 0.30 floor); root-cause blocked until `edge_repair` logs which trigger arm fired. Do not retune floors against the reporter until resolved.
 - ⚪ **Fixer deadzone (0.30–~0.75)** — ugly-but-legal edges above every trigger floor get no attention; a deliberate policy question, not a bug.
-- 📝 **`CLAUDE.md:115` stale** — "until the Task-10 rebuild" describes a rebuild that already happened (the live artifact has only `X_sonic_muq*`).
-- ⚪ **`sonic_mode`'s MERT-calibrated absolute floors are INERT (cosmetic tech-debt, not a live bug).** `min_sonic_similarity` in `mode_presets.py` (strict 0.28 / narrow 0.18 / dynamic 0.08) still carries "MERT p75/p50/…" comments — BUT every active mode sets `sonic_admission_percentile > 0` (0.75/0.60/0.40/0.20), and `candidate_pool.py:659-666` **replaces** the absolute floor with an adaptive percentile of the seed's *own* sonic-similarity distribution in the current embedding. So the live gate is embedding-agnostic and self-calibrates on MuQ; the absolute floors only apply if `sonic_admission_percentile == 0` (no shipped preset does). `sonic_mode` itself is fully viable on MuQ. Residual = delete the dead absolute values + fix the misleading MERT comments. (Was flagged 🔴; downgraded 2026-07-03 after tracing the replace-logic.)
+- 🟡 **`sonic_mode`'s legacy absolute floors are INERT (cosmetic tech-debt, not a live bug).** Every active mode sets `sonic_admission_percentile > 0` (0.75/0.60/0.40/0.20), and `candidate_pool.py:658-666` **replaces** the absolute floor (`min_sonic_similarity`) with an adaptive percentile of the seed's *own* sonic-similarity distribution — embedding-agnostic, self-calibrating on MuQ; the absolute floors apply only if `sonic_admission_percentile == 0` (no shipped preset does). The **misleading "MERT p75/p50/…" comments were fixed 2026-07-03** (re-annotated as inert legacy in `mode_presets.py` + the tests). Residual = actually deleting the dead values (deferred: they're a tested plumbing contract — see `CLEANUP_LIST.md`).
 - ✅ **RESOLVED (moot):** the earlier `config.example` `transition_weights` mismatch bug — SP-B removed the knob entirely.

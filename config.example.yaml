@@ -170,7 +170,7 @@ playlists:
 
     # Artist style-aware pier-bridge (applies to --artist playlists)
     artist_style:
-      enabled: false           # Enable style-aware pier-bridge for artist playlists
+      enabled: true            # Style-aware (medoid-clustered) pier-bridge for artist playlists (matches live config.yaml)
       toptracks_min_artist_tracks: 8   # min local tracks to fetch Last.fm top-tracks (popularity stage); independent of artist_style.enabled
       cluster_k_min: 3
       cluster_k_max: 6
@@ -281,6 +281,20 @@ playlists:
         enabled: true
         epsilon: 0.02
         floor: 0.3
+      # Break-glass edge repair (spec 2026-07-02, live default ON): after tail-DP, if an
+      # edge is STILL below t_floor (or centered_cos below centered_cos_floor), try
+      # swapping the weaker interior endpoint for a pool candidate that lifts the edge —
+      # pure-T scored, best-effort, never-worse, never a pier/seed. margin = min T-gain to
+      # accept a swap; variety_guard optionally blocks swaps that make the segment too
+      # self-similar. Set enabled:false to roll back to tail-DP's landing.
+      edge_repair:
+        centered_cos_floor: -0.5
+        enabled: true
+        margin: 0.05
+        t_floor: 0.3
+        variety_guard:
+          enabled: false
+          threshold: 0.85
       # Remove-only last resort (repair-by-deletion, spec 2026-07-02, live default ON):
       # after break-glass repair, if an edge is STILL below floor, delete the interior
       # endpoint whose removal merges the two edges — only if the merge strictly lifts

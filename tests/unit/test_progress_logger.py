@@ -83,6 +83,37 @@ def test_progress_logger_verbose_emits_each(monkeypatch):
     assert info_records  # final summary present
 
 
+def test_progress_logger_verbose_still_emits_periodic_summaries(monkeypatch):
+    # Regression guard: the class docstring promises "Verbose: DEBUG per-item +
+    # INFO summaries", but _should_emit used to short-circuit to False whenever
+    # verbose_each=True, killing the periodic-summary branch of update().
+    handler = ListHandler()
+    logger = logging.getLogger("progress_verbose_periodic")
+    logger.handlers = []
+    logger.propagate = False
+    logger.setLevel(logging.DEBUG)
+    logger.addHandler(handler)
+
+    # Constant clock isolates the every_n trigger from the time-based one.
+    monkeypatch.setattr(logging_utils.time, "perf_counter", lambda: 0.0)
+
+    prog = logging_utils.ProgressLogger(
+        logger,
+        total=10,
+        label="test",
+        verbose_each=True,
+        interval_s=1000.0,   # disable time-based emission
+        every_n=5,
+    )
+    for i in range(10):
+        prog.update(detail=f"/tmp/file{i}.flac")
+    # Summaries must fire at processed==5 and ==10 DURING updates (before finish()).
+    info_summaries = [r for r in handler.records if r.levelno == logging.INFO]
+    debug_records = [r for r in handler.records if r.levelno == logging.DEBUG]
+    assert len(info_summaries) >= 2   # periodic INFO summaries in verbose mode
+    assert len(debug_records) == 10   # per-item DEBUG detail still emitted
+
+
 def test_human_time_formatting():
     assert logging_utils._human_time(12) == "12s"
     assert logging_utils._human_time(194) == "3m14s"

@@ -14,17 +14,18 @@ class TestSonicFloorResolution:
     """Test sonic floor resolution for all modes."""
 
     def test_sonic_mode_presets_values(self):
-        """SONIC_MODE_PRESETS recalibrated to MERT's measured cosine scale (2026-06).
+        """SONIC_MODE_PRESETS min_sonic_similarity values (the plumbing contract).
 
-        Set as percentiles of the seed-relative max-sim distribution measured on
-        the folded MERT artifact (docs/run_audits/mert_full/FLOOR_RECALIBRATION_DISTRIBUTIONS.md):
-        strict p75, narrow p50, dynamic p25, discover p10. Supersedes the Phase 2A
-        values, which were band-aided down for the (untrustworthy) towers.
+        HISTORY: these were MERT-era percentiles of the seed-relative max-sim
+        distribution (strict p75 / narrow p50 / dynamic p25 / discover p10).
+        Under MuQ they are INERT at runtime — sonic_admission_percentile replaces
+        the absolute floor in candidate_pool.py whenever percentile>0 (every active
+        preset). This test pins the preset→config plumbing, not a live MuQ gate.
         """
-        assert SONIC_MODE_PRESETS["strict"]["min_sonic_similarity"] == 0.28   # p75
-        assert SONIC_MODE_PRESETS["narrow"]["min_sonic_similarity"] == 0.18   # p50
-        assert SONIC_MODE_PRESETS["dynamic"]["min_sonic_similarity"] == 0.08  # p25
-        assert SONIC_MODE_PRESETS["discover"]["min_sonic_similarity"] == 0.00  # p10
+        assert SONIC_MODE_PRESETS["strict"]["min_sonic_similarity"] == 0.28
+        assert SONIC_MODE_PRESETS["narrow"]["min_sonic_similarity"] == 0.18
+        assert SONIC_MODE_PRESETS["dynamic"]["min_sonic_similarity"] == 0.08
+        assert SONIC_MODE_PRESETS["discover"]["min_sonic_similarity"] == 0.00
 
     def test_get_min_sonic_similarity_defaults(self):
         """get_min_sonic_similarity returns None when nothing is configured.
@@ -182,7 +183,7 @@ class TestModePresetsApplication:
 
         # Sonic settings
         candidate_pool = playlists_cfg["ds_pipeline"]["candidate_pool"]
-        assert candidate_pool["min_sonic_similarity"] == 0.28  # MERT p75
+        assert candidate_pool["min_sonic_similarity"] == 0.28  # inert legacy floor (MERT-era); pins plumbing, not a live MuQ gate
         assert candidate_pool["broad_filters"] == ["rock", "indie", "alternative", "pop"]
 
     def test_apply_narrow_mode_presets(self):
@@ -202,7 +203,7 @@ class TestModePresetsApplication:
 
         # Sonic settings
         candidate_pool = playlists_cfg["ds_pipeline"]["candidate_pool"]
-        assert candidate_pool["min_sonic_similarity"] == 0.18  # MERT p50
+        assert candidate_pool["min_sonic_similarity"] == 0.18  # inert legacy floor (MERT-era); pins plumbing, not a live MuQ gate
         assert candidate_pool["broad_filters"] == ["rock", "indie", "alternative", "pop"]
 
     def test_apply_dynamic_mode_presets(self):
@@ -221,7 +222,7 @@ class TestModePresetsApplication:
 
         # Sonic settings
         candidate_pool = playlists_cfg["ds_pipeline"]["candidate_pool"]
-        assert candidate_pool["min_sonic_similarity"] == 0.08  # MERT p25
+        assert candidate_pool["min_sonic_similarity"] == 0.08  # inert legacy floor (MERT-era); pins plumbing, not a live MuQ gate
         assert "broad_filters" not in candidate_pool
 
     def test_apply_mode_presets_preserves_custom_broad_filters(self):

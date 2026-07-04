@@ -665,7 +665,11 @@ def main():
         log_level = 'DEBUG'
     # Default log file if not specified
     log_file = getattr(args, 'log_file', None) or 'playlist_generator.log'
-    configure_logging(level=log_level, log_file=log_file)
+    configure_logging(
+        level=log_level,
+        log_file=log_file,
+        show_run_id=getattr(args, "show_run_id", False),
+    )
 
     print_startup_banner()
 

@@ -373,8 +373,6 @@ class ProgressLogger:
         self.processed = 0
 
     def _should_emit(self) -> bool:
-        if self.verbose_each:
-            return False
         now = time.perf_counter()
         if (now - self.last_log_time) >= self.interval_s:
             return True

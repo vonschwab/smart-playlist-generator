@@ -2502,7 +2502,6 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--force-reject", action="store_true", help="MBID stage: reprocess __REJECT__ tracks")
     parser.add_argument("--force-all", action="store_true", help="MBID stage: process all tracks regardless of existing musicbrainz_id")
     parser.add_argument("--out-dir", help="Output directory for artifacts")
-    parser.add_argument("--beat-sync", action="store_true", help="DEPRECATED: legacy sonic mode is disabled")
     parser.add_argument("--dry-run", action="store_true", help="Print plan and exit")
     parser.add_argument("--progress", dest="progress", action="store_true", default=True,
                         help="Enable progress logging (default)")
@@ -2562,10 +2561,6 @@ def run_pipeline(
 
     # Re-get logger after configuration
     logger = logging.getLogger("analyze_library")
-
-    if args.beat_sync:
-        logger.error("Legacy sonic mode (--beat-sync) is deprecated and disabled. Beat3tower is always used.")
-        return 2
 
     cfg = Config(args.config)
     db_path = args.db_path or cfg.library_database_path

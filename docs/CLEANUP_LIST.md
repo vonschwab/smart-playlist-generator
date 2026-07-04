@@ -4,6 +4,49 @@ Running list of built-but-parked, superseded, or minor tech-debt items to revisi
 Per CLAUDE.md Layer 4 ("activate fixes, never default to legacy"), parked items are
 either revived+validated later or deleted — not left inert as the default. Newest first.
 
+## ✅ Resolved 2026-07-03 (verified-fixes cleanup pass)
+
+Buckets A/B/C of the triage; each re-verified against master before fixing. Scoped OUT of
+this pass (still open below): the 🔴 edge-repair↔reporter T-mismatch (needs instrumentation
+first), the design work (energy-arc, tempo-whiplash, identity/dedup), the artist-style
+partial-`PierBridgeConfig` refactor, and the `genre_compatibility` deletion.
+
+- **`config.example.yaml`: `edge_repair:` block added (on) + `artist_style.enabled: true`** —
+  both now match live `config.yaml`; a fresh clone gets break-glass repair + medoid piers.
+- **Var-bridge flex-counter over-count FIXED** (`var_bridge.py`) — `choose_segment_length` now
+  reports `flexed=False` when `lo==hi==nominal` (only nominal buildable, no flex work); the
+  `(N+1/N)` over-count + `chosen==nominal` mislabel is gone. Regression test added.
+- **`ProgressLogger` verbose periodic summaries FIXED** (`logging_utils.py`) — removed the
+  `_should_emit` `verbose_each→False` short-circuit so verbose runs emit INFO summaries per
+  the class docstring; test added. Existing verbose test still green.
+- **`--show-run-id` FIXED** (`main_app.py`) — now forwarded to `configure_logging` (was parsed
+  by `add_logging_args`, honored in `analyze_library.py`, silently dropped on the generation CLI).
+- **`--beat-sync` dead flag REMOVED** from `analyze_library.py` (arg + handler). NOTE: the twin
+  flag + deeper beat-sync plumbing in `scripts/update_sonic.py`/`librosa_analyzer.py` is
+  entangled with Beat3Tower extraction → deferred to **SP-C**.
+- **`mode_presets.py` misleading "MERT p75/p50/p25" comments FIXED** — re-annotated as inert
+  legacy floors superseded at runtime by `sonic_admission_percentile` (`candidate_pool.py:658-666`).
+  Values KEPT: they're a tested plumbing contract (`test_mode_threshold_resolution.py`,
+  `test_single_writer_settings.py`); actually deleting them means reworking `min_sonic_similarity`
+  + ~6 test assertions — deferred as a larger change.
+- **`transition_weights` config.example bug — MOOT**: SP-B deleted the knob; no tower keys ship
+  in `config.example.yaml`, so `validate_tower_knobs` can't raise. (Already noted in WIRING_STATUS.)
+- **`sim_variant` — CORRECTED**: the cited `sonic_variant.py:390` was deleted by SP-B; the key is
+  no longer a transform selector. It survives only as a display/export tag surfaced in
+  `main_app.py:66` (`self.sonic_variant`, default `"raw"`, passed to m3u export) — harmless, not
+  a live gate. Full removal (drop the key + the export-tag plumbing) deferred; low value.
+- **`tempo_stability` — CONFIRMED inert**: read-only DB query shows **5 / 41,178** analyzed tracks
+  (0.01%) below the 0.5 `bpm_stability_min` bypass (mean 0.958, 0 nulls) — the BPM-bypass
+  effectively never fires (the `bpm_trust` finding). Removal belongs to **SP-C** (its origin).
+- **`pace_admission_floor` — VERIFIED dead** (write-only: `config.py:61/607-608` +
+  `pipeline/core.py:373` set it; nothing reads `cfg.pace_admission_floor`). The 2026-06-12 pace
+  retune removed the consumer but left the field. Removal deferred — it's a frozen-dataclass field
+  touching `config.py` + `pipeline/core.py` + 3 tests (incl. `test_candidate_pool_pace_floor.py`,
+  whose whole purpose is documenting its inertness).
+- **Stale `doctor.py` Python floor + stale CLAUDE.md gotchas — MOOT**: `doctor.py` already checks
+  3.11+ (noted below); the CLAUDE.md gotchas (`genre_conflict_min_confidence`, "162-d tower blend",
+  "~455 genres") are already gone from CLAUDE.md (cleaned in d708e8b/4ba42f5).
+
 ## Fixer-cascade / reporting warts (surfaced 2026-07-02, seeds + Herbie Hancock log reads)
 
 Evidence: `logs/playlists/2026-07-02_174010_seeds_fb3bb8.log` (10-seed, 50 trk) and
@@ -23,7 +66,9 @@ Evidence: `logs/playlists/2026-07-02_174010_seeds_fb3bb8.log` (10-seed, 50 trk) 
   the 07-02 weak-edge cascade reorder — verify against a fresh worker first (stale-worker trap),
   then diff repair's T computation (`src/playlist/repair/edge_repair.py`) vs the reporter's
   (`edge_metric_source: final_emitted_playlist`). **Blocker for trusting quality metrics.**
-- **Var-bridge flex counter runs past its cap and flags non-flexed segments as flexed.**
+- **✅ RESOLVED 2026-07-03.** `choose_segment_length` (`var_bridge.py`) now returns `flexed=False`
+  when only the nominal length was buildable (`lo==hi==nominal`, `len(results)==1`); regression
+  test added. Original report: — **Var-bridge flex counter runs past its cap and flags non-flexed segments as flexed.**
   Herbie run, `variable_bridge_max_flex_segments=3`: segs 4–6 each ran 3 beam attempts then
   logged `flexed=True (1/3)…(3/3)` — correct. Segs 7–8 ran ONE attempt each (no extra beam
   work — the cap does bound the cost) yet logged `flexed=True (4/3)`, `(5/3)` with
@@ -185,11 +230,16 @@ worth collapsing when the refactor above happens.
   `ALL_STAGES` (stale — lists `enrich`, missing `adjudicate`/`apply`/`popularity`) vs the
   canonical `request_models.py:ANALYZE_LIBRARY_STAGE_ORDER` vs `analyze_library.py`
   `STAGE_FUNCS`. `_clean_stages` runs ALL stages when the result is empty (silent footgun).
-- **`doctor.py` Python floor (item 4):** checks ≥3.8; `pyproject.toml` requires ≥3.11. Align.
+- **`doctor.py` Python floor (item 4):** ✅ RESOLVED (moot) — already checks 3.11+ (see the
+  "Correction to an item above" note below; verified 2026-07-01).
 - **`pace_admission_floor` dead knob:** defined + threaded, never read in `candidate_pool.py`.
-- **Stale CLAUDE.md gotchas:** `genre_conflict_min_confidence` / `_penalty_strength` are not
-  shipped keys (real: `candidate_pool.genre_compatibility_*`); "162-d tower blend" → 163-d
-  (rhythm PCA dim 10); "~455 genres" → 465 active / 1010 records.
+  ✅ VERIFIED dead 2026-07-03 (write-only: `config.py:61/607-608` + `pipeline/core.py:373` set it;
+  nothing reads `cfg.pace_admission_floor` — the 2026-06-12 pace retune removed the consumer but
+  left the field). Removal DEFERRED: frozen-dataclass field touching `config.py`, `pipeline/core.py`,
+  and 3 tests (incl. `test_candidate_pool_pace_floor.py`, whose purpose is documenting its inertness).
+- **Stale CLAUDE.md gotchas:** ✅ RESOLVED (moot) — `genre_conflict_min_confidence`,
+  "162-d tower blend", and "~455 genres" are all already gone from CLAUDE.md (cleaned in
+  d708e8b/4ba42f5, 2026-07-02; verified absent 2026-07-03).
 
 ## Bugs + inert knobs (from the documentation audit, 2026-07-01)
 
@@ -198,8 +248,11 @@ Found while auditing the codebase for the doc rewrite; verified against current 
 fixed by `54d682c`.)
 
 **Bugs**
-- **🔴 `config.example.yaml` ships `transition_weights` that raise on the default learned variant
-  — fresh-clone setup breaker.** The template sets `ds_pipeline.transition_weights` to
+- **✅ RESOLVED 2026-07-03 (MOOT):** SP-B deleted the `transition_weights` knob and all tower
+  keys; `config.example.yaml` no longer ships them, so `validate_tower_knobs` cannot raise. The
+  original report below is retained for history. — ~~**🔴 `config.example.yaml` ships
+  `transition_weights` that raise on the default learned variant — fresh-clone setup breaker.**~~
+  The template sets `ds_pipeline.transition_weights` to
   `0.40/0.35/0.25` (`config.example.yaml:157-160`), which is **non-default** (the default is
   `DEFAULT_TOWER_TRANSITION_WEIGHTS = 0.20/0.50/0.30`, `artifacts.py:20`). On a no-tower sonic
   variant (mert/muq), `validate_tower_knobs` (`artifacts.py:404-439`, called from
@@ -209,28 +262,38 @@ fixed by `54d682c`.)
   to the default `0.20/0.50/0.30`. **Fix:** set `config.example.yaml`'s `transition_weights` to
   `0.20/0.50/0.30` (or drop the block so they default) — the shipped `0.40/0.35/0.25` is the
   stale pre-v4.1 rhythm-heavy default that predates both the alignment fix and the guard.
-- **`ProgressLogger` periodic-summary branch is dead in verbose mode:** `_should_emit()`
+- **✅ RESOLVED 2026-07-03:** removed the `_should_emit` `verbose_each→False` short-circuit;
+  verbose runs now emit periodic INFO summaries (matching the docstring) alongside per-item DEBUG.
+  Test added. Original: — **`ProgressLogger` periodic-summary branch is dead in verbose mode:** `_should_emit()`
   returns `False` whenever `verbose_each=True` (`src/logging_utils.py:363-364`), so the
   `if self._should_emit()` inside the verbose branch of `update()` (`:401`) never fires. A
   `--verbose` run gets DEBUG-per-item plus only the final `finish()` summary — contradicting
   the class docstring's "also emit periodic summaries." Fix `_should_emit` or the docstring.
-- **`--show-run-id` is inert on `main_app.py`:** the flag is parsed by `add_logging_args()`
+- **✅ RESOLVED 2026-07-03:** `main_app.py` now forwards `show_run_id=getattr(args, "show_run_id",
+  False)` into `configure_logging`. Original: — **`--show-run-id` is inert on `main_app.py`:** the flag is parsed by `add_logging_args()`
   (`src/logging_utils.py:459`) and honored by `analyze_library.py` (`:2616`), but
   `main_app.py` never forwards `show_run_id` to `configure_logging()` — so CLI generation
   runs never stamp a run_id (unless `--debug` / json logs). Forward it, or drop the flag there.
 
 **Inert / vestigial knobs**
-- **`playlists.sonic.sim_variant` (tower_weighted / tower_pca):** vestigial on the learned
-  sonic variants — when a variant is baked/pre-scaled, the load path ignores this knob and
-  `sonic_variant.py` falls back to a passthrough (`tower_fallback=True`, guarded at
-  `sonic_variant.py:390`). Only meaningful for the raw-tower artifact.
-- **`tempo_stability`:** read only as a BPM-admission bypass (`candidate_pool.py`,
-  `tempo_stability < bpm_stability_min` = 0.5), but per the bpm-trust finding it reads ~0.96
-  for ~all tracks, so the bypass ~never fires (effectively inert). Confirm it ever fires
-  before relying on it.
+- **✅ CORRECTED 2026-07-03:** the cited `sonic_variant.py:390` no longer exists (SP-B deleted
+  `sonic_variant.py`); `sim_variant` is no longer a transform selector. It survives only as a
+  display/export tag: `main_app.py:66` reads it into `self.sonic_variant` (default `"raw"`) and
+  passes it to m3u export (`:224/:359/:441`). Harmless, not a live gate. Full removal (drop the
+  key + the export-tag plumbing) deferred; low value. Original: — **`playlists.sonic.sim_variant`
+  (tower_weighted / tower_pca):** vestigial on the learned sonic variants.
+- **✅ CONFIRMED inert 2026-07-03:** read-only DB query — **5 / 41,178** analyzed tracks (0.01%)
+  fall below the 0.5 `bpm_stability_min` bypass (mean 0.958, 0 nulls). The BPM-admission bypass
+  (`candidate_pool.py:697-698`) effectively never fires (the `bpm_trust` finding). Removal belongs
+  to **SP-C** (Beat3Tower extraction, its origin). Original: — **`tempo_stability`:** read only as
+  a BPM-admission bypass; reads ~0.96 for ~all tracks, so the bypass ~never fires.
 
 **Deprecated**
-- **`analyze_library.py --beat-sync`:** DEPRECATED (legacy sonic mode disabled) — dead CLI flag, remove.
+- **✅ RESOLVED 2026-07-03 (partial):** removed the dead `--beat-sync` arg + its `if args.beat_sync`
+  handler from `analyze_library.py`. NOTE: `scripts/update_sonic.py` has a twin `--beat-sync` +
+  deeper beat-sync plumbing (`librosa_analyzer.py`, `hybrid_sonic_analyzer.py`) entangled with
+  Beat3Tower extraction → deferred to **SP-C**. Original: — **`analyze_library.py --beat-sync`:**
+  DEPRECATED — dead CLI flag, remove.
 - **`genre_compatibility` (raw-tag pool penalty) — superseded by the dense PMI-SVD genre gate; delete.**
   Set OFF in live `config.yaml` 2026-07-01 (was erroneously `true` — default is `False`, absent from
   `config.example.yaml`, CLAUDE.md says keep off). It's a pool-level "candidate-vs-seed genre
@@ -255,6 +318,33 @@ fixed by `54d682c`.)
 **Correction to an item above**
 - The `doctor.py` Python-floor item (Minor tech-debt) is **RESOLVED** — `doctor.py:76-85` now
   checks 3.11+, not 3.8 (verified 2026-07-01). The list entry is stale.
+
+### Cascade recon addendum (2026-07-02)
+
+Found while mapping the weak-edge recovery cascade for the tuning-doc update; verified against master.
+
+- **✅ RESOLVED 2026-07-03:** added the `edge_repair:` block (enabled, mirroring live
+  `config.yaml:204-211` incl. the off-by-default `variety_guard`) to `config.example.yaml`, in
+  cascade order between `tail_dp` and `edge_delete`. Original report retained for history. —
+  ~~**🔴 `config.example.yaml` is missing the entire `edge_repair:` block.**~~ Same class as the
+  `transition_weights` gap above. `edge_repair` is on in the live `config.yaml` (`:204`) but the
+  template has no `edge_repair:` section at all — so a fresh clone runs the break-glass repair pass
+  *off* (dataclass `edge_repair_enabled=False`) while `tail_dp` and `edge_delete` ARE templated and
+  on. **Fix:** add `edge_repair: {enabled: true, t_floor: 0.30, centered_cos_floor: -0.5, margin: 0.05}`
+  to `config.example.yaml`. (Note: `variable_bridge_length: true` IS present in config.example at
+  `:258` — a parallel recon miscalled it missing; verified present.)
+- **Reporter transition-blend weights are hardcoded, not threaded from config.** The reporter's
+  `build_transition_metric_context()` uses hardcoded `weight_end_start/mid_mid/full_full`
+  (0.70/0.15/0.15) instead of the `PierBridgeConfig` values. Dormant today (defaults match, unset
+  in both yamls) but a second source of truth — tuning those weights in `config.yaml` would silently
+  desync the reporter from the beam/fixers.
+- **`tail_dp.batch_T` is a hand-mirrored reimplementation of the calibration sigmoid** (not a
+  delegating call to `vec._calibrate_transition_cos`). Documented maintenance hazard; guarded by
+  `test_batch_T_matches_score_transition_edge_both_branches`, which only catches drift if run.
+- **Addendum to the 🔴 edge-repair/reporter T-mismatch (warts section above):** root-causing is
+  blocked because `edge_repair._needs_repair` has two trigger arms (`t < t_floor` OR
+  `centered_cos < floor`) but the swap/summary log never records which arm fired or the raw T at
+  trigger time. Log the triggering arm + raw values first, then diff — before retuning any floors.
 
 ## Deferred sub-projects
 
