@@ -27,7 +27,6 @@ GENRE_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "weight": 0.80,
         "sonic_weight": 0.20,
         "min_genre_similarity": 0.50,
-        "min_genre_similarity_narrow": 0.60,
         "genre_idf_enabled": True,
         "description": "Ultra-tight genre coherence - stay within seed genre",
         "use_case": "Highly cohesive playlists with minimal genre variation",
@@ -37,7 +36,6 @@ GENRE_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "weight": 0.65,
         "sonic_weight": 0.35,
         "min_genre_similarity": 0.40,
-        "min_genre_similarity_narrow": 0.42,  # Relaxed from 0.50 (Phase 2B)
         "genre_idf_enabled": True,
         "description": "Stay close to seed genre with some flexibility",
         "use_case": "Familiar playlists that stay within genre boundaries",
@@ -47,7 +45,6 @@ GENRE_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "weight": 0.50,
         "sonic_weight": 0.50,
         "min_genre_similarity": 0.25,  # Relaxed from 0.30 (Phase 2B)
-        "min_genre_similarity_narrow": 0.40,
         "genre_idf_enabled": True,
         "description": "Balanced genre exploration (default)",
         "use_case": "Standard playlists with balanced genre/sonic weighting",
@@ -57,7 +54,6 @@ GENRE_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "weight": 0.35,
         "sonic_weight": 0.65,
         "min_genre_similarity": 0.20,
-        "min_genre_similarity_narrow": 0.30,
         "genre_idf_enabled": False,  # Exploration mode: don't reward narrow tag matches
         "description": "Genre-adjacent exploration - venture into related genres",
         "use_case": "Exploratory playlists that cross genre boundaries",
@@ -67,7 +63,6 @@ GENRE_MODE_PRESETS: Dict[str, Dict[str, Any]] = {
         "weight": 0.0,
         "sonic_weight": 1.0,
         "min_genre_similarity": None,
-        "min_genre_similarity_narrow": None,
         "genre_idf_enabled": True,
         "description": "Sonic-only mode - ignore genre completely",
         "use_case": "Pure audio similarity, disregard genre tags",
@@ -395,7 +390,6 @@ def apply_mode_presets(playlists_cfg: Dict[str, Any]) -> None:
     genre_weight = float(genre_cfg.get("weight", 0.50))
     sonic_weight = float(genre_cfg.get("sonic_weight", 0.50))
     min_genre_sim = genre_cfg.get("min_genre_similarity")
-    min_genre_sim_narrow = genre_cfg.get("min_genre_similarity_narrow")
     min_sonic_similarity = candidate_pool.get("min_sonic_similarity")
     genre_idf_enabled: Optional[bool] = None  # None means "leave unset" (no mode specified)
 
@@ -404,7 +398,6 @@ def apply_mode_presets(playlists_cfg: Dict[str, Any]) -> None:
         genre_enabled = bool(genre_settings["enabled"])
         genre_weight = float(genre_settings["weight"])
         min_genre_sim = genre_settings.get("min_genre_similarity")
-        min_genre_sim_narrow = genre_settings.get("min_genre_similarity_narrow")
         genre_idf_enabled = bool(genre_settings.get("genre_idf_enabled", True))
         if (
             str(genre_mode).strip().lower() in {"strict", "narrow"}
@@ -450,7 +443,6 @@ def apply_mode_presets(playlists_cfg: Dict[str, Any]) -> None:
     if genre_mode and not genre_enabled:
         genre_weight = 0.0
         min_genre_sim = None
-        min_genre_sim_narrow = None
         sonic_weight = 1.0
 
     if genre_mode and sonic_mode and genre_enabled and sonic_weight > 0.0:
@@ -466,10 +458,9 @@ def apply_mode_presets(playlists_cfg: Dict[str, Any]) -> None:
         genre_cfg["min_genre_similarity"] = float(min_genre_sim)
     else:
         genre_cfg.pop("min_genre_similarity", None)
-    if min_genre_sim_narrow is not None:
-        genre_cfg["min_genre_similarity_narrow"] = float(min_genre_sim_narrow)
-    else:
-        genre_cfg.pop("min_genre_similarity_narrow", None)
+    # min_genre_similarity_narrow removed 2026-07-04: its only reader was the
+    # cohesion-keyed swap in genre_ds_params (deleted — cross-axis coupling bug).
+    genre_cfg.pop("min_genre_similarity_narrow", None)
 
     if min_sonic_similarity is not None:
         candidate_pool["min_sonic_similarity"] = float(min_sonic_similarity)

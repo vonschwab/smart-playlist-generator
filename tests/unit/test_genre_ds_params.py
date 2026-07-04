@@ -25,18 +25,16 @@ def test_genre_enabled_dynamic_reads_config():
     assert out["genre_method"] == "ensemble"
 
 
-def test_narrow_mode_uses_narrow_floor():
-    cfg = _cfg(enabled=True, min_genre_similarity=0.40,
-               min_genre_similarity_narrow=0.42)
-    out = resolve_genre_ds_params(cfg, "narrow")
-    assert out["min_genre_similarity"] == 0.42
-
-
-def test_narrow_floor_ignored_in_dynamic():
-    cfg = _cfg(enabled=True, min_genre_similarity=0.40,
-               min_genre_similarity_narrow=0.42)
-    out = resolve_genre_ds_params(cfg, "dynamic")
-    assert out["min_genre_similarity"] == 0.40
+def test_cohesion_mode_does_not_alter_genre_floor():
+    """The genre floor is owned by genre_mode's preset (baked into genre_cfg by
+    apply_mode_presets). Cohesion mode must never swap in a different floor —
+    the 2026-07-04 slider eval caught cohesion=narrow silently raising the
+    genre gate 0.25 -> 0.40 (docs/run_audits/slider_differentiation_2026-07-04)."""
+    cfg = _cfg(enabled=True, min_genre_similarity=0.25,
+               min_genre_similarity_narrow=0.40)  # legacy key: must be ignored
+    for cohesion_mode in ("strict", "narrow", "dynamic", "discover"):
+        out = resolve_genre_ds_params(cfg, cohesion_mode)
+        assert out["min_genre_similarity"] == 0.25, cohesion_mode
 
 
 def test_genre_disabled_zeros_genre_weight():

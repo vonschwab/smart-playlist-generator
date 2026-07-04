@@ -42,22 +42,17 @@ class TestGenreFloorResolution:
     """Test genre floor resolution for all modes."""
 
     def test_genre_mode_presets_values(self):
-        """Verify GENRE_MODE_PRESETS has correct values (Phase 2B)."""
-        # Strict mode
+        """Verify GENRE_MODE_PRESETS has correct values (Phase 2B).
+
+        min_genre_similarity_narrow was removed 2026-07-04: its only reader
+        was the cohesion-keyed swap in genre_ds_params (cross-axis coupling).
+        """
         assert GENRE_MODE_PRESETS["strict"]["min_genre_similarity"] == 0.50
-        assert GENRE_MODE_PRESETS["strict"]["min_genre_similarity_narrow"] == 0.60
-
-        # Narrow mode
         assert GENRE_MODE_PRESETS["narrow"]["min_genre_similarity"] == 0.40
-        assert GENRE_MODE_PRESETS["narrow"]["min_genre_similarity_narrow"] == 0.42  # Relaxed from 0.50
-
-        # Dynamic mode
         assert GENRE_MODE_PRESETS["dynamic"]["min_genre_similarity"] == 0.25  # Relaxed from 0.30
-        assert GENRE_MODE_PRESETS["dynamic"]["min_genre_similarity_narrow"] == 0.40
-
-        # Discover mode
         assert GENRE_MODE_PRESETS["discover"]["min_genre_similarity"] == 0.20
-        assert GENRE_MODE_PRESETS["discover"]["min_genre_similarity_narrow"] == 0.30
+        for preset in GENRE_MODE_PRESETS.values():
+            assert "min_genre_similarity_narrow" not in preset
 
 
 class TestBridgeFloorResolution:
@@ -179,7 +174,7 @@ class TestModePresetsApplication:
         genre_cfg = playlists_cfg["genre_similarity"]
         assert genre_cfg["enabled"] is True
         assert genre_cfg["min_genre_similarity"] == 0.50
-        assert genre_cfg["min_genre_similarity_narrow"] == 0.60
+        assert "min_genre_similarity_narrow" not in genre_cfg  # dead key, removed 2026-07-04
 
         # Sonic settings
         candidate_pool = playlists_cfg["ds_pipeline"]["candidate_pool"]
@@ -199,7 +194,7 @@ class TestModePresetsApplication:
         genre_cfg = playlists_cfg["genre_similarity"]
         assert genre_cfg["enabled"] is True
         assert genre_cfg["min_genre_similarity"] == 0.40
-        assert genre_cfg["min_genre_similarity_narrow"] == 0.42  # Relaxed from 0.50
+        assert "min_genre_similarity_narrow" not in genre_cfg  # dead key, removed 2026-07-04
 
         # Sonic settings
         candidate_pool = playlists_cfg["ds_pipeline"]["candidate_pool"]

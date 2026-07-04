@@ -24,11 +24,14 @@ def resolve_genre_ds_params(playlists_cfg: Dict[str, Any], mode: str) -> Dict[st
     genre_cfg = playlists_cfg.get("genre_similarity", {}) or {}
     genre_enabled = genre_cfg.get("enabled", True)
 
+    # The floor is owned entirely by the genre preset already baked into
+    # genre_cfg (keyed by genre_mode). Cohesion ``mode`` must not alter it —
+    # the legacy min_genre_similarity_narrow swap keyed on cohesion=narrow
+    # was removed 2026-07-04 (slider-differentiation eval: it silently raised
+    # the genre gate 0.25 -> 0.40 during pure cohesion sweeps).
     min_genre_sim: Optional[float] = (
         genre_cfg.get("min_genre_similarity", 0.30) if genre_enabled else None
     )
-    if genre_enabled and mode == "narrow":
-        min_genre_sim = genre_cfg.get("min_genre_similarity_narrow", min_genre_sim)
 
     genre_method: Optional[str] = genre_cfg.get("method", "ensemble") if genre_enabled else None
     sonic_weight: Optional[float] = genre_cfg.get("sonic_weight", 0.50) if genre_enabled else None

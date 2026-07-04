@@ -722,7 +722,6 @@ playlists:
     weight: 0.50
     sonic_weight: 0.50
     min_genre_similarity: 0.35
-    min_genre_similarity_narrow: 0.60
     method: ensemble
     broad_filters:
     - 50s

@@ -367,7 +367,6 @@ and the legacy hybrid-embedding weighting.
 | `enabled` | `true` | Master switch. |
 | `weight` / `sonic_weight` | `0.50` / `0.50` | Genre vs. sonic weight in the hybrid score; overwritten by `genre_mode`/`sonic_mode` presets when those are set. |
 | `min_genre_similarity` | `0.35` | Filter threshold. |
-| `min_genre_similarity_narrow` | `0.60` | Narrow-mode variant. |
 | `method` | `ensemble` | Similarity method. |
 | `broad_filters` | long list (decades, `rock`/`pop`/`indie`/..., vocalist/nationality tags, `live`/`demo`/`remix`/... quality tags) | Tags excluded from genre matching/gating — the corpus-wide "too common to be signal" list (Layer 2 commitment #12, "rare > common"). |
 
