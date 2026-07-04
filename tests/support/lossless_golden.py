@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import os
 from typing import Any, Dict
 
 
@@ -89,4 +90,22 @@ def replay_golden(golden: Dict[str, Any], config_path: str = "config.yaml"):
     pbc = kwargs.get("pier_bridge_config")
     if isinstance(pbc, dict) and pbc.get("__dataclass__") == "PierBridgeConfig":
         kwargs["pier_bridge_config"] = _reconstruct_pier_bridge_config(pbc)
+
+    # Absolute-path overrides so the gate can run from any cwd (e.g. a worktree
+    # whose data/ isn't linked). Point at the real main-checkout artifact + DB.
+    # The DB is opened READ-ONLY (SELECT-only BPM load); an absolute path (not a
+    # symlink) avoids the WAL-aliasing corruption vector, so concurrent reads are
+    # safe. Both loaders need the real files, or BPM gates silently disable and
+    # the replay diverges (a confound, not a real diff).
+    art_override = os.environ.get("PLAYLIST_GOLDEN_ARTIFACT")
+    if art_override:
+        kwargs["artifact_path"] = art_override
+    db_override = os.environ.get("PLAYLIST_GOLDEN_DB")
+    if db_override:
+        overrides = dict(kwargs.get("overrides") or {})
+        library = dict(overrides.get("library") or {})
+        library["database_path"] = db_override
+        overrides["library"] = library
+        kwargs["overrides"] = overrides
+
     return generate_playlist_ds(**kwargs)
