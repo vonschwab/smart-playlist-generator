@@ -655,21 +655,34 @@ def _beam_search_segment(
 
     centered_cos_floor = -0.5 if bool(cfg.center_transitions) else None
 
+    _transition_cache: Dict[Tuple[int, int], dict] = {}
+
     def _score_shared_transition(prev_idx: int, cur_idx: int) -> dict:
+        # Pure function of (prev_idx, cur_idx) + segment-fixed context. Beam
+        # "diamonds" (states sharing a last track) re-score identical pairs, so
+        # memoize per segment call. Callers only read the dict (they dict()-copy
+        # before storing), so returning the shared object is bit-identical.
+        _tkey = (int(prev_idx), int(cur_idx))
+        _cached = _transition_cache.get(_tkey)
+        if _cached is not None:
+            return _cached
         if transition_metric_context is not None:
-            return score_transition_edge(transition_metric_context, int(prev_idx), int(cur_idx))
-        t_val = _compute_transition_score(
-            int(prev_idx), int(cur_idx), X_full, X_start, X_mid, X_end, cfg
-        )
-        return {
-            "T": float(t_val),
-            "T_used": float(t_val),
-            "T_raw": float(t_val),
-            "T_centered_cos": None,
-            "H": None,
-            "S": float(np.dot(X_full_norm[int(prev_idx)], X_full_norm[int(cur_idx)])),
-            "G": None,
-        }
+            edge = score_transition_edge(transition_metric_context, int(prev_idx), int(cur_idx))
+        else:
+            t_val = _compute_transition_score(
+                int(prev_idx), int(cur_idx), X_full, X_start, X_mid, X_end, cfg
+            )
+            edge = {
+                "T": float(t_val),
+                "T_used": float(t_val),
+                "T_raw": float(t_val),
+                "T_centered_cos": None,
+                "H": None,
+                "S": float(np.dot(X_full_norm[int(prev_idx)], X_full_norm[int(cur_idx)])),
+                "G": None,
+            }
+        _transition_cache[_tkey] = edge
+        return edge
 
     def _transition_gate_failed(edge: dict) -> bool:
         return is_broken_transition(
@@ -1041,6 +1054,14 @@ def _beam_search_segment(
             and _oa >= _bpm_trust_min_onset and _ob >= _bpm_trust_min_onset
         )
 
+    # The energy pace penalty returns exactly 0.0 unless a strength is configured;
+    # skip the per-candidate call + energy_matrix index entirely when both are 0
+    # (the effective config). Bit-identical: a skipped 0.0 == an added 0.0.
+    _energy_active = (
+        float(getattr(cfg, "energy_step_strength", 0.0)) > 0.0
+        or float(getattr(cfg, "energy_arc_strength", 0.0)) > 0.0
+    )
+
     # Cache the artist-identity parse per candidate index. It is a pure function
     # of the candidate's artist string (bundle.track_artists[cand]), fixed for a
     # given cand, so it is identical across every beam state/step. Uncached it was
@@ -1219,7 +1240,7 @@ def _beam_search_segment(
                                 continue
 
                 # Energy (arousal) soft penalty — purely additive, never excludes.
-                if energy_matrix is not None:
+                if energy_matrix is not None and _energy_active:
                     from src.playlist.pier_bridge.pace_gate import compute_energy_pace_penalty
                     _pace_penalty += compute_energy_pace_penalty(
                         energy_matrix,
