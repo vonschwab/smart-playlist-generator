@@ -1745,6 +1745,9 @@ class PlaylistGenerator:
             medoid_tag_weight=float(
                 (ds_cfg.get("pier_bridge", {}) or {}).get("tag_steering_pier_weight", 0.3)
             ),
+            pier_bridgeability_enabled=bool(style_cfg_raw.get("pier_bridgeability_enabled", True)),
+            pier_bridgeability_floor_t=float(style_cfg_raw.get("pier_bridgeability_floor_t", 0.30)),
+            pier_bridgeability_k=int(style_cfg_raw.get("pier_bridgeability_k", 10)),
         )
         playlists_cfg = self.config.config.get("playlists", {}) or {}
         cohesion_mode_effective = cohesion_mode_override or ("dynamic" if dynamic else resolve_cohesion_mode(playlists_cfg))
@@ -1891,6 +1894,7 @@ class PlaylistGenerator:
                     popularity_values=popularity_values,
                     metadata_db_path=self.config.get("library", "database_path", default="data/metadata.db"),
                     steering_target=steering_target,
+                    target_pier_count=target_pier_count,
                 )
                 # 🔥 Pure-hits piers: override cluster medoids with the artist's top-N
                 # most-popular tracks (selection only — order_clusters still sequences them).
@@ -2815,6 +2819,9 @@ class PlaylistGenerator:
                 energy_slot_hi_pct=float(style_cfg_raw.get("energy_slot_hi_pct", 90.0)),
                 dedupe_versions=bool(style_cfg_raw.get("dedupe_versions", True)),
                 medoid_popularity_weight=float(style_cfg_raw.get("medoid_popularity_weight", 0.0)),
+                pier_bridgeability_enabled=bool(style_cfg_raw.get("pier_bridgeability_enabled", True)),
+                pier_bridgeability_floor_t=float(style_cfg_raw.get("pier_bridgeability_floor_t", 0.30)),
+                pier_bridgeability_k=int(style_cfg_raw.get("pier_bridgeability_k", 10)),
             )
             playlists_cfg = self.config.config.get("playlists", {}) or {}
             cohesion_mode_effective = cohesion_mode_override or ("dynamic" if dynamic else resolve_cohesion_mode(playlists_cfg))
@@ -2862,6 +2869,7 @@ class PlaylistGenerator:
                         cfg=style_cfg,
                         random_seed=ds_cfg.get("random_seed", 0),
                         medoid_top_k=medoid_top_k,
+                        target_pier_count=target_pier_count,
                     )
                     if not medoids:
                         raise ValueError("Style clustering returned no medoids")

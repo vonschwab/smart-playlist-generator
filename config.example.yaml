@@ -206,6 +206,15 @@ playlists:
       medoid_popularity_weight: 0.0    # within-slot bias toward Last.fm-popular tracks; keep < medoid_energy_weight
       popular_seeds_weight: 1.0   # ON-mode medoid popularity weight (was 0.5)
       popularity_max_age_days: 30      # refetch an artist's top tracks if the cache entry is older
+      # Pier bridgeability veto (artist mode; fire piers exempt). A track can
+      # only seat as a pier if it has >= pier_bridgeability_k non-seed-artist
+      # library neighbors at calibrated T >= pier_bridgeability_floor_t (same
+      # units as tail_dp_floor / repair t_floor). Clusters whose members all
+      # fail contribute no piers; their slots reallocate. Motivating incident:
+      # docs/superpowers/specs/2026-07-03-pier-bridgeability-design.md.
+      pier_bridgeability_enabled: true
+      pier_bridgeability_floor_t: 0.30
+      pier_bridgeability_k: 10
 
     # Construction scoring weights
     # score = alpha*seed_sim + beta*transition_sim + gamma*diversity - penalty

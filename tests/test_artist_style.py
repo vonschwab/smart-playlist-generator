@@ -1443,3 +1443,17 @@ def test_artist_style_config_has_bridgeability_defaults():
     assert cfg.pier_bridgeability_enabled is True   # live default (activate-fixes rule)
     assert cfg.pier_bridgeability_floor_t == 0.30
     assert cfg.pier_bridgeability_k == 10
+
+
+def test_bridgeability_config_keys_parse():
+    """Guards the exact key names playlist_generator.py parses (both sites)."""
+    raw = {"pier_bridgeability_enabled": False,
+           "pier_bridgeability_floor_t": 0.42,
+           "pier_bridgeability_k": 7}
+    cfg = ArtistStyleConfig(
+        pier_bridgeability_enabled=bool(raw.get("pier_bridgeability_enabled", True)),
+        pier_bridgeability_floor_t=float(raw.get("pier_bridgeability_floor_t", 0.30)),
+        pier_bridgeability_k=int(raw.get("pier_bridgeability_k", 10)),
+    )
+    assert (cfg.pier_bridgeability_enabled, cfg.pier_bridgeability_floor_t,
+            cfg.pier_bridgeability_k) == (False, 0.42, 7)
