@@ -739,6 +739,7 @@ def build_candidate_pool(
     total_candidates = len(seed_sim_all) - len(seed_list)  # exclude all seeds
     below_floor_count = 0
     below_genre_count = 0
+    genre_rescue_admitted = 0
     genre_overlap_guard_rejected = 0
     genre_compatibility_penalty_applied = 0
     title_exclusion_rejected = 0
@@ -1059,12 +1060,43 @@ def build_candidate_pool(
             # effective_genre_floor = percentile-derived when the genre-mode
             # ladder is active, else min_genre_similarity (legacy/rollback).
             eligible_before_genre = len(eligible)
+            genre_rejected = [i for i in eligible if genre_sim_all[i] < effective_genre_floor]
             eligible = [i for i in eligible if genre_sim_all[i] >= effective_genre_floor]
             below_genre_count = eligible_before_genre - len(eligible)
             logger.info(
                 "Genre hard gate applied: %d candidates excluded (floor=%.3f, mode=%s)",
                 below_genre_count, float(effective_genre_floor), mode
             )
+            # Genre-rescue (Fix 3, 2026-07-04): re-admit up to K genre-rejected
+            # tracks that are STRONG sonic connectors (they already passed every
+            # other gate), so tight genre modes keep the connectors the beam
+            # needs for a sane worst edge. Connector-quality bar: strictly above
+            # the admitted pool's p75 sonic similarity — a blanket top-K would
+            # nullify the gate on small pools. Additive — mirrors the energy
+            # admission-rescue.
+            _k_rescue = int(getattr(cfg, "genre_rescue_k", 0))
+            if _k_rescue > 0 and genre_rejected and eligible:
+                _rescue_sim = sonic_seed_sim if sonic_seed_sim is not None else seed_sim_all
+                # Margin: a rescue must beat the bar by a MEANINGFUL sonic edge,
+                # not float noise — real connectors clear this trivially
+                # (0.9x vs an admitted p75 of ~0.7x).
+                _RESCUE_MARGIN = 0.02
+                _bar = float(np.percentile(
+                    np.asarray([float(_rescue_sim[i]) for i in eligible], dtype=float), 75
+                )) + _RESCUE_MARGIN
+                _ranked = sorted(
+                    (i for i in genre_rejected if float(_rescue_sim[i]) > _bar),
+                    key=lambda i: float(_rescue_sim[i]), reverse=True,
+                )
+                _rescued = _ranked[:_k_rescue]
+                if _rescued:
+                    eligible.extend(_rescued)
+                    genre_rescue_admitted = len(_rescued)
+                    logger.info(
+                        "Genre rescue: re-admitted %d sonic connectors of %d genre-rejected "
+                        "(k=%d, sonic bar=admitted-p75=%.3f)",
+                        genre_rescue_admitted, len(genre_rejected), _k_rescue, _bar,
+                    )
 
     # ── Energy admission-rescue (pace as a co-equal axis) ────────────────────
     # Re-admit tracks rejected ONLY by the rhythm bands (onset/BPM) that still
@@ -1299,6 +1331,7 @@ def build_candidate_pool(
         "total_candidates_considered": total_candidates,
         "below_similarity_floor": below_floor_count,
         "below_genre_similarity": below_genre_count,  # NEW: genre gating exclusions
+        "genre_rescue_admitted": genre_rescue_admitted,  # Fix 3: sonic-connector rescue
         "genre_overlap_guard_rejected": genre_overlap_guard_rejected,
         "genre_compatibility_penalty_applied": genre_compatibility_penalty_applied,
         "title_exclusion_rejected": title_exclusion_rejected,

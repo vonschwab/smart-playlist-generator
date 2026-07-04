@@ -175,6 +175,7 @@ below is nested under it unless stated otherwise).
 | `duration_penalty_enabled` / `_weight` | `true` / `0.60` | Soft geometric penalty on candidates much longer than the median seed duration. |
 | `duration_cutoff_multiplier` | `2.5` | Hard exclusion multiplier vs. median seed duration. |
 | `title_exclusion_enabled` / `_words` | `true` / `["interlude", "skit"]` | Hard-drop candidates whose title is (or contains, per the matcher) one of these standalone words. |
+| `genre_rescue_k` | `40` | Re-admit the top-K sonic-nearest tracks rejected only by the genre hard gate — keeps sonic connectors so tight genre modes cannot crater the worst edge (2026-07-04). `0` = off. |
 | `broad_filters` | `["rock", "indie", "alternative", "pop"]` | Tags ignored for narrow-mode genre gating/similarity — the "IDF lesson," applied at the candidate-pool level. |
 
 ### `scoring` and `constraints`

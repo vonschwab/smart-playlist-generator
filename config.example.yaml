@@ -167,6 +167,9 @@ playlists:
       title_exclusion_enabled: true     # Drop candidates with standalone title words below
       title_exclusion_words: ["interlude", "skit"]
       broad_filters: ["rock", "indie", "alternative", "pop"]  # Tags ignored for narrow-mode genre gating/sim
+      genre_rescue_k: 40      # Re-admit top-K sonic-nearest tracks rejected ONLY by the genre gate
+                              # (keeps sonic connectors so tight genre modes can't crater the worst
+                              # edge — slider eval 2026-07-04). 0 = off (rollback).
 
     # Artist style-aware pier-bridge (applies to --artist playlists)
     artist_style:

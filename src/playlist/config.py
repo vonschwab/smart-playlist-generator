@@ -73,6 +73,12 @@ class CandidatePoolConfig:
     # sonic_seed_sim candidates not yet admitted (per-artist cap respected,
     # seeds never admitted).  0 = disabled → byte-identical legacy behavior.
     min_pool_size: int = 0
+    # Genre-rescue (Fix 3, 2026-07-04): re-admit the top-K sonic-nearest tracks
+    # rejected ONLY by the genre hard gate, so tight genre modes cannot strip
+    # the sonic connectors the beam needs (Codeine minT cratered to 0.030 under
+    # genre strict — slider eval 2026-07-04). Additive, mirrors the energy
+    # admission-rescue pattern. 0 = disabled (rollback).
+    genre_rescue_k: int = 40
 
 
 @dataclass(frozen=True)
@@ -610,6 +616,8 @@ def default_ds_config(
                 pace_settings["onset_admission_max_log_distance"],
             )
         ),
+        # Genre-rescue (Fix 3, 2026-07-04): live default 40; 0 = rollback.
+        genre_rescue_k=int(candidate_pool.get("genre_rescue_k", 40)),
     )
 
     # Construction config with config.yaml overrides
