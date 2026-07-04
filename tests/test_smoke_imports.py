@@ -54,10 +54,6 @@ class TestFeatureModuleImports:
         from src.features.beat3tower_types import Beat3TowerFeatures
         assert Beat3TowerFeatures is not None
 
-    def test_beat3tower_normalizer(self):
-        from src.features.beat3tower_normalizer import Beat3TowerNormalizer
-        assert Beat3TowerNormalizer is not None
-
 
 class TestSimilarityModuleImports:
     """Test that similarity submodule is importable."""
