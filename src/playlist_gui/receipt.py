@@ -28,9 +28,16 @@ def compose_receipt(playlist_stats: dict, pool_stats: dict) -> dict:
     bpm = playlist_stats.get("bpm_summary") or {}
 
     notes: list[str] = []
-    for w in playlist_stats.get("warnings") or []:
-        if isinstance(w, dict) and w.get("message"):
-            notes.append(str(w["message"]))
+    # Confessions in LISTENER vocabulary ONLY — never relay a raw warning
+    # message (they carry engine terms like bridge_floor / X_genre_raw that
+    # must never reach the GUI; spec hard-constraint). Only the relaxation
+    # cascade is a user-facing confession; other warning types are internal
+    # diagnostics and are intentionally NOT surfaced here.
+    # NOTE: the exact phrase below is provisional copy — product owner
+    # finalizes wording later.
+    warnings = playlist_stats.get("warnings") or []
+    if any(isinstance(w, dict) and w.get("type") == "relaxation" for w in warnings):
+        notes.append("relaxed the match to fill out the playlist")
     rescued = _i(pool_stats.get("genre_rescued")) or 0
     if rescued:
         notes.append(f"kept {rescued} sound-alike connectors past the Range gate")

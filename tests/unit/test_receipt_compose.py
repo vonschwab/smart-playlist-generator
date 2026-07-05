@@ -26,8 +26,13 @@ def test_happy_path_numbers_and_no_notes():
 def test_confessions_fire_only_when_true():
     stats = _stats(warnings=[{"type": "relaxation", "message": "bridge floor relaxed to 0.01"}])
     r = compose_receipt(stats, {"admitted": 378, "considered": 1700, "genre_rescued": 40})
-    assert any("relaxed" in n for n in r["notes"])
+    assert any("relaxed" in n.lower() for n in r["notes"])
     assert any("40" in n and "connector" in n for n in r["notes"])
+    # The raw warning message ("bridge floor relaxed to 0.01") must never
+    # leak engine vocabulary into the listener-facing note.
+    for note in r["notes"]:
+        for term in ("bridge floor", "bridge_floor", "floor"):
+            assert term not in note.lower()
 
 
 def test_sparse_bpm_confessed():
@@ -40,3 +45,17 @@ def test_missing_stats_degrade_to_none_not_crash():
     r = compose_receipt({}, {})
     assert r["range"]["pool"] is None and r["flow"]["worst"] is None
     assert isinstance(r["notes"], list)
+
+
+def test_internal_warnings_never_leak_engine_terms():
+    stats = _stats(warnings=[
+        {"type": "genre_missing", "message": "IDF enabled but X_genre_raw missing"},
+        {"type": "genre_ladder_unavailable", "message": "genre_vocab missing; falling back to linear drift"},
+    ])
+    r = compose_receipt(stats, {"admitted": 100, "considered": 200, "genre_rescued": 0})
+    # non-confession warnings produce NO note ...
+    assert r["notes"] == []
+    # ... and no engine term ever appears in notes
+    blob = " ".join(r["notes"]).lower()
+    for term in ("x_genre_raw", "genre_vocab", "idf", "bridge_floor", "strict", "discover"):
+        assert term not in blob
