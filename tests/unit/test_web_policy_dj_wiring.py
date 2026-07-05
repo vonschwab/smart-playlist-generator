@@ -59,7 +59,9 @@ def test_dj_bridging_disabled_for_single_artist_seeds():
 def test_dj_union_pooling_when_genre_mode_discover():
     app, captured = _capture_app(lambda ids: [f"artist-{t}" for t in ids])
     with TestClient(app) as client:
-        body = dict(SEEDS_BODY, genre_mode="discover")
+        # range_dial="wander" resolves to genre_mode="discover" (and
+        # sonic_mode="discover") via policy.resolve_dial_axes.
+        body = dict(SEEDS_BODY, range_dial="wander")
         resp = client.post("/api/generate", json=body)
         assert resp.status_code == 200
     dj = _dj_overrides(captured)

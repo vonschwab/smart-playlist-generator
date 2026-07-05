@@ -2,6 +2,7 @@
 
 import pytest
 
+from src.playlist_gui.policy import resolve_dial_axes
 from src.playlist_web.schemas import (
     GenerateRequestBody,
     PlaylistOut,
@@ -12,9 +13,10 @@ from src.playlist_web.schemas import (
 def test_request_body_maps_to_generate_request():
     body = GenerateRequestBody(
         mode="artist", artist="Acetone", tracks=20,
-        genre_mode="narrow", sonic_mode="strict", pace_mode="dynamic",
+        range_dial="close", pace_dial="natural",
     )
-    req = body.to_request()
+    axes = resolve_dial_axes(body.range_dial, body.flow_dial, body.pace_dial)
+    req = body.to_request(axes)
     assert req.mode == "artist"
     assert req.artist == "Acetone"
     assert req.tracks == 20
@@ -27,7 +29,8 @@ def test_request_body_maps_to_generate_request():
 
 def test_request_body_validation_error_surfaces():
     body = GenerateRequestBody(mode="artist", artist="", tracks=10)
-    assert body.to_request().validation_error() == "Enter an artist before generating."
+    axes = resolve_dial_axes(body.range_dial, body.flow_dial, body.pace_dial)
+    assert body.to_request(axes).validation_error() == "Enter an artist before generating."
 
 
 def test_playlist_out_parses_worker_result():

@@ -19,10 +19,11 @@ class GenerateRequestBody(BaseModel):
     seed_tracks: list[str] = Field(default_factory=list)
     seed_track_ids: list[str] = Field(default_factory=list)
     steering_tags: list[str] = Field(default_factory=list)
-    cohesion_mode: Optional[str] = None
-    genre_mode: Optional[str] = None
-    sonic_mode: Optional[str] = None
-    pace_mode: Optional[str] = None
+    # GUI dials (spec 2026-07-04). Translated to engine axes exactly once in
+    # the generate route via policy.resolve_dial_axes.
+    range_dial: Optional[str] = None
+    flow_dial: Optional[str] = None
+    pace_dial: Optional[str] = None
     include_collaborations: bool = False
     exclude_seed_tracks_from_recency: bool = False
     # Policy fields — translated into config overrides via UIStateModel + derive_runtime_config
@@ -38,8 +39,9 @@ class GenerateRequestBody(BaseModel):
     popularity_mode: str = "off"  # Oops All Bangers: off / on / oops
     seed_epoch: int = 0
 
-    def to_request(self) -> GeneratePlaylistRequest:
-        """Convert to internal GeneratePlaylistRequest for worker processing."""
+    def to_request(self, axes: dict) -> GeneratePlaylistRequest:
+        """Convert to internal GeneratePlaylistRequest. `axes` is the
+        policy-resolved dial translation (resolve_dial_axes output)."""
         return GeneratePlaylistRequest(
             mode=self.mode,
             tracks=self.tracks,
@@ -47,9 +49,9 @@ class GenerateRequestBody(BaseModel):
             genre=self.genre,
             seed_tracks=list(self.seed_tracks),
             seed_track_ids=list(self.seed_track_ids),
-            genre_mode=self.genre_mode,
-            sonic_mode=self.sonic_mode,
-            pace_mode=self.pace_mode,
+            genre_mode=axes.get("genre_mode"),
+            sonic_mode=axes.get("sonic_mode"),
+            pace_mode=axes.get("pace_mode"),
             include_collaborations=self.include_collaborations,
             exclude_seed_tracks_from_recency=self.exclude_seed_tracks_from_recency,
             popular_seeds_mode=self.popular_seeds_mode,

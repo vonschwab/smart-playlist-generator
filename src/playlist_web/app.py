@@ -12,7 +12,7 @@ from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocket
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from src.playlist_gui.policy import derive_runtime_config
+from src.playlist_gui.policy import derive_runtime_config, resolve_dial_axes
 from src.playlist_gui.ui_state import UIStateModel
 
 from .audio import stream_audio
@@ -165,17 +165,18 @@ def create_app(
 
     @app.post("/api/generate")
     async def generate(body: GenerateRequestBody) -> dict:
-        req = body.to_request()
+        axes = resolve_dial_axes(body.range_dial, body.flow_dial, body.pace_dial)
+        req = body.to_request(axes)
         err = req.validation_error()
         if err:
             raise HTTPException(status_code=422, detail=err)
         job_id = registry.create(request_params=body.model_dump())
         ui = UIStateModel(
             mode=body.mode,  # type: ignore[arg-type]
-            cohesion_mode=body.cohesion_mode or "dynamic",  # type: ignore[arg-type]
-            genre_mode=body.genre_mode or "dynamic",  # type: ignore[arg-type]
-            sonic_mode=body.sonic_mode or "dynamic",  # type: ignore[arg-type]
-            pace_mode=body.pace_mode or "dynamic",  # type: ignore[arg-type]
+            cohesion_mode=axes["cohesion_mode"],  # type: ignore[arg-type]
+            genre_mode=axes["genre_mode"],  # type: ignore[arg-type]
+            sonic_mode=axes["sonic_mode"],  # type: ignore[arg-type]
+            pace_mode=axes["pace_mode"],  # type: ignore[arg-type]
             track_count=body.tracks,
             seed_track_ids=list(body.seed_track_ids),
             steering_tags=list(body.steering_tags),
