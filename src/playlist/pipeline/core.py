@@ -1029,6 +1029,15 @@ def generate_playlist_ds(
                 enabled=genre_graph_source in {"layered_shadow", "layered"},
             )
 
+            # Receipt (GUI dials, 2026-07-04): admitted/considered/genre-rescued counts
+            # from the FINAL settled candidate pool (post bangers relax-to-fill and
+            # post one-each-candidate retry — `pool` may have been reassigned above).
+            receipt_pool_stats = {
+                "admitted": int(len(getattr(pool, "eligible_indices", pool.pool_indices))),
+                "considered": int((pool.stats or {}).get("total_candidates_considered", 0) or 0),
+                "genre_rescued": int((pool.stats or {}).get("genre_rescue_admitted", 0) or 0),
+            }
+
             # Create minimal PlaylistResult
             playlist = PlaylistResult(
                 track_indices=pb_track_indices,
@@ -1058,6 +1067,7 @@ def generate_playlist_ds(
                     "beam_edge_components": (pb_result.stats or {}).get("beam_edge_components") or [],
                     "bpm_summary": (pb_result.stats or {}).get("bpm_summary"),
                     "layered_transition_diagnostics": layered_transition_diagnostics,
+                    "receipt_pool": receipt_pool_stats,
                 },
                 params_requested={"strategy": "pier_bridge"},
                 params_effective={
@@ -1165,6 +1175,7 @@ def generate_playlist_ds(
                     "soft_genre_penalty_edges_scored": (pb_result.stats or {}).get("soft_genre_penalty_edges_scored"),
                     "post_order_filters_applied": [],
                     "post_order_validation": dict(post_order_validation),
+                    "receipt_pool": receipt_pool_stats,
                 },
             },
         )
