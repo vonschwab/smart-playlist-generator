@@ -135,7 +135,14 @@ export function ToolsPanel({
   const [lastEnrichSummary, setLastEnrichSummary] = useState<string | null>(null);
   const [enrichError, setEnrichError] = useState<string | null>(null);
 
-  const anyRunning = analyzeJobId !== null || enrichJobId !== null;
+  // ── Refresh Genres state (re-bake genre matrices + dense sidecar into artifact) ──
+  const [refreshJobId, setRefreshJobId] = useState<string | null>(null);
+  const [refreshProgress, setRefreshProgress] = useState("");
+  const [lastRefreshSummary, setLastRefreshSummary] = useState<string | null>(null);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+
+  const anyRunning =
+    analyzeJobId !== null || enrichJobId !== null || refreshJobId !== null;
   const runDisabled = externalBusy || anyRunning;
 
   // Completion handlers, shared by the WS `done` path and the reconcile backstop
@@ -180,6 +187,26 @@ export function ToolsPanel({
     [refreshJobs]
   );
 
+  const finishRefresh = useCallback(
+    (jid: string) => {
+      setRefreshJobId(null);
+      setRefreshProgress("");
+      api
+        .job(jid)
+        .then((j) => {
+          const tr = j.tool_result;
+          if (tr)
+            setLastRefreshSummary(
+              `Re-baked ${tr["n_genres"] ?? 0} genres across ${tr["n_tracks"] ?? 0} tracks + dense sidecar`
+            );
+          if (j.error) setRefreshError(j.error ?? null);
+        })
+        .catch(() => {});
+      refreshJobs();
+    },
+    [refreshJobs]
+  );
+
   useWorkerEvents(
     useCallback(
       (e: WsEvent) => {
@@ -187,18 +214,21 @@ export function ToolsPanel({
           const detail = e["detail"] as string | undefined;
           if (e.job_id === analyzeJobId) setAnalyzeProgress(detail ?? "");
           if (e.job_id === enrichJobId) setEnrichProgress(detail ?? "");
+          if (e.job_id === refreshJobId) setRefreshProgress(detail ?? "");
         }
         if (e.type === "done") {
           if (e.job_id === analyzeJobId) finishAnalyze(e.job_id as string);
           if (e.job_id === enrichJobId) finishEnrich(e.job_id as string);
+          if (e.job_id === refreshJobId) finishRefresh(e.job_id as string);
         }
       },
-      [analyzeJobId, enrichJobId, finishAnalyze, finishEnrich]
+      [analyzeJobId, enrichJobId, refreshJobId, finishAnalyze, finishEnrich, finishRefresh]
     )
   );
 
   useJobReconcile(analyzeJobId, finishAnalyze);
   useJobReconcile(enrichJobId, finishEnrich);
+  useJobReconcile(refreshJobId, finishRefresh);
 
   function toggleStage(s: AnalyzeStageName) {
     setSelectedStages((prev) =>
@@ -237,6 +267,17 @@ export function ToolsPanel({
       refreshJobs();
     } catch (e) {
       setEnrichError(String(e));
+    }
+  }
+
+  async function runRefresh() {
+    setRefreshError(null);
+    try {
+      const { job_id } = await api.refreshGenreArtifact();
+      setRefreshJobId(job_id);
+      refreshJobs();
+    } catch (e) {
+      setRefreshError(String(e));
     }
   }
 
@@ -403,6 +444,28 @@ export function ToolsPanel({
           {/* Last-run summary */}
           {lastEnrichSummary && !enrichJobId && (
             <div className="text-[10px] text-[#5b6470]">{lastEnrichSummary}</div>
+          )}
+        </Card>
+
+        {/* ── Refresh Genres for generation ─────────────────────────────── */}
+        <Card title="Refresh Genres">
+          <div className="text-[10px] text-[#5b6470] mb-1">
+            Re-bakes the genre matrices + dense sidecar into the artifact so your
+            genre edits affect generation (no sonic re-analysis).
+          </div>
+          <Row>
+            <RunBtn disabled={runDisabled} onClick={runRefresh}>
+              {refreshJobId ? "Refreshing…" : "Refresh genres for generation"}
+            </RunBtn>
+          </Row>
+          {refreshJobId && refreshProgress && (
+            <ProgressBar label={refreshProgress} />
+          )}
+          {refreshError && (
+            <div className="text-[10px] text-danger">{refreshError}</div>
+          )}
+          {lastRefreshSummary && !refreshJobId && (
+            <div className="text-[10px] text-[#5b6470]">{lastRefreshSummary}</div>
           )}
         </Card>
       </div>

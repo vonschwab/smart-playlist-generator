@@ -2495,11 +2495,35 @@ def handle_refresh_genre_artifact(cmd_data: Dict[str, Any]) -> None:
             genre_sim_path=genre_sim_path if Path(genre_sim_path).exists() else None,
             sidecar_db=SIDECAR_DB_PATH, config_path=base_path,
         )
+
+        # Rebuild the dense genre embedding sidecar too. refresh_genre_matrices only
+        # rewrites X_genre_raw/smoothed; the candidate-pool genre admission gate reads
+        # X_genre_dense (PMI-SVD), which stays stale otherwise — so without this the
+        # "for generation" promise is only half-kept (smoothed paths update, the dense
+        # admission gate does not). Same call "Build Artifacts" uses.
+        emit_progress("refresh_genre", 60, 100, "Rebuilding dense genre sidecar")
+        from scripts.build_genre_embedding import build_genre_embedding_sidecar
+        sidecar_path = build_genre_embedding_sidecar(str(art), skip_prior=True)
+        emit_log("INFO", f"Rebuilt dense genre sidecar: {sidecar_path}")
+
+        # Invalidate the @lru_cache'd bundle so the NEXT generation in this worker
+        # picks up the fresh genre matrices + dense sidecar (else the worker keeps
+        # serving the bundle it loaded at startup until a GUI restart).
+        try:
+            from src.features.artifacts import load_artifact_bundle
+            load_artifact_bundle.cache_clear()
+            emit_log("INFO", "Cleared artifact bundle cache; refreshed genres are live for this session")
+        except Exception as exc:  # pragma: no cover - defensive
+            emit_log("WARNING", f"Could not clear artifact bundle cache (restart GUI to pick up refresh): {exc}")
+
         emit_progress("refresh_genre", 100, 100, "Done")
-        emit_result("refresh_genre_artifact", {**result, "backup": str(backup)})
+        emit_result(
+            "refresh_genre_artifact",
+            {**result, "sidecar_path": str(sidecar_path), "backup": str(backup)},
+        )
         emit_done(
             "refresh_genre_artifact", True,
-            f"Re-baked {result['n_genres']} genres across {result['n_tracks']} tracks",
+            f"Re-baked {result['n_genres']} genres across {result['n_tracks']} tracks + dense sidecar",
         )
     except Exception as e:
         tb = traceback.format_exc()
