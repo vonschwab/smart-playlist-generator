@@ -246,7 +246,19 @@ def build_layered_release_diagnostics(
     for decision in report.rejected_noise:
         _merge_decision_row(rejected_terms, decision, "hybrid_fusion", taxonomy, context_terms=context_terms)
     for decision in report.provisional_genres:
-        _merge_decision_row(review_terms, decision, "hybrid_provisional", taxonomy, context_terms=context_terms)
+        # A provisional decision whose term is UNKNOWN to the layered taxonomy
+        # (term_kind == "review") is a coverage gap, not a published term: it
+        # never reaches genre_graph_release_genre_assignments (see
+        # compute_layered_assignment_rows). Its queue basis must stay
+        # "layered_taxonomy" so it isn't double-counted as a published term
+        # by the queue-stats split (pending_published_terms vs
+        # pending_coverage_terms) — matching the pass-1 seed from
+        # _classification_evidence_row instead of clobbering it.
+        decision_classification = classify_layered_term(taxonomy, decision.term, context_terms=context_terms)
+        provisional_basis = (
+            "layered_taxonomy" if decision_classification.term_kind == "review" else "hybrid_provisional"
+        )
+        _merge_decision_row(review_terms, decision, provisional_basis, taxonomy, context_terms=context_terms)
     for decision in report.accepted_genres:
         row = _decision_row(decision, taxonomy, context_terms=context_terms)
         if row["term_kind"] == "family":

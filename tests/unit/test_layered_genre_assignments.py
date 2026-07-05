@@ -2,6 +2,90 @@ import json
 import sqlite3
 
 
+class _FakeDiagnosticsStore:
+    """Minimal store for build_layered_release_diagnostics: the four hybrid
+    evidence collector methods (mirrors _FakeFusionStore in
+    test_publish_backfill.py, letting real fusion run without seeding the
+    full sidecar schema) plus a stub layered_release_summary standing in for
+    "nothing materialized yet" (the diagnostics call under test never writes
+    or reads real assignment rows)."""
+
+    def __init__(self, source_terms):
+        self._source_terms = source_terms
+
+    def hybrid_source_terms_for_release(self, release_key):
+        return self._source_terms
+
+    def accepted_enriched_genres_for_release(self, release_key):
+        return []
+
+    def latest_check_suggestions_for_release(self, release_key):
+        return []
+
+    def latest_model_prior_terms_for_release(self, release_key):
+        return []
+
+    def layered_release_summary(self, release_id):
+        return {
+            "release_id": release_id,
+            "genres_by_layer": {},
+            "facets": [],
+            "genre_assignment_count": 0,
+            "facet_assignment_count": 0,
+        }
+
+
+def test_build_layered_release_diagnostics_provisional_taxonomy_unknown_term_keeps_coverage_basis():
+    """Regression (whole-branch review of the M1 always-publish policy flip).
+
+    build_layered_release_diagnostics builds review_terms in two passes over
+    the SAME dict: pass 1 seeds taxonomy-unknown evidence terms with
+    source_basis="layered_taxonomy" (a coverage gap -- compute_layered_
+    assignment_rows skips term_kind=="review", so it is never published);
+    pass 2 folds every report.provisional_genres decision in via
+    _merge_decision_row(..., "hybrid_provisional", ...).
+
+    A term that is BOTH mapped in the genre vocabulary (so fusion routes it
+    to provisional_genres -- here via the never-drop local_metadata lane) AND
+    unknown to the layered taxonomy (so pass 1 classifies it "review") must
+    keep the pass-1 "layered_taxonomy" basis. Before the fix, pass 2
+    unconditionally clobbered it to "hybrid_provisional", so the queue-stats
+    split (get_review_queue_page's pending_published_terms vs
+    pending_coverage_terms, keyed off this exact basis string) miscounted a
+    dropped coverage-gap term as a published one.
+    """
+    from src.ai_genre_enrichment.layered_assignment import build_layered_release_diagnostics
+    from src.ai_genre_enrichment.layered_taxonomy import load_default_layered_taxonomy
+
+    taxonomy = load_default_layered_taxonomy()
+    # A single local_metadata source is fuse_hybrid_evidence's never-drop
+    # lane: sources == ["local_metadata"] always routes to
+    # provisional_genres, regardless of the term's taxonomy status.
+    store = _FakeDiagnosticsStore(source_terms=[
+        {
+            "term": "rare wistful kitchen pop",
+            "source_type": "local_metadata",
+            "confidence": 0.55,
+            "mapping_status": "mapped",
+            "canonical_slug": "rare wistful kitchen pop",
+        },
+    ])
+
+    diagnostics = build_layered_release_diagnostics(
+        store,
+        release_id="test artist::taxonomy gap album",
+        taxonomy=taxonomy,
+    )
+
+    review_row = next(
+        row for row in diagnostics["review_terms"] if row["term"] == "rare wistful kitchen pop"
+    )
+    assert review_row["term_kind"] == "review"
+    assert review_row["reason"] == "Unknown layered taxonomy term."
+    assert review_row["source_basis"] == "layered_taxonomy"  # NOT "hybrid_provisional"
+    assert review_row["term"] in diagnostics["missing_taxonomy_terms"]
+
+
 def test_materialize_layered_assignments_observes_leaf_and_infers_parents(tmp_path):
     from src.ai_genre_enrichment.hybrid_evidence import FusedGenreDecision, HybridGenreReport
     from src.ai_genre_enrichment.layered_assignment import materialize_layered_assignments
