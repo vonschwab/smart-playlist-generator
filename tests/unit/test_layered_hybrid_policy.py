@@ -49,7 +49,9 @@ def test_hybrid_fusion_rejects_standalone_indie_without_rejecting_indie_rock():
     assert [decision.term for decision in report.rejected_noise] == ["indie"]
 
 
-def test_hybrid_fusion_routes_lastfm_only_mapped_terms_to_review():
+def test_hybrid_fusion_routes_lastfm_only_mapped_terms_to_provisional_capped():
+    # Zero-touch policy (2026-07-04): lastfm-only mapped terms publish
+    # provisionally at capped confidence instead of blocking in review.
     from src.ai_genre_enrichment.hybrid_evidence import EvidenceTerm, fuse_hybrid_evidence
 
     report = fuse_hybrid_evidence(
@@ -62,4 +64,8 @@ def test_hybrid_fusion_routes_lastfm_only_mapped_terms_to_review():
 
     assert report.accepted_genres == []
     assert report.rejected_noise == []
-    assert [decision.term for decision in report.needs_review] == ["psychedelic folk"]
+    assert report.needs_review == []
+    [decision] = report.provisional_genres
+    assert decision.term == "psychedelic folk"
+    assert decision.basis == "lastfm_only"
+    assert decision.confidence <= 0.40

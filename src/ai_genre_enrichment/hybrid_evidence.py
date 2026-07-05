@@ -33,6 +33,12 @@ SOURCE_WEIGHTS: dict[str, float] = {
     "lastfm_tags": 0.25,
 }
 
+# Zero-touch policy (2026-07-04, M1 of the zero-touch genre pipeline spec):
+# lastfm-only terms publish at this hard cap instead of queue-blocking. The
+# artifact weights genres by confidence, so the cap IS the blast-radius
+# control — 0.40 weight nudges steering, never defines it.
+LASTFM_ONLY_CONFIDENCE_CAP = 0.40
+
 LASTFM_SOURCE_TYPES = {"lastfm_tags", "lastfm"}
 STRONG_SOURCE_TYPES = {"bandcamp_artist", "official_release", "ai_check_web"}
 MEDIUM_SOURCE_TYPES = {
@@ -219,17 +225,16 @@ def fuse_hybrid_evidence(
             continue
 
         if all(source in LASTFM_SOURCE_TYPES for source in sources):
-            # 2026-06-12: lastfm-only is review-only at ANY confidence. The old
-            # >=0.90-with-release-evidence provisional branch published
-            # 'baroque' on Debussy and 'trip-hop' on afrobeat at scale once
-            # this lane became the materializer. Corroborated lastfm terms
-            # still flow through the multi-source rules below.
-            review.append(FusedGenreDecision(
+            # Published at capped confidence, never review-blocked. History:
+            # pre-2026-06-12 this lane published at >=0.90 FULL weight and
+            # produced 'baroque' on Debussy at scale; 2026-06-12 made it
+            # review-only; 2026-07-04 (zero-touch M1) publishes it capped.
+            provisional.append(FusedGenreDecision(
                 term=term,
-                confidence=score,
+                confidence=min(score, LASTFM_ONLY_CONFIDENCE_CAP),
                 basis="lastfm_only",
                 sources=sources,
-                reason="Last.fm-only mapped signal needs review unless corroborated by release evidence.",
+                reason="Last.fm-only mapped signal published at capped confidence pending corroboration.",
             ))
             continue
 

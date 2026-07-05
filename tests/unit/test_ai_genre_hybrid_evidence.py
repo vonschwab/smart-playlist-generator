@@ -27,21 +27,25 @@ def test_bandcamp_artist_and_model_accepts_specific_genre():
     assert report.accepted_genres[0].confidence >= 0.90
 
 
-def test_lastfm_only_no_release_evidence_needs_review():
-    # Current model: a lastfm-only mapped term with no corroborating release
-    # evidence is held for review (not auto-accepted). Tag-level noise rejection
-    # (junk tags like "seen live") now happens upstream at classification /
-    # review-decision time (see test_collect_hybrid_evidence_excludes_human_
-    # rejected_source_tags) rather than inside fusion.
+def test_lastfm_only_publishes_provisionally_at_capped_confidence():
+    # Zero-touch policy (2026-07-04): lastfm-only mapped terms publish at a
+    # hard-capped confidence instead of blocking in the review queue. The cap
+    # keeps artifact weight low (X_genre weight = confidence x layer weight);
+    # the 'baroque on Debussy' incident came from this lane publishing at
+    # >=0.90 full weight. Junk-tag rejection ("seen live") happens upstream at
+    # classification time, and non-taxonomy terms are still dropped by the
+    # materializer — this branch only lowers the stakes for real terms.
     report = fuse_hybrid_evidence(
         release_key="test::album",
-        evidence=[EvidenceTerm(term="seen live", source_type="lastfm_tags", confidence=0.70)],
+        evidence=[EvidenceTerm(term="shoegaze", source_type="lastfm_tags", confidence=0.95)],
         sparse_release=True,
     )
 
     assert report.accepted_genres == []
-    assert [item.term for item in report.needs_review] == ["seen live"]
-    assert "Last.fm-only" in report.needs_review[0].reason
+    [decision] = [d for d in report.provisional_genres if d.term == "shoegaze"]
+    assert decision.basis == "lastfm_only"
+    assert decision.confidence <= 0.40
+    assert "capped confidence" in decision.reason
 
 
 def test_model_only_high_confidence_sparse_release_is_provisional():
@@ -90,12 +94,20 @@ def test_specific_lastfm_only_terms_are_provisional_when_release_evidence_exists
     )
 
     assert [item.term for item in report.accepted_genres] == []
-    # 2026-06-12: lastfm-only terms are review-only at any confidence — the
-    # publish dry-run surfaced 'baroque' on Debussy and 'trip-hop' on afrobeat
-    # promoting via this branch. Only "indie folk" (local-only, never-drop)
-    # remains provisional.
-    assert [item.term for item in report.provisional_genres] == ["indie folk"]
-    assert {item.term for item in report.needs_review} == {"avant-folk", "drone", "folk"}
+    # Zero-touch policy (2026-07-04): lastfm-only terms publish provisionally at
+    # capped confidence instead of waiting in review. "indie folk" (local-only,
+    # never-drop) is provisional at full score; the lastfm-only terms join it
+    # but capped at LASTFM_ONLY_CONFIDENCE_CAP.
+    assert {item.term for item in report.provisional_genres} == {
+        "indie folk", "avant-folk", "drone", "folk",
+    }
+    lastfm_only_terms = {"avant-folk", "drone", "folk"}
+    assert all(
+        item.confidence <= 0.40
+        for item in report.provisional_genres
+        if item.term in lastfm_only_terms
+    )
+    assert report.needs_review == []
     assert report.rejected_noise == []
 
 
@@ -104,8 +116,8 @@ def test_ai_adjudicated_lastfm_terms_are_handled_at_collection_not_fusion():
     # classification + human review-decisions drop it before it reaches fusion
     # (see test_collect_hybrid_evidence_excludes_human_rejected_source_tags).
     # Fusion itself no longer special-cases classifier=ai/cached_ai — if such a
-    # term survives collection with release evidence present, it is provisional
-    # like any other corroboration-pending lastfm term.
+    # term survives collection, it now publishes provisionally at capped
+    # confidence like any other lastfm-only term (zero-touch policy, 2026-07-04).
     report = fuse_hybrid_evidence(
         release_key="ada lea::one hand on the steering wheel the other sewing a garden",
         evidence=[
@@ -117,10 +129,18 @@ def test_ai_adjudicated_lastfm_terms_are_handled_at_collection_not_fusion():
     )
 
     assert report.rejected_noise == []
-    # lastfm-only junk waits in review (2026-06-12); local "indie pop" is
-    # provisional under never-drop.
-    assert [item.term for item in report.provisional_genres] == ["indie pop"]
-    assert {item.term for item in report.needs_review} == {"mixtaperoom", "rare sad girl"}
+    # local "indie pop" is provisional under never-drop; lastfm-only junk that
+    # survives collection now also publishes provisionally, but capped.
+    assert {item.term for item in report.provisional_genres} == {
+        "indie pop", "mixtaperoom", "rare sad girl",
+    }
+    lastfm_only_terms = {"mixtaperoom", "rare sad girl"}
+    assert all(
+        item.confidence <= 0.40
+        for item in report.provisional_genres
+        if item.term in lastfm_only_terms
+    )
+    assert report.needs_review == []
 
 
 def test_lastfm_lofi_alias_collapses_to_lo_fi():
@@ -134,10 +154,14 @@ def test_lastfm_lofi_alias_collapses_to_lo_fi():
         sparse_release=False,
     )
 
-    # lastfm-only "lo-fi" waits in review (2026-06-12); the alias still
-    # collapses (one lo-fi entry, not two). Local "indie folk" is provisional.
-    assert [item.term for item in report.provisional_genres] == ["indie folk"]
-    assert [item.term for item in report.needs_review] == ["lo-fi"]
+    # lastfm-only "lo-fi" publishes provisionally at capped confidence
+    # (zero-touch policy, 2026-07-04); the alias still collapses (one lo-fi
+    # entry, not two). Local "indie folk" is provisional at full score.
+    assert {item.term for item in report.provisional_genres} == {"indie folk", "lo-fi"}
+    lofi_decision = next(d for d in report.provisional_genres if d.term == "lo-fi")
+    assert lofi_decision.confidence <= 0.40
+    assert lofi_decision.basis == "lastfm_only"
+    assert report.needs_review == []
 
 
 def test_local_and_model_can_accept_when_no_stronger_conflict():
@@ -418,12 +442,15 @@ def test_lpvv_regression_local_tags_beat_storefront():
     assert any(d.term == "indie" for d in report.rejected_noise)
 
 
-def test_lastfm_only_terms_never_reach_provisional_regardless_of_confidence():
+def test_lastfm_only_terms_publish_capped_never_full_weight():
     # Publish dry-run regression (2026-06-12): 'baroque' on a Debussy record
     # and 'trip-hop' on an afrobeat record were lastfm-only terms that the old
-    # rule promoted to provisional (score >= 0.90 with release evidence
-    # present). Lastfm-only now always waits for review; corroborated lastfm
-    # still counts through the multi-source rules.
+    # rule promoted to provisional at FULL weight (score >= 0.90 with release
+    # evidence present). The 2026-06-12 fix blocked lastfm-only in review
+    # entirely; the zero-touch policy (2026-07-04) republishes it provisionally
+    # but hard-capped at LASTFM_ONLY_CONFIDENCE_CAP, so 'baroque' can no longer
+    # land at damaging full weight. Corroborated lastfm still counts through
+    # the multi-source rules (unaffected here).
     report = fuse_hybrid_evidence(
         release_key="philharmonia::debussy nocturnes",
         evidence=[
@@ -434,8 +461,10 @@ def test_lastfm_only_terms_never_reach_provisional_regardless_of_confidence():
     )
 
     assert all(d.term != "baroque" for d in report.accepted_genres)
-    assert all(d.term != "baroque" for d in report.provisional_genres)
-    assert any(d.term == "baroque" for d in report.needs_review)
+    [baroque] = [d for d in report.provisional_genres if d.term == "baroque"]
+    assert baroque.basis == "lastfm_only"
+    assert baroque.confidence <= 0.40
+    assert all(d.term != "baroque" for d in report.needs_review)
 
 
 def test_empty_sentinel_terms_are_dropped_from_fusion():
