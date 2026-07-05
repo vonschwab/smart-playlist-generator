@@ -57,11 +57,26 @@ def apply_release_backfill(store: Any, *, release: Any, plan: ReleaseBackfillPla
     if not plan.additions:
         return 0
     existing = store.layered_assignment_rows_for_release(release.release_key)
+    # Self-guard against a stale plan: re-filter against a FRESH read of what's
+    # actually stored right now (same (genre_id, assignment_layer) set the
+    # planner uses), so applying the same plan object twice -- e.g. a caller
+    # re-applying a dry-run report whose additions already landed -- is a
+    # natural no-op instead of a duplicate-PK IntegrityError.
+    existing_keys = {
+        (row["genre_id"], row["assignment_layer"]) for row in existing["genre_rows"]
+    }
+    fresh_additions = [
+        row
+        for row in plan.additions
+        if (row["genre_id"], row["assignment_layer"]) not in existing_keys
+    ]
+    if not fresh_additions:
+        return 0
     store.replace_layered_assignments_for_release(
         release_id=release.release_key,
         artist=release.normalized_artist,
         album=release.normalized_album,
-        genre_assignments=existing["genre_rows"] + plan.additions,
+        genre_assignments=existing["genre_rows"] + fresh_additions,
         facet_assignments=existing["facet_rows"],
     )
-    return len(plan.additions)
+    return len(fresh_additions)

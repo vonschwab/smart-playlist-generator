@@ -302,3 +302,141 @@ def test_hybrid_enrich_one_rejects_dry_run_apply_combo(tmp_path: Path, capsys):
 
     assert rc == 2
     assert "cannot combine --dry-run and --apply" in capsys.readouterr().out
+
+
+def _seed_backfill_fixture(metadata_db: Path, sidecar: Path):
+    """Shared arrange for the backfill-publish CLI tests.
+
+    Release already has a published 'slowcore' (observed_leaf, seeded directly
+    via replace_layered_assignments_for_release -- no prior backfill/materialize
+    call). Fresh evidence carries 'slowcore' (local+lastfm, already-published,
+    so plan_release_backfill must skip it) plus 'dub techno' (lastfm-only,
+    genuinely new) -- mirrors the exact scenario test_publish_backfill.py
+    validates at the planner level, run end-to-end through the real store.
+    """
+    from src.ai_genre_enrichment.storage import SidecarStore
+
+    with sqlite3.connect(metadata_db) as conn:
+        conn.execute("CREATE TABLE tracks(track_id TEXT, artist TEXT, album TEXT, album_id TEXT, title TEXT, year INTEGER)")
+        conn.execute("CREATE TABLE artist_genres(artist TEXT, genre TEXT, source TEXT)")
+        conn.execute("CREATE TABLE album_genres(album_id TEXT, genre TEXT, source TEXT)")
+        conn.execute("CREATE TABLE track_genres(track_id TEXT, genre TEXT, source TEXT, weight REAL)")
+        conn.execute("INSERT INTO tracks VALUES ('t1', 'Duster', 'Stratosphere', 'a1', 'Moon Age', 1998)")
+
+    release_key = "duster::stratosphere"
+    store = SidecarStore(sidecar)
+    store.initialize()
+    store.replace_layered_assignments_for_release(
+        release_id=release_key,
+        artist="duster",
+        album="stratosphere",
+        genre_assignments=[
+            {
+                "genre_id": "slowcore",
+                "assignment_layer": "observed_leaf",
+                "confidence": 0.9,
+                "source_reliability": 0.70,
+                "evidence_count": 1,
+                "rejected_by_user": False,
+                "provenance": {"basis": "local_metadata+taxonomy", "sources": ["local_metadata"]},
+            },
+        ],
+        facet_assignments=[],
+    )
+    for source_type, tags in [("local_metadata", ["slowcore"]), ("lastfm_tags", ["slowcore", "dub techno"])]:
+        page_id = store.upsert_source_page(
+            release_key=release_key,
+            normalized_artist="duster",
+            normalized_album="stratosphere",
+            album_id="a1",
+            source_url=f"local://{source_type}/duster/stratosphere",
+            source_type=source_type,
+            identity_status="confirmed",
+            identity_confidence=0.95,
+            evidence_summary=f"{source_type} release tags.",
+        )
+        store.replace_source_tags(page_id, tags)
+        store.classify_source_tags(page_id)
+    return release_key, store
+
+
+def test_backfill_publish_dry_run_writes_report_and_mutates_nothing(tmp_path: Path):
+    from scripts import ai_genre_enrich
+
+    metadata_db = tmp_path / "metadata.db"
+    sidecar = tmp_path / "sidecar.db"
+    release_key, store = _seed_backfill_fixture(metadata_db, sidecar)
+
+    before = store.layered_assignment_rows_for_release(release_key)
+
+    report_path = tmp_path / "backfill_report.json"
+    rc = ai_genre_enrich.main([
+        "--metadata-db", str(metadata_db),
+        "--sidecar-db", str(sidecar),
+        "backfill-publish",
+        "--report-path", str(report_path),
+    ])
+
+    assert rc == 0
+
+    after = store.layered_assignment_rows_for_release(release_key)
+    assert after == before  # dry-run: mutate NOTHING
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["apply"] is False
+    assert "generated_at" in report
+    assert report["releases_affected"] == 1
+    assert report["additions_total"] == 1
+    assert report["additions_by_basis"] == {"lastfm_only": 1}
+    assert report["additions_by_confidence_band"] == {"<0.45": 1, "0.45-0.7": 0, ">=0.7": 0}
+
+    [release_report] = report["releases"]
+    assert release_report["release_key"] == release_key
+    [term] = release_report["added_observed_terms"]
+    assert term["genre_id"] == "dub_techno"
+    assert term["basis"] == "lastfm_only"
+    assert term["confidence"] <= 0.40
+
+
+def test_backfill_publish_apply_adds_rows_and_rescans_review_queue(tmp_path: Path):
+    from scripts import ai_genre_enrich
+
+    metadata_db = tmp_path / "metadata.db"
+    sidecar = tmp_path / "sidecar.db"
+    release_key, store = _seed_backfill_fixture(metadata_db, sidecar)
+
+    report_path = tmp_path / "backfill_report.json"
+    rc = ai_genre_enrich.main([
+        "--metadata-db", str(metadata_db),
+        "--sidecar-db", str(sidecar),
+        "backfill-publish",
+        "--apply",
+        "--report-path", str(report_path),
+    ])
+
+    assert rc == 0
+
+    after = store.layered_assignment_rows_for_release(release_key)
+    by_key = {(row["genre_id"], row["assignment_layer"]): row for row in after["genre_rows"]}
+    assert ("dub_techno", "observed_leaf") in by_key
+    assert by_key[("dub_techno", "observed_leaf")]["confidence"] <= 0.40
+    # Pre-existing row untouched (additive-only invariant).
+    assert by_key[("slowcore", "observed_leaf")]["confidence"] == 0.9
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["apply"] is True
+    [release_report] = report["releases"]
+    assert release_report["applied_count"] >= 1
+
+    # scan_review_queue ran once: a pending queue row for this release now
+    # carries basis 'hybrid_provisional' (the always-publish audit trail).
+    with sqlite3.connect(sidecar) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = [
+            dict(r)
+            for r in conn.execute(
+                "SELECT term, basis, status FROM ai_genre_review_queue WHERE release_key = ?",
+                (release_key,),
+            )
+        ]
+    assert any(r["basis"] == "hybrid_provisional" and r["status"] == "pending" for r in rows)

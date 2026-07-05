@@ -258,3 +258,78 @@ def test_apply_merges_without_removing_or_lowering(tmp_path):
 
     still_after = store.layered_assignment_rows_for_release(release.release_key)
     assert still_after == after
+
+
+def test_apply_twice_with_same_stale_plan_is_idempotent(tmp_path):
+    """Task-6 scope addition: apply_release_backfill must self-guard against a
+    stale plan object (e.g. a dry-run report whose plans got applied out of
+    band, or a caller that re-applies the same plan by mistake). Re-applying
+    the SAME plan (not a fresh re-plan) must be a natural no-op -- 0 added,
+    no exception, no duplicate (genre_id, assignment_layer) rows -- instead of
+    a duplicate-PK IntegrityError from re-inserting rows already merged in.
+    """
+    from src.ai_genre_enrichment.publish_backfill import ReleaseBackfillPlan, apply_release_backfill
+
+    store = SidecarStore(tmp_path / "sidecar.db")
+    store.initialize()
+    release = _release("duster::stratosphere", "duster", "stratosphere")
+
+    existing_genre_rows = [
+        {
+            "genre_id": "slowcore",
+            "assignment_layer": "observed_leaf",
+            "confidence": 0.9,
+            "source_reliability": 0.70,
+            "evidence_count": 1,
+            "rejected_by_user": False,
+            "provenance": {"basis": "local_metadata+taxonomy", "sources": ["local_metadata"]},
+        },
+    ]
+    store.replace_layered_assignments_for_release(
+        release_id=release.release_key,
+        artist=release.normalized_artist,
+        album=release.normalized_album,
+        genre_assignments=existing_genre_rows,
+        facet_assignments=[],
+    )
+
+    addition_row = {
+        "genre_id": "dub_techno",
+        "assignment_layer": "observed_leaf",
+        "confidence": 0.40,
+        "source_reliability": 0.25,
+        "evidence_count": 1,
+        "rejected_by_user": False,
+        "provenance": {"basis": "lastfm_only", "sources": ["lastfm_tags"]},
+    }
+    plan = ReleaseBackfillPlan(
+        release_key=release.release_key,
+        additions=[addition_row],
+        added_observed_terms=[
+            {
+                "term": "dub techno",
+                "genre_id": "dub_techno",
+                "confidence": 0.40,
+                "basis": "lastfm_only",
+                "sources": ["lastfm_tags"],
+                "reason": "Last.fm-only mapped signal published at capped confidence pending corroboration.",
+            }
+        ],
+    )
+
+    first_added = apply_release_backfill(store, release=release, plan=plan)
+    assert first_added == 1
+
+    after_first = store.layered_assignment_rows_for_release(release.release_key)
+
+    # Re-apply the SAME (now-stale) plan object -- must not raise and must not
+    # duplicate the row it already merged in on the first call.
+    second_added = apply_release_backfill(store, release=release, plan=plan)
+    assert second_added == 0
+
+    after_second = store.layered_assignment_rows_for_release(release.release_key)
+    assert after_second == after_first
+
+    keys = [(row["genre_id"], row["assignment_layer"]) for row in after_second["genre_rows"]]
+    assert len(keys) == len(set(keys))  # no duplicate (genre_id, assignment_layer) pairs
+    assert len(after_second["genre_rows"]) == 2  # slowcore (seed) + dub_techno (applied once)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import logging
 import sqlite3
 import sys
 from datetime import UTC, datetime
@@ -27,6 +28,9 @@ from src.ai_genre_enrichment.hybrid_evidence import (
 )
 from src.ai_genre_enrichment.layered_assignment import build_layered_release_diagnostics, materialize_layered_assignments
 from src.ai_genre_enrichment.layered_taxonomy import load_default_layered_taxonomy
+from src.ai_genre_enrichment.publish_backfill import apply_release_backfill, plan_release_backfill
+from src.ai_genre_enrichment.review_queue import scan_review_queue
+from src.logging_utils import ProgressLogger, configure_logging
 from src.ai_genre_enrichment.model_prior import (
     MODEL_PRIOR_INSTRUCTIONS,
     MODEL_PRIOR_PROMPT_VERSION,
@@ -126,6 +130,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_graph_propose_growth(args)
     if args.command == "graph-ingest-growth":
         return cmd_graph_ingest_growth(args)
+    if args.command == "backfill-publish":
+        return cmd_backfill_publish(args)
     parser.print_help()
     return 2
 
@@ -414,6 +420,17 @@ def build_parser() -> argparse.ArgumentParser:
     ingest_growth.add_argument("--new-version", required=True,
                                help="taxonomy_version to stamp after growth")
     ingest_growth.add_argument("--dry-run", action="store_true")
+
+    backfill_publish = sub.add_parser(
+        "backfill-publish",
+        help="Additively backfill published assignments to the current always-publish fusion policy (zero-touch M1)")
+    add_release_filters(backfill_publish)
+    backfill_publish.add_argument(
+        "--apply", action="store_true",
+        help="Apply every plan and rescan the review queue (default: dry-run report only).")
+    backfill_publish.add_argument(
+        "--report-path", type=Path, default=None,
+        help="Where to write the JSON audit report (default: docs/run_audits/backfill_always_publish_<UTC timestamp>.json).")
 
     return parser
 
@@ -2447,6 +2464,104 @@ def cmd_hybrid_enrich_one(args: argparse.Namespace) -> int:
     if model_prior_error:
         report["model_prior_error"] = model_prior_error
     print(json.dumps(report, ensure_ascii=False, sort_keys=True))
+    return 0
+
+
+def _confidence_band(confidence: float) -> str:
+    if confidence < 0.45:
+        return "<0.45"
+    if confidence < 0.7:
+        return "0.45-0.7"
+    return ">=0.7"
+
+
+def cmd_backfill_publish(args: argparse.Namespace) -> int:
+    """Additive backfill (zero-touch M1): re-run the current always-publish
+    fusion policy over the discovered releases (default: the whole library)
+    and merge only NEW assignment rows into each release -- never removes a
+    row, never lowers an existing row's confidence.
+
+    Dry-run (default): plans every release, writes a JSON audit report,
+    prints the summary counts, mutates nothing. --apply persists every plan
+    then runs one scan_review_queue pass so the review queue's basis column
+    reflects the freshly-published provisional terms (audit trail).
+    """
+    releases = _discover(args)
+    store = SidecarStore(args.sidecar_db)
+    store.initialize()
+    taxonomy = load_default_layered_taxonomy()
+
+    configure_logging(level="INFO")  # idempotent: no-op if the app already configured logging
+    logger = logging.getLogger(__name__)
+    prog = ProgressLogger(logger, total=len(releases), label="backfill-publish plan", unit="releases")
+
+    plans: list[tuple[ReleasePayload, object]] = []
+    releases_affected = 0
+    additions_total = 0
+    additions_by_basis: dict[str, int] = {}
+    additions_by_confidence_band = {"<0.45": 0, "0.45-0.7": 0, ">=0.7": 0}
+    release_reports: dict[str, dict[str, object]] = {}
+
+    for release in releases:
+        plan = plan_release_backfill(store, taxonomy=taxonomy, release=release)
+        plans.append((release, plan))
+        prog.update(detail=release.release_key)
+        if not plan.added_observed_terms:
+            continue
+        releases_affected += 1
+        for term in plan.added_observed_terms:
+            additions_total += 1
+            basis = str(term.get("basis") or "")
+            additions_by_basis[basis] = additions_by_basis.get(basis, 0) + 1
+            additions_by_confidence_band[_confidence_band(float(term.get("confidence") or 0.0))] += 1
+        release_reports[release.release_key] = {
+            "release_key": release.release_key,
+            "added_observed_terms": plan.added_observed_terms,
+        }
+    prog.finish()
+
+    scan_summary: dict[str, int] | None = None
+    if args.apply:
+        apply_prog = ProgressLogger(logger, total=len(plans), label="backfill-publish apply", unit="releases")
+        for release, plan in plans:
+            applied_count = apply_release_backfill(store, release=release, plan=plan)
+            apply_prog.update(detail=release.release_key)
+            if release.release_key in release_reports:
+                release_reports[release.release_key]["applied_count"] = applied_count
+        apply_prog.finish()
+
+        def _scan_progress(current: int, total: int, detail: str) -> None:
+            logger.info(f"backfill-publish review-scan: {current}/{total} {detail}")
+
+        scan_summary = scan_review_queue(store, taxonomy=taxonomy, progress_cb=_scan_progress)
+
+    report = {
+        "generated_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "apply": bool(args.apply),
+        "releases_affected": releases_affected,
+        "additions_total": additions_total,
+        "additions_by_basis": additions_by_basis,
+        "additions_by_confidence_band": additions_by_confidence_band,
+        "releases": list(release_reports.values()),
+    }
+
+    report_path = args.report_path or (ROOT / "docs" / "run_audits" / f"backfill_always_publish_{_timestamp()}.json")
+    report_path = Path(report_path)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+
+    summary = {
+        "apply": report["apply"],
+        "releases_scanned": len(releases),
+        "releases_affected": releases_affected,
+        "additions_total": additions_total,
+        "additions_by_basis": additions_by_basis,
+        "additions_by_confidence_band": additions_by_confidence_band,
+        "report_path": str(report_path),
+    }
+    if scan_summary is not None:
+        summary["queue_scan"] = scan_summary
+    print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
     return 0
 
 
