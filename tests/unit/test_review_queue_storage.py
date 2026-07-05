@@ -202,3 +202,20 @@ def test_list_review_scan_releases(tmp_path):
         "normalized_artist": "acetone",
         "normalized_album": "cindy",
     }]
+
+
+def test_review_queue_page_splits_pending_by_basis(tmp_path):
+    store = _store(tmp_path)
+    store.sync_review_queue_for_release(
+        release_key="a::x", normalized_artist="a", normalized_album="x",
+        terms=[
+            {"term": "shoegaze", "confidence": 0.4, "basis": "hybrid_provisional",
+             "sources": ["lastfm_tags"], "reason": "published capped"},
+            {"term": "zeuhl", "confidence": 0.6, "basis": "layered_taxonomy",
+             "sources": ["discogs"], "reason": "Unknown layered taxonomy term."},
+        ],
+    )
+    page = store.get_review_queue_page()
+    assert page["pending_terms"] == 2
+    assert page["pending_published_terms"] == 1
+    assert page["pending_coverage_terms"] == 1

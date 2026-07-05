@@ -2919,12 +2919,18 @@ class SidecarStore:
             try:
                 conn = self.connect_readonly()
             except sqlite3.OperationalError:
-                return {"releases": [], "pending_releases": 0, "pending_terms": 0}
+                return {
+                    "releases": [], "pending_releases": 0, "pending_terms": 0,
+                    "pending_published_terms": 0, "pending_coverage_terms": 0,
+                }
             try:
                 return self._review_queue_page(conn, search=search, limit=limit, offset=offset)
             except sqlite3.OperationalError:
                 # e.g. "no such table: ai_genre_review_queue" before first scan
-                return {"releases": [], "pending_releases": 0, "pending_terms": 0}
+                return {
+                    "releases": [], "pending_releases": 0, "pending_terms": 0,
+                    "pending_published_terms": 0, "pending_coverage_terms": 0,
+                }
             finally:
                 conn.close()
         with self.connect() as conn:
@@ -2943,6 +2949,13 @@ class SidecarStore:
                 "SELECT COUNT(DISTINCT release_key) AS pr, COUNT(*) AS pt "
                 "FROM ai_genre_review_queue WHERE status = 'pending'"
             ).fetchone()
+            by_basis = {
+                row["basis"]: row["n"]
+                for row in conn.execute(
+                    "SELECT basis, COUNT(*) AS n FROM ai_genre_review_queue "
+                    "WHERE status = 'pending' GROUP BY basis"
+                )
+            }
             decided = conn.execute(
                 "SELECT COUNT(DISTINCT release_key) AS dr, COUNT(*) AS dt "
                 "FROM ai_genre_review_queue WHERE status != 'pending'"
@@ -2995,6 +3008,8 @@ class SidecarStore:
             "releases": releases,
             "pending_releases": int(counts["pr"]),
             "pending_terms": int(counts["pt"]),
+            "pending_published_terms": by_basis.get("hybrid_provisional", 0),
+            "pending_coverage_terms": by_basis.get("layered_taxonomy", 0),
             "decided_releases": int(decided["dr"]),
             "decided_terms": int(decided["dt"]),
         }
