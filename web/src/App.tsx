@@ -265,6 +265,7 @@ export default function App() {
               )}
               <QualityStats
                 metrics={playlist?.metrics}
+                receipt={playlist?.receipt}
                 count={playlist?.track_count ?? 0}
                 tracks={playlist?.tracks ?? []}
                 onExportM3U8={() => setM3u8Open(true)}

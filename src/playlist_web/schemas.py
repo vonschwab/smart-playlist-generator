@@ -95,6 +95,7 @@ class PlaylistOut(BaseModel):
     tracks: list[TrackOut] = Field(default_factory=list)
     metrics: MetricsOut = Field(default_factory=MetricsOut)
     relaxations: list[dict] = Field(default_factory=list)
+    receipt: Optional[dict] = None
 
     @classmethod
     def from_worker(cls, raw: dict[str, Any]) -> "PlaylistOut":
@@ -140,6 +141,7 @@ class PlaylistOut(BaseModel):
             tracks=tracks,
             metrics=metrics,
             relaxations=relaxations,
+            receipt=raw.get("receipt"),
         )
 
 

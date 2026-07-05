@@ -1,5 +1,8 @@
 export type Mode = "artist" | "genre" | "seeds" | "history";
-export type AxisValue = "strict" | "narrow" | "dynamic" | "discover" | "off";
+
+export type RangeDial = "home" | "close" | "open" | "wander";
+export type FlowDial = "drift" | "balanced" | "journey";
+export type PaceDial = "steady" | "natural" | "free";
 
 export interface GenerateRequestBody {
   mode: Mode;
@@ -8,10 +11,9 @@ export interface GenerateRequestBody {
   genre?: string;
   seed_tracks?: string[];
   seed_track_ids?: string[];
-  cohesion_mode?: "strict" | "narrow" | "dynamic" | "discover";
-  genre_mode?: AxisValue;
-  sonic_mode?: AxisValue;
-  pace_mode?: AxisValue;
+  range_dial?: RangeDial;
+  flow_dial?: FlowDial;
+  pace_dial?: PaceDial;
   include_collaborations?: boolean;
   popular_seeds_mode?: "off" | "on" | "fire";
   popularity_mode?: "off" | "on" | "oops";
@@ -68,12 +70,20 @@ export interface RelaxationEntry {
   severity: string;
 }
 
+export interface Receipt {
+  range: { pool: number | null; considered: number | null };
+  flow: { worst: number | null; mean: number | null };
+  pace: { bpm_mean: number | null; bpm_std: number | null; n: number | null; total: number | null };
+  notes: string[];
+}
+
 export interface PlaylistOut {
   name: string;
   track_count: number;
   tracks: TrackOut[];
   metrics: MetricsOut;
   relaxations?: RelaxationEntry[];
+  receipt?: Receipt | null;
 }
 
 export interface JobOut {

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
 import { useInfiniteSearch } from "../lib/useInfiniteSearch";
 import { useLocalStorage } from "../lib/useLocalStorage";
-import type { AxisValue, GenerateRequestBody, Mode } from "../lib/types";
+import type { FlowDial, GenerateRequestBody, Mode, PaceDial, RangeDial } from "../lib/types";
 import { StylePopover } from "./StylePopover";
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -43,6 +43,25 @@ function Cell({ children, grow, push, className = "" }: {
   );
 }
 
+function Segmented({ value, options, onChange, offDefault }: {
+  value: string; options: { v: string; label: string; tip: string }[];
+  onChange: (v: string) => void; offDefault: boolean;
+}) {
+  return (
+    <div className="flex rounded border border-[#23262d] overflow-hidden">
+      {options.map((o) => (
+        <button key={o.v} type="button" title={o.tip} onClick={() => onChange(o.v)}
+          className={[
+            "text-[11px] px-2 py-[3px] whitespace-nowrap",
+            o.v === value ? "bg-[#23262d] text-[#c8cdd4]" : "bg-[#0c0e12] text-[#5b6470] hover:text-[#8b939d]",
+          ].join(" ")}>
+          {o.label}{o.v === value && offDefault ? " •" : ""}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function GenerateControls({
@@ -67,12 +86,10 @@ export function GenerateControls({
 }) {
   const [seed, setSeed] = useLocalStorage("pg_seed_text", "");
   const [tracks, setTracks] = useLocalStorage("pg_tracks", 30);
-  const [cohesion, setCohesion] = useLocalStorage("pg_cohesion", "dynamic");
-  const [axes, setAxes] = useLocalStorage<Record<string, string>>("pg_axes", {
-    genre_mode: "dynamic",
-    sonic_mode: "dynamic",
-    pace_mode: "dynamic",
-  });
+  const DIAL_DEFAULTS = { range: "open", flow: "balanced", pace: "natural" } as const;
+  const [dials, setDials] = useLocalStorage<Record<string, string>>("pg_dials", { ...DIAL_DEFAULTS });
+  const dialsOffDefault =
+    dials.range !== DIAL_DEFAULTS.range || dials.flow !== DIAL_DEFAULTS.flow || dials.pace !== DIAL_DEFAULTS.pace;
 
   // Row 3 — freshness + spacing
   const [recencyEnabled, setRecencyEnabled] = useLocalStorage("pg_recency_enabled", true);
@@ -134,12 +151,11 @@ export function GenerateControls({
   // Apply initialValues (re-run prefill) once per change
   useEffect(() => {
     if (!initialValues) return;
-    if (initialValues.cohesion_mode) setCohesion(initialValues.cohesion_mode);
-    if (initialValues.genre_mode || initialValues.sonic_mode || initialValues.pace_mode) {
-      setAxes({
-        genre_mode: initialValues.genre_mode ?? axes.genre_mode,
-        sonic_mode: initialValues.sonic_mode ?? axes.sonic_mode,
-        pace_mode: initialValues.pace_mode ?? axes.pace_mode,
+    if (initialValues.range_dial || initialValues.flow_dial || initialValues.pace_dial) {
+      setDials({
+        range: initialValues.range_dial ?? dials.range,
+        flow: initialValues.flow_dial ?? dials.flow,
+        pace: initialValues.pace_dial ?? dials.pace,
       });
     }
     if (typeof initialValues.tracks === "number") setTracks(initialValues.tracks);
@@ -184,10 +200,9 @@ export function GenerateControls({
       genre: mode === "genre" ? seed : undefined,
       seed_tracks: mode === "seeds" ? seedDisplays : undefined,
       seed_track_ids: mode === "seeds" ? seedTrackIds : undefined,
-      cohesion_mode: cohesion as "strict" | "narrow" | "dynamic" | "discover",
-      genre_mode: axes.genre_mode as AxisValue,
-      sonic_mode: axes.sonic_mode as AxisValue,
-      pace_mode: axes.pace_mode as "strict" | "narrow" | "dynamic" | "off",
+      range_dial: dials.range as RangeDial,
+      flow_dial: dials.flow as FlowDial,
+      pace_dial: dials.pace as PaceDial,
       recency_enabled: recencyEnabled,
       recency_days: recencyDays,
       recency_plays_threshold: recencyPlays,
@@ -390,38 +405,46 @@ export function GenerateControls({
       {/* ── Advanced controls: Rows 2–3 (collapse below @md container width) ── */}
       <div id="advanced-controls-region" data-testid="advanced-controls" className={showMore ? "" : "@max-md:hidden"}>
 
-      {/* ── ROW 2: cohesion + matching ──────────────────────────────────────── */}
+      {/* ── ROW 2: dials + matching ──────────────────────────────────────── */}
       <div className="flex flex-wrap items-center bg-[#13151a] border-b border-[#1e2128]">
         <Cell>
-          <Lbl title="Overall beam tightness — how strictly the playlist stays within a sonic-genre neighbourhood. Strict = very cohesive; Discover = wide-ranging.">
-            cohesion
-          </Lbl>
-          <select value={cohesion} onChange={(e) => setCohesion(e.target.value)} className={SEL}
-            title="Overall beam tightness — how strictly the playlist stays within a sonic-genre neighbourhood. Strict = very cohesive; Discover = wide-ranging.">
-            {["strict", "narrow", "dynamic", "discover"].map((v) => <option key={v} value={v}>{v}</option>)}
-          </select>
+          <Lbl title="How far from home the music can come from — what's considered for the playlist.">range</Lbl>
+          <Segmented value={dials.range} offDefault={dials.range !== DIAL_DEFAULTS.range}
+            onChange={(v) => setDials({ ...dials, range: v })}
+            options={[
+              { v: "home", label: "Home", tip: "Only the seed's home territory — sound and genre." },
+              { v: "close", label: "Close", tip: "Close neighbors of the seed's sound and genre." },
+              { v: "open", label: "Open", tip: "Balanced reach (default)." },
+              { v: "wander", label: "Wander", tip: "Range further afield in sound and genre." },
+            ]} />
         </Cell>
         <Cell>
-          <Lbl title="How strictly genre tags must match. Off = ignore genre entirely.">genre</Lbl>
-          <select value={axes.genre_mode} onChange={(e) => setAxes({ ...axes, genre_mode: e.target.value })} className={SEL}
-            title="How strictly genre tags must match. Off = ignore genre entirely.">
-            {["off", "discover", "dynamic", "narrow", "strict"].map((v) => <option key={v} value={v}>{v}</option>)}
-          </select>
+          <Lbl title="How the playlist moves.">flow</Lbl>
+          <Segmented value={dials.flow} offDefault={dials.flow !== DIAL_DEFAULTS.flow}
+            onChange={(v) => setDials({ ...dials, flow: v })}
+            options={[
+              { v: "drift", label: "Drift", tip: "Glides join-to-join — goes wherever smooth leads." },
+              { v: "balanced", label: "Balanced", tip: "Default blend of smooth joins and direction (default)." },
+              { v: "journey", label: "Journey", tip: "Marches seed to seed — shape over silkiness." },
+            ]} />
         </Cell>
         <Cell>
-          <Lbl title="How closely the sonic fingerprint (timbre, rhythm, harmony) must match. Off = ignore sonic similarity.">sonic</Lbl>
-          <select value={axes.sonic_mode} onChange={(e) => setAxes({ ...axes, sonic_mode: e.target.value })} className={SEL}
-            title="How closely the sonic fingerprint (timbre, rhythm, harmony) must match. Off = ignore sonic similarity.">
-            {["off", "dynamic", "narrow", "strict"].map((v) => <option key={v} value={v}>{v}</option>)}
-          </select>
+          <Lbl title="Tempo discipline.">pace</Lbl>
+          <Segmented value={dials.pace} offDefault={dials.pace !== DIAL_DEFAULTS.pace}
+            onChange={(v) => setDials({ ...dials, pace: v })}
+            options={[
+              { v: "steady", label: "Steady", tip: "Hold the seed's tempo and groove." },
+              { v: "natural", label: "Natural", tip: "Gentle tempo anchoring (default)." },
+              { v: "free", label: "Free", tip: "No tempo constraint." },
+            ]} />
         </Cell>
-        <Cell>
-          <Lbl title="How closely the rhythmic feel must match. Strict = very similar BPM and groove; Dynamic = allows more variation.">pace</Lbl>
-          <select value={axes.pace_mode} onChange={(e) => setAxes({ ...axes, pace_mode: e.target.value })} className={SEL}
-            title="How closely the rhythmic feel must match. Strict = very similar BPM and groove; Dynamic = allows more variation.">
-            {["off", "dynamic", "narrow", "strict"].map((v) => <option key={v} value={v}>{v}</option>)}
-          </select>
-        </Cell>
+        {dialsOffDefault && (
+          <Cell>
+            <button type="button" title="Reset dials to defaults"
+              onClick={() => setDials({ ...DIAL_DEFAULTS })}
+              className="text-[11px] text-[#5b6470] hover:text-[#8b939d]">↺</button>
+          </Cell>
+        )}
         <Cell>
           <Lbl title="Oops, All Bangers — bias the bridge tracks toward each artist's most popular (Last.fm) songs. Off = today; On = lean popular; Oops, All Bangers = library greatest-hits.">bangers</Lbl>
           <select value={popularityMode} onChange={(e) => setPopularityMode(e.target.value as "off" | "on" | "oops")} className={SEL}
