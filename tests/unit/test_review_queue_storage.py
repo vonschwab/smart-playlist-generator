@@ -219,3 +219,30 @@ def test_review_queue_page_splits_pending_by_basis(tmp_path):
     assert page["pending_terms"] == 2
     assert page["pending_published_terms"] == 1
     assert page["pending_coverage_terms"] == 1
+
+
+def test_layered_assignment_rows_round_trip(tmp_path):
+    store = _store(tmp_path)
+    genre_rows = [{
+        "genre_id": "g_slowcore", "assignment_layer": "observed_leaf",
+        "confidence": 0.9, "source_reliability": 0.8, "evidence_count": 2,
+        "rejected_by_user": False,
+        "provenance": {"term": "slowcore", "sources": ["local_metadata"]},
+    }]
+    facet_rows = [{
+        "facet_id": "f_instrumental", "confidence": 0.7, "source": "local_metadata",
+        "provenance": {"term": "instrumental"},
+    }]
+    store.replace_layered_assignments_for_release(
+        release_id="a::x", artist="a", album="x",
+        genre_assignments=genre_rows, facet_assignments=facet_rows,
+    )
+    rows = store.layered_assignment_rows_for_release("a::x")
+    assert rows["genre_rows"] == genre_rows
+    assert rows["facet_rows"] == facet_rows
+    # Round-trip: writing the read rows back must be a no-op shape-wise.
+    store.replace_layered_assignments_for_release(
+        release_id="a::x", artist="a", album="x",
+        genre_assignments=rows["genre_rows"], facet_assignments=rows["facet_rows"],
+    )
+    assert store.layered_assignment_rows_for_release("a::x") == rows

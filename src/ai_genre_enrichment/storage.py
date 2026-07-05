@@ -2594,6 +2594,45 @@ class SidecarStore:
             "facet_assignment_count": len(facet_rows),
         }
 
+    def layered_assignment_rows_for_release(self, release_id: str) -> dict[str, list[dict[str, Any]]]:
+        """Raw assignment rows in exactly the shape replace_layered_assignments_for_release consumes.
+
+        The additive publish-backfill (zero-touch M1) does read-merge-replace;
+        this reader is its read half, so it must round-trip losslessly.
+        """
+        with self.connect() as conn:
+            genre_rows = [
+                {
+                    "genre_id": row["genre_id"],
+                    "assignment_layer": row["assignment_layer"],
+                    "confidence": row["confidence"],
+                    "source_reliability": row["source_reliability"],
+                    "evidence_count": row["evidence_count"],
+                    "rejected_by_user": bool(row["rejected_by_user"]),
+                    "provenance": json.loads(row["provenance_json"] or "{}"),
+                }
+                for row in conn.execute(
+                    "SELECT genre_id, assignment_layer, confidence, source_reliability, "
+                    "evidence_count, rejected_by_user, provenance_json "
+                    "FROM genre_graph_release_genre_assignments WHERE release_id = ?",
+                    (release_id,),
+                )
+            ]
+            facet_rows = [
+                {
+                    "facet_id": row["facet_id"],
+                    "confidence": row["confidence"],
+                    "source": row["source"],
+                    "provenance": json.loads(row["provenance_json"] or "{}"),
+                }
+                for row in conn.execute(
+                    "SELECT facet_id, confidence, source, provenance_json "
+                    "FROM genre_graph_release_facet_assignments WHERE release_id = ?",
+                    (release_id,),
+                )
+            ]
+        return {"genre_rows": genre_rows, "facet_rows": facet_rows}
+
     def _upsert_check(
         self,
         *,
