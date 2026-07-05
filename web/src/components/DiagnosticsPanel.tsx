@@ -20,7 +20,9 @@ export function DiagnosticsPanel({ playlist }: { playlist: PlaylistOut | null })
   }
 
   const m = playlist.metrics;
-  // Edges = every track that has a transition_score (last track is null).
+  // Edges = every track that has a transition_score (the FIRST track is null —
+  // no incoming transition). track[i].transition_score is the edge INTO track i,
+  // i.e. the 1-based transition "i → i+1".
   const edges = playlist.tracks
     .map((t, i) => ({ i, score: t.transition_score }))
     .filter((e): e is { i: number; score: number } => typeof e.score === "number");
@@ -51,7 +53,7 @@ export function DiagnosticsPanel({ playlist }: { playlist: PlaylistOut | null })
       {weakest && (
         <div className="mt-3 bg-[#1a1015] border border-[#3a1a1a] rounded p-2" data-testid="weakest-edge">
           <div className="text-[8px] uppercase tracking-[.06em] text-[#ef4444] mb-0.5">⚠ Weakest edge</div>
-          <div className="text-[10px] text-[#e6e9ec]">track {weakest.i + 1} → {weakest.i + 2}</div>
+          <div className="text-[10px] text-[#e6e9ec]">track {weakest.i} → {weakest.i + 1}</div>
           <div className="text-[8px] font-mono text-[#ef4444]">T = {weakest.score.toFixed(2)}</div>
         </div>
       )}
@@ -60,7 +62,7 @@ export function DiagnosticsPanel({ playlist }: { playlist: PlaylistOut | null })
       <div className="flex flex-col gap-0.5" data-testid="transition-bars">
         {edges.map((e) => (
           <div key={e.i} className="flex items-center gap-1.5">
-            <span className="text-[8px] text-[#3a3f4b] w-7 text-right shrink-0">{e.i + 1}→{e.i + 2}</span>
+            <span className="text-[8px] text-[#3a3f4b] w-7 text-right shrink-0">{e.i}→{e.i + 1}</span>
             <div className="flex-1 h-1.5 bg-[#1a1c21] rounded-sm overflow-hidden">
               <div className="h-full rounded-sm" style={{ width: `${e.score * 100}%`, background: barColor(e.score) }} />
             </div>
