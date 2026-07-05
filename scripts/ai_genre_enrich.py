@@ -2485,6 +2485,13 @@ def cmd_backfill_publish(args: argparse.Namespace) -> int:
     prints the summary counts, mutates nothing. --apply persists every plan
     then runs one scan_review_queue pass so the review queue's basis column
     reflects the freshly-published provisional terms (audit trail).
+
+    Report truthfulness: a release is counted/listed whenever its plan has
+    ANY additions -- including inferred_parent/inferred_family rows with no
+    new observed-leaf term (e.g. taxonomy growth connecting an
+    already-published leaf to a new ancestor) -- because --apply writes
+    those rows too. `additions_total` is that true blast radius;
+    `observed_leaf_additions_total` is the smaller human-eval sample size.
     """
     releases = _discover(args)
     store = SidecarStore(args.sidecar_db)
@@ -2497,7 +2504,13 @@ def cmd_backfill_publish(args: argparse.Namespace) -> int:
 
     plans: list[tuple[ReleasePayload, object]] = []
     releases_affected = 0
-    additions_total = 0
+    additions_total = 0  # TRUE blast radius: every plan.additions row (observed + inferred).
+    observed_leaf_additions_total = 0  # size of the human eval sample (added_observed_terms only).
+    # additions_by_basis / additions_by_confidence_band describe the
+    # observed-leaf eval SAMPLE only -- a human judges newly-published LEAF
+    # genres; inferred_parent/inferred_family rows ride along on that leaf's
+    # decision and have no independent basis/confidence to judge. They are
+    # NOT a breakdown of additions_total.
     additions_by_basis: dict[str, int] = {}
     additions_by_confidence_band = {"<0.45": 0, "0.45-0.7": 0, ">=0.7": 0}
     release_reports: dict[str, dict[str, object]] = {}
@@ -2506,16 +2519,18 @@ def cmd_backfill_publish(args: argparse.Namespace) -> int:
         plan = plan_release_backfill(store, taxonomy=taxonomy, release=release)
         plans.append((release, plan))
         prog.update(detail=release.release_key)
-        if not plan.added_observed_terms:
+        if not plan.additions:
             continue
         releases_affected += 1
+        additions_total += len(plan.additions)
         for term in plan.added_observed_terms:
-            additions_total += 1
+            observed_leaf_additions_total += 1
             basis = str(term.get("basis") or "")
             additions_by_basis[basis] = additions_by_basis.get(basis, 0) + 1
             additions_by_confidence_band[_confidence_band(float(term.get("confidence") or 0.0))] += 1
         release_reports[release.release_key] = {
             "release_key": release.release_key,
+            "additions_count": len(plan.additions),
             "added_observed_terms": plan.added_observed_terms,
         }
     prog.finish()
@@ -2540,6 +2555,7 @@ def cmd_backfill_publish(args: argparse.Namespace) -> int:
         "apply": bool(args.apply),
         "releases_affected": releases_affected,
         "additions_total": additions_total,
+        "observed_leaf_additions_total": observed_leaf_additions_total,
         "additions_by_basis": additions_by_basis,
         "additions_by_confidence_band": additions_by_confidence_band,
         "releases": list(release_reports.values()),
@@ -2555,6 +2571,7 @@ def cmd_backfill_publish(args: argparse.Namespace) -> int:
         "releases_scanned": len(releases),
         "releases_affected": releases_affected,
         "additions_total": additions_total,
+        "observed_leaf_additions_total": observed_leaf_additions_total,
         "additions_by_basis": additions_by_basis,
         "additions_by_confidence_band": additions_by_confidence_band,
         "report_path": str(report_path),

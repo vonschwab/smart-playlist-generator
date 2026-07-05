@@ -386,12 +386,24 @@ def test_backfill_publish_dry_run_writes_report_and_mutates_nothing(tmp_path: Pa
     assert report["apply"] is False
     assert "generated_at" in report
     assert report["releases_affected"] == 1
-    assert report["additions_total"] == 1
+    # additions_total is the TRUE blast radius: all plan.additions rows
+    # (observed leaf + inferred_parent/inferred_family), not just the
+    # observed-leaf eval sample. This release's fresh 'dub techno' leaf drags
+    # in inferred_parent/inferred_family rows (techno, dub, ambient,
+    # ambient_new_age, electronic) AND slowcore's own family rows (rock,
+    # indie/alternative) were never materialized for this fixture either --
+    # 8 total additions, only 1 of which is an observed leaf.
+    assert report["additions_total"] == 8
+    assert report["observed_leaf_additions_total"] == 1
+    # These two histograms describe the observed-leaf eval SAMPLE only (a
+    # human judges newly-published leaf genres; inferred rows have no
+    # independent basis/confidence to judge) -- not all additions.
     assert report["additions_by_basis"] == {"lastfm_only": 1}
     assert report["additions_by_confidence_band"] == {"<0.45": 1, "0.45-0.7": 0, ">=0.7": 0}
 
     [release_report] = report["releases"]
     assert release_report["release_key"] == release_key
+    assert release_report["additions_count"] == 8
     [term] = release_report["added_observed_terms"]
     assert term["genre_id"] == "dub_techno"
     assert term["basis"] == "lastfm_only"
@@ -440,3 +452,105 @@ def test_backfill_publish_apply_adds_rows_and_rescans_review_queue(tmp_path: Pat
             )
         ]
     assert any(r["basis"] == "hybrid_provisional" and r["status"] == "pending" for r in rows)
+
+
+def _seed_inferred_only_backfill_fixture(metadata_db: Path, sidecar: Path):
+    """Arrange a release whose plan has INFERRED-ONLY additions.
+
+    'slowcore' is already published as observed_leaf (seeded directly, exactly
+    like `_seed_backfill_fixture`), sourced from a single local_metadata tag
+    with no other evidence -- so re-running fusion finds nothing NEW at the
+    leaf level (added_observed_terms stays empty). But this release's
+    observed_leaf row was seeded WITHOUT its taxonomy family rows ever having
+    been materialized, so plan_release_backfill's parent/family walk over the
+    (still-accepted) 'slowcore' decision produces brand-new inferred_family
+    additions for 'rock' and 'indie/alternative' -- real taxonomy edges, not
+    fixture invention (verified live: slowcore's parent_edges target the
+    family-kind genres 'rock' and 'indie/alternative').
+
+    This is the exact shape the report-truthfulness gap hid: non-empty
+    plan.additions, empty added_observed_terms.
+    """
+    from src.ai_genre_enrichment.normalization import make_release_key
+    from src.ai_genre_enrichment.storage import SidecarStore
+
+    with sqlite3.connect(metadata_db) as conn:
+        conn.execute("CREATE TABLE tracks(track_id TEXT, artist TEXT, album TEXT, album_id TEXT, title TEXT, year INTEGER)")
+        conn.execute("CREATE TABLE artist_genres(artist TEXT, genre TEXT, source TEXT)")
+        conn.execute("CREATE TABLE album_genres(album_id TEXT, genre TEXT, source TEXT)")
+        conn.execute("CREATE TABLE track_genres(track_id TEXT, genre TEXT, source TEXT, weight REAL)")
+        conn.execute(
+            "INSERT INTO tracks VALUES ('t2', 'Spiritualized', 'Floating', 'a2', 'Shine A Light', 1997)"
+        )
+
+    release_key = make_release_key("Spiritualized", "Floating")
+    store = SidecarStore(sidecar)
+    store.initialize()
+    store.replace_layered_assignments_for_release(
+        release_id=release_key,
+        artist="spiritualized",
+        album="floating",
+        genre_assignments=[
+            {
+                "genre_id": "slowcore",
+                "assignment_layer": "observed_leaf",
+                "confidence": 0.9,
+                "source_reliability": 0.70,
+                "evidence_count": 1,
+                "rejected_by_user": False,
+                "provenance": {"basis": "local_metadata+taxonomy", "sources": ["local_metadata"]},
+            },
+        ],
+        facet_assignments=[],
+    )
+    page_id = store.upsert_source_page(
+        release_key=release_key,
+        normalized_artist="spiritualized",
+        normalized_album="floating",
+        album_id="a2",
+        source_url="local://local_metadata/spiritualized/floating",
+        source_type="local_metadata",
+        identity_status="confirmed",
+        identity_confidence=0.95,
+        evidence_summary="local_metadata release tags.",
+    )
+    store.replace_source_tags(page_id, ["slowcore"])
+    store.classify_source_tags(page_id)
+    return release_key, store
+
+
+def test_backfill_publish_dry_run_includes_inferred_only_release(tmp_path: Path):
+    """A release with ZERO new observed-leaf terms but non-empty inferred
+    additions must still show up in the report -- this is the exact gap the
+    report-truthfulness fix closes (previously `continue`d out entirely on
+    `if not plan.added_observed_terms`, invisible even though --apply would
+    still write its inferred rows).
+    """
+    from scripts import ai_genre_enrich
+
+    metadata_db = tmp_path / "metadata.db"
+    sidecar = tmp_path / "sidecar.db"
+    release_key, store = _seed_inferred_only_backfill_fixture(metadata_db, sidecar)
+
+    report_path = tmp_path / "backfill_report.json"
+    rc = ai_genre_enrich.main([
+        "--metadata-db", str(metadata_db),
+        "--sidecar-db", str(sidecar),
+        "backfill-publish",
+        "--report-path", str(report_path),
+    ])
+
+    assert rc == 0
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["releases_affected"] == 1
+    assert report["additions_total"] == 2  # inferred_family: rock + indie/alternative
+    assert report["observed_leaf_additions_total"] == 0
+    # No observed-leaf terms at all, so the eval-sample histograms stay empty.
+    assert report["additions_by_basis"] == {}
+    assert report["additions_by_confidence_band"] == {"<0.45": 0, "0.45-0.7": 0, ">=0.7": 0}
+
+    [release_report] = report["releases"]
+    assert release_report["release_key"] == release_key
+    assert release_report["additions_count"] == 2
+    assert release_report["added_observed_terms"] == []
