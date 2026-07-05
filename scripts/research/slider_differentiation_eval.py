@@ -442,10 +442,37 @@ def sweep_gates(label: str, run_fn, length: int = 30) -> None:
         print(f"  {name:16s} {c.get('n', 0):>3d} {ov:>6.3f} {str(c.get('sonic_mean')):>7} {str(c.get('sonic_worst')):>8} {mt:>6} {c.get('distinct_artists', 0):>7d} {str(c.get('admitted')):>5} {c['wall']:>5}")
 
 
+def sweep_artist_dial(artist: str, dial: str, length: int = 30) -> None:
+    """Placebo-ban acceptance: sweep one GUI dial's detents (combined axes)
+    through the real policy mapping. Spec: 2026-07-04-gui-dials-design.md."""
+    sys.path.insert(0, str(CODE_ROOT))
+    from src.playlist_gui.policy import DIAL_TO_AXES, DIAL_DEFAULTS, resolve_dial_axes
+    detents = list(DIAL_TO_AXES[dial].keys())
+    cells: dict[str, dict[str, Any]] = {}
+    for d in detents:
+        kw = {k: (d if k == dial else DIAL_DEFAULTS[k]) for k in ("range", "flow", "pace")}
+        axes = resolve_dial_axes(kw["range"], kw["flow"], kw["pace"])
+        cells[d] = run_artist_cell(artist, axes["genre_mode"], axes["sonic_mode"],
+                                   axes["pace_mode"], axes["cohesion_mode"], length)
+    base = cells[DIAL_DEFAULTS[dial]].get("track_ids", [])
+    print(f"\n=== DIAL SWEEP  {artist} | {dial} (others=default) ===")
+    print(f"  {'detent':9s} {'n':>3s} {'overlapVdef':>11s} {'minT':>6s} {'admitted':>8s} {'bpmStd':>6s} {'wall':>5s}")
+    for d in detents:
+        c = cells[d]
+        if c.get("err"):
+            print(f"  {d:9s} ERR {c['err'][:70]}")
+            continue
+        ov = jaccard(c.get("track_ids", []), base)
+        mt = c.get("min_transition")
+        mt = f"{mt:.3f}" if isinstance(mt, float) else str(mt)
+        print(f"  {d:9s} {c.get('n', 0):>3d} {ov:>11.3f} {mt:>6} {str(c.get('admitted')):>8} {str(c.get('bpm_std')):>6} {c['wall']:>5}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--artist", default="Codeine")
-    ap.add_argument("--axis", default="genre", choices=["genre", "sonic", "pace", "cohesion"])
+    ap.add_argument("--axis", default="genre",
+                     choices=["genre", "sonic", "pace", "cohesion", "dial-range", "dial-flow", "dial-pace"])
     ap.add_argument("--length", type=int, default=30)
     ap.add_argument("--grid", choices=["artist"], default=None)
     ap.add_argument("--roam", action="store_true", help="Roam-corridor sonic-width sweep (proof-of-life)")
@@ -477,6 +504,8 @@ def main():
         for a in ARTIST_CORPUS:
             for ax in ("genre", "sonic", "pace", "cohesion"):
                 sweep_artist_axis(a, ax, args.length)
+    elif args.axis.startswith("dial-"):
+        sweep_artist_dial(args.artist, args.axis.removeprefix("dial-"), args.length)
     else:
         sweep_artist_axis(args.artist, args.axis, args.length)
 
