@@ -64,7 +64,6 @@ def test_hybrid_fusion_routes_lastfm_only_mapped_terms_to_provisional_capped():
 
     assert report.accepted_genres == []
     assert report.rejected_noise == []
-    assert report.needs_review == []
     [decision] = report.provisional_genres
     assert decision.term == "psychedelic folk"
     assert decision.basis == "lastfm_only"

@@ -142,13 +142,12 @@ def compute_layered_assignment_rows(
     genre_rows: dict[tuple[str, str], dict[str, Any]] = {}
     facet_rows: dict[tuple[str, str], dict[str, Any]] = {}
     rejected_term_count = len(report.rejected_noise)
-    review_term_count = len(report.needs_review)
+    review_term_count = 0
     context_terms = [
         decision.term
         for decision in (
             list(report.accepted_genres)
             + list(report.provisional_genres)
-            + list(report.needs_review)
             + list(report.rejected_noise)
         )
     ]
@@ -248,8 +247,6 @@ def build_layered_release_diagnostics(
         _merge_decision_row(rejected_terms, decision, "hybrid_fusion", taxonomy, context_terms=context_terms)
     for decision in report.provisional_genres:
         _merge_decision_row(review_terms, decision, "hybrid_provisional", taxonomy, context_terms=context_terms)
-    for decision in report.needs_review:
-        _merge_decision_row(review_terms, decision, "hybrid_fusion", taxonomy, context_terms=context_terms)
     for decision in report.accepted_genres:
         row = _decision_row(decision, taxonomy, context_terms=context_terms)
         if row["term_kind"] == "family":

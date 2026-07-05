@@ -262,9 +262,10 @@ def test_hybrid_enrich_one_apply_can_include_provisional_lastfm_terms(tmp_path: 
     # "indie folk" is local+lastfm corroborated (accepted). The lastfm-only
     # terms avant-folk/drone/folk now publish straight into provisional_genres
     # at capped confidence (basis="lastfm_only", <= LASTFM_ONLY_CONFIDENCE_CAP)
-    # under the 2026-07-04 zero-touch M1 always-publish policy flip — they no
-    # longer wait in needs_review. --include-provisional --apply therefore
-    # pulls in all three provisional terms alongside the one accepted term.
+    # under the 2026-07-04 zero-touch M1 always-publish policy flip — the
+    # needs_review bucket no longer exists (Task 2 deleted it). --include-provisional
+    # --apply therefore pulls in all three provisional terms alongside the one
+    # accepted term.
     assert output["applied_count"] == 4
     assert [item["term"] for item in output["accepted_genres"]] == ["indie folk"]
     provisional_terms = {item["term"] for item in output["provisional_genres"]}
@@ -272,7 +273,7 @@ def test_hybrid_enrich_one_apply_can_include_provisional_lastfm_terms(tmp_path: 
     for item in output["provisional_genres"]:
         assert item["basis"] == "lastfm_only"
         assert item["confidence"] <= 0.40
-    assert output["needs_review"] == []
+    assert "needs_review" not in output
 
     with sqlite3.connect(sidecar) as conn:
         genres = [

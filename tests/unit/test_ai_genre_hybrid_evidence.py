@@ -107,7 +107,6 @@ def test_specific_lastfm_only_terms_are_provisional_when_release_evidence_exists
         for item in report.provisional_genres
         if item.term in lastfm_only_terms
     )
-    assert report.needs_review == []
     assert report.rejected_noise == []
 
 
@@ -140,7 +139,6 @@ def test_ai_adjudicated_lastfm_terms_are_handled_at_collection_not_fusion():
         for item in report.provisional_genres
         if item.term in lastfm_only_terms
     )
-    assert report.needs_review == []
 
 
 def test_lastfm_lofi_alias_collapses_to_lo_fi():
@@ -161,7 +159,23 @@ def test_lastfm_lofi_alias_collapses_to_lo_fi():
     lofi_decision = next(d for d in report.provisional_genres if d.term == "lo-fi")
     assert lofi_decision.confidence <= 0.40
     assert lofi_decision.basis == "lastfm_only"
-    assert report.needs_review == []
+
+
+def test_below_bar_evidence_publishes_at_evidence_confidence():
+    # Zero-touch policy (2026-07-04): "mapped but not strong enough" terms
+    # publish at their honest fused confidence instead of queue-blocking.
+    report = fuse_hybrid_evidence(
+        release_key="test::album",
+        evidence=[EvidenceTerm(term="dub techno", source_type="discogs", confidence=0.55)],
+        sparse_release=False,
+    )
+
+    assert report.accepted_genres == []
+    [decision] = report.provisional_genres
+    assert decision.term == "dub techno"
+    assert 0.0 < decision.confidence < 0.72
+    assert "below the corroboration bar" in decision.reason
+    assert not hasattr(report, "needs_review")
 
 
 def test_local_and_model_can_accept_when_no_stronger_conflict():
@@ -384,7 +398,10 @@ def test_classify_bandcamp_source_buckets():
 def test_storefront_bandcamp_does_not_auto_accept_even_with_recycled_acceptance():
     # The published LPVV row had evidence_count=2: the bandcamp page AND the
     # ai_enriched_accepted graduation OF that same page. Neither alone nor
-    # together may they auto-accept.
+    # together may they auto-accept. Zero-touch policy (2026-07-04): the
+    # below-corroboration-bar fallthrough now publishes to
+    # provisional_genres (at the fused evidence confidence) instead of
+    # queue-blocking in the deleted needs_review bucket.
     report = fuse_hybrid_evidence(
         release_key="vv torso::lpvv",
         evidence=[
@@ -395,8 +412,8 @@ def test_storefront_bandcamp_does_not_auto_accept_even_with_recycled_acceptance(
     )
 
     assert all(d.term != "pop" for d in report.accepted_genres)
-    assert all(d.term != "pop" for d in report.provisional_genres)
-    assert any(d.term == "pop" for d in report.needs_review)
+    [pop] = [d for d in report.provisional_genres if d.term == "pop"]
+    assert "below the corroboration bar" in pop.reason
 
 
 def test_ai_enriched_accepted_alone_is_not_strong_evidence():
@@ -409,12 +426,19 @@ def test_ai_enriched_accepted_alone_is_not_strong_evidence():
     )
 
     assert report.accepted_genres == []
-    assert report.provisional_genres == []
+    # Zero-touch policy (2026-07-04): "not strong evidence" still means
+    # never auto-accepted, but it now publishes below-bar into
+    # provisional_genres instead of queue-blocking (deleted needs_review).
+    [decision] = report.provisional_genres
+    assert decision.term == "indie rock"
+    assert "below the corroboration bar" in decision.reason
 
 
 def test_lpvv_regression_local_tags_beat_storefront():
     # Full evidence mix as it exists for vv torso::lpvv, with file tags finally
-    # in the stream: local tags publish, storefront genres wait for review,
+    # in the stream: local tags publish at full confidence, storefront genres
+    # now ALSO publish (zero-touch policy, 2026-07-04 — the below-bar
+    # fallthrough moved from needs_review into provisional_genres), and
     # standalone "indie" stays rejected noise.
     storefront = [
         EvidenceTerm(term=t, source_type="bandcamp_unknown", confidence=0.95)
@@ -437,8 +461,11 @@ def test_lpvv_regression_local_tags_beat_storefront():
         d.term for d in report.provisional_genres
     }
     assert {"hardcore", "post-punk", "punk"} <= published
-    assert "pop" not in published
-    assert "indie rock" not in published
+    # "pop"/"indie rock"/"rock" never reach accepted_genres (storefront tags
+    # alone never auto-accept), but they DO now publish provisionally.
+    assert all(d.term != "pop" for d in report.accepted_genres)
+    assert all(d.term != "indie rock" for d in report.accepted_genres)
+    assert {"pop", "indie rock", "rock"} <= published
     assert any(d.term == "indie" for d in report.rejected_noise)
 
 
@@ -464,7 +491,6 @@ def test_lastfm_only_terms_publish_capped_never_full_weight():
     [baroque] = [d for d in report.provisional_genres if d.term == "baroque"]
     assert baroque.basis == "lastfm_only"
     assert baroque.confidence <= 0.40
-    assert all(d.term != "baroque" for d in report.needs_review)
 
 
 def test_empty_sentinel_terms_are_dropped_from_fusion():
@@ -483,7 +509,6 @@ def test_empty_sentinel_terms_are_dropped_from_fusion():
     all_terms = (
         {d.term for d in report.accepted_genres}
         | {d.term for d in report.provisional_genres}
-        | {d.term for d in report.needs_review}
         | {d.term for d in report.rejected_noise}
     )
     assert "__empty__" not in all_terms

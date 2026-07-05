@@ -2068,7 +2068,6 @@ def cmd_graph_build_assignments(args: argparse.Namespace) -> int:
                     "release_key": release.release_key,
                     "dry_run": True,
                     "accepted_genres": [decision.term for decision in fused_report.accepted_genres],
-                    "needs_review": [decision.term for decision in fused_report.needs_review],
                     "rejected_noise": [decision.term for decision in fused_report.rejected_noise],
                 }
             )

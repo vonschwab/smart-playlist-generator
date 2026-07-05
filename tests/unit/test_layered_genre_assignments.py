@@ -25,7 +25,6 @@ def test_materialize_layered_assignments_observes_leaf_and_infers_parents(tmp_pa
         ],
         provisional_genres=[],
         rejected_noise=[],
-        needs_review=[],
     )
 
     summary = materialize_layered_assignments(
@@ -97,7 +96,6 @@ def test_materialize_layered_assignments_demotes_family_and_facets(tmp_path):
         ],
         provisional_genres=[],
         rejected_noise=[],
-        needs_review=[],
     )
 
     summary = materialize_layered_assignments(
@@ -143,10 +141,23 @@ def test_materialize_layered_assignments_reports_reject_and_review_terms(tmp_pat
     store.initialize()
     taxonomy = load_default_layered_taxonomy()
     store.upsert_layered_taxonomy(taxonomy)
+    # Zero-touch policy (2026-07-04): the fusion-layer needs_review bucket is
+    # gone — "rare wistful kitchen pop" now arrives via provisional_genres
+    # (published at evidence confidence), but it still gets classified as a
+    # taxonomy "review" term by compute_layered_assignment_rows because it is
+    # unknown to the layered taxonomy, so review_term_count is unaffected.
     report = HybridGenreReport(
         release_key="test artist::noise album",
         accepted_genres=[],
-        provisional_genres=[],
+        provisional_genres=[
+            FusedGenreDecision(
+                term="rare wistful kitchen pop",
+                confidence=0.60,
+                basis="model_prior+taxonomy",
+                sources=["model_prior"],
+                reason="Evidence mapped but below the corroboration bar; published at evidence confidence.",
+            )
+        ],
         rejected_noise=[
             FusedGenreDecision(
                 term="spotify",
@@ -154,15 +165,6 @@ def test_materialize_layered_assignments_reports_reject_and_review_terms(tmp_pat
                 basis="lastfm_only",
                 sources=["lastfm_tags"],
                 reason="Known platform tag.",
-            )
-        ],
-        needs_review=[
-            FusedGenreDecision(
-                term="rare wistful kitchen pop",
-                confidence=0.60,
-                basis="model_prior+taxonomy",
-                sources=["model_prior"],
-                reason="Unknown taxonomy term.",
             )
         ],
     )

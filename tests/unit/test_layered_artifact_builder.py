@@ -41,7 +41,6 @@ def test_build_layered_genre_matrices_from_sidecar_assignments(tmp_path):
             ],
             provisional_genres=[],
             rejected_noise=[],
-            needs_review=[],
         ),
         taxonomy=taxonomy,
     )
@@ -63,7 +62,6 @@ def test_build_layered_genre_matrices_from_sidecar_assignments(tmp_path):
             ],
             provisional_genres=[],
             rejected_noise=[],
-            needs_review=[],
         ),
         taxonomy=taxonomy,
     )
@@ -190,7 +188,6 @@ def test_build_ds_artifacts_can_emit_layered_vectors_when_requested(tmp_path):
             ],
             provisional_genres=[],
             rejected_noise=[],
-            needs_review=[],
         ),
         taxonomy=taxonomy,
     )

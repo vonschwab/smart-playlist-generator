@@ -6,7 +6,7 @@ import re
 from dataclasses import asdict, dataclass
 from typing import Literal
 
-DecisionKind = Literal["accepted", "provisional", "rejected_noise", "needs_review"]
+DecisionKind = Literal["accepted", "provisional", "rejected_noise"]
 
 # Trust model (rebalanced 2026-06-12 after the VV Torso/LPVV incident):
 #   - Bandcamp is self-reported ONLY when the artist runs the page
@@ -78,7 +78,6 @@ class HybridGenreReport:
     accepted_genres: list[FusedGenreDecision]
     provisional_genres: list[FusedGenreDecision]
     rejected_noise: list[FusedGenreDecision]
-    needs_review: list[FusedGenreDecision]
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -206,7 +205,6 @@ def fuse_hybrid_evidence(
     accepted: list[FusedGenreDecision] = []
     provisional: list[FusedGenreDecision] = []
     rejected: list[FusedGenreDecision] = []
-    review: list[FusedGenreDecision] = []
 
     for term in sorted(grouped):
         items = grouped[term]
@@ -341,12 +339,12 @@ def fuse_hybrid_evidence(
             ))
             continue
 
-        review.append(FusedGenreDecision(
+        provisional.append(FusedGenreDecision(
             term=term,
             confidence=score,
             basis=_basis(sources),
             sources=sources,
-            reason="Evidence is mapped but not strong enough for automatic acceptance.",
+            reason="Evidence mapped but below the corroboration bar; published at evidence confidence.",
         ))
 
     return HybridGenreReport(
@@ -354,7 +352,6 @@ def fuse_hybrid_evidence(
         accepted_genres=accepted,
         provisional_genres=provisional,
         rejected_noise=rejected,
-        needs_review=review,
     )
 
 

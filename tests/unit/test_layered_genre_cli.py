@@ -300,7 +300,6 @@ def test_graph_build_assignments_output_is_console_encoding_safe(tmp_path, capsy
         "_fuse_hybrid_for_release",
         lambda _store, _release: SimpleNamespace(
             accepted_genres=[SimpleNamespace(term="日本語")],
-            needs_review=[],
             rejected_noise=[],
         ),
     )
