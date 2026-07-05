@@ -13,10 +13,13 @@ Created: Phase 1 of GUI "Just Works" implementation
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set
 
 from .ui_state import UIStateModel
+
+logger = logging.getLogger(__name__)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -62,6 +65,54 @@ This ensures the simplified UI controls take precedence.
 VALID_MODES: Set[str] = {"strict", "narrow", "dynamic", "discover", "off"}
 VALID_PACE_MODES: Set[str] = {"strict", "narrow", "dynamic", "off"}
 VALID_COHESION_MODES: Set[str] = {"strict", "narrow", "dynamic", "discover"}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GUI dials (spec docs/superpowers/specs/2026-07-04-gui-dials-design.md)
+# ─────────────────────────────────────────────────────────────────────────────
+# Single source of truth for the dial -> axis translation. Every detent maps
+# to a grid-verified engine state (slider-differentiation re-eval 2026-07-04).
+# Engine 'off' states for sonic/genre and cohesion 'narrow' / pace 'strict'
+# are deliberately NOT reachable from the GUI (config-only).
+DIAL_DEFAULTS: Dict[str, str] = {"range": "open", "flow": "balanced", "pace": "natural"}
+
+DIAL_TO_AXES: Dict[str, Dict[str, Dict[str, str]]] = {
+    "range": {
+        "home":   {"sonic_mode": "strict",   "genre_mode": "strict"},
+        "close":  {"sonic_mode": "narrow",   "genre_mode": "narrow"},
+        "open":   {"sonic_mode": "dynamic",  "genre_mode": "dynamic"},
+        "wander": {"sonic_mode": "discover", "genre_mode": "discover"},
+    },
+    "flow": {
+        "drift":    {"cohesion_mode": "discover"},  # pure-T beam: smoothest joins
+        "balanced": {"cohesion_mode": "dynamic"},
+        "journey":  {"cohesion_mode": "strict"},    # destination-committed arc
+    },
+    "pace": {
+        "steady":  {"pace_mode": "narrow"},  # over strict: same discipline, lower crater risk
+        "natural": {"pace_mode": "dynamic"},
+        "free":    {"pace_mode": "off"},
+    },
+}
+
+
+def resolve_dial_axes(
+    range_dial: Optional[str], flow_dial: Optional[str], pace_dial: Optional[str]
+) -> Dict[str, str]:
+    """Translate the three GUI dials into the four engine axis modes.
+
+    Unknown/None detents fall back to the dial's default LOUDLY — a dial
+    position must never be a silent no-op (Langer/placebo-control rule).
+    """
+    axes: Dict[str, str] = {}
+    for dial, value in (("range", range_dial), ("flow", flow_dial), ("pace", pace_dial)):
+        detents = DIAL_TO_AXES[dial]
+        v = str(value).strip().lower() if value else DIAL_DEFAULTS[dial]
+        if v not in detents:
+            logger.warning("Unknown %s dial detent %r; using %r", dial, value, DIAL_DEFAULTS[dial])
+            v = DIAL_DEFAULTS[dial]
+        axes.update(detents[v])
+    return axes
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Artist spacing mapping
