@@ -45,4 +45,19 @@ def test_unknown_detent_falls_back_to_default_loudly(caplog):
     with caplog.at_level(logging.WARNING):
         axes = resolve_dial_axes("bogus", None, None)
     assert axes["sonic_mode"] == "dynamic" and axes["genre_mode"] == "dynamic"
+    assert axes["cohesion_mode"] == "dynamic"
+    assert axes["pace_mode"] == "dynamic"
     assert any("bogus" in r.message for r in caplog.records)
+
+
+def test_none_input_defaults_silently_no_warning(caplog):
+    import logging
+    with caplog.at_level(logging.WARNING):
+        axes = resolve_dial_axes(None, None, None)
+    assert axes == {
+        "cohesion_mode": "dynamic",
+        "genre_mode": "dynamic",
+        "sonic_mode": "dynamic",
+        "pace_mode": "dynamic",
+    }
+    assert caplog.records == []

@@ -100,8 +100,10 @@ def resolve_dial_axes(
 ) -> Dict[str, str]:
     """Translate the three GUI dials into the four engine axis modes.
 
-    Unknown/None detents fall back to the dial's default LOUDLY — a dial
-    position must never be a silent no-op (Langer/placebo-control rule).
+    An unrecognized detent value falls back to the dial's default with a
+    logged warning — a dial position must never be a silent no-op
+    (Langer/placebo-control rule). A None/absent dial silently uses the
+    default; that means "no dial sent" and is not a warning-worthy event.
     """
     axes: Dict[str, str] = {}
     for dial, value in (("range", range_dial), ("flow", flow_dial), ("pace", pace_dial)):
