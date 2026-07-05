@@ -1,7 +1,13 @@
 """Compose the per-generation receipt (GUI dials spec 2026-07-04).
 
 Honor + confess: numbers come only from stats the run actually produced;
-notes state every limitation/intervention explicitly, in dial vocabulary.
+notes state limitations/interventions explicitly, in dial vocabulary.
+
+Confessed today: relaxation cascade, genre-rescue, sparse tempo data, and
+post-build seam repair. NOT YET confessed (tracked fast-follow, not
+implemented here): pier-veto (an unbridgeable pier was dropped/replaced)
+and the beatless-seed tempo-limit. Until those land, an empty `notes`
+list does not mean "nothing was touched" for those two triggers.
 """
 from __future__ import annotations
 
@@ -44,6 +50,15 @@ def compose_receipt(playlist_stats: dict, pool_stats: dict) -> dict:
     n, total = _i(bpm.get("n")), _i(bpm.get("total"))
     if n is not None and total and n < total / 2:
         notes.append(f"tempo data sparse ({n}/{total} tracks) — Pace applied where possible")
+    # NOTE: the exact phrase below is provisional copy — product owner
+    # finalizes wording later.
+    swap_log = playlist_stats.get("edge_repair_swap_log") or []
+    n_repairs = sum(1 for e in swap_log if isinstance(e, dict) and "new_idx" in e)
+    if playlist_stats.get("repair_applied") or n_repairs:
+        if n_repairs > 0:
+            notes.append(f"smoothed {n_repairs} rough transition{'s' if n_repairs != 1 else ''} after building")
+        else:
+            notes.append("smoothed a rough transition after building")
 
     return {
         "range": {"pool": _i(pool_stats.get("admitted")), "considered": _i(pool_stats.get("considered"))},

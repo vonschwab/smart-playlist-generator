@@ -47,6 +47,21 @@ def test_missing_stats_degrade_to_none_not_crash():
     assert isinstance(r["notes"], list)
 
 
+def test_repair_confession_fires_and_stays_listener_vocab():
+    stats = _stats(
+        repair_applied=True,
+        edge_repair_swap_log=[{"new_idx": 5, "old_idx": 5}, {"new_idx": 9, "old_idx": 9}],
+    )
+    r = compose_receipt(stats, {"admitted": 445, "considered": 1700, "genre_rescued": 0})
+    assert any("2" in n and "smoothed" in n for n in r["notes"])
+    blob = " ".join(r["notes"]).lower()
+    for term in ("edge repair", "tail", "swap", "bridge", "new_idx"):
+        assert term not in blob
+    # No repair -> no smoothing note (guard against false-firing).
+    r_no_repair = compose_receipt(_stats(), {"admitted": 445, "considered": 1700, "genre_rescued": 0})
+    assert not any("smoothed" in n for n in r_no_repair["notes"])
+
+
 def test_internal_warnings_never_leak_engine_terms():
     stats = _stats(warnings=[
         {"type": "genre_missing", "message": "IDF enabled but X_genre_raw missing"},
