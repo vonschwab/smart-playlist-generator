@@ -1478,10 +1478,13 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
 
                     # Per-generation receipt (GUI dials, 2026-07-04): compact
                     # honor+confess summary composed from this run's own stats.
-                    from src.playlist_gui.receipt import compose_receipt
-                    _pstats = (ds_report.get("playlist_stats") or {}).get("playlist", {}) or {}
-                    playlist_result["receipt"] = compose_receipt(
-                        _pstats, _pstats.get("receipt_pool") or {})
+                    try:
+                        from src.playlist_gui.receipt import compose_receipt
+                        _pstats = (ds_report.get("playlist_stats") or {}).get("playlist", {}) or {}
+                        playlist_result["receipt"] = compose_receipt(
+                            _pstats, _pstats.get("receipt_pool") or {})
+                    except Exception as exc:
+                        emit_log("WARNING", f"Receipt composition failed: {exc}")
 
                 try:
                     _populate_last_generation_cache(

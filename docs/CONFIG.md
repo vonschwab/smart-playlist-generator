@@ -147,6 +147,14 @@ default. **Only the web GUI path routes mode strings through the policy layer**
 test/harness that bypasses policy will see modes as inert — the `playlist-testing` skill's
 "mirror real use case" rule exists because of this trap.
 
+**GUI dial layer (2026-07-04).** The browser GUI doesn't expose these four axis strings
+directly — it exposes three intent dials, Range / Flow / Pace, which compile down to the four
+engine axis modes via `src/playlist_gui/policy.py::DIAL_TO_AXES` (`resolve_dial_axes`). Range
+drives `sonic_mode` + `genre_mode` together, Flow drives `cohesion_mode`, and the dial named
+Pace drives `pace_mode`. The dials are GUI-only — there is no `config.yaml` key or CLI flag for
+them; `config.yaml` and the CLI keep speaking the raw axis vocabulary (`strict` / `narrow` /
+`dynamic` / `discover` / `off`) documented above.
+
 ---
 
 ## `playlists.ds_pipeline`
