@@ -110,20 +110,29 @@ one is genuinely missing. This part is confirmation, not new machinery.
 
 ### Part C — Per-run saved + rotated analyze logs (mirror playlists)
 
-**`src/logging_utils.py`** — add, mirroring the playlist trio:
+**Implementation note (refined during planning):** analyze does not need the playlist
+contextmanager. Unlike generation — which runs many times inside one long-lived worker that
+configured logging once at startup, hence a per-request attach/detach handler — `run_pipeline`
+calls `configure_logging(...)` *fresh every invocation*, and that call already installs a DEBUG
+`FileHandler` tagged `_HANDLER_TAG` which is torn down and replaced on the next call
+(`src/logging_utils.py:129-168`). So its file handler is **already per-run in lifecycle**; only
+its *path* is fixed. The clean fix is therefore to compute a per-run path and hand it to
+`configure_logging`, plus add rotation — no parallel handler mechanism. (Reconfiguring is safe
+for the GUI: `configure_logging` only removes handlers tagged `_HANDLER_TAG`, and the worker's
+`WorkerLogHandler` is untagged, so GUI log forwarding survives — `worker.py:413-416`.)
+
+**`src/logging_utils.py`** — add:
 - `analyze_log_dir() -> Path` → `<repo_root>/logs/analyze` (ROOT-anchored, cwd-independent).
 - `make_analyze_log_path(run_id, *, dir=None) -> Path` →
   `<dir>/<YYYY-MM-DD_HHMMSS>_<run_id[:6]>.log`.
-- `analyze_log_file(run_id, *, enabled=True, dir=None, level=logging.DEBUG)` — a
-  `@contextmanager` that attaches a DEBUG `FileHandler` (with the run-id filter/format used
-  by playlist logs) to the root logger for the duration of the run, then detaches/closes.
-  When disabled, yields `None` and attaches nothing. Never raises out of setup/teardown.
 - `cleanup_old_analyze_logs(dir=None, retention_days=30)` + `cleanup_old_analyze_logs_async`
-  — delete `*.log` older than `retention_days`; never raise. (Same body as the playlist
-  cleanup; consider a shared private helper to avoid duplication.)
+  — delete `*.log` older than `retention_days`; never raise. Extract the shared body of this
+  and `cleanup_old_playlist_logs` into a private `_cleanup_logs_older_than(base_dir,
+  retention_days)` (DRY) with identical behavior, so the playlist cleanup tests stay green.
 
-**Config** — new block, resolved like `_playlist_log_settings`
-(`main_app.py:522-529`), defaults shown:
+**Config** — new block, resolved by a new `_analyze_log_settings(config)` helper in
+`scripts/analyze_library.py` mirroring `_playlist_log_settings` (`main_app.py:522-532`),
+returning `(enabled, dir, retention_days, level_name)`; defaults shown:
 ```yaml
 logging:
   analyze_logs:
@@ -135,16 +144,17 @@ logging:
 Document these in `config.example.yaml` alongside `playlist_logs`.
 
 **Wiring — `scripts/analyze_library.py::run_pipeline`:**
-- After `run_id` is assigned and config is loaded, resolve the `analyze_logs` settings, kick
-  `cleanup_old_analyze_logs_async(...)` once, and wrap the stage-execution loop in
-  `with analyze_log_file(run_id, enabled=..., dir=..., level=...):`.
+- Load `cfg = Config(args.config)` just *before* `configure_logging` (a small, safe reorder;
+  nothing between the two currently uses `cfg`), resolve `analyze_logs` settings, and:
+  - if `args.log_file` is explicitly set, honor it (unchanged — existing tests pass `--log-file`);
+  - else if `analyze_logs.enabled`, set `log_file = make_analyze_log_path(run_id,
+    dir=<configured dir>)`; else `log_file = None`.
+- Pass the resolved `log_file` to `configure_logging` and pass `file_level=analyze_logs.level`.
+- Kick `cleanup_old_analyze_logs_async(dir=<configured dir>, retention_days=<configured>)` once.
 - This covers **both** entry points, because the GUI worker calls `run_pipeline` directly
   (`src/playlist_gui/worker.py:1907`).
-- Remove the fixed `logs/analyze_library.log` path (`:2552`): call `configure_logging`
-  with `log_file=None` (console handler only), so the **per-run DEBUG file from
-  `analyze_log_file` is the sole file sink** — the same split playlists use (base config =
-  console; per-run file attached separately). Preserve the existing `--log-file` CLI
-  override: if the user passes one explicitly, honor it as before instead of `None`.
+- Net effect: the fixed ever-growing `logs/analyze_library.log` is gone; each run writes a
+  distinct `logs/analyze/<ts>_<run_id6>.log`; console output is unchanged.
 
 ---
 
@@ -181,7 +191,7 @@ Document these in `config.example.yaml` alongside `playlist_logs`.
 | File | Change |
 |------|--------|
 | `src/analyze/muq_runner.py` | `run_muq_extraction` accepts optional `progress`; `.update()`/`.finish()` |
-| `scripts/analyze_library.py` | `stage_muq` builds+passes reporter, logs model-load time; `run_pipeline` wraps loop in per-run log + cleanup, drops fixed log path; Part B "starting" lines if missing |
-| `src/logging_utils.py` | `analyze_log_dir` / `make_analyze_log_path` / `analyze_log_file` / `cleanup_old_analyze_logs(_async)` |
+| `scripts/analyze_library.py` | `stage_muq` builds+passes reporter, logs model-load time; `_analyze_log_settings` helper; `run_pipeline` computes per-run `log_file` + kicks cleanup, drops fixed log path; Part B "starting" lines if missing |
+| `src/logging_utils.py` | `analyze_log_dir` / `make_analyze_log_path` / `cleanup_old_analyze_logs(_async)` + shared `_cleanup_logs_older_than` |
 | `config.example.yaml` | document `logging.analyze_logs.*` |
 | `tests/unit/` | reporter wiring, path shape, cleanup, contextmanager |
