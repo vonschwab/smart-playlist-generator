@@ -23,6 +23,8 @@ DENIED_IN_SATELLITE = [
     "python scripts/fold_2dftm_into_artifact.py",
     "python -m src.analyze.muq_runner --extract",
     "python scripts/scan_library.py",
+    "python src/analyze/muq_runner.py",
+    "cd /d C:\\x && python scripts/analyze_library.py",  # compound: python segment triggers
 ]
 
 ALWAYS_ALLOWED = [
@@ -31,6 +33,18 @@ ALWAYS_ALLOWED = [
     "python tools/serve_web.py --port 8771",
     "python tools/doctor.py",
     "git status",
+]
+
+# Commands that merely MENTION a data-writer filename — test runs and
+# read-only git/cat — must NEVER be denied, in either workspace. These are
+# the false positives the anchored, execution-aware detection eliminates.
+MENTIONS_ALLOWED = [
+    "pytest tests/unit/test_muq_runner.py",
+    "python -m pytest tests/unit/test_muq_runner.py",
+    "python -m pytest tests/unit/test_fold_2dftm.py",
+    "git show HEAD -- scripts/analyze_library.py",
+    "git log -- scripts/scan_library.py",
+    "cat scripts/fold_muq_into_artifact.py",
 ]
 
 
@@ -47,6 +61,18 @@ def test_data_writers_allowed_in_canonical():
 def test_other_commands_allowed_everywhere():
     for cmd in ALWAYS_ALLOWED:
         assert hook.command_denied(cmd, satellite=True) is None, cmd
+        assert hook.command_denied(cmd, satellite=False) is None, cmd
+
+
+def test_mentions_not_denied_in_satellite():
+    # A data-writer filename mentioned by a test run or read-only tool is not
+    # an execution of that writer — never deny it, even in a satellite.
+    for cmd in MENTIONS_ALLOWED:
+        assert hook.command_denied(cmd, satellite=True) is None, cmd
+
+
+def test_mentions_allowed_in_canonical():
+    for cmd in MENTIONS_ALLOWED:
         assert hook.command_denied(cmd, satellite=False) is None, cmd
 
 
