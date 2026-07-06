@@ -7,16 +7,14 @@
     "golden_track_0052",
     "golden_track_0077",
     "golden_track_0042",
-    "golden_track_0046",
-    "golden_track_0015",
-    "golden_track_0071"
+    "golden_track_0078"
   ],
-  "track_count": 10,
+  "track_count": 8,
   "metrics": {
-    "mean_transition": 0.4731931008153089,
-    "min_transition": 6.5722883738348e-05,
+    "mean_transition": 0.06552602167718068,
+    "min_transition": 0.011217204087028858,
     "artist_diversity": 1.0,
-    "unique_artists": 10
+    "unique_artists": 8
   },
   "mode": "discover",
   "seed_info": {

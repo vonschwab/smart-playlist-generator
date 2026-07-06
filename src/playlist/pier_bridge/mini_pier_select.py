@@ -68,11 +68,20 @@ def plan_pier_sequence(
     k_broad: int,
     exclude_base: frozenset[int] = frozenset(),
     max_waypoints: int = 8,
+    balance_gaps: bool = False,
 ) -> list[int]:
     """Greedily split the longest segment (by even-split interior) by inserting a
     waypoint between its two piers, until every segment's interior <= max_interior,
     no feasible waypoint remains, or max_waypoints is reached. Returns the augmented
-    pier list; identical to ordered_seeds when nothing needs splitting."""
+    pier list; identical to ordered_seeds when nothing needs splitting.
+
+    ``balance_gaps`` (option 2): once subdivision has begun, keep inserting until
+    every ORIGINAL seed-gap holds the SAME number of waypoints, so the seed anchors
+    stay evenly spaced. Without it, W waypoints over M gaps (W not a multiple of M)
+    leaves the trailing gap(s) unsplit and the seed anchors bunch at the end -- e.g.
+    4 piers / 30 tracks needs 2 waypoints to hit interior<=5, both land in the first
+    two gaps, and the last two anchors sit ~5 apart while the rest are ~12 apart.
+    Balancing tops that up to 3 waypoints (one per gap) so anchors land ~evenly."""
     piers = [int(s) for s in ordered_seeds]
     used = set(piers) | {int(e) for e in exclude_base}
     num_seed_gaps = len(piers) - 1
@@ -86,7 +95,12 @@ def plan_pier_sequence(
         if num_seg < 1 or interior < 1:
             break
         lengths = _even_split_lengths(interior, num_seg)
-        if int(max(lengths)) <= int(max_interior):
+        satisfied = int(max(lengths)) <= int(max_interior)
+        # With balancing on, "done" also requires every seed-gap to hold an equal
+        # waypoint count -- otherwise the trailing gap stays a single long segment
+        # and the anchors bunch. With it off, behaviour is unchanged (byte-identical).
+        balanced = (not balance_gaps) or (min(wp_per_gap) == max(wp_per_gap))
+        if satisfied and balanced:
             break
         # Round-robin across ORIGIN seed-gaps: split the gap with the fewest waypoints
         # so far (ties -> leftmost). Even-split makes every sub-segment ~equal length
@@ -97,7 +111,18 @@ def plan_pier_sequence(
         # segments look "over-long" and waypoints re-concentrate there (the bug found
         # in review). `max(lengths)` above is the stop condition; selection ranges over
         # ALL segments.
-        order = sorted(range(num_seg), key=lambda i: (wp_per_gap[seg_gap[i]], i))
+        # When the interior target is already met and we're only balancing, restrict
+        # the split to the under-served gaps so we top them up to the max count
+        # without over-inserting into gaps that are already deep enough.
+        if balance_gaps and satisfied:
+            target = max(wp_per_gap)
+            eligible = {g for g in range(num_seed_gaps) if wp_per_gap[g] < target}
+        else:
+            eligible = set(range(num_seed_gaps))
+        order = sorted(
+            (i for i in range(num_seg) if seg_gap[i] in eligible),
+            key=lambda i: (wp_per_gap[seg_gap[i]], i),
+        )
         seg = wp = None
         for i in order:
             cand = select_waypoint(

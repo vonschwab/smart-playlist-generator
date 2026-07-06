@@ -288,6 +288,10 @@ playlists:
       mini_pier_enabled: true
       mini_pier_max_interior: 5
       mini_pier_smoothness_margin: 0.12
+      # Even anchor spacing (live default 2026-07-06): when mini-piers subdivide, equalize
+      # waypoints across every seed-gap so anchors stay evenly spaced (else the trailing
+      # anchors bunch). Costs one extra pinned waypoint. Set false to roll back.
+      mini_pier_balance_gaps: true
       # Tail-DP segment endgame (spec 2026-07-02, live default ON): after each
       # segment's beam+var-bridge finalizes, re-open the last min(2, interior)
       # slots and exactly maximize the window min-edge over the segment pool

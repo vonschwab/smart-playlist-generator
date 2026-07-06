@@ -110,6 +110,12 @@ class PierBridgeConfig:
     mini_pier_enabled: bool = False
     mini_pier_max_interior: int = 5        # split any segment whose interior exceeds K
     mini_pier_smoothness_margin: float = 0.12
+    # Even anchor spacing (live default 2026-07-06): when subdividing at all,
+    # equalize the waypoint count across every seed-gap so the seed anchors stay
+    # evenly spaced. Without it, W waypoints over M gaps (W not a multiple of M)
+    # leave the trailing gap unsplit and the last anchors bunch (4 piers / 30
+    # tracks -> gaps 12/12/5; balanced -> 10/10/9). false = rollback (may bunch).
+    mini_pier_balance_gaps: bool = True
     # Tail-DP segment endgame (spec 2026-07-02; live default ON). After each
     # segment's beam+var-bridge finalizes segment_path, re-opens the last
     # min(2, interior) slots and exactly maximizes the window min-edge over the

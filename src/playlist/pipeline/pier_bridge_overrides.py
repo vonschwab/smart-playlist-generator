@@ -114,6 +114,8 @@ def apply_pier_bridge_overrides(
         pb_cfg = replace(pb_cfg, seed_character_mode=str(pb_overrides.get("seed_character_mode")))
     if isinstance(pb_overrides.get("mini_pier_enabled"), bool):
         pb_cfg = replace(pb_cfg, mini_pier_enabled=bool(pb_overrides.get("mini_pier_enabled")))
+    if isinstance(pb_overrides.get("mini_pier_balance_gaps"), bool):
+        pb_cfg = replace(pb_cfg, mini_pier_balance_gaps=bool(pb_overrides.get("mini_pier_balance_gaps")))
     for _k, _cast in (("variable_bridge_flex", int),
                       ("variable_bridge_min_edge", float), ("variable_bridge_epsilon", float),
                       ("variable_bridge_max_flex_segments", int),

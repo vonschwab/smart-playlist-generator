@@ -876,6 +876,7 @@ def build_pier_bridge_playlist(
                 # Primary terminators are "interior ≤ K" and "no feasible waypoint";
                 # this cap rarely binds in practice.
                 max_waypoints=max(0, total_tracks // 4),
+                balance_gaps=bool(getattr(cfg, "mini_pier_balance_gaps", False)),
             )
             logger.info("Mini-piers: %d waypoint(s) inserted (piers now %d)",
                         len(ordered_seeds) - num_seeds, len(ordered_seeds))

@@ -15,11 +15,15 @@ def _gen(mini_pier: bool):
     ui = gui_ui_state(cohesion_mode="dynamic", genre_mode="dynamic",
                       sonic_mode="dynamic", pace_mode="dynamic")
     ov = resolve_gui_overrides(ui)
+    # Explicitly force enabled on/off: config.yaml ships mini_pier_enabled=true, so the
+    # off arm MUST override it to false, otherwise "off" is really just a different
+    # max_interior. (With balance_gaps=True the live default, max_interior=5 tops up to
+    # the same waypoint count as 4, so a 5-vs-4 comparison no longer differs.)
+    pb = dict(ov.get("pier_bridge", {}) or {})
+    pb["mini_pier_enabled"] = bool(mini_pier)
     if mini_pier:
-        pb = dict(ov.get("pier_bridge", {}) or {})
-        pb["mini_pier_enabled"] = True
         pb["mini_pier_max_interior"] = 4
-        ov = {**ov, "pier_bridge": pb}
+    ov = {**ov, "pier_bridge": pb}
     gp = resolve_gui_genre_params(ui)
     b = load_artifact_bundle(str(ART))
     seeds = [s for s in SEEDS if s in b.track_id_to_index]
