@@ -86,8 +86,19 @@ export function GenerateControls({
 }) {
   const [seed, setSeed] = useLocalStorage("pg_seed_text", "");
   const [tracks, setTracks] = useLocalStorage("pg_tracks", 30);
-  const DIAL_DEFAULTS = { range: "open", flow: "balanced", pace: "natural" } as const;
-  const [dials, setDials] = useLocalStorage<Record<string, string>>("pg_dials", { ...DIAL_DEFAULTS });
+  const DIAL_DEFAULTS = { range: "open", flow: "normal", pace: "natural" } as const;
+  // Forward-migrate dial values saved before the 2026-07-06 Flow/Pace rename so a
+  // stale localStorage entry can't silently no-op or leave a detent un-highlighted.
+  const DIAL_ALIASES: Record<string, string> = {
+    drift: "smooth", balanced: "normal", journey: "normal", steady: "locked_in",
+  };
+  const [dialsRaw, setDials] = useLocalStorage<Record<string, string>>("pg_dials", { ...DIAL_DEFAULTS });
+  const mig = (v: string | undefined, def: string) => (v ? DIAL_ALIASES[v] ?? v : def);
+  const dials = {
+    range: mig(dialsRaw.range, DIAL_DEFAULTS.range),
+    flow: mig(dialsRaw.flow, DIAL_DEFAULTS.flow),
+    pace: mig(dialsRaw.pace, DIAL_DEFAULTS.pace),
+  };
   const dialsOffDefault =
     dials.range !== DIAL_DEFAULTS.range || dials.flow !== DIAL_DEFAULTS.flow || dials.pace !== DIAL_DEFAULTS.pace;
 
@@ -419,13 +430,12 @@ export function GenerateControls({
             ]} />
         </Cell>
         <Cell>
-          <Lbl title="How the playlist moves.">flow</Lbl>
+          <Lbl title="How smoothly one track flows into the next.">flow</Lbl>
           <Segmented value={dials.flow} offDefault={dials.flow !== DIAL_DEFAULTS.flow}
             onChange={(v) => setDials({ ...dials, flow: v })}
             options={[
-              { v: "drift", label: "Drift", tip: "Glides join-to-join — goes wherever smooth leads." },
-              { v: "balanced", label: "Balanced", tip: "Default blend of smooth joins and direction (default)." },
-              { v: "journey", label: "Journey", tip: "Marches seed to seed — shape over silkiness." },
+              { v: "normal", label: "Normal", tip: "The usual mix of smooth joins and momentum (default)." },
+              { v: "smooth", label: "Smooth", tip: "The gentlest possible track-to-track joins." },
             ]} />
         </Cell>
         <Cell>
@@ -433,7 +443,7 @@ export function GenerateControls({
           <Segmented value={dials.pace} offDefault={dials.pace !== DIAL_DEFAULTS.pace}
             onChange={(v) => setDials({ ...dials, pace: v })}
             options={[
-              { v: "steady", label: "Steady", tip: "Hold the seed's tempo and groove." },
+              { v: "locked_in", label: "Locked-In", tip: "Hold the seed's tempo and groove tightly." },
               { v: "natural", label: "Natural", tip: "Gentle tempo anchoring (default)." },
               { v: "free", label: "Free", tip: "No tempo constraint." },
             ]} />

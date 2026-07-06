@@ -1,8 +1,8 @@
 export type Mode = "artist" | "genre" | "seeds" | "history";
 
 export type RangeDial = "home" | "close" | "open" | "wander";
-export type FlowDial = "drift" | "balanced" | "journey";
-export type PaceDial = "steady" | "natural" | "free";
+export type FlowDial = "normal" | "smooth";
+export type PaceDial = "locked_in" | "natural" | "free";
 
 export interface GenerateRequestBody {
   mode: Mode;

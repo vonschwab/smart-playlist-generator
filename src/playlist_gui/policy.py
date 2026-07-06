@@ -71,9 +71,13 @@ VALID_COHESION_MODES: Set[str] = {"strict", "narrow", "dynamic", "discover"}
 # ─────────────────────────────────────────────────────────────────────────────
 # Single source of truth for the dial -> axis translation. Every detent maps
 # to a grid-verified engine state (slider-differentiation re-eval 2026-07-04).
-# Engine 'off' states for sonic/genre and cohesion 'narrow' / pace 'strict'
-# are deliberately NOT reachable from the GUI (config-only).
-DIAL_DEFAULTS: Dict[str, str] = {"range": "open", "flow": "balanced", "pace": "natural"}
+# Engine 'off' states for sonic/genre, cohesion 'narrow'/'strict', and pace 'strict'
+# are deliberately NOT reachable from the GUI (config-only). cohesion 'strict' (the
+# former Flow "Journey") was pulled 2026-07-06: on tested seeds it gave no measurable
+# benefit over Normal/Smooth (same coverage/variety, only rougher seams) AND it
+# hot-loops on spread-out seeds. Flow is now a two-position smoothness control; reach
+# strict via config (playlists.cohesion_mode) only. See the 2026-07-06 spec amendment.
+DIAL_DEFAULTS: Dict[str, str] = {"range": "open", "flow": "normal", "pace": "natural"}
 
 DIAL_TO_AXES: Dict[str, Dict[str, Dict[str, str]]] = {
     "range": {
@@ -83,14 +87,13 @@ DIAL_TO_AXES: Dict[str, Dict[str, Dict[str, str]]] = {
         "wander": {"sonic_mode": "discover", "genre_mode": "discover"},
     },
     "flow": {
-        "drift":    {"cohesion_mode": "discover"},  # pure-T beam: smoothest joins
-        "balanced": {"cohesion_mode": "dynamic"},
-        "journey":  {"cohesion_mode": "strict"},    # destination-committed arc
+        "normal": {"cohesion_mode": "dynamic"},     # default blend
+        "smooth": {"cohesion_mode": "discover"},    # pure-T beam: smoothest joins
     },
     "pace": {
-        "steady":  {"pace_mode": "narrow"},  # over strict: same discipline, lower crater risk
-        "natural": {"pace_mode": "dynamic"},
-        "free":    {"pace_mode": "off"},
+        "locked_in": {"pace_mode": "narrow"},  # over strict: same discipline, lower crater risk
+        "natural":   {"pace_mode": "dynamic"},
+        "free":      {"pace_mode": "off"},
     },
 }
 

@@ -6,7 +6,7 @@ from src.playlist_web.schemas import GenerateRequestBody
 
 def test_request_body_carries_dials_not_axes():
     body = GenerateRequestBody(mode="artist", artist="Codeine",
-                               range_dial="close", flow_dial="drift", pace_dial="steady")
+                               range_dial="close", flow_dial="smooth", pace_dial="locked_in")
     assert not hasattr(body, "cohesion_mode")
     assert not hasattr(body, "genre_mode")
     axes = resolve_dial_axes(body.range_dial, body.flow_dial, body.pace_dial)

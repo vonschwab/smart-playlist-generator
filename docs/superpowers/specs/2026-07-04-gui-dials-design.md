@@ -78,29 +78,54 @@ Compiles `sonic_mode` + `genre_mode` jointly (pool width).
 
 `off` states are debug-only (config), not on the dial.
 
-### Flow — "how the playlist moves"
+### Flow — "how smoothly one track flows into the next"
 Compiles `cohesion_mode` (beam objective: bridge-progress weight vs pure
-transition quality).
+transition quality). **Two-position smoothness control** (amended 2026-07-06).
 
 | Detent | cohesion_mode | Meaning |
 |---|---|---|
-| Drift | discover | pure-T beam (weight_transition=1.0): glides join-to-join, goes wherever smooth leads; best worst-edge on 4/6 artists |
-| **Balanced** (default) | dynamic | current default blend |
-| Journey | strict | destination-committed: each step advances seed→seed, accepts seams for shape |
+| **Normal** (default) | dynamic | the usual blend of smooth joins and momentum |
+| Smooth | discover | pure-T beam (weight_transition=1.0): the gentlest possible track-to-track joins |
 
-`narrow` dropped from GUI (JND collapse; config-only).
+`narrow` and `strict` are config-only. `strict` (the former "Journey") was pulled
+2026-07-06 — see the amendment below.
 
 ### Pace — "tempo discipline"
 Compiles `pace_mode`.
 
 | Detent | pace_mode | Note |
 |---|---|---|
-| Steady | narrow | chosen over strict: near-identical BPM compression, lower crater risk (Codeine minT 0.177 vs 0.063); strict = config-only |
+| Locked-In | narrow | chosen over strict: near-identical BPM compression, lower crater risk (Codeine minT 0.177 vs 0.063); strict = config-only. Renamed from "Steady" 2026-07-06. |
 | **Natural** (default) | dynamic | baseline |
 | Free | off | no tempo constraint; receipt's seam number covers floor dips |
 
 Dial + detent words are the single vocabulary for tooltips, receipt, and any
 future explanations. Engine terms never appear in the GUI.
+
+## Amendment 2026-07-06 — Flow collapsed to 2 detents; Pace "Steady" → "Locked-In"
+
+Dylan couldn't tell what Flow's detents meant even with the tooltips. Investigation
+(harness A/B on two seed sets, engine edge-scorer + coverage metrics) showed the
+three-way "smooth ↔ directed arc" tradeoff the dial was designed around does not
+materialize:
+
+- **Tight seeds (4× Helado Negro):** across Drift/Balanced/Journey, only *seam
+  smoothness* moved monotonically (min-T 0.48 → 0.37 → 0.33). Sonic coverage (~0.68),
+  genre variety, distinct-artist count, and a net/path "directedness" ratio (~0.15)
+  were all flat. Journey bought **rougher seams for no measurable payoff**.
+- **Spread seeds (Yo La Tengo / Jonny Nash / Helado Negro / Andy Shauf):** Drift and
+  Balanced generate fine; **Journey (`strict`) hot-loops** — ran ~60 min at 98% of one
+  core before being killed, reproducibly times out. (Pre-existing bug, independent of
+  the mini-pier even-spacing change — confirmed by reproducing with that off.)
+
+So `strict`/"Journey" was pulled from the GUI (config-only, like `narrow`). Flow is now
+**Normal / Smooth** — an honest smoothness control. Pace "Steady" → "Locked-In" (clearer
+that it *tightens* tempo). Old saved dial values migrate forward in the GUI
+(`drift→smooth`, `balanced→normal`, `journey→normal`, `steady→locked_in`); unknown
+detents still fall back to default with a warning (Langer/placebo rule).
+
+**Follow-up (separate task):** fix or budget-guard the `strict`-mode hang so it can't
+wedge for an hour (candidate: `generation_budget_s`).
 
 ## The receipt line
 

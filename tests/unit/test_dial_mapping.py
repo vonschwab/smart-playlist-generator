@@ -12,10 +12,12 @@ def test_every_detent_maps_to_exact_axis_values():
     assert DIAL_TO_AXES["range"]["close"] == {"sonic_mode": "narrow", "genre_mode": "narrow"}
     assert DIAL_TO_AXES["range"]["open"] == {"sonic_mode": "dynamic", "genre_mode": "dynamic"}
     assert DIAL_TO_AXES["range"]["wander"] == {"sonic_mode": "discover", "genre_mode": "discover"}
-    assert DIAL_TO_AXES["flow"]["drift"] == {"cohesion_mode": "discover"}
-    assert DIAL_TO_AXES["flow"]["balanced"] == {"cohesion_mode": "dynamic"}
-    assert DIAL_TO_AXES["flow"]["journey"] == {"cohesion_mode": "strict"}
-    assert DIAL_TO_AXES["pace"]["steady"] == {"pace_mode": "narrow"}
+    assert DIAL_TO_AXES["flow"]["normal"] == {"cohesion_mode": "dynamic"}
+    assert DIAL_TO_AXES["flow"]["smooth"] == {"cohesion_mode": "discover"}
+    # cohesion 'strict' (former "Journey") pulled from the GUI 2026-07-06; config-only.
+    assert "journey" not in DIAL_TO_AXES["flow"]
+    assert "strict" not in {next(iter(v.values())) for v in DIAL_TO_AXES["flow"].values()}
+    assert DIAL_TO_AXES["pace"]["locked_in"] == {"pace_mode": "narrow"}
     assert DIAL_TO_AXES["pace"]["natural"] == {"pace_mode": "dynamic"}
     assert DIAL_TO_AXES["pace"]["free"] == {"pace_mode": "off"}
 
@@ -31,9 +33,9 @@ def test_resolve_defaults_equal_todays_all_dynamic():
 
 
 def test_resolve_combines_all_three_dials():
-    axes = resolve_dial_axes("wander", "journey", "free")
+    axes = resolve_dial_axes("wander", "smooth", "free")
     assert axes == {
-        "cohesion_mode": "strict",
+        "cohesion_mode": "discover",
         "genre_mode": "discover",
         "sonic_mode": "discover",
         "pace_mode": "off",
