@@ -23,6 +23,18 @@
           {
             "type": "command",
             "command": "python",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/satellite_data_write_guard.py"],
+            "timeout": 15,
+            "statusMessage": "Guarding canonical-only data writes"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
             "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/pytest_pipe_guard.py"],
             "timeout": 15,
             "statusMessage": "Checking pytest pipe discipline"
