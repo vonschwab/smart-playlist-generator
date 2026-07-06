@@ -229,3 +229,54 @@ def test_e2e_safe_commit_is_silent():
 def test_e2e_non_git_command_ignored():
     out = _run({"tool_name": "Bash", "tool_input": {"command": "python -m pytest -q"}})
     assert out == ""
+
+
+# ------------------------------ satellite mode ------------------------------
+# In a satellite clone the index is private: sweepers downgrade to warnings,
+# destroyers stay denied, branch-switch warnings disappear (spec 2026-07-06 §5).
+
+def _sat_verdict(command):
+    result = hook.analyze(command, satellite=True)
+    return result[0] if result else None
+
+
+def test_satellite_add_all_warns_not_denies():
+    assert _sat_verdict("git add -A") == "warn"
+
+
+def test_satellite_bare_commit_warns_not_denies():
+    assert _sat_verdict('git commit -m "x"') == "warn"
+
+
+def test_satellite_commit_a_warns_not_denies():
+    assert _sat_verdict('git commit -am "x"') == "warn"
+
+
+def test_satellite_checkout_dot_warns_not_denies():
+    assert _sat_verdict("git checkout .") == "warn"
+
+
+def test_satellite_reset_hard_still_denied():
+    assert _sat_verdict("git reset --hard") == "deny"
+
+
+def test_satellite_clean_f_still_denied():
+    assert _sat_verdict("git clean -fd") == "deny"
+
+
+def test_satellite_switch_is_silent():
+    assert _sat_verdict("git switch feature-x") is None
+
+
+def test_satellite_checkout_new_branch_is_silent():
+    assert _sat_verdict("git checkout -b feature-x") is None
+
+
+def test_satellite_safe_forms_still_silent():
+    assert _sat_verdict("git add src/foo.py") is None
+    assert _sat_verdict("git commit --only -- src/foo.py -m 'x'") is None
+
+
+def test_default_analyze_unchanged_strict():
+    # No-satellite callers keep canonical strictness (regression guard).
+    assert _verdict("git add -A") == "deny"

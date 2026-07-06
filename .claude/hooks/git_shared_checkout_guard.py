@@ -19,6 +19,14 @@ DENY (safe alternative always exists):
 WARN (allowed, but flagged): git switch / git checkout -b|-B — changes the
 shared HEAD for every session; make sure no one else is mid-edit.
 
+SATELLITE MODE: a satellite clone's working tree is private (see
+workspace_identity.is_satellite), so the sweeper DENYs above downgrade to a
+once-per-session WARN there — nothing else can be clobbered, but the broad
+forms are still a habit that corrupts the shared canonical checkout. The
+truly destructive ops (reset --hard, clean -f) stay DENIED in both modes, and
+the branch-switch WARN goes silent (switching HEAD only affects the satellite
+itself).
+
 Contract mirrors the repo's other PreToolUse hooks: read the tool-call JSON on
 stdin; emit permissionDecision "deny" to block, additionalContext to warn, stay
 silent to allow. FAIL OPEN — any error returns without blocking.
@@ -29,6 +37,10 @@ import os
 import re
 import shlex
 import sys
+import tempfile
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from workspace_identity import is_satellite  # noqa: E402
 
 PROJECT_DIR = os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
 
@@ -37,6 +49,12 @@ _SAFE_COMMIT = (
     "On a shared checkout a bare/`-a` commit sweeps other sessions' staged work. "
     "Commit explicit paths: `git commit --only -- <path1> <path2>` "
     "(verify first with `git diff --cached --name-only`)."
+)
+_SAT_WARN = (
+    "Hook note (satellite clone): this tree is private so nothing else is at "
+    "risk, but broad staging/committing is a habit that corrupts work in the "
+    "SHARED canonical checkout. Prefer `git add <paths>` + `git commit --only "
+    "-- <paths>` everywhere. One reminder per session."
 )
 
 _BROAD_ADD = {"-A", "--all", "-u", "--update", ".", "*", ":/", "-Au", "-uA", "-uAll"}
@@ -124,7 +142,7 @@ def _has_a_cluster(flag):
     return bool(re.fullmatch(r"-[a-z]*a[a-z]*", flag))
 
 
-def analyze_segment(tokens):
+def analyze_segment(tokens, satellite=False):
     """Return ('deny', msg) | ('warn', msg) | None for one command segment."""
     args = _git_args(tokens)
     if not args:
@@ -133,15 +151,21 @@ def analyze_segment(tokens):
 
     if sub == "add":
         if any(a in _BROAD_ADD for a in sargs):
+            if satellite:
+                return ("warn", _SAT_WARN)
             return ("deny", f"`git add` with a broad selector stages every session's changes. {_SAFE_ADD}")
         return None
 
     if sub == "commit":
         if any(a == "--all" or _has_a_cluster(a) for a in sargs):
+            if satellite:
+                return ("warn", _SAT_WARN)
             return ("deny", f"`git commit -a/--all` stages and commits all tracked changes. {_SAFE_COMMIT}")
         has_pathspec = "--" in sargs or "--only" in sargs or "--include" in sargs or "-i" in sargs
         conclusion = any(a in _COMMIT_CONCLUSION_FLAGS for a in sargs)
         if not has_pathspec and not conclusion and not _merge_or_rebase_in_progress():
+            if satellite:
+                return ("warn", _SAT_WARN)
             return ("deny", f"Bare `git commit` commits the shared index. {_SAFE_COMMIT}")
         return None
 
@@ -157,28 +181,46 @@ def analyze_segment(tokens):
 
     if sub in ("checkout", "restore"):
         if "." in sargs:
+            if satellite:
+                return ("warn", _SAT_WARN)
             return ("deny", f"`git {sub} .` discards all working-tree changes, including other sessions'. Restore specific files: `git {sub} -- <paths>`.")
         if sub == "checkout" and any(a in ("-b", "-B") for a in sargs):
-            return ("warn", "Hook note: creating/switching a branch changes the shared HEAD for every session in this checkout — confirm no other session is mid-edit first.")
+            return None if satellite else ("warn", "Hook note: creating/switching a branch changes the shared HEAD for every session in this checkout — confirm no other session is mid-edit first.")
         return None
 
     if sub == "switch":
-        return ("warn", "Hook note: `git switch` changes the shared HEAD for every session in this checkout — confirm no other session is mid-edit first.")
+        return None if satellite else ("warn", "Hook note: `git switch` changes the shared HEAD for every session in this checkout — confirm no other session is mid-edit first.")
 
     return None
 
 
-def analyze(command):
+def analyze(command, satellite=False):
     """First deny wins; else first warn; else None."""
     warn = None
     for seg in _segments(command):
-        result = analyze_segment(_tokens(seg))
+        result = analyze_segment(_tokens(seg), satellite)
         if result is None:
             continue
         if result[0] == "deny":
             return result
         warn = warn or result
     return warn
+
+
+def _already_fired(session_id, category):
+    """Once-per-session-per-category marker (copied from stale_state_reminder.py)."""
+    safe = re.sub(r"[^A-Za-z0-9_-]", "", session_id) or "nosession"
+    marker = os.path.join(
+        tempfile.gettempdir(), f"claude_git_guard_sat_{safe}_{category}"
+    )
+    if os.path.exists(marker):
+        return True
+    try:
+        with open(marker, "w", encoding="utf-8"):
+            pass
+    except OSError:
+        pass
+    return False
 
 
 def main():
@@ -190,7 +232,8 @@ def main():
         if (data.get("tool_name") or "") not in ("Bash", "PowerShell"):
             return
         command = (data.get("tool_input") or {}).get("command") or ""
-        result = analyze(command)
+        satellite = is_satellite()
+        result = analyze(command, satellite)
         if result is None:
             return
         kind, message = result
@@ -201,6 +244,8 @@ def main():
                 "permissionDecisionReason": message,
             }
         else:
+            if satellite and _already_fired(data.get("session_id") or "", "discipline"):
+                return
             out = {"hookEventName": "PreToolUse", "additionalContext": message}
         print(json.dumps({"hookSpecificOutput": out}))
     except Exception:
