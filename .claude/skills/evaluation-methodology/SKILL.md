@@ -1,6 +1,6 @@
 ---
 name: evaluation-methodology
-description: Use when designing, running, or reporting any similarity/ranking/A-B evaluation — sonic or genre audition, whitening or transform validation, artifact A/B comparison, threshold or floor calibration — or before presenting any quantitative conclusion that one embedding, matrix, or config beats another. Also use when building or extending an evaluation/audition harness.
+description: Use when designing, running, or reporting any similarity/ranking/A-B evaluation — sonic or genre audition, whitening or transform validation, artifact A/B comparison, threshold or floor calibration — or before presenting any quantitative conclusion that one embedding, matrix, or config beats another. Also use when building or extending an evaluation/audition harness, and BEFORE reporting that a space, artifact, or metric has collapsed, regressed, or silently degraded — a health/collapse claim is an evaluation and needs the same controls.
 ---
 
 # Evaluation methodology
@@ -15,6 +15,8 @@ description: Use when designing, running, or reporting any similarity/ranking/A-
 4. **Generation-based evals go through the fidelity harness.** Multi-pier seeds via `generate_like_gui` — see the **playlist-testing** skill. Single-seed topology produces pathological segment structures that invalidate calibration.
 5. **Blind the perceptual arm.** If a human (or LLM judge) compares quality, they must not know which arm is which, and include a decoy arm to measure discrimination (the audition pattern — see Existing harnesses).
 6. **Check the metric isn't circular.** Don't validate a space with a metric computed in that same space (genre QC scored inside the same enriched-genre space said everything was fine while the tags were junk). At least one arm of the evidence must be independent: human ears, held-out labels, a different modality.
+7. **Reconcile contradictory probes before trusting either.** If two measurements of the same space disagree, the contradiction IS the finding — resolve it before reporting anything. The 2026-06-24 "MERT collapse" false alarm shipped a catastrophic conclusion from the scary probe (rank 21,525) while a healthy probe (rank 31) on the same bytes sat unreconciled; the scary probe had a selection bug (first-track instead of max-over-seed-tracks).
+8. **Health claims need a null baseline and the runtime's own metric.** "Collapsed/degraded" is an evaluation: compare same-artist (or golden-neighbor) stats against a **random-pair baseline** (the missing control in the MERT false alarm — healthy gap was +0.214 vs random), and measure what the runtime actually consumes (rank via max over seed tracks), never raw cosine against a fixed target — whitening intentionally recenters cosines to ~0, so a cosine "drop" is expected, not damage.
 
 ## Reporting rules
 
@@ -31,6 +33,9 @@ description: Use when designing, running, or reporting any similarity/ranking/A-
 - "QC says it's fine" → is QC measuring the same space you changed?
 - "I know which arm is which but I'll be objective" → blind it or don't report it.
 - "Preliminary / directionally promising" framing of an unsound result → an unsound result is not reportable at any confidence level.
+- "Two probes disagree — the alarming one must be right" → reconcile first; same bytes + corrected method may be healthy.
+- "Raw cosine dropped after whitening → collapse" → whitening recenters cosines; check rank/discrimination against a random-pair baseline instead.
+- "One ad-hoc number justifies an incident report" → a collapse/regression claim gets the full pre-flight plus a second independent probe before any incident doc, memory, or recovery plan is written.
 
 ## Existing harnesses (adapt, don't rebuild)
 
