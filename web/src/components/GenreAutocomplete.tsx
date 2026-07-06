@@ -11,6 +11,8 @@ interface GenreAutocompleteProps {
   className?: string;
   autoFocus?: boolean;
   limit?: number;
+  /** Forwarded to the underlying <input> — test affordance only, no behavior change. */
+  "data-testid"?: string;
 }
 
 /**
@@ -21,6 +23,7 @@ interface GenreAutocompleteProps {
  */
 export function GenreAutocomplete({
   value, onChange, onPick, placeholder, className, autoFocus, limit = 8,
+  "data-testid": dataTestId,
 }: GenreAutocompleteProps) {
   const [suggestions, setSuggestions] = useState<CanonicalGenre[]>([]);
 
@@ -42,6 +45,7 @@ export function GenreAutocomplete({
     <div className="relative">
       <input
         autoFocus={autoFocus}
+        data-testid={dataTestId}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => {
