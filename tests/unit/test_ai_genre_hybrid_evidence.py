@@ -619,3 +619,206 @@ def test_fuse_release_evidence_injects_local_file_tags(tmp_path):
     assert {"hardcore", "post-punk", "punk", "rock"} <= published
     assert "seen live" not in published
     assert "noise" not in published
+
+
+# ── Corroboration cap (Dylan's rule, 2026-07-05) ─────────────────────────────
+# Development Bible acceptance policy: "two independent non-noise signals."
+# A mapped term publishes at full weight only if corroborated: either the
+# user's own local_metadata (sacred, never-drop) is present, or an ANCHOR
+# source ({bandcamp_artist, musicbrainz}) is present alongside at least one
+# other distinct non-echo source. ai_enriched_accepted is an ECHO of a past
+# acceptance and never counts as an independent corroborator (2026-06-12
+# self-corroboration bug). Otherwise the term is uncorroborated and its
+# confidence is capped at UNCORROBORATED_CONFIDENCE_CAP (0.40) -- a nudge,
+# same treatment as the existing Last.fm-only lane.
+
+
+def test_is_corroborated_helper_matches_dylans_rule():
+    from src.ai_genre_enrichment.hybrid_evidence import _is_corroborated
+
+    # Anchors alone (len(S) == 1) do not corroborate.
+    assert _is_corroborated(["musicbrainz"]) is False
+    assert _is_corroborated(["bandcamp_artist"]) is False
+    assert _is_corroborated(["discogs"]) is False
+    assert _is_corroborated(["official_release"]) is False
+    assert _is_corroborated(["ai_enriched_accepted"]) is False
+
+    # Anchor + one other distinct non-echo source -> corroborated.
+    assert _is_corroborated(["musicbrainz", "discogs"]) is True
+    assert _is_corroborated(["musicbrainz", "lastfm_tags"]) is True
+    assert _is_corroborated(["musicbrainz", "ai_check_web"]) is True
+    assert _is_corroborated(["bandcamp_artist", "musicbrainz"]) is True
+    assert _is_corroborated(["official_release", "musicbrainz"]) is True
+
+    # Anchor + only an echo source is NOT corroborated (echo doesn't count).
+    assert _is_corroborated(["bandcamp_artist", "ai_enriched_accepted"]) is False
+
+    # Two non-anchor others can't corroborate each other.
+    assert _is_corroborated(["discogs", "lastfm_tags"]) is False
+    assert _is_corroborated(["official_release", "discogs"]) is False
+
+    # local_metadata is sacred: always corroborated, alone or with anything.
+    assert _is_corroborated(["local_metadata"]) is True
+    assert _is_corroborated(["local_metadata", "lastfm_tags"]) is True
+
+
+def test_lone_musicbrainz_is_nudged_not_full_weight():
+    # Was full ~0.75 pre-fix; blues rock / Ariana-class errors came from this.
+    report = fuse_hybrid_evidence(
+        release_key="test::album",
+        evidence=[EvidenceTerm(term="blues rock", source_type="musicbrainz", confidence=0.85)],
+        sparse_release=False,
+    )
+    published = {d.term: d for d in (report.accepted_genres + report.provisional_genres)}
+    assert published["blues rock"].confidence <= 0.40
+
+
+def test_lone_discogs_is_nudged():
+    report = fuse_hybrid_evidence(
+        release_key="test::album",
+        evidence=[EvidenceTerm(term="krautrock", source_type="discogs", confidence=0.85)],
+        sparse_release=False,
+    )
+    published = {d.term: d for d in (report.accepted_genres + report.provisional_genres)}
+    assert published["krautrock"].confidence <= 0.40
+
+
+def test_discogs_and_lastfm_cannot_corroborate_each_other():
+    # Neither source is an anchor, so Discogs + Last.fm still nudges.
+    report = fuse_hybrid_evidence(
+        release_key="test::album",
+        evidence=[
+            EvidenceTerm(term="trip hop", source_type="discogs", confidence=0.85),
+            EvidenceTerm(term="trip hop", source_type="lastfm_tags", confidence=0.85),
+        ],
+        sparse_release=False,
+    )
+    published = {d.term: d for d in (report.accepted_genres + report.provisional_genres)}
+    assert published["trip hop"].confidence <= 0.40
+
+
+def test_ai_only_evidence_is_nudged():
+    for source_type in ("ai_check_web", "ai_check_metadata", "ai_enriched_accepted"):
+        report = fuse_hybrid_evidence(
+            release_key="test::album",
+            evidence=[EvidenceTerm(term="dungeon synth", source_type=source_type, confidence=0.85)],
+            sparse_release=False,
+        )
+        published = {d.term: d for d in (report.accepted_genres + report.provisional_genres)}
+        assert published["dungeon synth"].confidence <= 0.40, source_type
+
+
+def test_musicbrainz_plus_discogs_is_full_weight():
+    report = fuse_hybrid_evidence(
+        release_key="test::album",
+        evidence=[
+            EvidenceTerm(term="post-rock", source_type="musicbrainz", confidence=0.85),
+            EvidenceTerm(term="post-rock", source_type="discogs", confidence=0.85),
+        ],
+        sparse_release=False,
+    )
+    published = {d.term: d for d in (report.accepted_genres + report.provisional_genres)}
+    assert published["post-rock"].confidence > 0.40
+
+
+def test_musicbrainz_plus_lastfm_is_full_weight():
+    report = fuse_hybrid_evidence(
+        release_key="test::album",
+        evidence=[
+            EvidenceTerm(term="post-rock", source_type="musicbrainz", confidence=0.85),
+            EvidenceTerm(term="post-rock", source_type="lastfm_tags", confidence=0.85),
+        ],
+        sparse_release=False,
+    )
+    published = {d.term: d for d in (report.accepted_genres + report.provisional_genres)}
+    assert published["post-rock"].confidence > 0.40
+
+
+def test_musicbrainz_plus_ai_check_web_is_full_weight():
+    # AI counts as an "other" corroborator per Dylan's rule.
+    report = fuse_hybrid_evidence(
+        release_key="test::album",
+        evidence=[
+            EvidenceTerm(term="post-rock", source_type="musicbrainz", confidence=0.85),
+            EvidenceTerm(term="post-rock", source_type="ai_check_web", confidence=0.85),
+        ],
+        sparse_release=False,
+    )
+    published = {d.term: d for d in (report.accepted_genres + report.provisional_genres)}
+    assert published["post-rock"].confidence > 0.40
+
+
+def test_bandcamp_artist_plus_musicbrainz_is_full_weight():
+    report = fuse_hybrid_evidence(
+        release_key="test::album",
+        evidence=[
+            EvidenceTerm(term="post-rock", source_type="bandcamp_artist", confidence=0.90),
+            EvidenceTerm(term="post-rock", source_type="musicbrainz", confidence=0.85),
+        ],
+        sparse_release=False,
+    )
+    published = {d.term: d for d in (report.accepted_genres + report.provisional_genres)}
+    assert published["post-rock"].confidence > 0.40
+
+
+def test_bandcamp_artist_plus_ai_enriched_accepted_echo_is_nudged():
+    # Anchor + echo only -- echo doesn't count as the "other" corroborator.
+    report = fuse_hybrid_evidence(
+        release_key="test::album",
+        evidence=[
+            EvidenceTerm(term="post-rock", source_type="bandcamp_artist", confidence=0.90),
+            EvidenceTerm(term="post-rock", source_type="ai_enriched_accepted", confidence=0.88),
+        ],
+        sparse_release=False,
+    )
+    published = {d.term: d for d in (report.accepted_genres + report.provisional_genres)}
+    assert published["post-rock"].confidence <= 0.40
+
+
+def test_local_metadata_alone_stays_full_weight_never_dropped():
+    # Never-drop invariant must survive the corroboration cap unchanged.
+    report = fuse_hybrid_evidence(
+        release_key="test::album",
+        evidence=[EvidenceTerm(term="cottagecore folk", source_type="local_metadata", confidence=0.85)],
+        sparse_release=False,
+    )
+    published = {d.term: d for d in (report.accepted_genres + report.provisional_genres)}
+    assert published["cottagecore folk"].confidence > 0.40
+
+
+def test_local_metadata_plus_lastfm_stays_full_weight():
+    report = fuse_hybrid_evidence(
+        release_key="test::album",
+        evidence=[
+            EvidenceTerm(term="cottagecore folk", source_type="local_metadata", confidence=0.85),
+            EvidenceTerm(term="cottagecore folk", source_type="lastfm_tags", confidence=0.85),
+        ],
+        sparse_release=False,
+    )
+    published = {d.term: d for d in (report.accepted_genres + report.provisional_genres)}
+    assert published["cottagecore folk"].confidence > 0.40
+
+
+def test_official_release_alone_is_nudged_non_anchor():
+    # official_release is a strong source but NOT an anchor -- lone
+    # official_release nudges just like lone MB/Discogs.
+    report = fuse_hybrid_evidence(
+        release_key="test::album",
+        evidence=[EvidenceTerm(term="new age", source_type="official_release", confidence=0.90)],
+        sparse_release=False,
+    )
+    published = {d.term: d for d in (report.accepted_genres + report.provisional_genres)}
+    assert published["new age"].confidence <= 0.40
+
+
+def test_official_release_plus_musicbrainz_is_full_weight():
+    report = fuse_hybrid_evidence(
+        release_key="test::album",
+        evidence=[
+            EvidenceTerm(term="new age", source_type="official_release", confidence=0.90),
+            EvidenceTerm(term="new age", source_type="musicbrainz", confidence=0.85),
+        ],
+        sparse_release=False,
+    )
+    published = {d.term: d for d in (report.accepted_genres + report.provisional_genres)}
+    assert published["new age"].confidence > 0.40

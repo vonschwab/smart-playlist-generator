@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import re
 from dataclasses import asdict, dataclass
 from typing import Literal
@@ -33,11 +34,25 @@ SOURCE_WEIGHTS: dict[str, float] = {
     "lastfm_tags": 0.25,
 }
 
-# Zero-touch policy (2026-07-04, M1 of the zero-touch genre pipeline spec):
-# lastfm-only terms publish at this hard cap instead of queue-blocking. The
+# Zero-touch policy (2026-07-04, M1 of the zero-touch genre pipeline spec) /
+# corroboration cap (Dylan's rule, 2026-07-05): a mapped term publishes at
+# full weight only if corroborated by an independent second source; otherwise
+# it is capped at this confidence -- a nudge that still lets the term
+# publish (always-publish policy), instead of defining steering outright. The
 # artifact weights genres by confidence, so the cap IS the blast-radius
-# control — 0.40 weight nudges steering, never defines it.
-LASTFM_ONLY_CONFIDENCE_CAP = 0.40
+# control. `LASTFM_ONLY_CONFIDENCE_CAP` is kept as an alias so existing
+# references (and its dedicated lastfm_only branch/basis) don't churn.
+UNCORROBORATED_CONFIDENCE_CAP = 0.40
+LASTFM_ONLY_CONFIDENCE_CAP = UNCORROBORATED_CONFIDENCE_CAP
+
+# Corroboration rule (Dylan-specified, 2026-07-05; Development Bible
+# acceptance policy: "two independent non-noise signals"). ANCHOR sources are
+# strong enough to found corroboration on their own; MusicBrainz qualifies
+# only because Fix 1 (2026-06-12 GENRE_DATA_QUALITY_FINDINGS §6) makes it
+# release-level. ECHO sources are a re-count of a past acceptance and NEVER
+# count as an independent corroborator (2026-06-12 self-corroboration bug).
+ANCHOR_SOURCE_TYPES = {"bandcamp_artist", "musicbrainz"}
+ECHO_SOURCE_TYPES = {"ai_enriched_accepted"}
 
 LASTFM_SOURCE_TYPES = {"lastfm_tags", "lastfm"}
 STRONG_SOURCE_TYPES = {"bandcamp_artist", "official_release", "ai_check_web"}
@@ -347,6 +362,12 @@ def fuse_hybrid_evidence(
             reason="Evidence mapped but below the corroboration bar; published at evidence confidence.",
         ))
 
+    # Corroboration cap (Dylan's rule, 2026-07-05): post-process without
+    # rewriting the routing branches above -- only the confidence changes,
+    # each decision keeps its existing bucket. `rejected` is untouched.
+    accepted = _apply_corroboration_cap(accepted)
+    provisional = _apply_corroboration_cap(provisional)
+
     return HybridGenreReport(
         release_key=release_key,
         accepted_genres=accepted,
@@ -402,6 +423,34 @@ def _basis(sources: list[str]) -> str:
 
 def _rejected_noise_reason(term: str) -> str | None:
     return REJECTED_NOISE_TERMS.get(term.casefold())
+
+
+def _is_corroborated(sources: list[str]) -> bool:
+    """Dylan's rule (2026-07-05): does this term's source set earn full weight?
+
+    S = sources minus ECHO (a past-acceptance re-count never counts as an
+    independent corroborator). CORROBORATED iff:
+      - "local_metadata" in S (sacred: the user's own file tags are always
+        full weight, never capped, never dropped -- 2026-06-12 LPVV incident), OR
+      - (S ∩ ANCHOR) is non-empty AND len(S) >= 2 (an anchor plus at least one
+        other distinct non-echo source).
+    Otherwise the term is uncorroborated and gets capped by the caller.
+    """
+    remaining = set(sources) - ECHO_SOURCE_TYPES
+    if "local_metadata" in remaining:
+        return True
+    return bool(remaining & ANCHOR_SOURCE_TYPES) and len(remaining) >= 2
+
+
+def _apply_corroboration_cap(decisions: list[FusedGenreDecision]) -> list[FusedGenreDecision]:
+    return [
+        decision
+        if _is_corroborated(decision.sources)
+        else dataclasses.replace(
+            decision, confidence=min(decision.confidence, UNCORROBORATED_CONFIDENCE_CAP)
+        )
+        for decision in decisions
+    ]
 
 
 def fuse_release_evidence(store: object, release: object) -> HybridGenreReport:
