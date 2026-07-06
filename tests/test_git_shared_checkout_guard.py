@@ -1,0 +1,193 @@
+"""Unit tests for the shared-checkout git guard hook.
+
+Denies index-sweeping / tree-destroying git ops so simultaneous sessions in one
+working tree don't clobber each other; the explicit-path forms must pass. Loaded
+by path like tests/test_reuse_first_reminder.py.
+"""
+
+import importlib.util
+import json
+import pathlib
+import subprocess
+import sys
+
+_HOOK = (
+    pathlib.Path(__file__).resolve().parents[1]
+    / ".claude" / "hooks" / "git_shared_checkout_guard.py"
+)
+_spec = importlib.util.spec_from_file_location("git_shared_checkout_guard", _HOOK)
+assert _spec is not None and _spec.loader is not None, f"hook not found at {_HOOK}"
+hook = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(hook)
+
+
+def _verdict(command):
+    """Return 'deny' | 'warn' | None for a command."""
+    result = hook.analyze(command)
+    return result[0] if result else None
+
+
+# ------------------------------ index-sweepers: DENY ------------------------------
+
+def test_add_all_denied():
+    assert _verdict("git add -A") == "deny"
+
+
+def test_add_update_denied():
+    assert _verdict("git add -u") == "deny"
+
+
+def test_add_dot_denied():
+    assert _verdict("git add .") == "deny"
+
+
+def test_add_all_long_denied():
+    assert _verdict("git add --all") == "deny"
+
+
+def test_commit_am_denied():
+    assert _verdict('git commit -am "message"') == "deny"
+
+
+def test_commit_a_separate_denied():
+    assert _verdict('git commit -a -m "message"') == "deny"
+
+
+def test_bare_commit_denied():
+    assert _verdict('git commit -m "message"') == "deny"
+
+
+def test_bare_commit_no_message_denied():
+    assert _verdict("git commit") == "deny"
+
+
+# ------------------------------ tree destroyers: DENY ------------------------------
+
+def test_reset_hard_denied():
+    assert _verdict("git reset --hard") == "deny"
+
+
+def test_reset_hard_ref_denied():
+    assert _verdict("git reset --hard HEAD~1") == "deny"
+
+
+def test_clean_fd_denied():
+    assert _verdict("git clean -fd") == "deny"
+
+
+def test_checkout_dot_denied():
+    assert _verdict("git checkout .") == "deny"
+
+
+def test_restore_dot_denied():
+    assert _verdict("git restore .") == "deny"
+
+
+# ------------------------------ safe forms: ALLOW ------------------------------
+
+def test_add_explicit_paths_allowed():
+    assert _verdict("git add CLAUDE.md docs/bar.md") is None
+
+
+def test_add_patch_allowed():
+    assert _verdict("git add -p") is None
+
+
+def test_commit_only_pathspec_allowed():
+    assert _verdict("git commit --only -- CLAUDE.md docs/bar.md -m 'msg'") is None
+
+
+def test_commit_double_dash_pathspec_allowed():
+    assert _verdict('git commit -- src/foo.py -m "msg"') is None
+
+
+def test_commit_amend_allowed():
+    assert _verdict("git commit --amend --no-edit") is None
+
+
+def test_reset_paths_allowed():
+    assert _verdict("git reset src/foo.py") is None
+
+
+def test_checkout_file_allowed():
+    assert _verdict("git checkout -- src/foo.py") is None
+
+
+def test_read_only_git_allowed():
+    assert _verdict("git status") is None
+    assert _verdict("git diff --cached --name-only") is None
+    assert _verdict("git log --oneline -5") is None
+
+
+def test_global_option_before_subcommand_allowed():
+    # `git -C <path> commit --only -- ...` must be parsed correctly
+    assert _verdict("git -C /repo commit --only -- CLAUDE.md -m 'x'") is None
+
+
+def test_quoted_message_with_dash_a_not_flagged_as_commit_a():
+    # `-a` inside the commit message must not read as the -a flag; this is a
+    # safe --only commit, so it must ALLOW (not deny).
+    assert _verdict('git commit --only -- x.py -m "add -a and -A support"') is None
+
+
+# ------------------------------ warn (allow + note) ------------------------------
+
+def test_switch_branch_warns():
+    assert _verdict("git switch feature-x") == "warn"
+
+
+def test_checkout_new_branch_warns():
+    assert _verdict("git checkout -b feature-x") == "warn"
+
+
+# ------------------------------ merge/rebase exception ------------------------------
+
+def test_bare_commit_allowed_during_merge(monkeypatch):
+    monkeypatch.setattr(hook, "_merge_or_rebase_in_progress", lambda: True)
+    assert _verdict("git commit") is None
+
+
+def test_bare_commit_denied_when_not_merging(monkeypatch):
+    monkeypatch.setattr(hook, "_merge_or_rebase_in_progress", lambda: False)
+    assert _verdict('git commit -m "x"') == "deny"
+
+
+# ------------------------------ compound commands ------------------------------
+
+def test_compound_add_all_then_commit_denied():
+    assert _verdict('git add -A && git commit -m "x"') == "deny"
+
+
+def test_compound_safe_add_and_commit_allowed():
+    assert _verdict("git add src/foo.py && git commit --only -- src/foo.py -m 'x'") is None
+
+
+# ------------------------------ end-to-end stdin -> stdout ------------------------------
+
+def _run(payload):
+    proc = subprocess.run(
+        [sys.executable, str(_HOOK)],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    return proc.stdout.strip()
+
+
+def test_e2e_deny_emits_permission_decision():
+    out = _run({"tool_name": "Bash", "tool_input": {"command": "git add -A"}})
+    parsed = json.loads(out)
+    assert parsed["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+def test_e2e_safe_commit_is_silent():
+    out = _run(
+        {"tool_name": "Bash", "tool_input": {"command": "git commit --only -- x.py -m 'y'"}}
+    )
+    assert out == ""
+
+
+def test_e2e_non_git_command_ignored():
+    out = _run({"tool_name": "Bash", "tool_input": {"command": "python -m pytest -q"}})
+    assert out == ""

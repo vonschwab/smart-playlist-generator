@@ -30,6 +30,18 @@
         ]
       },
       {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/git_shared_checkout_guard.py"],
+            "timeout": 15,
+            "statusMessage": "Guarding shared-checkout git (explicit-path staging/commits)"
+          }
+        ]
+      },
+      {
         "matcher": "Edit|Write",
         "hooks": [
           {
