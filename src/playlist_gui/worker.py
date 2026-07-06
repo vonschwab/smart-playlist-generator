@@ -2918,6 +2918,39 @@ def handle_record_taxonomy_decision(cmd_data: Dict[str, Any]) -> None:
                     "detail": str(e), "request_id": rid, "job_id": None})
 
 
+def handle_validate_taxonomy_proposal(cmd_data: Dict[str, Any]) -> None:
+    """Structural pre-flight for a manual ADD-wizard proposal. UNTRACKED +
+    read-only (reader thread): wraps graph_growth.validate_proposal — the
+    single guardrail authority — so the GUI never re-implements placement
+    rules. Emits {"errors": [...]}; empty list means safe to stage."""
+    rid = cmd_data.get("request_id")
+    try:
+        from src.ai_genre_enrichment.graph_growth import GrowthProposal, validate_proposal
+        from src.ai_genre_enrichment.layered_taxonomy import load_default_layered_taxonomy
+
+        pj = cmd_data.get("proposal")
+        pj = pj if isinstance(pj, dict) else {}
+        gp_fields = set(GrowthProposal.__dataclass_fields__)  # type: ignore[attr-defined]
+        required = {"name", "kind", "status", "specificity_score"}
+        proposal = GrowthProposal(
+            name=str(pj.get("name") or ""),
+            kind=str(pj.get("kind") or ""),
+            status=str(pj.get("status") or "active"),
+            specificity_score=float(pj.get("specificity_score") or 0.0),
+            **{k: v for k, v in pj.items() if k in gp_fields - required},
+        )
+        errors = validate_proposal(load_default_layered_taxonomy(), proposal)
+        emit_event({"type": "result", "result_type": "taxonomy_validate",
+                    "errors": errors, "request_id": rid, "job_id": None})
+        emit_event({"type": "done", "cmd": "validate_taxonomy_proposal", "ok": True,
+                    "detail": f"{proposal.name}: {len(errors)} error(s)",
+                    "request_id": rid, "job_id": None})
+    except Exception as e:
+        emit_event({"type": "error", "message": str(e), "request_id": rid, "job_id": None})
+        emit_event({"type": "done", "cmd": "validate_taxonomy_proposal", "ok": False,
+                    "detail": str(e), "request_id": rid, "job_id": None})
+
+
 def _next_taxonomy_gui_version(current: str, ts: str) -> str:
     """Bump the minor of a 0.X.Y version and stamp the GUI grow suffix."""
     import re
@@ -3118,6 +3151,7 @@ UNTRACKED_COMMAND_HANDLERS = {
     "get_taxonomy_queue": handle_get_taxonomy_queue,
     "get_taxonomy_completed": handle_get_taxonomy_completed,
     "record_taxonomy_decision": handle_record_taxonomy_decision,
+    "validate_taxonomy_proposal": handle_validate_taxonomy_proposal,
 }
 
 
