@@ -38,8 +38,8 @@ Satellites get full real-data dev powers via **absolute config paths — no link
 - Each satellite's gitignored `config.yaml` (copied once from canonical, then edited) sets:
   - `library.database_path: C:/Users/Dylan/Desktop/PLAYLIST_GENERATOR_V3/data/metadata.db`
   - `playlists.ds_pipeline.artifact_path: C:/Users/Dylan/Desktop/PLAYLIST_GENERATOR_V3/data/artifacts/beat3tower_32k/data_matrices_step1.npz`
-  - Both keys are already config-driven (`src/config_loader.py:101,157`) — **zero app-code changes**.
-- **Same-path-string rule:** every process in every workspace reaches shared data through those identical canonical absolute paths. Generation is SELECT-only against `metadata.db`; concurrent reads are ordinary SQLite behavior. Shared caches that generation writes (e.g. `data/popularity_cache.db`) are same-path from all workspaces, so SQLite's own locking applies — no aliasing.
+  - Both keys are already config-driven (`src/config_loader.py:101,157`) — no app-code changes for the core data access (the single code change in this design is the MCP stub fix, §7).
+- **No-aliasing rule (the real WAL safety condition):** the 2026-06-22 corruption came from a *symlink* — SQLite derives `-wal`/`-shm` sidecar locations from the path it is given, so a DB opened via a link gets a second sidecar set next to the link. With zero links anywhere, every spelling (canonical's relative `data/metadata.db`, satellites' canonical-absolute path) resolves to the one real file and the one real sidecar set — safe. "Use the same path string" remains the belt-and-suspenders convention, but safety does not depend on it; do not "fix" canonical's relative config path to match satellites'. Generation is SELECT-only against `metadata.db`; concurrent reads are ordinary SQLite behavior, and shared caches generation writes (e.g. `data/popularity_cache.db`) are lock-managed by SQLite since there is exactly one real file.
 - **Local by design (stay relative):** `logs/` (per-workspace generation logs — a feature: each session's logs are its own), `web/dist`, `web/node_modules`, `docs/run_audits/` experiment outputs.
 - **Stub landmine, defused at bootstrap:** a fresh clone's `data/` contains the tracked zero-byte `metadata.db` stub — the silent-BPM-kill trap (constraint 1). `tools/doctor.py` gains a satellite check (reuse, not a new tool): the *resolved* DB and artifact paths must be absolute, exist, exceed a plausible size floor (stub = 0 bytes; real DB is hundreds of MB), and must not resolve inside a clone whose own `data/metadata.db` is a stub. Bootstrap ends by running doctor; a mis-wired satellite refuses loudly (design principle: a configured knob that can't act is a startup error).
 
@@ -48,6 +48,8 @@ Satellites get full real-data dev powers via **absolute config paths — no link
 Because of constraint 5 (and the WAL incident behind constraint 2), **all data-writing pipeline work runs only in the canonical checkout**: `analyze_library.py` stages (scan/genres/discogs/lastfm/sonic/adjudicate/apply/publish/artifacts/verify), fold scripts, MuQ extraction.
 
 Enforcement: new PreToolUse hook `satellite_data_write_guard.py` (same contract as the existing hook suite; fail-open). In a satellite it **denies** Bash/PowerShell commands invoking `analyze_library.py`, `fold_*.py`, or `muq_runner`, with a message directing the work to canonical. In canonical it is silent.
+
+**GUI publish is also a data write, policy-only:** the Genre Review "Publish decided" action writes `metadata.db` from the web worker — hooks cannot see worker-internal actions, and it is WAL-safe (no aliasing), so this stays a documented rule rather than enforcement: **do genre publishing from the canonical GUI (port 8770) only.** Goes in the CLAUDE.md satellite bullet (§10).
 
 **Workspace detection (shared helper, used by both this hook and the git guard):** `git config remote.origin.url` — a local filesystem path ⇒ satellite; a GitHub URL or unset ⇒ canonical. Automatic; no marker files to forget. Implemented once (e.g. `.claude/hooks/workspace_identity.py`) and imported by both hooks; unit-tested.
 
@@ -75,13 +77,16 @@ Enforcement: new PreToolUse hook `satellite_data_write_guard.py` (same contract 
 
 ### 7. Bootstrap (one-time per satellite, scripted)
 
-`tools/create_satellite.ps1 -Name SAT1 -Port 8771`:
+`python tools/create_satellite.py --name PG3_SAT1 --port 8771` (Python, not PowerShell — the config rewrite needs robust line-targeted YAML edits, and regex surgery in PS is fragile):
 1. `git clone C:\Users\Dylan\Desktop\PLAYLIST_GENERATOR_V3 C:\Users\Dylan\Desktop\PG3_SAT1`
-2. Copy canonical `config.yaml` → satellite; rewrite `library.database_path` + `playlists.ds_pipeline.artifact_path` to canonical absolute paths (leave `music_directory` as-is; it's already absolute).
-3. `npm --prefix <sat>\web install` and `npm --prefix <sat>\web run build`.
-4. Write the satellite memory pointer `MEMORY.md` (§6).
-5. Run the doctor satellite check (§2); fail the bootstrap loudly if it fails.
-6. Print the session-launch line: `cd C:\Users\Dylan\Desktop\PG3_SAT1` → launch Claude Code there; GUI = `python tools/serve_web.py --port 8771`.
+2. Copy canonical `config.yaml` → satellite; rewrite `library.database_path` and set `playlists.ds_pipeline.artifact_path` (inserting the key if canonical relies on the default) to canonical absolute paths, preserving the rest of the file byte-for-byte (targeted line edits, not YAML round-trip — Dylan's comments survive). Leave `music_directory` as-is (already absolute).
+3. Copy the untracked local-config files that sessions rely on: `.claude/settings.local.json` (permission allowlist) and `.mcp.json`.
+4. `npm --prefix <sat>\web install` and `npm --prefix <sat>\web run build`.
+5. Write the satellite memory pointer `MEMORY.md` (§6).
+6. Run the doctor satellite check (§2); fail the bootstrap loudly if it fails.
+7. Print the session-launch line: launch Claude Code with cwd `C:\Users\Dylan\Desktop\PG3_SAT1`; GUI = `python tools/serve_web.py --port 8771`.
+
+**MCP stub fix (small code change, root-cause):** `tools/mcp_sqlite_readonly.py:45` hardcodes `_REPO_ROOT/data/metadata.db` — in a satellite the SQLite MCP would silently query the empty stub (read-only, so no damage, but silently-empty results are the stub-divergence failure class). Fix it to honor `config.yaml` `library.database_path` (resolved against the repo root when relative), falling back to the current default. This is the only app-code change in the design.
 
 ### 8. Failure-mode audit
 
@@ -100,7 +105,7 @@ Residual risks (accepted, mitigated): two sessions accidentally in one satellite
 - **Unit:** `workspace_identity` detection (local-path origin vs GitHub vs unset); `satellite_data_write_guard` deny/allow matrix (analyze/fold/muq denied in satellite, allowed in canonical; unrelated commands untouched); git-guard satellite downgrades (sweepers warn in satellite, still deny in canonical; `reset --hard`/`clean -f` deny in both); doctor satellite check (stub detection, relative-path rejection, missing-file rejection). Same loading pattern as `tests/test_git_shared_checkout_guard.py`.
 - **Live acceptance (the real gate):**
   1. Bootstrap SAT1 with the script; doctor passes.
-  2. From SAT1: run a real generation (`gui_fidelity`-faithful path) at INFO; verify BPM gates are ACTIVE in the log (proves no stub poisoning — the constraint-1 tell) and output quality stats are sane.
+  2. From SAT1: run a real generation (`gui_fidelity`-faithful path) at INFO; verify the log does NOT contain the stub tell ("BPM load failed" / "BPM gates disabled") and DOES show BPM/pace gate activity, and output quality stats are sane (proves no stub poisoning — the constraint-1 failure).
   3. From SAT1: confirm `analyze_library.py` is denied; in canonical: confirm it is allowed.
   4. From SAT1: branch, commit, `git push origin <branch>`; in canonical: merge to master; confirm history is clean.
   5. Run canonical + SAT1 GUIs simultaneously on 8770/8771.
