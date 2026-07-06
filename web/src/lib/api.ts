@@ -15,6 +15,7 @@ import type {
   ReplaceSuggestionsResponse,
   SeedTrack,
   TaxonomyDecisionRequest,
+  TaxonomyProposal,
   TaxonomyQueueResponse,
 } from "./types";
 
@@ -167,6 +168,13 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(req),
+    }));
+  },
+  async taxonomyValidate(proposal: TaxonomyProposal): Promise<{ errors: string[] }> {
+    return jsonOrThrow(await fetch("/api/taxonomy/validate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ proposal }),
     }));
   },
   async taxonomyApply(): Promise<{ job_id: string }> {

@@ -315,6 +315,12 @@ class TaxonomyDecisionRequest(BaseModel):
     human_edited: bool = False
 
 
+class TaxonomyValidateRequest(BaseModel):
+    """Structural pre-flight for a manual ADD-wizard proposal (no staging)."""
+
+    proposal: dict
+
+
 class TrackGenresRequest(BaseModel):
     """Batch lookup of display genres for staged seed tracks."""
 

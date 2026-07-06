@@ -33,6 +33,7 @@ from .schemas import (
     ReplaceSuggestionsResponse,
     TaxonomyAdjudicateRequest,
     TaxonomyDecisionRequest,
+    TaxonomyValidateRequest,
     TrackGenresRequest,
 )
 from .worker_bridge import (
@@ -377,6 +378,19 @@ def create_app(
         except WorkerCommandError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
         return {"ok": True, **result}
+
+    @app.post("/api/taxonomy/validate")
+    async def taxonomy_validate(body: TaxonomyValidateRequest) -> dict:
+        # Untracked: validate_proposal is a fast read-only check against the
+        # live taxonomy; the ADD wizard blocks Stage until errors == [].
+        try:
+            return await bridge.command({
+                "cmd": "validate_taxonomy_proposal",
+                "proposal": body.proposal}, untracked=True)
+        except BridgeBusy:
+            raise HTTPException(status_code=409, detail="Worker is busy — try again when the current job finishes.")
+        except WorkerCommandError as exc:
+            raise HTTPException(status_code=502, detail=str(exc))
 
     @app.post("/api/taxonomy/apply")
     async def taxonomy_apply() -> dict:
