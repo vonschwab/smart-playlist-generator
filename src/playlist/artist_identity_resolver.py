@@ -88,14 +88,18 @@ def _normalize_component(text: str) -> str:
 
     from src.string_utils import normalize_artist_name
 
-    # Delegate to canonical implementation with flags matching old behavior
+    # Delegate to canonical implementation.
+    # normalize_unicode=True folds diacritics so spelling variants of one band
+    # ("Süss"/"Suss") collapse to a single identity key, matching the DB's
+    # artist_key column. Ensemble/collaboration splitting is still done separately
+    # by resolve_artist_identity_keys().
     return normalize_artist_name(
         text,
         strip_ensemble=False,  # Don't strip ensemble here (done separately)
         strip_collaborations=False,  # Don't strip collaborations (done separately)
         lowercase=True,
         strip_the=True,  # Old implementation stripped "the"
-        normalize_unicode=False,  # Old implementation didn't do Unicode normalization
+        normalize_unicode=True,  # Fold diacritics so "Süss" == "Suss"
     )
 
 

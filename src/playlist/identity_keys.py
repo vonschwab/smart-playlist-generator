@@ -31,13 +31,18 @@ def normalize_primary_artist_key(value: str) -> str:
     # Treat "x" / "×" collaborations similarly to "feat" to avoid bypassing 1-per-artist constraints.
     text = text.replace("×", " x ")
     text = re.sub(r"\s+x\s+", " feat ", text, flags=re.IGNORECASE)
-    # Use normalize_artist_name for ensemble normalization (legacy-compatible settings)
+    # Use normalize_artist_name for ensemble normalization.
+    # normalize_unicode=True folds diacritics (NFKD + strip combining marks) so
+    # spelling variants of one band collapse to a single identity key
+    # ("Süss"/"Suss"/"SUSS" -> "suss"). This mirrors the DB's own artist_key
+    # column (normalize_artist_key), keeping the beam's diversity key in sync with
+    # the canonical artist identity the DB already assigns.
     return normalize_artist_name(
         text,
         strip_ensemble=True,
         strip_collaborations=True,
         lowercase=True,
-        normalize_unicode=False,
+        normalize_unicode=True,
     )
 
 

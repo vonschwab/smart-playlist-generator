@@ -251,5 +251,33 @@ class TestMinGapScenario:
         # This means min_gap enforcement should update BOTH keys' last_seen positions
 
 
+class TestDiacriticVariantCollapse:
+    """Diacritic/case spelling variants of one band must share an identity key.
+
+    Regression: a Jonny Nash playlist placed 'Suss', 'SUSS', and 'Süss' tracks
+    adjacently because the beam's identity key preserved the diaeresis (normalize_unicode
+    was off), so 'süss' != 'suss' and min_gap never fired. The DB's own artist_key
+    column already folds all three to 'suss'; the beam identity key must match it.
+    """
+
+    VARIANTS = ["Suss", "SUSS", "Süss"]
+
+    def test_normalize_primary_artist_key_folds_diacritics(self):
+        from src.playlist.identity_keys import normalize_primary_artist_key
+
+        keys = {normalize_primary_artist_key(v) for v in self.VARIANTS}
+        assert keys == {"suss"}, f"expected single folded key, got {keys}"
+
+    def test_resolve_identity_keys_folds_diacritics(self):
+        cfg = ArtistIdentityConfig(enabled=True)
+
+        key_sets = [resolve_artist_identity_keys(v, cfg) for v in self.VARIANTS]
+        assert all(ks == {"suss"} for ks in key_sets), f"got {key_sets}"
+
+    def test_component_normalization_folds_diacritics(self):
+        # Sigur Rós is the canonical diacritic case; both spellings are one artist.
+        assert _normalize_component("Sigur Rós") == _normalize_component("Sigur Ros")
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
