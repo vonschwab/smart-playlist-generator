@@ -51,8 +51,53 @@ def _merge_or_rebase_in_progress():
 
 
 def _segments(command):
-    # Evaluate each command in a compound (git add -A && git commit ...) on its own.
-    return re.split(r"&&|\|\||[;&|\n]", command or "")
+    """Split a compound command (git add -A && git commit ...) into segments,
+    evaluating each on its own.
+
+    Quote-aware: shell operators and newlines INSIDE a quoted string must not
+    split the command. A multi-line `-m "..."` or a `"$(cat <<'EOF' ... EOF)"`
+    message otherwise gets severed from its trailing `--only -- <paths>`, and the
+    `git commit` fragment reads as a bare commit and is wrongly denied. Only
+    unquoted `; & | && ||` and newlines are real segment boundaries.
+    """
+    s = command or ""
+    segments, buf = [], []
+    quote = None  # None | "'" | '"'
+    i, n = 0, len(s)
+    while i < n:
+        ch = s[i]
+        if quote is not None:
+            buf.append(ch)
+            # backslash escapes the next char inside double quotes (not single).
+            if ch == "\\" and quote == '"' and i + 1 < n:
+                buf.append(s[i + 1])
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+            i += 1
+            continue
+        if ch in ("'", '"'):
+            quote = ch
+            buf.append(ch)
+        elif ch in ("\n", ";"):
+            segments.append("".join(buf))
+            buf = []
+        elif ch == "&":
+            segments.append("".join(buf))
+            buf = []
+            i += 2 if i + 1 < n and s[i + 1] == "&" else 1
+            continue
+        elif ch == "|":
+            segments.append("".join(buf))
+            buf = []
+            i += 2 if i + 1 < n and s[i + 1] == "|" else 1
+            continue
+        else:
+            buf.append(ch)
+        i += 1
+    segments.append("".join(buf))
+    return segments
 
 
 def _tokens(segment):

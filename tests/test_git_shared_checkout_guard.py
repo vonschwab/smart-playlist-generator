@@ -162,6 +162,44 @@ def test_compound_safe_add_and_commit_allowed():
     assert _verdict("git add src/foo.py && git commit --only -- src/foo.py -m 'x'") is None
 
 
+# ---------------------- multi-line / quoted-newline commits ----------------------
+# Regression: segmentation split on raw newlines, severing `--only -- <paths>` from
+# `git commit` when the message spanned lines (heredoc or multi-line -m), so a safe
+# commit was mis-denied as "bare". Splitting must be quote-aware.
+
+def test_multiline_quoted_message_only_commit_allowed():
+    cmd = 'git commit -m "line one\nline two" --only -- src/foo.py'
+    assert _verdict(cmd) is None
+
+
+def test_heredoc_substitution_message_only_commit_allowed():
+    cmd = (
+        "git commit -m \"$(cat <<'EOF'\n"
+        "feat: something\n"
+        "\n"
+        "body line\n"
+        "EOF\n"
+        ")\" --only -- src/foo.py tests/bar.py"
+    )
+    assert _verdict(cmd) is None
+
+
+def test_operator_inside_quoted_message_not_a_new_command():
+    # `&&` / `;` inside the message must not spawn a phantom segment.
+    cmd = 'git commit --only -- x.py -m "fix a && drop b; done"'
+    assert _verdict(cmd) is None
+
+
+def test_newline_separated_compound_add_all_still_denied():
+    # A REAL unquoted-newline compound must still be split so `git add -A` is caught.
+    assert _verdict('git add -A\ngit commit --only -- x.py -m "y"') == "deny"
+
+
+def test_multiline_bare_commit_still_denied():
+    # A genuinely bare commit whose message spans lines is still bare (no pathspec).
+    assert _verdict('git commit -m "line one\nline two"') == "deny"
+
+
 # ------------------------------ end-to-end stdin -> stdout ------------------------------
 
 def _run(payload):
