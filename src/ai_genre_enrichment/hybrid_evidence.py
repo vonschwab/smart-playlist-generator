@@ -421,6 +421,14 @@ def fuse_release_evidence(store: object, release: object) -> HybridGenreReport:
         if len(parts) != 2:
             continue
         level, src = parts
+        if level == "artist" and ("musicbrainz" in src or "discogs" in src):
+            # FIX 1 (2026-06-12 GENRE_DATA_QUALITY_FINDINGS §6): artist-level
+            # MusicBrainz/Discogs genres describe the artist's WHOLE catalog,
+            # not this specific release, and bleed wrong tags onto albums
+            # (e.g. "garage rock" onto Arctic Monkeys' lounge album). Skip
+            # them the same way artist:lastfm is already skipped below;
+            # release/album/track-level MB/Discogs evidence is unaffected.
+            continue
         if src == "file" and level in ("track", "album"):
             # The user's own embedded file tags — first-class evidence
             # (2026-06-12: the old blanket `track:` skip kept LPVV's correct

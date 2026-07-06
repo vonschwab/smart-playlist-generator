@@ -349,8 +349,12 @@ def test_collect_hybrid_evidence_excludes_human_rejected_source_tags(tmp_path: P
     assert [item.term for item in evidence] == []
 
 
-def test_fuse_release_evidence_injects_metadata_genres(tmp_path):
-    """fuse_release_evidence pulls artist/album metadata.db genres in as evidence."""
+def test_fuse_release_evidence_skips_artist_level_musicbrainz_catalog_tags(tmp_path):
+    # FIX 1 (2026-06-12 GENRE_DATA_QUALITY_FINDINGS §6): artist-level
+    # MusicBrainz/Discogs genres describe the artist's whole catalog, not this
+    # release, and bleed wrong tags onto albums (e.g. "garage rock" onto
+    # Arctic Monkeys' lounge album). Skip them entirely -- they must never
+    # appear as fused evidence, full-weight or otherwise.
     from types import SimpleNamespace
     from src.ai_genre_enrichment.hybrid_evidence import fuse_release_evidence
     from src.ai_genre_enrichment.storage import SidecarStore
@@ -362,12 +366,44 @@ def test_fuse_release_evidence_injects_metadata_genres(tmp_path):
         normalized_artist="slowdive",
         normalized_album="souvlaki",
         album_id="alb1",
-        existing_genres_by_source={"artist:musicbrainz_artist": ["shoegaze", "dream pop"]},
+        existing_genres_by_source={
+            "artist:musicbrainz_artist": ["garage rock"],
+            "artist:discogs_artist": ["garage rock"],
+        },
     )
     report = fuse_release_evidence(store, release)
-    accepted = {d.term for d in report.accepted_genres}
-    provisional = {d.term for d in report.provisional_genres}
-    assert "shoegaze" in (accepted | provisional)
+    published = (
+        {d.term for d in report.accepted_genres}
+        | {d.term for d in report.provisional_genres}
+        | {d.term for d in report.rejected_noise}
+    )
+    assert "garage rock" not in published
+
+
+def test_fuse_release_evidence_album_level_musicbrainz_discogs_still_flows(tmp_path):
+    # Positive control for Fix 1: album/release-level MB and Discogs genres
+    # are untouched by the artist-level skip, and (per Fix 2) corroborate each
+    # other into full weight since MusicBrainz is an anchor source.
+    from types import SimpleNamespace
+    from src.ai_genre_enrichment.hybrid_evidence import fuse_release_evidence
+    from src.ai_genre_enrichment.storage import SidecarStore
+
+    store = SidecarStore(str(tmp_path / "side.db"))
+    store.initialize()
+    release = SimpleNamespace(
+        release_key="slowdive::souvlaki",
+        normalized_artist="slowdive",
+        normalized_album="souvlaki",
+        album_id="alb1",
+        existing_genres_by_source={
+            "album:musicbrainz_release": ["dream pop"],
+            "album:discogs_release": ["dream pop"],
+        },
+    )
+    report = fuse_release_evidence(store, release)
+    published = {d.term: d for d in (report.accepted_genres + report.provisional_genres)}
+    assert "dream pop" in published
+    assert published["dream pop"].confidence > 0.40
 
 
 # ── Bandcamp source classification + storefront trust (2026-06-12) ──────────
