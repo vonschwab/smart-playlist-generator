@@ -50,3 +50,19 @@ def test_slim_towers_are_empty_and_marked():
     assert "onset_rate" in d["rhythm"]
     for k in ("primary_bpm", "half_tempo_likely", "double_tempo_likely", "tempo_stability"):
         assert k in d["bpm_info"]
+
+
+def test_detect_beats_returns_scalar_bpm_without_deprecation():
+    """librosa.beat.beat_track returns tempo as an ndim>0 array; float(tempo) on it is a
+    numpy DeprecationWarning that becomes a hard error in future numpy -- and this is the
+    BPM source for the pace axis. _detect_beats must return a plain float, warning-free."""
+    import warnings
+
+    y, sr = _synth()
+    ext = Beat3TowerExtractor(Beat3TowerConfig(sample_rate=sr))
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        tempo, _beat_frames, _beat_times = ext._detect_beats(y)
+    assert isinstance(tempo, float)
+    leaked = [w for w in caught if "ndim > 0 to a scalar" in str(w.message)]
+    assert not leaked, f"_detect_beats leaked a numpy ndim>0 deprecation: {[str(w.message) for w in leaked]}"

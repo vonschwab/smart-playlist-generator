@@ -39,7 +39,7 @@ class LibrosaAnalyzer:
 
     def _extract_beat3tower_features(self, file_path: str) -> Optional[Dict[str, Any]]:
         """
-        PHASE 3: Extract 3-tower beat-synchronized features.
+        Extract pace (BPM + onset) features for a track.
 
         Uses the Beat3TowerExtractor to extract BPM + onset (pace) features
         aligned to musical beats.

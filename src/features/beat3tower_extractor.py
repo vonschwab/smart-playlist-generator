@@ -314,7 +314,9 @@ class Beat3TowerExtractor:
         beat_times = librosa.frames_to_time(
             beat_frames, sr=self.sr, hop_length=self.hop_length
         )
-        return float(tempo), np.asarray(beat_frames, dtype=int), np.asarray(beat_times, dtype=float)
+        # librosa.beat.beat_track returns tempo as an ndim>0 array; float() on it is a numpy
+        # ndim>0->scalar deprecation (a future hard error) -- take the scalar explicitly.
+        return float(np.ravel(tempo)[0]), np.asarray(beat_frames, dtype=int), np.asarray(beat_times, dtype=float)
 
     def _estimate_tempo(self, y: np.ndarray) -> Tuple[Optional[float], Optional[str]]:
         try:
