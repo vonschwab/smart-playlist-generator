@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 from pathlib import Path
 import re
 from typing import Any
@@ -244,8 +245,29 @@ def load_default_layered_taxonomy() -> LayeredTaxonomy:
     return load_layered_taxonomy(DEFAULT_TAXONOMY_PATH)
 
 
+# path (resolved) -> (sha256 of file text, parsed taxonomy). No lock: dict get/set
+# are GIL-atomic, so a concurrent double-parse on a cache miss is harmless (last
+# write wins, both results are valid for identical input text).
+_taxonomy_cache: dict[str, tuple[str, "LayeredTaxonomy"]] = {}
+
+
 def load_layered_taxonomy(path: str | Path) -> LayeredTaxonomy:
-    data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    p = Path(path)
+    text = p.read_text(encoding="utf-8")
+    cache_key = str(p.resolve())
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+    cached = _taxonomy_cache.get(cache_key)
+    if cached is not None and cached[0] == digest:
+        return cached[1]
+
+    taxonomy = _parse_layered_taxonomy(text)
+    _taxonomy_cache[cache_key] = (digest, taxonomy)
+    return taxonomy
+
+
+def _parse_layered_taxonomy(text: str) -> LayeredTaxonomy:
+    data = yaml.safe_load(text) or {}
     version = str(data.get("taxonomy_version") or data.get("version") or "").strip()
     if not version:
         raise ValueError("Layered taxonomy is missing version")
