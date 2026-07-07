@@ -300,7 +300,7 @@ class PlaylistGenerator:
     def _ensure_metadata_client(self):
         if self.metadata is None:
             try:
-                db_path = self.config.get('library', {}).get('database_path', 'data/metadata.db')
+                db_path = self.config.get('library', 'database_path', default='data/metadata.db')
                 from src.metadata_client import MetadataClient
 
                 self.metadata = MetadataClient(db_path)
