@@ -58,7 +58,7 @@ class PlaylistApp:
         self.matcher = TrackMatcher(
             self.library,
             library_id=None,
-            db_path=self.config.library_database_path,
+            db_path=resolve_database_path(self.config),
         )
         # Cosmetic export label only (M3U #EXTVARIANT tag + filename suffix) — SP-B
         # retired the sonic-space transform selector (resolve_sonic_variant); this
