@@ -96,7 +96,7 @@ def test_publish_decided_backs_up_and_publishes(tmp_path, monkeypatch, capsys):
     side = tmp_path / "sidecar.db"
     from src.ai_genre_enrichment.storage import SidecarStore
     SidecarStore(str(side)).initialize()
-    monkeypatch.setattr(W, "METADATA_DB_PATH", str(meta))
+    monkeypatch.setattr(W, "resolve_database_path", lambda *a, **k: str(meta))
     monkeypatch.setattr(W, "SIDECAR_DB_PATH", str(side))
 
     W.handle_publish_decided({"cmd": "publish_decided", "request_id": "r3", "job_id": "j3"})
