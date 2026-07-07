@@ -384,13 +384,14 @@ def create_app(
         # Untracked: validate_proposal is a fast read-only check against the
         # live taxonomy; the ADD wizard blocks Stage until errors == [].
         try:
-            return await bridge.command({
+            result = await bridge.command({
                 "cmd": "validate_taxonomy_proposal",
                 "proposal": body.proposal}, untracked=True)
         except BridgeBusy:
             raise HTTPException(status_code=409, detail="Worker is busy — try again when the current job finishes.")
         except WorkerCommandError as exc:
             raise HTTPException(status_code=502, detail=str(exc))
+        return {"ok": True, **result}
 
     @app.post("/api/taxonomy/apply")
     async def taxonomy_apply() -> dict:

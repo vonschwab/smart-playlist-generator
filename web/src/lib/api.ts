@@ -170,7 +170,7 @@ export const api = {
       body: JSON.stringify(req),
     }));
   },
-  async taxonomyValidate(proposal: TaxonomyProposal): Promise<{ errors: string[] }> {
+  async taxonomyValidate(proposal: TaxonomyProposal): Promise<{ ok: boolean; errors: string[] }> {
     return jsonOrThrow(await fetch("/api/taxonomy/validate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
