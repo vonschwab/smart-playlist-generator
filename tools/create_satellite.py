@@ -117,9 +117,18 @@ def main() -> None:
             shutil.copyfile(src, dest)
 
     print("[4/6] npm install + build (one-time; a few minutes)")
-    npm = shutil.which("npm") or "npm"
-    _run([npm, "--prefix", str(sat / "web"), "install"])
-    _run([npm, "--prefix", str(sat / "web"), "run", "build"])
+    npm = shutil.which("npm")
+    if npm is None:
+        print(
+            "  ! npm not found on PATH — skipping web build. Install Node.js, then run "
+            f"`npm install` and `npm run build` in {sat / 'web'} before using the satellite GUI."
+        )
+    else:
+        # Run npm FROM the web dir: `npm install` reads package.json from cwd, not
+        # from --prefix (an absolute --prefix here made npm look at the canonical root).
+        web_dir = sat / "web"
+        _run([npm, "install"], cwd=web_dir)
+        _run([npm, "run", "build"], cwd=web_dir)
 
     print("[5/6] Auto-memory pointer")
     mem_dir = Path.home() / ".claude" / "projects" / memory_project_key(str(sat)) / "memory"
