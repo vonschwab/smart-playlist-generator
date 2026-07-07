@@ -1,5 +1,5 @@
 // web/src/components/TaxonomyAddWizard.tsx
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { api } from "../lib/api";
 import { GenreAutocomplete } from "./GenreAutocomplete";
 import type { TaxonomyParentEdge, TaxonomyProposal, TaxonomyQueueItem } from "../lib/types";
@@ -58,6 +58,7 @@ export function TaxonomyAddWizard({
   const [errors, setErrors] = useState<string[] | null>(null);
   const [validating, setValidating] = useState(false);
   const [validateFailed, setValidateFailed] = useState<string | null>(null);
+  const validateSeq = useRef(0);
 
   const isFacet = kind === "facet";
   const spec = SPECIFICITY[kind];
@@ -94,13 +95,23 @@ export function TaxonomyAddWizard({
   }
 
   async function validate() {
+    // Request-sequencing: goto(4) can fire validate() again before an
+    // in-flight call resolves (Back → edit → Next twice quickly). Only the
+    // response matching the latest sequence number is applied — an older
+    // response resolving after a newer one is ignored rather than
+    // overwriting fresher errors/validateFailed state.
+    const seq = ++validateSeq.current;
     setValidating(true); setErrors(null); setValidateFailed(null);
     try {
       const r = await api.taxonomyValidate(buildProposal());
+      if (seq !== validateSeq.current) return; // superseded by a newer call
       setErrors(r.errors ?? []);
     } catch (e) {
+      if (seq !== validateSeq.current) return; // superseded by a newer call
       setValidateFailed(String(e)); // endpoint down ⇒ never "stage anyway"
-    } finally { setValidating(false); }
+    } finally {
+      if (seq === validateSeq.current) setValidating(false);
+    }
   }
 
   function goto(n: number) {
@@ -267,7 +278,7 @@ export function TaxonomyAddWizard({
           )}
           {errors !== null && errors.length > 0 && (
             <div data-testid="wizard-errors" className="text-danger text-[10px]">
-              {errors.map((e) => <div key={e}>{e}</div>)}
+              {errors.map((e, i) => <div key={`${i}:${e}`}>{e}</div>)}
             </div>
           )}
           {errors !== null && errors.length === 0 && (

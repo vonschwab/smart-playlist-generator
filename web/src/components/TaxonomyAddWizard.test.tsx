@@ -1,6 +1,6 @@
 // web/src/components/TaxonomyAddWizard.test.tsx
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, waitFor, act } from "@testing-library/react";
 
 vi.mock("../lib/api", () => ({
   api: {
@@ -13,6 +13,12 @@ import { TaxonomyAddWizard } from "./TaxonomyAddWizard";
 import type { TaxonomyQueueItem } from "../lib/types";
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
+
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => { resolve = r; });
+  return { promise, resolve };
+}
 
 const ITEM: TaxonomyQueueItem = {
   term: "shoe gaze", raw_term: "Shoe Gaze", album_frequency: 3,
@@ -112,5 +118,35 @@ describe("TaxonomyAddWizard validation gate", () => {
     fireEvent.click(screen.getByTestId("wizard-next"));
     await waitFor(() => expect(screen.getByTestId("wizard-validate-failed").textContent).toContain("worker busy"));
     expect((screen.getByTestId("wizard-stage") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("ignores a stale validate response that resolves after a newer one", async () => {
+    const stale = deferred<{ errors: string[] }>();
+    const fresh = deferred<{ errors: string[] }>();
+    vi.mocked(api.taxonomyValidate)
+      .mockImplementationOnce(() => stale.promise)
+      .mockImplementationOnce(() => fresh.promise);
+    renderWizard();
+    fireEvent.click(screen.getByTestId("wizard-next"));
+    await addParent("indie rock");
+    fireEvent.click(screen.getByTestId("wizard-next"));
+    fireEvent.click(screen.getByTestId("wizard-next")); // -> step 4, first validate() in flight (stale)
+    await waitFor(() => expect(api.taxonomyValidate).toHaveBeenCalledTimes(1));
+
+    // Back -> edit -> Next again fires a second, newer validate() call.
+    fireEvent.click(screen.getByTestId("wizard-back"));
+    fireEvent.click(screen.getByTestId("wizard-next"));
+    await waitFor(() => expect(api.taxonomyValidate).toHaveBeenCalledTimes(2));
+
+    // Newer call resolves first (empty errors == valid); older call resolves
+    // after it with errors — its result must be ignored.
+    await act(async () => { fresh.resolve({ errors: [] }); });
+    const stage = await waitFor(() => screen.getByTestId("wizard-stage"));
+    await waitFor(() => expect((stage as HTMLButtonElement).disabled).toBe(false));
+
+    await act(async () => { stale.resolve({ errors: ["stale: should never show"] }); });
+
+    expect(screen.queryByTestId("wizard-errors")).toBeNull();
+    expect((screen.getByTestId("wizard-stage") as HTMLButtonElement).disabled).toBe(false);
   });
 });
