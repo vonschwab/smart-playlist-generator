@@ -499,12 +499,16 @@ def resolve_database_path(config: "Config | dict | None") -> str:
     the DB location independent of where the process was launched, which is
     what lets a satellite clone (cwd != data root) read the real canonical DB.
     """
-    if isinstance(config, Config):
-        raw = config.get("library", "database_path", default=None)
-    elif isinstance(config, dict):
+    if isinstance(config, dict):
         raw = (config.get("library") or {}).get("database_path")
-    else:
+    elif config is None:
         raw = None
+    else:
+        # Config, MergedConfig, or any object exposing get(section, key, default)
+        try:
+            raw = config.get("library", "database_path", default=None)
+        except (TypeError, AttributeError):
+            raw = None
     raw = (str(raw).strip() if raw else "") or _DEFAULT_DB_REL
     p = Path(raw)
     if not p.is_absolute():

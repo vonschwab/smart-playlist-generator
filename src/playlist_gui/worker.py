@@ -1235,7 +1235,8 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                 try:
                     lastfm = LastFMClient(
                         api_key=merged_config.lastfm_api_key,
-                        username=merged_config.lastfm_username
+                        username=merged_config.lastfm_username,
+                        db_path=resolve_database_path(config)
                     )
                 except Exception:
                     pass

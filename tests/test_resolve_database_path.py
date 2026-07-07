@@ -57,3 +57,17 @@ def test_canonical_relative_config_resolves_to_repo_db(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     result = resolve_database_path({"library": {"database_path": "data/metadata.db"}})
     assert Path(result) == (_REPO_ROOT / "data" / "metadata.db").resolve()
+
+
+def test_duck_typed_config_object_resolves(tmp_path):
+    # Regression: a duck-typed config object (e.g. the GUI worker's
+    # MergedConfig — not a Config subclass, not a dict, but exposing a
+    # 3-arg get(section, key, default)) must resolve via its .get(), not
+    # silently fall through to the repo-root default.
+    abs_db = tmp_path / "canon" / "metadata.db"
+
+    class _Merged:
+        def get(self, section, key, default=None):
+            return {"library": {"database_path": abs_db.as_posix()}}.get(section, {}).get(key, default)
+
+    assert Path(resolve_database_path(_Merged())) == abs_db.resolve()
