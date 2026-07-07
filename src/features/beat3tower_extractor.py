@@ -2,12 +2,13 @@
 Beat 3-Tower Feature Extractor
 ===============================
 
-Beat-synchronous extraction of 3-tower sonic features:
-- Rhythm tower: onset, tempogram, beat stability
-- Timbre tower: MFCC, spectral features
-- Harmony tower: chroma, tonnetz
-
-All features are aggregated per beat using robust statistics (median/IQR).
+SP-C (2026-07-07): the sonic space is MuQ, so this extractor no longer computes
+the timbre/harmony towers (deleted as dead DSP). It now runs only to produce the
+pace fields the BPM/onset gate reads -- ``bpm_info.*`` and ``rhythm.onset_rate``
+-- via beat-synchronous tempo/onset detection. The ``beat3tower`` extraction
+marker and the ``TimbreTowerFeatures``/``HarmonyTowerFeatures`` types are kept
+(populated as empty defaults) so existing DB rows and the artifact schema still
+parse.
 """
 
 import logging
@@ -34,23 +35,21 @@ logger = logging.getLogger(__name__)
 class Beat3TowerConfig:
     """Configuration for 3-tower feature extraction."""
     sample_rate: int = 22050
-    n_mfcc: int = 20
     hop_length: int = 512
-    n_fft: int = 2048
+    n_fft: int = 2048  # still consumed by _is_silent's RMS frame_length
     min_beats: int = 4  # Minimum beats required for extraction
     segment_duration: float = 30.0  # Duration of each segment (start/mid/end) in seconds
     default_tempo_bpm: float = 60.0  # Fallback tempo when estimation fails
     timegrid_min_period_sec: float = 0.25  # Clamp to avoid overly small windows
     silence_rms_threshold: float = 1e-4  # RMS threshold for near-silence detection
-    tempogram_min_frames: int = 1024  # Pad onset envelope to avoid short-signal warnings
 
 
 class Beat3TowerExtractor:
     """
-    Beat-synchronous 3-tower feature extractor.
+    Beat-synchronous pace (BPM + onset) feature extractor.
 
-    Extracts rhythm, timbre, and harmony features aligned to musical beats.
-    Uses robust aggregation (median/IQR) across beats.
+    Extracts the BPM/onset-rate fields the pace axis reads, aligned to musical
+    beats. Timbre/harmony are no longer computed (SP-C) -- see module docstring.
     """
 
     def __init__(self, config: Optional[Beat3TowerConfig] = None):
@@ -62,13 +61,11 @@ class Beat3TowerExtractor:
         """
         self.config = config or Beat3TowerConfig()
         self.sr = self.config.sample_rate
-        self.n_mfcc = self.config.n_mfcc
         self.hop_length = self.config.hop_length
-        self.n_fft = self.config.n_fft
+        self.n_fft = self.config.n_fft  # used by _is_silent's RMS frame_length
 
         logger.debug(
-            f"Initialized Beat3TowerExtractor (sr={self.sr}, n_mfcc={self.n_mfcc}, "
-            f"hop_length={self.hop_length})"
+            f"Initialized Beat3TowerExtractor (sr={self.sr}, hop_length={self.hop_length})"
         )
 
     def extract_from_file(self, file_path: str) -> Optional[Dict[str, Any]]:
@@ -460,257 +457,6 @@ class Beat3TowerExtractor:
         return float(np.max(rms)) < float(self.config.silence_rms_threshold)
 
     # =========================================================================
-    # RHYTHM TOWER
-    # =========================================================================
-
-    def _extract_rhythm_tower(
-        self,
-        y: np.ndarray,
-        beat_frames: np.ndarray,
-        beat_times: np.ndarray,
-        tempo: float,
-    ) -> RhythmTowerFeatures:
-        """
-        Extract rhythm tower features.
-
-        Features:
-        - Onset envelope statistics (median, IQR, std, p10, p90)
-        - Tempogram peaks and autocorrelation
-        - Beat interval stability
-        - Rhythmic complexity (entropy)
-        """
-        # 1. Onset strength envelope
-        onset_env = librosa.onset.onset_strength(y=y, sr=self.sr, hop_length=self.hop_length)
-        onset_per_beat = self._aggregate_per_beat_1d(onset_env, beat_frames)
-
-        # 2. Tempogram / rhythmic autocorrelation
-        tempogram_input = onset_env
-        if onset_env.size < self.config.tempogram_min_frames:
-            pad_len = self.config.tempogram_min_frames - onset_env.size
-            tempogram_input = np.pad(onset_env, (0, pad_len), mode="constant")
-        tempogram = librosa.feature.tempogram(
-            onset_envelope=tempogram_input,
-            sr=self.sr,
-            hop_length=self.hop_length,
-        )
-        tempo_acf = np.mean(tempogram, axis=1)  # Average across time
-
-        # Find tempo peaks
-        peak_indices = self._find_tempo_peaks(tempo_acf, n_peaks=3)
-
-        # 3. Beat interval statistics
-        if len(beat_times) > 1:
-            beat_intervals = np.diff(beat_times)
-            beat_interval_cv = np.std(beat_intervals) / (np.mean(beat_intervals) + 1e-6)
-            beat_interval_median = np.median(beat_intervals)
-        else:
-            beat_interval_cv = 0.0
-            beat_interval_median = 0.0
-
-        # 4. Beat strength (onset at beat positions)
-        beat_strengths = onset_env[beat_frames] if len(beat_frames) > 0 else np.array([0.0])
-
-        # 5. Onset rate (busyness)
-        onset_times = librosa.onset.onset_detect(y=y, sr=self.sr, units='time', hop_length=self.hop_length)
-        onset_rate = len(onset_times) / (len(y) / self.sr) if len(y) > 0 else 0.0
-
-        # 6. Rhythmic complexity (entropy)
-        onset_probs = onset_per_beat / (np.sum(onset_per_beat) + 1e-10)
-        rhythm_entropy = -np.sum(onset_probs * np.log(onset_probs + 1e-10))
-
-        return RhythmTowerFeatures(
-            # Onset stats
-            onset_median=float(np.median(onset_per_beat)),
-            onset_iqr=float(np.percentile(onset_per_beat, 75) - np.percentile(onset_per_beat, 25)),
-            onset_std=float(np.std(onset_per_beat)),
-            onset_p10=float(np.percentile(onset_per_beat, 10)),
-            onset_p90=float(np.percentile(onset_per_beat, 90)),
-            # Tempogram peaks
-            tempo_peak1_lag=float(peak_indices[0]) if len(peak_indices) > 0 else 0.0,
-            tempo_peak2_lag=float(peak_indices[1]) if len(peak_indices) > 1 else 0.0,
-            tempo_peak_ratio=float(
-                tempo_acf[peak_indices[0]] / (tempo_acf[peak_indices[1]] + 1e-10)
-                if len(peak_indices) > 1 else 1.0
-            ),
-            # ACF lags
-            tempo_acf_lag1=float(tempo_acf[1]) if len(tempo_acf) > 1 else 0.0,
-            tempo_acf_lag2=float(tempo_acf[2]) if len(tempo_acf) > 2 else 0.0,
-            tempo_acf_lag3=float(tempo_acf[3]) if len(tempo_acf) > 3 else 0.0,
-            tempo_acf_lag4=float(tempo_acf[4]) if len(tempo_acf) > 4 else 0.0,
-            tempo_acf_lag5=float(tempo_acf[5]) if len(tempo_acf) > 5 else 0.0,
-            # Beat stability
-            beat_interval_cv=float(beat_interval_cv),
-            beat_interval_median=float(beat_interval_median),
-            # Beat strength
-            beat_strength_median=float(np.median(beat_strengths)),
-            beat_strength_iqr=float(np.percentile(beat_strengths, 75) - np.percentile(beat_strengths, 25)),
-            # Onset rate
-            onset_rate=float(onset_rate),
-            # Complexity
-            rhythm_entropy=float(rhythm_entropy),
-            # BPM (will be updated later)
-            bpm=float(tempo),
-            tempo_stability=1.0,
-        )
-
-    def _find_tempo_peaks(self, tempo_acf: np.ndarray, n_peaks: int = 3) -> np.ndarray:
-        """Find peak indices in tempogram autocorrelation."""
-        # Skip first few lags (too short periods)
-        start_lag = 5
-        if len(tempo_acf) <= start_lag:
-            return np.array([0])
-
-        acf_search = tempo_acf[start_lag:]
-
-        # Find local maxima
-        peaks = []
-        for i in range(1, len(acf_search) - 1):
-            if acf_search[i] > acf_search[i - 1] and acf_search[i] > acf_search[i + 1]:
-                peaks.append((i + start_lag, acf_search[i]))
-
-        if not peaks:
-            # Fallback: use global maximum
-            return np.array([np.argmax(tempo_acf[start_lag:]) + start_lag])
-
-        # Sort by magnitude and return top n
-        peaks.sort(key=lambda x: -x[1])
-        return np.array([p[0] for p in peaks[:n_peaks]])
-
-    # =========================================================================
-    # TIMBRE TOWER
-    # =========================================================================
-
-    def _extract_timbre_tower(
-        self, y: np.ndarray, beat_frames: np.ndarray
-    ) -> TimbreTowerFeatures:
-        """
-        Extract timbre tower features.
-
-        Features:
-        - MFCC (20 coefficients) with median/IQR per beat
-        - MFCC delta (dynamics)
-        - Spectral contrast, rolloff, centroid, bandwidth, flux
-        - Zero crossing rate
-        """
-        # 1. MFCC (20 coefficients)
-        mfcc = librosa.feature.mfcc(
-            y=y, sr=self.sr, n_mfcc=self.n_mfcc,
-            hop_length=self.hop_length, n_fft=self.n_fft
-        )
-        mfcc_per_beat = self._aggregate_per_beat_2d(mfcc, beat_frames)  # (n_beats, 20)
-
-        mfcc_median = np.median(mfcc_per_beat, axis=0)
-        mfcc_iqr = np.percentile(mfcc_per_beat, 75, axis=0) - np.percentile(mfcc_per_beat, 25, axis=0)
-
-        # 2. MFCC delta (dynamics)
-        mfcc_delta = librosa.feature.delta(mfcc)
-        mfcc_delta_per_beat = self._aggregate_per_beat_2d(mfcc_delta, beat_frames)
-        mfcc_delta_median = np.median(mfcc_delta_per_beat, axis=0)
-
-        # 3. Spectral contrast (7 bands)
-        spec_contrast = librosa.feature.spectral_contrast(
-            y=y, sr=self.sr, hop_length=self.hop_length, n_fft=self.n_fft
-        )
-        spec_contrast_per_beat = self._aggregate_per_beat_2d(spec_contrast, beat_frames)
-
-        spec_contrast_median = np.median(spec_contrast_per_beat, axis=0)
-        spec_contrast_iqr = (
-            np.percentile(spec_contrast_per_beat, 75, axis=0) -
-            np.percentile(spec_contrast_per_beat, 25, axis=0)
-        )
-
-        # 4. Spectral rolloff
-        rolloff = librosa.feature.spectral_rolloff(
-            y=y, sr=self.sr, hop_length=self.hop_length, n_fft=self.n_fft
-        )[0]
-        rolloff_per_beat = self._aggregate_per_beat_1d(rolloff, beat_frames)
-
-        # 5. Spectral centroid
-        centroid = librosa.feature.spectral_centroid(
-            y=y, sr=self.sr, hop_length=self.hop_length, n_fft=self.n_fft
-        )[0]
-        centroid_per_beat = self._aggregate_per_beat_1d(centroid, beat_frames)
-
-        # 6. Spectral bandwidth
-        bandwidth = librosa.feature.spectral_bandwidth(
-            y=y, sr=self.sr, hop_length=self.hop_length, n_fft=self.n_fft
-        )[0]
-        bandwidth_per_beat = self._aggregate_per_beat_1d(bandwidth, beat_frames)
-
-        # 7. Spectral flux (approximated via onset strength)
-        flux = librosa.onset.onset_strength(y=y, sr=self.sr, hop_length=self.hop_length)
-        flux_per_beat = self._aggregate_per_beat_1d(flux, beat_frames)
-
-        # 8. Zero crossing rate
-        zcr = librosa.feature.zero_crossing_rate(y, hop_length=self.hop_length)[0]
-        zcr_per_beat = self._aggregate_per_beat_1d(zcr, beat_frames)
-
-        return TimbreTowerFeatures(
-            mfcc_median=mfcc_median,
-            mfcc_iqr=mfcc_iqr,
-            mfcc_delta_median=mfcc_delta_median,
-            spec_contrast_median=spec_contrast_median,
-            spec_contrast_iqr=spec_contrast_iqr,
-            spec_rolloff_median=float(np.median(rolloff_per_beat)),
-            spec_rolloff_iqr=float(np.percentile(rolloff_per_beat, 75) - np.percentile(rolloff_per_beat, 25)),
-            spec_centroid_median=float(np.median(centroid_per_beat)),
-            spec_centroid_iqr=float(np.percentile(centroid_per_beat, 75) - np.percentile(centroid_per_beat, 25)),
-            spec_bandwidth_median=float(np.median(bandwidth_per_beat)),
-            spec_bandwidth_iqr=float(np.percentile(bandwidth_per_beat, 75) - np.percentile(bandwidth_per_beat, 25)),
-            spec_flux_median=float(np.median(flux_per_beat)),
-            spec_flux_iqr=float(np.percentile(flux_per_beat, 75) - np.percentile(flux_per_beat, 25)),
-            zcr_median=float(np.median(zcr_per_beat)),
-        )
-
-    # =========================================================================
-    # HARMONY TOWER
-    # =========================================================================
-
-    def _extract_harmony_tower(
-        self, y: np.ndarray, beat_frames: np.ndarray
-    ) -> HarmonyTowerFeatures:
-        """
-        Extract harmony tower features.
-
-        Features:
-        - Chroma CQT (12 bins) with median/IQR per beat
-        - Chroma entropy and statistics
-        - Tonnetz (6 dims)
-        """
-        # 1. Chroma CQT (constant-Q transform - better bass resolution)
-        chroma = librosa.feature.chroma_cqt(y=y, sr=self.sr, hop_length=self.hop_length)
-        chroma_per_beat = self._aggregate_per_beat_2d(chroma, beat_frames)  # (n_beats, 12)
-
-        chroma_median = np.median(chroma_per_beat, axis=0)
-        chroma_iqr = np.percentile(chroma_per_beat, 75, axis=0) - np.percentile(chroma_per_beat, 25, axis=0)
-
-        # 2. Chroma statistics
-        chroma_mean = np.mean(chroma, axis=1)  # Average across time
-        chroma_probs = chroma_mean / (np.sum(chroma_mean) + 1e-10)
-        chroma_entropy = -np.sum(chroma_probs * np.log(chroma_probs + 1e-10))
-
-        # Peak count (how many pitch classes are dominant)
-        threshold = np.mean(chroma_mean) + np.std(chroma_mean)
-        chroma_peak_count = np.sum(chroma_mean > threshold)
-
-        # Key strength (max vs mean)
-        key_strength = np.max(chroma_mean) / (np.mean(chroma_mean) + 1e-10)
-
-        # 3. Tonnetz (tonal centroid - 6 dimensions)
-        tonnetz = librosa.feature.tonnetz(y=y, sr=self.sr)
-        tonnetz_per_beat = self._aggregate_per_beat_2d(tonnetz, beat_frames)  # (n_beats, 6)
-        tonnetz_median = np.median(tonnetz_per_beat, axis=0)
-
-        return HarmonyTowerFeatures(
-            chroma_median=chroma_median,
-            chroma_iqr=chroma_iqr,
-            chroma_entropy=float(chroma_entropy),
-            chroma_peak_count=float(chroma_peak_count),
-            key_strength=float(key_strength),
-            tonnetz_median=tonnetz_median,
-        )
-
-    # =========================================================================
     # BPM ANALYSIS
     # =========================================================================
 
@@ -754,63 +500,6 @@ class Beat3TowerExtractor:
             double_tempo_likely=double_likely,
             tempo_stability=tempo_stability,
         )
-
-    # =========================================================================
-    # HELPER METHODS
-    # =========================================================================
-
-    def _aggregate_per_beat_1d(
-        self, feature: np.ndarray, beat_frames: np.ndarray
-    ) -> np.ndarray:
-        """
-        Aggregate 1D feature (n_frames,) per beat interval.
-
-        Returns:
-            Array of shape (n_beats-1,) with aggregated values per beat interval.
-        """
-        if len(beat_frames) < 2:
-            return feature if len(feature) > 0 else np.array([0.0])
-
-        values = []
-        for i in range(len(beat_frames) - 1):
-            start = beat_frames[i]
-            end = beat_frames[i + 1]
-
-            if start < len(feature) and end <= len(feature) and start < end:
-                segment = feature[start:end]
-                if len(segment) > 0:
-                    values.append(np.mean(segment))
-
-        return np.array(values) if values else np.array([np.mean(feature)])
-
-    def _aggregate_per_beat_2d(
-        self, feature: np.ndarray, beat_frames: np.ndarray
-    ) -> np.ndarray:
-        """
-        Aggregate 2D feature (n_features, n_frames) per beat interval.
-
-        Returns:
-            Array of shape (n_beats-1, n_features) with aggregated values.
-        """
-        n_features = feature.shape[0]
-
-        if len(beat_frames) < 2:
-            return np.mean(feature, axis=1, keepdims=True).T
-
-        values = []
-        for i in range(len(beat_frames) - 1):
-            start = beat_frames[i]
-            end = beat_frames[i + 1]
-
-            if start < feature.shape[1] and end <= feature.shape[1] and start < end:
-                segment = feature[:, start:end]
-                if segment.shape[1] > 0:
-                    values.append(np.mean(segment, axis=1))
-
-        if not values:
-            return np.mean(feature, axis=1, keepdims=True).T
-
-        return np.vstack(values)
 
 
 # ============================================================================

@@ -41,7 +41,7 @@ class LibrosaAnalyzer:
         """
         PHASE 3: Extract 3-tower beat-synchronized features.
 
-        Uses the Beat3TowerExtractor to extract rhythm/timbre/harmony features
+        Uses the Beat3TowerExtractor to extract BPM + onset (pace) features
         aligned to musical beats.
 
         Args:
