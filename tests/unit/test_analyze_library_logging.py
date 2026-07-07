@@ -6,18 +6,27 @@ import scripts.analyze_library as analyze
 from src.logging_utils import ProgressLogger
 
 
-def _write_config(tmp_path: Path, db_path: Path) -> Path:
+def _write_config(tmp_path: Path, db_path: Path, analyze_log_dir: Path | None = None) -> Path:
     music_dir = tmp_path / "music"
     music_dir.mkdir(parents=True, exist_ok=True)
     config_path = tmp_path / "config.yaml"
-    config_path.write_text(
+    text = (
         "library:\n"
         f"  database_path: {db_path}\n"
         f"  music_directory: {music_dir}\n"
         "openai:\n"
-        "  api_key: test-key\n",
-        encoding="utf-8",
+        "  api_key: test-key\n"
     )
+    if analyze_log_dir is not None:
+        text += (
+            "logging:\n"
+            "  analyze_logs:\n"
+            "    enabled: true\n"
+            f"    dir: {analyze_log_dir.as_posix()}\n"
+            "    retention_days: 30\n"
+            "    level: DEBUG\n"
+        )
+    config_path.write_text(text, encoding="utf-8")
     return config_path
 
 
@@ -307,3 +316,32 @@ def test_run_pipeline_checks_cancellation_between_stages(tmp_path, monkeypatch):
         raise AssertionError("Expected cancellation to stop the pipeline")
 
     assert stages_run == ["scan"]
+
+
+def test_run_pipeline_writes_per_run_analyze_log(tmp_path, monkeypatch):
+    db_path = tmp_path / "metadata.db"
+    _make_db(db_path)
+    alog_dir = tmp_path / "logs_analyze"
+    config_path = _write_config(tmp_path, db_path, analyze_log_dir=alog_dir)
+    out_dir = tmp_path / "artifacts"
+
+    def _stub_scan(ctx):
+        return {"total": 1, "scan_total": 1, "orphaned": {}}
+
+    monkeypatch.setattr(analyze, "STAGE_FUNCS", {"scan": _stub_scan})
+
+    args = analyze.parse_args(
+        [
+            "--config", str(config_path),
+            "--db-path", str(db_path),
+            "--stages", "scan",
+            "--out-dir", str(out_dir),
+        ]
+    )  # NOTE: no --log-file -> per-run path is used
+
+    analyze.run_pipeline(args, console_logging=False)
+
+    logs = list(alog_dir.glob("*.log"))
+    assert len(logs) == 1
+    assert logs[0].name.endswith(".log")
+    assert "Analyze run start" in logs[0].read_text(encoding="utf-8")

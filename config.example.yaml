@@ -847,6 +847,13 @@ logging:
     retention_days: 30
     level: DEBUG
 
+  # Per-run Analyze Library logs (one rotated file per run, mirrors playlist_logs).
+  analyze_logs:
+    enabled: true
+    dir: logs/analyze
+    retention_days: 30
+    level: DEBUG
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Artifact-level settings (top-level section, default absent)
 # ─────────────────────────────────────────────────────────────────────────────

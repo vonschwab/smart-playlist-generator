@@ -2538,6 +2538,17 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _analyze_log_settings(config) -> Tuple[bool, str, int, str]:
+    """Resolve logging.analyze_logs.* with documented defaults (mirrors
+    _playlist_log_settings in main_app.py)."""
+    cfg = config.get('logging', 'analyze_logs', default={}) or {}
+    enabled = bool(cfg.get('enabled', True))
+    directory = str(cfg.get('dir', 'logs/analyze'))
+    retention_days = int(cfg.get('retention_days', 30))
+    level_name = str(cfg.get('level', 'DEBUG')).upper()
+    return enabled, directory, retention_days, level_name
+
+
 def run_pipeline(
     args: argparse.Namespace,
     cancellation_check: Optional[Callable[[], None]] = None,
@@ -2558,25 +2569,42 @@ def run_pipeline(
         logger.info("  out_dir: %s", out_dir)
         return 0
 
-    from src.logging_utils import configure_logging, resolve_log_level
+    from src.logging_utils import (
+        configure_logging, resolve_log_level,
+        make_analyze_log_path, cleanup_old_analyze_logs_async,
+    )
     run_id = str(uuid.uuid4())
     log_level = resolve_log_level(args)
     if getattr(args, "verbose", False) and not getattr(args, "debug", False) and not getattr(args, "quiet", False) and getattr(args, "log_level", "INFO").upper() == "INFO":
         log_level = "DEBUG"
-    log_file = getattr(args, 'log_file', None) or 'logs/analyze_library.log'
+
+    cfg = Config(args.config)   # loaded early so the per-run log path can honor config
+    a_enabled, a_dir, a_retention, a_level = _analyze_log_settings(cfg)
+    explicit_log_file = getattr(args, 'log_file', None)
+    if explicit_log_file:
+        log_file = explicit_log_file          # honor --log-file exactly as before
+        file_level = "DEBUG"
+    elif a_enabled:
+        log_file = str(make_analyze_log_path(run_id, dir=a_dir))
+        file_level = a_level
+    else:
+        log_file = None
+        file_level = "DEBUG"
     configure_logging(
         level=log_level,
         log_file=log_file,
+        file_level=file_level,
         run_id=run_id,
         show_run_id=getattr(args, "show_run_id", False),
         console=console_logging,
         force=not console_logging,
     )
+    if log_file and not explicit_log_file and a_enabled:
+        cleanup_old_analyze_logs_async(dir=a_dir, retention_days=a_retention)
 
     # Re-get logger after configuration
     logger = logging.getLogger("analyze_library")
 
-    cfg = Config(args.config)
     db_path = args.db_path or cfg.library_database_path
     # Hard stop before opening anything: a symlinked/aliased DB means a worktree run
     # that would WAL-corrupt the DB (the 2026-06-22 incident). Fail loudly instead.
