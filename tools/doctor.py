@@ -230,6 +230,79 @@ class DoctorChecks:
 
         return True
 
+    def check_satellite_data_paths(self, root: Path = ROOT_DIR) -> bool:
+        """Satellite clones must reach REAL data via absolute canonical paths.
+
+        A fresh clone's data/metadata.db is a tracked 0-byte stub; running with
+        it silently degrades generation (BPM gates disable inside a try/except).
+        Spec: docs/superpowers/specs/2026-07-06-simultaneous-sessions-design.md §2.
+        """
+        import importlib.util as _ilu
+
+        # Load the helper from THIS repo (doctor's own location), not from `root`:
+        # in tests `root` is a bare fake satellite dir that has no .claude/hooks.
+        wsi_path = ROOT_DIR / ".claude" / "hooks" / "workspace_identity.py"
+        if not wsi_path.exists():
+            # canonical fallback for odd layouts: nothing to enforce
+            check_pass("Workspace: canonical (no workspace_identity helper)")
+            self.passed += 1
+            return True
+        spec = _ilu.spec_from_file_location("workspace_identity", wsi_path)
+        wsi = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(wsi)
+
+        if not wsi.is_satellite(root):
+            check_pass("Workspace: canonical checkout (satellite checks n/a)")
+            self.passed += 1
+            return True
+
+        ok = True
+        cfg_path = root / "config.yaml"
+        if not cfg_path.exists():
+            check_fail("Satellite has no config.yaml",
+                       "python tools/create_satellite.py rewrites one from canonical")
+            self.failed += 1
+            return False
+        import yaml
+        with open(cfg_path, encoding="utf-8") as fh:
+            cfg = yaml.safe_load(fh) or {}
+
+        floors = {"database_path": 1 * 1024 * 1024, "artifact_path": 10 * 1024 * 1024}
+        raw_db = str(((cfg.get("library") or {}).get("database_path")) or "")
+        raw_art = str((((cfg.get("playlists") or {}).get("ds_pipeline") or {})
+                       .get("artifact_path")) or "")
+        for label, raw, floor in (
+            ("database_path", raw_db, floors["database_path"]),
+            ("artifact_path", raw_art, floors["artifact_path"]),
+        ):
+            p = Path(raw) if raw else None
+            if p is None or not p.is_absolute():
+                check_fail(f"Satellite {label} must be an ABSOLUTE canonical path (got {raw!r})",
+                           "Point it at the canonical checkout's data/ (create_satellite.py does this)")
+                self.failed += 1
+                ok = False
+                continue
+            resolved = p.resolve()
+            if resolved.is_relative_to(root.resolve()):
+                check_fail(f"Satellite {label} resolves INSIDE this clone ({resolved}) — that's the stub")
+                self.failed += 1
+                ok = False
+                continue
+            if not resolved.exists():
+                check_fail(f"Satellite {label} target missing: {resolved}")
+                self.failed += 1
+                ok = False
+                continue
+            size = resolved.stat().st_size
+            if size < floor:
+                check_fail(f"Satellite {label} target suspiciously small ({size} bytes < {floor}) — stub?")
+                self.failed += 1
+                ok = False
+                continue
+            check_pass(f"Satellite {label}: {resolved} ({size / (1024*1024):.0f} MB)")
+            self.passed += 1
+        return ok
+
     def check_genre_similarity(self) -> bool:
         """Check genre similarity file exists."""
         genre_sim_path = ROOT_DIR / "data" / "genre_similarity.yaml"
@@ -289,6 +362,7 @@ def main():
 
     section("Configuration")
     doctor.check_config_file()
+    doctor.check_satellite_data_paths()
 
     section("Database")
     doctor.check_database()
