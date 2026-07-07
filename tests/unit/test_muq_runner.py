@@ -99,6 +99,25 @@ class _FakeProgress:
         self.finished += 1
 
 
+def test_no_path_item_does_not_trigger_extra_checkpoint(tmp_path, monkeypatch):
+    sc = tmp_path / "muq_sidecar.npz"
+    calls = []
+    real_atomic_save = muq_runner._atomic_save
+
+    def counting_atomic_save(sidecar_path, done):
+        calls.append(1)
+        return real_atomic_save(sidecar_path, done)
+
+    monkeypatch.setattr(muq_runner, "_atomic_save", counting_atomic_save)
+    stub = lambda path: np.ones(4, np.float32)
+    items = [("a", "/a"), ("b", None), ("c", "/c")]  # 'b' has no path
+    res = run_muq_extraction(items, stub, sc, save_every=1)
+    assert res["ok"] == 2 and res["failed"] == 1
+    # no-path 'b' must NOT checkpoint (matches pre-reporter continue):
+    # k=1(a)->save, k=3(c)->save, + final save = 3 (buggy code would be 4)
+    assert len(calls) == 3
+
+
 def test_run_extraction_reports_progress_for_every_item(tmp_path):
     sc = tmp_path / "muq_sidecar.npz"
 

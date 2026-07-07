@@ -159,7 +159,9 @@ def run_muq_extraction(
                 fails.append((tid, type(exc).__name__))
         if progress is not None:
             progress.update(1, detail=path)
-        if k % save_every == 0:
+        # checkpoint only on items with a path — matches the pre-reporter loop,
+        # where a no-path item's `continue` skipped this check (keeps progress=None byte-identical)
+        if path and k % save_every == 0:
             _atomic_save(sidecar_path, done)
     _atomic_save(sidecar_path, done)
     if progress is not None:
