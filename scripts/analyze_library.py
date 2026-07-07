@@ -1788,9 +1788,17 @@ def stage_adjudicate(ctx: Dict) -> Dict:
         model = getattr(args, "adjudicate_model", None) or "sonnet"
         client = getattr(args, "adjudicate_client", None) or ClaudeCodeEnrichmentClient(model=model)
         adapter = load_graph_adapter()
+        logger.info("stage_adjudicate: adjudicating %d album(s) via %s (one Claude call each)...",
+                    len(todo), model)
+        prog = ProgressLogger(
+            logger, total=len(todo), label="adjudicate", unit="albums",
+            interval_s=float(getattr(args, "progress_interval", 15.0)),
+            every_n=int(getattr(args, "progress_every", 500)),
+            verbose_each=bool(getattr(args, "verbose", False)),
+        ) if getattr(args, "progress", True) else None
         summary = run_adjudication(
             store, todo, model=model, instructions=ADJUDICATOR_INSTRUCTIONS,
-            prompt_version=pv, adapter=adapter, client=client)
+            prompt_version=pv, adapter=adapter, client=client, progress=prog)
     finally:
         conn.close()
         store.close()

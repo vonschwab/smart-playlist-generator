@@ -60,7 +60,10 @@ def build_todo(store, conn, id2name, album_ids, *, prompt_version, force=False) 
 
 
 def run_adjudication(store, todo, *, model, instructions, prompt_version, adapter,
-                     client, reset_every: int = 25) -> AdjudicationRunSummary:
+                     client, reset_every: int = 25, progress=None) -> AdjudicationRunSummary:
+    """``progress`` (optional) is a ProgressLogger-like object (``.update(n, detail)`` /
+    ``.finish()``); it ticks once per adjudicated album so the otherwise-silent, Claude-bound
+    stage reports a heartbeat. ``None`` is a no-op."""
     prep = {it["album_id"]: it for it in todo}
     state = {"done": 0, "failed": 0, "fail_streak": 0, "paused": False, "reason": None}
 
@@ -89,6 +92,8 @@ def run_adjudication(store, todo, *, model, instructions, prompt_version, adapte
             )
             state["failed"] += 1
             state["fail_streak"] += 1
+        if progress is not None:
+            progress.update(1, detail=str(album_id))
         if state["fail_streak"] >= FAIL_STREAK_STOP:
             state["paused"] = True
             state["reason"] = f"{FAIL_STREAK_STOP} consecutive failures (likely usage wall)"
@@ -104,6 +109,8 @@ def run_adjudication(store, todo, *, model, instructions, prompt_version, adapte
             )
         except _StopRun:
             pass
+    if progress is not None:
+        progress.finish()
     return AdjudicationRunSummary(
         adjudicated=state["done"], failed=state["failed"],
         paused=state["paused"], pause_reason=state["reason"],
