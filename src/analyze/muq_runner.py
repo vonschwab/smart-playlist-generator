@@ -133,10 +133,14 @@ def run_muq_extraction(
     *,
     backup_stamp: Optional[str] = None,
     save_every: int = SAVE_EVERY,
+    progress=None,
 ) -> Dict[str, object]:
     """Embed each (track_id, path); append into the sidecar (atomic, resumable). Backs up
     the existing sidecar once (when backup_stamp given) before the first write. A bad file's
-    failure is recorded in the returned `fails` list, never fatal. Returns {ok, failed, fails}."""
+    failure is recorded in the returned `fails` list, never fatal. Returns {ok, failed, fails}.
+
+    ``progress`` (optional) is any object with ``.update(n, detail)`` / ``.finish()`` — a
+    ``ProgressLogger`` from the caller. ``None`` is a no-op (byte-identical to before)."""
     done = _load_existing(sidecar_path)
     if backup_stamp is not None:
         _backup(sidecar_path, backup_stamp)
@@ -146,15 +150,19 @@ def run_muq_extraction(
     for k, (tid, path) in enumerate(items, 1):
         if not path:
             fails.append((tid, "no_path"))
-            continue
-        try:
-            done[tid] = np.asarray(embed_fn(path), dtype=np.float32)
-            ok += 1
-            succeeded.append(tid)
-        except Exception as exc:  # one bad file must not kill the scan
-            fails.append((tid, type(exc).__name__))
+        else:
+            try:
+                done[tid] = np.asarray(embed_fn(path), dtype=np.float32)
+                ok += 1
+                succeeded.append(tid)
+            except Exception as exc:  # one bad file must not kill the scan
+                fails.append((tid, type(exc).__name__))
+        if progress is not None:
+            progress.update(1, detail=path)
         if k % save_every == 0:
             _atomic_save(sidecar_path, done)
     _atomic_save(sidecar_path, done)
+    if progress is not None:
+        progress.finish()
     _update_failures(sidecar_path, fails, succeeded)
     return {"ok": ok, "failed": len(fails), "fails": fails}

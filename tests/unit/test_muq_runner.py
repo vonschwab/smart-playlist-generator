@@ -83,3 +83,36 @@ def test_failed_ids_persisted_excluded_from_pending_and_cleared_on_success(tmp_p
     # a later successful embed of 'b' clears it from the failed set
     run_muq_extraction([("b", "/good")], stub, sc)
     assert failed_ids(sc) == set() and "b" in sidecar_ids(sc)
+
+
+class _FakeProgress:
+    def __init__(self):
+        self.updates = 0
+        self.finished = 0
+        self.details = []
+
+    def update(self, n=1, detail=None):
+        self.updates += 1
+        self.details.append(detail)
+
+    def finish(self, detail=None):
+        self.finished += 1
+
+
+def test_run_extraction_reports_progress_for_every_item(tmp_path):
+    sc = tmp_path / "muq_sidecar.npz"
+
+    def stub(path):
+        if path == "/bad":
+            raise RuntimeError("decode fail")
+        return np.ones(4, np.float32)
+
+    fp = _FakeProgress()
+    # good (ok), bad (embed raises), none (no_path) -> all three must tick progress
+    res = run_muq_extraction(
+        [("g", "/good"), ("b", "/bad"), ("n", None)], stub, sc, progress=fp
+    )
+    assert res["ok"] == 1 and res["failed"] == 2
+    assert fp.updates == 3           # one tick per item, including failures
+    assert fp.finished == 1          # exactly one finish
+    assert fp.details == ["/good", "/bad", None]
