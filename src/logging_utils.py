@@ -645,11 +645,32 @@ def cleanup_old_playlist_logs(
     retention_days: int = 30,
 ) -> int:
     """Delete *.log files under dir older than retention_days. Never raises."""
+    base_dir = Path(dir) if dir is not None else playlist_log_dir()
+    return _cleanup_logs_older_than(base_dir, retention_days)
+
+
+def cleanup_old_playlist_logs_async(
+    dir: Optional[Union[str, Path]] = None,
+    retention_days: int = 30,
+) -> None:
+    """Run cleanup_old_playlist_logs in a daemon thread. Never raises."""
     try:
-        base_dir = Path(dir) if dir is not None else playlist_log_dir()
+        thread = threading.Thread(
+            target=cleanup_old_playlist_logs,
+            args=(dir, retention_days),
+            daemon=True,
+            name="playlist-log-cleanup",
+        )
+        thread.start()
+    except Exception:
+        pass
+
+
+def _cleanup_logs_older_than(base_dir: Path, retention_days: int) -> int:
+    """Delete *.log files under base_dir older than retention_days. Never raises."""
+    try:
         if not base_dir.exists():
             return 0
-
         cutoff = time.time() - (retention_days * 86400)
         deleted = 0
         for log_path in base_dir.glob("*.log"):
@@ -664,17 +685,42 @@ def cleanup_old_playlist_logs(
         return 0
 
 
-def cleanup_old_playlist_logs_async(
+def analyze_log_dir() -> Path:
+    """ROOT-anchored directory for per-run Analyze Library log files."""
+    return Path(__file__).resolve().parents[1] / "logs" / "analyze"
+
+
+def make_analyze_log_path(run_id, *, dir: Optional[Union[str, Path]] = None) -> Path:
+    """Build a unique, sortable per-run analyze log path.
+
+    Shape: <dir>/<YYYY-MM-DD_HHMMSS>_<run_id[:6]>.log
+    """
+    base_dir = Path(dir) if dir is not None else analyze_log_dir()
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    shortid = str(run_id)[:6] if run_id else "000000"
+    return base_dir / f"{timestamp}_{shortid}.log"
+
+
+def cleanup_old_analyze_logs(
+    dir: Optional[Union[str, Path]] = None,
+    retention_days: int = 30,
+) -> int:
+    """Delete analyze *.log files older than retention_days. Never raises."""
+    base_dir = Path(dir) if dir is not None else analyze_log_dir()
+    return _cleanup_logs_older_than(base_dir, retention_days)
+
+
+def cleanup_old_analyze_logs_async(
     dir: Optional[Union[str, Path]] = None,
     retention_days: int = 30,
 ) -> None:
-    """Run cleanup_old_playlist_logs in a daemon thread. Never raises."""
+    """Run cleanup_old_analyze_logs in a daemon thread. Never raises."""
     try:
         thread = threading.Thread(
-            target=cleanup_old_playlist_logs,
+            target=cleanup_old_analyze_logs,
             args=(dir, retention_days),
             daemon=True,
-            name="playlist-log-cleanup",
+            name="analyze-log-cleanup",
         )
         thread.start()
     except Exception:
