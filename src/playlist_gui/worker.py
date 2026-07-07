@@ -53,6 +53,7 @@ from src.playlist.analyze_library_results import (
     parse_analyze_library_report,
     parse_analyze_library_stage_progress,
 )
+from src.config_loader import resolve_database_path
 from src.playlist.config import resolve_cohesion_mode
 from src.playlist.request_models import GeneratePlaylistRequest, LibraryPipelineRequest
 from .utils.redaction import redact_text
@@ -76,9 +77,6 @@ PROTOCOL_VERSION = 1
 
 # Path to the AI genre enrichment sidecar DB (relative to project root / cwd)
 SIDECAR_DB_PATH = "data/ai_genre_enrichment.db"
-
-# Path to the primary track/album metadata DB (relative to project root / cwd)
-METADATA_DB_PATH = "data/metadata.db"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -951,7 +949,7 @@ def handle_doctor(cmd_data: Dict[str, Any]) -> None:
         emit_done("doctor", False, "Config failed")
         return
 
-    db_path = Path(cfg.get("library", {}).get("database_path", "data/metadata.db"))
+    db_path = Path(resolve_database_path(cfg))
     if not db_path.is_absolute():
         db_path = cfg_path.parent / db_path
     if db_path.exists():
@@ -1216,18 +1214,18 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
 
             emit_progress("init", 30, 100, "Initializing library client")
             merged_config = MergedConfig(config, base_path)
-            library = LocalLibraryClient(db_path=merged_config.library_database_path)
+            library = LocalLibraryClient(db_path=resolve_database_path(config))
 
             # Cancellation check after library init
             check_cancelled()
 
             emit_progress("init", 40, 100, "Initializing track matcher")
-            matcher = TrackMatcher(library, library_id=None, db_path=merged_config.library_database_path)
+            matcher = TrackMatcher(library, library_id=None, db_path=resolve_database_path(config))
 
             # Metadata client
             metadata = None
             try:
-                metadata = MetadataClient(merged_config.library_database_path)
+                metadata = MetadataClient(resolve_database_path(config))
             except Exception:
                 pass
 
@@ -1388,7 +1386,7 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                         track,
                         sidecar_db_path=SIDECAR_DB_PATH,
                         fallback=_raw_genres,
-                        db_path=merged_config.library_database_path,
+                        db_path=resolve_database_path(config),
                     )
 
                     # Prefer explicit similarity fields; fall back to edge scores from DS report
@@ -1490,7 +1488,7 @@ def handle_generate_playlist(cmd_data: Dict[str, Any]) -> None:
                     _populate_last_generation_cache(
                         generator=generator,
                         playlist_result=playlist_result,
-                        db_path=merged_config.library_database_path,
+                        db_path=resolve_database_path(config),
                     )
                 except Exception as exc:
                     emit_log("WARNING", f"Replacement cache unavailable for this playlist: {exc}")
@@ -1629,7 +1627,7 @@ def handle_update_genres(cmd_data: Dict[str, Any]) -> None:
         # Import and run genre updater
         from scripts.update_genres_v3_normalized import NormalizedGenreUpdater
 
-        db_path = config.get('library', {}).get('database_path', 'data/metadata.db')
+        db_path = resolve_database_path(config)
         check_cancelled()
         emit_progress("genres", 20, 100, "Fetching genres")
 
@@ -1687,7 +1685,7 @@ def handle_update_sonic(cmd_data: Dict[str, Any]) -> None:
 
         from scripts.update_sonic import SonicFeaturePipeline
 
-        db_path = config.get('library', {}).get('database_path', 'data/metadata.db')
+        db_path = resolve_database_path(config)
         check_cancelled()
         emit_progress("sonic", 20, 100, "Extracting features")
 
@@ -1733,7 +1731,7 @@ def handle_build_artifacts(cmd_data: Dict[str, Any]) -> None:
 
         from scripts.build_beat3tower_artifacts import build_artifacts
 
-        db_path = config.get('library', {}).get('database_path', 'data/metadata.db')
+        db_path = resolve_database_path(config)
         ds_cfg = config.get('playlists', {}).get('ds_pipeline', {})
         output_path = ds_cfg.get(
             'artifact_path', 'data/artifacts/beat3tower_32k/data_matrices_step1.npz'
@@ -2014,7 +2012,7 @@ def handle_blacklist_fetch(cmd_data: Dict[str, Any]) -> None:
     overrides = cmd_data.get("overrides", {})
     try:
         config = load_config_with_overrides(base_path, overrides)
-        db_path = config.get('library', {}).get('database_path', 'data/metadata.db')
+        db_path = resolve_database_path(config)
         from src.metadata_client import MetadataClient
 
         metadata = MetadataClient(db_path)
@@ -2033,7 +2031,7 @@ def handle_blacklist_fetch_scopes(cmd_data: Dict[str, Any]) -> None:
     overrides = cmd_data.get("overrides", {})
     try:
         config = load_config_with_overrides(base_path, overrides)
-        db_path = config.get('library', {}).get('database_path', 'data/metadata.db')
+        db_path = resolve_database_path(config)
         from src.metadata_client import MetadataClient
 
         metadata = MetadataClient(db_path)
@@ -2060,7 +2058,7 @@ def handle_blacklist_set(cmd_data: Dict[str, Any]) -> None:
     value = bool(cmd_data.get("value", True))
     try:
         config = load_config_with_overrides(base_path, overrides)
-        db_path = config.get('library', {}).get('database_path', 'data/metadata.db')
+        db_path = resolve_database_path(config)
         from src.metadata_client import MetadataClient
 
         metadata = MetadataClient(db_path)
@@ -2086,7 +2084,7 @@ def handle_blacklist_scope_set(cmd_data: Dict[str, Any]) -> None:
     enabled = bool(cmd_data.get("enabled", True))
     try:
         config = load_config_with_overrides(base_path, overrides)
-        db_path = config.get('library', {}).get('database_path', 'data/metadata.db')
+        db_path = resolve_database_path(config)
         from src.metadata_client import MetadataClient
 
         metadata = MetadataClient(db_path)
@@ -2443,7 +2441,7 @@ def handle_edit_genres(cmd_data: Dict[str, Any]) -> None:
 
         base_path = cmd_data.get("base_config_path", "config.yaml")
         config = load_config_with_overrides(base_path, cmd_data.get("overrides", {}))
-        db_path = config.get("library", {}).get("database_path", "data/metadata.db")
+        db_path = resolve_database_path(config)
 
         meta_conn = sqlite3.connect(db_path)
         meta_conn.row_factory = sqlite3.Row
@@ -2486,7 +2484,7 @@ def handle_refresh_genre_artifact(cmd_data: Dict[str, Any]) -> None:
         artifact_path = ds.get(
             "artifact_path", "data/artifacts/beat3tower_32k/data_matrices_step1.npz"
         )
-        db_path = config.get("library", {}).get("database_path", "data/metadata.db")
+        db_path = resolve_database_path(config)
         genre_sim_path = ds.get("genre_sim_path") or "data/genre_similarity_graph.npz"
 
         art = Path(artifact_path)
@@ -2582,14 +2580,15 @@ def handle_publish_decided(cmd_data: Dict[str, Any]) -> None:
     import shutil
 
     try:
+        metadata_db_path = resolve_database_path(None)
         emit_progress("publish_decided", 0, 2, "backing up metadata.db")
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        bak = f"{METADATA_DB_PATH}.bak.{ts}"
-        shutil.copy2(METADATA_DB_PATH, bak)
+        bak = f"{metadata_db_path}.bak.{ts}"
+        shutil.copy2(metadata_db_path, bak)
         check_cancelled()
         emit_progress("publish_decided", 1, 2, "publishing")
         from src.genre.genre_publish import publish
-        stats = publish(METADATA_DB_PATH, SIDECAR_DB_PATH, dry_run=False)
+        stats = publish(metadata_db_path, SIDECAR_DB_PATH, dry_run=False)
         result = {
             "graph_albums": stats.graph_albums, "legacy_albums": stats.legacy_albums,
             "total_albums": stats.total_albums, "collisions": stats.collisions,
@@ -2798,7 +2797,7 @@ def handle_get_taxonomy_queue(cmd_data: Dict[str, Any]) -> None:
             search=(cmd_data.get("search") or "").strip() or None,
             limit=int(cmd_data.get("limit") or 50),
             offset=int(cmd_data.get("offset") or 0),
-            artist_names=load_artist_names(METADATA_DB_PATH))
+            artist_names=load_artist_names(resolve_database_path(None)))
         emit_event({"type": "result", "result_type": "taxonomy_queue",
                     "request_id": rid, "job_id": None, **page})
         emit_event({"type": "done", "cmd": "get_taxonomy_queue", "ok": True,
@@ -2821,7 +2820,7 @@ def handle_get_taxonomy_completed(cmd_data: Dict[str, Any]) -> None:
             search=(cmd_data.get("search") or "").strip() or None,
             limit=int(cmd_data.get("limit") or 50),
             offset=int(cmd_data.get("offset") or 0),
-            artist_names=load_artist_names(METADATA_DB_PATH))
+            artist_names=load_artist_names(resolve_database_path(None)))
         emit_event({"type": "result", "result_type": "taxonomy_completed",
                     "request_id": rid, "job_id": None, **page})
         emit_event({"type": "done", "cmd": "get_taxonomy_completed", "ok": True,
