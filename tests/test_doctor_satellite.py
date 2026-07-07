@@ -2,7 +2,6 @@
 
 import importlib.util
 import pathlib
-import sys
 
 _DOCTOR = pathlib.Path(__file__).resolve().parents[1] / "tools" / "doctor.py"
 _spec = importlib.util.spec_from_file_location("doctor", _DOCTOR)

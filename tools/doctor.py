@@ -248,6 +248,7 @@ class DoctorChecks:
             self.passed += 1
             return True
         spec = _ilu.spec_from_file_location("workspace_identity", wsi_path)
+        assert spec is not None and spec.loader is not None
         wsi = _ilu.module_from_spec(spec)
         spec.loader.exec_module(wsi)
 
