@@ -13,7 +13,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from contextlib import contextmanager
-from typing import Optional, Any, List, Union
+from typing import Optional, Any, List, Union, Callable
 
 # Track whether logging has been configured
 _logging_configured = False
@@ -645,8 +645,7 @@ def cleanup_old_playlist_logs(
     retention_days: int = 30,
 ) -> int:
     """Delete *.log files under dir older than retention_days. Never raises."""
-    base_dir = Path(dir) if dir is not None else playlist_log_dir()
-    return _cleanup_logs_older_than(base_dir, retention_days)
+    return _cleanup_logs_older_than(dir, playlist_log_dir, retention_days)
 
 
 def cleanup_old_playlist_logs_async(
@@ -666,9 +665,14 @@ def cleanup_old_playlist_logs_async(
         pass
 
 
-def _cleanup_logs_older_than(base_dir: Path, retention_days: int) -> int:
-    """Delete *.log files under base_dir older than retention_days. Never raises."""
+def _cleanup_logs_older_than(
+    dir: Optional[Union[str, Path]],
+    default_dir: Callable[[], Path],
+    retention_days: int,
+) -> int:
+    """Delete *.log files under the resolved dir older than retention_days. Never raises."""
     try:
+        base_dir = Path(dir) if dir is not None else default_dir()
         if not base_dir.exists():
             return 0
         cutoff = time.time() - (retention_days * 86400)
@@ -706,8 +710,7 @@ def cleanup_old_analyze_logs(
     retention_days: int = 30,
 ) -> int:
     """Delete analyze *.log files older than retention_days. Never raises."""
-    base_dir = Path(dir) if dir is not None else analyze_log_dir()
-    return _cleanup_logs_older_than(base_dir, retention_days)
+    return _cleanup_logs_older_than(dir, analyze_log_dir, retention_days)
 
 
 def cleanup_old_analyze_logs_async(

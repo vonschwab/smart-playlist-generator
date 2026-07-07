@@ -27,3 +27,10 @@ def test_cleanup_deletes_old_keeps_recent(tmp_path):
     assert deleted == 1
     assert not old.exists()
     assert new.exists()
+
+
+def test_cleanup_never_raises_on_malformed_dir():
+    from src.logging_utils import cleanup_old_analyze_logs, cleanup_old_playlist_logs
+    # A non-path-like dir must be swallowed (never raise), returning 0.
+    assert cleanup_old_analyze_logs(dir=12345) == 0
+    assert cleanup_old_playlist_logs(dir=12345) == 0
