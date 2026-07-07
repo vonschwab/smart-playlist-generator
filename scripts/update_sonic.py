@@ -70,11 +70,7 @@ def analyze_track_worker(track_data: Tuple[str, str, str, str, bool, bool]) -> O
         Tuple of (track_id, features, artist, title) or None on failure
     """
     import sys
-    import logging
     from pathlib import Path
-
-    # Suppress worker subprocess logging spam
-    logging.getLogger().setLevel(logging.WARNING)
 
     # Add parent directory to path for imports
     sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -565,6 +561,14 @@ class SonicFeaturePipeline:
 
         logger.info(f"Found {total} tracks to analyze")
         logger.info(f"Using {workers} parallel workers")
+
+        # Keep the analyzers' per-track INFO chatter (BPM/key/"features extracted")
+        # out of the shared logs by quieting ONLY their loggers -- never the root.
+        # The pool below is a ThreadPoolExecutor, so each worker shares this
+        # process's root logger; a worker mutating the global level silenced every
+        # later analyze stage's INFO, incl. the GUI (root-caused 2026-07-07).
+        for _noisy in ("src.hybrid_sonic_analyzer", "src.librosa_analyzer"):
+            logging.getLogger(_noisy).setLevel(logging.WARNING)
 
         # Statistics
         stats = {
