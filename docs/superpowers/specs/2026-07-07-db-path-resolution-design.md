@@ -65,10 +65,11 @@ The entry point resolves once and writes the absolute path into the overrides ba
 
 **Static guard test** (`tests/test_no_relative_db_literal.py`): scan the in-scope generation + GUI source files and assert no residual `sqlite3.connect("data/metadata.db")` / `db_path="data/metadata.db"` / `.get('database_path', 'data/metadata.db')` literal remains outside the resolver and the declined-scope files. Prevents regression to the anti-pattern.
 
-**Live acceptance (the real gate — empirical, flushes out missed sites):**
-1. From SAT1 (updated to canonical master), a real generation completes: no `no such table` / `BPM load failed` / stub tell; BPM/pace gate activity present; sane transition stats.
-2. SAT1's GUI (`serve_web.py --port 8771`) starts, and a generation through the GUI completes reading the real canonical DB.
-3. Canonical generation + GUI unchanged (regression check).
+**Live acceptance — automated gate (agent-run, empirical, flushes out missed CLI sites):**
+1. From SAT1 (updated to canonical master), a real CLI generation completes: no `no such table` / `BPM load failed` / stub tell; BPM/pace gate activity present; sane transition stats.
+2. Canonical CLI generation unchanged (regression check).
+
+**GUI — manual smoke check (Dylan, not a blocking agent gate):** after the worker sites are fixed, Dylan launches SAT1's GUI (`serve_web.py --port 8771`) and confirms a generation through it reads the real canonical DB. The worker-side code fixes and the static guard test still ship as part of this work; only the *live GUI exercise* is manual. If the manual check surfaces a missed worker site, it's a fast follow-up (one more resolver substitution), not a re-plan.
 
 ## Risks & notes
 
