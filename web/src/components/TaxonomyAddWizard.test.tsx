@@ -5,7 +5,7 @@ import { render, screen, fireEvent, cleanup, waitFor, act } from "@testing-libra
 vi.mock("../lib/api", () => ({
   api: {
     genresSearch: vi.fn(async () => ({ items: [{ genre_id: "g1", name: "indie rock" }] })),
-    taxonomyValidate: vi.fn(async () => ({ errors: [] })),
+    taxonomyValidate: vi.fn(async () => ({ ok: true, errors: [] })),
   },
 }));
 import { api } from "../lib/api";
@@ -99,7 +99,7 @@ describe("TaxonomyAddWizard facet path", () => {
 describe("TaxonomyAddWizard validation gate", () => {
   it("shows server errors and keeps Stage disabled", async () => {
     vi.mocked(api.taxonomyValidate).mockResolvedValueOnce({
-      errors: ["A taxonomy record named/sluged like 'shoe gaze' already exists."] });
+      ok: true, errors: ["A taxonomy record named/sluged like 'shoe gaze' already exists."] });
     renderWizard();
     fireEvent.click(screen.getByTestId("wizard-next"));
     await addParent("indie rock");
@@ -121,8 +121,8 @@ describe("TaxonomyAddWizard validation gate", () => {
   });
 
   it("ignores a stale validate response that resolves after a newer one", async () => {
-    const stale = deferred<{ errors: string[] }>();
-    const fresh = deferred<{ errors: string[] }>();
+    const stale = deferred<{ ok: boolean; errors: string[] }>();
+    const fresh = deferred<{ ok: boolean; errors: string[] }>();
     vi.mocked(api.taxonomyValidate)
       .mockImplementationOnce(() => stale.promise)
       .mockImplementationOnce(() => fresh.promise);
@@ -140,11 +140,11 @@ describe("TaxonomyAddWizard validation gate", () => {
 
     // Newer call resolves first (empty errors == valid); older call resolves
     // after it with errors — its result must be ignored.
-    await act(async () => { fresh.resolve({ errors: [] }); });
+    await act(async () => { fresh.resolve({ ok: true, errors: [] }); });
     const stage = await waitFor(() => screen.getByTestId("wizard-stage"));
     await waitFor(() => expect((stage as HTMLButtonElement).disabled).toBe(false));
 
-    await act(async () => { stale.resolve({ errors: ["stale: should never show"] }); });
+    await act(async () => { stale.resolve({ ok: true, errors: ["stale: should never show"] }); });
 
     expect(screen.queryByTestId("wizard-errors")).toBeNull();
     expect((screen.getByTestId("wizard-stage") as HTMLButtonElement).disabled).toBe(false);
