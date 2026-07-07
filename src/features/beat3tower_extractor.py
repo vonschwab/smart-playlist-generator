@@ -382,6 +382,14 @@ class Beat3TowerExtractor:
         )
         return frame_positions, beat_times
 
+    def _compute_onset_rate(self, y: np.ndarray) -> float:
+        """Onsets per second -- the rhythm 'busyness' the pace axis reads. Verbatim from
+        the former rhythm tower so the value stays byte-identical to the pre-SP-C output."""
+        onset_times = librosa.onset.onset_detect(
+            y=y, sr=self.sr, units='time', hop_length=self.hop_length
+        )
+        return len(onset_times) / (len(y) / self.sr) if len(y) > 0 else 0.0
+
     def _extract_with_beats(
         self,
         y: np.ndarray,
@@ -389,18 +397,20 @@ class Beat3TowerExtractor:
         beat_times: np.ndarray,
         tempo: float,
     ) -> Beat3TowerFeatures:
-        rhythm = self._extract_rhythm_tower(y, beat_frames, beat_times, tempo)
-        timbre = self._extract_timbre_tower(y, beat_frames)
-        harmony = self._extract_harmony_tower(y, beat_frames)
-
+        # SP-C: the sonic space is MuQ, so the timbre/harmony towers are no longer
+        # consumed anywhere. Compute only the fields the pace axis reads -- BPM (via
+        # _compute_bpm_info) and onset_rate -- and leave timbre/harmony as empty
+        # defaults. The 'beat3tower' marker is retained as the artifact universe-flag.
         bpm_info = self._compute_bpm_info(tempo, beat_times)
-        rhythm.bpm = bpm_info.primary_bpm
-        rhythm.tempo_stability = bpm_info.tempo_stability
-
+        rhythm = RhythmTowerFeatures(
+            onset_rate=self._compute_onset_rate(y),
+            bpm=bpm_info.primary_bpm,
+            tempo_stability=bpm_info.tempo_stability,
+        )
         return Beat3TowerFeatures(
             rhythm=rhythm,
-            timbre=timbre,
-            harmony=harmony,
+            timbre=TimbreTowerFeatures(),
+            harmony=HarmonyTowerFeatures(),
             bpm_info=bpm_info,
             n_beats=int(len(beat_frames)),
             extraction_method='beat3tower',
