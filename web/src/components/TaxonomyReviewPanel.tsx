@@ -3,6 +3,7 @@ import { api } from "../lib/api";
 import { useJobReconcile } from "../lib/useJobReconcile";
 import { useWorkerEvents } from "../lib/ws";
 import { GenreAutocomplete } from "./GenreAutocomplete";
+import { TaxonomyAddWizard } from "./TaxonomyAddWizard";
 import type {
   TaxonomyProposal, TaxonomyQueueItem, TaxonomyQueueResponse, TaxonomyVerdict, WsEvent,
 } from "../lib/types";
@@ -83,6 +84,7 @@ function TermCard({
   const [reason, setReason] = useState("source_noise");
   const [aliasing, setAliasing] = useState(false);
   const [aliasTarget, setAliasTarget] = useState("");
+  const [adding, setAdding] = useState(false);
 
   async function ask() {
     // Adjudication is a tracked job (the Claude call is slow): submit, then poll
@@ -153,7 +155,13 @@ function TermCard({
       {error && <div className="text-danger text-[10px]">{error}</div>}
 
       {!verdict ? (
-        aliasing ? (
+        adding ? (
+          <TaxonomyAddWizard
+            item={item}
+            onStage={(p) => onDecide("add", p, null, true)}
+            onCancel={() => setAdding(false)}
+          />
+        ) : aliasing ? (
           // Direct alias — point this term at an existing canonical genre, no Claude.
           <div className="flex items-center gap-1.5 mt-1 flex-wrap">
             <span className="text-faint text-[10px]">alias of</span>
@@ -186,6 +194,10 @@ function TermCard({
             {/* Direct alias / reject — no Claude call needed when you already know. */}
             <button onClick={() => setAliasing(true)}
               className="text-[10px] px-2 py-0.5 rounded border border-border text-muted hover:text-text">Alias…</button>
+            <button onClick={() => setAdding(true)}
+              className="text-[10px] px-2 py-0.5 rounded border border-border text-muted hover:text-text">
+              Add manually…
+            </button>
             <span className="text-faint text-[10px]">or reject as</span>
             <select value={reason} onChange={(e) => setReason(e.target.value)}
               className="bg-panel2 border border-border rounded text-[10px] text-text px-1.5 py-0.5 outline-none">
