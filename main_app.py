@@ -15,7 +15,7 @@ from src.console_output import (
     header, section, blank, bullet,
     PlaylistReport, BatchReport, print_startup_banner
 )
-from src.config_loader import Config
+from src.config_loader import Config, resolve_database_path
 from src.local_library_client import LocalLibraryClient
 from src.playlist_generator import PlaylistGenerator
 from src.lastfm_client import LastFMClient
@@ -41,14 +41,15 @@ class PlaylistApp:
 
         # Initialize library client
         self.logger.info("Initializing Playlist Generator")
-        self.library = LocalLibraryClient(db_path="data/metadata.db")
+        self.library = LocalLibraryClient(db_path=resolve_database_path(self.config))
 
         # Initialize Last.FM client (history-only). Only create if credentials exist.
         self.lastfm = None
         if self.config.lastfm_api_key and self.config.lastfm_username:
             self.lastfm = LastFMClient(
                 api_key=self.config.lastfm_api_key,
-                username=self.config.lastfm_username
+                username=self.config.lastfm_username,
+                db_path=resolve_database_path(self.config),
             )
         else:
             self.logger.info("Last.FM credentials missing; skipping Last.FM client (history will be local-only).")
@@ -68,7 +69,7 @@ class PlaylistApp:
         # Initialize metadata database client (optional, for enhanced genre matching)
         self.metadata = None
         try:
-            db_path = self.config.get('metadata', 'database_path', default='data/metadata.db')
+            db_path = resolve_database_path(self.config)
             self.metadata = MetadataClient(db_path)
             self.logger.info(f"Metadata database connected: {db_path}")
         except Exception as e:

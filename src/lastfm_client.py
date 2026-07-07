@@ -9,6 +9,7 @@ import time
 import sqlite3
 import json
 from .rate_limiter import RateLimiter
+from src.config_loader import resolve_database_path
 
 logger = logging.getLogger(__name__)
 
@@ -18,16 +19,20 @@ class LastFMClient:
 
     BASE_URL = "http://ws.audioscrobbler.com/2.0/"
 
-    def __init__(self, api_key: str, username: str):
+    def __init__(self, api_key: str, username: str, db_path: Optional[str] = None):
         """
         Initialize Last.FM client
 
         Args:
             api_key: Last.FM API key
             username: Last.FM username
+            db_path: Absolute path to metadata.db (for the recent-tracks cache
+                table). Defaults to the resolved repo-root database when the
+                caller doesn't have a config-derived path handy.
         """
         self.api_key = api_key
         self.username = username
+        self.db_path = db_path or resolve_database_path(None)
         self.session = requests.Session()
 
         # Rate limiter for Last.FM API (5 requests per second max per Last.FM ToS)
@@ -105,7 +110,7 @@ class LastFMClient:
     def _load_cache(self, days: int) -> Optional[List[Dict[str, Any]]]:
         """Load cached recent tracks if within the requested window."""
         try:
-            conn = sqlite3.connect("data/metadata.db")
+            conn = sqlite3.connect(self.db_path)
             cur = conn.cursor()
             cur.execute(
                 """
@@ -138,7 +143,7 @@ class LastFMClient:
     def _save_cache(self, days: int, tracks: List[Dict[str, Any]]) -> None:
         """Persist recent tracks cache."""
         try:
-            conn = sqlite3.connect("data/metadata.db")
+            conn = sqlite3.connect(self.db_path)
             cur = conn.cursor()
             cur.execute(
                 """

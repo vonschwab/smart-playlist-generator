@@ -10,6 +10,7 @@ import os
 import math
 import numpy as np
 from .string_utils import normalize_artist_key
+from src.config_loader import resolve_database_path
 from src.features.artifacts import load_artifact_bundle
 from src.playlist.ds_pipeline_runner import DsRunResult, generate_playlist_ds as run_ds_pipeline
 from src.playlist.artist_style import (
@@ -276,7 +277,7 @@ class PlaylistGenerator:
 
             config = config or Config(config_path)
             library_client = library_client or LocalLibraryClient(
-                db_path=config.get("library", "database_path", default="data/metadata.db")
+                db_path=resolve_database_path(config)
             )
         if library_client is None or config is None:
             raise TypeError("PlaylistGenerator requires library_client and config, or config_path")
@@ -300,7 +301,7 @@ class PlaylistGenerator:
     def _ensure_metadata_client(self):
         if self.metadata is None:
             try:
-                db_path = self.config.get('library', 'database_path', default='data/metadata.db')
+                db_path = resolve_database_path(self.config)
                 from src.metadata_client import MetadataClient
 
                 self.metadata = MetadataClient(db_path)
@@ -570,6 +571,7 @@ class PlaylistGenerator:
         enable_logging = ds_cfg.get('enable_logging', False)
 
         overrides = build_ds_overrides(ds_cfg)
+        overrides.setdefault("library", {})["database_path"] = resolve_database_path(self.config)
         # Runtime flags (CLI/GUI) can enable optional behaviors without editing config.yaml.
         # These merge on top of config-driven `playlists.ds_pipeline.pier_bridge.*`.
         pb_overrides = overrides.get("pier_bridge")
@@ -1847,7 +1849,7 @@ class PlaylistGenerator:
                     popularity_values = load_artist_popularity_values(
                         bundle, artist_name, client=self.lastfm,
                         db_path=popularity_cache_db_path(),
-                        metadata_db_path=self.config.get("library", "database_path", default="data/metadata.db"),
+                        metadata_db_path=resolve_database_path(self.config),
                         limit=int((self.config.config.get("lastfm", {}) or {}).get("artist_top_tracks_limit", 50)),
                         max_age_days=int(style_cfg_raw.get("popularity_max_age_days", 30)),
                         now_iso=datetime.now(timezone.utc).isoformat(),
@@ -1893,7 +1895,7 @@ class PlaylistGenerator:
                     include_collaborations=include_collaborations,
                     excluded_track_ids=_relaxed_excluded,
                     popularity_values=popularity_values,
-                    metadata_db_path=self.config.get("library", "database_path", default="data/metadata.db"),
+                    metadata_db_path=resolve_database_path(self.config),
                     steering_target=steering_target,
                     target_pier_count=target_pier_count,
                 )
