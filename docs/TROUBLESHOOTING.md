@@ -365,13 +365,15 @@ Default log destinations (override any of them with `--log-file PATH`):
 | Entry point | Default log file |
 |---|---|
 | `main_app.py` | `playlist_generator.log` (repo root) |
-| `scripts/analyze_library.py` | `logs/analyze_library.log` |
+| `scripts/analyze_library.py` | `logs/analyze/<timestamp>_<run_id>.log` (one rotated file per run; tune via `logging.analyze_logs.*`) |
 | `scripts/scan_library.py` | `logs/scan_library.log` |
 | `scripts/update_sonic.py` | `logs/sonic_analysis.log` |
 | `scripts/update_genres_v3_normalized.py` | `logs/genre_update_v3.log` |
 
+Analyze Library writes one rotated DEBUG log per run under `logs/analyze/` (old runs are pruned after `logging.analyze_logs.retention_days`, default 30). Follow the newest:
+
 ```bash
-tail -f logs/analyze_library.log
+tail -f "$(ls -t logs/analyze/*.log | head -1)"
 ```
 `--verbose` (CLI) raises the level to `DEBUG` and adds DS transition/constraint detail —
 reach for it before concluding a generation outcome is a bug (see the note under "Could not
