@@ -2003,6 +2003,7 @@ def stage_genre_sim(ctx: Dict) -> Dict:
     elif out_path.exists() and force_rebuild and not ctx["args"].force:
         logger.info("Rebuilding genre-sim (new genres detected since last build)")
 
+    logger.info("genre-sim: building similarity matrix (source=%s)...", sim_source)
     if sim_source == "graph":
         try:
             from src.genre.graph_adapter import load_graph_adapter
@@ -2077,6 +2078,7 @@ def stage_artifacts(ctx: Dict) -> Dict:
         genre_source=None,
         verbose=bool(getattr(ctx["args"], "verbose", False)),
     )
+    logger.info("artifacts: building DS data matrices (this can take a few minutes)...")
     try:
         build_beat3tower_artifacts(args_ns)
     except RuntimeError as exc:

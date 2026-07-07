@@ -266,6 +266,62 @@ def test_stage_muq_logs_model_load_and_heartbeat(tmp_path, monkeypatch, caplog):
     assert "muq complete" in caplog.text  # ProgressLogger.finish() line
 
 
+def test_genre_sim_logs_starting_line(tmp_path, monkeypatch, caplog):
+    import scripts.analyze_library as a
+    import src.config_loader as config_loader
+    import src.genre.graph_adapter as graph_adapter
+    import src.genre.graph_similarity as graph_similarity
+
+    config_path = _write_config(tmp_path, tmp_path / "metadata.db")
+    out_dir = tmp_path / "artifacts"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(config_loader.Config, "get_ds_genre_similarity_source", lambda self: "graph")
+    monkeypatch.setattr(graph_adapter, "load_graph_adapter", lambda: object())
+
+    class _GraphResult:
+        stats = {}
+
+    monkeypatch.setattr(graph_similarity, "build_graph_similarity", lambda adapter: _GraphResult())
+    monkeypatch.setattr(
+        graph_similarity, "save_graph_similarity_npz",
+        lambda result, path: Path(path).write_text("x", encoding="utf-8"),
+    )
+
+    args = a.parse_args(["--config", str(config_path)])
+    args.force = True
+    ctx = {"out_dir": out_dir, "config_path": str(config_path),
+           "db_path": str(tmp_path / "metadata.db"), "args": args}
+
+    caplog.set_level(logging.INFO, logger="analyze_library")
+    a.stage_genre_sim(ctx)
+    assert "genre-sim: building similarity matrix" in caplog.text
+
+
+def test_artifacts_logs_starting_line(tmp_path, monkeypatch, caplog):
+    import scripts.analyze_library as a
+    import scripts.build_beat3tower_artifacts as bba
+
+    config_path = _write_config(tmp_path, tmp_path / "metadata.db")
+    out_dir = tmp_path / "artifacts"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(bba, "build_artifacts", lambda args_ns: None)
+
+    args = a.parse_args(["--config", str(config_path)])
+    args.force = True
+    args.max_tracks = 0
+    args.limit = None
+    args.verbose = False
+    conn = sqlite3.connect(str(tmp_path / "metadata.db"))
+    ctx = {"out_dir": out_dir, "config_path": str(config_path),
+           "db_path": str(tmp_path / "metadata.db"), "args": args, "conn": conn}
+
+    caplog.set_level(logging.INFO, logger="analyze_library")
+    a.stage_artifacts(ctx)
+    assert "artifacts: building DS data matrices" in caplog.text
+
+
 def test_run_pipeline_checks_cancellation_between_stages(tmp_path, monkeypatch):
     db_path = tmp_path / "metadata.db"
     _make_db(db_path)
