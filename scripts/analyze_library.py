@@ -2288,10 +2288,24 @@ def stage_muq(ctx: Dict) -> Dict:
 
     logger.info("stage_muq: %d track(s) pending (device=%s); loading MuQ-MuLan "
                 "(cold cache can take a minute)...", len(pending), device)
+    _load_t0 = time.time()
     embed_fn = build_muq_embedder(device, torch_threads)
+    logger.info("stage_muq: MuQ-MuLan loaded in %.1fs", time.time() - _load_t0)
     items = [(t, db_paths.get(t)) for t in pending]
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    result = run_muq_extraction(items, embed_fn, sidecar_path, backup_stamp=stamp)
+    progress = None
+    if getattr(args, "progress", True):
+        from src.logging_utils import ProgressLogger
+        progress = ProgressLogger(
+            logger,
+            total=len(pending),
+            label="muq",
+            unit="tracks",
+            interval_s=float(getattr(args, "progress_interval", 15.0)),
+            every_n=int(getattr(args, "progress_every", 500)),
+            verbose_each=bool(getattr(args, "verbose", False)),
+        )
+    result = run_muq_extraction(items, embed_fn, sidecar_path, backup_stamp=stamp, progress=progress)
     logger.info("stage_muq: embedded ok=%d failed=%d -> %s",
                 result["ok"], result["failed"], sidecar_path)
     return {"skipped": False, "pending": len(pending), **result}

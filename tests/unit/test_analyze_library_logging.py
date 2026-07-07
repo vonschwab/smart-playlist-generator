@@ -215,6 +215,48 @@ def test_run_pipeline_can_suppress_console_logging_for_worker_stdout(tmp_path, m
     assert "Analyze run start" in log_path.read_text(encoding="utf-8")
 
 
+def test_stage_muq_logs_model_load_and_heartbeat(tmp_path, monkeypatch, caplog):
+    import numpy as np
+    import src.analyze.muq_runner as muq_runner
+    import src.analyze.track_paths as track_paths
+
+    config_path = _write_config(tmp_path, tmp_path / "metadata.db")
+    out_dir = tmp_path / "artifacts"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(
+        track_paths, "load_paths",
+        lambda db_path: {"t1": "/a", "t2": "/b", "t3": "/c"},
+    )
+    monkeypatch.setattr(
+        muq_runner, "build_muq_embedder",
+        lambda device="cpu", torch_threads=0: (lambda p: np.ones(4, np.float32)),
+    )
+
+    args = analyze.parse_args(["--config", str(config_path)])
+    args.force = False
+    args.limit = None
+    args.progress = True
+    args.progress_interval = 0.0   # force a heartbeat on every item
+    args.progress_every = 1
+    args.verbose = False
+
+    ctx = {
+        "config_path": str(config_path),
+        "args": args,
+        "out_dir": out_dir,
+        "db_path": str(tmp_path / "metadata.db"),
+    }
+
+    caplog.set_level(logging.INFO, logger="analyze_library")
+    result = analyze.stage_muq(ctx)
+
+    assert result["ok"] == 3
+    assert "MuQ-MuLan loaded in" in caplog.text
+    assert "muq:" in caplog.text          # per-item heartbeat summary
+    assert "muq complete" in caplog.text  # ProgressLogger.finish() line
+
+
 def test_run_pipeline_checks_cancellation_between_stages(tmp_path, monkeypatch):
     db_path = tmp_path / "metadata.db"
     _make_db(db_path)
