@@ -583,26 +583,27 @@ def generate_playlist_ds(
         bundle, _cfg_cutoff, db_path="", metadata_db_path=_meta_db
     )
 
-    # Tag steering (sonic pool lever): library-learned sonic prototype for the
-    # selected tags, blended into each seed's sonic admission vector so the
-    # bridge candidate pool leans on-tag. Mirrors the genre pool lever above;
-    # built UNcentered (global_mean=None) because it blends into UNcentered
-    # unit seed vectors here (contrast with the pier's centered term).
-    _tag_sonic_prototype = None
-    _beam_tag_affinity = None
+    # Tag steering (sonic pool lever): the selected tags learn a *centered*
+    # (global-mean-subtracted) sonic prototype = the tag-SPECIFIC direction. Its
+    # per-track affinity is blended into the sonic admission similarity so the
+    # bridge pool admits on-tag-specific tracks (not generic-centroid neighbors --
+    # the uncentered failure mode, retired 2026-07-08 after the centered pool beat
+    # it: Real Estate/jangle worst-edge 0.315 -> 0.716). The SAME centered affinity
+    # feeds the opt-in beam term (default weight 0.0 -- proven inert-to-harmful).
+    _tag_sonic_affinity = None
     try:
         _tag_sonic_blend = float(pb_overrides.get("tag_steering_sonic_blend", 0.35))
     except (TypeError, ValueError):
         _tag_sonic_blend = 0.35
     try:
-        _beam_tag_weight = float(pb_overrides.get("tag_steering_sonic_beam_weight", 0.15))
+        _beam_tag_weight = float(pb_overrides.get("tag_steering_sonic_beam_weight", 0.0))
     except (TypeError, ValueError):
-        _beam_tag_weight = 0.15
+        _beam_tag_weight = 0.0
     if _tag_steering_tags:
         _xsonic = embedding.X_sonic_for_embed
         if _xsonic is not None:
             from src.playlist.tag_steering import (
-                resolve_tag_sonic_prototype_rows, sonic_prototype_from_rows,
+                resolve_tag_sonic_prototype_rows, sonic_prototype_from_rows, sonic_global_mean,
             )
             _min_support = int(pb_overrides.get("tag_steering_prototype_min_support", 25))
             _t2r = {str(t): i for i, t in enumerate(bundle.track_ids)}
@@ -612,31 +613,17 @@ def generate_playlist_ds(
             )
             if _rows is not None:
                 _xs = np.asarray(_xsonic, dtype=np.float64)
-                _tag_sonic_prototype, _coh, _ = sonic_prototype_from_rows(_xs, _rows)  # UNcentered
+                _gm = sonic_global_mean(_xs)
+                _cproto, _ccoh, _ = sonic_prototype_from_rows(_xs, _rows, global_mean=_gm)
                 _min_coh = float(pb_overrides.get("tag_steering_prototype_min_cohesion", 0.15))
-                if _tag_sonic_prototype is not None and _coh < _min_coh:
-                    logger.warning(
-                        "Tag steering sonic pool prototype: cohesion %.3f < %.2f — sonic pool "
-                        "lever disabled (genre pool lever unaffected).", _coh, _min_coh,
-                    )
-                    _tag_sonic_prototype = None
-
-                # Tag steering (sonic BEAM lever, Task 6): centered per-candidate
-                # sonic-tag affinity for the beam's ranking score (bridges lean
-                # on-tag). Reuses `_rows` (no re-query); centered on the library
-                # global mean, matching the pier's centered term (Task 3) --
-                # contrast with the UNcentered pool prototype above.
-                from src.playlist.tag_steering import sonic_global_mean as _sgm
-                _gm_b = _sgm(_xs)
-                _cproto, _ccoh, _ = sonic_prototype_from_rows(_xs, _rows, global_mean=_gm_b)  # CENTERED
-                _min_coh_b = float(pb_overrides.get("tag_steering_prototype_min_cohesion", 0.15))
-                if _cproto is not None and _ccoh >= _min_coh_b:
-                    _xsn_b = _xs / (np.linalg.norm(_xs, axis=1, keepdims=True) + 1e-12)
-                    _beam_tag_affinity = (_xsn_b - _gm_b) @ _cproto
+                if _cproto is not None and _ccoh >= _min_coh:
+                    _xsn = _xs / (np.linalg.norm(_xs, axis=1, keepdims=True) + 1e-12)
+                    _tag_sonic_affinity = (_xsn - _gm) @ _cproto
                 elif _cproto is not None:
                     logger.warning(
-                        "Tag steering sonic beam prototype: cohesion %.3f < %.2f — beam "
-                        "term disabled (pool/pier levers unaffected).", _ccoh, _min_coh_b,
+                        "Tag steering sonic prototype: cohesion %.3f < %.2f (sonically "
+                        "multimodal tag) -- sonic pool/beam levers disabled for this run.",
+                        _ccoh, _min_coh,
                     )
 
     def _build_pool(candidate_cfg: Any, genre_gate: Optional[float],
@@ -682,8 +669,8 @@ def generate_playlist_ds(
             popularity_rank_cutoff=popularity_rank_cutoff,
             steering_target=_tag_steering_target,
             steering_blend=_tag_steering_blend,
-            sonic_prototype=_tag_sonic_prototype,
             sonic_blend=_tag_sonic_blend,
+            sonic_pool_affinity=_tag_sonic_affinity,  # centered, tag-specific direction
         )
 
     _candidate_cfg_kwargs: dict = dict(
@@ -960,7 +947,7 @@ def generate_playlist_ds(
                     popularity_values=popularity_values,
                     min_gap=int(getattr(cfg.construct, "min_gap", 1) or 1),
                     deadline=_generation_deadline,
-                    sonic_tag_affinity=_beam_tag_affinity,
+                    sonic_tag_affinity=_tag_sonic_affinity,
                     sonic_tag_beam_weight=_beam_tag_weight,
                 )
 

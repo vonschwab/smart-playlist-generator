@@ -186,6 +186,13 @@ class of candidate." To add such a term:
    enough to force sonically-broken bridges will just make the repair work harder and can still lower
    average quality. Validate worst-edge min-T before/after on a real generation.
 
+**Status of the tag-steering beam term (2026-07-08):** it ships **off by default**
+(`tag_steering_sonic_beam_weight=0.0`). A weight sweep proved the beam term cannot raise the on-tag lean
+at any weight — the beam only reorders within the candidate pool it is handed, so the **pool** (its
+centered sonic-admission lever) is the binding lever for tag adherence, not the beam. The term remains
+wired, tested (contract I1), and documented here for opt-in experimentation; treat it as a demonstration
+of the extension pattern, not a live default.
+
 **Known coverage gap:** the tag-steering term is threaded into the primary beam call but **not** into the
 micro-pier fallback (`micro_pier.py`). Mini-pier interior segments therefore do not get the on-tag bonus.
 This is byte-identical/safe, but if a future task needs mini-pier segments to lean on-tag, thread the two

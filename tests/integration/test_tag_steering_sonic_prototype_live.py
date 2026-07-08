@@ -77,15 +77,18 @@ def test_sonic_prototype_raises_ambient_pier_affinity(bundle):
         f"sonic-term piers ambient affinity {with_sonic:.3f} !> genre-only {base_sonic:.3f}")
 
 
-def test_build_candidate_pool_accepts_sonic_prototype():
+def test_build_candidate_pool_accepts_sonic_pool_affinity():
     sig = inspect.signature(build_candidate_pool)
-    assert "sonic_prototype" in sig.parameters
+    assert "sonic_pool_affinity" in sig.parameters
     assert "sonic_blend" in sig.parameters
+    # the uncentered prototype path was retired 2026-07-08 in favor of the centered
+    # affinity blend; guard that the dead param does not creep back.
+    assert "sonic_prototype" not in sig.parameters
 
 
-def test_sonic_prototype_blend_shifts_admitted_sonic_affinity(bundle):
-    """Blending an ambient prototype into the sonic seed vectors raises the
-    admitted pool's mean affinity to that prototype."""
+def test_sonic_pool_affinity_blend_shifts_admitted_affinity(bundle):
+    """Blending the centered tag affinity into the sonic admission similarity raises
+    the admitted pool's mean affinity to that (centered, tag-specific) direction."""
     if getattr(bundle, "X_sonic", None) is None:
         pytest.skip("MuQ/X_sonic absent")
     # import path may differ; adjust to candidate_pool.py's own import if needed
@@ -95,9 +98,10 @@ def test_sonic_prototype_blend_shifts_admitted_sonic_affinity(bundle):
     rows, n, _ = resolve_tag_sonic_prototype_rows(
         ["ambient"], metadata_db_path=DB, track_id_to_row=t2r, min_support=25)
     assert rows is not None
-    proto, _, _ = sonic_prototype_from_rows(xmq, rows)          # UNcentered for the pool blend
+    gm = sonic_global_mean(xmq)
+    proto, _, _ = sonic_prototype_from_rows(xmq, rows, global_mean=gm)  # CENTERED, tag-specific
     xmn = xmq / (np.linalg.norm(xmq, axis=1, keepdims=True) + 1e-12)
-    aff = xmn @ proto
+    aff = (xmn - gm) @ proto
 
     # CandidatePoolConfig has no field defaults for the pool-sizing knobs, so
     # size them generously (uncapped in practice) to keep the whole eligible
@@ -120,7 +124,7 @@ def test_sonic_prototype_blend_shifts_admitted_sonic_affinity(bundle):
                   artist_keys=bundle.artist_keys, track_ids=bundle.track_ids,
                   cfg=cfg, random_seed=0, X_sonic=xmq)
     base = build_candidate_pool(**common)
-    steered = build_candidate_pool(**common, sonic_prototype=proto, sonic_blend=0.5)
+    steered = build_candidate_pool(**common, sonic_pool_affinity=aff, sonic_blend=0.5)
 
     def mean_aff(res):
         idx = [int(i) for i in res.pool_indices]

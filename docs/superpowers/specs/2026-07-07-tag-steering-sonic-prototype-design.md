@@ -164,6 +164,26 @@ Mirror production via the real artist path (playlist-testing skill — never han
 - **Label provenance:** prototype membership inherits the genre authority; pull labels
   authority-consistently.
 
+## Validation outcome (2026-07-08) — supersedes parts of the design above
+
+Implemented and validated end-to-end on Brian Eno (bimodal) + Real Estate (genre-blended). Two design
+points changed under evidence:
+
+1. **The pool prototype must be CENTERED, not uncentered.** The design proposed blending an uncentered
+   prototype into the seed sonic vectors. That pulled genre-blended artists toward the *generic-genre
+   centroid*: Real Estate/jangle got worse (lean −0.048 vs off; worst-edge 0.463→0.315). Switching the
+   pool lever to blend the **centered** (tag-specific) affinity into the sonic *admission similarity*
+   fixed it (lean −0.048→**+0.020**; worst-edge 0.463→**+0.716**) while keeping Eno's win (lean +0.099,
+   worst-edge 0.528→0.661). The uncentered path was removed.
+2. **The beam term ships OFF by default.** A scope-up (Task 6) added a beam ranking term, but a weight
+   sweep (0.0/0.15/0.5/1.0) proved it cannot raise the on-tag lean at any weight — the beam only
+   reorders within the pool it is handed, so the **pool is the binding lever**. `tag_steering_sonic_beam_weight`
+   defaults to 0.0; the term stays wired/tested/documented (`docs/BEAM_CONTRACT.md`) for opt-in use.
+
+Net shipped: pier sonic term + **centered** sonic pool lever (the lever), beam term opt-in-off. Distinct
+genres (ambient) lean strongly and improve worst-edge; sonically-adjacent tags (jangle≈dream-pop) lean
+modestly but honestly with the worst edge improved.
+
 ## Out of scope (future stages)
 
 - A sonic-prototype term **in the beam's edge scoring** (the "small beam term" option) — deferred;
