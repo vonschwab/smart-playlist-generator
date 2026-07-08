@@ -99,3 +99,50 @@ def test_global_mean_centering_subtracts_common_component():
     gm = sonic_global_mean(M)
     proto_centered, _, _ = sonic_prototype_from_rows(M, [0], global_mean=gm)
     assert abs(proto_centered[0]) < abs(proto_centered[1]) + abs(proto_centered[2])
+
+
+import sqlite3
+from src.playlist.tag_steering import resolve_tag_sonic_prototype_rows
+
+
+def _make_db(tmp_path):
+    db = tmp_path / "m.db"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE tracks (track_id TEXT, artist TEXT)")
+    con.execute("CREATE TABLE track_effective_genres (track_id TEXT, genre TEXT)")
+    rows = [(f"t{i}", "Seed" if i < 3 else "Other") for i in range(40)]
+    con.executemany("INSERT INTO tracks VALUES (?,?)", rows)
+    con.executemany("INSERT INTO track_effective_genres VALUES (?,?)",
+                    [(f"t{i}", "jangle pop") for i in range(40)])
+    con.commit(); con.close()
+    return str(db)
+
+
+def test_resolver_returns_rows_excluding_seed_artist(tmp_path):
+    db = _make_db(tmp_path)
+    t2r = {f"t{i}": i for i in range(40)}
+    rows, n, used = resolve_tag_sonic_prototype_rows(
+        ["Jangle Pop"], metadata_db_path=db, track_id_to_row=t2r,
+        exclude_artist="Seed", min_support=25)
+    assert n == 37                       # 40 tagged minus 3 Seed tracks
+    assert all(r >= 3 for r in rows)     # t0..t2 excluded
+    assert used == ["Jangle Pop"]
+
+
+def test_resolver_warns_and_returns_none_below_support(tmp_path, caplog):
+    db = _make_db(tmp_path)
+    t2r = {f"t{i}": i for i in range(40)}
+    import logging
+    with caplog.at_level(logging.WARNING):
+        rows, n, used = resolve_tag_sonic_prototype_rows(
+            ["jangle pop"], metadata_db_path=db, track_id_to_row=t2r,
+            exclude_artist="Seed", min_support=100)   # 37 < 100
+    assert rows is None
+    assert any("sonic prototype" in r.message.lower() for r in caplog.records)
+
+
+def test_resolver_empty_tags_returns_none(tmp_path):
+    db = _make_db(tmp_path)
+    rows, n, used = resolve_tag_sonic_prototype_rows(
+        [], metadata_db_path=db, track_id_to_row={}, min_support=25)
+    assert rows is None and n == 0

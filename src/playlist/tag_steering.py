@@ -8,6 +8,7 @@ A selected tag that cannot act WARNS loudly — never a silent no-op.
 from __future__ import annotations
 
 import logging
+import sqlite3
 from typing import Optional, Sequence
 
 import numpy as np
@@ -101,3 +102,44 @@ def sonic_prototype_from_rows(
     proto = proto / norm
     cohesion = float(np.mean(Mn @ proto))
     return proto, cohesion, len(idx)
+
+
+def resolve_tag_sonic_prototype_rows(
+    tags: Sequence[str],
+    *,
+    metadata_db_path: str,
+    track_id_to_row: dict,
+    exclude_artist: Optional[str] = None,
+    min_support: int = 25,
+) -> tuple[Optional[list], int, list]:
+    """Library row indices carrying ANY selected tag (authority-effective genres),
+    seed-artist excluded. Rows index into the caller's bundle track ordering.
+    Returns (rows | None, support_n, tags_used); None + WARN below min_support."""
+    wanted = [str(t).strip() for t in tags if str(t).strip()]
+    if not wanted:
+        return None, 0, []
+    con = sqlite3.connect(f"file:{metadata_db_path}?mode=ro", uri=True)
+    try:
+        cur = con.cursor()
+        ph = ",".join("?" for _ in wanted)
+        cur.execute(
+            f"SELECT DISTINCT track_id FROM track_effective_genres WHERE lower(genre) IN ({ph})",
+            [t.lower() for t in wanted],
+        )
+        tids = [str(r[0]) for r in cur.fetchall()]
+        excl = set()
+        if exclude_artist:
+            cur.execute("SELECT track_id FROM tracks WHERE artist=?", (exclude_artist,))
+            excl = {str(r[0]) for r in cur.fetchall()}
+    finally:
+        con.close()
+    rows = [track_id_to_row[t] for t in tids if t in track_id_to_row and t not in excl]
+    if len(rows) < int(min_support):
+        logger.warning(
+            "Tag steering sonic prototype: only %d library tracks carry %s "
+            "(min_support=%d) — sonic prototype disabled, falling back to the "
+            "genre-dense signal for this run.",
+            len(rows), wanted, int(min_support),
+        )
+        return None, len(rows), wanted
+    return rows, len(rows), wanted
