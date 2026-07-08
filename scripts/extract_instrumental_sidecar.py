@@ -19,14 +19,20 @@ from scripts.ess_sidecar_common import (
     append_checkpoint,
     merge_sidecar_npz,
     read_checkpoint_ids,
+    win_to_wsl_path,
 )
 
-# --- paths (mirror extract_energy_sidecar.py constants; ART resolved the same way) ---
-ART = os.environ.get("PLAYLIST_ARTIFACT_DIR", "data/artifacts/beat3tower_32k")
-MODELS = os.environ.get("ESS_MODELS", "/opt/ess/models")
+# --- paths (mirror extract_energy_sidecar.py constants exactly; only OUTDIR/CKPT/
+# SIDECAR differ, pointing at the instrumental/ subdir instead of energy/) ---
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
+ART = os.path.join(ROOT, "data", "artifacts", "beat3tower_32k")
+NPZ = os.path.join(ART, "data_matrices_step1.npz")
+DB = os.path.join(ROOT, "data", "metadata.db")
 OUTDIR = os.path.join(ART, "instrumental")
 CKPT = os.path.join(OUTDIR, "checkpoint.jsonl")
 SIDECAR = os.path.join(OUTDIR, "instrumental_sidecar.npz")
+MODELS = "/opt/ess/models"
 
 EMB_PB = f"{MODELS}/msd-musicnn-1.pb"
 VI_PB = f"{MODELS}/voice_instrumental-musicnn-msd-2.pb"     # confirm exact name at impl time
@@ -51,6 +57,15 @@ def voice_column_index(model_json_path: str) -> int:
 
 
 def _init() -> None:
+    os.environ.setdefault("TF_NUM_INTRAOP_THREADS", "1")
+    os.environ.setdefault("TF_NUM_INTEROP_THREADS", "1")
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    import warnings
+
+    warnings.filterwarnings("ignore")
+    import essentia
+
+    essentia.log.warningActive = False
     import essentia.standard as es
 
     global _emb, _vi, _VOICE_COL
@@ -77,18 +92,47 @@ def _process(item: tuple[str, str | None]) -> dict:
         return {"track_id": tid, "error": str(exc)[:200]}
 
 
-def _load_todo(force: bool, limit: int) -> list[tuple[str, str | None]]:
-    """Track_id + file_path list from metadata.db, minus already-checkpointed ids."""
+def _artifact_track_ids() -> list[str]:
+    z = np.load(NPZ, allow_pickle=True)
+    return [str(t) for t in z["track_ids"]]
+
+
+def _paths_for(track_ids: list[str]) -> dict[str, str]:
+    # immutable=1: read metadata.db as a fixed snapshot of the MAIN file, ignoring the
+    # WAL/-shm. Over the /mnt/c (DrvFs) boundary WAL's shared-memory index can't be
+    # coordinated with the Windows side, which raised "disk I/O error" under mode=ro.
+    # The analyze pipeline checkpoints the WAL into the main file before invoking this,
+    # so the immutable snapshot is complete and current.
     import sqlite3
 
-    from src.config_loader import Config, resolve_database_path
+    con = sqlite3.connect(f"file:{DB}?immutable=1", uri=True)
+    con.row_factory = sqlite3.Row
+    cur = con.cursor()
+    out: dict[str, str] = {}
+    B = 900
+    try:
+        for i in range(0, len(track_ids), B):
+            batch = track_ids[i : i + B]
+            ph = ",".join("?" for _ in batch)
+            cur.execute(
+                f"SELECT track_id, file_path FROM tracks WHERE track_id IN ({ph})",
+                tuple(batch),
+            )
+            for r in cur.fetchall():
+                if r["file_path"]:
+                    out[str(r["track_id"])] = win_to_wsl_path(r["file_path"])
+    finally:
+        con.close()
+    return out
 
-    db_path = resolve_database_path(Config("config.yaml"))
-    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    rows = con.execute("SELECT track_id, file_path FROM tracks").fetchall()
-    con.close()
+
+def _load_todo(force: bool, limit: int) -> list[tuple[str, str | None]]:
+    """Track_id + file_path list, scoped to the artifact's track_ids, minus
+    already-checkpointed ids. Mirrors extract_energy_sidecar.py's main()."""
+    tids = _artifact_track_ids()
+    paths = _paths_for(tids)
     done = set() if force else read_checkpoint_ids(CKPT)
-    todo = [(str(t), p) for (t, p) in rows if str(t) not in done]
+    todo = [(t, paths.get(t)) for t in tids if t not in done]
     if limit > 0:
         todo = todo[:limit]
     return todo
