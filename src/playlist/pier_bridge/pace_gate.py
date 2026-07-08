@@ -191,3 +191,22 @@ def compute_energy_pace_penalty(
             if d_arc > arc_band:
                 penalty += arc_strength * (d_arc - arc_band)
     return penalty
+
+
+def compute_instrumental_penalty(
+    voice_prob: Optional[np.ndarray],
+    *,
+    cand: int,
+    weight: float,
+) -> float:
+    """SOFT instrumental-lean penalty (>= 0). Additive; callers subtract it.
+
+    penalty = weight * voice_prob[cand]. NEVER raises, NEVER signals exclusion.
+    voice_prob is None / weight <= 0 / NaN prob -> 0.0 (unknown is never punished).
+    """
+    if voice_prob is None or weight <= 0.0:
+        return 0.0
+    vp = float(voice_prob[int(cand)])
+    if not np.isfinite(vp):
+        return 0.0
+    return weight * max(0.0, vp)
