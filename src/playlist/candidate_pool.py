@@ -660,6 +660,11 @@ def build_candidate_pool(
         # affinity into the admission similarity so the floor admits on-tag-specific
         # tracks rather than generic-centroid neighbors (the uncentered failure mode,
         # retired 2026-07-08). See docs/BEAM_CONTRACT.md / the tag-steering spec.
+        # Scale note: sonic_seed_sim is a cosine (~[0,1]) and the centered affinity is
+        # ~[-0.5, +0.85]; the blend is un-renormalized on purpose because the sonic
+        # floor downstream is percentile-derived from THIS (blended) distribution. A
+        # future config pinning a fixed absolute min_sonic_similarity would apply that
+        # floor against the scale-shifted distribution — re-normalize here if so.
         if sonic_pool_affinity is not None:
             _cb = float(np.clip(sonic_blend, 0.0, 1.0))
             _ca = np.asarray(sonic_pool_affinity, dtype=np.float64)

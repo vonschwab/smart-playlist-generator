@@ -1823,14 +1823,19 @@ class PlaylistGenerator:
                             _xmq_arr, _rows, global_mean=_gm
                         )
                         _min_coh = float(_pb.get("tag_steering_prototype_min_cohesion", 0.15))
-                        if _proto is not None and _cohesion < _min_coh:
+                        if _proto is None:
+                            logger.warning(
+                                "Tag steering sonic prototype: degenerate (near-zero-norm) "
+                                "centroid over %d support rows — sonic term disabled, using "
+                                "genre-dense only.", _n,
+                            )
+                        elif _cohesion < _min_coh:
                             logger.warning(
                                 "Tag steering sonic prototype: cohesion %.3f < %.2f (sonically "
                                 "multimodal tag) — sonic term disabled, using genre-dense only.",
                                 _cohesion, _min_coh,
                             )
-                            _proto = None
-                        if _proto is not None:
+                        else:
                             _xmn = _xmq_arr / (np.linalg.norm(_xmq_arr, axis=1, keepdims=True) + 1e-12)
                             sonic_tag_affinity = (_xmn - _gm) @ _proto
                             sonic_tag_weight = float(_pb.get("tag_steering_sonic_weight", 0.5))

@@ -110,14 +110,20 @@ def resolve_tag_sonic_prototype_rows(
     metadata_db_path: str,
     track_id_to_row: dict,
     exclude_artist: Optional[str] = None,
+    exclude_artists: Optional[Sequence[str]] = None,
     min_support: int = 25,
 ) -> tuple[Optional[list], int, list]:
     """Library row indices carrying ANY selected tag (authority-effective genres),
-    seed-artist excluded. Rows index into the caller's bundle track ordering.
+    seed-artist(s) excluded. Rows index into the caller's bundle track ordering.
+    ``exclude_artist`` (single) and ``exclude_artists`` (many) are unioned — both
+    are excluded so the learned prototype never partly describes the seed artist.
     Returns (rows | None, support_n, tags_used); None + WARN below min_support."""
     wanted = [str(t).strip() for t in tags if str(t).strip()]
     if not wanted:
         return None, 0, []
+    _excl_artists = {str(a).strip() for a in (exclude_artists or []) if str(a).strip()}
+    if exclude_artist and str(exclude_artist).strip():
+        _excl_artists.add(str(exclude_artist).strip())
     con = sqlite3.connect(f"file:{metadata_db_path}?mode=ro", uri=True)
     try:
         cur = con.cursor()
@@ -128,8 +134,9 @@ def resolve_tag_sonic_prototype_rows(
         )
         tids = [str(r[0]) for r in cur.fetchall()]
         excl = set()
-        if exclude_artist:
-            cur.execute("SELECT track_id FROM tracks WHERE artist=?", (exclude_artist,))
+        if _excl_artists:
+            aph = ",".join("?" for _ in _excl_artists)
+            cur.execute(f"SELECT track_id FROM tracks WHERE artist IN ({aph})", list(_excl_artists))
             excl = {str(r[0]) for r in cur.fetchall()}
     finally:
         con.close()

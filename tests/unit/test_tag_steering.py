@@ -114,7 +114,8 @@ def _make_db(tmp_path):
     con.executemany("INSERT INTO tracks VALUES (?,?)", rows)
     con.executemany("INSERT INTO track_effective_genres VALUES (?,?)",
                     [(f"t{i}", "jangle pop") for i in range(40)])
-    con.commit(); con.close()
+    con.commit()
+    con.close()
     return str(db)
 
 
@@ -127,6 +128,26 @@ def test_resolver_returns_rows_excluding_seed_artist(tmp_path):
     assert n == 37                       # 40 tagged minus 3 Seed tracks
     assert all(r >= 3 for r in rows)     # t0..t2 excluded
     assert used == ["Jangle Pop"]
+
+
+def test_resolver_excludes_multiple_seed_artists(tmp_path):
+    # tracks: t0-t2 "Seed", t3-t5 "Second", t6-t39 "Other" -- all tagged jangle pop.
+    db = tmp_path / "m2.db"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE tracks (track_id TEXT, artist TEXT)")
+    con.execute("CREATE TABLE track_effective_genres (track_id TEXT, genre TEXT)")
+    arts = ["Seed" if i < 3 else "Second" if i < 6 else "Other" for i in range(40)]
+    con.executemany("INSERT INTO tracks VALUES (?,?)", [(f"t{i}", arts[i]) for i in range(40)])
+    con.executemany("INSERT INTO track_effective_genres VALUES (?,?)",
+                    [(f"t{i}", "jangle pop") for i in range(40)])
+    con.commit()
+    con.close()
+    t2r = {f"t{i}": i for i in range(40)}
+    rows, n, _ = resolve_tag_sonic_prototype_rows(
+        ["jangle pop"], metadata_db_path=str(db), track_id_to_row=t2r,
+        exclude_artists=["Seed", "Second"], min_support=25)
+    assert n == 34                       # 40 minus 3 Seed minus 3 Second
+    assert all(r >= 6 for r in rows)     # t0..t5 excluded
 
 
 def test_resolver_warns_and_returns_none_below_support(tmp_path, caplog):

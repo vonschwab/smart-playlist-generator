@@ -607,9 +607,18 @@ def generate_playlist_ds(
             )
             _min_support = int(pb_overrides.get("tag_steering_prototype_min_support", 25))
             _t2r = {str(t): i for i, t in enumerate(bundle.track_ids)}
+            # Exclude the seed artist(s) so the learned prototype never partly
+            # describes the artist being steered (mirrors the pier lever).
+            _seed_idxs = list(embedding.seed_indices_for_floor or [seed_idx])
+            _seed_artists = None
+            _bta = getattr(bundle, "track_artists", None)
+            if _bta is not None:
+                _seed_artists = sorted({
+                    str(_bta[i]) for i in _seed_idxs if 0 <= int(i) < len(_bta)
+                })
             _rows, _n, _ = resolve_tag_sonic_prototype_rows(
                 _tag_steering_tags, metadata_db_path=_meta_db,
-                track_id_to_row=_t2r, min_support=_min_support,
+                track_id_to_row=_t2r, exclude_artists=_seed_artists, min_support=_min_support,
             )
             if _rows is not None:
                 _xs = np.asarray(_xsonic, dtype=np.float64)
@@ -619,11 +628,22 @@ def generate_playlist_ds(
                 if _cproto is not None and _ccoh >= _min_coh:
                     _xsn = _xs / (np.linalg.norm(_xs, axis=1, keepdims=True) + 1e-12)
                     _tag_sonic_affinity = (_xsn - _gm) @ _cproto
+                    logger.info(
+                        "Tag steering sonic prototype: support=%d cohesion=%.3f "
+                        "pool_blend=%.2f beam_weight=%.2f",
+                        _n, _ccoh, _tag_sonic_blend, _beam_tag_weight,
+                    )
                 elif _cproto is not None:
                     logger.warning(
                         "Tag steering sonic prototype: cohesion %.3f < %.2f (sonically "
                         "multimodal tag) -- sonic pool/beam levers disabled for this run.",
                         _ccoh, _min_coh,
+                    )
+                else:
+                    logger.warning(
+                        "Tag steering sonic prototype: degenerate (near-zero-norm) centroid "
+                        "over %d support rows -- sonic pool/beam levers disabled for this run.",
+                        _n,
                     )
 
     def _build_pool(candidate_cfg: Any, genre_gate: Optional[float],
