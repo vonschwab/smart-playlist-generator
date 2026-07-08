@@ -3,7 +3,11 @@ from __future__ import annotations
 
 import sqlite3
 
-from src.ai_genre_enrichment.adjudication_apply import apply_adjudications, best_results
+from src.ai_genre_enrichment.adjudication_apply import (
+    apply_adjudications,
+    best_results,
+    prune_orphaned_adjudications,
+)
 from src.ai_genre_enrichment.escalation_queue import EscalationQueue
 from src.ai_genre_enrichment.layered_taxonomy import load_default_layered_taxonomy
 from src.ai_genre_enrichment.storage import SidecarStore
@@ -72,6 +76,54 @@ def test_apply_materializes_nonescalated_and_enqueues_escalated(tmp_path):
     assert a1 >= 1 and a2 >= 1  # a2 now provisionally materialized (still queued below)
     pending = queue.list_pending()
     assert [p["album_id"] for p in pending] == ["a2"]
+
+
+def test_apply_skips_orphaned_album_without_crashing(tmp_path):
+    """An adjudication whose album_id has no matching `albums` row (orphaned metadata,
+    e.g. the album was deleted by scan cleanup after adjudication) must be skipped with
+    a warning — not crash the whole apply stage on a NULL-artist insert."""
+    conn = _meta(tmp_path)  # albums a1, a2
+    side = tmp_path / "side.db"
+    store = SidecarStore(str(side))
+    store.initialize()
+    queue = EscalationQueue(side)
+    rows = [
+        ("a1", "std", _resp(["shoegaze"])),        # live -> materialize
+        ("ghost", "std", _resp(["hauntology"])),   # orphaned album_id -> skip, don't crash
+    ]
+    summary = apply_adjudications(
+        rows=rows, thorough_pv="tho", std_pv="std", meta_conn=conn, id2name={},
+        taxonomy=load_default_layered_taxonomy(), adapter=FakeAdapter(),
+        sidecar_store=store, queue=queue,
+    )
+    assert summary.materialized == 1        # only a1
+    assert summary.skipped_orphan == 1      # ghost skipped, not materialized
+    c = sqlite3.connect(side)
+    null_artist = c.execute(
+        "SELECT COUNT(*) FROM genre_graph_release_genre_assignments "
+        "WHERE artist IS NULL OR artist=''").fetchone()[0]
+    c.close()
+    assert null_artist == 0  # never wrote a NULL-artist row
+
+
+def test_prune_orphaned_adjudications_removes_dead_albums(tmp_path):
+    """Deleting an album must cascade into the adjudications cache: a cached
+    adjudication whose album_id no longer exists in `albums` is removed, live ones kept."""
+    meta = _meta(tmp_path)  # albums a1, a2
+    enr = sqlite3.connect(tmp_path / "enr.db")
+    enr.executescript(
+        "CREATE TABLE adjudications (album_id TEXT NOT NULL, prompt_version TEXT NOT NULL, "
+        "status TEXT, response_json TEXT);"
+        "INSERT INTO adjudications VALUES ('a1','std','complete','{}');"
+        "INSERT INTO adjudications VALUES ('ghost','v1','complete','{}');"
+        "INSERT INTO adjudications VALUES ('ghost','v2','complete','{}');"  # 2 rows, 1 dead album
+    )
+    enr.commit()
+    removed = prune_orphaned_adjudications(enr, meta)
+    assert removed == 1  # one dead album (regardless of its prompt_version row count)
+    remaining = {r[0] for r in enr.execute("SELECT DISTINCT album_id FROM adjudications")}
+    enr.close()
+    assert remaining == {"a1"}  # ghost gone, live a1 kept
 
 
 def test_apply_provisionally_materializes_escalated_with_genres(tmp_path):

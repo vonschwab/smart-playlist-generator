@@ -45,7 +45,10 @@ from src.ai_genre_enrichment.tag_adjudicator import adjudicate_tags
 from src.ai_genre_enrichment.provider import resolve_enrichment_model
 from src.ai_genre_enrichment.adjudication_store import AdjudicationStore
 from src.ai_genre_enrichment.adjudication_runner import build_todo, run_adjudication
-from src.ai_genre_enrichment.adjudication_apply import apply_adjudications
+from src.ai_genre_enrichment.adjudication_apply import (
+    apply_adjudications,
+    prune_orphaned_adjudications,
+)
 from src.ai_genre_enrichment.escalation_queue import EscalationQueue
 from src.ai_genre_enrichment.album_adjudicator import (
     ADJUDICATOR_INSTRUCTIONS,
@@ -1814,8 +1817,17 @@ def stage_apply(ctx: Dict) -> Dict:
     args = ctx["args"]
     std_pv = effective_prompt_version(thorough=False)
     tho_pv = effective_prompt_version(thorough=True)
+    conn = sqlite3.connect(ctx["db_path"])
     rows = []
     with contextlib.closing(sqlite3.connect(str(ENRICHMENT_DB_PATH))) as side:
+        # Cascade album deletion into the adjudication cache: an album pruned by scan
+        # orphan-cleanup after it was adjudicated leaves a dead adjudications row that
+        # would otherwise crash the apply below (NULL artist -> NOT NULL insert). Drop
+        # those before reading, so the stage is self-healing every run.
+        pruned = prune_orphaned_adjudications(side, conn)
+        if pruned:
+            logger.info("apply: pruned %d orphaned adjudication album(s) (album deleted "
+                        "since adjudication)", pruned)
         for album_id, pv, rj, ih in side.execute(
             "SELECT album_id, prompt_version, response_json, input_hash "
             "FROM adjudications WHERE status='complete'"
@@ -1826,9 +1838,9 @@ def stage_apply(ctx: Dict) -> Dict:
             resp["input_hash"] = ih
             rows.append((album_id, pv, resp))
     if not rows:
+        conn.close()
         logger.info("Skipping apply stage (no complete adjudications)")
         return {"skipped": True, "reason": "no_adjudications", "materialized": 0, "escalated": 0}
-    conn = sqlite3.connect(ctx["db_path"])
     # SidecarStore has no close() — it opens a fresh connection per operation
     # (context-managed) and closes it automatically after each call.
     store = SidecarStore(str(ENRICHMENT_DB_PATH))
@@ -1847,12 +1859,14 @@ def stage_apply(ctx: Dict) -> Dict:
         conn.close()
         queue.close()
     logger.info(
-        "apply stage: materialized=%d escalated=%d provisional=%d (escalated albums with "
-        "proposed genres get a reduced-confidence fallback, still queued for review)",
-        summary.materialized, summary.escalated, summary.provisional,
+        "apply stage: materialized=%d escalated=%d provisional=%d skipped_orphan=%d "
+        "(escalated albums with proposed genres get a reduced-confidence fallback, still "
+        "queued for review)",
+        summary.materialized, summary.escalated, summary.provisional, summary.skipped_orphan,
     )
     return {"materialized": summary.materialized, "escalated": summary.escalated,
-            "provisional": summary.provisional, "total": summary.materialized}
+            "provisional": summary.provisional, "skipped_orphan": summary.skipped_orphan,
+            "pruned_orphan_adjudications": pruned, "total": summary.materialized}
 
 
 def _release_effective_genres_exists(db_path: str) -> bool:

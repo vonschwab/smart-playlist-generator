@@ -5,12 +5,16 @@ taxonomy-growth pass to pick up new canonical mappings.
 """
 from __future__ import annotations
 
+import logging
+import sqlite3
 from dataclasses import dataclass
 
 from .adjudication_materializer import materialize_adjudication
 from .album_adjudicator import canonicalize_proposed
 from .album_evidence import build_evidence
 from .normalization import make_release_key
+
+logger = logging.getLogger(__name__)
 
 
 def best_results(rows, *, thorough_pv) -> dict[str, dict]:
@@ -38,6 +42,44 @@ class ApplySummary:
     materialized: int
     escalated: int
     provisional: int = 0
+    skipped_orphan: int = 0
+
+
+def prune_orphaned_adjudications(
+    enrichment_conn: sqlite3.Connection, meta_conn: sqlite3.Connection
+) -> int:
+    """Cascade album deletion into the adjudication cache.
+
+    Deletes every ``adjudications`` row whose ``album_id`` no longer has a matching
+    row in ``albums`` (the album was pruned by scan orphan-cleanup). This keeps the
+    apply stage from re-processing — and choking on — a dead album's cached
+    adjudication on every subsequent run.
+
+    Scoped to the ``adjudications`` cache only. The ``genre_graph_release_*``
+    assignments are keyed by ``release_key`` with a 1:many album fan-out, so a dead
+    album can share a release with a live one; pruning those here could delete a
+    live album's genres, so it is intentionally left to publish. Returns the number
+    of distinct orphaned albums removed.
+    """
+    if not enrichment_conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='adjudications'"
+    ).fetchone():
+        return 0
+    live = {r[0] for r in meta_conn.execute("SELECT album_id FROM albums")}
+    orphaned = sorted(
+        aid for (aid,) in enrichment_conn.execute("SELECT DISTINCT album_id FROM adjudications")
+        if aid not in live
+    )
+    if orphaned:
+        enrichment_conn.executemany(
+            "DELETE FROM adjudications WHERE album_id = ?", [(a,) for a in orphaned]
+        )
+        enrichment_conn.commit()
+        logger.info(
+            "Pruned %d orphaned adjudication album(s) (album deleted since adjudication): %s",
+            len(orphaned), ", ".join(orphaned[:10]) + (" …" if len(orphaned) > 10 else ""),
+        )
+    return len(orphaned)
 
 
 def apply_adjudications(*, rows, thorough_pv, std_pv, meta_conn, id2name, taxonomy, adapter,
@@ -46,8 +88,19 @@ def apply_adjudications(*, rows, thorough_pv, std_pv, meta_conn, id2name, taxono
     materialized = 0
     escalated = 0
     provisional = 0
+    skipped_orphan = 0
     for album_id, resp in best.items():
         ev = build_evidence(meta_conn, album_id, id2name)
+        if not ev.get("artist"):
+            # Album row is gone (orphaned metadata — deleted by scan cleanup after this
+            # adjudication was cached). Its artist/album are unresolvable, so there is
+            # nothing to materialize; skip loudly rather than crash the whole stage on a
+            # NOT-NULL artist insert. The stale row is pruned by prune_orphaned_adjudications.
+            logger.warning(
+                "apply: skipping adjudication for album_id=%s — no matching `albums` row "
+                "(orphaned metadata); nothing to materialize", album_id)
+            skipped_orphan += 1
+            continue
         if resp.get("escalate"):
             proposed = resp.get("genres", [])
             release_key = make_release_key(ev['artist'], ev['album'])
@@ -86,4 +139,5 @@ def apply_adjudications(*, rows, thorough_pv, std_pv, meta_conn, id2name, taxono
             response=resp, taxonomy=taxonomy, prompt_version=std_pv, model=model,
         )
         materialized += 1
-    return ApplySummary(materialized=materialized, escalated=escalated, provisional=provisional)
+    return ApplySummary(materialized=materialized, escalated=escalated,
+                        provisional=provisional, skipped_orphan=skipped_orphan)
