@@ -113,39 +113,74 @@ def resolve_tag_sonic_prototype_rows(
     exclude_artists: Optional[Sequence[str]] = None,
     min_support: int = 25,
 ) -> tuple[Optional[list], int, list]:
-    """Library row indices carrying ANY selected tag (authority-effective genres),
+    """Library row indices for tracks whose RELEASE carries ANY selected tag in the
+    PUBLISHED GENRE AUTHORITY (``release_effective_genres``, joined via ``album_id``),
     seed-artist(s) excluded. Rows index into the caller's bundle track ordering.
-    ``exclude_artist`` (single) and ``exclude_artists`` (many) are unioned — both
-    are excluded so the learned prototype never partly describes the seed artist.
-    Returns (rows | None, support_n, tags_used); None + WARN below min_support."""
+
+    Reads the authority, NOT ``track_effective_genres`` — the latter is a raw/partial
+    input layer (MusicBrainz-polluted, missing file-sourced tags) and reading it here
+    was a real bug (2026-07-08: user-tagged Ghost Box 'hauntology' tracks were invisible
+    while the authority had them correctly). See the ``genre-data-authority`` skill.
+
+    Chip names (``tags``, space form) are mapped to canonical ``genre_id`` (underscore
+    form) via ``genre_graph_canonical_genres`` + ``genre_graph_aliases``. Only non-inferred
+    layers (``observed_leaf``/``legacy``) count — matching ``resolved_genres_for_artist``'s
+    chip semantics (graph-inferred hub families are excluded by design).
+    ``exclude_artist``/``exclude_artists`` are unioned and excluded so the learned prototype
+    never partly describes the seed artist. Returns ``(rows | None, support_n, tags_used)``;
+    ``None`` + WARN when no tag maps to a canonical genre or support < ``min_support``."""
     wanted = [str(t).strip() for t in tags if str(t).strip()]
     if not wanted:
         return None, 0, []
     _excl_artists = {str(a).strip() for a in (exclude_artists or []) if str(a).strip()}
     if exclude_artist and str(exclude_artist).strip():
         _excl_artists.add(str(exclude_artist).strip())
+    lower = [t.lower() for t in wanted]
+    under = [t.lower().replace(" ", "_") for t in wanted]
     con = sqlite3.connect(f"file:{metadata_db_path}?mode=ro", uri=True)
     try:
         cur = con.cursor()
         ph = ",".join("?" for _ in wanted)
+        # Map chip names/ids -> canonical genre_ids (canonical table + aliases).
+        gids: set = set()
         cur.execute(
-            f"SELECT DISTINCT track_id FROM track_effective_genres WHERE lower(genre) IN ({ph})",
-            [t.lower() for t in wanted],
+            f"SELECT genre_id FROM genre_graph_canonical_genres "
+            f"WHERE lower(name) IN ({ph}) OR lower(genre_id) IN ({ph})",
+            lower + under,
         )
-        tids = [str(r[0]) for r in cur.fetchall()]
-        excl = set()
+        gids.update(str(r[0]) for r in cur.fetchall())
+        cur.execute(
+            f"SELECT canonical_genre_id FROM genre_graph_aliases WHERE lower(alias) IN ({ph})",
+            lower,
+        )
+        gids.update(str(r[0]) for r in cur.fetchall())
+        if not gids:
+            logger.warning(
+                "Tag steering sonic prototype: none of %s map to a canonical genre in "
+                "the authority — sonic pool/beam levers disabled for this run.", wanted,
+            )
+            return None, 0, wanted
+        gph = ",".join("?" for _ in gids)
+        query = (
+            "SELECT DISTINCT t.track_id FROM tracks t "
+            "JOIN release_effective_genres reg ON reg.album_id = t.album_id "
+            f"WHERE reg.genre_id IN ({gph}) AND reg.assignment_layer NOT LIKE 'inferred%'"
+        )
+        params = list(gids)
         if _excl_artists:
             aph = ",".join("?" for _ in _excl_artists)
-            cur.execute(f"SELECT track_id FROM tracks WHERE artist IN ({aph})", list(_excl_artists))
-            excl = {str(r[0]) for r in cur.fetchall()}
+            query += f" AND t.artist NOT IN ({aph})"
+            params += list(_excl_artists)
+        cur.execute(query, params)
+        tids = [str(r[0]) for r in cur.fetchall()]
     finally:
         con.close()
-    rows = [track_id_to_row[t] for t in tids if t in track_id_to_row and t not in excl]
+    rows = [track_id_to_row[t] for t in tids if t in track_id_to_row]
     if len(rows) < int(min_support):
         logger.warning(
-            "Tag steering sonic prototype: only %d library tracks carry %s "
-            "(min_support=%d) — sonic prototype disabled, falling back to the "
-            "genre-dense signal for this run.",
+            "Tag steering sonic prototype: only %d library tracks carry %s in the "
+            "authority (min_support=%d) — sonic prototype disabled, falling back to "
+            "the genre-dense signal for this run.",
             len(rows), wanted, int(min_support),
         )
         return None, len(rows), wanted

@@ -607,15 +607,15 @@ def generate_playlist_ds(
             )
             _min_support = int(pb_overrides.get("tag_steering_prototype_min_support", 25))
             _t2r = {str(t): i for i, t in enumerate(bundle.track_ids)}
-            # Exclude the seed artist(s) so the learned prototype never partly
-            # describes the artist being steered (mirrors the pier lever).
-            _seed_idxs = list(embedding.seed_indices_for_floor or [seed_idx])
+            # Exclude only the SEED ARTIST (the artist being steered), matching the
+            # pier lever. Do NOT use seed_indices_for_floor here -- that is the broad
+            # admission-floor neighborhood (dozens of artists), and excluding all of
+            # them collapses niche-tag support below the floor and silently disables
+            # this lever (2026-07-08: hauntology support 89 -> 21, lever off).
             _seed_artists = None
             _bta = getattr(bundle, "track_artists", None)
-            if _bta is not None:
-                _seed_artists = sorted({
-                    str(_bta[i]) for i in _seed_idxs if 0 <= int(i) < len(_bta)
-                })
+            if _bta is not None and 0 <= int(seed_idx) < len(_bta):
+                _seed_artists = [str(_bta[int(seed_idx)])]
             _rows, _n, _ = resolve_tag_sonic_prototype_rows(
                 _tag_steering_tags, metadata_db_path=_meta_db,
                 track_id_to_row=_t2r, exclude_artists=_seed_artists, min_support=_min_support,
