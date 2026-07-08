@@ -4,6 +4,45 @@ Running list of built-but-parked, superseded, or minor tech-debt items to revisi
 Per CLAUDE.md Layer 4 ("activate fixes, never default to legacy"), parked items are
 either revived+validated later or deleted — not left inert as the default. Newest first.
 
+## Stale/inconsistent genre raw layer — `track_effective_genres` (surfaced 2026-07-08) — DO A DATA CLEANUP
+
+**This one cost a live debugging session and sucked.** A tag-steering consumer read
+`track_effective_genres` as if it were the genre authority. It is NOT — it's a raw/partial per-track
+layer that is **inconsistent with the published authority (`release_effective_genres`)** in two ways:
+1. **MusicBrainz-polluted:** an MB *artist*-level tag smears across all of an artist's tracks
+   (e.g. all 73 Boards of Canada tracks carry `hauntology` in `track_effective_genres`; the authority
+   has only 18 for BoC).
+2. **Missing file-sourced tags the authority has:** all ~99 user-tagged Ghost Box `hauntology`
+   tracks (Belbury Poly / The Focus Group / The Advisory Circle) are **absent** from
+   `track_effective_genres` but present in `release_effective_genres` as `observed_leaf` 0.95.
+
+Net: `track_effective_genres` = 162 hauntology tracks (BoC-dominated); the authority = 174 (the real
+Ghost Box roster). The consumer was rewired to the authority (commit 59f4027), and CLAUDE.md's schema
+section + the `project_enriched_genre_authority` memory now flag the trap.
+
+**TODO — stale-data cleanup (deferred, own task):**
+- Decide the fate of `track_effective_genres`: either (a) **repopulate/materialize it from the
+  authority** (`release_effective_genres` via `album_id`) so it stops being a stale MB-polluted trap,
+  or (b) **drop it** and make any remaining reader use `authority.py`. Right now it's a look-alike
+  authority that silently gives wrong answers.
+- Audit for other consumers still reading `track_genres`/`album_genres`/`artist_genres`/
+  `track_effective_genres` directly (grep) and route them through `src/genre/authority.py`.
+- Verify the raw `*_genres` tables' provenance/freshness generally — they were never reconciled to the
+  authority after enrichment/publish landed.
+
+## Artist-mode candidate pool excludes sonically-close, on-tag tracks (surfaced 2026-07-08)
+
+Investigating the hauntology case above surfaced a **separate, upstream** bottleneck: for a Boards of
+Canada seed, the core Ghost Box roster (Belbury Poly / The Focus Group / The Advisory Circle) is
+**absent from the candidate pool entirely** (0 appearances in the generation log), *despite* being
+sonically close to BoC (mean sonic sim to BoC centroid: Focus Group +0.548, Advisory Circle +0.515,
+Belbury +0.487 — closer than Plone +0.401 which is admitted; cf. Bug Teeth +0.121) and correctly
+`hauntology`-tagged in the authority. So the pool — not tag steering — is the ceiling (the beam only
+reorders within it; a genre-admission gate keyed on the seed's genre centroid is the likely cause).
+Tag steering can't surface tracks the pool never admits. **TODO:** investigate artist-mode pool /
+`allowed_ids` construction — why does it drop sonically-close, genre-matched candidates? This is the
+lever that would actually make niche-genre steering (hauntology → Ghost Box) work end-to-end.
+
 ## Test-suite: synthetic-artifact golden tests fail — pool starvation from artist-style genre gating (surfaced 2026-07-04)
 
 **6 integration tests fail on master.** Verified **NOT** a lossless-speedup regression — they fail

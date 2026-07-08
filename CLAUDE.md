@@ -133,28 +133,44 @@ GUI/backend coupling is already clean (audit `[A#5]`). The architecture problem 
 
 Primary key convention: TEXT keys everywhere, no integer surrogate IDs.
 
+> ⚠️ **GENRE AUTHORITY — read this before any genre query.** The published genre authority is
+> **`release_effective_genres`** (album-keyed; graph-resolved + user overrides + layers), read via
+> **`src/genre/authority.py`** — see the `genre-data-authority` skill. The `track_genres` /
+> `album_genres` / `artist_genres` / **`track_effective_genres`** tables below are **RAW PIPELINE
+> INPUTS**, not the authority: they are unreconciled per-source tags, MusicBrainz-polluted, and
+> **missing file-sourced tags that the authority has**. Reading them as "the genre for a track" is a
+> real bug that shipped (2026-07-08: tag steering read `track_effective_genres`, so user-tagged
+> Hauntology/Ghost-Box records were invisible while `release_effective_genres` had them correctly).
+> For per-track genre membership, join `tracks.album_id → release_effective_genres` (filter
+> `assignment_layer NOT LIKE 'inferred%'` for observed tags). Never wire a consumer to a raw `*_genres`
+> table.
+
 | Table | Key columns |
 |-------|-------------|
 | `tracks` | `track_id TEXT` (PK), `artist TEXT`, `album TEXT`, `album_id TEXT`, `artist_key TEXT`, `norm_artist TEXT`, `norm_title TEXT`, `file_path TEXT` |
-| `track_genres` | `track_id TEXT`, `genre TEXT`, `source TEXT`, `weight REAL` |
-| `track_effective_genres` | `track_id TEXT`, `genre TEXT`, `source TEXT`, `priority INTEGER`, `weight REAL` |
+| `release_effective_genres` | **THE AUTHORITY** — `album_id TEXT`, `release_key TEXT`, `genre_id TEXT`, `assignment_layer TEXT` (`observed_leaf`/`legacy`/`inferred_*`), `confidence REAL`, `source TEXT`. Read via `src/genre/authority.py` |
+| `genre_graph_canonical_genres` | `genre_id TEXT`, `name TEXT` — canonical id↔name map (`genre_id` uses underscores, `name` uses spaces); `genre_graph_aliases(alias, canonical_genre_id)` for aliases |
+| `track_genres` *(raw input)* | `track_id TEXT`, `genre TEXT`, `source TEXT`, `weight REAL` — per-source file/MB/Discogs tags |
+| `track_effective_genres` *(raw input, NOT the authority)* | `track_id TEXT`, `genre TEXT`, `source TEXT`, `priority INTEGER`, `weight REAL` — partial/stale; do not use as the genre source |
 | `albums` | `album_id TEXT` (PK), `title TEXT`, `artist TEXT` |
-| `album_genres` | `album_id TEXT`, `genre TEXT`, `source TEXT` |
+| `album_genres` *(raw input)* | `album_id TEXT`, `genre TEXT`, `source TEXT` |
 | `artists` | `artist_name TEXT` (PK — **not** `artist_id` or `id`) |
-| `artist_genres` | `artist TEXT`, `genre TEXT`, `source TEXT` — `artist` is the plain name string, **not** a FK integer |
+| `artist_genres` *(raw input)* | `artist TEXT`, `genre TEXT`, `source TEXT` — plain name string, **not** a FK integer |
 
 Common patterns:
 ```sql
--- Genres for an artist (use artist_genres directly)
-SELECT DISTINCT genre FROM artist_genres WHERE artist = 'Acetone';
+-- Genres for a track/album — THE AUTHORITY (prefer src/genre/authority.py helpers)
+SELECT reg.genre_id, reg.assignment_layer, reg.confidence
+FROM release_effective_genres reg JOIN tracks t ON t.album_id = reg.album_id
+WHERE t.track_id = ? AND reg.assignment_layer NOT LIKE 'inferred%';
 
--- Genres for all tracks by an artist (via track join)
-SELECT DISTINCT tg.genre
-FROM track_genres tg JOIN tracks t ON t.track_id = tg.track_id
-WHERE t.artist = 'Acetone';
+-- Tracks carrying a genre (chip name -> canonical id via the canonical/alias tables)
+SELECT DISTINCT t.track_id
+FROM tracks t JOIN release_effective_genres reg ON reg.album_id = t.album_id
+WHERE reg.genre_id = 'jangle_pop' AND reg.assignment_layer NOT LIKE 'inferred%';
 
--- Genres for an album
-SELECT genre FROM album_genres WHERE album_id = ?;
+-- Raw per-source tags (INSPECTION/DEBUG ONLY — never as the genre source):
+-- SELECT genre, source FROM track_genres WHERE track_id = ?;
 ```
 
 ### `data/ai_genre_enrichment.db`
