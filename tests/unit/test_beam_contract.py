@@ -122,6 +122,13 @@ def test_tag_steering_beam_off_is_byte_identical():
     # opt-in var-bridge/edge-delete passes) -- irrelevant to I2 itself since
     # cfg is identical across all three calls, but keeps the fixture aligned
     # with its source.
+    # scenario["cfg_kwargs"] (bridge_floor=0.0, transition_floor=0.0,
+    # center_transitions=False) is the smoke-golden scenario's own non-default
+    # PierBridgeConfig -- borrowed as-is, not hand-picked, and held IDENTICAL
+    # across all three variants below so only the tag params vary. This keeps
+    # us off an explicit (non-config.yaml) PierBridgeConfig without
+    # reintroducing the config.yaml-load confound the doc's I2 caveat warns
+    # against.
     cfg = PierBridgeConfig(
         variable_bridge_length=False,
         edge_delete_enabled=False,
@@ -169,38 +176,71 @@ def test_tag_steering_beam_off_is_byte_identical():
 def test_piers_preserved_through_cascade():
     """I4 — piers are never removed or reordered by the post-beam cascade.
 
-    Runs with edge-repair and edge-delete both ON (the two cascade stages
-    the contract calls out as pier-touching risks) and asserts the seed
-    track IDs appear, in their original relative order, at
-    `PierBridgeResult.seed_positions`. Holds whether or not the cascade
-    actually fires any repair/delete on this fixture's edges.
+    Isolates the cascade from `_order_seeds_by_bridgeability` (the pre-beam
+    subsystem that decides pier order and is out of scope for I4 — it has
+    changed twice this week). Runs the SAME seeds through the SAME
+    scenario/bundle TWICE with identical config except the two cascade
+    stages the contract calls out as pier-touching risks
+    (docs/BEAM_CONTRACT.md I4): cascade OFF (edge_repair_enabled=False,
+    edge_delete_enabled=False) vs cascade ON (edge_repair_enabled=True,
+    edge_delete_enabled=True, edge_delete_max_deletions=4). Seed ordering
+    runs identically upstream of the beam in both calls, so any divergence
+    in the SUBSEQUENCE of seed IDs read off `seed_positions` can only be
+    attributed to the cascade itself — never to whatever
+    `_order_seeds_by_bridgeability` decided.
+
+    Note: the raw `seed_positions` INDEX LISTS are allowed to differ between
+    the two runs (I3 sanctions edge-delete as a remove-only fix on non-pier
+    interior tracks -- deleting an interior track legitimately shortens the
+    emitted list and shifts every later pier's absolute array index left).
+    That is not a pier reordering; what I4 actually guards is that the same
+    seed IDENTITIES occupy the same relative pier slots (1st, 2nd, 3rd...)
+    in the same order, which is exactly what comparing the ID subsequence
+    (not the index subsequence) below verifies.
     """
     bundle = _make_bundle(n=50, sonic_dim=16, genre_dim=8, num_artists=10)
     scenario = SMOKE_SCENARIOS["three_seeds_centered"]
-    cfg = PierBridgeConfig(
-        edge_repair_enabled=True,
-        edge_delete_enabled=True,
-        edge_delete_max_deletions=4,
-        **scenario["cfg_kwargs"],
-    )
 
     seed_ids = scenario["seed_track_ids"]
     seed_idx_set = {bundle.track_id_to_index[s] for s in seed_ids}
     candidate_pool = [i for i in range(len(bundle.track_ids)) if i not in seed_idx_set]
 
-    result = build_pier_bridge_playlist(
-        seed_track_ids=seed_ids,
-        total_tracks=scenario["total_tracks"],
-        bundle=bundle,
-        candidate_pool_indices=candidate_pool,
-        cfg=cfg,
-        min_genre_similarity=None,
-        X_genre_smoothed=None,
-    )
+    def _run(edge_repair_enabled, edge_delete_enabled, edge_delete_max_deletions):
+        cfg = PierBridgeConfig(
+            edge_repair_enabled=edge_repair_enabled,
+            edge_delete_enabled=edge_delete_enabled,
+            edge_delete_max_deletions=edge_delete_max_deletions,
+            **scenario["cfg_kwargs"],
+        )
+        return build_pier_bridge_playlist(
+            seed_track_ids=seed_ids,
+            total_tracks=scenario["total_tracks"],
+            bundle=bundle,
+            candidate_pool_indices=candidate_pool,
+            cfg=cfg,
+            min_genre_similarity=None,
+            X_genre_smoothed=None,
+        )
 
-    assert result.success
-    seed_positions = result.seed_positions
-    assert len(seed_positions) == len(seed_ids)
-    assert seed_positions == sorted(seed_positions)  # strictly ascending -> never reordered
-    found_ids_in_order = [result.track_ids[p] for p in seed_positions]
-    assert found_ids_in_order == seed_ids
+    result_cascade_off = _run(False, False, 0)
+    result_cascade_on = _run(True, True, 4)
+
+    assert result_cascade_off.success
+    assert result_cascade_on.success
+
+    ids_off = [result_cascade_off.track_ids[p] for p in result_cascade_off.seed_positions]
+    ids_on = [result_cascade_on.track_ids[p] for p in result_cascade_on.seed_positions]
+
+    # Cascade neither removed nor added a seed.
+    assert len(ids_off) == len(seed_ids)
+    assert len(ids_on) == len(seed_ids)
+    assert set(ids_off) == set(seed_ids)
+    assert set(ids_on) == set(seed_ids)
+
+    # Cascade neither reordered nor relocated any pier: the subsequence of
+    # seed IDs read off each run's own `seed_positions` is identical, i.e.
+    # the same seed sits in the same relative pier slot in both runs (seed
+    # ordering itself is held fixed across both calls, so this isolates the
+    # cascade's effect specifically -- see the docstring note on why we do
+    # NOT compare the raw index lists).
+    assert ids_off == ids_on
