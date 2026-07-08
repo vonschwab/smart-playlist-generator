@@ -56,6 +56,15 @@ def test_append_checkpoint_writes_and_flushes(tmp_path):
     assert read_checkpoint_ids(str(ckpt)) == {"x", "y"}
 
 
+def test_merge_sidecar_npz_writes_meta(tmp_path):
+    ckpt = tmp_path / "checkpoint.jsonl"
+    ckpt.write_text(json.dumps({"track_id": "a", "voice_prob": 0.9}) + "\n", encoding="utf-8")
+    sidecar = tmp_path / "instrumental_sidecar.npz"
+    merge_sidecar_npz(str(sidecar), str(ckpt), columns={"voice_prob": "voice_prob"}, meta={"model": "foo"})
+    data = np.load(str(sidecar), allow_pickle=True)
+    assert str(data["model"]) == "foo"
+
+
 def test_merge_sidecar_npz_backs_up_existing_sidecar(tmp_path):
     sidecar = tmp_path / "instrumental_sidecar.npz"
     np.savez_compressed(str(sidecar), track_ids=np.array(["old"], dtype=object))

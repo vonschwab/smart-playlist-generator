@@ -56,11 +56,16 @@ def _iter_records(ckpt_path: str) -> Iterable[dict]:
                 continue
 
 
-def merge_sidecar_npz(sidecar_path: str, ckpt_path: str, columns: dict[str, str]) -> str:
+def merge_sidecar_npz(
+    sidecar_path: str, ckpt_path: str, columns: dict[str, str], *, meta: dict[str, str] | None = None
+) -> str:
     """Assemble aligned float32 columns from the checkpoint JSONL and write the sidecar.
 
     columns: {output_array_name: checkpoint_record_key}. Records lacking a key
     (missing/errored tracks) get np.nan so the track_id row is still present.
+
+    meta: optional {key: value} strings (e.g. model provenance) written as literal
+    object arrays alongside track_ids + the float columns.
     """
     tids: list[str] = []
     cols: dict[str, list[float]] = {name: [] for name in columns}
@@ -81,9 +86,12 @@ def merge_sidecar_npz(sidecar_path: str, ckpt_path: str, columns: dict[str, str]
         print(f"backed up existing sidecar -> {bak}")
 
     arrays = {name: np.asarray(vals, dtype=np.float32) for name, vals in cols.items()}
-    np.savez_compressed(
-        sidecar_path,
-        track_ids=np.array(tids, dtype=object),
+    save_kwargs: dict = {
+        "track_ids": np.array(tids, dtype=object),
         **arrays,
-    )
+    }
+    if meta:
+        for k, v in meta.items():
+            save_kwargs[k] = np.array(v, dtype=object)
+    np.savez_compressed(sidecar_path, **save_kwargs)
     return sidecar_path

@@ -50,10 +50,10 @@ def voice_column_index(model_json_path: str) -> int:
     classes = [str(c).strip().lower() for c in meta.get("classes", [])]
     if len(classes) != 2:
         raise ValueError(f"expected 2 classes, got {classes!r}")
-    for i, c in enumerate(classes):
-        if "voc" in c or c == "voice" or "vocal" in c:
-            return i
-    raise ValueError(f"cannot identify a voice column in classes {classes!r}")
+    matches = [i for i, c in enumerate(classes) if "voc" in c or c == "voice"]
+    if len(matches) != 1:
+        raise ValueError(f"cannot uniquely identify a voice column in {classes!r}")
+    return matches[0]
 
 
 def _init() -> None:
@@ -89,7 +89,7 @@ def _process(item: tuple[str, str | None]) -> dict:
         voice_prob = float(np.mean(vi[:, _VOICE_COL]))
         return {"track_id": tid, "voice_prob": round(voice_prob, 4), "frames": int(emb.shape[0])}
     except Exception as exc:  # never crash the pool on one track
-        return {"track_id": tid, "error": str(exc)[:200]}
+        return {"track_id": tid, "error": repr(exc)[:200]}
 
 
 def _artifact_track_ids() -> list[str]:
@@ -151,13 +151,25 @@ def main() -> None:
     args = _parse_args()
     os.makedirs(OUTDIR, exist_ok=True)
     if args.merge_only:
-        print(f"SIDECAR: {merge_sidecar_npz(SIDECAR, CKPT, columns={'voice_prob': 'voice_prob'})}")
+        print(
+            f"SIDECAR: {merge_sidecar_npz(SIDECAR, CKPT, columns={'voice_prob': 'voice_prob'}, meta={'model': 'voice_instrumental-musicnn-msd-2'})}"
+        )
+        return
+
+    tids = _artifact_track_ids()
+    done = read_checkpoint_ids(CKPT)
+    todo = _load_todo(args.force, args.limit)
+    total = len(todo)
+    print(
+        f"artifact={len(tids)} done={len(done)} todo={total} workers={args.workers}",
+        flush=True,
+    )
+    if not todo:
+        print("nothing to do.")
         return
 
     import multiprocessing as mp
 
-    todo = _load_todo(args.force, args.limit)
-    total = len(todo)
     ok = missing = error = 0
     ctx = mp.get_context("spawn")
     with open(CKPT, "a", encoding="utf-8") as f:
@@ -171,7 +183,9 @@ def main() -> None:
                 else:
                     ok += 1
     print(f"RESULT ok={ok} missing={missing} error={error} total={total}")
-    print(f"SIDECAR: {merge_sidecar_npz(SIDECAR, CKPT, columns={'voice_prob': 'voice_prob'})}")
+    print(
+        f"SIDECAR: {merge_sidecar_npz(SIDECAR, CKPT, columns={'voice_prob': 'voice_prob'}, meta={'model': 'voice_instrumental-musicnn-msd-2'})}"
+    )
 
 
 if __name__ == "__main__":

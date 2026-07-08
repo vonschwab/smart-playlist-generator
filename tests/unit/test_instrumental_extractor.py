@@ -21,3 +21,8 @@ def test_voice_column_index_voice_first(tmp_path):
 def test_voice_column_index_ambiguous_raises(tmp_path):
     with pytest.raises(ValueError):
         voice_column_index(_write_json(tmp_path, ["classA", "classB"]))
+
+
+def test_voice_column_index_double_match_raises(tmp_path):
+    with pytest.raises(ValueError):
+        voice_column_index(_write_json(tmp_path, ["voice", "vocal"]))
