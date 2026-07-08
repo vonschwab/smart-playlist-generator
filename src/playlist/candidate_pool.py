@@ -562,6 +562,10 @@ def build_candidate_pool(
     # admission centroid. None = feature off (byte-identical legacy behavior).
     steering_target: Optional[np.ndarray] = None,
     steering_blend: float = 0.5,
+    # Tag steering (sonic): blend a library-learned sonic prototype into each
+    # seed's sonic admission vector. None = off (byte-identical legacy behavior).
+    sonic_prototype: Optional[np.ndarray] = None,
+    sonic_blend: float = 0.35,
 ) -> CandidatePoolResult:
     """
     Implement current experiments behavior with optional genre gating:
@@ -647,6 +651,13 @@ def build_candidate_pool(
     if X_sonic is not None:
         sonic_norm = X_sonic / (np.linalg.norm(X_sonic, axis=1, keepdims=True) + 1e-12)
         seed_vecs_sonic = sonic_norm[seed_list]
+        if sonic_prototype is not None:
+            _sb = float(np.clip(sonic_blend, 0.0, 1.0))
+            _proto = np.asarray(sonic_prototype, dtype=seed_vecs_sonic.dtype)
+            seed_vecs_sonic = (1.0 - _sb) * seed_vecs_sonic + _sb * _proto
+            _sn = np.linalg.norm(seed_vecs_sonic, axis=1, keepdims=True)
+            seed_vecs_sonic = seed_vecs_sonic / (_sn + 1e-12)
+            logger.info("Tag steering sonic pool lever: blend=%.2f applied to seed sonic vectors", _sb)
         sonic_seed_sim_matrix = np.dot(sonic_norm, seed_vecs_sonic.T)
         sonic_seed_sim = np.max(sonic_seed_sim_matrix, axis=1)
         sonic_seed_sim[seed_mask] = -1.0
@@ -1494,6 +1505,14 @@ def build_candidate_pool(
                         logger.debug("Borderline around floor=%.2f: %s", sonic_floor, borderline)
     except Exception:
         logger.debug("Candidate pool sonic distribution logging failed", exc_info=True)
+
+    if sonic_prototype is not None and X_sonic is not None and len(eligible):
+        _pa = sonic_norm[np.asarray(eligible, dtype=int)] @ np.asarray(sonic_prototype, dtype=np.float64)
+        logger.info(
+            "Tag steering sonic pool affinity (admitted set): p10=%.3f p50=%.3f p90=%.3f n=%d",
+            float(np.percentile(_pa, 10)), float(np.percentile(_pa, 50)),
+            float(np.percentile(_pa, 90)), int(_pa.size),
+        )
 
     return CandidatePoolResult(
         pool_indices=np.array(pool_indices, dtype=int),

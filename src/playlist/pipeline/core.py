@@ -583,6 +583,39 @@ def generate_playlist_ds(
         bundle, _cfg_cutoff, db_path="", metadata_db_path=_meta_db
     )
 
+    # Tag steering (sonic pool lever): library-learned sonic prototype for the
+    # selected tags, blended into each seed's sonic admission vector so the
+    # bridge candidate pool leans on-tag. Mirrors the genre pool lever above;
+    # built UNcentered (global_mean=None) because it blends into UNcentered
+    # unit seed vectors here (contrast with the pier's centered term).
+    _tag_sonic_prototype = None
+    try:
+        _tag_sonic_blend = float(pb_overrides.get("tag_steering_sonic_blend", 0.35))
+    except (TypeError, ValueError):
+        _tag_sonic_blend = 0.35
+    if _tag_steering_tags:
+        _xsonic = embedding.X_sonic_for_embed
+        if _xsonic is not None:
+            from src.playlist.tag_steering import (
+                resolve_tag_sonic_prototype_rows, sonic_prototype_from_rows,
+            )
+            _min_support = int(pb_overrides.get("tag_steering_prototype_min_support", 25))
+            _t2r = {str(t): i for i, t in enumerate(bundle.track_ids)}
+            _rows, _n, _ = resolve_tag_sonic_prototype_rows(
+                _tag_steering_tags, metadata_db_path=_meta_db,
+                track_id_to_row=_t2r, min_support=_min_support,
+            )
+            if _rows is not None:
+                _xs = np.asarray(_xsonic, dtype=np.float64)
+                _tag_sonic_prototype, _coh, _ = sonic_prototype_from_rows(_xs, _rows)  # UNcentered
+                _min_coh = float(pb_overrides.get("tag_steering_prototype_min_cohesion", 0.15))
+                if _tag_sonic_prototype is not None and _coh < _min_coh:
+                    logger.warning(
+                        "Tag steering sonic pool prototype: cohesion %.3f < %.2f — sonic pool "
+                        "lever disabled (genre pool lever unaffected).", _coh, _min_coh,
+                    )
+                    _tag_sonic_prototype = None
+
     def _build_pool(candidate_cfg: Any, genre_gate: Optional[float],
                     popularity_rank_cutoff: Optional[int] = _banger_cutoff):
         return build_candidate_pool(
@@ -626,6 +659,8 @@ def generate_playlist_ds(
             popularity_rank_cutoff=popularity_rank_cutoff,
             steering_target=_tag_steering_target,
             steering_blend=_tag_steering_blend,
+            sonic_prototype=_tag_sonic_prototype,
+            sonic_blend=_tag_sonic_blend,
         )
 
     _candidate_cfg_kwargs: dict = dict(

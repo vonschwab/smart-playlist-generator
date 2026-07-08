@@ -1,5 +1,6 @@
 """Live: the sonic prototype lifts Eno's ambient-pier affinity above genre-dense alone."""
 from pathlib import Path
+import inspect
 import sys
 import numpy as np
 import pytest
@@ -9,6 +10,7 @@ from support.gui_fidelity import resolved_artifact_path  # noqa: E402
 
 from src.features.artifacts import load_artifact_bundle  # noqa: E402
 from src.playlist.artist_style import ArtistStyleConfig, cluster_artist_tracks  # noqa: E402
+from src.playlist.candidate_pool import build_candidate_pool  # noqa: E402
 from src.playlist.tag_steering import (  # noqa: E402
     resolve_tag_steering_target,
     resolve_tag_sonic_prototype_rows,
@@ -71,6 +73,57 @@ def test_sonic_prototype_raises_ambient_pier_affinity(bundle):
     with_sonic = float(np.mean([aff_vec[m] for m in med_sonic])) if med_sonic else 0.0
     assert with_sonic > base_sonic, (
         f"sonic-term piers ambient affinity {with_sonic:.3f} !> genre-only {base_sonic:.3f}")
+
+
+def test_build_candidate_pool_accepts_sonic_prototype():
+    sig = inspect.signature(build_candidate_pool)
+    assert "sonic_prototype" in sig.parameters
+    assert "sonic_blend" in sig.parameters
+
+
+def test_sonic_prototype_blend_shifts_admitted_sonic_affinity(bundle):
+    """Blending an ambient prototype into the sonic seed vectors raises the
+    admitted pool's mean affinity to that prototype."""
+    if getattr(bundle, "X_sonic", None) is None:
+        pytest.skip("MuQ/X_sonic absent")
+    # import path may differ; adjust to candidate_pool.py's own import if needed
+    from src.playlist.config import CandidatePoolConfig
+    xmq = np.asarray(bundle.X_sonic, dtype=np.float64)
+    t2r = {str(t): i for i, t in enumerate(bundle.track_ids)}
+    rows, n, _ = resolve_tag_sonic_prototype_rows(
+        ["ambient"], metadata_db_path=DB, track_id_to_row=t2r, min_support=25)
+    assert rows is not None
+    proto, _, _ = sonic_prototype_from_rows(xmq, rows)          # UNcentered for the pool blend
+    xmn = xmq / (np.linalg.norm(xmq, axis=1, keepdims=True) + 1e-12)
+    aff = xmn @ proto
+
+    # CandidatePoolConfig has no field defaults for the pool-sizing knobs, so
+    # size them generously (uncapped in practice) to keep the whole eligible
+    # set in the pool -- the sonic_admission_percentile floor below is the
+    # thing under test, not artist/pool capping.
+    cfg = CandidatePoolConfig(
+        similarity_floor=-1.0,
+        min_sonic_similarity=None,
+        max_pool_size=100_000,
+        target_artists=100_000,
+        candidates_per_artist=100_000,
+        seed_artist_bonus=0,
+        max_artist_fraction_final=1.0,
+        duration_penalty_enabled=False,
+        title_exclusion_enabled=False,
+        sonic_admission_percentile=0.5,
+    )
+    seed = int(np.argmax(aff))
+    common = dict(seed_idx=seed, seed_indices=[seed], embedding=xmq,
+                  artist_keys=bundle.artist_keys, track_ids=bundle.track_ids,
+                  cfg=cfg, random_seed=0, X_sonic=xmq)
+    base = build_candidate_pool(**common)
+    steered = build_candidate_pool(**common, sonic_prototype=proto, sonic_blend=0.5)
+
+    def mean_aff(res):
+        idx = [int(i) for i in res.pool_indices]
+        return float(np.mean([aff[i] for i in idx])) if idx else 0.0
+    assert mean_aff(steered) >= mean_aff(base)
 
 
 def test_no_sonic_affinity_is_byte_identical_piers(bundle):
