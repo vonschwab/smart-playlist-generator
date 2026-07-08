@@ -3,7 +3,7 @@ import logging
 
 import numpy as np
 
-from src.playlist.tag_steering import resolve_tag_steering_target
+from src.playlist.tag_steering import resolve_tag_steering_target, sonic_prototype_from_rows, sonic_global_mean
 
 VOCAB = ["jazz-funk", "post-bop", "soul"]
 EMB = np.array([[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
@@ -66,3 +66,36 @@ def test_degenerate_zero_norm_target_returns_none_and_warns(caplog):
         "degenerate" in r.message.lower() or "zero-norm" in r.message.lower()
         for r in caplog.records
     )
+
+
+def test_sonic_prototype_points_at_member_mean_direction():
+    A = np.tile(np.array([1.0, 0.0, 0.0]), (10, 1)) + 1e-3
+    B = np.tile(np.array([0.0, 1.0, 0.0]), (10, 1)) + 1e-3
+    M = np.vstack([A, B])
+    proto, cohesion, n = sonic_prototype_from_rows(M, list(range(10)))
+    assert n == 10
+    assert cohesion > 0.9
+    assert proto @ np.array([1.0, 0.0, 0.0]) > 0.8
+    assert proto @ np.array([0.0, 1.0, 0.0]) < 0.2
+
+
+def test_sonic_prototype_low_cohesion_for_scattered_rows():
+    rng = np.random.default_rng(0)
+    M = rng.standard_normal((50, 16))
+    proto, cohesion, n = sonic_prototype_from_rows(M, list(range(50)))
+    assert proto is not None
+    assert cohesion < 0.5
+
+
+def test_sonic_prototype_empty_rows_returns_none():
+    M = np.eye(4)
+    proto, cohesion, n = sonic_prototype_from_rows(M, [])
+    assert proto is None and n == 0
+
+
+def test_global_mean_centering_subtracts_common_component():
+    common = np.array([5.0, 0.0, 0.0])
+    M = np.vstack([common + np.array([0, 1.0, 0]), common + np.array([0, 0, 1.0])])
+    gm = sonic_global_mean(M)
+    proto_centered, _, _ = sonic_prototype_from_rows(M, [0], global_mean=gm)
+    assert abs(proto_centered[0]) < abs(proto_centered[1]) + abs(proto_centered[2])

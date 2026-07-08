@@ -64,3 +64,40 @@ def resolve_tag_steering_target(
     target = target / norm
     logger.info("Tag steering target: tags=%s (mapped %d/%d)", mapped, len(rows), len(wanted))
     return target, mapped, unmapped
+
+
+def sonic_global_mean(sonic_matrix: np.ndarray) -> np.ndarray:
+    """Mean of the per-row L2-normalized sonic rows (the 'generic' direction)."""
+    M = np.asarray(sonic_matrix, dtype=np.float64)
+    Mn = M / (np.linalg.norm(M, axis=1, keepdims=True) + 1e-12)
+    return Mn.mean(axis=0)
+
+
+def sonic_prototype_from_rows(
+    sonic_matrix: np.ndarray,
+    rows: Sequence[int],
+    *,
+    global_mean: Optional[np.ndarray] = None,
+) -> tuple[Optional[np.ndarray], float, int]:
+    """Centered, L2-normalized centroid of ``rows`` + intra-set cohesion.
+
+    ``rows`` index into ``sonic_matrix`` (bundle-aligned). When ``global_mean`` is
+    given it is subtracted from each normalized member row before averaging, to
+    remove the generic-sonic component. ``cohesion`` is the mean cosine of member
+    vectors to the prototype (low => sonically multimodal tag). Returns
+    ``(prototype | None, cohesion, support_n)``.
+    """
+    idx = [int(r) for r in rows]
+    if not idx:
+        return None, 0.0, 0
+    M = np.asarray(sonic_matrix, dtype=np.float64)[idx]
+    Mn = M / (np.linalg.norm(M, axis=1, keepdims=True) + 1e-12)
+    if global_mean is not None:
+        Mn = Mn - np.asarray(global_mean, dtype=np.float64)
+    proto = Mn.mean(axis=0)
+    norm = float(np.linalg.norm(proto))
+    if norm <= 1e-12:
+        return None, 0.0, len(idx)
+    proto = proto / norm
+    cohesion = float(np.mean(Mn @ proto))
+    return proto, cohesion, len(idx)
