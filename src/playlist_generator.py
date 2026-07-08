@@ -1790,6 +1790,55 @@ class PlaylistGenerator:
                         genre_emb=getattr(bundle, "genre_emb", None),
                     )
 
+                # Tag steering sonic-prototype term (artist mode): library-learned
+                # sonic centroid for the selected tags, biasing which of the
+                # artist's own tracks become piers toward the on-tag sound.
+                # `bundle.X_sonic` is the active sonic space (resolved from the
+                # artifact's MuQ matrix via artifacts.sonic_variant_override) --
+                # the same matrix cluster_artist_tracks clusters on, so this stays
+                # space-consistent with no mixing of sonic spaces.
+                sonic_tag_affinity = None
+                sonic_tag_weight = 0.0
+                _xmq = getattr(bundle, "X_sonic", None)
+                if _steering_tag_list and _xmq is not None:
+                    from src.playlist.tag_steering import (
+                        resolve_tag_sonic_prototype_rows,
+                        sonic_prototype_from_rows,
+                        sonic_global_mean,
+                    )
+                    _pb = (ds_cfg.get("pier_bridge", {}) or {})
+                    _min_support = int(_pb.get("tag_steering_prototype_min_support", 25))
+                    _t2r = {str(t): i for i, t in enumerate(bundle.track_ids)}
+                    _rows, _n, _ = resolve_tag_sonic_prototype_rows(
+                        _steering_tag_list,
+                        metadata_db_path=resolve_database_path(self.config),
+                        track_id_to_row=_t2r,
+                        exclude_artist=artist_name,
+                        min_support=_min_support,
+                    )
+                    if _rows is not None:
+                        _xmq_arr = np.asarray(_xmq, dtype=np.float64)
+                        _gm = sonic_global_mean(_xmq_arr)
+                        _proto, _cohesion, _ = sonic_prototype_from_rows(
+                            _xmq_arr, _rows, global_mean=_gm
+                        )
+                        _min_coh = float(_pb.get("tag_steering_prototype_min_cohesion", 0.15))
+                        if _proto is not None and _cohesion < _min_coh:
+                            logger.warning(
+                                "Tag steering sonic prototype: cohesion %.3f < %.2f (sonically "
+                                "multimodal tag) — sonic term disabled, using genre-dense only.",
+                                _cohesion, _min_coh,
+                            )
+                            _proto = None
+                        if _proto is not None:
+                            _xmn = _xmq_arr / (np.linalg.norm(_xmq_arr, axis=1, keepdims=True) + 1e-12)
+                            sonic_tag_affinity = (_xmn - _gm) @ _proto
+                            sonic_tag_weight = float(_pb.get("tag_steering_sonic_weight", 0.5))
+                            logger.info(
+                                "Tag steering sonic prototype: support=%d cohesion=%.3f weight=%.2f",
+                                _n, _cohesion, sonic_tag_weight,
+                            )
+
                 base_seed = int(ds_cfg.get("random_seed", 0) or 0)
                 seed_epoch_val = int(seed_epoch or 0)
                 cluster_seed = base_seed + seed_epoch_val
@@ -1897,6 +1946,8 @@ class PlaylistGenerator:
                     popularity_values=popularity_values,
                     metadata_db_path=resolve_database_path(self.config),
                     steering_target=steering_target,
+                    sonic_tag_affinity=sonic_tag_affinity,
+                    sonic_tag_weight=sonic_tag_weight,
                     target_pier_count=target_pier_count,
                 )
                 # 🔥 Pure-hits piers: override cluster medoids with the artist's top-N
@@ -1929,7 +1980,10 @@ class PlaylistGenerator:
                     _xgd = np.asarray(_xgd, dtype=float)
                     _tgt = np.asarray(steering_target, dtype=float)
                     cluster_affinities = [
-                        float(np.mean(_xgd[members] @ _tgt)) if len(members) else 0.0
+                        (float(np.mean(_xgd[members] @ _tgt))
+                         + (sonic_tag_weight * float(np.mean(sonic_tag_affinity[members]))
+                            if sonic_tag_affinity is not None else 0.0))
+                        if len(members) else 0.0
                         for members in clusters
                     ]
                     pier_tag_skew = float(

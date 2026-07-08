@@ -698,6 +698,8 @@ def cluster_artist_tracks(
     popularity_values: Optional[np.ndarray] = None,
     metadata_db_path: Optional[str] = None,
     steering_target: Optional[np.ndarray] = None,
+    sonic_tag_affinity: Optional[np.ndarray] = None,   # bundle-aligned (N,) sonic prototype affinity
+    sonic_tag_weight: float = 0.0,
     target_pier_count: Optional[int] = None,
 ) -> Tuple[List[List[int]], List[int], List[List[int]], np.ndarray]:
     """Cluster artist tracks in sonic space and return clusters + medoids."""
@@ -914,6 +916,17 @@ def cluster_artist_tracks(
             tag_slice = np.asarray(_xgd, dtype=float)[members_eligible] @ np.asarray(
                 steering_target, dtype=float
             )
+        # Sonic-prototype term (track-level resolution). Additive: a flat genre
+        # term drops out of the ranking, so this decides for genre-blended artists.
+        if (
+            sonic_tag_affinity is not None
+            and float(sonic_tag_weight) > 0.0
+            and cfg.medoid_tag_weight > 0
+        ):
+            _sonic_slice = float(sonic_tag_weight) * np.asarray(
+                sonic_tag_affinity, dtype=float
+            )[members_eligible]
+            tag_slice = _sonic_slice if tag_slice is None else (tag_slice + _sonic_slice)
         medoid_list = _medoids_for_cluster(
             X_norm,
             members_eligible,

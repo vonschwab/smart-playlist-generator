@@ -331,6 +331,9 @@ playlists:
       # clusters. 0 = even across clusters (legacy); 1 = pure affinity weighting.
       # Soft skew keeps every cluster represented (floor 1 pier). Inert without tags.
       pier_tag_skew: 0.6
+      tag_steering_sonic_weight: 0.5          # weight of the library-learned sonic-prototype term in pier scoring
+      tag_steering_prototype_min_support: 25  # min library tracks/tag to trust the sonic prototype (else genre-dense only)
+      tag_steering_prototype_min_cohesion: 0.15  # min intra-set cohesion; below this the tag is sonically multimodal -> genre-dense only
       # Total-generation wall-clock budget (seconds). A single shared deadline is
       # computed once at generation start (before any One-Each retries) and threaded
       # into all segment loops and relaxation tiers so NO path can collectively exceed
