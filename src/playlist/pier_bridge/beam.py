@@ -198,6 +198,8 @@ def _beam_search_segment(
     roam_dev_genre: Optional[np.ndarray] = None,
     roam_dev_energy: Optional[np.ndarray] = None,
     popularity_values: Optional[np.ndarray] = None,
+    sonic_tag_affinity: Optional[np.ndarray] = None,   # bundle-aligned (N,) centered MuQ tag affinity
+    sonic_tag_beam_weight: float = 0.0,
 ) -> Tuple[Optional[List[int]], int, int, Optional[str]]:
     """
     Constrained beam search to find path from pier_a to pier_b.
@@ -1006,6 +1008,17 @@ def _beam_search_segment(
             _identity_keys_cache[cand_int] = keys
         return keys
 
+    # Tag steering (Task 6): soft per-candidate sonic-tag bonus added to the
+    # beam's ranking score (never to trans_score/T -- see combined_score below).
+    # Fully gated on a non-None affinity AND a positive weight so a no-tag run
+    # is byte-identical. Logged once per segment (not per candidate).
+    _sonic_tag_active = sonic_tag_affinity is not None and float(sonic_tag_beam_weight) > 0.0
+    if _sonic_tag_active:
+        logger.info(
+            "Tag steering beam term: weight=%.2f active over %d candidates",
+            float(sonic_tag_beam_weight), len(candidates),
+        )
+
     for step in range(interior_length):
         # Cooperative cancellation: the per-step poll is what bounds cancel
         # latency inside a single long beam run (the reported segment-0 hang).
@@ -1396,6 +1409,9 @@ def _beam_search_segment(
                         )
                         combined_score += coverage_bonus_val
 
+                    if _sonic_tag_active:
+                        combined_score += float(sonic_tag_beam_weight) * float(sonic_tag_affinity[int(cand)])
+
                     # Rank impact: collect (cand_idx, base_score, waypoint_delta, coverage_bonus, full_score)
                     if step_is_sampled:
                         step_candidates_for_ranking.append((
@@ -1522,6 +1538,9 @@ def _beam_search_segment(
                             float(cfg.dj_genre_coverage_weight), float(cfg.dj_genre_coverage_power)
                         )
                         combined_score += coverage_bonus_val
+
+                    if _sonic_tag_active:
+                        combined_score += float(sonic_tag_beam_weight) * float(sonic_tag_affinity[int(cand)])
 
                     # Title-artifact penalty (tie-break path; opt-in; zero cost when disabled)
                     _title_artifact_pen_tb = 0.0

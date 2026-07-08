@@ -11,6 +11,8 @@ from support.gui_fidelity import resolved_artifact_path  # noqa: E402
 from src.features.artifacts import load_artifact_bundle  # noqa: E402
 from src.playlist.artist_style import ArtistStyleConfig, cluster_artist_tracks  # noqa: E402
 from src.playlist.candidate_pool import build_candidate_pool  # noqa: E402
+from src.playlist.pier_bridge_builder import build_pier_bridge_playlist  # noqa: E402
+from src.playlist.pier_bridge.beam import _beam_search_segment  # noqa: E402
 from src.playlist.tag_steering import (  # noqa: E402
     resolve_tag_steering_target,
     resolve_tag_sonic_prototype_rows,
@@ -139,3 +141,49 @@ def test_no_sonic_affinity_is_byte_identical_piers(bundle):
         medoid_top_k=10, steering_target=target, metadata_db_path=DB,
         sonic_tag_affinity=None, sonic_tag_weight=0.5)
     assert med_a == med_b
+
+
+def test_beam_accepts_sonic_tag_params():
+    for fn in (build_pier_bridge_playlist, _beam_search_segment):
+        p = inspect.signature(fn).parameters
+        assert "sonic_tag_affinity" in p, f"{fn.__name__} missing sonic_tag_affinity"
+        assert "sonic_tag_beam_weight" in p, f"{fn.__name__} missing sonic_tag_beam_weight"
+
+
+def _flat_space(n: int) -> np.ndarray:
+    """n identical unit vectors so sonic gates pass with floors at -1 (reused
+    from tests/unit/test_beam_pace_soft_penalty.py's minimal-fixture pattern)."""
+    X = np.ones((n, 3), dtype=float)
+    return X / np.linalg.norm(X, axis=1, keepdims=True)
+
+
+def test_sonic_tag_beam_term_shifts_candidate_ranking():
+    """Two candidates tied on every other beam score component (identical sonic
+    vectors, no genre/waypoint machinery); a strong sonic_tag_affinity favoring
+    the second candidate flips the beam's pick from the first (default stable
+    tie-break) to the second."""
+    from src.playlist.pier_bridge.config import PierBridgeConfig
+
+    X = _flat_space(4)  # 0=pier_a, 1=candidate, 2=pier_b, 3=candidate
+    cfg = PierBridgeConfig(bridge_floor=-1.0, transition_floor=-1.0, progress_enabled=False)
+
+    path_base, _, _, err_base = _beam_search_segment(
+        0, 2, 1, [1, 3],
+        X, X, None, None, None, None,
+        cfg,
+        5,
+    )
+    assert err_base is None
+    assert path_base == [1], "sanity: without the term, ties resolve to the first candidate"
+
+    affinity = np.array([0.0, 0.0, 0.0, 10.0], dtype=float)
+    path_steered, _, _, err_steered = _beam_search_segment(
+        0, 2, 1, [1, 3],
+        X, X, None, None, None, None,
+        cfg,
+        5,
+        sonic_tag_affinity=affinity,
+        sonic_tag_beam_weight=1.0,
+    )
+    assert err_steered is None
+    assert path_steered == [3], "sonic_tag_beam_weight did not shift the beam's ranking"

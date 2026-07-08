@@ -333,6 +333,7 @@ playlists:
       pier_tag_skew: 0.6
       tag_steering_sonic_weight: 0.5          # weight of the library-learned sonic-prototype term in pier scoring
       tag_steering_sonic_blend: 0.35          # blend of the sonic prototype into the sonic-admission centroid (pool)
+      tag_steering_sonic_beam_weight: 0.15    # soft per-candidate on-tag bonus in the beam's ranking score (bridges)
       tag_steering_prototype_min_support: 25  # min library tracks/tag to trust the sonic prototype (else genre-dense only)
       tag_steering_prototype_min_cohesion: 0.15  # min intra-set cohesion; below this the tag is sonically multimodal -> genre-dense only
       # Total-generation wall-clock budget (seconds). A single shared deadline is

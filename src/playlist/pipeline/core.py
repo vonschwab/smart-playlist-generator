@@ -589,10 +589,15 @@ def generate_playlist_ds(
     # built UNcentered (global_mean=None) because it blends into UNcentered
     # unit seed vectors here (contrast with the pier's centered term).
     _tag_sonic_prototype = None
+    _beam_tag_affinity = None
     try:
         _tag_sonic_blend = float(pb_overrides.get("tag_steering_sonic_blend", 0.35))
     except (TypeError, ValueError):
         _tag_sonic_blend = 0.35
+    try:
+        _beam_tag_weight = float(pb_overrides.get("tag_steering_sonic_beam_weight", 0.15))
+    except (TypeError, ValueError):
+        _beam_tag_weight = 0.15
     if _tag_steering_tags:
         _xsonic = embedding.X_sonic_for_embed
         if _xsonic is not None:
@@ -615,6 +620,24 @@ def generate_playlist_ds(
                         "lever disabled (genre pool lever unaffected).", _coh, _min_coh,
                     )
                     _tag_sonic_prototype = None
+
+                # Tag steering (sonic BEAM lever, Task 6): centered per-candidate
+                # sonic-tag affinity for the beam's ranking score (bridges lean
+                # on-tag). Reuses `_rows` (no re-query); centered on the library
+                # global mean, matching the pier's centered term (Task 3) --
+                # contrast with the UNcentered pool prototype above.
+                from src.playlist.tag_steering import sonic_global_mean as _sgm
+                _gm_b = _sgm(_xs)
+                _cproto, _ccoh, _ = sonic_prototype_from_rows(_xs, _rows, global_mean=_gm_b)  # CENTERED
+                _min_coh_b = float(pb_overrides.get("tag_steering_prototype_min_cohesion", 0.15))
+                if _cproto is not None and _ccoh >= _min_coh_b:
+                    _xsn_b = _xs / (np.linalg.norm(_xs, axis=1, keepdims=True) + 1e-12)
+                    _beam_tag_affinity = (_xsn_b - _gm_b) @ _cproto
+                elif _cproto is not None:
+                    logger.warning(
+                        "Tag steering sonic beam prototype: cohesion %.3f < %.2f — beam "
+                        "term disabled (pool/pier levers unaffected).", _ccoh, _min_coh_b,
+                    )
 
     def _build_pool(candidate_cfg: Any, genre_gate: Optional[float],
                     popularity_rank_cutoff: Optional[int] = _banger_cutoff):
@@ -937,6 +960,8 @@ def generate_playlist_ds(
                     popularity_values=popularity_values,
                     min_gap=int(getattr(cfg.construct, "min_gap", 1) or 1),
                     deadline=_generation_deadline,
+                    sonic_tag_affinity=_beam_tag_affinity,
+                    sonic_tag_beam_weight=_beam_tag_weight,
                 )
 
             one_each_candidate_relaxation: Optional[Dict[str, Any]] = None

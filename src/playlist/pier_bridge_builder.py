@@ -459,6 +459,8 @@ def build_pier_bridge_playlist(
     popularity_values: Optional[np.ndarray] = None,
     min_gap: int = 1,
     deadline: Optional[float] = None,
+    sonic_tag_affinity: Optional[np.ndarray] = None,
+    sonic_tag_beam_weight: float = 0.0,
 ) -> PierBridgeResult:
     """
     Build playlist using pier + bridge strategy.
@@ -1524,6 +1526,8 @@ def build_pier_bridge_playlist(
                         roam_detour_sonic=_roam_detour_sonic,
                         roam_dev_energy=_roam_dev_energy,
                         popularity_values=popularity_values,
+                        sonic_tag_affinity=sonic_tag_affinity,
+                        sonic_tag_beam_weight=sonic_tag_beam_weight,
                     )
                     last_failure_reason = beam_failure_reason
                     # ── Roam corridors: log realized sonic roam of the chosen interior. ──
