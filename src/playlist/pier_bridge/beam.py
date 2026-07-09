@@ -20,6 +20,7 @@ from src.playlist.artist_identity_resolver import (
     ArtistIdentityConfig,
     resolve_artist_identity_keys,
 )
+from src.playlist.artist_aliases import sibling_group_of
 from src.playlist.pier_bridge.config import PierBridgeConfig, _compute_transition_score
 from src.playlist.pier_bridge.seed_character import anti_center_penalty
 from src.playlist.layered_genre_scoring import score_layered_transition
@@ -150,6 +151,7 @@ class BeamState:
     score: float
     used: Set[int]
     used_artists: Set[str] = field(default_factory=set)
+    used_sibling_groups: Set[str] = field(default_factory=set)
     last_progress: float = 0.0
     edge_components: List[dict] = field(default_factory=list)
 
@@ -901,6 +903,27 @@ def _beam_search_segment(
             }
         )
 
+    # Sibling-group resolver (Task 6): memoized per candidate index. No-op when
+    # there are no sibling links (sibling_group_of returns None for everything).
+    # Defined here, before the init block below, so it can seed the piers'
+    # sibling groups into used_sibling_groups_init.
+    _sibling_cache: Dict[int, Optional[str]] = {}
+
+    def _idx_sibling_group(idx_int: int) -> Optional[str]:
+        if idx_int in _sibling_cache:
+            return _sibling_cache[idx_int]
+        s = ""
+        if bundle is not None and getattr(bundle, "track_artists", None) is not None:
+            try:
+                s = str(bundle.track_artists[int(idx_int)] or "")
+            except Exception:
+                s = ""
+        if not s and artist_key_by_idx is not None:
+            s = str(artist_key_by_idx.get(int(idx_int), "") or "")
+        sg = sibling_group_of(s) if s else None
+        _sibling_cache[idx_int] = sg
+        return sg
+
     # Initialize beam with pier_a
     used_artists_init: Set[str] = set()
 
@@ -909,6 +932,17 @@ def _beam_search_segment(
         for artist_key in recent_global_artists:
             if artist_key:
                 used_artists_init.add(str(artist_key))
+
+    used_sibling_groups_init: Set[str] = set()
+    if recent_global_artists:
+        for ak in recent_global_artists:
+            sg = sibling_group_of(str(ak)) if ak else None
+            if sg:
+                used_sibling_groups_init.add(sg)
+    for pier_idx in (pier_a, pier_b):
+        sg = _idx_sibling_group(int(pier_idx))
+        if sg:
+            used_sibling_groups_init.add(sg)
 
     if artist_key_by_idx is not None:
         use_identity = artist_identity_cfg is not None and artist_identity_cfg.enabled
@@ -948,6 +982,7 @@ def _beam_search_segment(
         score=0.0,
         used={pier_a, pier_b},
         used_artists=used_artists_init,
+        used_sibling_groups=used_sibling_groups_init,
         last_progress=0.0,
     )
     beam = [initial_state]
@@ -1236,6 +1271,12 @@ def _beam_search_segment(
                         if cand_artist and cand_artist in state.used_artists:
                             continue
 
+                # Sibling repulsion: a sibling of an already-placed (in-window) artist
+                # may not be placed adjacent. No-op when there are no sibling links.
+                _cand_sg = _idx_sibling_group(int(cand))
+                if _cand_sg is not None and _cand_sg in state.used_sibling_groups:
+                    continue
+
                 if min(sim_to_a[cand], sim_to_b[cand]) < cfg.bridge_floor:
                     continue
 
@@ -1462,6 +1503,10 @@ def _beam_search_segment(
                             cand_artist = str(artist_key_by_idx.get(int(cand), "") or "")
                             if cand_artist:
                                 new_used_artists = state.used_artists | {cand_artist}
+                    new_used_sibling_groups = state.used_sibling_groups
+                    _place_sg = _idx_sibling_group(int(cand))
+                    if _place_sg is not None:
+                        new_used_sibling_groups = state.used_sibling_groups | {_place_sg}
                     new_last_progress = float(state.last_progress)
                     if progress_active:
                         new_last_progress = float(progress_by_idx.get(int(cand), 0.0))
@@ -1508,6 +1553,7 @@ def _beam_search_segment(
                         score=new_score,
                         used=new_used,
                         used_artists=new_used_artists,
+                        used_sibling_groups=new_used_sibling_groups,
                         last_progress=new_last_progress,
                         edge_components=new_edge_components,
                     ))
@@ -1607,6 +1653,10 @@ def _beam_search_segment(
                             cand_artist = str(artist_key_by_idx.get(int(cand), "") or "")
                             if cand_artist:
                                 new_used_artists = state.used_artists | {cand_artist}
+                    new_used_sibling_groups = state.used_sibling_groups
+                    _place_sg = _idx_sibling_group(int(cand))
+                    if _place_sg is not None:
+                        new_used_sibling_groups = state.used_sibling_groups | {_place_sg}
                     new_last_progress = float(state.last_progress)
                     if progress_active:
                         new_last_progress = float(progress_by_idx.get(int(cand), 0.0))
@@ -1653,6 +1703,7 @@ def _beam_search_segment(
                         score=new_score,
                         used=new_used,
                         used_artists=new_used_artists,
+                        used_sibling_groups=new_used_sibling_groups,
                         last_progress=new_last_progress,
                         edge_components=new_edge_components_tb,
                     ))
