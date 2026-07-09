@@ -605,6 +605,10 @@ def generate_playlist_ds(
     except (TypeError, ValueError):
         _beam_tag_weight = 0.0
     try:
+        _beam_edge_band = float(pb_overrides.get("tag_steering_worst_edge_band", 0.0))
+    except (TypeError, ValueError):
+        _beam_edge_band = 0.0
+    try:
         _guar_max = int(pb_overrides.get("tag_steering_pool_guarantee_max", 30))
     except (TypeError, ValueError):
         _guar_max = 30
@@ -1008,6 +1012,7 @@ def generate_playlist_ds(
                     deadline=_generation_deadline,
                     sonic_tag_affinity=_beam_tag_affinity,
                     sonic_tag_beam_weight=_beam_tag_weight,
+                    tag_steering_worst_edge_band=_beam_edge_band,
                 )
 
             one_each_candidate_relaxation: Optional[Dict[str, Any]] = None

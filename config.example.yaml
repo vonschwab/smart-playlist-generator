@@ -338,6 +338,7 @@ playlists:
       tag_steering_sonic_weight: 0.5          # weight of the library-learned sonic-prototype term in pier scoring
       tag_steering_sonic_blend: 0.35          # blend of the centered (tag-specific) sonic affinity into the pool's sonic admission (the binding lever)
       tag_steering_sonic_beam_weight: 0.0     # opt-in beam ranking bonus; OFF by default (weight sweep 2026-07-08 proved it inert-to-harmful — the pool carries the lean)
+      tag_steering_worst_edge_band: 0.0       # worst-edge tolerance so the beam term can trade a bounded sliver of smoothness for on-tag adherence (0=strict minimax, tag term is a never-firing tie-break). Only acts when the beam weight>0. See docs/superpowers/specs/2026-07-08-tag-steering-architecture.md (blocked upstream by segment-pool candidate propagation — kept OFF)
       tag_steering_prototype_min_support: 25  # min library tracks/tag to trust the sonic prototype (else genre-dense only)
       tag_steering_prototype_min_cohesion: 0.15  # min intra-set cohesion; below this the tag is sonically multimodal -> genre-dense only
       # Total-generation wall-clock budget (seconds). A single shared deadline is

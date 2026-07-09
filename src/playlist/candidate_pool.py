@@ -1352,14 +1352,24 @@ def build_candidate_pool(
                 _added,
             )
 
-    # Tag steering pool guarantee: force-admit eligible on-tag tracks past the
-    # per-artist rank walk so on-tag bridges (which rank low sonically and get
-    # walked out) reach the beam. Keyed on authority membership (genre-dense
-    # discriminator); only ELIGIBLE tracks (passed the gates) are guaranteed.
+    # Tag steering pool guarantee: force-admit on-tag tracks past the per-artist rank
+    # walk AND the sonic pool floor. On-tag bridges are genre-adjacent and smooth in
+    # raw sonic terms (e.g. Ghost Box 0.74-0.77 to BoC's hauntology piers) but fall
+    # below the pool's percentile floor in the blended PCA embedding -- the floor
+    # (below_floor) is the blocker, not eligibility (only ~3/77 on-tag tracks were
+    # `eligible`). We KEEP the BPM/onset HARD gate (seed_sim_all == -2.0) for rhythm
+    # safety, rank by sonic_seed_sim (smoothest on-tag first), and cap total +
+    # per-artist; the beam's worst-edge minimax + edge repair place or drop the rest.
+    # Keyed on authority membership (the genre-dense discriminator, not sonic).
     if on_tag_guarantee_ids and int(on_tag_guarantee_max) > 0:
-        _already = {int(i) for i in pool_indices}
+        _seed_set = {int(s) for s in seed_list}
+        _already = {int(i) for i in pool_indices} | _seed_set
+        _guar_universe = [
+            i for i in range(len(track_ids))
+            if float(seed_sim_all[i]) > -1.5 and i not in _seed_set
+        ]
         _guar = select_pool_guarantee(
-            candidate_indices=eligible,
+            candidate_indices=_guar_universe,
             guarantee_ids=on_tag_guarantee_ids,
             track_ids=track_ids,
             artist_keys=artist_keys,

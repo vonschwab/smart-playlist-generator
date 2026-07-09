@@ -117,17 +117,28 @@ def _state_min_edge(s) -> float:
     return min(vals) if vals else -1e18
 
 
-def _select_best_beam_state(states, *, objective: str = "total_score"):
+def _select_best_beam_state(states, *, objective: str = "total_score", min_edge_band: float = 0.0):
     """Pick the winning beam state from a (possibly empty) list.
 
     objective='total_score' (default): return state with highest state.score.
     objective='min_edge': lexicographic (highest min trans_score_in_beam,
         ties broken by highest total score). Optimizes for 'no broken moments'
         rather than 'good on average'.
+
+    ``min_edge_band`` > 0 relaxes the strict min_edge lexicographic tie-break into a
+    TOLERANCE BAND: among states whose worst edge is within ``band`` of the best, pick
+    the highest-scoring one. This lets score-borne preferences (the tag-steering term)
+    trade a bounded sliver of worst-edge for genre adherence. band=0 is the strict
+    minimax default (score is a never-firing tie-break -- see BEAM_CONTRACT I1).
     """
     if not states:
         return None
     if str(objective).strip().lower() == "min_edge":
+        band = float(min_edge_band)
+        if band > 0.0:
+            best_me = max(_state_min_edge(s) for s in states)
+            near = [s for s in states if _state_min_edge(s) >= best_me - band]
+            return max(near, key=lambda s: float(getattr(s, "score", 0.0)))
         return max(states, key=lambda s: (_state_min_edge(s), float(getattr(s, "score", 0.0))))
     return max(states, key=lambda s: float(getattr(s, "score", 0.0)))
 
@@ -200,6 +211,7 @@ def _beam_search_segment(
     popularity_values: Optional[np.ndarray] = None,
     sonic_tag_affinity: Optional[np.ndarray] = None,   # bundle-aligned (N,) centered MuQ tag affinity
     sonic_tag_beam_weight: float = 0.0,
+    tag_steering_worst_edge_band: float = 0.0,  # worst-edge tolerance for the tag term to act (see BEAM_CONTRACT I1)
 ) -> Tuple[Optional[List[int]], int, int, Optional[str]]:
     """
     Constrained beam search to find path from pier_a to pier_b.
@@ -1013,10 +1025,13 @@ def _beam_search_segment(
     # Fully gated on a non-None affinity AND a positive weight so a no-tag run
     # is byte-identical. Logged once per segment (not per candidate).
     _sonic_tag_active = sonic_tag_affinity is not None and float(sonic_tag_beam_weight) > 0.0
+    # Worst-edge tolerance band: only relax the minimax tie-break when the tag term is
+    # actually active, so default (non-steered) playlists keep strict worst-edge selection.
+    _edge_band = float(tag_steering_worst_edge_band) if _sonic_tag_active else 0.0
     if _sonic_tag_active:
         logger.info(
-            "Tag steering beam term: weight=%.2f active over %d candidates",
-            float(sonic_tag_beam_weight), len(candidates),
+            "Tag steering beam term: weight=%.2f worst_edge_band=%.3f active over %d candidates",
+            float(sonic_tag_beam_weight), _edge_band, len(candidates),
         )
 
     for step in range(interior_length):
@@ -1650,7 +1665,15 @@ def _beam_search_segment(
         # Keep top beam_width states. Roam corridors: when the minimax guard is on,
         # protect the weakest edge first (lexicographic), then total score.
         if bool(getattr(cfg, "worst_edge_minimax_enabled", False)):
-            next_beam.sort(key=lambda s: (_state_min_edge(s), s.score), reverse=True)
+            if _edge_band > 0.0:
+                # Band the prune too, or on-tag states get pruned before the final
+                # selection can pick them: bucket near-equal worst edges, order by score.
+                next_beam.sort(
+                    key=lambda s: (math.floor(_state_min_edge(s) / _edge_band), s.score),
+                    reverse=True,
+                )
+            else:
+                next_beam.sort(key=lambda s: (_state_min_edge(s), s.score), reverse=True)
         else:
             next_beam.sort(key=lambda s: s.score, reverse=True)
         beam = next_beam[:beam_width]
@@ -1923,6 +1946,7 @@ def _beam_search_segment(
             if bool(getattr(cfg, "worst_edge_minimax_enabled", False))
             else str(getattr(cfg, "min_edge_objective", "total_score") or "total_score")
         ),
+        min_edge_band=_edge_band,
     )
 
     # Compute waypoint diagnostics for chosen path
