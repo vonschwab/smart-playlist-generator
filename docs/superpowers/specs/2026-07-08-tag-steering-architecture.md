@@ -167,26 +167,66 @@ tighter) is Eno-neoclassical 0.534/0.193 (pier/DS stage) vs Bowie-dance-pop 0.57
 next session doesn't re-derive the tidy-but-false version — cf. `evaluation-methodology`: reconcile
 contradictory probes before reporting.)
 
-**The variables that DO track the outcome (hypotheses, only 2–3 cases so far — need more before treating as
-law):**
-1. **Pier-affinity strength.** Eno's on-tag tracks are *strongly* on-tag (genre-dense 0.999 — pure
-   neoclassical albums); Bowie's are *weakly* on-tag (0.587 — Let's-Dance-era albums co-tagged rock/pop, so
-   the anchors are genre-ambiguous). Weak anchors → the arc has license to drift off-genre. Candidate signal:
-   a **low mean pier affinity could trigger a warning / stronger genre gating**, or bias the top-up toward
-   the highest-affinity tracks.
-2. **Sub-style connectivity of the seed-adjacent on-tag set.** Bowie's two broken edges are *library↔library*
-   and **high-genre / low-sonic** (Gang of Four → New Order: S=0.357, G=0.820) — genre-siblings from
-   sonically-distinct sub-styles (post-punk vs synth-pop) that the genre bias placed adjacent but don't sound
-   alike. Eno's near-seed on-tag set (Frahm/Budd/Yoshimura) is a single tight sonic pocket, so no such edges.
-   The failure signature is a weak edge with **high G and low S** — genre coherence winning over sonic
-   smoothness. Worth a metric: flag on-tag adjacencies where `G − S` is large.
-3. **Seed centrality within the tag.** Eno is a canonical exemplar of ambient/neoclassical (his tracks *are*
-   central to the sound); Bowie's dance-pop is atypical (glam-rock-inflected), sitting at the edge of the
-   dance-pop sonic region, so bridging his anchors to canonical dance-pop jumps sonically. This is the same
-   seed-peripherality axis as BoC→Ghost Box, but *milder* (Bowie's dance-pop is reachable, just not central).
+### 6a. Falsification pass — 8 cases (2026-07-09), predictors REVISED
 
-**Takeaway for the roadmap:** the feature is strongest when the seed's on-tag tracks are both *strongly*
-tagged AND sonically central to a *connected* sub-region of the tag (Eno, Real Estate). It degrades along two
-independent axes — weak/ambiguous anchors, and sonically-fragmented on-tag neighborhoods — neither of which
-is the tag's aggregate cohesion. A genre mode composing *from the tag* (not the seed's neighborhood) would
-sidestep both, at the cost of the seed-anchoring the current design values.
+A second listen-check round (predict-then-check) tested the §6 v1 hypothesis and **falsified most of it.**
+Full table (min T = worst edge; higher = smoother; all below_floor=0 unless noted):
+
+| Seed + tag | pier affinity | tag cohesion (DS) | min T | on-genre bridges? | verdict |
+|---|---|---|---|---|---|
+| Minor Threat + hardcore | **1.0** | 0.16 | **0.828** | Black Flag, Dead Kennedys, Germs, Minutemen, Hüsker Dü, Fugazi | ✅ clean |
+| Real Estate + jangle | — | — | ≥ baseline | Seapony, DUCKS LTD., Belle & Sebastian | ✅ clean |
+| Herbie Hancock + jazz-funk | ~0.45 | 0.18 | 0.686 | Rushen, Bob James, Donald Byrd, Yussef Kamaal | ✅ clean |
+| Charli XCX + glitch | **0.31** | 0.50 | 0.596 | A.G. Cook, SOPHIE, Hannah Diamond, Danny L Harle | ✅ clean |
+| Eno + neoclassical | 0.999 | 0.19 | 0.558 | Frahm, Budd, Yoshimura, Jeroen van Veen | ✅ clean |
+| Herbie Hancock + (2nd jazz tag) | ~0.4 | 0.21 | 0.511 | jazz/soul roster | ✅ clean |
+| Luke Temple + art-pop | ~0.5 | 0.26 | 0.405 | Of Montreal, St Vincent, Deerhoof, Mac DeMarco | ~ mild |
+| **Bowie + krautrock** | **0.88** | 0.17 | **0.222** | *some* (Beak>, Tortoise, Forma) but drifts (Sonic Youth, Modest Mouse, The Clash) | ✗ compromised |
+| **Bowie + dance-pop** | 0.587 | 0.56 | **0.069** (2 below floor) | dance core + drift (Beatles, Zappa, T. Rex) | ✗ compromised |
+
+**FALSIFIED predictors (do NOT use):**
+- **Pier genre-affinity.** Bowie+krautrock affinity **0.88 → compromised**; Charli+glitch **0.31 → clean.**
+  Genre-tag affinity says "this album is tagged X"; it does NOT say "this artist *sounds* like typical X"
+  (Bowie's Berlin albums genuinely are krautrock-tagged, they just don't sound like Neu!). Dead.
+- **"Multi-era artist → hard."** Herbie Hancock (bop→modal→funk→electro, maximally multi-era) came out clean
+  BOTH times. Multi-era-ness is not the variable.
+- **Aggregate tag cohesion.** Re-confirmed non-predictive (Minor Threat 0.16 clean, Bowie dance-pop 0.56
+  compromised).
+
+**The SURVIVING predictor — seed×tag sonic centrality:** every clean case is an artist who is a *sonically
+canonical exemplar* of the tag (Minor Threat *is* hardcore, Charli *is* hyperpop, Eno *is* ambient, Herbie
+*is* jazz-funk, RE *is* jangle). **Both** failures are the *same seed* (Bowie) in *two different* genres —
+because Bowie is sonically idiosyncratic (art-rock-inflected in every era), so his on-tag tracks sit at the
+*edge* of whatever genre they carry, and bridging them to the genre's sonic core breaks/weakens edges. It is
+a property of the **seed×tag pair**, not the tag alone, and it is the same peripherality axis as BoC→Ghost
+Box (there: extreme; Bowie: milder). The failure signature at the edge level is still **high-G / low-S**
+(genre siblings that don't sound alike, e.g. Bowie/dance-pop Gang of Four→New Order S=0.357 G=0.820).
+
+**Buildable offline predictor:** sonic distance from the seed's on-tag tracks to the tag's library sonic
+centroid (how *typical* the seed sounds for the tag). Large distance ⇒ likely-compromised ⇒ warn, and/or
+lean the top-up toward the tag-central on-tag tracks, and/or suggest a genre-mode/waypoint composition. This
+is the metric to add — NOT pier affinity.
+
+**Merge-robustness (same round): PASS.** All 6 new cases generated cleanly — no crashes, sane 6-pier anchors,
+guarantee fired (30 across 13–18 artists each), 0 below-floor edges. The weakly-genre-tagged edge case
+(Charli+glitch, affinity 0.31 — glitch is a production facet, thinly album-tagged) still found the right
+roster via the top-up. The shipped pier fix degrades gracefully across canonical, atypical, and thin-tag
+inputs.
+
+**Roadmap takeaway (revised):** the feature is strong-to-excellent when the seed is a sonic exemplar of the
+tag (5/8 clean, incl. sparse-library and thin-tag cases), and degrades only for sonically-idiosyncratic
+seeds (Bowie). That degradation is the *same* seed-peripherality problem as the BoC bridge case — so the
+bridge-side fix (stage D / waypoints / genre-mode composing *from the tag*) is what addresses both the
+extreme (Ghost Box) and the mild (Bowie) end of the same axis.
+
+---
+
+### 6b. (superseded) §6 v1 hypothesis — kept for the record, mostly falsified by 6a
+
+The following were the initial 2-case guesses (Eno vs Bowie/dance-pop). Pier-affinity strength and
+"sub-style connectivity" were plausible but did not survive the 8-case pass — see 6a. Retained only so the
+reasoning trail is legible:
+1. ~~Pier-affinity strength~~ — FALSIFIED (Charli 0.31 clean, Bowie-kraut 0.88 compromised).
+2. Sub-style connectivity / the high-G/low-S edge signature — SURVIVES as a *symptom* (the edge-level tell),
+   subsumed by seed×tag centrality as the *cause*.
+3. Seed centrality within the tag — SURVIVES and is now the primary predictor (6a).
