@@ -77,3 +77,25 @@ def test_resolve_artist_on_tag_membership_unmapped(tmp_path):
     assert resolve_artist_on_tag_membership(
         ["not_a_genre"], "Boards of Canada", metadata_db_path=dbp, track_id_to_row={"t1": 0}
     ) == {}
+
+
+def test_cluster_restrict_to_track_ids_subsets_members(monkeypatch):
+    import numpy as np
+    from src.playlist import artist_style
+    from src.playlist.artist_style import cluster_artist_tracks, ArtistStyleConfig
+
+    class B:
+        track_ids = np.array([f"t{i}" for i in range(12)])
+        artist_keys = np.array(["boc"] * 12)
+        X_sonic = np.random.default_rng(0).normal(size=(12, 8))
+        durations_ms = np.array([200000] * 12)
+        track_titles = np.array([f"Title {i}" for i in range(12)])
+    monkeypatch.setattr(artist_style, "_artist_indices_in_bundle",
+                        lambda bundle, name, include_collaborations=False: list(range(12)))
+    keep = {f"t{i}" for i in range(6)}
+    cfg = ArtistStyleConfig(pier_bridgeability_enabled=False, dedupe_versions=False)
+    clusters, medoids, _mbc, _xn = cluster_artist_tracks(
+        bundle=B(), artist_name="boc", cfg=cfg, random_seed=0, restrict_to_track_ids=keep,
+    )
+    picked = {str(B.track_ids[i]) for c in clusters for i in c}
+    assert picked <= keep and picked  # only restricted members clustered

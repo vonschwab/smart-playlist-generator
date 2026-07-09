@@ -701,6 +701,7 @@ def cluster_artist_tracks(
     sonic_tag_affinity: Optional[np.ndarray] = None,   # bundle-aligned (N,) sonic prototype affinity
     sonic_tag_weight: float = 0.0,
     target_pier_count: Optional[int] = None,
+    restrict_to_track_ids: Optional[set[str]] = None,
 ) -> Tuple[List[List[int]], List[int], List[List[int]], np.ndarray]:
     """Cluster artist tracks in sonic space and return clusters + medoids."""
     track_ids = bundle.track_ids
@@ -725,6 +726,14 @@ def cluster_artist_tracks(
                 "Artist style seed freshness: removed %d recent artist tracks before clustering",
                 removed,
             )
+    if restrict_to_track_ids is not None:
+        before = len(artist_indices)
+        keep = {str(tid) for tid in restrict_to_track_ids}
+        artist_indices = [i for i in artist_indices if str(bundle.track_ids[i]) in keep]
+        logger.info(
+            "Tag-first piers: restricted clustering to %d/%d on-tag member(s) of %s",
+            len(artist_indices), before, artist_name,
+        )
     if include_collaborations:
         # Count solo vs collab purely for visibility in the log.
         solo_only = _artist_indices_in_bundle(bundle, artist_name)
