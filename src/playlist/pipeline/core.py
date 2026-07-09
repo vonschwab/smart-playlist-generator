@@ -738,6 +738,19 @@ def generate_playlist_ds(
             if _energy_overrides:
                 pb_cfg = replace(pb_cfg, **_energy_overrides)
 
+            # Instrumental lean: load voice_prob only when enabled; degrade to inert
+            # + WARN rather than raising (mirrors the energy-sidecar pattern above).
+            voice_prob: Optional[np.ndarray] = None
+            if bool(getattr(pb_cfg, "instrumental_enabled", False)):
+                from src.playlist.instrumental_loader import load_voice_prob
+                _instr_sidecar = str(Path(artifact_path).parent / "instrumental" / "instrumental_sidecar.npz")
+                voice_prob = load_voice_prob(bundle.track_ids, sidecar_path=_instr_sidecar)
+                if voice_prob is None or not np.isfinite(voice_prob).any():
+                    logger.warning(
+                        "Instrumental lean ON but voice_prob absent/all-NaN at %s — guard inert this run",
+                        _instr_sidecar,
+                    )
+
             logger.info(
                 "Pier-bridge segment policy: artist_playlist=%s strategy=%s pool_max=%d progress=%s disallow_seed_artist_in_interiors=%s disallow_pier_artists_in_interiors=%s",
                 bool(artist_playlist),
@@ -899,6 +912,7 @@ def generate_playlist_ds(
                     tempo_stability_arr=tempo_stability_bpm,
                     onset_rate=onset_rate_arr,
                     energy_matrix=energy_matrix,
+                    voice_prob=voice_prob,
                     popularity_values=popularity_values,
                     min_gap=int(getattr(cfg.construct, "min_gap", 1) or 1),
                     deadline=_generation_deadline,

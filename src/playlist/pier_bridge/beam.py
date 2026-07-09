@@ -194,6 +194,7 @@ def _beam_search_segment(
     onset_rate: Optional[np.ndarray] = None,
     pair_sim_provider: Optional[Any] = None,
     energy_matrix: Optional[np.ndarray] = None,
+    voice_prob: Optional[np.ndarray] = None,
     roam_detour_sonic: Optional[np.ndarray] = None,
     roam_dev_genre: Optional[np.ndarray] = None,
     roam_dev_energy: Optional[np.ndarray] = None,
@@ -1180,6 +1181,17 @@ def _beam_search_segment(
                         step_strength=float(getattr(cfg, "energy_step_strength", 0.0)),
                         arc_band=float(getattr(cfg, "energy_arc_band", 0.0)),
                         arc_strength=float(getattr(cfg, "energy_arc_strength", 0.0)),
+                    )
+
+                # Instrumental lean: additive demotion of vocal-classified candidates.
+                # Rides combined_score -= _pace_penalty below; bridge-interior-only by
+                # the state.used guard above (piers are pre-seeded into state.used, so
+                # this loop never scores them); NaN/None/weight<=0 -> 0.0.
+                _instr_w = float(getattr(cfg, "instrumental_penalty_weight", 0.0))
+                if voice_prob is not None and _instr_w > 0.0:
+                    from src.playlist.pier_bridge.pace_gate import compute_instrumental_penalty
+                    _pace_penalty += compute_instrumental_penalty(
+                        voice_prob, cand=int(cand), weight=_instr_w
                     )
 
                 # Artist diversity: check if candidate artist already used
