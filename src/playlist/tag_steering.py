@@ -8,6 +8,7 @@ A selected tag that cannot act WARNS loudly — never a silent no-op.
 from __future__ import annotations
 
 import logging
+import math
 import sqlite3
 from typing import Optional, Sequence
 
@@ -224,3 +225,37 @@ def resolve_tag_sonic_prototype_rows(
         )
         return None, len(rows), wanted
     return rows, len(rows), wanted
+
+
+def build_tag_first_pier_members(
+    membership: dict,
+    combined_affinity,
+    artist_indices: Sequence[int],
+    *,
+    target_pier_count: int,
+    cluster_k_min: int,
+    topup_mult: float,
+) -> Optional[set]:
+    """On-tag pier member set M (bundle indices) or None (=> legacy fallback).
+
+    members = keys(membership) (authority on-tag, seed-included). Empty -> None: we go
+    tag-first ONLY when the artist actually has authority on-tag tracks, never fabricate
+    membership from a sonic proxy. If len(members) < floor, top up with the artist's
+    highest-combined-affinity NON-member tracks. floor = min(len(artist_indices),
+    max(cluster_k_min, ceil(topup_mult * target_pier_count))).
+    """
+    members = set(int(i) for i in membership.keys())
+    if not members:
+        return None
+    artist_set = [int(i) for i in artist_indices]
+    floor = min(len(artist_set), max(int(cluster_k_min), math.ceil(float(topup_mult) * int(target_pier_count))))
+    if len(members) >= floor:
+        return members
+    aff = np.asarray(combined_affinity, dtype=np.float64)
+    candidates = [i for i in artist_set if i not in members]
+    candidates.sort(key=lambda i: (-float(aff[i]), i))   # highest affinity first, index tiebreak
+    for i in candidates:
+        if len(members) >= floor:
+            break
+        members.add(i)
+    return members

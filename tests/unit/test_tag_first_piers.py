@@ -99,3 +99,53 @@ def test_cluster_restrict_to_track_ids_subsets_members(monkeypatch):
     )
     picked = {str(B.track_ids[i]) for c in clusters for i in c}
     assert picked <= keep and picked  # only restricted members clustered
+
+
+def test_build_members_empty_is_none():
+    from src.playlist.tag_steering import build_tag_first_pier_members
+    import numpy as np
+    assert build_tag_first_pier_members(
+        {}, np.zeros(10), list(range(10)), target_pier_count=4, cluster_k_min=3, topup_mult=2.0
+    ) is None
+
+
+def test_build_members_large_set_unchanged():
+    from src.playlist.tag_steering import build_tag_first_pier_members
+    import numpy as np
+    membership = {i: 1 for i in range(18)}          # 18 on-tag >> floor
+    M = build_tag_first_pier_members(
+        membership, np.zeros(30), list(range(30)),
+        target_pier_count=4, cluster_k_min=3, topup_mult=2.0,
+    )
+    assert M == set(range(18))
+
+
+def test_build_members_topup_by_affinity():
+    from src.playlist.tag_steering import build_tag_first_pier_members
+    import numpy as np
+    membership = {0: 1, 1: 1}                        # 2 members, floor = max(3, ceil(2*4)) = 8
+    aff = np.full(20, -9.0)
+    aff[0] = aff[1] = 5.0
+    aff[7] = 4.0
+    aff[3] = 3.0
+    aff[5] = 2.0
+    aff[9] = 1.0
+    aff[2] = 0.5
+    aff[8] = 0.4
+    M = build_tag_first_pier_members(
+        membership, aff, list(range(20)),
+        target_pier_count=4, cluster_k_min=3, topup_mult=2.0,
+    )
+    assert {0, 1} <= M and len(M) == 8              # topped up to floor
+    assert M == {0, 1, 7, 3, 5, 9, 2, 8}            # highest-affinity non-members added
+
+
+def test_build_members_floor_capped_at_artist_count():
+    from src.playlist.tag_steering import build_tag_first_pier_members
+    import numpy as np
+    membership = {0: 1}
+    M = build_tag_first_pier_members(
+        membership, np.array([5.0, 4.0, 3.0]), [0, 1, 2],
+        target_pier_count=4, cluster_k_min=3, topup_mult=2.0,
+    )
+    assert M == {0, 1, 2}                            # floor capped at 3 available tracks
