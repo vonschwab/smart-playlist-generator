@@ -331,6 +331,8 @@ playlists:
       # clusters. 0 = even across clusters (legacy); 1 = pure affinity weighting.
       # Soft skew keeps every cluster represented (floor 1 pier). Inert without tags.
       pier_tag_skew: 0.6
+      tag_first_pier_selection: true   # steer piers from the artist's authority on-tag tracks (rollback: false = legacy tag-skew allocation)
+      tag_first_topup_mult: 2.0        # top-up floor = max(cluster_k_min, ceil(mult * target_pier_count)) on-tag candidates before topping up by affinity
       tag_steering_sonic_weight: 0.5          # weight of the library-learned sonic-prototype term in pier scoring
       tag_steering_sonic_blend: 0.35          # blend of the centered (tag-specific) sonic affinity into the pool's sonic admission (the binding lever)
       tag_steering_sonic_beam_weight: 0.0     # opt-in beam ranking bonus; OFF by default (weight sweep 2026-07-08 proved it inert-to-harmful — the pool carries the lean)

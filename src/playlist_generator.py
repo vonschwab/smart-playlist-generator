@@ -195,6 +195,18 @@ def _resolve_popular_seeds_mode(popular_seeds_mode: str, popularity_mode: str) -
     return m if m in {"off", "on", "fire"} else "off"
 
 
+def _cap_order(medoids: List[int], X_norm: np.ndarray, target: int) -> List[int]:
+    """Sequence medoids in sonic space and cap to target_pier_count (avoids ceiling
+    overshoot, e.g. 5 clusters x ceil(6/5)=2 per cluster = 10 when we want 6)."""
+    ordered = order_clusters(medoids, X_norm)
+    if len(ordered) > target:
+        logger.info(
+            "Capping medoids from %d to target_pier_count=%d", len(ordered), target,
+        )
+        ordered = ordered[:target]
+    return ordered
+
+
 def _build_artist_pier_config(
     *,
     pb_tuning: Dict[str, Any],
@@ -1949,6 +1961,55 @@ class PlaylistGenerator:
                             _readmitted, artist_name, target_pier_count,
                         )
 
+                # --- Tag-first pier member set M (authority on-tag; None => legacy) ---
+                _M_ids = None       # track_ids to restrict clustering to (None = legacy full-artist)
+                _tag_first_on = bool(_pb_cfg_dict.get("tag_first_pier_selection", True))
+                _xgd_bundle = getattr(bundle, "X_genre_dense", None)
+                if (
+                    _tag_first_on
+                    and steering_target is not None
+                    and _xgd_bundle is not None
+                    and popular_seeds_mode != "fire"
+                ):
+                    from src.playlist.tag_steering import (
+                        resolve_artist_on_tag_membership,
+                        build_tag_first_pier_members,
+                    )
+                    _t2r = {str(t): i for i, t in enumerate(bundle.track_ids)}
+                    _membership = resolve_artist_on_tag_membership(
+                        _steering_tag_list, artist_name,
+                        metadata_db_path=resolve_database_path(self.config),
+                        track_id_to_row=_t2r,
+                    )
+                    if _membership:
+                        _combined = np.asarray(_xgd_bundle, dtype=np.float64) @ np.asarray(
+                            steering_target, dtype=np.float64)
+                        if sonic_tag_affinity is not None:
+                            _combined = _combined + float(sonic_tag_weight) * np.asarray(
+                                sonic_tag_affinity, dtype=np.float64)
+                        _all_artist_idx = _artist_indices_in_bundle(
+                            bundle, artist_name, include_collaborations=include_collaborations)
+                        _M = build_tag_first_pier_members(
+                            _membership, _combined, _all_artist_idx,
+                            target_pier_count=target_pier_count,
+                            cluster_k_min=int(style_cfg.cluster_k_min),
+                            topup_mult=float(_pb_cfg_dict.get("tag_first_topup_mult", 2.0)),
+                        )
+                        if _M is not None:
+                            _M_ids = {str(bundle.track_ids[i]) for i in _M}
+                            logger.info(
+                                "Tag-first piers: %d authority on-tag member(s) (+top-up to %d) for %s",
+                                len(_membership), len(_M), artist_name,
+                            )
+                    else:
+                        logger.info(
+                            "Tag-first piers: %s has no authority on-tag tracks for %s — "
+                            "legacy tag-skew pier selection.", artist_name, _steering_tag_list,
+                        )
+                elif _tag_first_on and steering_target is not None and _xgd_bundle is None:
+                    logger.warning(
+                        "Tag-first piers enabled but X_genre_dense absent — legacy pier selection.")
+
                 clusters, medoids, medoids_by_cluster, X_norm = cluster_artist_tracks(
                     bundle=bundle,
                     artist_name=artist_name,
@@ -1963,6 +2024,7 @@ class PlaylistGenerator:
                     sonic_tag_affinity=sonic_tag_affinity,
                     sonic_tag_weight=sonic_tag_weight,
                     target_pier_count=target_pier_count,
+                    restrict_to_track_ids=_M_ids,
                 )
                 # 🔥 Pure-hits piers: override cluster medoids with the artist's top-N
                 # most-popular tracks (selection only — order_clusters still sequences them).
@@ -1983,14 +2045,43 @@ class PlaylistGenerator:
                 if not medoids:
                     raise ValueError("Style clustering returned no medoids")
                 _xgd = getattr(bundle, "X_genre_dense", None)
-                if (
+                # `clusters`/`_all_members` are already restricted to M when _M_ids was
+                # set (cluster_artist_tracks(restrict_to_track_ids=_M_ids)), so every
+                # branch below that scores/selects over `clusters` or `_all_members` is
+                # automatically "within M" without further filtering.
+                _all_members = [i for _cluster in clusters for i in _cluster]
+                _on_within_tag = (
+                    _M_ids is not None
+                    and popular_seeds_mode == "on"
+                    and popularity_values is not None
+                )
+                if _on_within_tag:
+                    # Tag-first piers (ON): most-popular WITHIN the on-tag member set M.
+                    _tag_pop_piers = select_popular_piers(_all_members, popularity_values, target_pier_count)
+                    if _tag_pop_piers:
+                        logger.info(
+                            "Tag-first piers (ON): top-%d popular WITHIN %d on-tag member(s)",
+                            len(_tag_pop_piers), len(_all_members),
+                        )
+                        medoids = _tag_pop_piers
+                    else:
+                        logger.warning(
+                            "Tag-first piers (ON): no popular piers resolved within on-tag "
+                            "members — falling back to cluster-medoid piers",
+                        )
+                    ordered_medoids = _cap_order(medoids, X_norm, target_pier_count)
+                elif (
                     steering_target is not None
                     and popular_seeds_mode != "fire"
                     and _xgd is not None
                 ):
                     # Tag-weighted pier allocation: skew slots toward on-tag clusters
                     # (soft; floor 1 per cluster keeps the arc). Off-tag clusters
-                    # (e.g. an artist's interludes) contribute fewer piers.
+                    # (e.g. an artist's interludes) contribute fewer piers. When _M_ids
+                    # is set, `clusters` already contains only on-tag members, so this
+                    # is tag-first arc-over-M (OFF mode); when _M_ids is None (legacy /
+                    # tag_first_pier_selection disabled / no on-tag tracks), this is the
+                    # unchanged tag-skew allocation over the full artist catalog.
                     _xgd = np.asarray(_xgd, dtype=float)
                     _tgt = np.asarray(steering_target, dtype=float)
                     cluster_affinities = [
@@ -2000,9 +2091,7 @@ class PlaylistGenerator:
                         if len(members) else 0.0
                         for members in clusters
                     ]
-                    pier_tag_skew = float(
-                        (ds_cfg.get("pier_bridge", {}) or {}).get("pier_tag_skew", 0.6)
-                    )
+                    pier_tag_skew = float(_pb_cfg_dict.get("pier_tag_skew", 0.6))
                     selected = allocate_piers_by_tag_affinity(
                         medoids_by_cluster, cluster_affinities, target_pier_count, pier_tag_skew,
                     )
@@ -2014,15 +2103,7 @@ class PlaylistGenerator:
                         len(selected), len(medoids),
                     )
                 else:
-                    ordered_medoids = order_clusters(medoids, X_norm)
-                    # Cap medoids to target_pier_count to avoid ceiling overshoot
-                    # (e.g., 5 clusters × ceil(6/5)=2 per cluster = 10, but we want 6)
-                    if len(ordered_medoids) > target_pier_count:
-                        logger.info(
-                            "Capping medoids from %d to target_pier_count=%d",
-                            len(ordered_medoids), target_pier_count,
-                        )
-                        ordered_medoids = ordered_medoids[:target_pier_count]
+                    ordered_medoids = _cap_order(medoids, X_norm, target_pier_count)
 
                 ordered_medoids = self._filter_title_excluded_bundle_indices(
                     bundle,
