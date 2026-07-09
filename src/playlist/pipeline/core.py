@@ -646,6 +646,28 @@ def generate_playlist_ds(
                         _n,
                     )
 
+    # BEAM tag term signal = COMBINED genre-dense (leading) + sonic. The genre-dense
+    # affinity is the clean cross-artist discriminator for tag membership (e.g. for a
+    # BoC + hauntology steer, Ghost Box score ~0.94 vs Aphex/Autechre ~0.01, while the
+    # sonic prototype cannot separate them: ~0.6 vs ~0.66). The sonic term adds
+    # within-blended-artist resolution (Real Estate/jangle, where genre-dense is flat
+    # and drops out of the ranking as a ~constant). Additive, matching the pier lever.
+    _beam_tag_affinity = None
+    if _tag_steering_tags:
+        _xgd_b = getattr(bundle, "X_genre_dense", None)
+        _genre_tag_aff = None
+        if _tag_steering_target is not None and _xgd_b is not None:
+            _xgdn = np.asarray(_xgd_b, dtype=np.float64)
+            _xgdn = _xgdn / (np.linalg.norm(_xgdn, axis=1, keepdims=True) + 1e-12)
+            _genre_tag_aff = _xgdn @ np.asarray(_tag_steering_target, dtype=np.float64)
+        if _genre_tag_aff is not None and _tag_sonic_affinity is not None:
+            _beam_sonic_sub = float(pb_overrides.get("tag_steering_sonic_weight", 0.5))
+            _beam_tag_affinity = _genre_tag_aff + _beam_sonic_sub * _tag_sonic_affinity
+        elif _genre_tag_aff is not None:
+            _beam_tag_affinity = _genre_tag_aff
+        else:
+            _beam_tag_affinity = _tag_sonic_affinity
+
     def _build_pool(candidate_cfg: Any, genre_gate: Optional[float],
                     popularity_rank_cutoff: Optional[int] = _banger_cutoff):
         return build_candidate_pool(
@@ -967,7 +989,7 @@ def generate_playlist_ds(
                     popularity_values=popularity_values,
                     min_gap=int(getattr(cfg.construct, "min_gap", 1) or 1),
                     deadline=_generation_deadline,
-                    sonic_tag_affinity=_tag_sonic_affinity,
+                    sonic_tag_affinity=_beam_tag_affinity,
                     sonic_tag_beam_weight=_beam_tag_weight,
                 )
 

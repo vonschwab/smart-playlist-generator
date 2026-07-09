@@ -1799,6 +1799,12 @@ class PlaylistGenerator:
                 # space-consistent with no mixing of sonic spaces.
                 sonic_tag_affinity = None
                 sonic_tag_weight = 0.0
+                # Authority on-tag tracks (seed-excluded) to GUARANTEE into the candidate
+                # universe below — the artist-style genre gates score genre-similarity to
+                # the SEED artist, not the requested tag, so on-tag-but-genre-far tracks
+                # (e.g. Ghost Box for a Boards of Canada + hauntology steer: sonically
+                # close, genre-sim ~0.1 << 0.30 floor) get cut before steering runs.
+                _on_tag_track_ids: list = []
                 _xmq = getattr(bundle, "X_sonic", None)
                 if _steering_tag_list and _xmq is not None:
                     from src.playlist.tag_steering import (
@@ -1817,6 +1823,9 @@ class PlaylistGenerator:
                         min_support=_min_support,
                     )
                     if _rows is not None:
+                        # Membership rescue is independent of the sonic prototype's
+                        # cohesion (that only gates steering STRENGTH, not candidacy).
+                        _on_tag_track_ids = [str(bundle.track_ids[r]) for r in _rows]
                         _xmq_arr = np.asarray(_xmq, dtype=np.float64)
                         _gm = sonic_global_mean(_xmq_arr)
                         _proto, _cohesion, _ = sonic_prototype_from_rows(
@@ -2081,8 +2090,23 @@ class PlaylistGenerator:
                     log_seed_popularity(
                         artist_name, pier_ids, pier_titles, db_path=popularity_cache_db_path()
                     )
+                # Tag-steering membership rescue: guarantee the authority's on-tag tracks
+                # are candidates even if the artist-genre gates (keyed on the SEED's genre
+                # profile, not the requested tag) would exclude them. Downstream DS-pool
+                # gates + the sonic pool lever then admit/rank within the universe.
+                _rescued_on_tag = [
+                    tid for tid in _on_tag_track_ids
+                    if tid not in set(pier_ids + external_pool + genre_neighbor_pool)
+                ]
+                if _rescued_on_tag:
+                    logger.info(
+                        "Tag steering allowed-set rescue: +%d authority on-tag tracks into the "
+                        "candidate universe (bypassing the seed-artist genre gate).",
+                        len(_rescued_on_tag),
+                    )
                 style_allowed_track_ids = list(dict.fromkeys(
-                    pier_ids + external_pool + genre_neighbor_pool + list(internal_connector_ids or [])
+                    pier_ids + external_pool + genre_neighbor_pool
+                    + _rescued_on_tag + list(internal_connector_ids or [])
                 ))
                 if not style_allowed_track_ids:
                     raise ValueError("Artist style allowed pool empty")
