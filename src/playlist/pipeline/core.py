@@ -616,6 +616,23 @@ def generate_playlist_ds(
         _guar_per_artist = int(pb_overrides.get("tag_steering_pool_guarantee_per_artist", 3))
     except (TypeError, ValueError):
         _guar_per_artist = 3
+    # Bridge-side Phase A (stage D, segment_pool_builder.py): relaxed bridge admission
+    # (min->max) + on-tag force-include at the per-segment pool, gated the same way as
+    # the pool-level guarantee above -- inert unless _on_tag_guarantee_ids resolves
+    # (i.e. tag steering is active). Live default ON per #22 (activate fixes; keep a
+    # config rollback), never on for non-steered runs regardless of these knobs.
+    try:
+        _relax_bridge = bool(pb_overrides.get("tag_steering_relax_bridge_admission", True))
+    except (TypeError, ValueError):
+        _relax_bridge = True
+    try:
+        _seg_guar_max = int(pb_overrides.get("tag_steering_segment_guarantee_max", 8))
+    except (TypeError, ValueError):
+        _seg_guar_max = 8
+    try:
+        _seg_guar_pa = int(pb_overrides.get("tag_steering_segment_guarantee_per_artist", 2))
+    except (TypeError, ValueError):
+        _seg_guar_pa = 2
     if _tag_steering_tags:
         _xsonic = embedding.X_sonic_for_embed
         if _xsonic is not None:
@@ -1013,6 +1030,10 @@ def generate_playlist_ds(
                     sonic_tag_affinity=_beam_tag_affinity,
                     sonic_tag_beam_weight=_beam_tag_weight,
                     tag_steering_worst_edge_band=_beam_edge_band,
+                    tag_steering_relax_bridge_admission=_relax_bridge,
+                    on_tag_guarantee_ids=_on_tag_guarantee_ids,
+                    on_tag_segment_guarantee_max=_seg_guar_max,
+                    on_tag_segment_guarantee_per_artist=_seg_guar_pa,
                 )
 
             one_each_candidate_relaxation: Optional[Dict[str, Any]] = None

@@ -265,6 +265,10 @@ def _build_segment_candidate_pool_scored(
     collapse_by_artist: bool = True,
     X_genre_dense: Optional[np.ndarray] = None,
     genre_bridge_weight: float = 0.0,
+    bridge_admission_relaxed: bool = False,
+    on_tag_guarantee_indices: Optional[Set[int]] = None,
+    on_tag_guarantee_max: int = 0,
+    on_tag_guarantee_per_artist: int = 0,
 ) -> tuple[List[int], Dict[int, str], Dict[int, str]]:
     """
     Segment-local candidate pool builder ("segment_scored").
@@ -320,6 +324,10 @@ def _build_segment_candidate_pool_scored(
         collapse_pool_by_artist=bool(collapse_by_artist),
         X_genre_dense=X_genre_dense,
         genre_bridge_weight=float(genre_bridge_weight),
+        bridge_admission_relaxed=bool(bridge_admission_relaxed),
+        on_tag_guarantee_indices=on_tag_guarantee_indices,
+        on_tag_guarantee_max=int(on_tag_guarantee_max),
+        on_tag_guarantee_per_artist=int(on_tag_guarantee_per_artist),
     )
     result = SegmentCandidatePoolBuilder().build(pool_cfg)
     return result.candidates, result.artist_key_by_idx, result.title_key_by_idx
