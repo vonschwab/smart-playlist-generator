@@ -107,6 +107,7 @@ export function GenerateControls({
   const [recencyDays, setRecencyDays] = useLocalStorage("pg_recency_days", 14);
   const [recencyPlays, setRecencyPlays] = useLocalStorage("pg_recency_plays", 1);
   const [excludeRecentSeeds, setExcludeRecentSeeds] = useLocalStorage("pg_exclude_recent_seeds", false);
+  const [instrumental, setInstrumental] = useLocalStorage("pg_instrumental", false);
   const [artistSpacing, setArtistSpacing] = useLocalStorage("pg_artist_spacing", "normal");
   const [diversityLevel, setDiversityLevel] = useLocalStorage("pg_diversity_level", 2);
 
@@ -218,6 +219,7 @@ export function GenerateControls({
       recency_days: recencyDays,
       recency_plays_threshold: recencyPlays,
       exclude_seed_tracks_from_recency: excludeRecentSeeds,
+      instrumental: instrumental,
       artist_spacing: artistSpacing,
       diversity_gamma: DIVERSITY_GAMMAS[diversityLevel],
       artist_diversity_mode: diversityLevel === DIVERSITY_GAMMAS.length - 1 ? "one_per_artist" : "weighted",
@@ -510,6 +512,20 @@ export function GenerateControls({
               className="accent-[#5eead4] cursor-pointer disabled:opacity-30"
             />
             <Lbl>skip recent seeds</Lbl>
+          </label>
+        </Cell>
+        <Cell>
+          <label
+            className="flex items-center gap-1.5 cursor-pointer select-none"
+            title="Demote vocal-classified tracks (spoken-word / poetry) from bridges. Soft, never a hard filter. Note: heavily-processed vocals (vocoder/talkbox) may read as instrumental and slip through."
+          >
+            <input
+              type="checkbox"
+              checked={instrumental}
+              onChange={(e) => setInstrumental(e.target.checked)}
+              className="accent-[#5eead4] cursor-pointer"
+            />
+            <Lbl>instrumental</Lbl>
           </label>
         </Cell>
         <Cell>
