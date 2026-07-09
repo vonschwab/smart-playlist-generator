@@ -35,6 +35,15 @@ def _reset_sonic_variant_override():
     set_sonic_variant_override(None)
 
 
+@pytest.fixture(autouse=True)
+def _reset_artist_link_map():
+    """Keep a test's artist-link override from leaking into other tests."""
+    from src.playlist.artist_aliases import set_artist_link_map_for_testing
+    set_artist_link_map_for_testing(None)
+    yield
+    set_artist_link_map_for_testing(None)
+
+
 def _build_artifact(tmp_path, seed: int = 0, include_segments: bool = True):
     """Build a synthetic artifact for testing."""
     rng = np.random.default_rng(seed)

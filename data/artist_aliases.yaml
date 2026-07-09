@@ -1,0 +1,6 @@
+# Manual artist links. Two link types:
+#   alias   - same project, spelling/formatting variants (full identity merge).
+#   sibling - one person, distinct projects (independent artists, spaced >= min_gap apart).
+# Edited from the GUI "Artist Links" panel, or by hand. Empty = feature inert.
+version: 1
+groups: []
