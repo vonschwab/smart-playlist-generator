@@ -34,11 +34,12 @@ def _artist_indices_in_bundle(
     """
     if bundle.artist_keys is None:
         return []
-    artist_key = normalize_artist_key(artist_name)
+    from src.playlist.artist_aliases import resolve_alias
+    artist_key = resolve_alias(normalize_artist_key(artist_name))
     raw_artists = getattr(bundle, "track_artists", None)
     indices: List[int] = []
     for i, ak in enumerate(bundle.artist_keys):
-        if normalize_artist_key(str(ak)) == artist_key:
+        if resolve_alias(normalize_artist_key(str(ak))) == artist_key:
             indices.append(i)
             continue
         if include_collaborations and raw_artists is not None:
