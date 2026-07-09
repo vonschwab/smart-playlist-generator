@@ -146,3 +146,47 @@ genre-concentration is resisted at pier, allowed-set, pool, segment-pool, and be
 Tag-first pier selection fixed the anchor; surfacing a peripheral genre clique in the *bridges* is either a
 last segment-pool fix (D) or a mode that stops composing from the seed's neighborhood (waypoints / genre
 mode).
+
+---
+
+## 6. Steering quality varies by case — observations & the real variables (2026-07-09)
+
+Live listen-checks of the shipped **tag-first pier** feature (bridges via the sonic-reachable pool, beam
+knobs OFF), three cases:
+
+| Seed + tag | Pier affinity | min T | mean T | below floor | Bridges |
+|---|---|---|---|---|---|
+| Real Estate + jangle | — | (≥ baseline) | — | 0 | coherent jangle (Seapony, DUCKS LTD., Belle & Sebastian…) |
+| **Brian Eno + neoclassical/minimalist** | **0.68–1.0** | **0.558** | **0.861** | **0** | genuinely on-genre (Nils Frahm, Harold Budd, Hiroshi Yoshimura, Jeroen van Veen, Reinbert de Leeuw, Joe Hisaishi, orchestras) |
+| **David Bowie + dance-pop** | **0.587** (one 0.29) | **0.069** | 0.661 | **2** | real dance/new-wave core (New Order, B-52's, Prince, Devo, Talking Heads, Gang of Four) BUT drifts off-genre (Beatles, Zappa, T. Rex, Tom Waits) |
+
+**Eno = clean; Bowie = compromised** (2 broken edges + off-genre drift). The tempting explanation — "dance-pop
+is a sonically *diverse* genre" — is **WRONG and contradicted by the data**: prototype cohesion (higher =
+tighter) is Eno-neoclassical 0.534/0.193 (pier/DS stage) vs Bowie-dance-pop 0.578/0.561, i.e. dance-pop is
+*equal-or-more* cohesive. Aggregate tag cohesion does NOT predict quality. (Recorded as a correction so the
+next session doesn't re-derive the tidy-but-false version — cf. `evaluation-methodology`: reconcile
+contradictory probes before reporting.)
+
+**The variables that DO track the outcome (hypotheses, only 2–3 cases so far — need more before treating as
+law):**
+1. **Pier-affinity strength.** Eno's on-tag tracks are *strongly* on-tag (genre-dense 0.999 — pure
+   neoclassical albums); Bowie's are *weakly* on-tag (0.587 — Let's-Dance-era albums co-tagged rock/pop, so
+   the anchors are genre-ambiguous). Weak anchors → the arc has license to drift off-genre. Candidate signal:
+   a **low mean pier affinity could trigger a warning / stronger genre gating**, or bias the top-up toward
+   the highest-affinity tracks.
+2. **Sub-style connectivity of the seed-adjacent on-tag set.** Bowie's two broken edges are *library↔library*
+   and **high-genre / low-sonic** (Gang of Four → New Order: S=0.357, G=0.820) — genre-siblings from
+   sonically-distinct sub-styles (post-punk vs synth-pop) that the genre bias placed adjacent but don't sound
+   alike. Eno's near-seed on-tag set (Frahm/Budd/Yoshimura) is a single tight sonic pocket, so no such edges.
+   The failure signature is a weak edge with **high G and low S** — genre coherence winning over sonic
+   smoothness. Worth a metric: flag on-tag adjacencies where `G − S` is large.
+3. **Seed centrality within the tag.** Eno is a canonical exemplar of ambient/neoclassical (his tracks *are*
+   central to the sound); Bowie's dance-pop is atypical (glam-rock-inflected), sitting at the edge of the
+   dance-pop sonic region, so bridging his anchors to canonical dance-pop jumps sonically. This is the same
+   seed-peripherality axis as BoC→Ghost Box, but *milder* (Bowie's dance-pop is reachable, just not central).
+
+**Takeaway for the roadmap:** the feature is strongest when the seed's on-tag tracks are both *strongly*
+tagged AND sonically central to a *connected* sub-region of the tag (Eno, Real Estate). It degrades along two
+independent axes — weak/ambiguous anchors, and sonically-fragmented on-tag neighborhoods — neither of which
+is the tag's aggregate cohesion. A genre mode composing *from the tag* (not the seed's neighborhood) would
+sidestep both, at the cost of the seed-anchoring the current design values.
