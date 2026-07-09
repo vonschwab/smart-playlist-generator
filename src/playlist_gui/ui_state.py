@@ -70,6 +70,11 @@ class UIStateModel:
     recency_plays_threshold: int = 1
     exclude_seed_tracks_from_recency: bool = False
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # Instrumental lean (soft penalty; demotes vocal-classified tracks)
+    # ─────────────────────────────────────────────────────────────────────────
+    instrumental: bool = False
+
     history_window_days: int = 30
 
     genre_query: str = ""
