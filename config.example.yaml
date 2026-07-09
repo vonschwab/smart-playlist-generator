@@ -435,6 +435,10 @@ playlists:
       soft_genre_penalty_strength_dynamic: 0.15
       soft_genre_penalty_strength_discover: 0.10
       soft_genre_penalty_strength_off: 0.10
+      # Instrumental lean: additive beam+pool demotion = weight * voice_prob when the
+      # "Instrumental" checkbox is on. Steep enough to be decisive without a de-facto
+      # hard gate. Tune via tests/integration/test_gui_fidelity_instrumental.py (Task 13).
+      instrumental_penalty_weight: 0.6
       # Optional genre tie-break band for penalty application (default: off).
       genre:
         tie_break_band: null  # e.g. 0.02 to apply penalty only on close calls
