@@ -2113,6 +2113,43 @@ class PlaylistGenerator:
                 if not ordered_medoids:
                     raise ValueError("Artist style piers empty after title exclusions")
 
+                # Tag steering on-tag ANCHORS (Phase B): inject representative on-tag tracks as
+                # piers so a sonically-peripheral clique is GUARANTEED to appear (bridges alone
+                # can't place them — see the bridge-side Phase A result). Selection is bridgeable
+                # + tag-central + diverse; gated on steering; capped so interiors aren't starved.
+                _anchor_max = int((ds_cfg.get("pier_bridge", {}) or {}).get("tag_steering_anchor_max", 3))
+                if steering_target is not None and _on_tag_track_ids and _anchor_max > 0:
+                    from src.playlist.tag_steering import select_on_tag_anchors
+                    _on_tag_rows = [_t2r[t] for t in _on_tag_track_ids if t in _t2r]
+                    _existing = set(int(m) for m in ordered_medoids)
+                    _on_tag_rows = [r for r in _on_tag_rows if r not in _existing]
+                    _pbc = (ds_cfg.get("pier_bridge", {}) or {})
+                    _anchors = select_on_tag_anchors(
+                        on_tag_indices=_on_tag_rows,
+                        pier_indices=list(ordered_medoids),
+                        X_sonic=getattr(bundle, "X_sonic", None),
+                        tag_centrality=sonic_tag_affinity,   # centered sonic affinity to the tag prototype (or None)
+                        artist_keys=bundle.track_artists,
+                        track_ids=bundle.track_ids,
+                        max_anchors=_anchor_max,
+                        min_bridge=float(_pbc.get("tag_steering_anchor_min_bridge", 0.35)),
+                        per_artist=int(_pbc.get("tag_steering_anchor_per_artist", 1)),
+                    )
+                    if _anchors:
+                        _cap = int(target_pier_count) + _anchor_max
+                        ordered_medoids = (list(ordered_medoids) + _anchors)[:_cap]
+                        logger.info(
+                            "Tag steering on-tag anchors: injected %d on-tag pier(s) across %d artist(s): %s",
+                            len(_anchors), len({str(bundle.track_artists[a]) for a in _anchors}),
+                            [str(bundle.track_ids[a]) for a in _anchors],
+                        )
+                    else:
+                        logger.info(
+                            "Tag steering on-tag anchors: 0 bridgeable on-tag tracks (min_bridge=%.2f) — "
+                            "no anchors injected (Phase-A bridges only).",
+                            float(_pbc.get("tag_steering_anchor_min_bridge", 0.35)),
+                        )
+
                 cluster_piers = medoids_by_cluster
 
                 # Global admission floor (same as DS candidate admission)
