@@ -583,6 +583,24 @@ def generate_playlist_ds(
         bundle, _cfg_cutoff, db_path="", metadata_db_path=_meta_db
     )
 
+    # Instrumental lean: load voice_prob only when enabled; degrade to inert
+    # + WARN rather than raising (mirrors the energy-sidecar pattern above).
+    # Loaded here (before pool build) rather than after apply_pier_bridge_overrides
+    # builds pb_cfg, because build_candidate_pool (Task 8) consumes voice_prob too
+    # and the pool is built before pb_cfg exists. cfg.candidate.instrumental_enabled
+    # is populated from the same overrides['pier_bridge'] section pb_cfg reads
+    # (see default_ds_config), so this single load serves both pool and beam.
+    voice_prob: Optional[np.ndarray] = None
+    if bool(getattr(cfg.candidate, "instrumental_enabled", False)):
+        from src.playlist.instrumental_loader import load_voice_prob
+        _instr_sidecar = str(Path(artifact_path).parent / "instrumental" / "instrumental_sidecar.npz")
+        voice_prob = load_voice_prob(bundle.track_ids, sidecar_path=_instr_sidecar)
+        if voice_prob is None or not np.isfinite(voice_prob).any():
+            logger.warning(
+                "Instrumental lean ON but voice_prob absent/all-NaN at %s — guard inert this run",
+                _instr_sidecar,
+            )
+
     def _build_pool(candidate_cfg: Any, genre_gate: Optional[float],
                     popularity_rank_cutoff: Optional[int] = _banger_cutoff):
         return build_candidate_pool(
@@ -626,6 +644,7 @@ def generate_playlist_ds(
             popularity_rank_cutoff=popularity_rank_cutoff,
             steering_target=_tag_steering_target,
             steering_blend=_tag_steering_blend,
+            voice_prob=voice_prob,
         )
 
     _candidate_cfg_kwargs: dict = dict(
@@ -738,18 +757,11 @@ def generate_playlist_ds(
             if _energy_overrides:
                 pb_cfg = replace(pb_cfg, **_energy_overrides)
 
-            # Instrumental lean: load voice_prob only when enabled; degrade to inert
-            # + WARN rather than raising (mirrors the energy-sidecar pattern above).
-            voice_prob: Optional[np.ndarray] = None
-            if bool(getattr(pb_cfg, "instrumental_enabled", False)):
-                from src.playlist.instrumental_loader import load_voice_prob
-                _instr_sidecar = str(Path(artifact_path).parent / "instrumental" / "instrumental_sidecar.npz")
-                voice_prob = load_voice_prob(bundle.track_ids, sidecar_path=_instr_sidecar)
-                if voice_prob is None or not np.isfinite(voice_prob).any():
-                    logger.warning(
-                        "Instrumental lean ON but voice_prob absent/all-NaN at %s — guard inert this run",
-                        _instr_sidecar,
-                    )
+            # Instrumental lean: voice_prob is loaded ONCE, earlier (before pool
+            # build, near _banger_gate_inputs) because build_candidate_pool (Task 8)
+            # needs it too. pb_cfg.instrumental_enabled here is sourced from the
+            # same pb_overrides dict as cfg.candidate.instrumental_enabled above,
+            # so the two stay consistent without a second sidecar load.
 
             logger.info(
                 "Pier-bridge segment policy: artist_playlist=%s strategy=%s pool_max=%d progress=%s disallow_seed_artist_in_interiors=%s disallow_pier_artists_in_interiors=%s",
