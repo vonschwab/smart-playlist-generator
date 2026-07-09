@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 
 from src.features.artifacts import ArtifactBundle
+from src.playlist.artist_aliases import resolve_alias
 from src.string_utils import normalize_artist_key as _normalize_artist_key_punct
 from src.string_utils import normalize_artist_name
 from src.title_dedupe import normalize_title_for_dedupe
@@ -37,13 +38,14 @@ def normalize_primary_artist_key(value: str) -> str:
     # ("Süss"/"Suss"/"SUSS" -> "suss"). This mirrors the DB's own artist_key
     # column (normalize_artist_key), keeping the beam's diversity key in sync with
     # the canonical artist identity the DB already assigns.
-    return normalize_artist_name(
+    key = normalize_artist_name(
         text,
         strip_ensemble=True,
         strip_collaborations=True,
         lowercase=True,
         normalize_unicode=True,
     )
+    return resolve_alias(key)
 
 
 def normalize_title_key(value: str) -> str:

@@ -23,3 +23,21 @@ def test_artist_indices_unlinked_unchanged():
     set_artist_link_map_for_testing(None)  # empty
     b = _ns_bundle(["Alex G", "(Sandy) Alex G", "Other Band"])
     assert _artist_indices_in_bundle(b, "Alex G") == [0]
+
+
+def test_normalize_primary_artist_key_merges_aliases():
+    from src.playlist.identity_keys import normalize_primary_artist_key
+    set_artist_link_map_for_testing([{"type": "alias", "members": ["Alex G", "(Sandy) Alex G"]}])
+    assert normalize_primary_artist_key("Alex G") == normalize_primary_artist_key("(Sandy) Alex G")
+
+
+def test_identity_keys_for_index_merges_aliases():
+    from src.playlist.identity_keys import identity_keys_for_index
+    set_artist_link_map_for_testing([{"type": "alias", "members": ["Alex G", "(Sandy) Alex G"]}])
+    b = types.SimpleNamespace(
+        track_ids=np.array(["t0", "t1"], dtype=object),
+        track_artists=np.array(["Alex G", "(Sandy) Alex G"], dtype=object),
+        artist_keys=np.array(["Alex G", "(Sandy) Alex G"], dtype=object),
+        track_titles=np.array(["S0", "S1"], dtype=object),
+    )
+    assert identity_keys_for_index(b, 0).artist_key == identity_keys_for_index(b, 1).artist_key
