@@ -62,6 +62,30 @@ def test_repair_confession_fires_and_stays_listener_vocab():
     assert not any("smoothed" in n for n in r_no_repair["notes"])
 
 
+def test_instrumental_admitted_note_fires_and_is_listener_facing():
+    pstats = {"instrumental": {"enabled": True, "admitted_count": 3, "threshold": 0.5}}
+    out = compose_receipt(pstats, {})
+    joined = " ".join(out["notes"]).lower()
+    assert "vocal" in joined                 # count-driven note present
+    assert "3" in " ".join(out["notes"])
+    # never leak engine vocabulary
+    for banned in ("voice_prob", "penalty", "beam", "candidate_pool", "sidecar"):
+        assert banned not in joined
+
+
+def test_instrumental_caveat_present_when_enabled_zero_admitted():
+    pstats = {"instrumental": {"enabled": True, "admitted_count": 0, "threshold": 0.5}}
+    out = compose_receipt(pstats, {})
+    joined = " ".join(out["notes"]).lower()
+    assert "processed" in joined or "vocoder" in joined or "talkbox" in joined
+
+
+def test_no_instrumental_notes_when_disabled():
+    out = compose_receipt({}, {})
+    joined = " ".join(out["notes"]).lower()
+    assert "vocal" not in joined
+
+
 def test_internal_warnings_never_leak_engine_terms():
     stats = _stats(warnings=[
         {"type": "genre_missing", "message": "IDF enabled but X_genre_raw missing"},

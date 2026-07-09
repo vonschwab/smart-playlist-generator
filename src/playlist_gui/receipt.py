@@ -60,6 +60,21 @@ def compose_receipt(playlist_stats: dict, pool_stats: dict) -> dict:
         else:
             notes.append("smoothed a rough transition after building")
 
+    # Instrumental lean confession (GUI dials spec, Task 11): how many
+    # vocal-classified tracks were still admitted as a last resort, plus a
+    # one-time caveat about the classifier's known blind spots. Listener
+    # vocabulary only — never voice_prob / threshold / penalty.
+    instr = playlist_stats.get("instrumental") or {}
+    if instr.get("enabled"):
+        admitted = _i(instr.get("admitted_count")) or 0
+        if admitted:
+            notes.append(
+                f"kept {admitted} vocal track{'s' if admitted != 1 else ''} to fill out the playlist"
+            )
+        notes.append(
+            "heavily-processed vocals may slip through, and some wordless textures may be held back"
+        )
+
     return {
         "range": {"pool": _i(pool_stats.get("admitted")), "considered": _i(pool_stats.get("considered"))},
         "flow": {"worst": _f(playlist_stats.get("min_transition")), "mean": _f(playlist_stats.get("mean_transition"))},

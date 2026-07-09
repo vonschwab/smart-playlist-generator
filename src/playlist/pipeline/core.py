@@ -1064,6 +1064,30 @@ def generate_playlist_ds(
                 "genre_rescued": int((pool.stats or {}).get("genre_rescue_admitted", 0) or 0),
             }
 
+            # Instrumental lean confession (Task 11): count of vocal-classified
+            # tracks (voice_prob > threshold) admitted into the FINAL playlist as
+            # a last resort. Seed/pier tracks are excluded — the listener asked
+            # for those explicitly, so instrumental lean never second-guesses a
+            # seed. Only computed when the guard was actually active this run
+            # (mirrors the "missing key -> no notes" contract compose_receipt
+            # relies on).
+            instrumental_stat: Optional[Dict[str, Any]] = None
+            if bool(getattr(cfg.candidate, "instrumental_enabled", False)) and voice_prob is not None:
+                _instr_threshold = 0.5
+                _instr_seed_ids = {str(t) for t in seed_track_ids_for_pier}
+                _instr_admitted = 0
+                for _instr_idx in pb_track_indices.tolist():
+                    if str(bundle.track_ids[_instr_idx]) in _instr_seed_ids:
+                        continue
+                    _vp = voice_prob[_instr_idx]
+                    if np.isfinite(_vp) and _vp > _instr_threshold:
+                        _instr_admitted += 1
+                instrumental_stat = {
+                    "enabled": True,
+                    "admitted_count": _instr_admitted,
+                    "threshold": _instr_threshold,
+                }
+
             # Create minimal PlaylistResult
             playlist = PlaylistResult(
                 track_indices=pb_track_indices,
@@ -1102,6 +1126,8 @@ def generate_playlist_ds(
                     "one_each_candidate_relaxation": one_each_candidate_relaxation,
                 },
             )
+            if instrumental_stat is not None:
+                playlist.stats["instrumental"] = instrumental_stat
 
     # Legacy paths (anchor_builder, standard construct_playlist) have been removed.
     # All playlist construction now goes through pier-bridge.
