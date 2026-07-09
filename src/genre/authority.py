@@ -204,3 +204,32 @@ def resolved_genres_for_artist(
     except sqlite3.OperationalError:
         return []
     return [ArtistGenreTag(r[0], r[1], int(r[2]), float(r[3])) for r in rows]
+
+
+def on_tag_track_ids_for_artist(
+    conn: sqlite3.Connection, artist_name: str, genre_ids: set[str]
+) -> dict[str, int]:
+    """The seed artist's tracks whose album is published (observed_leaf/legacy) with ANY
+    of ``genre_ids``, mapped to the count of distinct selected genres that album carries
+    (for multi-tag ranking). Union semantics. Same layer + artist-match filter as
+    ``resolved_genres_for_artist`` (the chip source), so 'on-tag' == 'would show this chip'.
+    Returns {} for empty inputs / unknown artist / absent tables — callers fall back, never crash.
+    """
+    name = (artist_name or "").strip()
+    gids = {str(g) for g in (genre_ids or set()) if str(g)}
+    if not name or not gids:
+        return {}
+    ph = ",".join("?" for _ in gids)
+    try:
+        rows = conn.execute(
+            f"SELECT t.track_id, COUNT(DISTINCT reg.genre_id) AS hits "
+            f"FROM tracks t JOIN release_effective_genres reg ON reg.album_id = t.album_id "
+            f"WHERE LOWER(TRIM(t.artist)) = LOWER(TRIM(?)) "
+            f"  AND reg.genre_id IN ({ph}) "
+            f"  AND reg.assignment_layer IN ('observed_leaf', 'legacy') "
+            f"GROUP BY t.track_id",
+            (name, *gids),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return {}
+    return {str(r[0]): int(r[1]) for r in rows}
