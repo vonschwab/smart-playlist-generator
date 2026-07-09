@@ -41,3 +41,11 @@ def test_identity_keys_for_index_merges_aliases():
         track_titles=np.array(["S0", "S1"], dtype=object),
     )
     assert identity_keys_for_index(b, 0).artist_key == identity_keys_for_index(b, 1).artist_key
+
+
+def test_candidate_pool_normalize_key_merges_aliases():
+    from src.playlist.candidate_pool import _normalize_artist_key
+    set_artist_link_map_for_testing([{"type": "alias", "members": ["Alex G", "(Sandy) Alex G"]}])
+    assert _normalize_artist_key("Alex G") == _normalize_artist_key("(Sandy) Alex G")
+    set_artist_link_map_for_testing(None)
+    assert _normalize_artist_key("Alex G") != _normalize_artist_key("(Sandy) Alex G")

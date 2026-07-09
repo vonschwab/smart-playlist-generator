@@ -104,8 +104,9 @@ class CandidatePoolResult:
 
 def _normalize_artist_key(raw: Any) -> str:
     from src.string_utils import normalize_artist_key
+    from src.playlist.artist_aliases import resolve_alias
 
-    return normalize_artist_key("" if raw is None else str(raw))
+    return resolve_alias(normalize_artist_key("" if raw is None else str(raw)))
 
 
 def _compute_duration_penalty(
@@ -1318,7 +1319,7 @@ def build_candidate_pool(
         from collections import Counter
         _already = set(int(i) for i in pool_indices)
         _per_artist: Counter = Counter(
-            str(artist_keys[i]) for i in pool_indices
+            _normalize_artist_key(artist_keys[i]) for i in pool_indices
         )
         _cap = int(getattr(cfg, "candidates_per_artist", 6) or 6)
         _seed_set = set(int(i) for i in seed_list)
@@ -1336,7 +1337,7 @@ def build_candidate_pool(
         for i in _ranked:
             if len(pool_indices) >= _min_pool_size:
                 break
-            _ak = str(artist_keys[i])
+            _ak = _normalize_artist_key(artist_keys[i])
             if _per_artist[_ak] >= _cap:
                 continue
             pool_indices.append(int(i))
