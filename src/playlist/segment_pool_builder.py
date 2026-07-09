@@ -51,6 +51,23 @@ class SegmentPoolConfig:
     segment_pool_max: int
     """Maximum candidates to return."""
 
+    bridge_admission_relaxed: bool = False
+    """When True, admit a candidate if max(sim_a, sim_b) >= bridge_floor (a stepping-stone
+    near EITHER pier) instead of min(...) >= floor. Gated on tag steering; the beam's
+    sequential worst-edge + destination-pull enforce actual bridge quality downstream."""
+
+    on_tag_guarantee_indices: Optional[Set[int]] = None
+    """On-tag (authority-membership) track indices to force-admit into this segment's
+    bridge pool past bridge_floor, up to on_tag_guarantee_max (per-artist capped by
+    on_tag_guarantee_per_artist). None/empty = no guarantee (byte-identical off-path)."""
+
+    on_tag_guarantee_max: int = 0
+    """Max candidates force-included via on_tag_guarantee_indices for this segment
+    (0 = off)."""
+
+    on_tag_guarantee_per_artist: int = 0
+    """Per-artist cap within the guaranteed set (0 = off; keeps the roster diverse)."""
+
     allowed_set: Optional[Set[int]] = None
     """If provided, only consider indices in this set."""
 
@@ -533,14 +550,44 @@ class SegmentCandidatePoolBuilder:
         passing: List[int] = []
         bridge_sim: Dict[int, float] = {}
 
+        # On-tag guarantee (Task 2): force-include on-tag candidates past the bridge
+        # floor, up to a per-segment cap and a per-artist cap, independent of the
+        # relaxed-admission gate below. Empty/absent set (non-steered runs) means this
+        # loop behaves identically to the pre-guarantee code -- every candidate falls
+        # through to the ordinary gate check.
+        _guar = config.on_tag_guarantee_indices or set()
+        _guar_max = int(config.on_tag_guarantee_max)
+        _guar_per_artist_cap = int(config.on_tag_guarantee_per_artist)
+        _guar_used = 0
+        _guar_per_artist: Dict[str, int] = {}
+        guaranteed_forced = 0
+
         for i in candidates:
             sim_a = float(sim_to_a[i])
             sim_b = float(sim_to_b[i])
 
-            # Bridge floor gate: both similarities must pass
-            if min(sim_a, sim_b) < float(config.bridge_floor):
-                below_bridge_floor += 1
-                continue
+            is_guaranteed = False
+            guar_artist_key: Optional[str] = None
+            if i in _guar and _guar_max > 0 and _guar_used < _guar_max:
+                guar_artist_key = identity_keys_for_index(config.bundle, int(i)).artist_key
+                if _guar_per_artist.get(guar_artist_key, 0) < _guar_per_artist_cap:
+                    is_guaranteed = True
+
+            if not is_guaranteed:
+                # Bridge floor gate: relaxed = max(sim_a, sim_b) (stepping-stone near
+                # EITHER pier); legacy/default = min(sim_a, sim_b) (both piers).
+                gate_sim = (
+                    max(sim_a, sim_b)
+                    if config.bridge_admission_relaxed
+                    else min(sim_a, sim_b)
+                )
+                if gate_sim < float(config.bridge_floor):
+                    below_bridge_floor += 1
+                    continue
+            else:
+                _guar_used += 1
+                _guar_per_artist[guar_artist_key] = _guar_per_artist.get(guar_artist_key, 0) + 1
+                guaranteed_forced += 1
 
             score = self._compute_bridge_score(sim_a, sim_b, config)
             if genre_to_a is not None and genre_to_b is not None:
@@ -559,6 +606,7 @@ class SegmentCandidatePoolBuilder:
 
         diagnostics["below_bridge_floor"] = int(below_bridge_floor)
         diagnostics["pass_bridge_floor"] = int(len(passing))
+        diagnostics["on_tag_guarantee_forced"] = int(guaranteed_forced)
         diagnostics["genre_bridge_weight"] = float(genre_w)
         diagnostics["bridge_score_mode"] = (
             "genre_blend" if genre_w > 0.0 and genre_to_a is not None
@@ -960,6 +1008,7 @@ class SegmentCandidatePoolBuilder:
         """Select final candidates with 1-per-artist constraint."""
         selected_external: List[int] = []
         internal_selected: List[int] = []
+        guaranteed_final: List[int] = []
         collapsed_by_artist = 0
         collapse = bool(config.collapse_pool_by_artist)
 
@@ -967,6 +1016,14 @@ class SegmentCandidatePoolBuilder:
             return artist_key_by_idx.get(i) or identity_keys_for_index(
                 config.bundle, i
             ).artist_key
+
+        # On-tag guarantee (Task 2): candidates in on_tag_guarantee_indices that made
+        # it into passing_sorted (forced past the floor, or naturally passing) get
+        # priority-inserted ahead of the segment_pool_max truncation below, so the
+        # external-fill cap can't drop them. Empty/absent set (non-steered runs) means
+        # this is a no-op and selection behaves exactly as before.
+        _guar_set = config.on_tag_guarantee_indices or set()
+        _guar_cap = int(config.on_tag_guarantee_max)
 
         if config.internal_connector_priority:
             # Select internal connectors first, then fill from external candidates
@@ -987,8 +1044,20 @@ class SegmentCandidatePoolBuilder:
                 if len(internal_selected) >= cap:
                     break
 
+            # Priority-insert on-tag guaranteed candidates ahead of the external fill.
+            if _guar_set:
+                for i in passing_sorted:
+                    if i not in _guar_set or i in internal_selected:
+                        continue
+                    guaranteed_final.append(i)
+                    used_artists.add(_ak(i))
+                    if _guar_cap > 0 and len(guaranteed_final) >= _guar_cap:
+                        break
+
             # Fill with external candidates
             for i in passing_sorted:
+                if i in guaranteed_final:
+                    continue
                 ak = _ak(i)
                 if collapse and ak in used_artists:
                     collapsed_by_artist += 1
@@ -998,13 +1067,27 @@ class SegmentCandidatePoolBuilder:
                 if len(selected_external) >= int(segment_pool_max):
                     break
 
-            combined = list(dict.fromkeys(internal_selected + selected_external))
+            combined = list(
+                dict.fromkeys(internal_selected + guaranteed_final + selected_external)
+            )
 
         else:
             # Select external first, then add internal connectors up to cap
             used_artists = set()
 
+            # Priority-insert on-tag guaranteed candidates first.
+            if _guar_set:
+                for i in passing_sorted:
+                    if i not in _guar_set:
+                        continue
+                    guaranteed_final.append(i)
+                    used_artists.add(_ak(i))
+                    if _guar_cap > 0 and len(guaranteed_final) >= _guar_cap:
+                        break
+
             for i in passing_sorted:
+                if i in guaranteed_final:
+                    continue
                 ak = _ak(i)
                 if collapse and ak in used_artists:
                     collapsed_by_artist += 1
@@ -1028,12 +1111,15 @@ class SegmentCandidatePoolBuilder:
                 if len(internal_selected) >= cap:
                     break
 
-            combined = list(dict.fromkeys(selected_external + internal_selected))
+            combined = list(
+                dict.fromkeys(guaranteed_final + selected_external + internal_selected)
+            )
 
         diagnostics = {
             "collapsed_by_artist_key": int(collapsed_by_artist),
             "selected_external": int(len(selected_external)),
             "internal_connectors_selected": int(len(internal_selected)),
+            "on_tag_guarantee_final": int(len(guaranteed_final)),
             "final": int(len(combined)),
         }
 
