@@ -515,6 +515,45 @@ def _apply_popularity_gate(
     return kept, len(eligible) - len(kept)
 
 
+def select_pool_guarantee(
+    candidate_indices,
+    guarantee_ids,
+    track_ids,
+    artist_keys,
+    sonic_seed_sim,
+    already_admitted,
+    max_total,
+    per_artist,
+) -> list[int]:
+    """Indices to force-admit into the pool: those in ``candidate_indices`` (the
+    eligible/gate-passing set) whose track_id is in ``guarantee_ids`` and not in
+    ``already_admitted``, ranked by ``sonic_seed_sim`` desc (index tiebreak; index
+    order when sim is None), capped at ``per_artist`` per normalized artist key and
+    ``max_total`` overall. Pure. [] when guarantee_ids empty or max_total<=0."""
+    from collections import Counter
+    if not guarantee_ids or int(max_total) <= 0:
+        return []
+    gids = {str(g) for g in guarantee_ids}
+    adm = {int(i) for i in already_admitted}
+    cands = [
+        int(i) for i in candidate_indices
+        if str(track_ids[int(i)]) in gids and int(i) not in adm
+    ]
+    cands.sort(key=lambda i: (
+        -(float(sonic_seed_sim[i]) if sonic_seed_sim is not None else 0.0), int(i)))
+    per: Counter = Counter()
+    out: list[int] = []
+    for i in cands:
+        if len(out) >= int(max_total):
+            break
+        ak = str(artist_keys[i])
+        if per[ak] >= int(per_artist):
+            continue
+        out.append(i)
+        per[ak] += 1
+    return out
+
+
 def build_candidate_pool(
     *,
     seed_idx: int,
