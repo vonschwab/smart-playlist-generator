@@ -104,6 +104,60 @@ def sonic_prototype_from_rows(
     return proto, cohesion, len(idx)
 
 
+def _canonical_genre_ids_for_tags(con: "sqlite3.Connection", tags: Sequence[str]) -> set:
+    """Chip names/ids (space or underscore form) -> canonical genre_ids via
+    genre_graph_canonical_genres + genre_graph_aliases. {} if none map."""
+    wanted = [str(t).strip() for t in tags if str(t).strip()]
+    if not wanted:
+        return set()
+    lower = [t.lower() for t in wanted]
+    under = [t.lower().replace(" ", "_") for t in wanted]
+    ph = ",".join("?" for _ in wanted)
+    cur = con.cursor()
+    gids: set = set()
+    cur.execute(
+        f"SELECT genre_id FROM genre_graph_canonical_genres "
+        f"WHERE lower(name) IN ({ph}) OR lower(genre_id) IN ({ph})",
+        lower + under,
+    )
+    gids.update(str(r[0]) for r in cur.fetchall())
+    cur.execute(
+        f"SELECT canonical_genre_id FROM genre_graph_aliases WHERE lower(alias) IN ({ph})",
+        lower,
+    )
+    gids.update(str(r[0]) for r in cur.fetchall())
+    return gids
+
+
+def resolve_artist_on_tag_membership(
+    tags: Sequence[str],
+    artist_name: str,
+    *,
+    metadata_db_path: str,
+    track_id_to_row: dict,
+) -> dict:
+    """{bundle_row: tag_hit_count} for the SEED artist's authority on-tag tracks
+    (seed-included; union over the selected tags). {} when nothing maps or no on-tag
+    tracks. Reads the authority via on_tag_track_ids_for_artist (One Rule)."""
+    from src.genre.authority import on_tag_track_ids_for_artist
+    wanted = [str(t).strip() for t in tags if str(t).strip()]
+    if not wanted:
+        return {}
+    con = sqlite3.connect(f"file:{metadata_db_path}?mode=ro", uri=True)
+    try:
+        gids = _canonical_genre_ids_for_tags(con, wanted)
+        if not gids:
+            logger.warning(
+                "Tag-first piers: none of %s map to a canonical genre — legacy pier "
+                "selection for this run.", wanted,
+            )
+            return {}
+        hits = on_tag_track_ids_for_artist(con, artist_name, gids)
+    finally:
+        con.close()
+    return {track_id_to_row[t]: int(n) for t, n in hits.items() if t in track_id_to_row}
+
+
 def resolve_tag_sonic_prototype_rows(
     tags: Sequence[str],
     *,
@@ -135,25 +189,10 @@ def resolve_tag_sonic_prototype_rows(
     _excl_artists = {str(a).strip() for a in (exclude_artists or []) if str(a).strip()}
     if exclude_artist and str(exclude_artist).strip():
         _excl_artists.add(str(exclude_artist).strip())
-    lower = [t.lower() for t in wanted]
-    under = [t.lower().replace(" ", "_") for t in wanted]
     con = sqlite3.connect(f"file:{metadata_db_path}?mode=ro", uri=True)
     try:
         cur = con.cursor()
-        ph = ",".join("?" for _ in wanted)
-        # Map chip names/ids -> canonical genre_ids (canonical table + aliases).
-        gids: set = set()
-        cur.execute(
-            f"SELECT genre_id FROM genre_graph_canonical_genres "
-            f"WHERE lower(name) IN ({ph}) OR lower(genre_id) IN ({ph})",
-            lower + under,
-        )
-        gids.update(str(r[0]) for r in cur.fetchall())
-        cur.execute(
-            f"SELECT canonical_genre_id FROM genre_graph_aliases WHERE lower(alias) IN ({ph})",
-            lower,
-        )
-        gids.update(str(r[0]) for r in cur.fetchall())
+        gids = _canonical_genre_ids_for_tags(con, wanted)
         if not gids:
             logger.warning(
                 "Tag steering sonic prototype: none of %s map to a canonical genre in "
