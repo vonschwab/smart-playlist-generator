@@ -20,6 +20,7 @@ export function StylePopover({
   steeringTags,
   onToggleTag,
   tagsFetched,
+  onOpen,
 }: {
   artistVariety: string;
   onVarietyChange: (v: string) => void;
@@ -27,6 +28,7 @@ export function StylePopover({
   steeringTags: string[];
   onToggleTag: (name: string) => void;
   tagsFetched: boolean;
+  onOpen?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -151,7 +153,7 @@ export function StylePopover({
         type="button"
         aria-expanded={open}
         aria-controls="style-popover-card"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpen((v) => { if (!v) onOpen?.(); return !v; })}
         title="Style: how much of the artist's stylistic range to draw from, plus which genres to lean toward."
         className="flex items-center gap-1.5 bg-[#0c0e12] border border-[#23262d] rounded text-[11px] text-[#e6e9ec] px-2.5 py-[3px]"
       >
