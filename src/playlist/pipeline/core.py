@@ -591,6 +591,11 @@ def generate_playlist_ds(
     # it: Real Estate/jangle worst-edge 0.315 -> 0.716). The SAME centered affinity
     # feeds the opt-in beam term (default weight 0.0 -- proven inert-to-harmful).
     _tag_sonic_affinity = None
+    # Tag steering pool guarantee: on-tag track ids (authority membership, from
+    # _rows below) to force-admit into the pool past the per-artist rank walk.
+    # Independent of the cohesion gate below -- the guarantee needs the ids even
+    # when the sonic prototype itself is disabled (low support/cohesion).
+    _on_tag_guarantee_ids = None
     try:
         _tag_sonic_blend = float(pb_overrides.get("tag_steering_sonic_blend", 0.35))
     except (TypeError, ValueError):
@@ -599,6 +604,14 @@ def generate_playlist_ds(
         _beam_tag_weight = float(pb_overrides.get("tag_steering_sonic_beam_weight", 0.0))
     except (TypeError, ValueError):
         _beam_tag_weight = 0.0
+    try:
+        _guar_max = int(pb_overrides.get("tag_steering_pool_guarantee_max", 30))
+    except (TypeError, ValueError):
+        _guar_max = 30
+    try:
+        _guar_per_artist = int(pb_overrides.get("tag_steering_pool_guarantee_per_artist", 3))
+    except (TypeError, ValueError):
+        _guar_per_artist = 3
     if _tag_steering_tags:
         _xsonic = embedding.X_sonic_for_embed
         if _xsonic is not None:
@@ -621,6 +634,7 @@ def generate_playlist_ds(
                 track_id_to_row=_t2r, exclude_artists=_seed_artists, min_support=_min_support,
             )
             if _rows is not None:
+                _on_tag_guarantee_ids = {str(bundle.track_ids[r]) for r in _rows}
                 _xs = np.asarray(_xsonic, dtype=np.float64)
                 _gm = sonic_global_mean(_xs)
                 _cproto, _ccoh, _ = sonic_prototype_from_rows(_xs, _rows, global_mean=_gm)
@@ -713,6 +727,9 @@ def generate_playlist_ds(
             steering_blend=_tag_steering_blend,
             sonic_blend=_tag_sonic_blend,
             sonic_pool_affinity=_tag_sonic_affinity,  # centered, tag-specific direction
+            on_tag_guarantee_ids=_on_tag_guarantee_ids,
+            on_tag_guarantee_max=_guar_max,
+            on_tag_guarantee_per_artist=_guar_per_artist,
         )
 
     _candidate_cfg_kwargs: dict = dict(

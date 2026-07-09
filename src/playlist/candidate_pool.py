@@ -607,6 +607,12 @@ def build_candidate_pool(
     # tag-SPECIFIC tracks (not generic-centroid neighbors). None = off
     # (byte-identical legacy behavior).
     sonic_pool_affinity: Optional[np.ndarray] = None,
+    # Tag steering pool guarantee: force-admit a capped, per-artist-limited set
+    # of eligible authority on-tag tracks past the per-artist rank walk. None /
+    # max<=0 = off (byte-identical legacy behavior).
+    on_tag_guarantee_ids: Optional[set] = None,
+    on_tag_guarantee_max: int = 0,
+    on_tag_guarantee_per_artist: int = 0,
 ) -> CandidatePoolResult:
     """
     Implement current experiments behavior with optional genre gating:
@@ -1344,6 +1350,39 @@ def build_candidate_pool(
                 len(pool_indices) - _added,
                 _min_pool_size,
                 _added,
+            )
+
+    # Tag steering pool guarantee: force-admit eligible on-tag tracks past the
+    # per-artist rank walk so on-tag bridges (which rank low sonically and get
+    # walked out) reach the beam. Keyed on authority membership (genre-dense
+    # discriminator); only ELIGIBLE tracks (passed the gates) are guaranteed.
+    if on_tag_guarantee_ids and int(on_tag_guarantee_max) > 0:
+        _already = {int(i) for i in pool_indices}
+        _guar = select_pool_guarantee(
+            candidate_indices=eligible,
+            guarantee_ids=on_tag_guarantee_ids,
+            track_ids=track_ids,
+            artist_keys=artist_keys,
+            sonic_seed_sim=sonic_seed_sim,
+            already_admitted=_already,
+            max_total=int(on_tag_guarantee_max),
+            per_artist=int(on_tag_guarantee_per_artist),
+        )
+        if _guar:
+            pool_indices.extend(_guar)
+            pool_indices = list(dict.fromkeys(pool_indices))
+            for _i in _guar:
+                pool_artists.add(str(artist_keys[_i]))
+            logger.info(
+                "Tag steering pool guarantee: force-admitted %d on-tag track(s) across "
+                "%d artist(s) past the rank walk (cap total=%d per_artist=%d)",
+                len(_guar), len({str(artist_keys[_i]) for _i in _guar}),
+                int(on_tag_guarantee_max), int(on_tag_guarantee_per_artist),
+            )
+        else:
+            logger.info(
+                "Tag steering pool guarantee: 0 eligible on-tag tracks to force-admit "
+                "(all already pooled or gate-rejected).",
             )
 
     seed_sim_pool = np.array([seed_sim_all[i] for i in pool_indices], dtype=float)
