@@ -2138,6 +2138,16 @@ def stage_artifacts(ctx: Dict) -> Dict:
                 "scripts/fold_muq_into_artifact.py.", muq_sidecar
             )
 
+    # Invalidate the in-process @lru_cache'd bundle. run_pipeline() can execute
+    # in-process inside a long-lived host (the GUI worker calls it directly,
+    # not as a subprocess) — without this, that host keeps serving the bundle
+    # it cached before this rebuild until it's restarted. handle_build_artifacts
+    # and handle_refresh_genre_artifact in worker.py already clear this cache
+    # after their own rebuilds; the main analyze pipeline's rebuild needs the
+    # same treatment since it's the third (and most common) rebuild path.
+    from src.features.artifacts import load_artifact_bundle
+    load_artifact_bundle.cache_clear()
+
     fingerprint = compute_stage_fingerprint(ctx, "artifacts")
     manifest_path = _write_artifact_manifest(out_dir, fingerprint, ctx.get("config_hash", ""), {})
     # Signal the genre-embedding stage that the artifact changed and its dense

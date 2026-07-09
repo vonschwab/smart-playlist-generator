@@ -2419,9 +2419,11 @@ class PlaylistGenerator:
         if ds_tracks is None:
             # All seeds failed - provide helpful error
             raise ValueError(
-                f"None of the {len(seed_tracks)} seed tracks for '{artist_name}' were found in the artifact. "
-                f"This usually means beat3tower features haven't been extracted for these tracks. "
-                f"Run 'python scripts/update_sonic.py --beat3tower' to extract features, then rebuild the artifact."
+                f"None of the {len(seed_tracks)} seed tracks for '{artist_name}' were found in the current "
+                f"sonic artifact. Two likely causes: (1) these tracks haven't been analyzed yet — run "
+                f"'python scripts/analyze_library.py' (or click \"Analyze Library\" in the GUI) to extract "
+                f"sonic features and rebuild the artifact; or (2) the artifact was rebuilt but this process "
+                f"is still holding an older copy in memory — restart the GUI/worker to pick up the rebuild."
             )
 
         # Skip seed insertion for pier-bridge mode - pier-bridge already handles seed placement
