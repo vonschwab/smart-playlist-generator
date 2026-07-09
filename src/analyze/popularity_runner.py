@@ -268,10 +268,14 @@ def load_artist_popularity_values(
         "musicbrainz_id": "",
         "album": _albums.get(i, ""),
     } for i in canonical_indices]
-    artist_key = normalize_artist_key(artist_name)
-    top = get_artist_top_tracks_cached_or_fetch(
-        artist_key, artist_name, client=client, db_path=db_path,
-        limit=limit, max_age_days=max_age_days, now_iso=now_iso)
+    from src.playlist.artist_aliases import resolve_alias, alias_group_member_names
+    resolved = resolve_alias(normalize_artist_key(artist_name))
+    names = alias_group_member_names(resolved) or [artist_name]
+    top: list = []
+    for nm in names:
+        top.extend(get_artist_top_tracks_cached_or_fetch(
+            normalize_artist_key(nm), nm, client=client, db_path=db_path,
+            limit=limit, max_age_days=max_age_days, now_iso=now_iso))
     pop = resolve_top_tracks_to_popularity(top, local_tracks)
     if not pop:
         return None

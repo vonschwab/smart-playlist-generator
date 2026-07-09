@@ -49,3 +49,33 @@ def test_candidate_pool_normalize_key_merges_aliases():
     assert _normalize_artist_key("Alex G") == _normalize_artist_key("(Sandy) Alex G")
     set_artist_link_map_for_testing(None)
     assert _normalize_artist_key("Alex G") != _normalize_artist_key("(Sandy) Alex G")
+
+
+def test_fire_popularity_merges_alias_catalogs(tmp_path):
+    from src.analyze.popularity_runner import init_top_tracks_cache, upsert_artist_top_tracks, load_artist_popularity_values
+    from unittest.mock import MagicMock
+    from src.string_utils import normalize_artist_key
+    set_artist_link_map_for_testing([{"type": "alias", "members": ["Alex G", "(Sandy) Alex G"]}])
+
+    b = types.SimpleNamespace(
+        track_ids=np.array(["early", "late", "other"], dtype=object),
+        track_titles=np.array(["Early Song", "Late Song", "Nope"], dtype=object),
+        artist_keys=np.array(["Alex G", "(Sandy) Alex G", "Other"], dtype=object),
+        track_artists=np.array(["Alex G", "(Sandy) Alex G", "Other"], dtype=object),
+        durations_ms=None,
+    )
+    db = str(tmp_path / "pop.db")
+    init_top_tracks_cache(db)
+    # Each name's catalog has its own Last.fm hit, cached under its own key.
+    upsert_artist_top_tracks(db, normalize_artist_key("Alex G"), "2026-06-24T00:00:00+00:00",
+                             [{"name": "Early Song", "mbid": "early-song-mbid", "rank": 0}])
+    upsert_artist_top_tracks(db, normalize_artist_key("(Sandy) Alex G"), "2026-06-24T00:00:00+00:00",
+                             [{"name": "Late Song", "mbid": "late-song-mbid", "rank": 0}])
+    client = MagicMock()  # fresh cache -> no network
+    vec = load_artist_popularity_values(
+        b, "Alex G", client=client, db_path=db, limit=50, max_age_days=30,
+        now_iso="2026-06-24T00:00:00+00:00")
+    assert vec is not None and vec.shape == (3,)
+    assert vec[0] == 1.0 and vec[1] == 1.0   # BOTH catalogs' hits landed
+    assert np.isnan(vec[2])
+    client.get_artist_top_tracks.assert_not_called()
