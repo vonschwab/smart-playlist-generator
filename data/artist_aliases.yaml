@@ -1,6 +1,19 @@
-# Manual artist links. Two link types:
-#   alias   - same project, spelling/formatting variants (full identity merge).
-#   sibling - one person, distinct projects (independent artists, spaced >= min_gap apart).
-# Edited from the GUI "Artist Links" panel, or by hand. Empty = feature inert.
 version: 1
-groups: []
+groups:
+- type: alias
+  members:
+  - (Sandy) Alex G
+  - Alex G
+- type: sibling
+  members:
+  - Smog
+  - Bill Callahan
+- type: sibling
+  members:
+  - Mount Eerie
+  - Microphones
+  - The Microphones
+- type: alias
+  members:
+  - Los Angeles Police Department
+  - Ryan Pollie
