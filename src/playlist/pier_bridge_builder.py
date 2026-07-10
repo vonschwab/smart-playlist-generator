@@ -462,6 +462,10 @@ def build_pier_bridge_playlist(
     sonic_tag_affinity: Optional[np.ndarray] = None,
     sonic_tag_beam_weight: float = 0.0,
     tag_steering_worst_edge_band: float = 0.0,
+    tag_steering_relax_bridge_admission: bool = False,
+    on_tag_guarantee_ids: Optional[set[str]] = None,
+    on_tag_segment_guarantee_max: int = 0,
+    on_tag_segment_guarantee_per_artist: int = 0,
 ) -> PierBridgeResult:
     """
     Build playlist using pier + bridge strategy.
@@ -812,6 +816,21 @@ def build_pier_bridge_playlist(
                 allowed_set_indices.add(idx)
         # Ensure piers are always allowed
         allowed_set_indices.update(seed_indices)
+
+    # Resolve on-tag guarantee ids -> indices once (mirrors allowed_set_indices above).
+    # Steering-gated: only non-empty when the caller passed on_tag_guarantee_ids (tag
+    # steering resolved on-tag authority rows); None/empty means bridge_admission_relaxed
+    # below stays False and the segment pool is byte-identical to the pre-Phase-A path.
+    on_tag_guarantee_indices: Optional[Set[int]] = None
+    if on_tag_guarantee_ids:
+        on_tag_guarantee_indices = set()
+        for tid in on_tag_guarantee_ids:
+            idx = bundle.track_id_to_index.get(str(tid))
+            if idx is not None:
+                on_tag_guarantee_indices.add(idx)
+    _bridge_admission_relaxed = bool(
+        tag_steering_relax_bridge_admission and on_tag_guarantee_indices
+    )
 
     # Order seeds by bridgeability (or preserve order if fixed)
     seed_ordering = str(cfg.dj_seed_ordering or "auto").strip().lower()
@@ -1298,6 +1317,10 @@ def build_pier_bridge_playlist(
                         collapse_by_artist=bool(cfg.collapse_segment_pool_by_artist),
                         X_genre_dense=getattr(bundle, "X_genre_dense", None),
                         genre_bridge_weight=float(getattr(cfg, "segment_pool_genre_weight", 0.0)),
+                        bridge_admission_relaxed=_bridge_admission_relaxed,
+                        on_tag_guarantee_indices=on_tag_guarantee_indices,
+                        on_tag_guarantee_max=int(on_tag_segment_guarantee_max),
+                        on_tag_guarantee_per_artist=int(on_tag_segment_guarantee_per_artist),
                     )
                     try:
                         cand_artist_keys = dict(cand_artist_keys)

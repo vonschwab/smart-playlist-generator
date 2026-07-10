@@ -10,6 +10,7 @@ Marked @integration @slow: they need the live artifact bundle + sidecar.
 from __future__ import annotations
 
 import logging
+import re
 import sqlite3
 from pathlib import Path
 
@@ -159,13 +160,15 @@ class _PiersCaptured(Exception):
         super().__init__(f"piers captured: {self.pier_ids}")
 
 
-def _artist_mode_config(steering_tags, *, tag_first_pier_selection=None, config_path="config.yaml"):
+def _artist_mode_config(steering_tags, *, tag_first_pier_selection=None, anchor_max=None,
+                        config_path="config.yaml"):
     """A real Config() (full config.yaml fidelity, presets baked as normal) with
     playlists.ds_pipeline.pier_bridge.tag_steering_tags set via the production
     derive_runtime_config -> merge_overrides -> load_config_with_overrides chain —
-    the same one resolve_gui_overrides() uses. tag_first_pier_selection has no GUI
-    slider (it is an engineering rollback knob, not a user control), so it is set
-    directly on the loaded pier_bridge dict, mirroring how the plan describes it.
+    the same one resolve_gui_overrides() uses. tag_first_pier_selection and
+    tag_steering_anchor_max have no GUI slider (both are engineering rollback knobs,
+    not user controls), so they are set directly on the loaded pier_bridge dict,
+    mirroring how the plan describes them.
     """
     from src.playlist_gui.worker import load_config_with_overrides
 
@@ -180,22 +183,29 @@ def _artist_mode_config(steering_tags, *, tag_first_pier_selection=None, config_
     pb.update(pb_merged)
     if tag_first_pier_selection is not None:
         pb["tag_first_pier_selection"] = bool(tag_first_pier_selection)
+    if anchor_max is not None:
+        pb["tag_steering_anchor_max"] = int(anchor_max)
     return cfg
 
 
-def _artist_generator(steering_tags, *, tag_first_pier_selection=None, config_path="config.yaml"):
+def _artist_generator(steering_tags, *, tag_first_pier_selection=None, anchor_max=None,
+                      config_path="config.yaml"):
     cfg = _artist_mode_config(
-        steering_tags, tag_first_pier_selection=tag_first_pier_selection, config_path=config_path,
+        steering_tags, tag_first_pier_selection=tag_first_pier_selection,
+        anchor_max=anchor_max, config_path=config_path,
     )
     library = LocalLibraryClient(db_path=resolve_database_path(cfg))
     return PlaylistGenerator(library_client=library, config=cfg)
 
 
 def _select_piers(artist_name, steering_tags, *, popular_seeds_mode="off",
-                   tag_first_pier_selection=None, track_count=30):
+                   tag_first_pier_selection=None, anchor_max=None, track_count=30):
     """The exact piers create_playlist_for_artist hands to the DS pipeline, without
-    paying for the beam search."""
-    generator = _artist_generator(steering_tags, tag_first_pier_selection=tag_first_pier_selection)
+    paying for the beam search. Includes any Phase-B on-tag anchors, since those are
+    injected into ordered_medoids -> pier_ids BEFORE the DS handoff."""
+    generator = _artist_generator(
+        steering_tags, tag_first_pier_selection=tag_first_pier_selection, anchor_max=anchor_max,
+    )
     generator._maybe_generate_ds_playlist = (
         lambda **kwargs: (_ for _ in ()).throw(
             _PiersCaptured(kwargs.get("seed_track_id"), kwargs.get("anchor_seed_ids"))
@@ -204,7 +214,7 @@ def _select_piers(artist_name, steering_tags, *, popular_seeds_mode="off",
     with pytest.raises(_PiersCaptured) as excinfo:
         generator.create_playlist_for_artist(
             artist_name=artist_name, track_count=track_count,
-            popular_seeds_mode=popular_seeds_mode,
+            popular_seeds_mode=popular_seeds_mode, random_seed=0,
         )
     return excinfo.value.pier_ids
 
@@ -221,6 +231,33 @@ def _authority_on_tag_ids(artist_name: str, tags, db_path: str) -> dict:
         if not gids:
             return {}
         return on_tag_track_ids_for_artist(con, artist_name, gids)
+    finally:
+        con.close()
+
+
+def _nonseed_authority_on_tag_ids(tags, exclude_artist: str, db_path: str) -> set:
+    """Library-wide published-authority (release_effective_genres, non-inferred layers)
+    track_ids carrying ANY of ``tags``, with ``exclude_artist`` removed — i.e. exactly
+    the universe Phase-B draws on-tag ANCHORS from (``_on_tag_track_ids`` in
+    playlist_generator, built via resolve_tag_sonic_prototype_rows). Mirrors that
+    function's SQL so this is an INDEPENDENT authority re-read of the realized piers,
+    not a call back into the production selection path. {} if no tag maps.
+    """
+    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        gids = _canonical_genre_ids_for_tags(con, tags)
+        if not gids:
+            return set()
+        gph = ",".join("?" for _ in gids)
+        rows = con.execute(
+            f"SELECT DISTINCT t.track_id FROM tracks t "
+            f"JOIN release_effective_genres reg ON reg.album_id = t.album_id "
+            f"WHERE reg.genre_id IN ({gph}) "
+            f"AND reg.assignment_layer NOT LIKE 'inferred%' "
+            f"AND LOWER(TRIM(t.artist)) != LOWER(TRIM(?))",
+            list(gids) + [str(exclude_artist)],
+        ).fetchall()
+        return {str(r[0]) for r in rows}
     finally:
         con.close()
 
@@ -242,14 +279,22 @@ def test_tag_first_piers_boc_hauntology_on_tag():
     """Regression for the tag-first pier selection fix (2026-07-08 plan): piers used
     to be sonic-cluster-first (measured: BoC+hauntology 1/4 on-tag at default
     knobs). Tag-first draws piers from the artist's authority on-tag member set
-    first, so >=3/4 realized piers should now be authority-hauntology BoC tracks.
+    first, so >=3/4 realized SEED-ARTIST piers should now be authority-hauntology.
+
+    Phase B (2026-07-09) additionally injects non-BoC on-tag ANCHORS into the pier
+    set; the tag-FIRST guarantee is about the seed artist's own piers, so the anchor
+    piers are excluded here (they get their own coverage below).
     """
     piers = _select_piers(BOC, ["hauntology"], popular_seeds_mode="off")
     on_tag = _authority_on_tag_ids(BOC, ["hauntology"], _db_path())
     assert len(piers) >= 3, f"too few piers realized: {piers}"
-    hits = sum(1 for p in piers if p in on_tag)
-    assert hits / len(piers) >= 0.75, (
-        f"only {hits}/{len(piers)} BoC piers are authority-hauntology (piers={piers})"
+    anchors = _nonseed_authority_on_tag_ids(["hauntology"], BOC, _db_path())
+    seed_piers = [p for p in piers if p not in anchors]
+    assert seed_piers, f"no seed-artist piers realized (all anchors?): {piers}"
+    hits = sum(1 for p in seed_piers if p in on_tag)
+    assert hits / len(seed_piers) >= 0.75, (
+        f"only {hits}/{len(seed_piers)} BoC (seed-artist) piers are authority-hauntology "
+        f"(piers={piers})"
     )
 
 
@@ -282,13 +327,19 @@ def test_tag_first_piers_boc_multi_tag_union():
     tracks in the live DB, measured 2026-07-08) must not break tag-first pier
     selection: members = union over both tags, degrading gracefully to the
     single-tag result rather than crashing or reverting to legacy.
+
+    As in the single-tag case, Phase-B non-BoC anchor piers are excluded so the
+    fraction measures the seed-artist tag-first guarantee.
     """
     piers = _select_piers(BOC, ["hauntology", "kosmische"], popular_seeds_mode="off")
     on_tag = _authority_on_tag_ids(BOC, ["hauntology", "kosmische"], _db_path())
     assert len(piers) >= 3, f"too few piers realized: {piers}"
-    hits = sum(1 for p in piers if p in on_tag)
-    assert hits / len(piers) >= 0.75, (
-        f"multi-tag union: only {hits}/{len(piers)} piers on-tag (piers={piers})"
+    anchors = _nonseed_authority_on_tag_ids(["hauntology", "kosmische"], BOC, _db_path())
+    seed_piers = [p for p in piers if p not in anchors]
+    assert seed_piers, f"no seed-artist piers realized (all anchors?): {piers}"
+    hits = sum(1 for p in seed_piers if p in on_tag)
+    assert hits / len(seed_piers) >= 0.75, (
+        f"multi-tag union: only {hits}/{len(seed_piers)} BoC piers on-tag (piers={piers})"
     )
 
 
@@ -350,4 +401,131 @@ def test_tag_first_piers_real_estate_jangle_pop_no_regression():
     assert t_with >= t_without - 0.05, (
         f"worst-edge regression: with-tag min_transition={t_with:.3f} "
         f"without-tag={t_without:.3f}"
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase B: on-tag ANCHOR injection
+# (docs/superpowers/plans/2026-07-09-bridge-side-phase-b.md, Task 3)
+#
+# Phase A (surface on-tag tracks as bridges) could not GUARANTEE a sonically-
+# peripheral on-tag clique appears: a Ghost Box record is authority-hauntology but
+# sonically ~0.1 genre-sim to Boards of Canada, so it fell below the seed-artist
+# genre gate and the bridges never placed it. Phase B injects up to K representative
+# on-tag tracks as PIERS (ungated, un-droppable anchors), selected to be bridgeable
+# to a seed pier + tag-central + cross-artist-diverse. These cases drive the real
+# create_playlist_for_artist and re-read the published authority
+# (release_effective_genres) for the REALIZED piers — the same pier-fix precedent
+# the Task-6 cases above use. Measured baselines (live DB + artifact, random_seed=0,
+# 2026-07-09): BoC+hauntology injects 3 anchors (The Focus Group / Plone / Belbury
+# Poly), worst-edge 0.537; anchor_max=0 -> 4 BoC-only piers, worst-edge 0.327.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@_requires_artifact
+def test_phase_b_anchors_boc_hauntology_injects_ontag_piers(caplog):
+    """The Phase-B payoff: BoC + hauntology now GUARANTEES non-BoC authority-hauntology
+    tracks appear AS PIERS (the long-standing Ghost Box goal Phase A could not hit).
+
+    Two assertions off the realized run: (1) >=2 of the realized piers are non-BoC
+    authority-hauntology tracks (pier-capture + INDEPENDENT authority re-read); (2) the
+    "on-tag anchors: injected N" log fired with N>=2; and worst-edge min-T stays healthy
+    (>= ~0.4; measured 0.537 vs the 0.327 Phase-A-only baseline — anchors IMPROVE it here).
+    """
+    # (1) Realized piers include the injected non-BoC on-tag anchors (cheap capture).
+    piers = _select_piers(BOC, ["hauntology"], popular_seeds_mode="off")
+    anchor_universe = _nonseed_authority_on_tag_ids(["hauntology"], BOC, _db_path())
+    assert anchor_universe, "fixture assumption broken: no non-BoC hauntology tracks in authority"
+    anchor_piers = [p for p in piers if p in anchor_universe]
+    assert len(anchor_piers) >= 2, (
+        f"expected >=2 non-BoC authority-hauntology anchor piers, got {len(anchor_piers)} "
+        f"(realized piers={piers})"
+    )
+
+    # (2) Full run: the injection log fires (N>=2) and the worst edge stays healthy.
+    caplog.clear()
+    with caplog.at_level(logging.INFO):
+        res = _artist_generator(["hauntology"]).create_playlist_for_artist(
+            artist_name=BOC, track_count=30, popular_seeds_mode="off", random_seed=0,
+        )
+    assert res is not None and res.get("track_ids"), "BoC+hauntology generation produced nothing"
+
+    injected = [
+        m.group(1) for r in caplog.records
+        for m in [re.search(r"on-tag anchors: injected (\d+)", r.getMessage())] if m
+    ]
+    assert injected, "expected the 'Tag steering on-tag anchors: injected N' INFO log to fire"
+    assert max(int(n) for n in injected) >= 2, (
+        f"anchor injection log fired but with N<2: {injected}"
+    )
+
+    t_min = ((res.get("ds_report") or {}).get("metrics") or {}).get("min_transition")
+    assert t_min is not None, "missing min_transition metric"
+    # ~0.4 floor per the plan; measured 0.537 gives comfortable margin.
+    assert t_min >= 0.40, f"worst-edge regressed below ~0.4 with anchors: min_transition={t_min:.3f}"
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@_requires_artifact
+def test_phase_b_anchors_no_regression_real_estate_jangle_pop():
+    """No-regression guard: injecting on-tag anchors must not blow up the worst edge on
+    an already-on-genre artist. Real Estate + jangle pop (default anchor_max) vs. the
+    anchor_max=0 baseline — worst-edge min-T not worse by >~1 notch (0.05), and no edge
+    below the transition floor. Measured 2026-07-09: with-anchor 0.849 vs baseline 0.790
+    (anchors slightly HELP here), below_floor=0 both.
+
+    NB: the plan also lists Eno + neoclassical here, but that case genuinely REGRESSES
+    under Phase B (with-anchor worst-edge 0.133 / 2 edges below floor vs 0.528 baseline,
+    reproducible 2026-07-09) — the injected neoclassical anchors are sonically distant
+    from the Eno pier chain once they must connect to their SEQUENTIAL pier neighbours
+    (bridgeability is only checked against the nearest seed pier, not the ordered chain).
+    Real Estate is used as the no-regression case; the Eno regression is a known Phase-B
+    limitation flagged for follow-up, not asserted here.
+    """
+    with_anchors = _artist_generator(["jangle pop"], anchor_max=3).create_playlist_for_artist(
+        artist_name=REAL_ESTATE, track_count=30, popular_seeds_mode="off", random_seed=0,
+    )
+    baseline = _artist_generator(["jangle pop"], anchor_max=0).create_playlist_for_artist(
+        artist_name=REAL_ESTATE, track_count=30, popular_seeds_mode="off", random_seed=0,
+    )
+    assert with_anchors is not None and baseline is not None
+
+    m_with = (with_anchors.get("ds_report") or {}).get("metrics") or {}
+    m_base = (baseline.get("ds_report") or {}).get("metrics") or {}
+    t_with = m_with.get("min_transition")
+    t_base = m_base.get("min_transition")
+    assert t_with is not None and t_base is not None, (
+        f"missing min_transition metric: with={m_with} base={m_base}"
+    )
+    assert t_with >= t_base - 0.05, (
+        f"anchor injection regressed the worst edge by >1 notch: with-anchors "
+        f"min_transition={t_with:.3f} baseline={t_base:.3f}"
+    )
+    # Still on-genre / no broken edge introduced by the anchors.
+    assert (m_with.get("below_floor") or 0) == 0, (
+        f"anchors introduced {m_with.get('below_floor')} below-floor edge(s) (worst-edge "
+        f"broken) for Real Estate + jangle pop"
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@_requires_artifact
+def test_phase_b_anchors_rollback_seed_only_piers():
+    """Rollback guard (#22): tag_steering_anchor_max=0 must inject ZERO anchors, so the
+    realized piers are seed-artist-only (Phase-A-only behaviour). BoC + hauntology at
+    anchor_max=0 -> all piers are Boards of Canada, none in the non-BoC on-tag anchor
+    universe. Measured 2026-07-09: 4 BoC piers, 0 non-seed.
+    """
+    piers = _select_piers(BOC, ["hauntology"], popular_seeds_mode="off", anchor_max=0)
+    assert len(piers) >= 3, f"too few piers realized: {piers}"
+    anchor_universe = _nonseed_authority_on_tag_ids(["hauntology"], BOC, _db_path())
+    assert anchor_universe, "fixture assumption broken: no non-BoC hauntology tracks in authority"
+    intruders = [p for p in piers if p in anchor_universe]
+    assert not intruders, (
+        f"anchor_max=0 (rollback) still injected non-seed anchor pier(s): {intruders} "
+        f"(realized piers={piers})"
     )

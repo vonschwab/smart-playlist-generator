@@ -259,3 +259,47 @@ def build_tag_first_pier_members(
             break
         members.add(i)
     return members
+
+
+def select_on_tag_anchors(
+    on_tag_indices,
+    pier_indices,
+    X_sonic,
+    tag_centrality,
+    artist_keys,
+    track_ids,
+    *,
+    max_anchors: int,
+    min_bridge: float,
+    per_artist: int,
+) -> list:
+    """Pick up to ``max_anchors`` on-tag tracks to inject as piers: each must be bridgeable
+    to a seed pier (max L2-normalized sonic cosine to any ``pier_indices`` >= ``min_bridge``),
+    ranked by ``tag_centrality`` desc (or bridge strength when None), capped at ``per_artist``
+    per normalized artist key. Pure. [] when max_anchors<=0 or nothing is bridgeable."""
+    from collections import Counter
+    if int(max_anchors) <= 0 or not on_tag_indices or not pier_indices:
+        return []
+    X = np.asarray(X_sonic, dtype=np.float64)
+    Xn = X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-12)
+    pier_mat = Xn[[int(p) for p in pier_indices]]
+    scored = []
+    for i in on_tag_indices:
+        i = int(i)
+        bridge = float(np.max(pier_mat @ Xn[i]))
+        if bridge < float(min_bridge):
+            continue
+        rank = float(tag_centrality[i]) if tag_centrality is not None else bridge
+        scored.append((rank, bridge, i))
+    scored.sort(key=lambda t: (-t[0], -t[1], t[2]))
+    per: Counter = Counter()
+    out = []
+    for _rank, _bridge, i in scored:
+        if len(out) >= int(max_anchors):
+            break
+        ak = str(artist_keys[i])
+        if per[ak] >= int(per_artist):
+            continue
+        out.append(i)
+        per[ak] += 1
+    return out

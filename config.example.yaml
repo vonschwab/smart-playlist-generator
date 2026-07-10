@@ -339,6 +339,22 @@ playlists:
       tag_steering_sonic_blend: 0.35          # blend of the centered (tag-specific) sonic affinity into the pool's sonic admission (the binding lever)
       tag_steering_sonic_beam_weight: 0.0     # opt-in beam ranking bonus; OFF by default (weight sweep 2026-07-08 proved it inert-to-harmful — the pool carries the lean)
       tag_steering_worst_edge_band: 0.0       # worst-edge tolerance so the beam term can trade a bounded sliver of smoothness for on-tag adherence (0=strict minimax, tag term is a never-firing tie-break). Only acts when the beam weight>0. See docs/superpowers/specs/2026-07-08-tag-steering-architecture.md (blocked upstream by segment-pool candidate propagation — kept OFF)
+      # Bridge-side Phase A (stage D, segment_pool_builder.py — spec 2026-07-09): makes
+      # on-tag-but-sonically-peripheral tracks reachable as bridges. Steering-gated —
+      # all three are no-ops (segment pool byte-identical) unless tag steering resolved
+      # on-tag ids for this run, regardless of these values.
+      tag_steering_relax_bridge_admission: true   # stage-D: admit stepping-stones near EITHER pier (min->max) when steering; false = legacy min()
+      tag_steering_segment_guarantee_max: 8       # per-segment on-tag tracks force-admitted past the bridge floor (0 = off)
+      tag_steering_segment_guarantee_per_artist: 2
+      # Bridge-side Phase B (artist-mode pier block, playlist_generator.py — spec
+      # 2026-07-09): injects up to N on-tag tracks as PIERS (not just bridge
+      # stepping-stones) so a sonically-peripheral on-tag clique is guaranteed to
+      # appear, not just reachable. Steering-gated: no-op (ordered_medoids
+      # unchanged, byte-identical) unless tag steering resolved on-tag ids for
+      # this run, regardless of these values.
+      tag_steering_anchor_max: 3          # on-tag tracks injected as piers (0 = Phase-A-only / off)
+      tag_steering_anchor_min_bridge: 0.35  # min sonic cosine to a seed pier for an anchor to qualify (no islands)
+      tag_steering_anchor_per_artist: 1   # per-artist cap within the anchor set
       tag_steering_prototype_min_support: 25  # min library tracks/tag to trust the sonic prototype (else genre-dense only)
       tag_steering_prototype_min_cohesion: 0.15  # min intra-set cohesion; below this the tag is sonically multimodal -> genre-dense only
       # Total-generation wall-clock budget (seconds). A single shared deadline is

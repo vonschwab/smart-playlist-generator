@@ -137,19 +137,30 @@ export function GenerateControls({
   >([]);
   const [steeringTags, setSteeringTags] = useState<string[]>([]);
   const [tagsFetched, setTagsFetched] = useState(false);
+  // Bump to force a genre (re)fetch even when `seed` is unchanged — e.g. clicking the
+  // autocomplete item whose full name you already typed (so setSeed is a no-op and the
+  // fetch effect would never re-run), or opening the Style popover to refresh.
+  const [tagEpoch, setTagEpoch] = useState(0);
 
-  // Fetch chips whenever a confirmed artist is selected; reset both on change.
+  // Reset the chips whenever the artist / mode changes.
   useEffect(() => {
     setSteeringTags([]);
     setArtistTags([]);
     setTagsFetched(false);
+  }, [seed, mode]);
+
+  // Fetch the confirmed artist's published genres. Re-runs on selection AND on tagEpoch
+  // bumps (re-selecting the same name, or Style opened). Always resolves `tagsFetched` so
+  // a transient fetch error can't leave the chips stuck on "Loading…".
+  useEffect(() => {
     if (mode !== "artist" || !seed.trim() || seed !== selectedRef.current) return;
     let cancelled = false;
+    setTagsFetched(false);
     api.artistGenres(seed)
       .then((r) => { if (!cancelled) { setArtistTags(r.genres); setTagsFetched(true); } })
-      .catch(() => { /* chips are best-effort; generation works without them */ });
+      .catch(() => { if (!cancelled) setTagsFetched(true); });
     return () => { cancelled = true; };
-  }, [seed, mode]);
+  }, [seed, mode, tagEpoch]);
 
   function toggleSteeringTag(name: string) {
     setSteeringTags((prev) =>
@@ -170,7 +181,7 @@ export function GenerateControls({
       });
     }
     if (typeof initialValues.tracks === "number") setTracks(initialValues.tracks);
-    if (typeof initialValues.artist === "string") setSeed(initialValues.artist);
+    if (typeof initialValues.artist === "string") { selectedRef.current = initialValues.artist; setSeed(initialValues.artist); setTagEpoch((e) => e + 1); }
     else if (typeof initialValues.genre === "string") setSeed(initialValues.genre);
     if (initialValues.artist_spacing) setArtistSpacing(initialValues.artist_spacing);
     if (initialValues.artist_presence) setArtistPresence(initialValues.artist_presence);
@@ -277,7 +288,7 @@ export function GenerateControls({
                   {artistSearch.items.map((s) => (
                     <li
                       key={s}
-                      onClick={() => { selectedRef.current = s; setSeed(s); artistSearch.reset(); }}
+                      onClick={() => { selectedRef.current = s; setSeed(s); artistSearch.reset(); setTagEpoch((e) => e + 1); }}
                       className="px-2.5 py-1.5 text-[11px] text-[#e6e9ec] hover:bg-[#1e2229] cursor-pointer"
                     >
                       {s}
@@ -344,6 +355,7 @@ export function GenerateControls({
                 steeringTags={steeringTags}
                 onToggleTag={toggleSteeringTag}
                 tagsFetched={tagsFetched}
+                onOpen={() => setTagEpoch((e) => e + 1)}
               />
             </Cell>
             <Cell>
