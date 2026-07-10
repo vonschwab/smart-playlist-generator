@@ -233,6 +233,37 @@ A single seed becomes both start and end pier — an **arc** — by duplicating 
 Structural mini-pier insertion (SP3) happens *after* this ordering step, splitting long segments
 by pinning extra waypoint piers — that's part of anti-sag scoring, covered in Phase 6.1.
 
+### 3.4 Artist-link resolution (aliases & sibling projects)
+
+Automatic normalization (the identity keys used across Phases 3–5) can't know that "Smog" is Bill
+Callahan or that "(Sandy) Alex G" is "Alex G" — the strings are unrelated. A user-curated
+`data/artist_aliases.yaml` (edited in the GUI's **Artist Links** tab) supplies that knowledge as a
+**runtime resolution layer** — no `metadata.db` or artifact writes, and an empty/absent file is a
+bit-for-bit no-op. `src/playlist/artist_aliases.py` loads it (LRU-cached, busted on GUI save) and
+exposes `resolve_alias(key)` + `sibling_group_of(value)`. Two link types:
+
+- **Alias** (same act, different spelling): full identity merge. `resolve_alias` maps every
+  member's normalized key to one group key, applied at each identity chokepoint —
+  `_artist_indices_in_bundle` (seed/pier gathering + Fire rows, `artist_style.py:37,41`),
+  `normalize_primary_artist_key` (the beam/bridge semantic key, `identity_keys.py:48`), the
+  candidate-pool per-artist cap (`candidate_pool.py`), and the Fire popularity cache
+  (`popularity_runner.py`, which then fetches + merges every member's Last.fm top tracks). Seeding
+  one name pulls the other's tracks and counts them as one artist everywhere.
+- **Sibling** (one person, distinct projects): the projects stay **independent** — own per-artist
+  budget, own seed/Fire catalog — but may not be placed within `min_gap` of each other, via a
+  parallel `used_sibling_groups` set in the beam that mirrors the `used_artists` mechanism
+  (Phase 5.4).
+
+Each member is registered under **both** normalization families (`normalize_artist_key` structural +
+`identity_keys._primary_artist_key_raw` semantic), since the two produce different strings for the
+same name. The builder must use the *raw* semantic key, not `normalize_primary_artist_key` (which
+itself applies `resolve_alias`), or loading a non-empty map recurses.
+
+> **Known v1 limitations (Plan-1b backlog).** Sibling spacing is enforced at the beam admission gate
+> — the same best-effort strength as normal artist `min_gap`; post-beam passes (tail-DP,
+> guaranteed-fill) are not yet sibling-aware. Full design + backlog:
+> `docs/superpowers/specs/2026-07-09-artist-alias-linking-design.md`.
+
 ---
 
 ## Phase 4 — Candidate pool construction (`build_candidate_pool`)
@@ -438,7 +469,9 @@ not as a post-hoc filter: candidate artist identity is resolved via `resolve_art
 (`beam.py:975–990, 1220, 1446, 1589`), and `disallow_seed_artist_in_interiors` blocks the seed
 artist's own tracks from non-pier positions (`beam.py:981–990`) when configured. Boundary context
 carried from the previous segment (`beam.py:951`) makes `min_gap` a true cross-segment constraint,
-not a per-segment-only one.
+not a per-segment-only one. Manual **sibling-project links** (Phase 3.4) add a parallel
+`used_sibling_groups` repulsion here so linked projects stay ≥ `min_gap` apart while keeping
+independent per-artist budgets and catalogs.
 
 ---
 

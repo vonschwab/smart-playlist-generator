@@ -59,6 +59,13 @@ builds a playlist that:
 - **Artist identity resolution.** Ensemble suffixes ("Trio", "Quartet"), collaborations ("X feat.
   Y"), and "The"-prefixes are normalized before anything counts diversity, dedups, or excludes the
   seed artist from bridge interiors.
+- **Manual artist links (aliases & sibling projects).** Beyond automatic normalization, you can
+  hand-link names no algorithm can reconcile: an **alias** (same act, different spelling — "Alex G"
+  / "(Sandy) Alex G") merges into one identity everywhere, while a **sibling** link (one person,
+  distinct projects — "Smog" / "Bill Callahan", "Mount Eerie" / "The Microphones") keeps each
+  project independent but never places them within `min_gap` of each other. Curated in the GUI's
+  "Artist Links" tab, stored in a git-tracked `data/artist_aliases.yaml`; empty file = no effect,
+  no database or artifact rebuild.
 - **Multisource genre enrichment.** `scripts/analyze_library.py` runs the full pipeline —
   MusicBrainz/Discogs/Last.fm collection, Claude-based album-grain genre adjudication, publish —
   as one resumable, fingerprint-gated command. Claude calls run through the Agent SDK against a
@@ -79,6 +86,9 @@ builds a playlist that:
   the seed artist's own catalog, picked from chips in the GUI.
 - **Pace rebuilt on tempo + rhythmic density.** BPM and onset-rate bands replaced an old
   rhythm-cosine floor that was near-noise and unsatisfiable for ambient/beatless artists.
+- **Manual artist links.** A new "Artist Links" GUI tab lets you declare aliases (full identity
+  merge) and sibling projects (independent catalogs, kept spaced apart) for names automatic
+  normalization can't catch — a runtime resolution layer with no `metadata.db` or artifact changes.
 
 ## Quick Start
 
@@ -256,6 +266,14 @@ the replacement to clear the transition floor against both neighbours.
 The **Genre Review** and **Taxonomy** sub-tabs (under the Advanced panel) let you adjudicate
 enrichment suggestions per release and grow/edit the taxonomy graph itself, respectively —
 decisions persist immediately and feed back into the next generation.
+
+### Artist Links (GUI)
+The **Artist Links** sub-tab (under the Advanced panel) links artist names that should count as one
+act. Pick a type — **Alias** (same act, different spelling → treated as one artist for seeds,
+diversity, dedup, and Fire popularity) or **Same artist** (distinct projects → kept independent but
+never placed within `min_gap` of each other) — add two or more members via typeahead over your
+library's artists, and Save. Links take effect on the next generation (`data/artist_aliases.yaml`);
+no re-scan or artifact rebuild.
 
 ## License
 
