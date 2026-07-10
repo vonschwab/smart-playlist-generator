@@ -42,9 +42,13 @@ _EMPTY = ArtistLinkMap()
 
 def _normalizers():
     # Lazy: see import-cycle rule in the module docstring.
+    # NOTE: use the *raw* semantic key (_primary_artist_key_raw), NOT
+    # normalize_primary_artist_key — the latter applies resolve_alias, which re-enters
+    # get_active_map -> build_artist_link_map and recurses infinitely when the on-disk
+    # file is non-empty. normalize_artist_key (structural) is already alias-free.
     from src.string_utils import normalize_artist_key
-    from src.playlist.identity_keys import normalize_primary_artist_key
-    return normalize_artist_key, normalize_primary_artist_key
+    from src.playlist.identity_keys import _primary_artist_key_raw
+    return normalize_artist_key, _primary_artist_key_raw
 
 
 def build_artist_link_map(groups: List[dict]) -> ArtistLinkMap:

@@ -11,18 +11,16 @@ from src.string_utils import normalize_artist_name
 from src.title_dedupe import normalize_title_for_dedupe
 
 
-def normalize_primary_artist_key(value: str) -> str:
-    """
-    Normalize an "artist identity" key robust to common collaboration patterns.
+def _primary_artist_key_raw(value: str) -> str:
+    """The primary-artist identity key WITHOUT alias resolution.
 
-    Intent: collapse variants like:
-      - "Mount Eerie" vs "Mount Eerie with Julie Doiron & Fred Squire"
-      - "Charli XCX" vs "Charli XCX feat. MØ"
-      - "Artist A x Artist B" (treat as collab)
-      - "Bill Evans Trio" vs "Bill Evans" (ensemble normalization)
-
-    Uses normalize_artist_name() which handles ensemble suffixes (Trio, Quartet, etc.)
-    and collaboration markers properly.
+    This is `normalize_primary_artist_key` minus the final `resolve_alias`. It exists
+    so `artist_aliases.build_artist_link_map` can compute the key each member is
+    registered under WITHOUT re-entering `resolve_alias` — otherwise building a
+    non-empty alias map recurses infinitely
+    (build -> normalize_primary_artist_key -> resolve_alias -> get_active_map ->
+    _cached_load -> build ...). Consumers call `normalize_primary_artist_key`
+    (= resolve_alias(this)), so a lookup of this raw form resolves correctly.
     """
     if not value:
         return ""
@@ -38,14 +36,30 @@ def normalize_primary_artist_key(value: str) -> str:
     # ("Süss"/"Suss"/"SUSS" -> "suss"). This mirrors the DB's own artist_key
     # column (normalize_artist_key), keeping the beam's diversity key in sync with
     # the canonical artist identity the DB already assigns.
-    key = normalize_artist_name(
+    return normalize_artist_name(
         text,
         strip_ensemble=True,
         strip_collaborations=True,
         lowercase=True,
         normalize_unicode=True,
     )
-    return resolve_alias(key)
+
+
+def normalize_primary_artist_key(value: str) -> str:
+    """
+    Normalize an "artist identity" key robust to common collaboration patterns.
+
+    Intent: collapse variants like:
+      - "Mount Eerie" vs "Mount Eerie with Julie Doiron & Fred Squire"
+      - "Charli XCX" vs "Charli XCX feat. MØ"
+      - "Artist A x Artist B" (treat as collab)
+      - "Bill Evans Trio" vs "Bill Evans" (ensemble normalization)
+
+    Then applies the user's manual artist-link resolution (resolve_alias) so linked
+    aliases collapse to one identity. See `_primary_artist_key_raw` for the pre-alias
+    form used to BUILD the alias map (avoids a build-time recursion).
+    """
+    return resolve_alias(_primary_artist_key_raw(value))
 
 
 def normalize_title_key(value: str) -> str:

@@ -95,3 +95,39 @@ def test_save_rejects_invalid_and_backs_up(tmp_path):
     # a valid overwrite creates a timestamped backup of the prior file
     save_artist_link_groups([{"type": "sibling", "members": ["X", "Y"]}], path=p)
     assert list(p.parent.glob("artist_aliases.yaml.bak.*"))
+
+
+def test_nonempty_ondisk_file_loads_without_recursion(tmp_path, monkeypatch):
+    """Regression: loading a NON-EMPTY data/artist_aliases.yaml through the real
+    _cached_load path must resolve correctly and NOT infinitely recurse
+    (build_artist_link_map -> normalize_primary_artist_key -> resolve_alias ->
+    get_active_map -> build ...). Reproduces the production bug where a saved file
+    silently fell back to "empty" (no aliasing) — every prior test missed it by using
+    set_artist_link_map_for_testing or an empty on-disk file."""
+    import yaml
+    import src.playlist.artist_aliases as aa
+    from src.playlist.identity_keys import normalize_primary_artist_key as npk
+
+    p = tmp_path / "artist_aliases.yaml"
+    p.write_text(
+        yaml.safe_dump(
+            {"version": 1, "groups": [
+                {"type": "alias", "members": ["Alex G", "(Sandy) Alex G"]},
+                {"type": "sibling", "members": ["Smog", "Bill Callahan"]},
+            ]},
+            sort_keys=False, allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(aa, "_DEFAULT_ALIAS_PATH", p)
+    aa.clear_cache()
+    m = aa.get_active_map()
+    assert m.alias_key and m.sibling_key, "non-empty file must load, not fall back to empty"
+    # alias merges through the real consumer path (npk applies resolve_alias)
+    assert aa.resolve_alias(npk("Alex G")) == aa.resolve_alias(npk("(Sandy) Alex G"))
+    assert aa.resolve_alias(npk("Alex G")).startswith("alias_group:")
+    # sibling: shared group id, NOT alias-merged
+    sg = aa.sibling_group_of("Smog")
+    assert sg is not None and sg == aa.sibling_group_of("Bill Callahan")
+    assert aa.resolve_alias(normalize_artist_key("Smog")) == normalize_artist_key("Smog")
+    aa.clear_cache()

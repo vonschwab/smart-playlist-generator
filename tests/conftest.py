@@ -36,12 +36,23 @@ def _reset_sonic_variant_override():
 
 
 @pytest.fixture(autouse=True)
-def _reset_artist_link_map():
-    """Keep a test's artist-link override from leaking into other tests."""
-    from src.playlist.artist_aliases import set_artist_link_map_for_testing
-    set_artist_link_map_for_testing(None)
+def _reset_artist_link_map(tmp_path, monkeypatch):
+    """Isolate every test from the real ``data/artist_aliases.yaml`` (which the user
+    can populate via the GUI) and from a leaked test override / cached map.
+
+    Point the on-disk default at a non-existent path so ``get_active_map`` resolves to
+    the empty map unless a test explicitly sets one via ``set_artist_link_map_for_testing``.
+    Without this, once the real file has groups, any test that reaches the loader picks
+    them up and becomes non-deterministic. Also clear the lru-cached load around each
+    test so a prior test's on-disk map can't leak."""
+    import src.playlist.artist_aliases as aa
+
+    monkeypatch.setattr(aa, "_DEFAULT_ALIAS_PATH", tmp_path / "no_artist_aliases.yaml")
+    aa.set_artist_link_map_for_testing(None)
+    aa.clear_cache()
     yield
-    set_artist_link_map_for_testing(None)
+    aa.set_artist_link_map_for_testing(None)
+    aa.clear_cache()
 
 
 def _build_artifact(tmp_path, seed: int = 0, include_segments: bool = True):
