@@ -2486,7 +2486,14 @@ def handle_refresh_genre_artifact(cmd_data: Dict[str, Any]) -> None:
             "artifact_path", "data/artifacts/beat3tower_32k/data_matrices_step1.npz"
         )
         db_path = resolve_database_path(config)
-        genre_sim_path = ds.get("genre_sim_path") or "data/genre_similarity_graph.npz"
+        # Use the pipeline-maintained matrix next to the artifact — the same file
+        # stage_artifacts bakes from (analyze_library.py) and genre-sim rebuilds each
+        # run. The old default (data/genre_similarity_graph.npz) is a standalone-script
+        # orphan the pipeline never refreshes, so it baked ~month-stale smoothing here
+        # while the full analyze used a fresh matrix (divergent-path bug, 2026-07-07).
+        genre_sim_path = ds.get("genre_sim_path") or str(
+            Path(artifact_path).parent / "genre_similarity_matrix.npz"
+        )
 
         art = Path(artifact_path)
         if not art.exists():
