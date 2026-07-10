@@ -1331,7 +1331,12 @@ def build_candidate_pool(
         params_effective["duration_cutoff_multiplier"] = float(
             cfg.duration_cutoff_multiplier
         )
-    if getattr(cfg, "instrumental_enabled", False) and _instr_w > 0.0:
+    if (
+        getattr(cfg, "instrumental_enabled", False)
+        and _instr_w > 0.0
+        and voice_prob is not None
+        and np.isfinite(voice_prob).any()
+    ):
         params_effective["instrumental_penalty_weight"] = _instr_w
     if min_genre_similarity is not None:
         params_effective["genre_method"] = genre_method

@@ -1072,7 +1072,11 @@ def generate_playlist_ds(
             # (mirrors the "missing key -> no notes" contract compose_receipt
             # relies on).
             instrumental_stat: Optional[Dict[str, Any]] = None
-            if bool(getattr(cfg.candidate, "instrumental_enabled", False)) and voice_prob is not None:
+            if (
+                bool(getattr(cfg.candidate, "instrumental_enabled", False))
+                and voice_prob is not None
+                and np.isfinite(voice_prob).any()
+            ):
                 _instr_threshold = 0.5
                 _instr_seed_ids = {str(t) for t in seed_track_ids_for_pier}
                 _instr_admitted = 0

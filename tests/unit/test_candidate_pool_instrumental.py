@@ -94,3 +94,24 @@ def test_instrumental_demotion_inert_when_voice_prob_none():
     )
 
     assert np.allclose(result.seed_sim, 1.0)
+
+
+def test_instrumental_params_effective_absent_when_voice_prob_all_nan():
+    # Review fix: load_voice_prob never returns None -- a missing/corrupt sidecar
+    # yields an all-NaN array. params_effective must not report the guard as
+    # in-effect ("instrumental_penalty_weight") when it had no finite data to
+    # act on, even though voice_prob is not None.
+    embedding, artist_keys = _pool()
+    voice_prob = np.full(4, np.nan)
+
+    result = build_candidate_pool(
+        seed_idx=0,
+        embedding=embedding,
+        artist_keys=artist_keys,
+        cfg=_make_cfg(instrumental_enabled=True, instrumental_penalty_weight=0.5),
+        random_seed=0,
+        voice_prob=voice_prob,
+    )
+
+    assert "instrumental_penalty_weight" not in result.params_effective
+    assert np.allclose(result.seed_sim, 1.0)
