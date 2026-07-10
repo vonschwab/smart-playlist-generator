@@ -278,3 +278,17 @@ export interface Page<T> {
   items: T[];
   has_more: boolean;
 }
+
+export interface ArtistLinkGroup {
+  type: "alias" | "sibling";
+  members: string[];
+}
+export interface ArtistLinksListResponse {
+  groups: ArtistLinkGroup[];
+}
+export interface ArtistLinksSaveRequest {
+  groups: ArtistLinkGroup[];
+}
+export interface ArtistSearchResponse {
+  items: string[];
+}

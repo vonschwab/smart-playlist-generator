@@ -1,5 +1,8 @@
 import type {
   AnalyzeToolRequest,
+  ArtistLinksListResponse,
+  ArtistLinksSaveRequest,
+  ArtistSearchResponse,
   BlacklistFetchResponse,
   BlacklistRequest,
   CanonicalGenre,
@@ -179,5 +182,19 @@ export const api = {
   },
   async taxonomyApply(): Promise<{ job_id: string }> {
     return jsonOrThrow(await fetch("/api/taxonomy/apply", { method: "POST" }));
+  },
+  async artistLinksList(): Promise<ArtistLinksListResponse> {
+    return jsonOrThrow(await fetch("/api/artists/links"));
+  },
+  async artistLinksSave(req: ArtistLinksSaveRequest): Promise<{ ok: boolean; count: number }> {
+    return jsonOrThrow(await fetch("/api/artists/links/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+    }));
+  },
+  async artistsSearch(q: string, limit = 20): Promise<ArtistSearchResponse> {
+    const params = new URLSearchParams({ q, limit: String(limit) });
+    return jsonOrThrow(await fetch(`/api/artists/search?${params}`));
   },
 };
