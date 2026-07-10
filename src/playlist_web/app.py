@@ -20,6 +20,7 @@ from .jobs import JobRegistry
 from .plex_export import PlexNotConfigured, run_plex_export
 from .schemas import (
     AnalyzeToolRequest,
+    ArtistLinksSaveRequest,
     BlacklistArtistRequest,
     BlacklistFetchResponse,
     BlacklistRequest,
@@ -401,6 +402,27 @@ def create_app(
         except BridgeBusy:
             raise HTTPException(status_code=409, detail="A job is already running.")
         return {"job_id": job_id}
+
+    # ── Artist-alias links (Artist Links panel) ────────────────────────────
+    @app.get("/api/artists/links")
+    async def artist_links_list() -> dict:
+        try:
+            return await bridge.command({"cmd": "list_artist_links"}, untracked=True)
+        except BridgeBusy:
+            raise HTTPException(status_code=409, detail="Worker is busy — try again when the current job finishes.")
+        except WorkerCommandError as exc:
+            raise HTTPException(status_code=502, detail=str(exc))
+
+    @app.post("/api/artists/links/save")
+    async def artist_links_save(body: ArtistLinksSaveRequest) -> dict:
+        groups = [g.model_dump() for g in body.groups]
+        try:
+            result = await bridge.command({"cmd": "save_artist_links", "groups": groups}, untracked=True)
+        except BridgeBusy:
+            raise HTTPException(status_code=409, detail="Worker is busy — try again when the current job finishes.")
+        except WorkerCommandError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        return {"ok": True, **result}
 
     @app.get("/api/tracks/search")
     async def track_search(

@@ -321,6 +321,15 @@ class TaxonomyValidateRequest(BaseModel):
     proposal: dict
 
 
+class ArtistLinkGroup(BaseModel):
+    type: str  # "alias" | "sibling" — validated by the worker
+    members: list[str]
+
+
+class ArtistLinksSaveRequest(BaseModel):
+    groups: list[ArtistLinkGroup]
+
+
 class TrackGenresRequest(BaseModel):
     """Batch lookup of display genres for staged seed tracks."""
 
