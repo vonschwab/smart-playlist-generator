@@ -93,4 +93,4 @@ When a generation bug is fixed:
 ## Known follow-ups (not yet pinned)
 
 - **dj_bridging + steering coexistence** (commits `4d5c593`/`8d35a9a`): `dj_bridging_enabled` is a *derived* policy decision, not a simple `UIStateModel` bool, so a clean harness-level regression needs the policy gating traced first. Until then, verified manually.
-- **Smog ≟ Bill Callahan**: identity resolution does not collapse same-person/different-project names; a true test needs that capability first.
+- **Artist links (alias / sibling)**: `data/artist_aliases.yaml` + `src/playlist/artist_aliases.py` now provide manual identity linking. Inject in tests with `set_artist_link_map_for_testing([...])` (autouse-reset in `tests/conftest.py`). Alias = full merge; sibling = independent artists spaced ≥ `min_gap` (beam `used_sibling_groups`). Design: `docs/superpowers/specs/2026-07-09-artist-alias-linking-design.md`.

@@ -193,3 +193,43 @@ def test_siblings_never_within_min_gap():
     for s in smog:
         for b in bill:
             assert abs(s - b) >= min_gap, f"sibling within min_gap: Smog@{s}, Bill@{b} -> {list(result.track_ids)}"
+
+
+def test_empty_map_leaves_smoke_generation_identical():
+    """With no links, build_pier_bridge_playlist output is unchanged vs the code path
+    that never consulted the resolver (guards the bit-identical guarantee directly)."""
+    import numpy as np
+    from pathlib import Path
+    from src.features.artifacts import ArtifactBundle
+    from src.playlist.pier_bridge_builder import PierBridgeConfig, build_pier_bridge_playlist
+
+    def _mk():
+        rng = np.random.default_rng(7)
+        n, num_artists = 50, 10
+        return ArtifactBundle(
+            artifact_path=Path("noop_test"),
+            track_ids=np.array([f"t{i}" for i in range(n)]),
+            artist_keys=np.array([f"a{i % num_artists}" for i in range(n)], dtype=object),
+            track_artists=np.array([f"Artist {i % num_artists}" for i in range(n)], dtype=object),
+            track_titles=np.array([f"Song {i}" for i in range(n)]),
+            X_sonic=rng.standard_normal((n, 16)),
+            X_sonic_start=None, X_sonic_mid=None, X_sonic_end=None,
+            X_genre_raw=(rng.random((n, 8)) > 0.7).astype(float),
+            X_genre_smoothed=np.clip(rng.random((n, 8)), 0.0, 1.0),
+            genre_vocab=np.array([f"g{i}" for i in range(8)]),
+            track_id_to_index={f"t{i}": i for i in range(n)},
+            durations_ms=np.full(n, 200_000, dtype=np.int64),
+        )
+
+    cfg = dict(bridge_floor=0.0, transition_floor=0.0, center_transitions=False,
+               variable_bridge_length=False, edge_delete_enabled=False)
+    kw = dict(seed_track_ids=["t0", "t10"], total_tracks=12,
+              candidate_pool_indices=[i for i in range(50) if i not in (0, 10)],
+              min_gap=3, min_genre_similarity=None, X_genre_smoothed=None)
+
+    set_artist_link_map_for_testing(None)  # empty
+    r1 = build_pier_bridge_playlist(bundle=_mk(), cfg=PierBridgeConfig(**cfg), **kw)
+    # An unrelated alias/sibling link (no member present in this bundle) must not change output.
+    set_artist_link_map_for_testing([{"type": "sibling", "members": ["Nobody Here", "Also Absent"]}])
+    r2 = build_pier_bridge_playlist(bundle=_mk(), cfg=PierBridgeConfig(**cfg), **kw)
+    assert list(r1.track_ids) == list(r2.track_ids)
