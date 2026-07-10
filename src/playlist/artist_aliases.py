@@ -11,7 +11,9 @@ resolve_alias/sibling_group_of at their top level without a cycle.
 """
 from __future__ import annotations
 
+import datetime
 import logging
+import shutil
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -96,6 +98,72 @@ def build_artist_link_map(groups: List[dict]) -> ArtistLinkMap:
             alias_members[group_id] = list(dict.fromkeys(names))  # dedupe, preserve order
 
     return ArtistLinkMap(alias_key=alias_key, sibling_key=sibling_key, alias_members=alias_members)
+
+
+def validate_artist_link_groups(groups: list) -> List[str]:
+    """Save-time validation. Returns human-readable error strings ([] == valid).
+
+    Unlike build_artist_link_map (which logs + skips for a resilient load), this
+    surfaces problems so the GUI can reject a bad payload.
+    """
+    norm_struct, norm_sem = _normalizers()
+    errors: List[str] = []
+    owner: Dict[str, int] = {}
+    for gi, group in enumerate(groups or []):
+        label = f"group {gi + 1}"
+        if not isinstance(group, dict):
+            errors.append(f"{label}: not a mapping")
+            continue
+        gtype = str(group.get("type", "")).strip().lower()
+        raw = group.get("members")
+        names = [str(m).strip() for m in raw if str(m).strip()] if isinstance(raw, list) else []
+        if gtype not in VALID_TYPES:
+            errors.append(f"{label}: type must be 'alias' or 'sibling' (got {group.get('type')!r})")
+        if len(names) < 2:
+            errors.append(f"{label}: needs at least 2 members")
+            continue
+        for n in names:
+            for form in {norm_struct(n), norm_sem(n)}:
+                if not form:
+                    continue
+                prev = owner.get(form)
+                if prev is not None and prev != gi:
+                    errors.append(f"{label}: '{n}' is already linked in group {prev + 1}")
+                owner[form] = gi
+    return errors
+
+
+def read_artist_link_groups(path: Optional[Path] = None) -> List[dict]:
+    """Return the raw `groups` list from the YAML ([] if absent/unreadable)."""
+    p = Path(path) if path is not None else _DEFAULT_ALIAS_PATH
+    if not p.exists():
+        return []
+    try:
+        data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    except Exception as exc:
+        logger.warning("artist_aliases: failed to read %s: %s", p, exc)
+        return []
+    groups = data.get("groups") if isinstance(data, dict) else None
+    return list(groups or [])
+
+
+def save_artist_link_groups(groups: list, path: Optional[Path] = None) -> None:
+    """Validate, back up any existing file, write the YAML, and bust the cache.
+
+    Raises ValueError (joined error messages) if the groups are invalid — nothing
+    is written in that case.
+    """
+    errors = validate_artist_link_groups(groups)
+    if errors:
+        raise ValueError("; ".join(errors))
+    p = Path(path) if path is not None else _DEFAULT_ALIAS_PATH
+    p.parent.mkdir(parents=True, exist_ok=True)
+    if p.exists():
+        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        shutil.copy2(p, p.with_name(f"{p.name}.bak.{ts}"))
+    payload = {"version": 1, "groups": list(groups)}
+    p.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    clear_cache()
 
 
 @lru_cache(maxsize=1)

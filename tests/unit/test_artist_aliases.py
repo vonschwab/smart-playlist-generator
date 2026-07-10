@@ -59,3 +59,39 @@ def test_validation_rejects_bad_groups():
     assert m.alias_key.get(normalize_artist_key("Alex G")) is not None
     assert m.sibling_key == {}          # the conflicting sibling group was dropped
     assert normalize_artist_key("Solo Only") not in m.alias_key
+
+
+def test_validate_artist_link_groups_flags_bad_input():
+    from src.playlist.artist_aliases import validate_artist_link_groups
+    errs = validate_artist_link_groups([
+        {"type": "alias", "members": ["Solo"]},          # <2 members
+        {"type": "bogus", "members": ["A", "B"]},         # bad type
+        {"type": "alias", "members": ["Alex G", "(Sandy) Alex G"]},
+        {"type": "sibling", "members": ["Alex G", "X"]},  # Alex G reused across groups
+    ])
+    assert len(errs) == 3
+    assert validate_artist_link_groups([{"type": "alias", "members": ["Alex G", "(Sandy) Alex G"]}]) == []
+
+
+def test_save_and_read_round_trip(tmp_path):
+    from src.playlist.artist_aliases import save_artist_link_groups, read_artist_link_groups
+    p = tmp_path / "artist_aliases.yaml"
+    groups = [{"type": "sibling", "members": ["Smog", "Bill Callahan"]}]
+    save_artist_link_groups(groups, path=p)
+    assert read_artist_link_groups(path=p) == groups
+    assert read_artist_link_groups(path=tmp_path / "missing.yaml") == []
+
+
+def test_save_rejects_invalid_and_backs_up(tmp_path):
+    import pytest
+    from src.playlist.artist_aliases import save_artist_link_groups, read_artist_link_groups
+    p = tmp_path / "artist_aliases.yaml"
+    save_artist_link_groups([{"type": "alias", "members": ["A", "B"]}], path=p)
+    with pytest.raises(ValueError):
+        save_artist_link_groups([{"type": "alias", "members": ["OnlyOne"]}], path=p)
+    # original file unchanged; a .bak.* backup exists from the second-write attempt? No:
+    # invalid input raises BEFORE any write, so no backup and the good file is intact.
+    assert read_artist_link_groups(path=p) == [{"type": "alias", "members": ["A", "B"]}]
+    # a valid overwrite creates a timestamped backup of the prior file
+    save_artist_link_groups([{"type": "sibling", "members": ["X", "Y"]}], path=p)
+    assert list(p.parent.glob("artist_aliases.yaml.bak.*"))
