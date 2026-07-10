@@ -51,6 +51,27 @@ def test_candidate_pool_normalize_key_merges_aliases():
     assert _normalize_artist_key("Alex G") != _normalize_artist_key("(Sandy) Alex G")
 
 
+def test_select_pool_guarantee_merges_alias_budget():
+    """FIX #3 (missed alias chokepoint): select_pool_guarantee's per-artist cap must
+    group by the alias-RESOLVED key, not the raw display name, so two alias-linked
+    names share ONE guarantee budget instead of getting independent budgets."""
+    from src.playlist.candidate_pool import select_pool_guarantee
+    set_artist_link_map_for_testing([{"type": "alias", "members": ["Alex G", "(Sandy) Alex G"]}])
+    track_ids = np.array(["t0", "t1", "t2"], dtype=object)
+    artist_keys = np.array(["Alex G", "(Sandy) Alex G", "Other Band"], dtype=object)
+    sim = np.array([0.9, 0.8, 0.5])
+    got = select_pool_guarantee(
+        candidate_indices=range(3),
+        guarantee_ids={"t0", "t1", "t2"},
+        track_ids=track_ids, artist_keys=artist_keys, sonic_seed_sim=sim,
+        already_admitted=set(), max_total=10, per_artist=1,
+    )
+    # per_artist=1: the two alias-linked names count as ONE artist budget, so only
+    # the higher-sim member (t0) is admitted; t1 is dropped by the shared cap; the
+    # unrelated t2 (Other Band) is unaffected.
+    assert got == [0, 2]
+
+
 def test_fire_popularity_merges_alias_catalogs(tmp_path):
     from src.analyze.popularity_runner import init_top_tracks_cache, upsert_artist_top_tracks, load_artist_popularity_values
     from unittest.mock import MagicMock

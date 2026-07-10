@@ -547,7 +547,7 @@ def select_pool_guarantee(
     for i in cands:
         if len(out) >= int(max_total):
             break
-        ak = str(artist_keys[i])
+        ak = _normalize_artist_key(artist_keys[i])
         if per[ak] >= int(per_artist):
             continue
         out.append(i)

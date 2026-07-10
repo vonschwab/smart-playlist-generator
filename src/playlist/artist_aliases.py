@@ -34,9 +34,6 @@ class ArtistLinkMap:
     # merged alias group key -> member display names (for Fire multi-name popularity merge)
     alias_members: Dict[str, List[str]] = field(default_factory=dict)
 
-    def is_empty(self) -> bool:
-        return not self.alias_key and not self.sibling_key
-
 
 _EMPTY = ArtistLinkMap()
 
