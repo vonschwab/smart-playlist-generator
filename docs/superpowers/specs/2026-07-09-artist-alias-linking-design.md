@@ -242,3 +242,29 @@ New component `web/src/components/ArtistLinksPanel.tsx`:
 - Nested alias-within-sibling resolution.
 - Extending links to Genre Review album grouping or history/stats.
 - Auto-suggested aliases (e.g. from MusicBrainz artist relationships).
+
+### Known v1 limitations (engine shipped 2026-07-09; candidates for a "Plan 1b")
+
+Sibling repulsion is enforced at the **beam admission gate** — the same layer and
+strength as the normal per-artist `min_gap`. The following edge paths were reviewed
+and consciously deferred; the alias merge and default-path sibling spacing are correct
+and tested without them:
+
+- **Post-beam passes are not sibling-aware.** `tail_dp.py` is fully artist-blind, and
+  `_greedy_terminal_path` (the guaranteed-fill fallback) enforces artist-key diversity
+  but not sibling groups. So a weak-landing tail re-optimization or an infeasible-segment
+  fallback *could* place a sibling pair within `min_gap`. This is the **same** best-effort
+  limitation the normal artist `min_gap` already has under tail-DP — not a sibling-specific
+  regression. Follow-up: thread `sibling_group_of` into `tail_dp` + `_greedy_terminal_path`.
+- **Sibling "own budget" can over-exclude under a hard per-artist cap.** The beam seeds
+  `used_sibling_groups_init` from the whole `recent_global_artists` list, which conflates
+  the positional `min_gap` boundary with artists that permanently exceeded
+  `max_non_seed_tracks_per_artist` (`global_non_seed_artist_counts`). When that cap is
+  active (only the GUI "hard one-per-artist" mode, default `None`/off), a sibling can be
+  excluded from later segments because its sibling hit *its* cap. The only trigger is a
+  mode where extra spacing is benign. Follow-up: seed sibling groups from the positional
+  boundary window only.
+- **Missing test:** the design's "sibling joint count can exceed a single-artist cap"
+  (budget-independence) scenario is not yet covered — the shipped sibling test asserts
+  spacing (a strong A/B control), but its fixture has one track per sibling. Add with the
+  budget-seeding fix above.
