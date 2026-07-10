@@ -424,6 +424,22 @@ def create_app(
             raise HTTPException(status_code=422, detail=str(exc))
         return {"ok": True, **result}
 
+    @app.get("/api/artists/search")
+    async def artists_search(q: str = "", limit: int = Query(20, ge=1, le=100)) -> dict:
+        """Distinct-library-artist typeahead for the Artist Links panel."""
+        q = q.strip()
+        if not q or not DB_PATH.exists():
+            return {"items": []}
+        from src.metadata_client import search_artists
+        try:
+            conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
+            try:
+                return {"items": search_artists(conn, q, limit)}
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            return {"items": []}
+
     @app.get("/api/tracks/search")
     async def track_search(
         q: str = "",

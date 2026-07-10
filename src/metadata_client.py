@@ -932,3 +932,37 @@ class MetadataClient:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager support"""
         self.close()
+
+
+def search_artists(conn: sqlite3.Connection, query: str = "", limit: int = 20) -> List[str]:
+    """Distinct library artist names matching ``query`` (case-insensitive).
+
+    Takes an already-open connection rather than owning one — mirrors
+    ``canonical_genre_search`` in ``src/genre/authority.py``, the helper
+    ``/api/genres/search`` delegates to after opening a read-only connection.
+    Used by ``/api/artists/search`` (the Artist Links typeahead).
+
+    The matching/ranking SQL is the same proven query already shipped for
+    ``/api/autocomplete`` in ``src/playlist_web/app.py``: reads the actual
+    library (``tracks``), not the separate ``artists`` table (that table lags
+    the scanner — some scanned artists are missing from it), dedups case
+    variants via ``GROUP BY LOWER(artist)``, and ranks name-starts-with-query
+    above word-start above mid-word substring matches.
+    """
+    q = (query or "").strip()
+    if not q:
+        return []
+    rows = conn.execute(
+        "SELECT MIN(artist) AS name FROM tracks "
+        "WHERE artist LIKE '%' || :q || '%' "
+        "  AND artist IS NOT NULL AND TRIM(artist) <> '' "
+        "GROUP BY LOWER(artist) "
+        "ORDER BY CASE "
+        "    WHEN name LIKE :q || '%' THEN 0 "
+        "    WHEN name LIKE '% ' || :q || '%' THEN 1 "
+        "    ELSE 2 END, "
+        "  name "
+        "LIMIT :lim",
+        {"q": q, "lim": int(limit)},
+    ).fetchall()
+    return [str(r[0]) for r in rows]
