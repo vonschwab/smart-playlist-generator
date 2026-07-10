@@ -206,6 +206,26 @@ def main():
                   "request_id": rid, "job_id": cmd.get("job_id")})
             emit({"type": "done", "cmd": "apply_taxonomy_decisions", "ok": True,
                   "detail": "Applied 1 decisions", "request_id": rid, "job_id": cmd.get("job_id")})
+        elif name == "list_artist_links":
+            emit({"type": "result", "result_type": "artist_links",
+                  "groups": [{"type": "sibling", "members": ["Smog", "Bill Callahan"]}],
+                  "request_id": rid, "job_id": None})
+            emit({"type": "done", "cmd": "list_artist_links", "ok": True,
+                  "request_id": rid, "job_id": None})
+        elif name == "save_artist_links":
+            groups = cmd.get("groups") or []
+            # mimic the real validation: a group with <2 members is rejected
+            bad = any(len([m for m in (g.get("members") or []) if str(m).strip()]) < 2 for g in groups)
+            if bad:
+                emit({"type": "error", "message": "group needs at least 2 members",
+                      "request_id": rid, "job_id": None})
+                emit({"type": "done", "cmd": "save_artist_links", "ok": False,
+                      "detail": "invalid", "request_id": rid, "job_id": None})
+            else:
+                emit({"type": "result", "result_type": "artist_links_saved",
+                      "count": len(groups), "request_id": rid, "job_id": None})
+                emit({"type": "done", "cmd": "save_artist_links", "ok": True,
+                      "request_id": rid, "job_id": None})
         else:
             emit({"type": "error", "message": f"unknown cmd {name}", "request_id": rid, "job_id": jid})
             emit({"type": "done", "cmd": name or "?", "ok": False, "request_id": rid, "job_id": jid})

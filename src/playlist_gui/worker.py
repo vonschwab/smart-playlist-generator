@@ -2783,6 +2783,48 @@ def handle_apply_escalation_decision(cmd_data: Dict[str, Any]) -> None:
                     "detail": str(e), "request_id": rid, "job_id": None})
 
 
+def handle_list_artist_links(cmd_data: Dict[str, Any]) -> None:
+    """Return the current artist link groups from data/artist_aliases.yaml. UNTRACKED (read)."""
+    rid = cmd_data.get("request_id")
+    try:
+        from src.playlist.artist_aliases import read_artist_link_groups
+        groups = read_artist_link_groups()
+        emit_event({"type": "result", "result_type": "artist_links",
+                    "groups": groups, "request_id": rid, "job_id": None})
+        emit_event({"type": "done", "cmd": "list_artist_links", "ok": True,
+                    "detail": f"{len(groups)} group(s)", "request_id": rid, "job_id": None})
+    except Exception as e:
+        emit_event({"type": "error", "message": str(e), "request_id": rid, "job_id": None})
+        emit_event({"type": "done", "cmd": "list_artist_links", "ok": False,
+                    "detail": str(e), "request_id": rid, "job_id": None})
+
+
+def handle_save_artist_links(cmd_data: Dict[str, Any]) -> None:
+    """Validate + write artist link groups, bust the resolver cache. UNTRACKED (quick write).
+
+    On invalid input, emits done ok=False with the validation detail so the route
+    surfaces it as a 422 (WorkerCommandError)."""
+    rid = cmd_data.get("request_id")
+    try:
+        from src.playlist.artist_aliases import save_artist_link_groups
+        groups = cmd_data.get("groups") or []
+        try:
+            save_artist_link_groups(groups)
+        except ValueError as ve:
+            emit_event({"type": "error", "message": str(ve), "request_id": rid, "job_id": None})
+            emit_event({"type": "done", "cmd": "save_artist_links", "ok": False,
+                        "detail": str(ve), "request_id": rid, "job_id": None})
+            return
+        emit_event({"type": "result", "result_type": "artist_links_saved",
+                    "count": len(groups), "request_id": rid, "job_id": None})
+        emit_event({"type": "done", "cmd": "save_artist_links", "ok": True,
+                    "detail": f"saved {len(groups)} group(s)", "request_id": rid, "job_id": None})
+    except Exception as e:
+        emit_event({"type": "error", "message": str(e), "request_id": rid, "job_id": None})
+        emit_event({"type": "done", "cmd": "save_artist_links", "ok": False,
+                    "detail": str(e), "request_id": rid, "job_id": None})
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Taxonomy term adjudication (vocabulary-level review; writes the taxonomy YAML)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3148,6 +3190,8 @@ UNTRACKED_COMMAND_HANDLERS = {
     "get_escalation_queue": handle_get_escalation_queue,
     "get_escalation_completed": handle_get_escalation_completed,
     "apply_escalation_decision": handle_apply_escalation_decision,
+    "list_artist_links": handle_list_artist_links,
+    "save_artist_links": handle_save_artist_links,
     "get_taxonomy_queue": handle_get_taxonomy_queue,
     "get_taxonomy_completed": handle_get_taxonomy_completed,
     "record_taxonomy_decision": handle_record_taxonomy_decision,
