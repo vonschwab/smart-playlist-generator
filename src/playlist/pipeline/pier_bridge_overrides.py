@@ -126,10 +126,18 @@ def apply_pier_bridge_overrides(
                       # SP2 seed-character anti-collapse scoring (off by default).
                       ("seed_character_strength", float),
                       # SP3 mini-piers (off by default).
-                      ("mini_pier_max_interior", int), ("mini_pier_smoothness_margin", float)):
+                      ("mini_pier_max_interior", int), ("mini_pier_smoothness_margin", float),
+                      # Instrumental lean penalty weight (static tuning; off by default).
+                      ("instrumental_penalty_weight", float)):
         _v = pb_overrides.get(_k)
         if isinstance(_v, (int, float)) and not isinstance(_v, bool):
             pb_cfg = replace(pb_cfg, **{_k: _cast(_v)})
+
+    # instrumental_enabled is a bool (the generic loop above skips bools) —
+    # per-request flag set by the policy layer.
+    _ie = pb_overrides.get("instrumental_enabled")
+    if isinstance(_ie, bool):
+        pb_cfg = replace(pb_cfg, instrumental_enabled=_ie)
 
     genre_graph_source = "legacy"
     genre_graph_raw = (overrides or {}).get("genre_graph") if isinstance(overrides, dict) else None

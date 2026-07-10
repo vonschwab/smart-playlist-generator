@@ -105,6 +105,8 @@
   "initial_beam_width": 20,
   "initial_bridge_helpers": 50,
   "initial_neighbors_m": 100,
+  "instrumental_enabled": false,
+  "instrumental_penalty_weight": 0.0,
   "layered_transition_mode": "dynamic",
   "layered_transition_scoring_enabled": false,
   "layered_transition_weight": 0.0,

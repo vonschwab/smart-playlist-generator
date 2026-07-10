@@ -703,6 +703,24 @@ def generate_playlist_ds(
         else:
             _beam_tag_affinity = _tag_sonic_affinity
 
+    # Instrumental lean: load voice_prob only when enabled; degrade to inert
+    # + WARN rather than raising (mirrors the energy-sidecar pattern above).
+    # Loaded here (before pool build) rather than after apply_pier_bridge_overrides
+    # builds pb_cfg, because build_candidate_pool (Task 8) consumes voice_prob too
+    # and the pool is built before pb_cfg exists. cfg.candidate.instrumental_enabled
+    # is populated from the same overrides['pier_bridge'] section pb_cfg reads
+    # (see default_ds_config), so this single load serves both pool and beam.
+    voice_prob: Optional[np.ndarray] = None
+    if bool(getattr(cfg.candidate, "instrumental_enabled", False)):
+        from src.playlist.instrumental_loader import load_voice_prob
+        _instr_sidecar = str(Path(artifact_path).parent / "instrumental" / "instrumental_sidecar.npz")
+        voice_prob = load_voice_prob(bundle.track_ids, sidecar_path=_instr_sidecar)
+        if voice_prob is None or not np.isfinite(voice_prob).any():
+            logger.warning(
+                "Instrumental lean ON but voice_prob absent/all-NaN at %s — guard inert this run",
+                _instr_sidecar,
+            )
+
     def _build_pool(candidate_cfg: Any, genre_gate: Optional[float],
                     popularity_rank_cutoff: Optional[int] = _banger_cutoff):
         return build_candidate_pool(
@@ -751,6 +769,7 @@ def generate_playlist_ds(
             on_tag_guarantee_ids=_on_tag_guarantee_ids,
             on_tag_guarantee_max=_guar_max,
             on_tag_guarantee_per_artist=_guar_per_artist,
+            voice_prob=voice_prob,
         )
 
     _candidate_cfg_kwargs: dict = dict(
@@ -862,6 +881,12 @@ def generate_playlist_ds(
                     _energy_overrides[_ek] = float(pb_overrides[_ek])
             if _energy_overrides:
                 pb_cfg = replace(pb_cfg, **_energy_overrides)
+
+            # Instrumental lean: voice_prob is loaded ONCE, earlier (before pool
+            # build, near _banger_gate_inputs) because build_candidate_pool (Task 8)
+            # needs it too. pb_cfg.instrumental_enabled here is sourced from the
+            # same pb_overrides dict as cfg.candidate.instrumental_enabled above,
+            # so the two stay consistent without a second sidecar load.
 
             logger.info(
                 "Pier-bridge segment policy: artist_playlist=%s strategy=%s pool_max=%d progress=%s disallow_seed_artist_in_interiors=%s disallow_pier_artists_in_interiors=%s",
@@ -1024,6 +1049,7 @@ def generate_playlist_ds(
                     tempo_stability_arr=tempo_stability_bpm,
                     onset_rate=onset_rate_arr,
                     energy_matrix=energy_matrix,
+                    voice_prob=voice_prob,
                     popularity_values=popularity_values,
                     min_gap=int(getattr(cfg.construct, "min_gap", 1) or 1),
                     deadline=_generation_deadline,
@@ -1170,6 +1196,34 @@ def generate_playlist_ds(
                 "genre_rescued": int((pool.stats or {}).get("genre_rescue_admitted", 0) or 0),
             }
 
+            # Instrumental lean confession (Task 11): count of vocal-classified
+            # tracks (voice_prob > threshold) admitted into the FINAL playlist as
+            # a last resort. Seed/pier tracks are excluded — the listener asked
+            # for those explicitly, so instrumental lean never second-guesses a
+            # seed. Only computed when the guard was actually active this run
+            # (mirrors the "missing key -> no notes" contract compose_receipt
+            # relies on).
+            instrumental_stat: Optional[Dict[str, Any]] = None
+            if (
+                bool(getattr(cfg.candidate, "instrumental_enabled", False))
+                and voice_prob is not None
+                and np.isfinite(voice_prob).any()
+            ):
+                _instr_threshold = 0.5
+                _instr_seed_ids = {str(t) for t in seed_track_ids_for_pier}
+                _instr_admitted = 0
+                for _instr_idx in pb_track_indices.tolist():
+                    if str(bundle.track_ids[_instr_idx]) in _instr_seed_ids:
+                        continue
+                    _vp = voice_prob[_instr_idx]
+                    if np.isfinite(_vp) and _vp > _instr_threshold:
+                        _instr_admitted += 1
+                instrumental_stat = {
+                    "enabled": True,
+                    "admitted_count": _instr_admitted,
+                    "threshold": _instr_threshold,
+                }
+
             # Create minimal PlaylistResult
             playlist = PlaylistResult(
                 track_indices=pb_track_indices,
@@ -1208,6 +1262,8 @@ def generate_playlist_ds(
                     "one_each_candidate_relaxation": one_each_candidate_relaxation,
                 },
             )
+            if instrumental_stat is not None:
+                playlist.stats["instrumental"] = instrumental_stat
 
     # Legacy paths (anchor_builder, standard construct_playlist) have been removed.
     # All playlist construction now goes through pier-bridge.

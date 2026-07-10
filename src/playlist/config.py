@@ -79,6 +79,13 @@ class CandidatePoolConfig:
     # genre strict — slider eval 2026-07-04). Additive, mirrors the energy
     # admission-rescue pattern. 0 = disabled (rollback).
     genre_rescue_k: int = 40
+    # Instrumental lean (Task 8, soft, additive demotion in admission ranking).
+    # Mirrors PierBridgeConfig.instrumental_enabled/instrumental_penalty_weight
+    # (src/playlist/pier_bridge/config.py) and is populated from the SAME
+    # overrides['pier_bridge'] section in default_ds_config() below, so one
+    # config source feeds both the pool (this field) and the beam edge (Task 6/7).
+    instrumental_enabled: bool = False
+    instrumental_penalty_weight: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -493,6 +500,12 @@ def default_ds_config(
     scoring = overrides.get("scoring", {})
     constraints = overrides.get("constraints", {})
     candidate_pool = overrides.get("candidate_pool", {})
+    # Instrumental lean (Task 8): sourced from overrides['pier_bridge'], the SAME
+    # section pier_bridge_overrides.py reads for PierBridgeConfig.instrumental_*,
+    # so the pool demotion and the beam edge penalty share one config source.
+    pier_bridge_raw = overrides.get("pier_bridge", {})
+    if not isinstance(pier_bridge_raw, dict):
+        pier_bridge_raw = {}
     pace_mode_name = candidate_pool.get("pace_mode") or overrides.get("pace_mode") or "dynamic"
     from src.playlist.mode_presets import resolve_pace_mode
     pace_settings = resolve_pace_mode(str(pace_mode_name))
@@ -618,6 +631,21 @@ def default_ds_config(
         ),
         # Genre-rescue (Fix 3, 2026-07-04): live default 40; 0 = rollback.
         genre_rescue_k=int(candidate_pool.get("genre_rescue_k", 40)),
+        # Instrumental lean (Task 8): pool-side demotion mirrors the beam's
+        # PierBridgeConfig.instrumental_enabled/instrumental_penalty_weight,
+        # read from the same overrides['pier_bridge'] dict (see pier_bridge_raw
+        # above) — never falls back to the candidate_pool section.
+        instrumental_enabled=(
+            bool(pier_bridge_raw.get("instrumental_enabled"))
+            if isinstance(pier_bridge_raw.get("instrumental_enabled"), bool)
+            else False
+        ),
+        instrumental_penalty_weight=(
+            float(pier_bridge_raw.get("instrumental_penalty_weight"))
+            if isinstance(pier_bridge_raw.get("instrumental_penalty_weight"), (int, float))
+            and not isinstance(pier_bridge_raw.get("instrumental_penalty_weight"), bool)
+            else 0.0
+        ),
     )
 
     # Construction config with config.yaml overrides

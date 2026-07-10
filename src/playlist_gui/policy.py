@@ -51,6 +51,8 @@ POLICY_OWNED_KEYS: Set[str] = {
     "playlists.ds_pipeline.pier_bridge.dj_bridging.pooling.k_genre",
     # Artist presence (seed artist share)
     "playlists.ds_pipeline.candidate_pool.max_artist_fraction",
+    # Instrumental lean (soft penalty; demotes vocal-classified tracks)
+    "playlists.ds_pipeline.pier_bridge.instrumental_enabled",
 }
 """
 Keys that policy must always win for, even if Advanced Panel has values.
@@ -381,6 +383,13 @@ def derive_runtime_config(
         )
     else:
         notes.append("Recency filter: disabled")
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 3b. Instrumental lean (soft penalty; demotes vocal-classified tracks)
+    # ─────────────────────────────────────────────────────────────────────
+    _set_nested(overrides, "playlists.ds_pipeline.pier_bridge.instrumental_enabled", ui.instrumental)
+    if ui.instrumental:
+        notes.append("Instrumental lean: demote vocal-classified tracks")
 
     # ─────────────────────────────────────────────────────────────────────
     # 4. Artist spacing → min_gap

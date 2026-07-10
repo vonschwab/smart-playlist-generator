@@ -28,6 +28,7 @@ class GenerateRequestBody(BaseModel):
     exclude_seed_tracks_from_recency: bool = False
     # Policy fields — translated into config overrides via UIStateModel + derive_runtime_config
     recency_enabled: bool = True
+    instrumental: bool = False
     recency_days: int = 14
     recency_plays_threshold: int = 1
     artist_spacing: str = "normal"

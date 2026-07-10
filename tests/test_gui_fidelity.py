@@ -73,3 +73,13 @@ def test_steering_tags_capped_at_three():
     ui = gui_ui_state(steering_tags=["a", "b", "c", "d"])
     overrides = resolve_gui_overrides(ui)
     assert overrides["pier_bridge"]["tag_steering_tags"] == ["a", "b", "c"]
+
+
+def test_instrumental_flag_reaches_pier_bridge_overrides():
+    """The 'instrumental' toggle rides the policy->config channel (Task 9 wiring).
+    Guards the inert-knob trap: a mode that bypasses derive_runtime_config/
+    build_ds_overrides would silently never reach the beam search."""
+    ov_on = resolve_gui_overrides(gui_ui_state(instrumental=True))
+    ov_off = resolve_gui_overrides(gui_ui_state(instrumental=False))
+    assert ov_on["pier_bridge"]["instrumental_enabled"] is True
+    assert ov_off["pier_bridge"].get("instrumental_enabled") in (False, None)

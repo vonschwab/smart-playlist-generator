@@ -59,6 +59,10 @@ class PierBridgeConfig:
     # hard gate (reject), preserving backward-compatible behavior.
     bpm_bridge_soft_penalty_strength: float = 0.0
     onset_bridge_soft_penalty_strength: float = 0.0
+    # Instrumental lean (soft, continuous on voice_prob; never a hard gate).
+    # enabled is per-request (policy override); penalty_weight is static (config.yaml).
+    instrumental_enabled: bool = False
+    instrumental_penalty_weight: float = 0.0
     # Energy (arousal) steering: soft penalty terms (never hard gates).
     # All default to 0.0 (disabled/no-op); presets enable per-mode.
     energy_step_cap: float = 0.0  # max z-std jump between adjacent tracks (soft cap)

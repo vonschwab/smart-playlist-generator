@@ -614,6 +614,9 @@ def build_candidate_pool(
     on_tag_guarantee_ids: Optional[set] = None,
     on_tag_guarantee_max: int = 0,
     on_tag_guarantee_per_artist: int = 0,
+    # Instrumental lean (Task 8): per-track vocal-presence probability, same
+    # array threaded to the beam (Task 7). None / disabled -> no-op.
+    voice_prob: Optional[np.ndarray] = None,
 ) -> CandidatePoolResult:
     """
     Implement current experiments behavior with optional genre gating:
@@ -689,6 +692,28 @@ def build_candidate_pool(
                 reference_duration_ms,
                 duration_penalty_count,
                 cfg.duration_penalty_weight,
+            )
+
+    # Instrumental lean: demote vocal-classified candidates in the admission ranking so a
+    # demoted-but-present track can't win a pool slot via a strong edge. Soft: a thin pool
+    # still admits them (never-fail). Seeds are exempt.
+    instrumental_penalty_count = 0
+    _instr_w = float(getattr(cfg, "instrumental_penalty_weight", 0.0))
+    if getattr(cfg, "instrumental_enabled", False) and _instr_w > 0.0 and voice_prob is not None:
+        from src.playlist.pier_bridge.pace_gate import compute_instrumental_penalty
+        seed_sim_all = seed_sim_all.copy()
+        for i in range(len(seed_sim_all)):
+            if seed_mask[i]:
+                continue
+            penalty = compute_instrumental_penalty(voice_prob, cand=i, weight=_instr_w)
+            if penalty > 0:
+                seed_sim_all[i] -= penalty
+                instrumental_penalty_count += 1
+        if instrumental_penalty_count and logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Instrumental-lean pool demotion applied: penalized=%d weight=%.3f",
+                instrumental_penalty_count,
+                _instr_w,
             )
 
     # Optional sonic-only similarity (for hard floor)
@@ -1421,6 +1446,13 @@ def build_candidate_pool(
         params_effective["duration_cutoff_multiplier"] = float(
             cfg.duration_cutoff_multiplier
         )
+    if (
+        getattr(cfg, "instrumental_enabled", False)
+        and _instr_w > 0.0
+        and voice_prob is not None
+        and np.isfinite(voice_prob).any()
+    ):
+        params_effective["instrumental_penalty_weight"] = _instr_w
     if min_genre_similarity is not None:
         params_effective["genre_method"] = genre_method
         params_effective["min_genre_similarity"] = min_genre_similarity
@@ -1461,6 +1493,8 @@ def build_candidate_pool(
     if duration_penalty_active:
         stats["duration_penalty_applied"] = duration_penalty_count
         stats["duration_cutoff_excluded"] = duration_cutoff_count
+    if instrumental_penalty_count:
+        stats["instrumental_penalty_applied"] = instrumental_penalty_count
     if layered_genre_admission_summary is not None:
         stats["layered_genre_admission"] = layered_genre_admission_summary
     if sonic_sim_pool is not None:

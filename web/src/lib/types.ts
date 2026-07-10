@@ -20,6 +20,7 @@ export interface GenerateRequestBody {
   seed_epoch?: number;
   exclude_seed_tracks_from_recency?: boolean;
   recency_enabled?: boolean;
+  instrumental?: boolean;
   recency_days?: number;
   recency_plays_threshold?: number;
   artist_spacing?: string;
