@@ -1,11 +1,12 @@
 import { useState } from "react";
 import type { PlaylistOut } from "../lib/types";
+import { ArtistLinksPanel } from "./ArtistLinksPanel";
 import { BlacklistPanel } from "./BlacklistPanel";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
 import { GenreReviewPanel } from "./GenreReviewPanel";
 import { TaxonomyReviewPanel } from "./TaxonomyReviewPanel";
 
-type Tab = "diagnostics" | "blacklist" | "review" | "taxonomy";
+type Tab = "diagnostics" | "blacklist" | "review" | "taxonomy" | "links";
 
 export function AdvancedPanel({ playlist }: { playlist: PlaylistOut | null }) {
   const [tab, setTab] = useState<Tab>("diagnostics");
@@ -28,12 +29,14 @@ export function AdvancedPanel({ playlist }: { playlist: PlaylistOut | null }) {
         {tabBtn("blacklist", "Blacklist")}
         {tabBtn("review", "Genre Review")}
         {tabBtn("taxonomy", "Taxonomy")}
+        {tabBtn("links", "Artist Links")}
       </div>
       <div className="flex-1 overflow-hidden">
         {tab === "diagnostics" && <DiagnosticsPanel playlist={playlist} />}
         {tab === "blacklist" && <BlacklistPanel />}
         {tab === "review" && <GenreReviewPanel />}
         {tab === "taxonomy" && <TaxonomyReviewPanel />}
+        {tab === "links" && <ArtistLinksPanel />}
       </div>
     </div>
   );
