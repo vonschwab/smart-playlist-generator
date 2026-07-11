@@ -63,7 +63,7 @@ function DesktopBody(props: ShellProps) {
         defaultSize={22}
         minSize={8}
         collapsible
-        className="bg-[#0c0e12] border-t border-border"
+        className="bg-well border-t border-border"
       >
         {props.logs}
       </Panel>

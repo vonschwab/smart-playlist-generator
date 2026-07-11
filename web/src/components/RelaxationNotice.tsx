@@ -16,8 +16,8 @@ export function RelaxationNotice({ relaxations }: RelaxationNoticeProps) {
     <div
       className={`flex items-start gap-2 px-3 py-2 border-b border-border text-xs ${
         hasInvariant
-          ? "bg-yellow-900/20 text-yellow-300"
-          : "bg-blue-900/20 text-blue-300"
+          ? "bg-warn/10 text-warn"
+          : "bg-info/10 text-info"
       }`}
     >
       <span className="mt-0.5 shrink-0">{hasInvariant ? "⚠" : "ℹ"}</span>
@@ -27,7 +27,7 @@ export function RelaxationNotice({ relaxations }: RelaxationNoticeProps) {
             <span className="font-semibold">Relaxed to fit:</span>{" "}
             {r.bridge} — dropped {r.relaxed.join(", ")}
             {r.severity === "invariant" && (
-              <span className="ml-1 text-yellow-400 font-semibold">[invariant]</span>
+              <span className="ml-1 text-warn font-semibold">[invariant]</span>
             )}
           </div>
         ))}

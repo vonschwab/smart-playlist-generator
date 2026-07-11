@@ -29,10 +29,10 @@ const SPECIFICITY: Record<Kind, { def: number; lo: number; hi: number }> = {
 
 interface ParentPick { target: string; preset: EdgePresetKey }
 
-const btn = "text-[10px] px-2 py-0.5 rounded";
+const btn = "text-2xs px-2 py-0.5 rounded";
 const btnPrimary = `${btn} bg-accent text-bg font-semibold disabled:opacity-50`;
 const btnGhost = `${btn} border border-border text-muted hover:text-text`;
-const input = "bg-panel2 border border-border rounded text-[10px] text-text px-1.5 py-0.5 outline-none";
+const input = "bg-panel2 border border-border rounded text-2xs text-text px-1.5 py-0.5 outline-none";
 
 export function TaxonomyAddWizard({
   item, onStage, onCancel,
@@ -128,12 +128,12 @@ export function TaxonomyAddWizard({
 
   return (
     <div data-testid="taxonomy-add-wizard" className="flex flex-col gap-1.5 mt-1 px-2 py-2 rounded border border-border">
-      <div className="text-faint text-[9px] uppercase tracking-wide">Add manually · step {step}/4</div>
+      <div className="text-faint text-2xs uppercase tracking-wide">Add manually · step {step}/4</div>
 
       {step === 1 && (
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-faint text-[10px]">this term is a</span>
+            <span className="text-faint text-2xs">this term is a</span>
             {(["genre", "subgenre", "facet"] as Kind[]).map((k) => (
               <button key={k} data-testid={`wizard-kind-${k}`} onClick={() => pickKind(k)}
                 className={[btn, "border capitalize",
@@ -142,17 +142,17 @@ export function TaxonomyAddWizard({
               </button>
             ))}
           </div>
-          <div className="text-faint text-[10px]">
+          <div className="text-faint text-2xs">
             Instrument-led terms ("jazz piano", "jazz guitar") are usually <span className="text-text">facets</span> (instrumentation),
             not genres — unless there's a genuine scene/style tradition beyond the instrument.
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="text-faint text-[10px]">canonical name</span>
+            <span className="text-faint text-2xs">canonical name</span>
             <input data-testid="wizard-name" value={name} onChange={(e) => setName(e.target.value)}
               className={`${input} min-w-[200px]`} />
           </div>
           {name.trim().toLowerCase() !== item.term.trim().toLowerCase() && (
-            <div className="text-faint text-[10px]">"{item.term}" will be kept as an alias of "{name.trim().toLowerCase()}".</div>
+            <div className="text-faint text-2xs">"{item.term}" will be kept as an alias of "{name.trim().toLowerCase()}".</div>
           )}
         </div>
       )}
@@ -160,7 +160,7 @@ export function TaxonomyAddWizard({
       {step === 2 && !isFacet && (
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-faint text-[10px]">parent</span>
+            <span className="text-faint text-2xs">parent</span>
             <GenreAutocomplete value={parentDraft} onChange={setParentDraft} onPick={setParentDraft}
               placeholder="existing canonical genre, e.g. indie rock"
               className={`${input} min-w-[200px]`} autoFocus data-testid="wizard-parent-input" />
@@ -178,7 +178,7 @@ export function TaxonomyAddWizard({
           {parents.length > 0 && (
             <div className="flex flex-wrap items-center gap-1">
               {parents.map((p) => (
-                <span key={p.target} className="text-[10px] px-1.5 py-0.5 rounded-full bg-panel2 text-text">
+                <span key={p.target} className="text-2xs px-1.5 py-0.5 rounded-full bg-panel2 text-text">
                   {p.target} <span className="text-faint">{EDGE_PRESETS[p.preset].edge_type}</span>
                   <button onClick={() => setParents(parents.filter((x) => x.target !== p.target))}
                     className="ml-1 text-faint hover:text-danger">×</button>
@@ -187,7 +187,7 @@ export function TaxonomyAddWizard({
             </div>
           )}
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-faint text-[10px]">similar to (optional)</span>
+            <span className="text-faint text-2xs">similar to (optional)</span>
             <GenreAutocomplete value={similarDraft} onChange={setSimilarDraft} onPick={setSimilarDraft}
               placeholder="existing canonical genre" className={`${input} min-w-[180px]`}
               data-testid="wizard-similar-input" />
@@ -198,42 +198,42 @@ export function TaxonomyAddWizard({
                 setSimilarDraft("");
               }} className={btnGhost}>Add</button>
             {similar.map((s) => (
-              <span key={s} className="text-[10px] px-1.5 py-0.5 rounded-full bg-panel2 text-muted">
+              <span key={s} className="text-2xs px-1.5 py-0.5 rounded-full bg-panel2 text-muted">
                 {s}<button onClick={() => setSimilar(similar.filter((x) => x !== s))}
                   className="ml-1 text-faint hover:text-danger">×</button>
               </span>
             ))}
           </div>
-          <div className="text-faint text-[10px]">Genre = a recognized style; subgenre = a recognized style <em>within</em> a named parent.</div>
+          <div className="text-faint text-2xs">Genre = a recognized style; subgenre = a recognized style <em>within</em> a named parent.</div>
         </div>
       )}
 
       {step === 2 && isFacet && (
         <div className="flex items-center gap-1.5">
-          <span className="text-faint text-[10px]">facet type</span>
+          <span className="text-faint text-2xs">facet type</span>
           <select data-testid="wizard-facet-type" value={facetType}
             onChange={(e) => setFacetType(e.target.value)} className={input}>
             {FACET_TYPES.map((f) => <option key={f} value={f}>{f}</option>)}
           </select>
-          <span className="text-faint text-[10px]">facets are modifiers — they have no parents.</span>
+          <span className="text-faint text-2xs">facets are modifiers — they have no parents.</span>
         </div>
       )}
 
       {step === 3 && (
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center gap-1.5">
-            <span className="text-faint text-[10px]">specificity</span>
+            <span className="text-faint text-2xs">specificity</span>
             <input data-testid="wizard-specificity" type="number" min={0} max={1} step={0.01}
               value={specificity}
               onChange={(e) => { setSpecTouched(true); setSpecificity(Number(e.target.value)); }}
               className={`${input} w-[64px]`} />
-            <span className="text-faint text-[10px]">
+            <span className="text-faint text-2xs">
               ladder: genre 0.48–0.66 · subgenre 0.62–0.82
               {!isFacet && (specificity < spec.lo || specificity > spec.hi) ? " — outside the usual band" : ""}
             </span>
           </div>
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-faint text-[10px]">alias spellings (optional)</span>
+            <span className="text-faint text-2xs">alias spellings (optional)</span>
             <input data-testid="wizard-alias-input" value={aliasDraft}
               onChange={(e) => setAliasDraft(e.target.value)} className={`${input} min-w-[160px]`} />
             <button data-testid="wizard-alias-add" disabled={!aliasDraft.trim()}
@@ -243,7 +243,7 @@ export function TaxonomyAddWizard({
                 setAliasDraft("");
               }} className={btnGhost}>Add</button>
             {aliases.map((a) => (
-              <span key={a} className="text-[10px] px-1.5 py-0.5 rounded-full bg-panel2 text-muted">
+              <span key={a} className="text-2xs px-1.5 py-0.5 rounded-full bg-panel2 text-muted">
                 {a}<button onClick={() => setAliases(aliases.filter((x) => x !== a))}
                   className="ml-1 text-faint hover:text-danger">×</button>
               </span>
@@ -254,15 +254,15 @@ export function TaxonomyAddWizard({
 
       {step === 4 && (
         <div className="flex flex-col gap-1.5">
-          <div className="text-[10px] text-muted">
+          <div className="text-2xs text-muted">
             <span className="text-accent font-semibold">add</span> · {name.trim().toLowerCase()} · {kind}
             {isFacet ? ` (${facetType})` : ""} · spec {specificity.toFixed(2)}
           </div>
           {!isFacet && parents.length > 0 && (
             <div className="flex flex-wrap items-center gap-1">
-              <span className="text-faint text-[10px]">parents</span>
+              <span className="text-faint text-2xs">parents</span>
               {parents.map((p) => (
-                <span key={p.target} className="text-[10px] px-1.5 py-0.5 rounded-full bg-panel2 text-text">
+                <span key={p.target} className="text-2xs px-1.5 py-0.5 rounded-full bg-panel2 text-text">
                   {p.target} <span className="text-faint">{EDGE_PRESETS[p.preset].edge_type} {EDGE_PRESETS[p.preset].weight}</span>
                 </span>
               ))}
@@ -270,19 +270,19 @@ export function TaxonomyAddWizard({
           )}
           <input data-testid="wizard-rationale" value={rationale} placeholder="why this placement? (optional)"
             onChange={(e) => setRationale(e.target.value)} className={input} />
-          {validating && <div className="text-faint text-[10px]">validating…</div>}
+          {validating && <div className="text-faint text-2xs">validating…</div>}
           {validateFailed !== null && (
-            <div data-testid="wizard-validate-failed" className="text-danger text-[10px]">
+            <div data-testid="wizard-validate-failed" className="text-danger text-2xs">
               validation unavailable — {validateFailed}
             </div>
           )}
           {errors !== null && errors.length > 0 && (
-            <div data-testid="wizard-errors" className="text-danger text-[10px]">
+            <div data-testid="wizard-errors" className="text-danger text-2xs">
               {errors.map((e, i) => <div key={`${i}:${e}`}>{e}</div>)}
             </div>
           )}
           {errors !== null && errors.length === 0 && (
-            <div className="text-accent text-[10px]">structurally valid ✓</div>
+            <div className="text-accent text-2xs">structurally valid ✓</div>
           )}
         </div>
       )}

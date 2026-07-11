@@ -1,6 +1,7 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
+import { btnGhost, btnPrimary } from "../lib/ui";
 import type { CanonicalGenre } from "../lib/types";
 
 export interface EditGenresDialogProps {
@@ -82,16 +83,16 @@ export function EditGenresDialog(props: EditGenresDialogProps) {
           <div className="px-5 py-3 border-b border-border flex items-baseline justify-between">
             <div>
               <Dialog.Title className="text-text text-sm font-semibold">Edit genres</Dialog.Title>
-              <div className="text-muted text-[11px] mt-0.5"><span className="text-text">{props.album}</span> · {props.artist}</div>
+              <div className="text-muted text-xs mt-0.5"><span className="text-text">{props.album}</span> · {props.artist}</div>
             </div>
             <Dialog.Close className="text-faint text-lg leading-none p-1 -m-1 inline-flex items-center justify-center pointer-coarse:min-w-11 pointer-coarse:min-h-11">×</Dialog.Close>
           </div>
 
           <div className="px-5 py-4">
-            <div className="text-faint text-[9px] uppercase tracking-wide mb-2">Genres (click × to remove)</div>
+            <div className="text-faint text-2xs uppercase tracking-wide mb-2">Genres (click × to remove)</div>
             <div className="flex flex-wrap gap-1.5 p-2.5 bg-panel2 border border-border rounded-md min-h-[42px]">
               {genres.map((g) => (
-                <span key={g} className="bg-chip text-chipText text-[11px] px-2 py-0.5 rounded-full flex items-center gap-1">
+                <span key={g} className="bg-chip text-chipText text-xs px-2 py-0.5 rounded-full flex items-center gap-1">
                   {g}
                   <span onClick={() => removeGenre(g)} className="text-faint cursor-pointer">×</span>
                 </span>
@@ -102,22 +103,22 @@ export function EditGenresDialog(props: EditGenresDialogProps) {
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addGenre(); } }}
                 placeholder="Add genre…"
-                className="bg-transparent outline-none text-text text-[11px] min-w-[100px] px-1"
+                className="bg-transparent outline-none text-text text-xs min-w-[100px] px-1"
               />
             </div>
             {suggestions.length > 0 && (
               <div data-testid="genre-suggestions" className="mt-1 bg-panel2 border border-border rounded-md max-h-40 overflow-auto">
                 {suggestions.map((s) => (
                   <div key={s.genre_id} onClick={() => addGenre(s.name)}
-                       className="px-2.5 py-1 text-[11px] text-text hover:bg-border cursor-pointer">
+                       className="px-2.5 py-1 text-xs text-text hover:bg-border cursor-pointer">
                     {s.name}
                   </div>
                 ))}
               </div>
             )}
-            <div className="text-faint text-[9px] mt-1.5">Pick from the list (Enter to add) · applies to all tracks on this album</div>
+            <div className="text-faint text-2xs mt-1.5">Pick from the list (Enter to add) · applies to all tracks on this album</div>
             {unknown.length > 0 && (
-              <div className="text-danger text-[11px] mt-2">
+              <div className="text-danger text-xs mt-2">
                 Not in the genre vocabulary (not saved): {unknown.join(", ")}
               </div>
             )}
@@ -125,10 +126,10 @@ export function EditGenresDialog(props: EditGenresDialogProps) {
           </div>
 
           <div className="px-5 py-3 border-t border-border flex items-center justify-between bg-panel2">
-            <div className="text-faint text-[10px]">Saved to the genre authority · run “Refresh genres” to affect generation</div>
+            <div className="text-faint text-2xs">Saved to the genre authority · run “Refresh genres” to affect generation</div>
             <div className="flex gap-2">
-              <Dialog.Close className="border border-border text-muted text-xs px-3.5 py-1.5 pointer-coarse:min-h-11 rounded">Cancel</Dialog.Close>
-              <button onClick={save} disabled={saving} className="bg-accent text-bg font-semibold text-xs px-3.5 py-1.5 pointer-coarse:min-h-11 rounded disabled:opacity-50">
+              <Dialog.Close className={btnGhost}>Cancel</Dialog.Close>
+              <button onClick={save} disabled={saving} className={btnPrimary}>
                 {saving ? "Saving…" : "Save"}
               </button>
             </div>

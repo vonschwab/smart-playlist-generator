@@ -1,6 +1,7 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { useEffect, useState } from "react";
 import { downloadM3U8 } from "../lib/m3u";
+import { btnGhost, btnPrimary } from "../lib/ui";
 import type { TrackOut } from "../lib/types";
 
 export interface ExportM3U8DialogProps {
@@ -36,7 +37,7 @@ export function ExportM3U8Dialog(props: ExportM3U8DialogProps) {
             <Dialog.Close className="text-faint text-lg leading-none p-1 -m-1 inline-flex items-center justify-center pointer-coarse:min-w-11 pointer-coarse:min-h-11">×</Dialog.Close>
           </div>
           <div className="px-5 py-4">
-            <div className="text-faint text-[9px] uppercase tracking-wide mb-2">Playlist name</div>
+            <div className="text-faint text-2xs uppercase tracking-wide mb-2">Playlist name</div>
             <input
               data-testid="m3u8-name"
               value={name}
@@ -45,14 +46,14 @@ export function ExportM3U8Dialog(props: ExportM3U8DialogProps) {
             />
           </div>
           <div className="px-5 py-3 border-t border-border flex justify-end gap-2 bg-panel2">
-            <Dialog.Close className="border border-border text-muted text-xs px-3.5 py-1.5 pointer-coarse:min-h-11 rounded">
+            <Dialog.Close className={btnGhost}>
               Cancel
             </Dialog.Close>
             <button
               data-testid="m3u8-download"
               onClick={doDownload}
               disabled={!name.trim()}
-              className="bg-accent text-bg font-semibold text-xs px-3.5 py-1.5 pointer-coarse:min-h-11 rounded disabled:opacity-50"
+              className={btnPrimary}
             >
               Download
             </button>

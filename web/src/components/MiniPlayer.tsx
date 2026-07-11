@@ -70,7 +70,7 @@ export function MiniPlayer() {
         ⏭
       </button>
       <div className="flex-1 min-w-0">
-        <div className="text-text text-[10px] truncate">{current.title} — {current.artist}</div>
+        <div className="text-text text-2xs truncate">{current.title} — {current.artist}</div>
         {/* Padded hit area around the 2px visual track (discipline T1). */}
         <div
           data-testid="seek-bar"
@@ -87,7 +87,7 @@ export function MiniPlayer() {
           </div>
         </div>
       </div>
-      <span className="text-faint text-[10px] font-mono whitespace-nowrap">
+      <span className="text-faint text-2xs font-mono whitespace-nowrap">
         {fmtTime(elapsed)} / {fmtTime(duration)}
       </span>
     </div>

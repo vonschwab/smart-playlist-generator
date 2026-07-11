@@ -28,13 +28,13 @@ export function JobsPanel({
   return (
     <div className="h-full overflow-auto" data-testid="jobs-panel">
       <div className="flex items-center justify-between px-3 py-2 border-b border-border">
-        <span className="text-[10px] uppercase tracking-wide text-faint">Jobs</span>
+        <span className="text-2xs uppercase tracking-wide text-faint">Jobs</span>
         {clearable && (
           <button
             data-testid="jobs-clear"
             onClick={onClear}
             title="Clear finished jobs"
-            className="text-[9px] uppercase tracking-wide text-faint hover:text-danger"
+            className="text-2xs uppercase tracking-wide text-faint hover:text-danger"
           >
             Clear
           </button>
@@ -44,12 +44,12 @@ export function JobsPanel({
         const meanT = (j.playlist?.metrics?.mean_transition);
         const tracks = j.playlist?.track_count;
         return (
-          <div key={j.job_id} className="px-3 py-2 border-b border-[#181b21]">
+          <div key={j.job_id} className="px-3 py-2 border-b border-hairline">
             <div className="flex items-center justify-between gap-2">
-              <div className="text-[11px] text-text truncate">{j.playlist?.name ?? j.stage ?? "Playlist"}</div>
-              <span className={`text-[9px] ${dot[j.status] ?? "text-muted"}`}>{j.status}</span>
+              <div className="text-xs text-text truncate">{j.playlist?.name ?? j.stage ?? "Playlist"}</div>
+              <span className={`text-2xs ${dot[j.status] ?? "text-muted"}`}>{j.status}</span>
             </div>
-            <div className="text-[9px] text-faint mt-0.5">
+            <div className="text-2xs text-faint mt-0.5">
               {tracks != null ? `${tracks} tracks` : "—"}
               {typeof meanT === "number" ? ` · T̄ ${meanT.toFixed(2)}` : ""}
               {clock(j.created_at) ? ` · ${clock(j.created_at)}` : ""}
@@ -57,15 +57,15 @@ export function JobsPanel({
             <div className="flex gap-1.5 mt-1.5">
               {j.status === "running" && (
                 <button data-testid="job-cancel" onClick={() => onCancel(j)}
-                  className="text-[9px] px-1.5 py-0.5 rounded border border-[#3a1a1a] text-danger">✕ cancel</button>
+                  className="text-2xs px-1.5 py-0.5 rounded border border-danger/30 text-danger">✕ cancel</button>
               )}
               {j.status !== "running" && j.request_params && (
                 <button data-testid="job-rerun" onClick={() => onRerun(j.request_params as unknown as GenerateRequestBody)}
-                  className="text-[9px] px-1.5 py-0.5 rounded border border-[#1d3a35] text-accent">↺ re-run</button>
+                  className="text-2xs px-1.5 py-0.5 rounded border border-accent/30 text-accent">↺ re-run</button>
               )}
               {j.playlist && (
                 <button onClick={() => onSelect(j)}
-                  className="text-[9px] px-1.5 py-0.5 rounded border border-border text-muted">restore</button>
+                  className="text-2xs px-1.5 py-0.5 rounded border border-border text-muted">restore</button>
               )}
             </div>
           </div>

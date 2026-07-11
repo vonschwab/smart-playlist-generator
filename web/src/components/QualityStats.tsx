@@ -23,10 +23,10 @@ function ReceiptLine({ receipt }: { receipt: Receipt | null | undefined }) {
   if (receipt.pace.bpm_std != null) bits.push(`Pace: ±${Math.round(receipt.pace.bpm_std)} BPM`);
   if (!bits.length && !receipt.notes.length) return null;
   return (
-    <div className="text-[11px] text-[#5b6470] mt-1">
+    <div className="text-xs text-faint mt-1">
       <span>⚙ {bits.join(" · ")}</span>
       {receipt.notes.length > 0 && (
-        <button type="button" className="ml-2 text-[#8b939d]" onClick={() => setOpen((v) => !v)}>
+        <button type="button" className="ml-2 text-muted" onClick={() => setOpen((v) => !v)}>
           ⚠ {receipt.notes.length} note{receipt.notes.length > 1 ? "s" : ""} {open ? "▴" : "▾"}
         </button>
       )}
@@ -45,7 +45,7 @@ export function QualityStats({ metrics, receipt, count, tracks, onExportM3U8, on
 
   const stat = (label: string, value: string) => (
     <div className="flex flex-col">
-      <span className="text-[9px] uppercase tracking-wide text-faint">{label}</span>
+      <span className="text-2xs uppercase tracking-wide text-faint">{label}</span>
       <span className="font-mono text-accent text-xs">{value}</span>
     </div>
   );
@@ -64,7 +64,7 @@ export function QualityStats({ metrics, receipt, count, tracks, onExportM3U8, on
             data-testid="export-m3u8"
             onClick={onExportM3U8}
             disabled={disabled}
-            className="border border-border text-muted hover:text-text text-[11px] px-2.5 py-1 rounded disabled:opacity-40"
+            className="border border-border text-muted hover:text-text text-xs px-2.5 py-1 rounded disabled:opacity-40"
           >
             ↓ M3U8
           </button>
@@ -72,7 +72,7 @@ export function QualityStats({ metrics, receipt, count, tracks, onExportM3U8, on
             data-testid="export-plex"
             onClick={onExportPlex}
             disabled={disabled}
-            className="border border-border text-muted hover:text-text text-[11px] px-2.5 py-1 rounded disabled:opacity-40"
+            className="border border-border text-muted hover:text-text text-xs px-2.5 py-1 rounded disabled:opacity-40"
           >
             → Plex
           </button>

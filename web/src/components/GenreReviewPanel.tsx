@@ -8,7 +8,7 @@ type View = "pending" | "completed";
 
 function chips(items: string[], cls: string) {
   return items.map((t) => (
-    <span key={t} className={`text-[10px] px-1.5 py-0.5 rounded-full ${cls}`}>{t}</span>
+    <span key={t} className={`text-2xs px-1.5 py-0.5 rounded-full ${cls}`}>{t}</span>
   ));
 }
 
@@ -23,47 +23,47 @@ function AlbumCard({
   return (
     <div className="flex flex-col gap-1 mt-1 mb-2 ml-1 px-2 py-2 rounded border border-border">
       <div className="flex flex-wrap items-center gap-1">
-        <span className="text-faint text-[9px] uppercase tracking-wide">currently</span>
+        <span className="text-faint text-2xs uppercase tracking-wide">currently</span>
         {esc.prior_observed_leaf.length ? chips(esc.prior_observed_leaf, "bg-panel2 text-muted")
-          : <span className="text-faint text-[10px]">—</span>}
+          : <span className="text-faint text-2xs">—</span>}
       </div>
       <div className="flex flex-wrap items-center gap-1">
-        <span className="text-faint text-[9px] uppercase tracking-wide">proposed</span>
+        <span className="text-faint text-2xs uppercase tracking-wide">proposed</span>
         {esc.proposed_genres.length
           ? esc.proposed_genres.map((g) => (
-              <span key={g.term} className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/20 text-text">
+              <span key={g.term} className="text-2xs px-1.5 py-0.5 rounded-full bg-accent/20 text-text">
                 {g.term}{g.confidence != null ? ` ${g.confidence.toFixed(2)}` : ""}
               </span>))
-          : <span className="text-faint text-[10px]">(none resolved — use Edit)</span>}
+          : <span className="text-faint text-2xs">(none resolved — use Edit)</span>}
       </div>
-      {esc.escalate_reason && <div className="text-muted text-[10px]">{esc.escalate_reason}</div>}
+      {esc.escalate_reason && <div className="text-muted text-2xs">{esc.escalate_reason}</div>}
       {esc.dropped_file_tags.length > 0 && (
-        <div className="text-danger text-[10px]">⚠ would drop your file tag: {esc.dropped_file_tags.join(", ")}</div>
+        <div className="text-danger text-2xs">⚠ would drop your file tag: {esc.dropped_file_tags.join(", ")}</div>
       )}
       {editing ? (
         <div className="flex flex-col gap-1 mt-1">
           <input
             autoFocus value={draft} onChange={(e) => setDraft(e.target.value)}
             placeholder="genre a, genre b, …"
-            className="bg-panel2 border border-border rounded text-[11px] text-text px-2 py-1 outline-none"
+            className="bg-panel2 border border-border rounded text-xs text-text px-2 py-1 outline-none"
           />
           <div className="flex gap-1.5">
             <button
               onClick={() => onDecide("edit", draft.split(",").map((s) => s.trim()).filter(Boolean))}
-              className="text-[10px] px-2 py-0.5 rounded bg-accent text-bg font-semibold"
+              className="text-2xs px-2 py-0.5 rounded bg-accent text-bg font-semibold"
             >Save edit</button>
             <button onClick={() => setEditing(false)}
-              className="text-[10px] px-2 py-0.5 rounded border border-border text-muted hover:text-text">Cancel</button>
+              className="text-2xs px-2 py-0.5 rounded border border-border text-muted hover:text-text">Cancel</button>
           </div>
         </div>
       ) : (
         <div className="flex gap-1.5 mt-1">
           <button onClick={() => onDecide("accept")}
-            className="text-[10px] px-2 py-0.5 rounded bg-accent text-bg font-semibold">Accept (A)</button>
+            className="text-2xs px-2 py-0.5 rounded bg-accent text-bg font-semibold">Accept (A)</button>
           <button onClick={() => setEditing(true)}
-            className="text-[10px] px-2 py-0.5 rounded border border-border text-muted hover:text-text">Edit</button>
+            className="text-2xs px-2 py-0.5 rounded border border-border text-muted hover:text-text">Edit</button>
           <button onClick={() => onDecide("reject")}
-            className="text-[10px] px-2 py-0.5 rounded border border-border text-muted hover:text-text">Reject (R)</button>
+            className="text-2xs px-2 py-0.5 rounded border border-border text-muted hover:text-text">Reject (R)</button>
         </div>
       )}
     </div>
@@ -149,18 +149,18 @@ export function GenreReviewPanel() {
       <div className="flex items-center gap-1">
         {(["pending", "completed"] as View[]).map((v) => (
           <button key={v} onClick={() => { setView(v); setSelected(null); }}
-            className={["text-[10px] px-2 py-1 rounded border capitalize",
+            className={["text-2xs px-2 py-1 rounded border capitalize",
               view === v ? "border-accent/60 bg-panel2 text-text" : "border-border text-muted hover:text-text"].join(" ")}>
             {v}
           </button>
         ))}
         <div className="flex-1" />
-        {sessionCount > 0 && <span className="text-accent text-[10px]">✓ {sessionCount} this session</span>}
+        {sessionCount > 0 && <span className="text-accent text-2xs">✓ {sessionCount} this session</span>}
         {publishJob ? (
-          <span className="text-faint text-[10px] truncate max-w-[160px]">{publishMsg}</span>
+          <span className="text-faint text-2xs truncate max-w-[160px]">{publishMsg}</span>
         ) : decidedK > 0 ? (
           <button onClick={publishDecided}
-            className="text-[10px] px-2 py-1 rounded bg-accent text-bg font-semibold">
+            className="text-2xs px-2 py-1 rounded bg-accent text-bg font-semibold">
             Publish decided ({decidedK})
           </button>
         ) : null}
@@ -170,12 +170,12 @@ export function GenreReviewPanel() {
         <div className="text-muted text-xs flex-1">
           {data ? `${data.pending_albums} pending · ${data.decided_albums} decided` : "…"}
         </div>
-        {flash && <span className="text-accent text-[10px] truncate max-w-[160px]">{flash}</span>}
+        {flash && <span className="text-accent text-2xs truncate max-w-[160px]">{flash}</span>}
       </div>
 
       <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Filter artist / album…"
-        className="bg-panel2 border border-border rounded text-[11px] text-text px-2 py-1 placeholder:text-faint outline-none" />
-      {error && <div className="text-danger text-[10px]">{error}</div>}
+        className="bg-panel2 border border-border rounded text-xs text-text px-2 py-1 placeholder:text-faint outline-none" />
+      {error && <div className="text-danger text-2xs">{error}</div>}
 
       {data && escalations.length === 0 && (
         <div className="text-faint text-xs p-3">
@@ -191,9 +191,9 @@ export function GenreReviewPanel() {
               <button onClick={() => setSelected(sel?.album_id === esc.album_id ? null : esc.album_id)}
                 className="text-left flex-1 min-w-0 flex items-center gap-2">
                 <span className="text-xs flex-1 truncate select-text">{esc.artist} – {esc.album}</span>
-                {esc.dropped_file_tags.length > 0 && <span className="text-danger text-[10px]">⚠</span>}
+                {esc.dropped_file_tags.length > 0 && <span className="text-danger text-2xs">⚠</span>}
               </button>
-              <span className="text-faint text-[10px] capitalize">{view === "completed" ? esc.status : ""}</span>
+              <span className="text-faint text-2xs capitalize">{view === "completed" ? esc.status : ""}</span>
               <button
                 title="Copy artist – album"
                 onClick={(e) => {
@@ -202,13 +202,13 @@ export function GenreReviewPanel() {
                   navigator.clipboard?.writeText(text);
                   setFlash(`copied ✓ ${text}`);
                 }}
-                className="shrink-0 text-faint hover:text-text text-[11px] px-1 leading-none">⧉</button>
+                className="shrink-0 text-faint hover:text-text text-xs px-1 leading-none">⧉</button>
             </div>
             {sel?.album_id === esc.album_id && view === "pending" && (
               <AlbumCard esc={esc} onDecide={(d, g) => decide(esc, d, g)} />
             )}
             {sel?.album_id === esc.album_id && view === "completed" && (
-              <div className="ml-1 mb-2 px-2 py-1 text-[10px] text-muted flex items-center gap-2">
+              <div className="ml-1 mb-2 px-2 py-1 text-2xs text-muted flex items-center gap-2">
                 <span className="flex-1">decided: {(esc.decision_genres ?? esc.proposed_genres.map((g) => g.term)).join(", ") || "—"}</span>
                 <button onClick={async () => {
                   await api.reviewDecision({ album_id: esc.album_id, decision: "revert" });

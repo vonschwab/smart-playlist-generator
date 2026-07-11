@@ -86,12 +86,12 @@ export function StylePopover({
             ref={cardRef}
             id="style-popover-card"
             style={{ position: "fixed", top: pos.top, left: pos.left }}
-            className="z-50 w-[280px] max-h-[70dvh] overflow-y-auto bg-[#16181d] border border-[#23262d] rounded shadow-xl p-3 flex flex-col gap-3"
+            className="z-50 w-[280px] max-h-[70dvh] overflow-y-auto bg-panel border border-border rounded shadow-xl p-3 flex flex-col gap-3"
           >
             {/* Spread */}
             <div className="flex items-center gap-2">
               <label
-                className="uppercase tracking-wide text-[10px] text-[#8b939d] w-14 shrink-0"
+                className="uppercase tracking-wide text-2xs text-muted w-14 shrink-0"
                 title="How much of the seed artist's stylistic range to draw from. Some artists span many styles across their catalog — Focused draws from one corner, Sprawling draws from across the full range."
               >
                 spread
@@ -100,7 +100,7 @@ export function StylePopover({
                 value={artistVariety}
                 onChange={(e) => onVarietyChange(e.target.value)}
                 title="How much of the seed artist's stylistic range to draw from."
-                className="flex-1 bg-[#0c0e12] border border-[#23262d] rounded text-[11px] text-[#e6e9ec] px-2 py-[3px]"
+                className="flex-1 bg-well border border-border rounded text-xs text-text px-2 py-[3px]"
               >
                 <option value="focused">focused</option>
                 <option value="balanced">balanced</option>
@@ -110,7 +110,7 @@ export function StylePopover({
 
             {/* Genre lean */}
             <div className="flex flex-col gap-1.5">
-              <span className="uppercase tracking-wide text-[10px] text-[#8b939d]">
+              <span className="uppercase tracking-wide text-2xs text-muted">
                 lean toward genres
               </span>
               {artistTags.length > 0 ? (
@@ -126,12 +126,12 @@ export function StylePopover({
                         onClick={() => onToggleTag(t.name)}
                         title={`${t.release_count} release${t.release_count === 1 ? "" : "s"}`}
                         className={
-                          "rounded-full border px-2 py-0.5 text-[11px] transition-colors " +
+                          "rounded-full border px-2 py-0.5 text-xs transition-colors " +
                           (on
-                            ? "border-[#5eead4] bg-[#5eead4]/15 text-[#5eead4]"
+                            ? "border-accent bg-accent/15 text-accent"
                             : capped
-                              ? "border-[#23262d] text-[#8b939d] opacity-40"
-                              : "border-[#23262d] text-[#8b939d] hover:bg-[#1e2229]")
+                              ? "border-border text-muted opacity-40"
+                              : "border-border text-muted hover:bg-rowsel")
                         }
                       >
                         {t.name}
@@ -140,11 +140,11 @@ export function StylePopover({
                   })}
                 </div>
               ) : tagsFetched ? (
-                <p className="text-[11px] text-[#5b6470]">
+                <p className="text-xs text-faint">
                   No published genres for this artist — run enrichment publish to enable tag steering.
                 </p>
               ) : (
-                <p className="text-[11px] text-[#5b6470]">Loading…</p>
+                <p className="text-xs text-faint">Loading…</p>
               )}
             </div>
           </div>,
@@ -161,15 +161,15 @@ export function StylePopover({
         aria-controls="style-popover-card"
         onClick={() => setOpen((v) => { if (!v) onOpen?.(); return !v; })}
         title="Style: how much of the artist's stylistic range to draw from, plus which genres to lean toward."
-        className="flex items-center gap-1.5 bg-[#0c0e12] border border-[#23262d] rounded text-[11px] text-[#e6e9ec] px-2.5 py-[3px]"
+        className="flex items-center gap-1.5 bg-well border border-border rounded text-xs text-text px-2.5 py-[3px]"
       >
-        <span className="uppercase tracking-wide text-[10px] text-[#8b939d]">style</span>
+        <span className="uppercase tracking-wide text-2xs text-muted">style</span>
         {count > 0 && (
-          <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 rounded-full bg-[#5eead4] text-[#0f1115] text-[10px] font-bold leading-none">
+          <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 rounded-full bg-accent text-bg text-2xs font-bold leading-none">
             {count}
           </span>
         )}
-        <span className="text-[#5b6470]">▾</span>
+        <span className="text-faint">▾</span>
       </button>
       {card}
     </>

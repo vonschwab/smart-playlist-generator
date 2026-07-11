@@ -1,9 +1,9 @@
 import type { PlaylistOut } from "../lib/types";
 
 function barColor(t: number): string {
-  if (t >= 0.6) return "#5eead4";
-  if (t >= 0.4) return "#f97316";
-  return "#ef4444";
+  if (t >= 0.6) return "var(--color-accent)";
+  if (t >= 0.4) return "var(--color-warn)";
+  return "var(--color-danger)";
 }
 
 function fmt(n: number | null | undefined): string {
@@ -13,7 +13,7 @@ function fmt(n: number | null | undefined): string {
 export function DiagnosticsPanel({ playlist }: { playlist: PlaylistOut | null }) {
   if (!playlist || playlist.tracks.length === 0) {
     return (
-      <div className="p-4 text-xs text-[#3a3f4b]" data-testid="diagnostics-empty">
+      <div className="p-4 text-xs text-faint" data-testid="diagnostics-empty">
         Generate a playlist to see diagnostics.
       </div>
     );
@@ -32,15 +32,15 @@ export function DiagnosticsPanel({ playlist }: { playlist: PlaylistOut | null })
     : null;
 
   const stat = (label: string, value: string) => (
-    <div className="flex justify-between items-baseline py-1 border-b border-[#1a1c21]">
-      <span className="text-[9px] uppercase tracking-[.06em] text-[#5b6470]">{label}</span>
-      <span className="text-[11px] font-bold font-mono text-[#5eead4]">{value}</span>
+    <div className="flex justify-between items-baseline py-1 border-b border-hairline">
+      <span className="text-2xs uppercase tracking-[.06em] text-faint">{label}</span>
+      <span className="text-xs font-bold font-mono text-accent">{value}</span>
     </div>
   );
 
   return (
     <div className="p-3 overflow-y-auto text-xs" data-testid="diagnostics-content">
-      <div className="text-[9px] uppercase tracking-[.08em] text-[#3a3f4b] mb-1">Summary</div>
+      <div className="text-2xs uppercase tracking-[.08em] text-faint mb-1">Summary</div>
       <div className="grid grid-cols-2 gap-x-3">
         {stat("Mean", fmt(m?.mean_transition))}
         {stat("Min", fmt(m?.min_transition))}
@@ -51,22 +51,22 @@ export function DiagnosticsPanel({ playlist }: { playlist: PlaylistOut | null })
       </div>
 
       {weakest && (
-        <div className="mt-3 bg-[#1a1015] border border-[#3a1a1a] rounded p-2" data-testid="weakest-edge">
-          <div className="text-[8px] uppercase tracking-[.06em] text-[#ef4444] mb-0.5">⚠ Weakest edge</div>
-          <div className="text-[10px] text-[#e6e9ec]">track {weakest.i} → {weakest.i + 1}</div>
-          <div className="text-[8px] font-mono text-[#ef4444]">T = {weakest.score.toFixed(2)}</div>
+        <div className="mt-3 bg-danger/10 border border-danger/30 rounded p-2" data-testid="weakest-edge">
+          <div className="text-2xs uppercase tracking-[.06em] text-danger mb-0.5">⚠ Weakest edge</div>
+          <div className="text-2xs text-text">track {weakest.i} → {weakest.i + 1}</div>
+          <div className="text-2xs font-mono text-danger">T = {weakest.score.toFixed(2)}</div>
         </div>
       )}
 
-      <div className="text-[8px] uppercase tracking-[.08em] text-[#3a3f4b] mt-3 mb-1">Transitions</div>
+      <div className="text-2xs uppercase tracking-[.08em] text-faint mt-3 mb-1">Transitions</div>
       <div className="flex flex-col gap-0.5" data-testid="transition-bars">
         {edges.map((e) => (
           <div key={e.i} className="flex items-center gap-1.5">
-            <span className="text-[8px] text-[#3a3f4b] w-7 text-right shrink-0">{e.i}→{e.i + 1}</span>
-            <div className="flex-1 h-1.5 bg-[#1a1c21] rounded-sm overflow-hidden">
+            <span className="text-2xs text-faint w-7 text-right shrink-0">{e.i}→{e.i + 1}</span>
+            <div className="flex-1 h-1.5 bg-hairline rounded-sm overflow-hidden">
               <div className="h-full rounded-sm" style={{ width: `${e.score * 100}%`, background: barColor(e.score) }} />
             </div>
-            <span className="text-[8px] font-mono text-[#5b6470] w-8 text-right shrink-0">{e.score.toFixed(2)}</span>
+            <span className="text-2xs font-mono text-faint w-8 text-right shrink-0">{e.score.toFixed(2)}</span>
           </div>
         ))}
       </div>

@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { api } from "../lib/api";
 import { useJobReconcile } from "../lib/useJobReconcile";
 import { useWorkerEvents } from "../lib/ws";
+import { btnGhost, btnPrimary } from "../lib/ui";
 import type { AnalyzeToolRequest, EnrichToolRequest, WsEvent } from "../lib/types";
 
 // Mirror of ANALYZE_LIBRARY_STAGE_ORDER (src/playlist/request_models.py) — keep in sync.
@@ -24,8 +25,8 @@ interface StageResult {
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-3 p-4 bg-[#0f1117] border border-[#23262d] rounded-md min-w-0">
-      <div className="text-[11px] uppercase tracking-[.1em] text-[#5b6470] font-semibold">
+    <div className="flex flex-col gap-3 p-4 bg-bg border border-border rounded-md min-w-0">
+      <div className="text-xs uppercase tracking-[.1em] text-faint font-semibold">
         {title}
       </div>
       {children}
@@ -39,7 +40,7 @@ function Row({ children }: { children: React.ReactNode }) {
 
 function Lbl({ children }: { children: React.ReactNode }) {
   return (
-    <span className="text-[10px] uppercase tracking-[.08em] text-[#5b6470] font-medium select-none">
+    <span className="text-2xs uppercase tracking-[.08em] text-faint font-medium select-none">
       {children}
     </span>
   );
@@ -58,8 +59,7 @@ function RunBtn({
     <button
       onClick={onClick}
       disabled={disabled}
-      className="px-3 py-1 pointer-coarse:min-h-11 text-[11px] font-medium rounded bg-accent text-black
-                 disabled:opacity-30 disabled:cursor-default hover:opacity-90 transition-opacity"
+      className={`${btnPrimary} hover:opacity-90 transition-opacity`}
     >
       {children}
     </button>
@@ -70,8 +70,7 @@ function CancelBtn({ onClick }: { onClick: () => void }) {
   return (
     <button
       onClick={onClick}
-      className="px-3 py-1 pointer-coarse:min-h-11 text-[11px] font-medium rounded border border-[#3a3f4b]
-                 text-[#8b939d] hover:text-[#c9d1d9] transition-colors"
+      className={`${btnGhost} font-medium hover:text-text transition-colors`}
     >
       Cancel
     </button>
@@ -81,22 +80,22 @@ function CancelBtn({ onClick }: { onClick: () => void }) {
 function ProgressBar({ label }: { label: string }) {
   return (
     <div className="flex items-center gap-2">
-      <div className="flex-1 h-1 bg-[#1e2128] rounded overflow-hidden">
+      <div className="flex-1 h-1 bg-hairline rounded overflow-hidden">
         <div className="h-full bg-accent animate-pulse w-full" />
       </div>
-      <span className="text-[10px] text-[#5b6470] truncate max-w-[160px]">{label}</span>
+      <span className="text-2xs text-faint truncate max-w-[160px]">{label}</span>
     </div>
   );
 }
 
 function StageTable({ stages }: { stages: StageResult[] }) {
   return (
-    <table className="w-full text-[10px] text-[#5b6470]">
+    <table className="w-full text-2xs text-faint">
       <tbody>
         {stages.map((s) => (
           <tr key={s.name}>
-            <td className="pr-2 text-[#8b939d] font-mono">{s.name}</td>
-            <td className={`pr-2 ${s.decision === "ran" ? "text-accent" : "text-[#5b6470]"}`}>
+            <td className="pr-2 text-muted font-mono">{s.name}</td>
+            <td className={`pr-2 ${s.decision === "ran" ? "text-accent" : "text-faint"}`}>
               {s.decision}
             </td>
             <td className="pr-2">{s.duration_ms}ms</td>
@@ -306,7 +305,7 @@ export function ToolsPanel({
                   onChange={() => toggleStage(s)}
                   className="accent-accent"
                 />
-                <span className="text-[10px] text-[#8b939d] font-mono">{s}</span>
+                <span className="text-2xs text-muted font-mono">{s}</span>
               </label>
             ))}
           </div>
@@ -351,12 +350,12 @@ export function ToolsPanel({
 
           {/* Error */}
           {analyzeError && (
-            <div className="text-[10px] text-danger">{analyzeError}</div>
+            <div className="text-2xs text-danger">{analyzeError}</div>
           )}
 
           {/* Last-run summary */}
           {lastAnalyzeStages && !analyzeJobId && (
-            <details className="text-[10px] text-[#5b6470]">
+            <details className="text-2xs text-faint">
               <summary className="cursor-pointer select-none">
                 Last run — {lastAnalyzeStages.length} stages
               </summary>
@@ -377,8 +376,8 @@ export function ToolsPanel({
               onChange={(e) =>
                 setScope(e.target.value as EnrichToolRequest["scope"])
               }
-              className="bg-[#0c0e12] border border-[#23262d] rounded text-[11px]
-                         text-[#8b939d] py-[3px] px-2 cursor-pointer"
+              className="bg-well border border-border rounded text-xs
+                         text-muted py-[3px] px-2 cursor-pointer"
             >
               <option value="all_unenriched">All unenriched</option>
               <option value="artist">Artist</option>
@@ -395,10 +394,10 @@ export function ToolsPanel({
                 value={enrichArtist}
                 onChange={(e) => setEnrichArtist(e.target.value)}
                 placeholder="artist name"
-                className="flex-1 bg-[#0c0e12] border border-[#23262d] rounded
-                           text-[11px] text-[#c9d1d9] py-[3px] px-2
-                           placeholder:text-[#3a3f4b] outline-none
-                           focus:border-[#3a3f4b]"
+                className="flex-1 bg-well border border-border rounded
+                           text-xs text-text py-[3px] px-2
+                           placeholder:text-faint outline-none
+                           focus:border-border"
               />
             </Row>
           )}
@@ -412,10 +411,10 @@ export function ToolsPanel({
                 value={enrichAlbum}
                 onChange={(e) => setEnrichAlbum(e.target.value)}
                 placeholder="album title (optional)"
-                className="flex-1 bg-[#0c0e12] border border-[#23262d] rounded
-                           text-[11px] text-[#c9d1d9] py-[3px] px-2
-                           placeholder:text-[#3a3f4b] outline-none
-                           focus:border-[#3a3f4b]"
+                className="flex-1 bg-well border border-border rounded
+                           text-xs text-text py-[3px] px-2
+                           placeholder:text-faint outline-none
+                           focus:border-border"
               />
             </Row>
           )}
@@ -438,18 +437,18 @@ export function ToolsPanel({
 
           {/* Error */}
           {enrichError && (
-            <div className="text-[10px] text-danger">{enrichError}</div>
+            <div className="text-2xs text-danger">{enrichError}</div>
           )}
 
           {/* Last-run summary */}
           {lastEnrichSummary && !enrichJobId && (
-            <div className="text-[10px] text-[#5b6470]">{lastEnrichSummary}</div>
+            <div className="text-2xs text-faint">{lastEnrichSummary}</div>
           )}
         </Card>
 
         {/* ── Refresh Genres for generation ─────────────────────────────── */}
         <Card title="Refresh Genres">
-          <div className="text-[10px] text-[#5b6470] mb-1">
+          <div className="text-2xs text-faint mb-1">
             Re-bakes the genre matrices + dense sidecar into the artifact so your
             genre edits affect generation (no sonic re-analysis).
           </div>
@@ -462,10 +461,10 @@ export function ToolsPanel({
             <ProgressBar label={refreshProgress} />
           )}
           {refreshError && (
-            <div className="text-[10px] text-danger">{refreshError}</div>
+            <div className="text-2xs text-danger">{refreshError}</div>
           )}
           {lastRefreshSummary && !refreshJobId && (
-            <div className="text-[10px] text-[#5b6470]">{lastRefreshSummary}</div>
+            <div className="text-2xs text-faint">{lastRefreshSummary}</div>
           )}
         </Card>
       </div>

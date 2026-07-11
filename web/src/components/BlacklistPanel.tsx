@@ -2,7 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
 import type { BlacklistEntry, BlacklistFetchResponse } from "../lib/types";
 
-const DOT: Record<string, string> = { artist: "#ef4444", album: "#f97316", track: "#a855f7" };
+const DOT: Record<string, string> = {
+  artist: "var(--color-danger)",
+  album: "var(--color-warn)",
+  track: "var(--color-chipText)",
+};
 
 export function BlacklistPanel() {
   const [data, setData] = useState<BlacklistFetchResponse | null>(null);
@@ -78,14 +82,14 @@ export function BlacklistPanel() {
 
   const section = (title: string, entries: BlacklistEntry[]) => (
     <div>
-      <div className="flex justify-between text-[8px] uppercase tracking-[.08em] text-[#5b6470] mt-2 mb-1">
-        <span>{title}</span><span className="text-[#3a3f4b]">{entries.length}</span>
+      <div className="flex justify-between text-2xs uppercase tracking-[.08em] text-faint mt-2 mb-1">
+        <span>{title}</span><span className="text-faint">{entries.length}</span>
       </div>
       {entries.map((e, i) => (
-        <div key={`${e.scope}-${i}`} className="flex items-center gap-1.5 py-0.5 border-b border-[#1a1c21]">
+        <div key={`${e.scope}-${i}`} className="flex items-center gap-1.5 py-0.5 border-b border-hairline">
           <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: DOT[e.scope] }} />
-          <span className="text-[10px] text-[#8b939d] flex-1 truncate">{e.display_name}</span>
-          <button onClick={() => remove(e)} className="text-[#3a3f4b] hover:text-[#ef4444] text-sm leading-none">×</button>
+          <span className="text-2xs text-muted flex-1 truncate">{e.display_name}</span>
+          <button onClick={() => remove(e)} className="text-faint hover:text-danger text-sm leading-none">×</button>
         </div>
       ))}
     </div>
@@ -102,25 +106,25 @@ export function BlacklistPanel() {
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && addArtist()}
           placeholder="Artist to blacklist…"
-          className="flex-1 bg-[#0c0e12] border border-[#23262d] rounded text-[10px] text-[#e6e9ec] px-2 py-1"
+          className="flex-1 bg-well border border-border rounded text-2xs text-text px-2 py-1"
         />
         <button data-testid="blacklist-add" onClick={addArtist} disabled={busy}
-          className="text-[10px] bg-[#1d3a35] text-[#5eead4] rounded px-2 disabled:opacity-50">+ Add</button>
+          className="text-2xs bg-accent/10 text-accent rounded px-2 disabled:opacity-50">+ Add</button>
         {suggestions.length > 0 && (
-          <ul className="absolute z-20 top-8 left-0 right-0 bg-[#16181d] border border-[#23262d] rounded shadow-xl max-h-40 overflow-auto">
+          <ul className="absolute z-20 top-8 left-0 right-0 bg-panel border border-border rounded shadow-xl max-h-40 overflow-auto">
             {suggestions.map((s) => (
               <li key={s} onClick={() => { setQ(s); setSuggestions([]); }}
-                className="px-2 py-1 text-[10px] text-[#e6e9ec] hover:bg-[#1e2229] cursor-pointer">{s}</li>
+                className="px-2 py-1 text-2xs text-text hover:bg-rowsel cursor-pointer">{s}</li>
             ))}
           </ul>
         )}
       </div>
 
-      {error && <div className="text-[#ef4444] text-[10px] mb-2">{error}</div>}
-      {busy && <div className="text-[#3a3f4b] text-[9px] mb-1">Refreshing…</div>}
+      {error && <div className="text-danger text-2xs mb-2">{error}</div>}
+      {busy && <div className="text-faint text-2xs mb-1">Refreshing…</div>}
 
       {empty ? (
-        <div className="text-[#3a3f4b] text-[10px]">Nothing blacklisted yet. Use the track table context menu or search above.</div>
+        <div className="text-faint text-2xs">Nothing blacklisted yet. Use the track table context menu or search above.</div>
       ) : data ? (
         <>
           {section("Artists", data.artists)}

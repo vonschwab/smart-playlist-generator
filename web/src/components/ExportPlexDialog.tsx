@@ -1,6 +1,7 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
+import { btnGhost, btnPrimary } from "../lib/ui";
 import type { TrackOut } from "../lib/types";
 
 export interface ExportPlexDialogProps {
@@ -40,7 +41,7 @@ export function ExportPlexDialog(props: ExportPlexDialogProps) {
             <Dialog.Close className="text-faint text-lg leading-none p-1 -m-1 inline-flex items-center justify-center pointer-coarse:min-w-11 pointer-coarse:min-h-11">×</Dialog.Close>
           </div>
           <div className="px-5 py-4">
-            <div className="text-faint text-[9px] uppercase tracking-wide mb-2">Playlist name</div>
+            <div className="text-faint text-2xs uppercase tracking-wide mb-2">Playlist name</div>
             <input
               data-testid="plex-name"
               value={name}
@@ -51,11 +52,11 @@ export function ExportPlexDialog(props: ExportPlexDialogProps) {
             {status === "done" && <div className="text-accent text-xs mt-2">{msg}</div>}
           </div>
           <div className="px-5 py-3 border-t border-border flex justify-end gap-2 bg-panel2">
-            <Dialog.Close className="border border-border text-muted text-xs px-3.5 py-1.5 pointer-coarse:min-h-11 rounded">Close</Dialog.Close>
+            <Dialog.Close className={btnGhost}>Close</Dialog.Close>
             <button
               onClick={doExport}
               disabled={status === "exporting" || !name.trim()}
-              className="bg-accent text-bg font-semibold text-xs px-3.5 py-1.5 pointer-coarse:min-h-11 rounded disabled:opacity-50"
+              className={btnPrimary}
             >
               {status === "exporting" ? "Exporting…" : "Export"}
             </button>

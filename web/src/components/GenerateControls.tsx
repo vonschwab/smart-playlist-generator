@@ -4,6 +4,7 @@ import { useInfiniteSearch } from "../lib/useInfiniteSearch";
 import { useLocalStorage } from "../lib/useLocalStorage";
 import type { FlowDial, GenerateRequestBody, Mode, PaceDial, RangeDial } from "../lib/types";
 import { StylePopover } from "./StylePopover";
+import { btnPrimary } from "../lib/ui";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -12,12 +13,12 @@ const DIVERSITY_LABELS = ["very low", "low", "normal", "high", "very high", "one
 
 // ── Shared style helpers ──────────────────────────────────────────────────────
 
-const SEL = "bg-[#0c0e12] border border-[#23262d] rounded text-[11px] text-[#8b939d] py-[3px] pl-[5px] pr-[18px] appearance-none cursor-pointer disabled:opacity-30 disabled:cursor-default"
+const SEL = "bg-well border border-border rounded text-xs text-muted py-[3px] pl-[5px] pr-[18px] appearance-none cursor-pointer disabled:opacity-30 disabled:cursor-default"
   + " [background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%235b6470'/%3E%3C/svg%3E\")] [background-repeat:no-repeat] [background-position:right_5px_center]";
 
 function Lbl({ title, children }: { title?: string; children: React.ReactNode }) {
   return (
-    <span title={title} className="text-[9px] uppercase tracking-[.08em] text-[#5b6470] font-medium whitespace-nowrap select-none">
+    <span title={title} className="text-2xs uppercase tracking-[.08em] text-faint font-medium whitespace-nowrap select-none">
       {children}
     </span>
   );
@@ -33,7 +34,7 @@ function Cell({ children, grow, push, className = "" }: {
   return (
     <div className={[
       "flex items-center gap-[6px] px-3 py-[6px]",
-      "border-r border-[#1e2128] last:border-r-0",
+      "border-r border-hairline last:border-r-0",
       grow ? "flex-1 min-w-0" : "",
       push ? "ml-auto border-l border-r-0 !border-r-0" : "",
       className,
@@ -48,12 +49,12 @@ function Segmented({ value, options, onChange, offDefault }: {
   onChange: (v: string) => void; offDefault: boolean;
 }) {
   return (
-    <div className="flex rounded border border-[#23262d] overflow-hidden">
+    <div className="flex rounded border border-border overflow-hidden">
       {options.map((o) => (
         <button key={o.v} type="button" title={o.tip} onClick={() => onChange(o.v)}
           className={[
-            "text-[11px] px-2 py-[3px] whitespace-nowrap",
-            o.v === value ? "bg-[#23262d] text-[#c8cdd4]" : "bg-[#0c0e12] text-[#5b6470] hover:text-[#8b939d]",
+            "text-xs px-2 py-[3px] whitespace-nowrap",
+            o.v === value ? "bg-border text-text" : "bg-well text-faint hover:text-muted",
           ].join(" ")}>
           {o.label}{o.v === value && offDefault ? " •" : ""}
         </button>
@@ -246,10 +247,10 @@ export function GenerateControls({
   }
 
   return (
-    <div className="@container border border-[#23262d] rounded-none border-x-0 border-t-0 overflow-hidden">
+    <div className="@container border border-border rounded-none border-x-0 border-t-0 overflow-hidden">
 
       {/* ── ROW 1: mode-specific ──────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center bg-[#16181d] border-b border-[#1e2128]">
+      <div className="flex flex-wrap items-center bg-panel border-b border-hairline">
 
         {/* Mode selector */}
         <Cell>
@@ -276,7 +277,7 @@ export function GenerateControls({
                 onChange={(e) => { selectedRef.current = null; setSeed(e.target.value); }}
                 onKeyDown={(e) => e.key === "Enter" && submit()}
                 placeholder={mode === "artist" ? "Artist name…" : "Genre…"}
-                className="w-full bg-[#0c0e12] border border-[#23262d] rounded text-[11px] text-[#e6e9ec] px-2.5 py-[3px]"
+                className="w-full bg-well border border-border rounded text-xs text-text px-2.5 py-[3px]"
               />
               {mode === "artist" && artistSearch.items.length > 0 && (
                 <ul
@@ -285,19 +286,19 @@ export function GenerateControls({
                     const el = listRef.current;
                     if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 48) artistSearch.loadMore();
                   }}
-                  className="absolute z-10 mt-1 w-full bg-[#16181d] border border-[#23262d] rounded shadow-xl max-h-48 overflow-auto"
+                  className="absolute z-10 mt-1 w-full bg-panel border border-border rounded shadow-xl max-h-48 overflow-auto"
                 >
                   {artistSearch.items.map((s) => (
                     <li
                       key={s}
                       onClick={() => { selectedRef.current = s; setSeed(s); artistSearch.reset(); setTagEpoch((e) => e + 1); }}
-                      className="px-2.5 py-1.5 text-[11px] text-[#e6e9ec] hover:bg-[#1e2229] cursor-pointer"
+                      className="px-2.5 py-1.5 text-xs text-text hover:bg-rowsel cursor-pointer"
                     >
                       {s}
                     </li>
                   ))}
                   {(artistSearch.loading || artistSearch.hasMore) && (
-                    <li className="px-2.5 py-1.5 text-[10px] text-[#5b6470]">
+                    <li className="px-2.5 py-1.5 text-2xs text-faint">
                       {artistSearch.loading ? "Loading…" : "Scroll for more"}
                     </li>
                   )}
@@ -310,7 +311,7 @@ export function GenerateControls({
         {/* Seeds mode: show count badge */}
         {mode === "seeds" && seedTrackIds.length > 0 && (
           <Cell grow>
-            <span className="text-[10px] text-[#5b6470]">
+            <span className="text-2xs text-faint">
               {seedTrackIds.length} seed{seedTrackIds.length !== 1 ? "s" : ""} — manage below ↓
             </span>
           </Cell>
@@ -326,7 +327,7 @@ export function GenerateControls({
             max={200}
             value={tracks}
             onChange={(e) => setTracks(Number(e.target.value))}
-            className="w-12 bg-[#0c0e12] border border-[#23262d] rounded text-[11px] text-[#e6e9ec] px-2 py-[3px] text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            className="w-12 bg-well border border-border rounded text-xs text-text px-2 py-[3px] text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
           />
         </Cell>
 
@@ -370,7 +371,7 @@ export function GenerateControls({
                   type="checkbox"
                   checked={includeCollabs}
                   onChange={(e) => setIncludeCollabs(e.target.checked)}
-                  className="accent-[#5eead4] cursor-pointer"
+                  className="accent-accent cursor-pointer"
                 />
                 <Lbl>include collaborations</Lbl>
               </label>
@@ -399,7 +400,7 @@ export function GenerateControls({
           <button
             onClick={() => submit()}
             disabled={busy}
-            className="bg-[#5eead4] text-[#0f1115] font-bold text-[11px] px-4 py-[4px] pointer-coarse:min-h-11 rounded disabled:opacity-50 whitespace-nowrap"
+            className={`${btnPrimary} font-bold whitespace-nowrap`}
           >
             {busy ? "Generating…" : "▸ Generate"}
           </button>
@@ -408,7 +409,7 @@ export function GenerateControls({
           <Cell>
             <button onClick={() => { setSeedEpoch((e) => e + 1); submit(seedEpoch + 1); }}
               disabled={busy}
-              className="border border-[#5eead4] text-[#5eead4] text-[11px] px-3 py-[4px] pointer-coarse:min-h-11 rounded disabled:opacity-50 whitespace-nowrap"
+              className="border border-accent text-accent text-xs px-3 py-1 pointer-coarse:min-h-11 rounded disabled:opacity-50 whitespace-nowrap"
               title="Re-roll: same settings, fresh seed tracks.">
               ↻ New Seeds
             </button>
@@ -421,7 +422,7 @@ export function GenerateControls({
             aria-expanded={showMore}
             aria-controls="advanced-controls-region"
             onClick={() => setShowMore((v) => !v)}
-            className="@md:hidden border border-[#23262d] text-[#8b939d] text-[11px] px-3 py-[4px] rounded whitespace-nowrap"
+            className="@md:hidden border border-border text-muted text-xs px-3 py-[4px] rounded whitespace-nowrap"
           >
             {showMore ? "Less controls ▴" : "More controls ▾"}
           </button>
@@ -432,7 +433,7 @@ export function GenerateControls({
       <div id="advanced-controls-region" data-testid="advanced-controls" className={showMore ? "" : "@max-md:hidden"}>
 
       {/* ── ROW 2: dials + matching ──────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center bg-[#13151a] border-b border-[#1e2128]">
+      <div className="flex flex-wrap items-center bg-panel2 border-b border-hairline">
         <Cell>
           <Lbl title="How far from home the music can come from — what's considered for the playlist.">range</Lbl>
           <Segmented value={dials.range} offDefault={dials.range !== DIAL_DEFAULTS.range}
@@ -467,7 +468,7 @@ export function GenerateControls({
           <Cell>
             <button type="button" title="Reset dials to defaults"
               onClick={() => setDials({ ...DIAL_DEFAULTS })}
-              className="text-[11px] text-[#5b6470] hover:text-[#8b939d]">↺</button>
+              className="text-xs text-faint hover:text-muted">↺</button>
           </Cell>
         )}
         <Cell>
@@ -482,7 +483,7 @@ export function GenerateControls({
       </div>
 
       {/* ── ROW 3: freshness + spacing ──────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center bg-[#111317]">
+      <div className="flex flex-wrap items-center bg-bg">
         <Cell>
           <label
             className="flex items-center gap-1.5 cursor-pointer select-none"
@@ -492,7 +493,7 @@ export function GenerateControls({
               type="checkbox"
               checked={recencyEnabled}
               onChange={(e) => setRecencyEnabled(e.target.checked)}
-              className="accent-[#5eead4] cursor-pointer"
+              className="accent-accent cursor-pointer"
             />
             <Lbl>freshness</Lbl>
           </label>
@@ -522,7 +523,7 @@ export function GenerateControls({
               checked={excludeRecentSeeds}
               onChange={(e) => setExcludeRecentSeeds(e.target.checked)}
               disabled={!recencyEnabled}
-              className="accent-[#5eead4] cursor-pointer disabled:opacity-30"
+              className="accent-accent cursor-pointer disabled:opacity-30"
             />
             <Lbl>skip recent seeds</Lbl>
           </label>
@@ -536,7 +537,7 @@ export function GenerateControls({
               type="checkbox"
               checked={instrumental}
               onChange={(e) => setInstrumental(e.target.checked)}
-              className="accent-[#5eead4] cursor-pointer"
+              className="accent-accent cursor-pointer"
             />
             <Lbl>instrumental</Lbl>
           </label>

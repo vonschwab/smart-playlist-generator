@@ -16,7 +16,7 @@ export function AdvancedPanel({ playlist }: { playlist: PlaylistOut | null }) {
       key={t}
       data-testid={`tab-${t}`}
       onClick={() => setTab(t)}
-      className={`text-[11px] px-2.5 py-1.5 rounded-t ${tab === t ? "text-accent bg-bg" : "text-muted"}`}
+      className={`text-xs px-2.5 py-1.5 rounded-t ${tab === t ? "text-accent bg-bg" : "text-muted"}`}
     >
       {label}
     </button>

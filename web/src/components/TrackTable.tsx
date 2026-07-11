@@ -54,7 +54,7 @@ export function TrackTable({ tracks, blacklisted, onContextAction }: TrackTableP
       cell: (c) => {
         const isCurrent = player.current?.rating_key === c.row.original.rating_key;
         return (
-          <span className={`font-mono text-[10px] ${isCurrent ? "text-accent" : "text-faint"}`}>
+          <span className={`font-mono text-2xs ${isCurrent ? "text-accent" : "text-faint"}`}>
             {String(c.getValue() + 1).padStart(2, "0")}
           </span>
         );
@@ -69,23 +69,23 @@ export function TrackTable({ tracks, blacklisted, onContextAction }: TrackTableP
             <div className={`text-xs ${bl ? "text-text line-through opacity-60" : "text-text"}`}>
               {c.getValue()}
               {bl && (
-                <span className="ml-1.5 bg-[#2a1a1a] text-danger text-[9px] px-1.5 py-0.5 rounded-full">
+                <span className="ml-1.5 bg-danger/10 text-danger text-2xs px-1.5 py-0.5 rounded-full">
                   blacklisted
                 </span>
               )}
               <GenreChips
                 genres={c.row.original.genres}
-                chipClass="ml-1.5 bg-chip text-chipText text-[9px] px-1.5 py-0.5 rounded-full"
+                chipClass="ml-1.5 bg-chip text-chipText text-2xs px-1.5 py-0.5 rounded-full"
               />
             </div>
-            <div className="text-muted text-[10px]">{c.row.original.artist}</div>
+            <div className="text-muted text-2xs">{c.row.original.artist}</div>
           </div>
         );
       },
     }),
     col.accessor("sonic_similarity", {
       header: "T",
-      cell: (c) => <span className="font-mono text-accent text-[11px]">{fmt(c.getValue())}</span>,
+      cell: (c) => <span className="font-mono text-accent text-xs">{fmt(c.getValue())}</span>,
     }),
     ...(hasPopularity
       ? [
@@ -96,7 +96,7 @@ export function TrackTable({ tracks, blacklisted, onContextAction }: TrackTableP
               const r = c.getValue();
               return (
                 <span
-                  className="font-mono text-[11px] text-faint"
+                  className="font-mono text-xs text-faint"
                   title="Last.fm popularity rank within the artist's top tracks (lower = more popular)"
                 >
                   {r == null ? "—" : `#${r}`}
@@ -150,7 +150,7 @@ export function TrackTable({ tracks, blacklisted, onContextAction }: TrackTableP
                   <th
                     key={h.id}
                     onClick={h.column.getToggleSortingHandler()}
-                    className={`px-3 py-2 text-[9px] uppercase tracking-wide text-faint cursor-pointer select-none ${extra}`}
+                    className={`px-3 py-2 text-2xs uppercase tracking-wide text-faint cursor-pointer select-none ${extra}`}
                   >
                     {flexRender(h.column.columnDef.header, h.getContext())}
                   </th>
@@ -169,8 +169,8 @@ export function TrackTable({ tracks, blacklisted, onContextAction }: TrackTableP
                   e.preventDefault();
                   onContextAction?.(r.original, r.index, e.clientX, e.clientY);
                 }}
-                className={`group border-b border-[#181b21] ${
-                  isCurrent ? "bg-[#15202b]" : "odd:bg-panel2 hover:bg-[#15202b]"
+                className={`group border-b border-hairline ${
+                  isCurrent ? "bg-rowsel" : "odd:bg-panel2 hover:bg-rowsel"
                 }`}
               >
                 {r.getVisibleCells().map((cell) => {

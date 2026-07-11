@@ -59,7 +59,7 @@ export function GenreAutocomplete({
         <div className="absolute z-20 mt-0.5 bg-panel2 border border-border rounded-md max-h-40 overflow-auto min-w-[200px] shadow-lg">
           {suggestions.map((s) => (
             <div key={s.genre_id} onClick={() => pick(s.name)}
-                 className="px-2.5 py-1 text-[10px] text-text hover:bg-border cursor-pointer">
+                 className="px-2.5 py-1 text-2xs text-text hover:bg-border cursor-pointer">
               {s.name}
             </div>
           ))}

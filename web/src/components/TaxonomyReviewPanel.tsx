@@ -18,7 +18,7 @@ const REJECT_REASONS = [
 
 function chips(items: string[], cls: string) {
   return items.map((t) => (
-    <span key={t} className={`text-[10px] px-1.5 py-0.5 rounded-full ${cls}`}>{t}</span>
+    <span key={t} className={`text-2xs px-1.5 py-0.5 rounded-full ${cls}`}>{t}</span>
   ));
 }
 
@@ -26,7 +26,7 @@ function VerdictSummary({ v }: { v: TaxonomyVerdict }) {
   const p = v.proposal;
   if (v.verdict === "reject") {
     return (
-      <div className="text-[10px] text-muted">
+      <div className="text-2xs text-muted">
         <span className="text-danger font-semibold">reject</span>
         {p.reject_reason ? ` · ${p.reject_reason}` : ""}
         {p.rationale ? <div className="text-faint mt-0.5">{p.rationale}</div> : null}
@@ -35,14 +35,14 @@ function VerdictSummary({ v }: { v: TaxonomyVerdict }) {
   }
   if (v.verdict === "alias") {
     return (
-      <div className="text-[10px] text-muted">
+      <div className="text-2xs text-muted">
         <span className="text-accent font-semibold">alias</span> → {p.canonical_target}
         {p.rationale ? <div className="text-faint mt-0.5">{p.rationale}</div> : null}
       </div>
     );
   }
   return (
-    <div className="text-[10px] text-muted flex flex-col gap-0.5">
+    <div className="text-2xs text-muted flex flex-col gap-0.5">
       <div>
         <span className="text-accent font-semibold">add</span>
         {" · "}{p.kind}{p.status ? ` (${p.status})` : ""}
@@ -52,7 +52,7 @@ function VerdictSummary({ v }: { v: TaxonomyVerdict }) {
         <div className="flex flex-wrap items-center gap-1">
           <span className="text-faint">parents</span>
           {(p.parent_edges ?? []).map((e) => (
-            <span key={e.target} className="text-[10px] px-1.5 py-0.5 rounded-full bg-panel2 text-text">
+            <span key={e.target} className="text-2xs px-1.5 py-0.5 rounded-full bg-panel2 text-text">
               {e.target} <span className="text-faint">{e.edge_type} {e.weight}</span>
             </span>
           ))}
@@ -134,25 +134,25 @@ function TermCard({
   return (
     <div className="flex flex-col gap-1 mt-1 mb-2 ml-1 px-2 py-2 rounded border border-border">
       <div className="flex flex-wrap items-center gap-1">
-        <span className="text-faint text-[9px] uppercase tracking-wide">reach</span>
-        <span className="text-[10px] text-muted">{item.album_frequency} albums</span>
+        <span className="text-faint text-2xs uppercase tracking-wide">reach</span>
+        <span className="text-2xs text-muted">{item.album_frequency} albums</span>
         {item.variants.length > 0 && (
           <>
-            <span className="text-faint text-[9px] uppercase tracking-wide ml-2">spellings</span>
+            <span className="text-faint text-2xs uppercase tracking-wide ml-2">spellings</span>
             {chips(item.variants, "bg-panel2 text-muted")}
           </>
         )}
       </div>
       {item.cooccurring_tags.length > 0 && (
         <div className="flex flex-wrap items-center gap-1">
-          <span className="text-faint text-[9px] uppercase tracking-wide">with</span>
+          <span className="text-faint text-2xs uppercase tracking-wide">with</span>
           {chips(item.cooccurring_tags.slice(0, 8), "bg-panel2 text-muted")}
         </div>
       )}
       {item.examples.length > 0 && (
-        <div className="text-faint text-[10px] truncate">{item.examples.join(" · ")}</div>
+        <div className="text-faint text-2xs truncate">{item.examples.join(" · ")}</div>
       )}
-      {error && <div className="text-danger text-[10px]">{error}</div>}
+      {error && <div className="text-danger text-2xs">{error}</div>}
 
       {!verdict ? (
         adding ? (
@@ -164,14 +164,14 @@ function TermCard({
         ) : aliasing ? (
           // Direct alias — point this term at an existing canonical genre, no Claude.
           <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-            <span className="text-faint text-[10px]">alias of</span>
+            <span className="text-faint text-2xs">alias of</span>
             <GenreAutocomplete
               autoFocus
               value={aliasTarget}
               onChange={setAliasTarget}
               onPick={setAliasTarget}
               placeholder="existing canonical genre, e.g. twee pop"
-              className="bg-panel2 border border-border rounded text-[10px] text-text px-1.5 py-0.5 outline-none min-w-[200px]" />
+              className="bg-panel2 border border-border rounded text-2xs text-text px-1.5 py-0.5 outline-none min-w-[200px]" />
             <button disabled={!aliasTarget.trim()}
               onClick={() => onDecide("alias", {
                 name: item.term, kind: "alias", status: "alias_only",
@@ -179,33 +179,33 @@ function TermCard({
                 parent_edges: [], similar_to: [], alias_variants: [],
                 term_kind_confirm: "genre", rationale: "",
               }, null, true)}
-              className="text-[10px] px-2 py-0.5 rounded bg-accent text-bg font-semibold disabled:opacity-50">
+              className="text-2xs px-2 py-0.5 rounded bg-accent text-bg font-semibold disabled:opacity-50">
               Save alias
             </button>
             <button onClick={() => setAliasing(false)}
-              className="text-[10px] px-2 py-0.5 rounded border border-border text-muted hover:text-text">Cancel</button>
+              className="text-2xs px-2 py-0.5 rounded border border-border text-muted hover:text-text">Cancel</button>
           </div>
         ) : (
           <div className="flex items-center gap-1.5 mt-1 flex-wrap">
             <button onClick={ask} disabled={asking}
-              className="text-[10px] px-2 py-0.5 rounded bg-accent text-bg font-semibold disabled:opacity-50">
+              className="text-2xs px-2 py-0.5 rounded bg-accent text-bg font-semibold disabled:opacity-50">
               {asking ? "asking Claude…" : "Ask Claude"}
             </button>
             {/* Direct alias / reject — no Claude call needed when you already know. */}
             <button onClick={() => setAliasing(true)}
-              className="text-[10px] px-2 py-0.5 rounded border border-border text-muted hover:text-text">Alias…</button>
+              className="text-2xs px-2 py-0.5 rounded border border-border text-muted hover:text-text">Alias…</button>
             <button onClick={() => setAdding(true)}
-              className="text-[10px] px-2 py-0.5 rounded border border-border text-muted hover:text-text">
+              className="text-2xs px-2 py-0.5 rounded border border-border text-muted hover:text-text">
               Add manually…
             </button>
-            <span className="text-faint text-[10px]">or reject as</span>
+            <span className="text-faint text-2xs">or reject as</span>
             <select value={reason} onChange={(e) => setReason(e.target.value)}
-              className="bg-panel2 border border-border rounded text-[10px] text-text px-1.5 py-0.5 outline-none">
+              className="bg-panel2 border border-border rounded text-2xs text-text px-1.5 py-0.5 outline-none">
               {REJECT_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
             <button
               onClick={() => onDecide("reject", { reject_reason: reason, rationale: "" }, null, true)}
-              className="text-[10px] px-2 py-0.5 rounded border border-danger/50 text-danger hover:bg-danger/10">
+              className="text-2xs px-2 py-0.5 rounded border border-danger/50 text-danger hover:bg-danger/10">
               Reject
             </button>
           </div>
@@ -216,37 +216,37 @@ function TermCard({
           {editing ? (
             <div className="flex flex-col gap-1">
               <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={8}
-                className="bg-panel2 border border-border rounded text-[10px] font-mono text-text px-2 py-1 outline-none" />
+                className="bg-panel2 border border-border rounded text-2xs font-mono text-text px-2 py-1 outline-none" />
               <div className="flex gap-1.5">
                 <button onClick={saveEdit}
-                  className="text-[10px] px-2 py-0.5 rounded bg-accent text-bg font-semibold">Save edit</button>
+                  className="text-2xs px-2 py-0.5 rounded bg-accent text-bg font-semibold">Save edit</button>
                 <button onClick={() => setEditing(false)}
-                  className="text-[10px] px-2 py-0.5 rounded border border-border text-muted hover:text-text">Cancel</button>
+                  className="text-2xs px-2 py-0.5 rounded border border-border text-muted hover:text-text">Cancel</button>
               </div>
             </div>
           ) : rejecting ? (
             <div className="flex items-center gap-1.5">
               <select value={reason} onChange={(e) => setReason(e.target.value)}
-                className="bg-panel2 border border-border rounded text-[10px] text-text px-1.5 py-0.5 outline-none">
+                className="bg-panel2 border border-border rounded text-2xs text-text px-1.5 py-0.5 outline-none">
                 {REJECT_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
               </select>
               <button onClick={reject}
-                className="text-[10px] px-2 py-0.5 rounded bg-danger/80 text-bg font-semibold">Confirm reject</button>
+                className="text-2xs px-2 py-0.5 rounded bg-danger/80 text-bg font-semibold">Confirm reject</button>
               <button onClick={() => setRejecting(false)}
-                className="text-[10px] px-2 py-0.5 rounded border border-border text-muted hover:text-text">Cancel</button>
+                className="text-2xs px-2 py-0.5 rounded border border-border text-muted hover:text-text">Cancel</button>
             </div>
           ) : (
             <div className="flex gap-1.5">
               <button onClick={accept}
-                className="text-[10px] px-2 py-0.5 rounded bg-accent text-bg font-semibold">Accept</button>
+                className="text-2xs px-2 py-0.5 rounded bg-accent text-bg font-semibold">Accept</button>
               <button onClick={() => setEditing(true)}
-                className="text-[10px] px-2 py-0.5 rounded border border-border text-muted hover:text-text">Edit</button>
+                className="text-2xs px-2 py-0.5 rounded border border-border text-muted hover:text-text">Edit</button>
               {verdict.verdict !== "reject" && (
                 <button onClick={() => setRejecting(true)}
-                  className="text-[10px] px-2 py-0.5 rounded border border-border text-muted hover:text-text">Reject</button>
+                  className="text-2xs px-2 py-0.5 rounded border border-border text-muted hover:text-text">Reject</button>
               )}
               <button onClick={() => setVerdict(null)}
-                className="text-[10px] px-2 py-0.5 rounded border border-border text-faint hover:text-text">Re-ask</button>
+                className="text-2xs px-2 py-0.5 rounded border border-border text-faint hover:text-text">Re-ask</button>
             </div>
           )}
         </div>
@@ -344,18 +344,18 @@ export function TaxonomyReviewPanel() {
       <div className="flex items-center gap-1">
         {(["untriaged", "completed"] as View[]).map((v) => (
           <button key={v} onClick={() => { setView(v); setSelected(null); }}
-            className={["text-[10px] px-2 py-1 rounded border capitalize",
+            className={["text-2xs px-2 py-1 rounded border capitalize",
               view === v ? "border-accent/60 bg-panel2 text-text" : "border-border text-muted hover:text-text"].join(" ")}>
             {v}
           </button>
         ))}
         <div className="flex-1" />
-        {sessionCount > 0 && <span className="text-accent text-[10px]">✓ {sessionCount} this session</span>}
+        {sessionCount > 0 && <span className="text-accent text-2xs">✓ {sessionCount} this session</span>}
         {applyJob ? (
-          <span className="text-faint text-[10px] truncate max-w-[160px]">{applyMsg}</span>
+          <span className="text-faint text-2xs truncate max-w-[160px]">{applyMsg}</span>
         ) : decidedK > 0 ? (
           <button onClick={applyDecisions}
-            className="text-[10px] px-2 py-1 rounded bg-accent text-bg font-semibold">
+            className="text-2xs px-2 py-1 rounded bg-accent text-bg font-semibold">
             Apply {decidedK} decision{decidedK === 1 ? "" : "s"}
           </button>
         ) : null}
@@ -365,11 +365,11 @@ export function TaxonomyReviewPanel() {
         <div className="text-muted text-xs flex-1">
           {data ? `${data.untriaged_terms} untriaged · ${data.decided_terms} decided` : "…"}
         </div>
-        {flash && <span className="text-accent text-[10px] truncate max-w-[180px]">{flash}</span>}
+        {flash && <span className="text-accent text-2xs truncate max-w-[180px]">{flash}</span>}
       </div>
 
       {applyStats && (
-        <div className={["text-[10px] rounded px-2 py-1.5 border",
+        <div className={["text-2xs rounded px-2 py-1.5 border",
           applyStats.ok ? "border-accent/40 bg-panel2 text-muted" : "border-danger/50 bg-panel2 text-danger"].join(" ")}>
           {applyStats.ok ? (
             <>
@@ -398,8 +398,8 @@ export function TaxonomyReviewPanel() {
       )}
 
       <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Filter term…"
-        className="bg-panel2 border border-border rounded text-[11px] text-text px-2 py-1 placeholder:text-faint outline-none" />
-      {error && <div className="text-danger text-[10px]">{error}</div>}
+        className="bg-panel2 border border-border rounded text-xs text-text px-2 py-1 placeholder:text-faint outline-none" />
+      {error && <div className="text-danger text-2xs">{error}</div>}
 
       {data && terms.length === 0 && (
         <div className="text-faint text-xs p-3">
@@ -415,10 +415,10 @@ export function TaxonomyReviewPanel() {
               <button onClick={() => setSelected(sel?.term === item.term ? null : item.term)}
                 className="text-left flex-1 min-w-0 flex items-center gap-2">
                 <span className="text-xs flex-1 truncate select-text">{item.raw_term}</span>
-                <span className="text-faint text-[10px]">{item.album_frequency}</span>
+                <span className="text-faint text-2xs">{item.album_frequency}</span>
               </button>
               {view === "completed" && (
-                <span className="text-faint text-[10px] capitalize">{item.decision?.verdict ?? ""}</span>
+                <span className="text-faint text-2xs capitalize">{item.decision?.verdict ?? ""}</span>
               )}
             </div>
             {sel?.term === item.term && view === "untriaged" && (
@@ -426,7 +426,7 @@ export function TaxonomyReviewPanel() {
                 onDecide={(v, p, c, h) => decide(item, v, p, c, h)} />
             )}
             {sel?.term === item.term && view === "completed" && (
-              <div className="ml-1 mb-2 px-2 py-1 text-[10px] text-muted flex items-center gap-2">
+              <div className="ml-1 mb-2 px-2 py-1 text-2xs text-muted flex items-center gap-2">
                 <span className="flex-1">decided: {item.decision?.verdict ?? "—"}
                   {item.decision?.status === "applied" ? " (applied)" : ""}</span>
                 {item.decision?.status !== "applied" && (

@@ -6,16 +6,26 @@
   --color-panel: #16181d;
   --color-panel2: #13151a;
   --color-border: #23262d;
+  --color-hairline: #1e2128; /* row dividers / inset rules (weaker than border) */
+  --color-well: #0c0e12; /* recessed surfaces: inputs, logs, wells */
+  --color-rowsel: #15202b; /* current/hovered row highlight */
   --color-text: #e6e9ec;
   --color-muted: #8b939d;
-  --color-faint: #5b6470;
+  /* faint carries real copy (hints, empty states, logs) — must hold AA 4.5:1
+     on panel/bg (designTokens.test.ts). Raised from #5b6470 (2.96:1). */
+  --color-faint: #7d8590;
   --color-accent: #5eead4;
   --color-warn: #fbbf24;
   --color-danger: #fb7185;
+  --color-info: #93c5fd;
   --color-chip: #1d2937;
   --color-chipText: #7dd3fc;
   --font-family-sans: "Spline Sans", Inter, system-ui, sans-serif;
   --font-family-mono: "JetBrains Mono", ui-monospace, monospace;
+  /* Dense-data micro step — the only sanctioned sub-xs size (discipline C4).
+     Bumped to 12px on coarse pointers below. */
+  --text-2xs: 10px;
+  --text-2xs--line-height: 1.4;
 }
 
 html, body, #root { height: 100%; margin: 0; }
@@ -40,14 +50,12 @@ body { background: #0f1115; color: #e6e9ec; font-family: "Spline Sans", system-u
   }
 }
 
-/* On coarse pointers (touch), lift the tiny desktop type to a legible floor
-   so the dense toolbar/table stay readable on a phone. Targets the project's
-   smallest hard-coded sizes without touching desktop rendering. */
+/* On coarse pointers (touch), lift the dense-data micro step to a legible
+   floor without touching desktop rendering. text-2xs resolves through the
+   theme variable, so overriding the variable retargets every use. */
 @media (pointer: coarse) {
   body { font-size: 14px; }
-  [class*="text-[9px]"]  { font-size: 11px; }
-  [class*="text-[10px]"] { font-size: 12px; }
-  [class*="text-[11px]"] { font-size: 13px; }
+  :root { --text-2xs: 12px; }
 
   /* iOS Safari zooms the page when a focused field computes under 16px
      (discipline T2). !important so element rules beat size utilities. */
