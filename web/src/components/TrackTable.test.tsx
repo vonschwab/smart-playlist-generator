@@ -31,6 +31,20 @@ describe("TrackTable responsive columns", () => {
     expect(header.className).toContain("@max-md:hidden");
   });
 
+  it("caps genre chips to 3 on the phone with a +N overflow pill", () => {
+    // jsdom has no matchMedia -> useMediaQuery reports mobile.
+    render(
+      <PlayerProvider>
+        <TrackTable tracks={[track({ genres: ["shoegaze", "dreampop", "slowcore", "noise pop", "c86"] })]} />
+      </PlayerProvider>,
+    );
+    expect(screen.getByText("shoegaze")).toBeTruthy();
+    expect(screen.getByText("slowcore")).toBeTruthy();
+    // The 4th/5th fold into the overflow pill (not rendered as chips).
+    expect(screen.queryByText("noise pop")).toBeNull();
+    expect(screen.getByTestId("genre-overflow").textContent).toBe("+2");
+  });
+
   it("keeps the row-actions kebab visible on coarse pointers", () => {
     render(
       <PlayerProvider>

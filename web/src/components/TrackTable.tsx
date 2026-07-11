@@ -9,7 +9,9 @@ import {
 import { useState } from "react";
 import type { TrackOut } from "../lib/types";
 import { usePlayer } from "../contexts/PlayerContext";
+import { useMediaQuery } from "../lib/useMediaQuery";
 import { GenreChips } from "./GenreChips";
+import { chip } from "../lib/ui";
 
 const fmt = (n?: number | null) => (n == null ? "—" : n.toFixed(2));
 
@@ -23,6 +25,9 @@ export interface TrackTableProps {
 export function TrackTable({ tracks, blacklisted, onContextAction }: TrackTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const player = usePlayer();
+  // Fewer genre chips on the narrow phone column; the rest fold into "+N".
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
+  const genreCap = isDesktop ? 6 : 3;
 
   const hasPopularity = tracks.some((t) => t.popularity_rank != null);
   const col = createColumnHelper<TrackOut>();
@@ -69,16 +74,17 @@ export function TrackTable({ tracks, blacklisted, onContextAction }: TrackTableP
             <div className={`text-xs ${bl ? "text-text line-through opacity-60" : "text-text"}`}>
               {c.getValue()}
               {bl && (
-                <span className="ml-1.5 bg-danger/10 text-danger text-2xs px-1.5 py-0.5 rounded-full">
+                <span className="ml-1.5 bg-danger/10 text-danger text-2xs px-1.5 py-0.5 rounded-full whitespace-nowrap">
                   blacklisted
                 </span>
               )}
-              <GenreChips
-                genres={c.row.original.genres}
-                chipClass="ml-1.5 bg-chip text-chipText text-2xs px-1.5 py-0.5 rounded-full"
-              />
             </div>
-            <div className="text-muted text-2xs">{c.row.original.artist}</div>
+            {c.row.original.genres.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                <GenreChips genres={c.row.original.genres} chipClass={chip} cap={genreCap} />
+              </div>
+            )}
+            <div className="text-muted text-2xs mt-0.5">{c.row.original.artist}</div>
           </div>
         );
       },
