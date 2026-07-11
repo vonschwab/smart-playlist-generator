@@ -77,14 +77,14 @@ export function EditGenresDialog(props: EditGenresDialogProps) {
         <Dialog.Overlay className="fixed inset-0 bg-black/60 z-40" />
         <Dialog.Content
           data-testid="edit-genres-dialog"
-          className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[480px] max-w-[90vw] bg-panel border border-border rounded-lg shadow-2xl"
+          className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[480px] max-w-[90vw] max-h-[85dvh] overflow-y-auto bg-panel border border-border rounded-lg shadow-2xl"
         >
           <div className="px-5 py-3 border-b border-border flex items-baseline justify-between">
             <div>
               <Dialog.Title className="text-text text-sm font-semibold">Edit genres</Dialog.Title>
               <div className="text-muted text-[11px] mt-0.5"><span className="text-text">{props.album}</span> · {props.artist}</div>
             </div>
-            <Dialog.Close className="text-faint text-lg leading-none">×</Dialog.Close>
+            <Dialog.Close className="text-faint text-lg leading-none p-1 -m-1 inline-flex items-center justify-center pointer-coarse:min-w-11 pointer-coarse:min-h-11">×</Dialog.Close>
           </div>
 
           <div className="px-5 py-4">
@@ -127,8 +127,8 @@ export function EditGenresDialog(props: EditGenresDialogProps) {
           <div className="px-5 py-3 border-t border-border flex items-center justify-between bg-panel2">
             <div className="text-faint text-[10px]">Saved to the genre authority · run “Refresh genres” to affect generation</div>
             <div className="flex gap-2">
-              <Dialog.Close className="border border-border text-muted text-xs px-3.5 py-1.5 rounded">Cancel</Dialog.Close>
-              <button onClick={save} disabled={saving} className="bg-accent text-bg font-semibold text-xs px-3.5 py-1.5 rounded disabled:opacity-50">
+              <Dialog.Close className="border border-border text-muted text-xs px-3.5 py-1.5 pointer-coarse:min-h-11 rounded">Cancel</Dialog.Close>
+              <button onClick={save} disabled={saving} className="bg-accent text-bg font-semibold text-xs px-3.5 py-1.5 pointer-coarse:min-h-11 rounded disabled:opacity-50">
                 {saving ? "Saving…" : "Save"}
               </button>
             </div>

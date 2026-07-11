@@ -21,7 +21,7 @@ export function Shell(props: ShellProps) {
   // and real width. Below it we render a touch-friendly single-column shell.
   const isDesktop = useMediaQuery("(min-width: 1024px)");
   return (
-    <div className="h-screen flex flex-col bg-bg text-text">
+    <div className="h-screen supports-[height:100dvh]:h-dvh flex flex-col bg-bg text-text">
       <header className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 bg-panel border-b border-border">
         {props.topBar}
       </header>
@@ -102,7 +102,7 @@ function MobileBody(props: ShellProps) {
             onClick={() => setRegion(t.id)}
             aria-current={region === t.id}
             className={[
-              "flex-1 py-3 text-xs font-medium transition-colors",
+              "flex-1 py-3 min-h-11 text-xs font-medium transition-colors",
               region === t.id ? "text-accent" : "text-faint hover:text-muted",
             ].join(" ")}
           >

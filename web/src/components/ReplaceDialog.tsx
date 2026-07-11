@@ -34,7 +34,7 @@ export function ReplaceDialog(props: ReplaceDialogProps) {
         <Dialog.Overlay className="fixed inset-0 bg-black/60 z-40" />
         <Dialog.Content
           data-testid="replace-dialog"
-          className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[560px] max-w-[90vw] bg-panel border border-border rounded-lg shadow-2xl"
+          className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[560px] max-w-[90vw] max-h-[85dvh] overflow-y-auto bg-panel border border-border rounded-lg shadow-2xl"
         >
           <div className="px-5 py-3 border-b border-border flex items-baseline justify-between">
             <div>
@@ -43,7 +43,7 @@ export function ReplaceDialog(props: ReplaceDialogProps) {
                 Position {props.position + 1} · between <span className="text-text">{props.prevTitle}</span> and <span className="text-text">{props.nextTitle}</span>
               </div>
             </div>
-            <Dialog.Close className="text-faint text-lg leading-none">×</Dialog.Close>
+            <Dialog.Close className="text-faint text-lg leading-none p-1 -m-1 inline-flex items-center justify-center pointer-coarse:min-w-11 pointer-coarse:min-h-11">×</Dialog.Close>
           </div>
 
           <div className="px-5 py-2 bg-panel2 border-b border-border text-[10px] text-faint">
@@ -83,11 +83,11 @@ export function ReplaceDialog(props: ReplaceDialogProps) {
           <div className="px-5 py-3 border-t border-border flex items-center justify-between bg-panel2">
             <div className="text-faint text-[10px]">Click a row to select, then Replace</div>
             <div className="flex gap-2">
-              <Dialog.Close className="border border-border text-muted text-xs px-3.5 py-1.5 rounded">Cancel</Dialog.Close>
+              <Dialog.Close className="border border-border text-muted text-xs px-3.5 py-1.5 pointer-coarse:min-h-11 rounded">Cancel</Dialog.Close>
               <button
                 disabled={selected < 0}
                 onClick={() => { props.onConfirm(props.position, candidates[selected]); props.onOpenChange(false); }}
-                className="bg-accent text-bg font-semibold text-xs px-3.5 py-1.5 rounded disabled:opacity-50"
+                className="bg-accent text-bg font-semibold text-xs px-3.5 py-1.5 pointer-coarse:min-h-11 rounded disabled:opacity-50"
               >
                 Replace
               </button>

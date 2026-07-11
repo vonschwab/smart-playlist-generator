@@ -116,7 +116,7 @@ export function TrackTable({ tracks, blacklisted, onContextAction }: TrackTableP
             e.stopPropagation();
             onContextAction?.(c.row.original, c.row.index, e.clientX, e.clientY);
           }}
-          className="text-muted opacity-0 group-hover:opacity-100 hover:text-text text-sm"
+          className="text-muted opacity-0 group-hover:opacity-100 pointer-coarse:opacity-60 hover:text-text text-sm"
           title="Actions"
         >
           ⋯

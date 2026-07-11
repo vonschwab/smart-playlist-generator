@@ -48,19 +48,33 @@ export function MiniPlayer() {
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
       />
-      <button onClick={prev} className="text-faint hover:text-text text-sm" title="Previous">⏮</button>
+      <button
+        onClick={prev}
+        className="text-faint hover:text-text text-sm inline-flex items-center justify-center pointer-coarse:min-w-11 pointer-coarse:min-h-11"
+        title="Previous"
+      >
+        ⏮
+      </button>
       <button
         onClick={() => setPlaying(!playing)}
-        className="bg-accent text-bg font-bold text-sm px-2 py-1 rounded"
+        className="bg-accent text-bg font-bold text-sm px-2 py-1 rounded inline-flex items-center justify-center pointer-coarse:min-w-11 pointer-coarse:min-h-11"
         title={playing ? "Pause" : "Play"}
       >
         {playing ? "❚❚" : "▶"}
       </button>
-      <button onClick={next} className="text-faint hover:text-text text-sm" title="Next">⏭</button>
+      <button
+        onClick={next}
+        className="text-faint hover:text-text text-sm inline-flex items-center justify-center pointer-coarse:min-w-11 pointer-coarse:min-h-11"
+        title="Next"
+      >
+        ⏭
+      </button>
       <div className="flex-1 min-w-0">
         <div className="text-text text-[10px] truncate">{current.title} — {current.artist}</div>
+        {/* Padded hit area around the 2px visual track (discipline T1). */}
         <div
-          className="mt-1 h-0.5 bg-border rounded cursor-pointer"
+          data-testid="seek-bar"
+          className="py-2 cursor-pointer"
           onClick={(e) => {
             const audio = audioRef.current;
             if (!audio || !duration) return;
@@ -68,7 +82,9 @@ export function MiniPlayer() {
             audio.currentTime = ((e.clientX - rect.left) / rect.width) * duration;
           }}
         >
-          <div className="h-full bg-accent rounded" style={{ width: `${duration ? (elapsed / duration) * 100 : 0}%` }} />
+          <div className="h-0.5 bg-border rounded">
+            <div className="h-full bg-accent rounded" style={{ width: `${duration ? (elapsed / duration) * 100 : 0}%` }} />
+          </div>
         </div>
       </div>
       <span className="text-faint text-[10px] font-mono whitespace-nowrap">

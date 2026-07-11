@@ -58,7 +58,7 @@ function RunBtn({
     <button
       onClick={onClick}
       disabled={disabled}
-      className="px-3 py-1 text-[11px] font-medium rounded bg-accent text-black
+      className="px-3 py-1 pointer-coarse:min-h-11 text-[11px] font-medium rounded bg-accent text-black
                  disabled:opacity-30 disabled:cursor-default hover:opacity-90 transition-opacity"
     >
       {children}
@@ -70,7 +70,7 @@ function CancelBtn({ onClick }: { onClick: () => void }) {
   return (
     <button
       onClick={onClick}
-      className="px-3 py-1 text-[11px] font-medium rounded border border-[#3a3f4b]
+      className="px-3 py-1 pointer-coarse:min-h-11 text-[11px] font-medium rounded border border-[#3a3f4b]
                  text-[#8b939d] hover:text-[#c9d1d9] transition-colors"
     >
       Cancel
@@ -293,7 +293,7 @@ export function ToolsPanel({
 
   return (
     <div className="h-full overflow-auto p-4">
-      <div className="grid grid-cols-2 gap-4 max-w-4xl">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-4xl">
         {/* ── Analyze Library ───────────────────────────────────────────── */}
         <Card title="Analyze Library">
           {/* Stage checkboxes */}

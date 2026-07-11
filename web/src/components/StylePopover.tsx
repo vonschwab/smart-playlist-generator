@@ -41,7 +41,13 @@ export function StylePopover({
     if (!open) return;
     function place() {
       const r = triggerRef.current?.getBoundingClientRect();
-      if (r) setPos({ top: r.bottom + 4, left: r.left });
+      if (!r) return;
+      // Clamp to the viewport: the trigger sits in a wrapping toolbar, so on
+      // a narrow phone the card would otherwise run past the right edge.
+      const width = 280;
+      const margin = 8;
+      const left = Math.max(margin, Math.min(r.left, window.innerWidth - width - margin));
+      setPos({ top: r.bottom + 4, left });
     }
     place();
     window.addEventListener("resize", place);
@@ -80,7 +86,7 @@ export function StylePopover({
             ref={cardRef}
             id="style-popover-card"
             style={{ position: "fixed", top: pos.top, left: pos.left }}
-            className="z-50 w-[280px] bg-[#16181d] border border-[#23262d] rounded shadow-xl p-3 flex flex-col gap-3"
+            className="z-50 w-[280px] max-h-[70dvh] overflow-y-auto bg-[#16181d] border border-[#23262d] rounded shadow-xl p-3 flex flex-col gap-3"
           >
             {/* Spread */}
             <div className="flex items-center gap-2">

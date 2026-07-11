@@ -30,4 +30,15 @@ describe("TrackTable responsive columns", () => {
     const header = screen.getByText("Last.fm");
     expect(header.className).toContain("@max-md:hidden");
   });
+
+  it("keeps the row-actions kebab visible on coarse pointers", () => {
+    render(
+      <PlayerProvider>
+        <TrackTable tracks={[track()]} />
+      </PlayerProvider>,
+    );
+    // Hover-reveal is desktop-only affordance; touch needs it always visible
+    // (docs/UI_UX_DISCIPLINE.md T3).
+    expect(screen.getByTestId("kebab-btn").className).toContain("pointer-coarse:opacity-60");
+  });
 });

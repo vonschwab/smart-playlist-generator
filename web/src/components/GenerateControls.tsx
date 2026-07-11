@@ -321,6 +321,7 @@ export function GenerateControls({
           <Lbl title="Number of tracks to generate.">tracks</Lbl>
           <input
             type="number"
+            inputMode="numeric"
             min={1}
             max={200}
             value={tracks}
@@ -398,7 +399,7 @@ export function GenerateControls({
           <button
             onClick={() => submit()}
             disabled={busy}
-            className="bg-[#5eead4] text-[#0f1115] font-bold text-[11px] px-4 py-[4px] rounded disabled:opacity-50 whitespace-nowrap"
+            className="bg-[#5eead4] text-[#0f1115] font-bold text-[11px] px-4 py-[4px] pointer-coarse:min-h-11 rounded disabled:opacity-50 whitespace-nowrap"
           >
             {busy ? "Generating…" : "▸ Generate"}
           </button>
@@ -407,7 +408,7 @@ export function GenerateControls({
           <Cell>
             <button onClick={() => { setSeedEpoch((e) => e + 1); submit(seedEpoch + 1); }}
               disabled={busy}
-              className="border border-[#5eead4] text-[#5eead4] text-[11px] px-3 py-[4px] rounded disabled:opacity-50 whitespace-nowrap"
+              className="border border-[#5eead4] text-[#5eead4] text-[11px] px-3 py-[4px] pointer-coarse:min-h-11 rounded disabled:opacity-50 whitespace-nowrap"
               title="Re-roll: same settings, fresh seed tracks.">
               ↻ New Seeds
             </button>

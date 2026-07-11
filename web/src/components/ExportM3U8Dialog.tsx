@@ -29,11 +29,11 @@ export function ExportM3U8Dialog(props: ExportM3U8DialogProps) {
         <Dialog.Content
           data-testid="export-m3u8-dialog"
           aria-describedby={undefined}
-          className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[420px] max-w-[90vw] bg-panel border border-border rounded-lg shadow-2xl"
+          className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[420px] max-w-[90vw] max-h-[85dvh] overflow-y-auto bg-panel border border-border rounded-lg shadow-2xl"
         >
           <div className="px-5 py-3 border-b border-border flex items-baseline justify-between">
             <Dialog.Title className="text-text text-sm font-semibold">Export as M3U8</Dialog.Title>
-            <Dialog.Close className="text-faint text-lg leading-none">×</Dialog.Close>
+            <Dialog.Close className="text-faint text-lg leading-none p-1 -m-1 inline-flex items-center justify-center pointer-coarse:min-w-11 pointer-coarse:min-h-11">×</Dialog.Close>
           </div>
           <div className="px-5 py-4">
             <div className="text-faint text-[9px] uppercase tracking-wide mb-2">Playlist name</div>
@@ -45,14 +45,14 @@ export function ExportM3U8Dialog(props: ExportM3U8DialogProps) {
             />
           </div>
           <div className="px-5 py-3 border-t border-border flex justify-end gap-2 bg-panel2">
-            <Dialog.Close className="border border-border text-muted text-xs px-3.5 py-1.5 rounded">
+            <Dialog.Close className="border border-border text-muted text-xs px-3.5 py-1.5 pointer-coarse:min-h-11 rounded">
               Cancel
             </Dialog.Close>
             <button
               data-testid="m3u8-download"
               onClick={doDownload}
               disabled={!name.trim()}
-              className="bg-accent text-bg font-semibold text-xs px-3.5 py-1.5 rounded disabled:opacity-50"
+              className="bg-accent text-bg font-semibold text-xs px-3.5 py-1.5 pointer-coarse:min-h-11 rounded disabled:opacity-50"
             >
               Download
             </button>

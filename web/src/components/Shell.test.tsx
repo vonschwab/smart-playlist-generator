@@ -27,6 +27,16 @@ function renderShell() {
 }
 
 describe("Shell (mobile)", () => {
+  it("sizes the app to the dynamic viewport (iOS Safari toolbar)", () => {
+    forceMobile();
+    const { container } = renderShell();
+    // h-screen (100vh) is the iOS trap: the bottom tab bar sits under Safari's
+    // toolbar. dvh tracks the real visible viewport (discipline V1).
+    expect((container.firstElementChild as HTMLElement).className).toContain(
+      "supports-[height:100dvh]:h-dvh",
+    );
+  });
+
   it("renders the bottom tab bar and defaults to the center region", () => {
     forceMobile();
     renderShell();

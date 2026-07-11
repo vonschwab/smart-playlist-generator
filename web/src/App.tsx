@@ -250,7 +250,7 @@ export default function App() {
                   key={t}
                   onClick={() => setTab(t)}
                   className={[
-                    "px-3 py-1 text-[11px] rounded transition-colors capitalize",
+                    "px-3 py-1 pointer-coarse:min-h-11 text-[11px] rounded transition-colors capitalize",
                     tab === t
                       ? "bg-[#23262d] text-[#c9d1d9]"
                       : "text-[#5b6470] hover:text-[#8b939d]",

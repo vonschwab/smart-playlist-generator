@@ -192,7 +192,7 @@ export function SeedTrackSection({
                   <td className="py-2 pr-3 w-7 text-center">
                     <button
                       onClick={() => onRemove(t.track_id)}
-                      className="text-[#5b6470] opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:text-[#ef4444] text-base leading-none"
+                      className="text-[#5b6470] opacity-0 group-hover:opacity-60 pointer-coarse:opacity-60 hover:!opacity-100 hover:text-[#ef4444] text-base leading-none"
                       title="Remove seed"
                     >
                       ×

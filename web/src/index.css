@@ -48,4 +48,18 @@ body { background: #0f1115; color: #e6e9ec; font-family: "Spline Sans", system-u
   [class*="text-[9px]"]  { font-size: 11px; }
   [class*="text-[10px]"] { font-size: 12px; }
   [class*="text-[11px]"] { font-size: 13px; }
+
+  /* iOS Safari zooms the page when a focused field computes under 16px
+     (discipline T2). !important so element rules beat size utilities. */
+  input, select, textarea { font-size: 16px !important; }
+}
+
+/* WCAG 2.5.8 target floor for every control (discipline T1). In @layer base
+   so component-level pointer-coarse:min-h-11 utilities (44px primaries) can
+   override it — un-layered rules would beat every layered utility. */
+@layer base {
+  @media (pointer: coarse) {
+    button, [role="button"] { min-width: 24px; min-height: 24px; }
+    input[type="checkbox"], input[type="radio"] { width: 24px; height: 24px; }
+  }
 }
