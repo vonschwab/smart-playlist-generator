@@ -82,18 +82,21 @@ automates most of them.
 
 ### Color & type
 
-- **C1 — Theme tokens are the only colors.** No raw hex/rgb in components; severity uses
-  `warn`/`danger`/`info` tokens (add the token if it's missing — don't invent a hex). A color
-  used twice is a token. *Verify:* `grep -rn "#[0-9a-fA-F]\{3,6\}" web/src/components web/src/App.tsx` → zero hits.
+- **C1 — Theme tokens are the only colors.** No raw hex/rgb in components (JS color maps use
+  `var(--color-*)`); severity uses `warn`/`danger`/`info` tokens (add the token if it's missing
+  — don't invent a hex). A color used twice is a token. *Verify:* `web/src/designTokens.test.ts`
+  (runs in the unit suite) fails the build on any raw hex or stock palette class.
 - **C2 — Contrast floor: 4.5:1 body text, 3:1 large text and UI glyphs**, computed against the
-  actual token hex. `text-faint` fails 4.5:1 by design — decorative/≥18px-bold only, never
-  body copy, empty-state text, or logs. *Verify:* contrast table in the audit doc; re-run its
-  script when tokens change.
+  actual token hex. Every text token (`text`/`muted`/`faint`) holds 4.5:1 on `panel` and `bg`;
+  status colors hold 3:1. *Verify:* `designTokens.test.ts` computes the ratios from the live
+  `@theme` values — a token change that breaks contrast fails the suite.
 - **C3 — No pure `#000` surfaces / pure `#fff` long-form text** (halation on OLED during long
   log-reading sessions). Current tokens already comply — keep it that way.
-- **C4 — The type scale is the Tailwind scale.** No new `text-[Npx]` arbitrary sizes. Micro-type
-  (< 12px) is defensible only for read-only desktop data-grid cells — never on interactive
-  controls, never in the mobile shell (16px baseline there, 14px floor for secondary).
+- **C4 — The type scale is the named scale.** Steps: `text-2xs` (10px — the only sanctioned
+  sub-xs step, for dense read-only data; the coarse-pointer media query raises its theme
+  variable to 12px so phones never render smaller) then the standard `xs`/`sm`/…. No
+  `text-[Npx]` arbitrary sizes — `designTokens.test.ts` fails on them. Micro-type never sits on
+  interactive controls.
 - **C5 — Focus stays visible.** `:focus-visible` ring ≥ 3:1 against surroundings (global rule in
   `index.css` — don't `outline: none` past it). `prefers-reduced-motion` stays honored globally.
 
