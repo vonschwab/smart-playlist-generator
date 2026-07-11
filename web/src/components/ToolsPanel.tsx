@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { friendlyError } from "../lib/errors";
 import { api } from "../lib/api";
 import { useJobReconcile } from "../lib/useJobReconcile";
 import { useWorkerEvents } from "../lib/ws";
@@ -15,6 +16,27 @@ const ALL_STAGES = [
 ] as const;
 
 type AnalyzeStageName = (typeof ALL_STAGES)[number];
+
+// Human gloss for each machine stage name (discipline S3: pipeline vocabulary
+// never appears unglossed). The mono name stays visible because the logs
+// speak the same language; the gloss rides on the tooltip.
+const STAGE_GLOSS: Record<AnalyzeStageName, string> = {
+  scan: "Scan the library for new, changed, or deleted files",
+  genres: "Read genre tags from the audio files",
+  discogs: "Fetch Discogs styles for releases",
+  lastfm: "Fetch Last.fm tags for releases",
+  sonic: "Extract rhythm/tempo features (BPM, onset)",
+  muq: "Extract the MuQ sonic embedding (the similarity space)",
+  adjudicate: "Adjudicate genre evidence into per-release decisions",
+  apply: "Apply adjudicated genres to the library graph",
+  publish: "Publish the genre authority used by generation",
+  "genre-sim": "Rebuild the genre similarity matrix",
+  artifacts: "Rebuild the generation artifact (matrices the beam uses)",
+  energy: "Extract energy/arousal features",
+  popularity: "Fetch Last.fm popularity ranks",
+  "genre-embedding": "Rebuild the dense genre embedding",
+  verify: "Verify the artifact is complete and consistent",
+};
 
 interface StageResult {
   name: string;
@@ -249,7 +271,7 @@ export function ToolsPanel({
       setAnalyzeJobId(job_id);
       refreshJobs();
     } catch (e) {
-      setAnalyzeError(String(e));
+      setAnalyzeError(friendlyError(e));
     }
   }
 
@@ -265,7 +287,7 @@ export function ToolsPanel({
       setEnrichJobId(job_id);
       refreshJobs();
     } catch (e) {
-      setEnrichError(String(e));
+      setEnrichError(friendlyError(e));
     }
   }
 
@@ -276,7 +298,7 @@ export function ToolsPanel({
       setRefreshJobId(job_id);
       refreshJobs();
     } catch (e) {
-      setRefreshError(String(e));
+      setRefreshError(friendlyError(e));
     }
   }
 
@@ -298,14 +320,14 @@ export function ToolsPanel({
           {/* Stage checkboxes */}
           <div className="flex flex-wrap gap-x-3 gap-y-1">
             {ALL_STAGES.map((s) => (
-              <label key={s} className="flex items-center gap-1 cursor-pointer">
+              <label key={s} title={STAGE_GLOSS[s]} className="flex items-center gap-1 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={selectedStages.includes(s)}
                   onChange={() => toggleStage(s)}
                   className="accent-accent"
                 />
-                <span className="text-2xs text-muted font-mono">{s}</span>
+                <span title={STAGE_GLOSS[s]} className="text-2xs text-muted font-mono">{s}</span>
               </label>
             ))}
           </div>

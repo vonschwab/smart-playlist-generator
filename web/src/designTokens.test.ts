@@ -62,6 +62,15 @@ describe("token adherence (C1)", () => {
   });
 });
 
+describe("local-first assets (I2)", () => {
+  it("index.css loads no remote resources", () => {
+    const css = readFileSync(join(SRC, "index.css"), "utf8");
+    // A render-blocking third-party fetch in a local-first app: fonts and
+    // every other asset are self-hosted.
+    expect(css).not.toMatch(/https?:\/\//);
+  });
+});
+
 // ── WCAG contrast against the live token values ─────────────────────────────
 
 function theme(): Record<string, string> {

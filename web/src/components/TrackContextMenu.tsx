@@ -43,7 +43,7 @@ export function TrackContextMenu(props: TrackContextMenuProps) {
                 Replace this track…
               </DropdownMenu.Item>
               <DropdownMenu.Item className={item} onSelect={() => props.onBlacklistTrack(t)}>
-                Blacklist 1 Track(s)
+                Blacklist this track
               </DropdownMenu.Item>
               <DropdownMenu.Item className={item} onSelect={() => props.onBlacklistAlbum(t)}>
                 Blacklist Album: {t.track.album}

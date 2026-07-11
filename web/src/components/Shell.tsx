@@ -91,9 +91,10 @@ function MobileBody(props: ShellProps) {
   return (
     <>
       <div className="flex-1 min-h-0 overflow-hidden bg-bg">{active}</div>
+      {/* viewport-fit=cover: pb keeps the tabs clear of the home indicator. */}
       <nav
         data-testid="mobile-tabbar"
-        className="flex shrink-0 border-t border-border bg-panel"
+        className="flex shrink-0 border-t border-border bg-panel pb-[env(safe-area-inset-bottom)]"
       >
         {tabs.map((t) => (
           <button

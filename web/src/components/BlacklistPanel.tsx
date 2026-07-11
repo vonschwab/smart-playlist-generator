@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { friendlyError } from "../lib/errors";
 import { api } from "../lib/api";
 import type { BlacklistEntry, BlacklistFetchResponse } from "../lib/types";
 
@@ -23,7 +24,7 @@ export function BlacklistPanel() {
       setData(await api.getBlacklist());
       setError(null);
     } catch (e) {
-      setError(String(e));
+      setError(friendlyError(e));
     } finally {
       setBusy(false);
     }
@@ -58,7 +59,7 @@ export function BlacklistPanel() {
       setSuggestions([]);
       await refresh();
     } catch (e) {
-      setError(String(e));
+      setError(friendlyError(e));
       setBusy(false);
     }
   }
@@ -75,7 +76,7 @@ export function BlacklistPanel() {
       }
       await refresh();
     } catch (e) {
-      setError(String(e));
+      setError(friendlyError(e));
       setBusy(false);
     }
   }

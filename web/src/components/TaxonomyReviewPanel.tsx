@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { friendlyError } from "../lib/errors";
 import { api } from "../lib/api";
 import { useJobReconcile } from "../lib/useJobReconcile";
 import { useWorkerEvents } from "../lib/ws";
@@ -109,7 +110,7 @@ function TermCard({
         }
       }
       setError("adjudication timed out");
-    } catch (e) { setError(String(e)); }
+    } catch (e) { setError(friendlyError(e)); }
     finally { setAsking(false); }
   }
 
@@ -122,7 +123,7 @@ function TermCard({
     if (!verdict) return;
     let parsed: TaxonomyProposal;
     try { parsed = JSON.parse(draft); }
-    catch (e) { setError(`Invalid JSON: ${String(e)}`); return; }
+    catch (e) { setError(`Invalid JSON: ${friendlyError(e)}`); return; }
     onDecide(verdict.verdict, parsed, verdict.proposal, true);
   }
 
@@ -284,7 +285,7 @@ export function TaxonomyReviewPanel() {
       const page = v === "untriaged" ? await api.taxonomyQueue(q) : await api.taxonomyCompleted(q);
       setData(page);
       setError(null);
-    } catch (e) { setError(String(e)); }
+    } catch (e) { setError(friendlyError(e)); }
   }, []);
 
   useEffect(() => { load(search, view); }, [search, view, load]);
@@ -315,18 +316,18 @@ export function TaxonomyReviewPanel() {
         term: item.term, raw_term: item.raw_term, verdict, proposal, claude, human_edited: humanEdited });
       setSessionCount((n) => n + 1);
       setFlash(`saved ✓ ${item.term} → ${verdict}`);
-    } catch (e) { setError(String(e)); load(search, view); }
+    } catch (e) { setError(friendlyError(e)); load(search, view); }
   }, [view, search, load]);
 
   async function revert(term: string) {
     try { await api.taxonomyDecision({ term, verdict: "revert" }); load(search, view); }
-    catch (e) { setError(String(e)); }
+    catch (e) { setError(friendlyError(e)); }
   }
 
   async function applyDecisions() {
     setError(null); setApplyStats(null);
     try { const { job_id } = await api.taxonomyApply(); setApplyJob(job_id); setApplyMsg("starting…"); }
-    catch (e) { setError(String(e)); }
+    catch (e) { setError(friendlyError(e)); }
   }
 
   const terms = data?.terms ?? [];

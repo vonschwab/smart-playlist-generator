@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { friendlyError } from "../lib/errors";
 import { api } from "../lib/api";
 import { useJobReconcile } from "../lib/useJobReconcile";
 import { useWorkerEvents } from "../lib/ws";
@@ -86,7 +87,7 @@ export function GenreReviewPanel() {
       const page = v === "pending" ? await api.reviewQueue(q) : await api.reviewCompleted(q);
       setData(page);
       setError(null);
-    } catch (e) { setError(String(e)); }
+    } catch (e) { setError(friendlyError(e)); }
   }, []);
 
   useEffect(() => { load(search, view); }, [search, view, load]);
@@ -115,13 +116,13 @@ export function GenreReviewPanel() {
       await api.reviewDecision({ album_id: esc.album_id, decision, genres });
       setSessionCount((n) => n + 1);
       setFlash(`saved ✓ ${esc.artist} – ${esc.album}`);
-    } catch (e) { setError(String(e)); load(search, view); }
+    } catch (e) { setError(friendlyError(e)); load(search, view); }
   }, [view, search, load]);
 
   async function publishDecided() {
     setError(null);
     try { const { job_id } = await api.reviewPublish(); setPublishJob(job_id); setPublishMsg("starting…"); }
-    catch (e) { setError(String(e)); }
+    catch (e) { setError(friendlyError(e)); }
   }
 
   const escalations = data?.escalations ?? [];

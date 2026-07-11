@@ -1,4 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
+import { friendlyError } from "../lib/errors";
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { btnGhost, btnPrimary } from "../lib/ui";
@@ -69,7 +70,7 @@ export function EditGenresDialog(props: EditGenresDialogProps) {
       } else {
         props.onOpenChange(false);
       }
-    } catch (e) { setErr(String(e)); } finally { setSaving(false); }
+    } catch (e) { setErr(friendlyError(e)); } finally { setSaving(false); }
   };
 
   return (

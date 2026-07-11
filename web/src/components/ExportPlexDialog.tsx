@@ -1,4 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
+import { friendlyError } from "../lib/errors";
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { btnGhost, btnPrimary } from "../lib/ui";
@@ -25,7 +26,7 @@ export function ExportPlexDialog(props: ExportPlexDialogProps) {
     try {
       const r = await api.exportPlex({ title: name, tracks: props.tracks });
       setStatus("done"); setMsg(`Exported to Plex (key ${r.playlist_key}).`);
-    } catch (e) { setStatus("error"); setMsg(String(e)); }
+    } catch (e) { setStatus("error"); setMsg(friendlyError(e)); }
   };
 
   return (

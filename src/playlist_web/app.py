@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.playlist_gui.policy import derive_runtime_config, resolve_dial_axes
@@ -779,10 +779,10 @@ def create_app(
             hub.disconnect(ws)
 
     if WEB_DIST.exists():
-        app.mount("/assets", StaticFiles(directory=WEB_DIST / "assets"), name="assets")
-
-        @app.get("/")
-        async def index() -> FileResponse:
-            return FileResponse(WEB_DIST / "index.html")
+        # Mount the whole dist root (html=True serves index.html at "/") so
+        # root-level files — icons, manifest.webmanifest, /fonts — are served
+        # too; the old /assets-only mount silently 404'd all of them. Mounted
+        # last, so /api and /ws routes registered above keep precedence.
+        app.mount("/", StaticFiles(directory=WEB_DIST, html=True), name="dist")
 
     return app

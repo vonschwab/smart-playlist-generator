@@ -1,4 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
+import { friendlyError } from "../lib/errors";
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { btnGhost, btnPrimary } from "../lib/ui";
@@ -25,7 +26,7 @@ export function ReplaceDialog(props: ReplaceDialogProps) {
     setLoading(true); setErr(null); setSelected(-1); setCandidates([]);
     api.replaceSuggestions(props.jobId, props.position)
       .then((r) => setCandidates(r.candidates))
-      .catch((e) => setErr(String(e)))
+      .catch((e) => setErr(friendlyError(e)))
       .finally(() => setLoading(false));
   }, [props.open, props.jobId, props.position]);
 

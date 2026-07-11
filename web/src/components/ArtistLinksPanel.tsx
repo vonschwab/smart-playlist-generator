@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { friendlyError } from "../lib/errors";
 import { api } from "../lib/api";
 import type { ArtistLinkGroup } from "../lib/types";
 import { ArtistAutocomplete } from "./ArtistAutocomplete";
@@ -28,7 +29,7 @@ export function ArtistLinksPanel() {
       setGroups(r.groups);
       setError(null);
     } catch (e) {
-      setError(String(e));
+      setError(friendlyError(e));
     }
   }, []);
 
@@ -82,7 +83,7 @@ export function ArtistLinksPanel() {
       }
       setFlash("saved ✓");
     } catch (e) {
-      setError(String(e));
+      setError(friendlyError(e));
       await load();
     } finally {
       setSaving(false);

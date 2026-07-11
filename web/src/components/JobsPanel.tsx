@@ -40,6 +40,11 @@ export function JobsPanel({
           </button>
         )}
       </div>
+      {jobs.length === 0 && (
+        <div className="px-4 py-8 text-center text-faint text-xs">
+          No jobs yet — playlists you generate appear here.
+        </div>
+      )}
       {jobs.map((j) => {
         const meanT = (j.playlist?.metrics?.mean_transition);
         const tracks = j.playlist?.track_count;

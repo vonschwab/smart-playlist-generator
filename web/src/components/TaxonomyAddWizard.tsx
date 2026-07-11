@@ -1,5 +1,6 @@
 // web/src/components/TaxonomyAddWizard.tsx
 import { useRef, useState } from "react";
+import { friendlyError } from "../lib/errors";
 import { api } from "../lib/api";
 import { GenreAutocomplete } from "./GenreAutocomplete";
 import type { TaxonomyParentEdge, TaxonomyProposal, TaxonomyQueueItem } from "../lib/types";
@@ -108,7 +109,7 @@ export function TaxonomyAddWizard({
       setErrors(r.errors ?? []);
     } catch (e) {
       if (seq !== validateSeq.current) return; // superseded by a newer call
-      setValidateFailed(String(e)); // endpoint down ⇒ never "stage anyway"
+      setValidateFailed(friendlyError(e)); // endpoint down ⇒ never "stage anyway"
     } finally {
       if (seq === validateSeq.current) setValidating(false);
     }

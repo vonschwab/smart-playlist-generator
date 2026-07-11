@@ -20,7 +20,7 @@ test("context menu shows expected items", async ({ page }) => {
   const row = page.getByTestId("track-table").locator("tbody tr").nth(1);
   await row.hover();
   await page.getByTestId("kebab-btn").nth(1).click();
-  await expect(page.getByText("Blacklist 1 Track(s)")).toBeVisible();
+  await expect(page.getByText("Blacklist this track")).toBeVisible();
   await expect(page.getByText(/Edit genres for album/)).toBeVisible();
 });
 
@@ -30,7 +30,7 @@ test("blacklist dims the row", async ({ page }) => {
   const row = page.getByTestId("track-table").locator("tbody tr").nth(1);
   await row.hover();
   await page.getByTestId("kebab-btn").nth(1).click();
-  await page.getByText("Blacklist 1 Track(s)").click();
+  await page.getByText("Blacklist this track").click();
   await expect(page.getByText("blacklisted").first()).toBeVisible();
 });
 

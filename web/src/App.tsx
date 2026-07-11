@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { friendlyError } from "./lib/errors";
 import { Shell } from "./components/Shell";
 import { AdvancedPanel } from "./components/AdvancedPanel";
 import { GenerateControls } from "./components/GenerateControls";
@@ -14,6 +15,7 @@ import { api } from "./lib/api";
 import { useWorkerEvents } from "./lib/ws";
 import { useJobReconcile } from "./lib/useJobReconcile";
 import { useLocalStorage } from "./lib/useLocalStorage";
+import { useMediaQuery } from "./lib/useMediaQuery";
 import type { CandidateOut, GenerateRequestBody, JobOut, Mode, PlaylistOut, SeedTrack, TrackOut, WsEvent } from "./lib/types";
 import { TrackContextMenu, type MenuTarget } from "./components/TrackContextMenu";
 import { ReplaceDialog } from "./components/ReplaceDialog";
@@ -38,6 +40,18 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [rerunValues, setRerunValues] = useState<GenerateRequestBody | null>(null);
   const [playlist, setPlaylist] = useState<PlaylistOut | null>(null);
+  // On the phone, the payoff owns the viewport (discipline S5): when a
+  // playlist arrives, the generate controls collapse into a summary bar.
+  // Same breakpoint as the Shell's desktop/mobile swap.
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
+  const desktopRef = useRef(isDesktop);
+  desktopRef.current = isDesktop;
+  const [controlsOpen, setControlsOpen] = useState(true);
+  const showPlaylist = useCallback((pl: PlaylistOut) => {
+    setPlaylist(pl);
+    if (!desktopRef.current) setControlsOpen(false);
+  }, []);
+  const controlsCollapsed = !isDesktop && !controlsOpen && playlist != null;
   const [logs, setLogs] = useState<string[]>([]);
   const [jobs, setJobs] = useState<JobOut[]>(() => {
     try {
@@ -85,7 +99,7 @@ export default function App() {
 
   const handleCancel = useCallback(async (j: JobOut) => {
     try { await api.cancelJob(j.job_id); refreshJobs(); }
-    catch (e) { setError(String(e)); }
+    catch (e) { setError(friendlyError(e)); }
   }, [refreshJobs]);
 
   // Clear finished (and dead-"running") jobs. The server keeps only a genuinely
@@ -95,7 +109,7 @@ export default function App() {
   // leave those zombies behind.
   const handleClearJobs = useCallback(async () => {
     try { await api.clearJobs(); }
-    catch (e) { setError(String(e)); return; }
+    catch (e) { setError(friendlyError(e)); return; }
     try { setJobs(await api.jobs()); }
     catch { setJobs((prev) => prev.filter((j) => j.status === "running" || j.status === "pending")); }
   }, []);
@@ -121,21 +135,21 @@ export default function App() {
     try {
       await api.blacklist({ track_ids: [t.track.rating_key ?? ""], enabled: true });
       markBlacklisted([t.track.rating_key ?? ""]);
-    } catch (e) { setError(String(e)); }
+    } catch (e) { setError(friendlyError(e)); }
   }, [markBlacklisted]);
 
   const handleBlacklistAlbum = useCallback(async (t: MenuTarget) => {
     setMenuOpen(false);
     try {
       await api.blacklist({ scope: "album", value: t.track.album, artist: t.track.artist, enabled: true });
-    } catch (e) { setError(String(e)); }
+    } catch (e) { setError(friendlyError(e)); }
   }, []);
 
   const handleBlacklistArtist = useCallback(async (t: MenuTarget) => {
     setMenuOpen(false);
     try {
       await api.blacklist({ scope: "artist", value: t.track.artist, enabled: true });
-    } catch (e) { setError(String(e)); }
+    } catch (e) { setError(friendlyError(e)); }
   }, []);
 
   const handleReplace = useCallback((t: MenuTarget) => {
@@ -184,13 +198,13 @@ export default function App() {
 
   useWorkerEvents(useCallback((e: WsEvent) => {
     if (e.type === "log") setLogs((l) => [...l, `${e["level"] ?? "INFO"}: ${e["msg"] ?? ""}`].slice(-500));
-    if (e.type === "error") setError(String(e["message"] ?? "error"));
+    if (e.type === "error") setError(friendlyError(e["message"]));
     if (e.type === "done") {
       setBusy(false);
       const jid = e.job_id;
       if (jid) {
         setPendingJobId((p) => (p === jid ? null : p));
-        api.job(jid).then((j) => { if (j.playlist) setPlaylist(j.playlist); }).catch(() => {});
+        api.job(jid).then((j) => { if (j.playlist) showPlaylist(j.playlist); }).catch(() => {});
       }
       refreshJobs();
     }
@@ -204,7 +218,7 @@ export default function App() {
     setPendingJobId(null);
     setBusy(false);
     api.job(jid).then((j) => {
-      if (j.playlist) setPlaylist(j.playlist);
+      if (j.playlist) showPlaylist(j.playlist);
       else if (j.status === "failed") setError(j.error ?? "generation failed");
     }).catch(() => {});
     refreshJobs();
@@ -234,7 +248,7 @@ export default function App() {
       setPendingJobId(job_id);
       refreshJobs();
     } catch (err) {
-      setError(String(err)); setBusy(false);
+      setError(friendlyError(err)); setBusy(false);
     }
   }
 
@@ -263,29 +277,50 @@ export default function App() {
             {error && <div className="text-danger text-xs ml-auto">{error}</div>}
           </>
         }
-        jobs={<JobsPanel jobs={jobs} onSelect={(j) => setPlaylist(j.playlist ?? null)} onCancel={handleCancel} onRerun={handleRerun} onClear={handleClearJobs} />}
+        jobs={<JobsPanel jobs={jobs} onSelect={(j) => (j.playlist ? showPlaylist(j.playlist) : setPlaylist(null))} onCancel={handleCancel} onRerun={handleRerun} onClear={handleClearJobs} />}
         center={
           tab === "tools" ? (
             <ToolsPanel externalBusy={busy} refreshJobs={refreshJobs} />
           ) : (
             <div className="h-full flex flex-col overflow-hidden">
-              <GenerateControls
-                mode={mode}
-                onModeChange={setMode}
-                seedTrackIds={seedTracks.map((t) => t.track_id)}
-                seedDisplays={seedTracks.map((t) => `${t.title} - ${t.artist}`)}
-                onSubmit={submit}
-                busy={busy}
-                initialValues={rerunValues ?? undefined}
-              />
-              {mode === "seeds" && (
-                <SeedTrackSection
-                  tracks={seedTracks}
-                  onAdd={addSeed}
-                  onRemove={removeSeed}
-                  onClear={clearSeeds}
-                />
+              {controlsCollapsed && (
+                <div
+                  data-testid="controls-summary"
+                  className="flex items-center justify-between gap-2 px-4 py-2 bg-panel border-b border-border"
+                >
+                  <div className="text-xs text-muted truncate">
+                    <span className="text-text font-medium">{playlist?.name ?? "Playlist"}</span>
+                    {playlist ? ` — ${playlist.track_count} tracks` : ""}
+                  </div>
+                  <button
+                    data-testid="controls-summary-open"
+                    onClick={() => setControlsOpen(true)}
+                    className="border border-accent text-accent text-xs px-3 py-1 pointer-coarse:min-h-11 rounded whitespace-nowrap"
+                  >
+                    New playlist
+                  </button>
+                </div>
               )}
+              {/* Hidden, not unmounted: the form state must survive the collapse. */}
+              <div className={controlsCollapsed ? "hidden" : "contents"}>
+                <GenerateControls
+                  mode={mode}
+                  onModeChange={setMode}
+                  seedTrackIds={seedTracks.map((t) => t.track_id)}
+                  seedDisplays={seedTracks.map((t) => `${t.title} - ${t.artist}`)}
+                  onSubmit={submit}
+                  busy={busy}
+                  initialValues={rerunValues ?? undefined}
+                />
+                {mode === "seeds" && (
+                  <SeedTrackSection
+                    tracks={seedTracks}
+                    onAdd={addSeed}
+                    onRemove={removeSeed}
+                    onClear={clearSeeds}
+                  />
+                )}
+              </div>
               <QualityStats
                 metrics={playlist?.metrics}
                 receipt={playlist?.receipt}
