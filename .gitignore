@@ -119,6 +119,8 @@ docs/mode_audit_*.md
 # Brainstorming visual-companion scratch
 .superpowers/
 
+# Node dependencies (any location — root or web/; root install is accidental but must never be tracked)
+node_modules/
 # Web frontend (Vite)
 web/node_modules/
 web/dist/
