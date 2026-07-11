@@ -46,6 +46,8 @@ test("refresh genres for generation fires a job without error", async ({ page })
   });
 
   await generate(page);
+  // The button was rehomed into the Tools tab (b289b30).
+  await page.getByRole("button", { name: "Tools" }).click();
   await page.getByRole("button", { name: /Refresh genres for generation/ }).click();
   await expect.poll(() => called).toBe(true);
 });
