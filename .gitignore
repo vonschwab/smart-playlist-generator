@@ -62,7 +62,11 @@ data/metadata.db
 data/metadata.db-shm
 data/metadata.db-wal
 data/artifacts/
+# Retired MERT data — irreplaceable, keep local, NEVER track (~3.1GB, see data/archive/mert_2026/README.md)
+data/archive/
 data/sonic_backups/
+# Corrupt-sidecar quarantine dirs (regenerable junk)
+data/_sidecar_corrupt_*/
 data/genre_cache.json
 data/test_genre_cache.json
 data/*.npz
