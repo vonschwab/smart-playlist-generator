@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.26.0-gui-20260702_213443-grown
+taxonomy_version: 0.30.0-gui-20260709_113954-grown
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -29386,6 +29386,630 @@ records:
     The term lacks a distinct scene, sonic tradition, or cultural identity beyond
     the mood descriptor "chill" applied to the broad geographic category "world".
     The taxonomy already covers this intersection comprehensively via existing entries.'
+- name: singapore
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: singaporean
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: aprils taste
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: progressive ambient
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: ambient
+    edge_type: is_a
+    weight: 0.75
+    confidence: 0.95
+    notes: null
+  - target: progressive electronic
+    edge_type: family_context
+    weight: 0.38
+    confidence: 0.8
+    notes: null
+  - target: ambient electronic
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: experimental electronic
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: space ambient
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: dark ambient
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Progressive ambient is a legitimate subgenre combining ambient soundscaping
+    with progressive structural composition. It emphasizes developmental arcs and
+    musical evolution within atmospheric, texture-rich contexts—distinct from both
+    static ambient and progressive electronic dance subgenres (progressive house,
+    progressive breaks). Established artists: Hiroshi Yoshimura (Four Post Cards),
+    Visible Cloaks. Primary parent: ambient (is_a, 0.75); secondary: progressive electronic
+    (family_context, 0.38 — shares progressive-structure sensibility but not dance-music
+    routing). Specificity 0.70: mid-range subgenre, narrower than ambient or progressive
+    electronic, broader than micro-genres like space ambient.'
+- name: labrador
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: label
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: april
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: self titled album
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: vinyl i own
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: visual kei
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: twee
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: twee pop
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: hardcore
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.56
+  canonical_target: null
+  parent_edges:
+  - target: punk
+    edge_type: is_a
+    weight: 0.8
+    confidence: 0.95
+    notes: null
+  - target: post-hardcore
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  - target: hardcore punk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: post-hardcore
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: post-punk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Hardcore is a legitimate music genre and cultural movement with 62 album
+    instances, originating in 1980s punk as the aggressive, fast variant. It evolved
+    into distinct branches (hardcore punk proper, post-hardcore, digital hardcore,
+    happy hardcore) but retains core identity rooted in punk DIY ethos and aggression.
+    The examples (Unwound) exemplify post-hardcore. Strong co-occurrence with 'punk',
+    'punk rock', 'hardcore punk', and 'post-hardcore' indicates 'hardcore' is a meaningful
+    mid-level genre, distinct from the broad punk umbrella and complementary to specific
+    hardcore subgenres. The fact that 'hardcore punk' appears as a co-occurring tag
+    (not identical) confirms they are used together as related but distinct taxa,
+    not aliases. Positioned as genre (0.56 specificity) rather than subgenre because
+    it encompasses multiple hardcore variants while remaining above single-style level.
+    Parent edge to 'punk' reflects genealogy; family-context edge to 'post-hardcore'
+    acknowledges evolutionary kinship without reducing one to the other.
+- name: argentina
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: place
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: madonna
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: artist_name
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: queen of pop
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: joao gilberto
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: artist_name
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: kitsune
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Kitsune is a Japanese folklore/mythology term (supernatural fox spirits),
+    not a music genre. While the Kitsune Editions record label exists and releases
+    electronic music, the bare term 'kitsune' has no standalone genre meaning. All
+    three instances tag Buscabulla, a Brooklyn-based experimental electronic band—the
+    tag appears to be cultural/aesthetic metadata rather than genre classification.
+    It co-occurs with real genres (dream pop, synth pop, electronic, experimental)
+    but carries no independent taxonomic value.
+- name: perfect
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: puerto rico
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: wfmu heavily played records
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: glam
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: glam rock
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: powerpop
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: power pop
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: oldschool hardcore
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: hardcore punk
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: melodic hardcore
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.72
+  canonical_target: null
+  parent_edges:
+  - target: hardcore punk
+    edge_type: is_a
+    weight: 0.85
+    confidence: 0.95
+    notes: null
+  - target: hardcore
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.88
+    notes: null
+  - target: post-hardcore
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: art punk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Melodic hardcore is an established 1980s subgenre emphasizing melodic elements
+    (hooks, vocal harmonies) within the hardcore punk framework. Examples (Youth Brigade,
+    Faith, Tradition) are canonical melodic hardcore bands. Distinct from post-hardcore,
+    which emerged later with greater structural experimentation, and from pure hardcore
+    punk, which prioritizes rawness over melody. Relatively low album frequency (4)
+    in the library, but examples are representative of a well-defined historical movement
+    and stylistic approach.
+- name: straight edge hardcore
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.9
+  canonical_target: null
+  parent_edges:
+  - target: hardcore punk
+    edge_type: is_a
+    weight: 0.75
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Added via SP3a graph growth.
+- name: straight edge
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: straight edge hardcore
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: sxe
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: straight edge hardcore
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: ghost box
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: label
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: retro futurism
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: acid trance
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'While acid trance is a documented electronic music subgenre (blending acid
+    house''s TB-303 resonant filters with trance''s hypnotic four-on-the-floor rhythm,
+    circa 1990s onward), the three examples provided are not trance: skylab (berlin-school
+    synthesizer / 1970s-era ambient), steve baltes (new age / synthesizer), and dream
+    dolphin—explicitly titled ''Gaia Selected Ambient Downtempo Works 1996–2003.''
+    The co-occurring tags (ambient, downtempo, gothic, video game music, berlin school)
+    reinforce a profile entirely misaligned with trance''s uplifting energy and driving
+    BPM. Low frequency (3 albums, zero authentic matches) combined with systematic
+    misapplication signals user-tagging confusion rather than genuine genre identification.
+    If properly labeled acid trance albums emerge in the library, they should be added
+    at that point.'
+- name: meditative
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: my favourite albums
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: nature recordings
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: ymo
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: artist_name
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: american underground
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: era
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '"American underground" is a temporal and cultural descriptor marking the
+    1980s American DIY/underground scene rather than a distinct genre. The co-occurring
+    tags (hardcore, hardcore punk, punk rock, old school hardcore, alternative pop-rock)
+    and examples (Minutemen, Negative Approach, Zero Boys) span multiple existing
+    genres already present in the taxonomy. The term conflates geographical origin,
+    time period, and scene context—none of which define sonic or stylistic characteristics.
+    It functions as a scene label or era marker, not a genre classification.'
+- name: great lyrics
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
 bridge_rules:
 - source: indie pop
   target: synth-pop
