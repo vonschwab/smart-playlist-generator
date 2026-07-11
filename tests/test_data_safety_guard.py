@@ -63,6 +63,20 @@ def test_rm_wal_denied():
     assert _cmd_denied("rm data/metadata.db-wal") is not None
 
 
+def test_cp_live_db_denied():
+    # raw file copy of the LIVE db can capture a torn WAL state -> denied (use copy_db_safe.py)
+    assert _cmd_denied("cp data/metadata.db data/metadata.db.bak.20260706") is not None
+    assert _cmd_denied("cp data/metadata.db /tmp/snapshot.db") is not None
+
+
+def test_powershell_copy_item_live_db_denied():
+    assert _cmd_denied(r"Copy-Item data\metadata.db D:\backup\metadata.db") is not None
+
+
+def test_inline_python_copyfile_db_denied():
+    assert _cmd_denied("python -c \"import shutil; shutil.copyfile('data/metadata.db','x')\"") is not None
+
+
 # --------------------------- metadata.db: ALLOW ---------------------------
 
 def test_sqlite_select_allowed():
@@ -74,8 +88,15 @@ def test_select_with_redirect_elsewhere_allowed():
     assert _cmd_denied('sqlite3 data/metadata.db "SELECT 1" > out.txt') is None
 
 
-def test_cp_backup_allowed():
-    assert _cmd_denied("cp data/metadata.db data/metadata.db.bak.20260706") is None
+def test_cp_backup_source_allowed():
+    # copying an EXISTING .bak (e.g. to restore) is fine — only the live db's raw copy is unsafe
+    assert _cmd_denied("cp data/metadata.db.bak.20260706 /tmp/restore.db") is None
+
+
+def test_copy_db_safe_tool_allowed():
+    # the blessed atomic tool must not be caught by the copy guard (even naming --src)
+    assert _cmd_denied("python tools/copy_db_safe.py data/snapshot.db") is None
+    assert _cmd_denied("python tools/copy_db_safe.py /tmp/x.db --src data/metadata.db") is None
 
 
 def test_rm_backup_allowed():
@@ -171,3 +192,10 @@ def test_e2e_allow_is_silent():
         {"tool_name": "Bash", "tool_input": {"command": "sqlite3 data/metadata.db \"SELECT 1\""}}
     )
     assert out == ""
+
+
+def test_e2e_copy_deny_points_to_safe_tool():
+    out = _run({"tool_name": "PowerShell", "tool_input": {"command": r"Copy-Item data\metadata.db D:\x.db"}})
+    parsed = json.loads(out)
+    assert parsed["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert "copy_db_safe" in parsed["hookSpecificOutput"]["permissionDecisionReason"]

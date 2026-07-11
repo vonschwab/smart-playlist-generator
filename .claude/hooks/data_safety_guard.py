@@ -6,10 +6,12 @@ Guards the three targets CLAUDE.md marks as never-writable / irreplaceable:
   - the audio library root     config.yaml `music_directory` (read-only forever)
 
 Denies deletes, moves/renames, output redirects, PowerShell content-writes,
-sqlite3 write statements, and python open(...,'w'/'a'/...) against those paths,
-plus any Edit/Write tool call whose file_path lands on them. READS (SELECT,
-cat/type, Get-Content, ffprobe) pass untouched, and metadata.db*.bak backups
-pass so the backup discipline still works.
+sqlite3 write statements, python open(...,'w'/'a'/...), and raw file COPIES of the
+live metadata.db (cp/Copy-Item/copyfile — copying an open DB can capture a torn WAL
+state and silently corrupt an index; use tools/copy_db_safe.py instead), plus any
+Edit/Write tool call whose file_path lands on them. READS (SELECT, cat/type,
+Get-Content, ffprobe) pass untouched, and copying an existing metadata.db*.bak passes
+(only a raw copy of the *live* DB is unsafe).
 
 Contract mirrors the repo's other PreToolUse hooks: read the tool-call JSON on
 stdin; emit a permissionDecision "deny" to block, stay silent to allow. FAIL
@@ -102,12 +104,26 @@ _SQL_WRITE = (
     r"|\b(?:update|insert|delete|drop|alter|replace|vacuum|reindex|attach)\b[^|&;\n]*{P}"
     r")"
 )
+# Raw file copy of the LIVE DB — cp/copy/Copy-Item/copyfile/robocopy ... metadata.db.
+# The DB sub-pattern excludes *.bak (so copying a backup is fine); only the live DB is caught.
+_COPY_TEMPLATE = r"\b(?:cp|copy|copy-item|copyfile|robocopy)\b[^|&;<>\n]*?{P}"
+_COPY_DETAIL = (
+    "copying an OPEN database by raw file copy (cp / Copy-Item / copyfile) can capture a "
+    "torn WAL state and silently corrupt an index — the 2026-07 metadata.db incident, where "
+    "a torn backup propagated a desynced index into every copy. Use an atomic copy instead: "
+    "`python tools/copy_db_safe.py <dest>` (or src.db_backup.backup_database), which takes an "
+    "online-backup snapshot + integrity_check. Copying an existing metadata.db.bak.<ts> is fine."
+)
 
 
 def command_denied(command):
     """Return an entry dict if the (normalized) command is a destructive op, else None."""
     for entry in _protected():
         p = entry["pattern"]
+        # Raw copy of the *live* metadata.db is unsafe (torn WAL) — steer to the atomic tool.
+        # Scoped to the DB (npz/audio raw copies are harmless).
+        if entry["name"] == "data/metadata.db" and re.search(_COPY_TEMPLATE.format(P=p), command):
+            return {**entry, "detail": _COPY_DETAIL}
         patterns = [t.format(P=p) for t in _VERB_TEMPLATES]
         patterns.append(_SQL_WRITE.format(P=p))
         for pat in patterns:
