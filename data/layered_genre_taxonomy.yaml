@@ -29550,21 +29550,6 @@ records:
   source_policy: growth
   possible_context_target: null
   notes: Rejected via taxonomy term adjudication.
-- name: twee
-  kind: alias
-  role: alias
-  status: alias_only
-  facet_type: null
-  specificity_score: null
-  canonical_target: twee pop
-  parent_edges: []
-  secondary_roles: []
-  reject_reason: null
-  alias_policy:
-    type: plain
-  source_policy: null
-  possible_context_target: null
-  notes: Spelling variant (growth).
 - name: hardcore
   kind: genre
   role: leaf
