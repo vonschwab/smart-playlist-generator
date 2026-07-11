@@ -14,7 +14,7 @@ from typing import Any
 import yaml
 
 from .layered_assignment import classify_layered_term
-from .layered_taxonomy import FAMILY_KIND, LayeredTaxonomy, _record_id, normalize_taxonomy_name
+from .layered_taxonomy import FAMILY_KIND, LayeredTaxonomy, normalize_taxonomy_name
 from .routing import WebMode
 
 
@@ -65,6 +65,9 @@ def gather_growth_candidates(
         classification = classify_layered_term(taxonomy, tag)
         if classification.term_kind != "review" or classification.canonical_id is not None:
             continue  # mapped / alias / facet / reject / known-review -> not a candidate
+        if taxonomy.name_is_recorded(tag):
+            continue  # already recorded (e.g. a CONDITIONAL alias, invisible to the
+            # context-free classify above) -> never re-offer for adjudication
 
         cooccur: Counter[str] = Counter()
         for rk in releases:
@@ -306,15 +309,6 @@ def read_proposals(path) -> list[ProposalEntry]:
     return entries
 
 
-def _name_exists(taxonomy: LayeredTaxonomy, name: str) -> bool:
-    norm = normalize_taxonomy_name(name)
-    if taxonomy.genre_by_name(norm) is not None:
-        return True
-    if taxonomy.facet_by_name(norm) is not None:
-        return True
-    return taxonomy.genre_by_id(_record_id(name)) is not None
-
-
 def _parent_target_error(taxonomy: LayeredTaxonomy, target: str) -> str | None:
     """Return an error message if `target` cannot serve as a parent-edge target.
 
@@ -406,8 +400,9 @@ def validate_proposal(taxonomy: LayeredTaxonomy, proposal: GrowthProposal) -> li
         errors.append(f"Unsupported kind: {proposal.kind}")
     if not (0.0 <= float(proposal.specificity_score) <= 1.0):
         errors.append(f"specificity_score out of range: {proposal.specificity_score}")
-    if _name_exists(taxonomy, name):
-        errors.append(f"A taxonomy record named/sluged like '{name}' already exists.")
+    recorded = taxonomy.describe_recorded_name(name)
+    if recorded is not None:
+        errors.append(f"A taxonomy record named '{name}' already exists ({recorded}).")
 
     if proposal.kind == "alias":
         target = (proposal.canonical_target or "").strip()

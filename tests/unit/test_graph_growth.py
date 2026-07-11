@@ -6,8 +6,8 @@ from src.ai_genre_enrichment.storage import SidecarStore
 from src.ai_genre_enrichment import graph_growth
 from src.ai_genre_enrichment import graph_growth as gg
 from src.ai_genre_enrichment.layered_taxonomy import (
-    DEFAULT_TAXONOMY_PATH, load_default_layered_taxonomy, load_layered_taxonomy,
-    normalize_taxonomy_name)
+    DEFAULT_TAXONOMY_PATH, _record_id, load_default_layered_taxonomy,
+    load_layered_taxonomy, normalize_taxonomy_name)
 
 
 @pytest.fixture(autouse=True)
@@ -371,7 +371,7 @@ def test_append_approved_adds_genre_and_reloads(tmp_path):
     # Re-load: the new genre is present and resolves a parent family.
     grown = load_layered_taxonomy(tax_path)
     assert grown.version == "0.3.0-grown-test"
-    gid = graph_growth._record_id("xyzzy-growth-test")
+    gid = _record_id("xyzzy-growth-test")
     assert grown.genre_by_id(gid) is not None
     assert grown.genres  # still valid taxonomy (loader _validate_taxonomy passed)
     # alias variant registered
@@ -390,7 +390,7 @@ def test_append_approved_adds_umbrella_record(tmp_path):
         tax_path, [proposal], new_version="0.3.0-grown-test")
     assert result.appended == 1
     grown = load_layered_taxonomy(tax_path)
-    gid = graph_growth._record_id("dream haze")
+    gid = _record_id("dream haze")
     rec = grown.genre_by_id(gid)
     assert rec is not None
     assert rec.kind == "umbrella"
@@ -410,7 +410,7 @@ def test_append_approved_adds_facet_record(tmp_path):
         tax_path, [proposal], new_version="0.3.0-grown-test")
     assert result.appended == 1
     grown = load_layered_taxonomy(tax_path)
-    fid = graph_growth._record_id("brand new descriptor")
+    fid = _record_id("brand new descriptor")
     rec = grown.facet_by_id(fid)
     assert rec is not None
     assert rec.facet_type == "texture"
@@ -492,8 +492,8 @@ def test_cli_ingest_growth_appends_kept_only(tmp_path):
     ])
     assert rc == 0
     grown = load_layered_taxonomy(tax_path)
-    assert grown.genre_by_id(gg._record_id("xyzzy-growth-test")) is not None
-    assert grown.genre_by_id(gg._record_id("aaron")) is None   # rejected
+    assert grown.genre_by_id(_record_id("xyzzy-growth-test")) is not None
+    assert grown.genre_by_id(_record_id("aaron")) is None   # rejected
 
 
 def test_cli_ingest_growth_dry_run_writes_nothing(tmp_path):

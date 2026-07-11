@@ -159,6 +159,44 @@ class LayeredTaxonomy:
     def rejected_term_by_name(self, name: str) -> RejectedTerm | None:
         return self._rejected_terms_by_name.get(normalize_taxonomy_name(name))
 
+    def describe_recorded_name(self, name: str) -> str | None:
+        """Human description of an existing record with this name, or None if the
+        name is genuinely unrecorded.
+
+        Context-free by design: a *conditional* alias counts as recorded even
+        though it does not resolve without context. The taxonomy editor uses this
+        so it neither re-offers an already-recorded term for adjudication nor
+        appends a duplicate that would shadow it. Covers genres, facets, aliases
+        (plain AND conditional), and rejects — the registries the context-sensitive
+        `genre_by_name`/`_alias_for_name` lookups can miss.
+        """
+        norm = normalize_taxonomy_name(name)
+        genre = self._genres_by_name.get(norm)
+        if genre is not None:
+            return f"{genre.kind} '{genre.name}'"
+        facet = self._facets_by_name.get(norm)
+        if facet is not None:
+            return f"facet '{facet.name}'"
+        alias = self._alias_targets_by_exact_name.get(str(name or "").casefold().strip())
+        if alias is None:
+            alias = next((a for a in self.aliases
+                          if normalize_taxonomy_name(a.alias) == norm), None)
+        if alias is not None:
+            target = (self._genres_by_id.get(alias.canonical_genre_id)
+                      or self._facets_by_id.get(alias.canonical_genre_id))
+            target_name = target.name if target is not None else alias.canonical_genre_id
+            kind = "alias" if _is_plain_alias(alias) else "conditional alias"
+            return f"{kind} → {target_name}"
+        rejected = self._rejected_terms_by_name.get(norm)
+        if rejected is not None:
+            return f"reject ({rejected.reason})"
+        return None
+
+    def name_is_recorded(self, name: str) -> bool:
+        """True if any record (genre/facet/alias — plain or conditional — /reject)
+        already uses this name. Context-free; see `describe_recorded_name`."""
+        return self.describe_recorded_name(name) is not None
+
     def alias_for_name(
         self,
         name: str,
