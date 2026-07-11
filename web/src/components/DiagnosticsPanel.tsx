@@ -39,7 +39,7 @@ export function DiagnosticsPanel({ playlist }: { playlist: PlaylistOut | null })
   );
 
   return (
-    <div className="p-3 overflow-y-auto text-xs" data-testid="diagnostics-content">
+    <div className="h-full overflow-y-auto p-3 text-xs" data-testid="diagnostics-content">
       <div className="text-2xs uppercase tracking-[.08em] text-faint mb-1">Summary</div>
       <div className="grid grid-cols-2 gap-x-3">
         {stat("Mean", fmt(m?.mean_transition))}

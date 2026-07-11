@@ -84,7 +84,7 @@ function MobileBody(props: ShellProps) {
   const tabs: Array<{ id: Region; label: string }> = [
     { id: "playlist", label: "Playlist" },
     { id: "jobs", label: "Jobs" },
-    { id: "diag", label: "Diag" },
+    { id: "diag", label: "Advanced" },
     { id: "logs", label: "Logs" },
   ];
 

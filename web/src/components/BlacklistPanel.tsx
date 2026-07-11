@@ -99,7 +99,7 @@ export function BlacklistPanel() {
   const empty = data && data.total === 0;
 
   return (
-    <div className="p-3 overflow-y-auto text-xs" data-testid="blacklist-panel">
+    <div className="h-full overflow-y-auto p-3 text-xs" data-testid="blacklist-panel">
       <div ref={dropdownRef} className="relative flex gap-1 mb-2">
         <input
           data-testid="blacklist-search"
