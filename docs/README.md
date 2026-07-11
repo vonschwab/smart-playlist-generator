@@ -25,10 +25,8 @@ authoritative implementation walkthrough.
 
 ## Sonic
 The current sonic space is **MuQ** (contrastive, sole embedding) — see `ARCHITECTURE.md`
-§"Sonic feature space" and `DESIGN_RATIONALE.md` §"Sonic embedding". The docs below are
-**historical** (the MERT/tower era that MuQ replaced; MERT/tower code is archived):
-- **[MERT_WHITEN_NEIGHBORS_20SEEDS.md](MERT_WHITEN_NEIGHBORS_20SEEDS.md)** — *(historical)* MERT neighbour QA
-- **[SONIC_PHASE2_HARMONY_FINDINGS.md](SONIC_PHASE2_HARMONY_FINDINGS.md)** — *(historical)* 2DFTM harmony tower investigation
+§"Sonic feature space" and `DESIGN_RATIONALE.md` §"Sonic embedding". (Historical MERT/tower-era
+investigations — neighbour QA, 2DFTM harmony — are retained locally under `docs/archive/`, not shipped.)
 
 ## Genre (authority + taxonomy graph + enrichment)
 - **[AI_GENRE_ENRICHMENT.md](AI_GENRE_ENRICHMENT.md)** — enrichment usage
@@ -39,8 +37,8 @@ The current sonic space is **MuQ** (contrastive, sole embedding) — see `ARCHIT
 ## Release & development
 - **[../CHANGELOG.md](../CHANGELOG.md)** — release notes (repo root; the authoritative changelog)
 - **[LOGGING.md](LOGGING.md)** — logging standards
-- **[DEAD_CODE_AUDIT_2026-06-10.md](DEAD_CODE_AUDIT_2026-06-10.md)** — dead-code audit
-- Design specs + implementation plans: `docs/superpowers/specs/` and `docs/superpowers/plans/`
+- Historical design specs, implementation plans, audits, findings, and handoffs are retained
+  locally under `docs/archive/` (not shipped in the public repo).
 
 ---
 

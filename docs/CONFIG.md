@@ -334,7 +334,7 @@ sonic beam objective.
 > dominates selection, `max`'s coarse "share a close tag?" catches egregious disjoint edges just
 > as well, and the soft metric's wins didn't replicate. There is no `metric: max|soft` config
 > switch anywhere in the code; don't add one without re-reading
-> `docs/GENRE_SOFT_METRIC_FINDINGS_2026-06-26.md` first.
+> `docs/archive/findings/GENRE_SOFT_METRIC_FINDINGS_2026-06-26.md` first (archived, local-only).
 
 ### `dj_bridging` (legacy, opt-in, default off)
 

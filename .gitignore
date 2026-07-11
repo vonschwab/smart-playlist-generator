@@ -109,6 +109,9 @@ audit/
 
 # Development archives
 docs/archive/
+# Internal process docs (superpowers specs/plans/handoffs, UI design notes) — kept local, not shipped
+docs/superpowers/
+docs/ui_ux/
 # Audit/test docs
 docs/run_audits/
 docs/DEPRECATION_GUIDE.md

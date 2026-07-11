@@ -12,7 +12,7 @@
 
 - `data/metadata.db` is irreplaceable: only the `publish` stage writes it (automatic timestamped backup); the real publish run requires Dylan's explicit go after the eval gate (Task 7 STOP).
 - Additive-only invariant for the backfill: never remove an assignment row, never lower an existing row's confidence, never touch `rejected_by_user` or user overrides.
-- Code tasks (1–6, 10) run in an isolated worktree on a branch. Operational tasks (7–9) run from the **main checkout** — never run data-writing stages against a symlinked SQLite DB (WAL-aliasing corruption rule).
+- Execution runs on `master` in the **shared main checkout** (Dylan's decision 2026-07-04, given code tasks 1–6/10 are unit-test-only and don't need `data/`). Multiple sessions commit to master concurrently, so **stage explicit file paths only** — never `git add -A`/`-u`/`.` — and verify `git diff --cached --name-only` before every commit. Leave the pre-existing in-flight files alone (`data/layered_genre_taxonomy.yaml` + untracked docs/scripts). Operational tasks (7–9) also run from the main checkout — never run data-writing stages against a symlinked SQLite DB (WAL-aliasing corruption rule).
 - Pytest: `python -m pytest -q -m "not slow"` directly with a timeout — never piped through `head`/`tail`.
 - Music library audio files are permanently read-only.
 - No new config knob for the policy: the flip is a pure-function change (rollback = revert commit). Tuning surface = keyword args + module constants in `hybrid_evidence.py`. Rationale: the policy is consumed via 5+ entry points (analyze stage, CLI, worker scan, diagnostics); a half-plumbed config knob is this repo's documented #1 trap, and a pure constant cannot go inert.
