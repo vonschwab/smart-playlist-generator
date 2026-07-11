@@ -12,6 +12,7 @@ import { PlayerProvider } from "./contexts/PlayerContext";
 import { MiniPlayer } from "./components/MiniPlayer";
 import { api } from "./lib/api";
 import { useWorkerEvents } from "./lib/ws";
+import { useJobReconcile } from "./lib/useJobReconcile";
 import { useLocalStorage } from "./lib/useLocalStorage";
 import type { CandidateOut, GenerateRequestBody, JobOut, Mode, PlaylistOut, SeedTrack, TrackOut, WsEvent } from "./lib/types";
 import { TrackContextMenu, type MenuTarget } from "./components/TrackContextMenu";
@@ -51,6 +52,9 @@ export default function App() {
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
   const [blacklisted, setBlacklisted] = useState<Set<string>>(new Set());
   const [jobId, setJobId] = useState<string>("");
+  // The generation awaiting its `done` event. Distinct from `jobId`, which the
+  // Replace dialog keeps pointing at the LAST completed job indefinitely.
+  const [pendingJobId, setPendingJobId] = useState<string | null>(null);
   const [replaceOpen, setReplaceOpen] = useState(false);
   const [replacePos, setReplacePos] = useState(0);
   const [editGenresOpen, setEditGenresOpen] = useState(false);
@@ -184,10 +188,28 @@ export default function App() {
     if (e.type === "done") {
       setBusy(false);
       const jid = e.job_id;
-      if (jid) api.job(jid).then((j) => { if (j.playlist) setPlaylist(j.playlist); }).catch(() => {});
+      if (jid) {
+        setPendingJobId((p) => (p === jid ? null : p));
+        api.job(jid).then((j) => { if (j.playlist) setPlaylist(j.playlist); }).catch(() => {});
+      }
       refreshJobs();
     }
   }, [refreshJobs]));
+
+  // Backstop for a dead/backgrounded WebSocket (iOS Safari kills the socket
+  // when the tab leaves the foreground): while a generation is pending, poll
+  // the job registry and finish from its authoritative state. Idempotent with
+  // the WS `done` path — whichever fires first clears pendingJobId.
+  const finishGenerate = useCallback((jid: string) => {
+    setPendingJobId(null);
+    setBusy(false);
+    api.job(jid).then((j) => {
+      if (j.playlist) setPlaylist(j.playlist);
+      else if (j.status === "failed") setError(j.error ?? "generation failed");
+    }).catch(() => {});
+    refreshJobs();
+  }, [refreshJobs]);
+  useJobReconcile(pendingJobId, finishGenerate);
 
   async function submit(body: GenerateRequestBody) {
     setError(null); setBusy(true); setLogs([]); setPlaylist(null);
@@ -209,6 +231,7 @@ export default function App() {
           .slice(0, 30);
       });
       setJobId(job_id);
+      setPendingJobId(job_id);
       refreshJobs();
     } catch (err) {
       setError(String(err)); setBusy(false);
