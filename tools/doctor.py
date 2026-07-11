@@ -192,6 +192,22 @@ class DoctorChecks:
                 check_pass(f"Database: {count:,} tracks ({sonic_count:,} with sonic features)")
                 self.passed += 1
 
+            # Integrity check — surfaces the index/table corruption class that a raw
+            # file-copy backup of an open DB can propagate (2026-07 idx_tracks_file_path
+            # incident). Not fatal (data is still readable), but the fix is a REINDEX.
+            try:
+                from src.db_backup import check_integrity
+                integ_ok, integ_detail = check_integrity(db_path)
+                if integ_ok:
+                    check_pass("Database integrity: ok")
+                    self.passed += 1
+                else:
+                    check_warn(f"Database integrity issue — run: sqlite3 metadata.db 'REINDEX;'  ({integ_detail})")
+                    self.warned += 1
+            except Exception as e:  # never let the health check itself break doctor
+                check_warn(f"Could not run integrity_check: {e}")
+                self.warned += 1
+
             return True
 
         except sqlite3.Error as e:

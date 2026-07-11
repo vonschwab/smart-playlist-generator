@@ -2585,14 +2585,26 @@ def handle_publish_decided(cmd_data: Dict[str, Any]) -> None:
     (CLAUDE.md metadata.db discipline). publish() is the only authority writer.
     """
     import datetime
-    import shutil
+
+    from src.db_backup import backup_database
 
     try:
         metadata_db_path = resolve_database_path(None)
         emit_progress("publish_decided", 0, 2, "backing up metadata.db")
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         bak = f"{metadata_db_path}.bak.{ts}"
-        shutil.copy2(metadata_db_path, bak)
+        # Atomic online-backup, NOT a raw file copy of an open DB: copying an open SQLite
+        # file can capture a torn WAL state, which is the root cause of the 2026-07
+        # idx_tracks_file_path corruption that silently propagated into every .bak. The
+        # helper also integrity-checks the snapshot; a not-clean result means metadata.db
+        # itself is corrupt, so surface it loudly instead of backing up a bad DB in silence.
+        backup_res = backup_database(metadata_db_path, bak)
+        if backup_res.integrity_ok is False:
+            emit_progress(
+                "publish_decided", 0, 2,
+                f"WARNING: metadata.db failed integrity_check ({backup_res.integrity_detail}). "
+                "Backup saved, but the source DB needs REINDEX/repair.",
+            )
         check_cancelled()
         emit_progress("publish_decided", 1, 2, "publishing")
         from src.genre.genre_publish import publish
