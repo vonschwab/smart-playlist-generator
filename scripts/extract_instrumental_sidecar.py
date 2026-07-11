@@ -13,6 +13,17 @@ import argparse
 import json
 import os
 
+# Must be set BEFORE numpy is imported: this venv's numpy links OpenBLAS
+# (MAX_THREADS=64) which sizes its pthread pool at first use, and under
+# multiprocessing spawn each worker re-imports this module fresh, so setting
+# these later (e.g. in the pool initializer) is too late for the numpy import
+# below. Uncapped, N worker processes x OpenBLAS's own threads oversubscribes
+# the WSL VM's cores. Measured ~12% wall-clock win at --workers 14 (2026-07-10).
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
+
 import numpy as np
 
 from scripts.ess_sidecar_common import (
@@ -35,8 +46,14 @@ SIDECAR = os.path.join(OUTDIR, "instrumental_sidecar.npz")
 MODELS = "/opt/ess/models"
 
 EMB_PB = f"{MODELS}/msd-musicnn-1.pb"
-VI_PB = f"{MODELS}/voice_instrumental-musicnn-msd-2.pb"     # confirm exact name at impl time
-VI_JSON = f"{MODELS}/voice_instrumental-musicnn-msd-2.json"  # confirm exact name at impl time
+# Confirmed at Checkpoint B (2026-07-10) against the installed model's companion
+# .json: real Essentia model-zoo name is voice_instrumental-msd-musicnn-1 (task-
+# then-embedding word order, version 1) — the design doc's guessed
+# voice_instrumental-musicnn-msd-2 does not exist. Output node ("model/Softmax"),
+# input shape (200, matching msd-musicnn-1's embedding), and classes
+# (["instrumental", "voice"]) all match this file's assumptions unchanged.
+VI_PB = f"{MODELS}/voice_instrumental-msd-musicnn-1.pb"
+VI_JSON = f"{MODELS}/voice_instrumental-msd-musicnn-1.json"
 
 _emb = None
 _vi = None
@@ -126,10 +143,21 @@ def _paths_for(track_ids: list[str]) -> dict[str, str]:
     return out
 
 
-def _load_todo(force: bool, limit: int) -> list[tuple[str, str | None]]:
+def _load_todo(force: bool, limit: int, track_ids: list[str] | None = None) -> list[tuple[str, str | None]]:
     """Track_id + file_path list, scoped to the artifact's track_ids, minus
-    already-checkpointed ids. Mirrors extract_energy_sidecar.py's main()."""
+    already-checkpointed ids. Mirrors extract_energy_sidecar.py's main().
+
+    track_ids, when given, restricts to that explicit set (validate-first curated
+    smoke, e.g. a vocoder + spoken-word + pure-instrumental label set) instead of
+    the arbitrary front-of-artifact order --limit alone would give.
+    """
     tids = _artifact_track_ids()
+    if track_ids:
+        wanted = set(track_ids)
+        missing = wanted - set(tids)
+        if missing:
+            raise ValueError(f"track_ids not in artifact: {sorted(missing)}")
+        tids = [t for t in tids if t in wanted]
     paths = _paths_for(tids)
     done = set() if force else read_checkpoint_ids(CKPT)
     todo = [(t, paths.get(t)) for t in tids if t not in done]
@@ -144,6 +172,12 @@ def _parse_args(argv=None):
     ap.add_argument("--limit", type=int, default=0, help="process at most N (smoke test)")
     ap.add_argument("--merge-only", action="store_true")
     ap.add_argument("--force", action="store_true", help="re-process all, ignoring checkpoint")
+    ap.add_argument(
+        "--track-ids",
+        type=str,
+        default="",
+        help="comma-separated track_ids to restrict to (validate-first curated smoke)",
+    )
     return ap.parse_args(argv)
 
 
@@ -152,13 +186,14 @@ def main() -> None:
     os.makedirs(OUTDIR, exist_ok=True)
     if args.merge_only:
         print(
-            f"SIDECAR: {merge_sidecar_npz(SIDECAR, CKPT, columns={'voice_prob': 'voice_prob'}, meta={'model': 'voice_instrumental-musicnn-msd-2'})}"
+            f"SIDECAR: {merge_sidecar_npz(SIDECAR, CKPT, columns={'voice_prob': 'voice_prob'}, meta={'model': 'voice_instrumental-msd-musicnn-1'})}"
         )
         return
 
     tids = _artifact_track_ids()
     done = read_checkpoint_ids(CKPT)
-    todo = _load_todo(args.force, args.limit)
+    explicit_ids = [t.strip() for t in args.track_ids.split(",") if t.strip()] or None
+    todo = _load_todo(args.force, args.limit, track_ids=explicit_ids)
     total = len(todo)
     print(
         f"artifact={len(tids)} done={len(done)} todo={total} workers={args.workers}",
@@ -184,7 +219,7 @@ def main() -> None:
                     ok += 1
     print(f"RESULT ok={ok} missing={missing} error={error} total={total}")
     print(
-        f"SIDECAR: {merge_sidecar_npz(SIDECAR, CKPT, columns={'voice_prob': 'voice_prob'}, meta={'model': 'voice_instrumental-musicnn-msd-2'})}"
+        f"SIDECAR: {merge_sidecar_npz(SIDECAR, CKPT, columns={'voice_prob': 'voice_prob'}, meta={'model': 'voice_instrumental-msd-musicnn-1'})}"
     )
 
 

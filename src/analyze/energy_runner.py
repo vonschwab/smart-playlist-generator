@@ -87,7 +87,7 @@ def preflight_wsl(cfg: EnergyConfig, *, runner: Callable = subprocess.run) -> No
         f"&& test -f {cfg.models_dir}/msd-musicnn-1.pb "
         f"&& test -f {cfg.models_dir}/emomusic-msd-musicnn-2.pb "
         f"&& test -f {cfg.models_dir}/danceability-msd-musicnn-1.pb "
-        f"&& test -f {cfg.models_dir}/voice_instrumental-musicnn-msd-2.pb"
+        f"&& test -f {cfg.models_dir}/voice_instrumental-msd-musicnn-1.pb"
     )
     cmd = ["wsl.exe", "-d", cfg.distro, "-u", "root", "--", "bash", "-c", probe]
     try:

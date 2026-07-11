@@ -18,4 +18,4 @@ def test_preflight_probe_includes_voice_instrumental_model():
 
     preflight_wsl(_cfg(), runner=fake_runner)
     probe = " ".join(captured["cmd"])
-    assert "voice_instrumental-musicnn-msd-2.pb" in probe
+    assert "voice_instrumental-msd-musicnn-1.pb" in probe
