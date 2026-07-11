@@ -56,6 +56,18 @@ body { background: #0f1115; color: #e6e9ec; font-family: "Spline Sans", system-u
   border-radius: 2px;
 }
 
+/* Generation loading indicator: breathing equalizer bars. Under the
+   reduced-motion rule below, the animation is neutralized and the bars rest at
+   their staggered inline heights (transform-origin keeps them anchored). */
+@keyframes eq-bounce {
+  0%, 100% { transform: scaleY(0.35); }
+  50%      { transform: scaleY(1); }
+}
+.eq-bar {
+  transform-origin: bottom;
+  animation: eq-bounce 0.9s ease-in-out infinite;
+}
+
 /* Honor reduced-motion: kill non-essential transitions/animations. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

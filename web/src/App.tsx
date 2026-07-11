@@ -23,7 +23,19 @@ import { EditGenresDialog } from "./components/EditGenresDialog";
 import { ExportPlexDialog } from "./components/ExportPlexDialog";
 import { ExportM3U8Dialog } from "./components/ExportM3U8Dialog";
 import { RelaxationNotice } from "./components/RelaxationNotice";
+import { GeneratingIndicator } from "./components/GeneratingIndicator";
 import { defaultPlaylistName } from "./lib/playlistName";
+
+// The last generated playlist, persisted so it survives a page reload.
+const PLAYLIST_KEY = "pg_current_playlist";
+function loadStoredPlaylist(): PlaylistOut | null {
+  try {
+    const raw = localStorage.getItem(PLAYLIST_KEY);
+    return raw ? (JSON.parse(raw) as PlaylistOut) : null;
+  } catch {
+    return null;
+  }
+}
 
 export default function App() {
   const [mode, setMode] = useLocalStorage<Mode>("pg_mode", "artist");
@@ -39,14 +51,23 @@ export default function App() {
   const [tab, setTab] = useState<"generate" | "tools">("generate");
   const [busy, setBusy] = useState(false);
   const [rerunValues, setRerunValues] = useState<GenerateRequestBody | null>(null);
-  const [playlist, setPlaylist] = useState<PlaylistOut | null>(null);
+  const [playlist, setPlaylist] = useState<PlaylistOut | null>(loadStoredPlaylist);
+  // Persist the current playlist so it survives a reload; clear on reset.
+  useEffect(() => {
+    try {
+      if (playlist) localStorage.setItem(PLAYLIST_KEY, JSON.stringify(playlist));
+      else localStorage.removeItem(PLAYLIST_KEY);
+    } catch {}
+  }, [playlist]);
   // On the phone, the payoff owns the viewport (discipline S5): when a
   // playlist arrives, the generate controls collapse into a summary bar.
   // Same breakpoint as the Shell's desktop/mobile swap.
   const isDesktop = useMediaQuery("(min-width: 1024px)");
   const desktopRef = useRef(isDesktop);
   desktopRef.current = isDesktop;
-  const [controlsOpen, setControlsOpen] = useState(true);
+  // Start collapsed when a playlist was restored, so a reloaded phone shows the
+  // playlist (not the controls) straight away; desktop ignores collapse.
+  const [controlsOpen, setControlsOpen] = useState(() => playlist == null);
   const showPlaylist = useCallback((pl: PlaylistOut) => {
     setPlaylist(pl);
     if (!desktopRef.current) setControlsOpen(false);
@@ -321,22 +342,30 @@ export default function App() {
                   />
                 )}
               </div>
-              <QualityStats
-                metrics={playlist?.metrics}
-                receipt={playlist?.receipt}
-                count={playlist?.track_count ?? 0}
-                tracks={playlist?.tracks ?? []}
-                onExportM3U8={() => setM3u8Open(true)}
-                onExportPlex={() => setPlexOpen(true)}
-              />
-              <RelaxationNotice relaxations={playlist?.relaxations ?? []} />
-              <div className="flex-1 overflow-auto">
-                <TrackTable
-                  tracks={playlist?.tracks ?? []}
-                  blacklisted={blacklisted}
-                  onContextAction={openMenu}
-                />
-              </div>
+              {busy ? (
+                <div className="flex-1 overflow-auto">
+                  <GeneratingIndicator status={logs[logs.length - 1]} />
+                </div>
+              ) : (
+                <>
+                  <QualityStats
+                    metrics={playlist?.metrics}
+                    receipt={playlist?.receipt}
+                    count={playlist?.track_count ?? 0}
+                    tracks={playlist?.tracks ?? []}
+                    onExportM3U8={() => setM3u8Open(true)}
+                    onExportPlex={() => setPlexOpen(true)}
+                  />
+                  <RelaxationNotice relaxations={playlist?.relaxations ?? []} />
+                  <div className="flex-1 overflow-auto">
+                    <TrackTable
+                      tracks={playlist?.tracks ?? []}
+                      blacklisted={blacklisted}
+                      onContextAction={openMenu}
+                    />
+                  </div>
+                </>
+              )}
             </div>
           )
         }
