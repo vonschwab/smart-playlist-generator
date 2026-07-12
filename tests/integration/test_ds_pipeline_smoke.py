@@ -38,11 +38,15 @@ def mini_artifact(tmp_path_factory):
     track_titles = np.array([f"Test Song {i}" for i in range(N)])
     durations_ms = rng.integers(120000, 300000, size=N)  # 2-5 minute songs
 
-    # Sonic features
-    X_sonic = rng.normal(size=(N, D_sonic))
-    X_sonic_start = X_sonic + rng.normal(scale=0.1, size=X_sonic.shape)
-    X_sonic_mid = X_sonic + rng.normal(scale=0.05, size=X_sonic.shape)
-    X_sonic_end = X_sonic + rng.normal(scale=0.1, size=X_sonic.shape)
+    # Sonic features. Use a random-WALK manifold (locally-close neighbours), not
+    # pure Gaussian noise: real MuQ embeddings sit on a manifold, so a monotonic
+    # pier-bridge can chain a full-length path through them. Structureless noise
+    # has no such path and the bridge (correctly) comes up short — a fixture
+    # artifact, not a product bug. See docs/superpowers/specs (DS smoke fixture).
+    X_sonic = np.cumsum(rng.normal(scale=0.3, size=(N, D_sonic)), axis=0)
+    X_sonic_start = X_sonic + rng.normal(scale=0.05, size=X_sonic.shape)
+    X_sonic_mid = X_sonic + rng.normal(scale=0.03, size=X_sonic.shape)
+    X_sonic_end = X_sonic + rng.normal(scale=0.05, size=X_sonic.shape)
 
     # Genre vectors (sparse)
     X_genre_raw = rng.random(size=(N, D_genre))
