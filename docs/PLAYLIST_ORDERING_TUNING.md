@@ -70,7 +70,7 @@ rhythm/timbre/harmony towers and the MERT/tower-variant switch entirely — soni
 runs on one contrastive **MuQ** embedding (`OpenMuQ/MuQ-MuLan-large`, 512-d, `center_l2`
 post-processed). `tower_weights` and `transition_weights` are gone from `config.example.yaml`,
 and the runtime call site hardcodes the diagnostic field to `None`
-(`src/playlist/pipeline/core.py:1037`, kept only for downstream consumers that still read the
+(`src/playlist/pipeline/core.py:1242`, kept only for downstream consumers that still read the
 key). There's no rhythm/timbre/harmony split left to reweight, so the beam and the reporter score
 plain cosine in the same MuQ space by construction — not because two config blocks happen to
 match. If an old `config.yaml` still sets `tower_weights` / `transition_weights`, they're inert
@@ -183,18 +183,14 @@ and no earlier pass re-runs, so a late deletion is never re-optimized by tail-DP
 |---|------|-------|--------------|---------|--------------------------|
 | 1 | **variable bridge length** (add-only) | per-segment, pre-assembly | lengthens a weak segment's interior (never shortens) to land more smoothly — documented as **Knob 7** | worst edge `< variable_bridge_min_edge` (0.30) | `variable_bridge_length: true` |
 | 2 | **tail-DP** | per-segment, pre-assembly | re-opens the last ≤2 interior slots of each just-finalized segment and exactly maximizes the landing-window min-edge over the segment pool (never-worse) | window min-edge `< tail_dp.floor` (0.30; 0 = always) | `tail_dp: {enabled: true, floor: 0.3, epsilon: 0.02}` |
-| 3 | **edge repair** (break-glass) | global, post-assembly | swaps ONE interior track for a pool candidate that lifts the local `min(T_in, T_out)` by ≥ `margin` (never changes length) | `T < t_floor` (0.30) **or** catastrophic `T_centered_cos < centered_cos_floor` (−0.5) | ⚠️ **absent from `config.example` → off** (gap below) |
+| 3 | **edge repair** (break-glass) | global, post-assembly | swaps ONE interior track for a pool candidate that lifts the local `min(T_in, T_out)` by ≥ `margin` (never changes length) | `T < t_floor` (0.30) **or** catastrophic `T_centered_cos < centered_cos_floor` (−0.5) | `edge_repair: {enabled: true, t_floor: 0.3, centered_cos_floor: -0.5, margin: 0.05}` |
 | 4 | **edge delete** (remove-only, last resort) | global, post-repair | deletes ONE interior endpoint of the worst edge — only if the merged edge strictly beats it (never-worse) and it won't breach a bystander artist's `min_gap` | worst `T < edge_delete.floor` (0.30), up to `max_deletions` (4) | `edge_delete: {enabled: true, floor: 0.3, max_deletions: 4}` |
 
 Each pass is independently disableable via its `*_enabled` key. Dataclass rollback defaults are
 **off** for variable-bridge and edge-repair, **on** for tail-DP and edge-delete; shipped
-`config.example.yaml` turns them all on *except* edge-repair (see the gap). Design intent
-(swap → add → remove) and the reorder reasoning live in `DESIGN_RATIONALE.md`.
-
-> **⚠️ Shipped-template gap.** `config.example.yaml` ships `tail_dp` and `edge_delete` on but has
-> **no `edge_repair:` block at all** — so a fresh clone runs edge-repair *off* (dataclass default)
-> while the live config runs it on. Add `edge_repair: {enabled: true, t_floor: 0.30,
-> centered_cos_floor: -0.5, margin: 0.05}` to the template. Tracked in [`CLEANUP_LIST.md`](CLEANUP_LIST.md).
+`config.example.yaml` turns all four on, including edge-repair — like tail-DP and edge-delete, it
+ships live. Design intent (swap → add → remove) and the reorder reasoning live in
+`DESIGN_RATIONALE.md`.
 
 **When to reach for these:** the cascade is a post-beam safety net for weak edges the beam couldn't
 avoid — prefer fixing the cause upstream first (Knobs 0–3, variable bridge length). The
@@ -343,7 +339,7 @@ filtering out everything else.
 forgets. The artist-mode generate screen shows up to 3 chips drawn from the seed artist's *own*
 published genres (`GET /api/genres/for_artist` → `src/genre/authority.py::resolved_genres_for_artist`
 — excludes `inferred_family` hub genres, top-12 by weight). Selected chips travel as
-`steering_tags` on the request → `policy.derive_runtime_config` (`src/playlist_gui/policy.py:267-276`,
+`steering_tags` on the request → `policy.derive_runtime_config` (`src/playlist_gui/policy.py:325-334`,
 capped at 3, **web-only** like the other policy-owned knobs — there's no CLI flag) →
 `playlists.ds_pipeline.pier_bridge.tag_steering_tags` override.
 
@@ -363,17 +359,16 @@ playlists:
 
 - **Pool lever** (`tag_steering_pool_blend`, shipped `0.5`): blends the tag target into the
   dense genre-admission centroid used for candidate-pool admission
-  (`candidate_pool.py:824-835`) — `(1-blend) * seed_centroid + blend * tag_target`, re-normalized.
+  (`candidate_pool.py:922-933`) — `(1-blend) * seed_centroid + blend * tag_target`, re-normalized.
   Selecting tags **forces `genre_admission_aggregate=centroid`** even if the config asked for
-  `per_seed` (`candidate_pool.py:784-785`, logged), since the blend only makes sense against a
+  `per_seed` (`candidate_pool.py:882-884`, logged), since the blend only makes sense against a
   single centroid.
 - **Pier lever** (`tag_steering_pier_weight`, shipped `0.3`): adds an on-tag affinity bonus to
-  each candidate's medoid score during artist-style pier clustering (`artist_style.py:476-480`,
-  wired from config as `medoid_tag_weight` at `playlist_generator.py:1744-1745`). **This lever is
-  dormant unless `artist_style.enabled: true`** — the medoid-clustering code path it lives in
-  only runs for style-aware artist playlists, and `artist_style.enabled` ships `false` in
-  `config.example.yaml` (it's `true` in Dylan's live `config.yaml`). If pier steering seems
-  inert, check `artist_style.enabled` before suspecting the tag weight.
+  each candidate's medoid score during artist-style pier clustering (`artist_style.py:923-939`,
+  wired from config as `medoid_tag_weight` at `playlist_generator.py:1759-1761`). This lever is
+  active in the shipped template — `artist_style.enabled` ships `true` in `config.example.yaml`,
+  so the medoid-clustering code path it lives in runs by default for style-aware artist
+  playlists.
 
 **Degenerate cases (both loud, not silent):**
 - No tags picked → resolver returns `None`, nothing logged beyond the normal path — this is the
@@ -396,8 +391,8 @@ not exist yet; don't look for a `tag_steering_beam_weight` key. Tests:
 Long bridges tend to **sag**: interior tracks drift toward the dense, genre-blurred "average" of
 the local pool rather than representing the seeds' actual character. This is now understood as
 two related failure modes — cross-seed convergence and within-bridge sag — and three levers
-target it, in the order you should reach for them. See `ARCHITECTURE.md` §"The
-collapse-prevention stack" for the map and `DESIGN_RATIONALE.md` for the evidence (including the
+target it, in the order you should reach for them. See `ARCHITECTURE.md` §"Anti-sag scoring
+(collapse prevention)" for the map and `DESIGN_RATIONALE.md` for the evidence (including the
 density-floor approach that was tried and abandoned).
 
 ### Knob 7: Variable bridge length

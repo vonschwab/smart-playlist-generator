@@ -278,10 +278,7 @@ Browser (React SPA, web/dist) ──/api + /ws──► FastAPI (src/playlist_we
 
 `config.yaml` is gitignored — copy it from `config.example.yaml`. Behavior resolves through the
 three layers described at the top. Full key reference: [`CONFIG.md`](CONFIG.md). Knob-by-knob
-tuning: [`PLAYLIST_ORDERING_TUNING.md`](PLAYLIST_ORDERING_TUNING.md). Two validated levers are on
-in the live config but not yet in the shipped template (tracked in `CLEANUP_LIST.md`): the
-`edge_repair` cascade pass, and `artist_style.enabled` (so the shipped template runs the legacy
-per-seed pier path, not the medoid clustering).
+tuning: [`PLAYLIST_ORDERING_TUNING.md`](PLAYLIST_ORDERING_TUNING.md).
 
 ## Extension points
 

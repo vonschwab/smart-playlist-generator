@@ -187,12 +187,11 @@ currently used by `scripts/analyze_library.py` and `scripts/scan_library.py`, no
 
 - Default: periodic **INFO** summaries every `interval_s` (15s) or `every_n` items (500),
   whichever comes first. Each summary includes rate and, when a total is known, percent and ETA.
-- `--verbose` switches a stage into `verbose_each=True`: **DEBUG** per item. The class docstring
-  says verbose mode keeps the periodic INFO summaries too, but `_should_emit()` currently
-  short-circuits to `False` whenever `verbose_each` is set (`logging_utils.py`), so that branch
-  is dead — in practice a verbose run gets DEBUG-per-item plus one final INFO summary from
-  `finish()`, not periodic INFO summaries along the way. Worth knowing if a verbose log looks
-  DEBUG-only for a long stretch — that's the current (buggy) behavior, not a hang.
+- `--verbose` switches a stage into `verbose_each=True`: **DEBUG** per item. `_should_emit()`
+  (`logging_utils.py`) doesn't reference `verbose_each` at all, and `update()` re-checks it in the
+  verbose branch ("Still emit summaries periodically") — so a verbose run gets DEBUG-per-item
+  *plus* the same periodic INFO summaries as the default path, plus a final `finish()` summary.
+  No dead branch here.
 - `finish()` always emits a final summary regardless of interval/count timing — this one path is
   unconditional in both modes.
 - `--no-progress` disables the periodic summaries; `WARNING`/`ERROR` still emit.
