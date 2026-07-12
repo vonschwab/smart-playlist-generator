@@ -143,13 +143,13 @@ def main():
     print(f"  global-centroid anisotropy: mert={blur['mert']['anisotropy']:.3f}  "
           f"muq={blur['muq']['anisotropy']:.3f}   (~0 => global blur direction is degenerate)")
 
-    print(f"\n  FACE 1 — cross-seed convergence (CI = S_play - S_seed):")
+    print("\n  FACE 1 — cross-seed convergence (CI = S_play - S_seed):")
     print(f"  {'cluster':16s} | {'MERT-CI load':>12s}  worst | {'MuQ-CI load':>11s}  worst")
     for c in clusters:
         m, q = res["mert"][c], res["muq"][c]
         print(f"  {c:16s} | {m['load']:>12.4f} {m['worst']:>+6.3f} | {q['load']:>11.4f} {q['worst']:>+6.3f}")
 
-    print(f"\n  FACE 2 — within-bridge sag, CALIBRATED (0% = on seed character, 100% = local generic blur):")
+    print("\n  FACE 2 — within-bridge sag, CALIBRATED (0% = on seed character, 100% = local generic blur):")
     print(f"  {'cluster':16s} | {'MERT sag%':>9s} | {'MuQ sag%':>9s}  (anchors floor->ceil, MuQ)")
     for c in clusters:
         m, q = sag["mert"][c], sag["muq"][c]

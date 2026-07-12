@@ -10,7 +10,6 @@ pier_bridge_config (artist mode) or pb_overrides (seed mode).
 from __future__ import annotations
 
 import numpy as np
-import pytest
 from types import SimpleNamespace
 
 import src.playlist.pipeline.core as core

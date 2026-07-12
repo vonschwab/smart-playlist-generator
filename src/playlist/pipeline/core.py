@@ -228,11 +228,16 @@ def _banger_relaxation_steps(
     # e.g. sonic 0.66 then 0.33 -> ~0.22x of the original floor, not 0.33x. Intentional
     # (deeper = more aggressive); the multipliers are calibration knobs (spec §10).
     # 1 sonic notch 1, 2 pace notch 1, 3 sonic notch 2, 4 pace off, 5 sonic off
-    cfg = _loosen_sonic(cfg, 0.66);            yield _BangerRelaxStep(cfg, gate, cutoff, "sonic notch1")
-    cfg = _loosen_pace(cfg, off=False);        yield _BangerRelaxStep(cfg, gate, cutoff, "pace notch1")
-    cfg = _loosen_sonic(cfg, 0.33);            yield _BangerRelaxStep(cfg, gate, cutoff, "sonic notch2")
-    cfg = _loosen_pace(cfg, off=True);         yield _BangerRelaxStep(cfg, gate, cutoff, "pace off")
-    cfg = _loosen_sonic(cfg, 0.0);             yield _BangerRelaxStep(cfg, gate, cutoff, "sonic off")
+    cfg = _loosen_sonic(cfg, 0.66)
+    yield _BangerRelaxStep(cfg, gate, cutoff, "sonic notch1")
+    cfg = _loosen_pace(cfg, off=False)
+    yield _BangerRelaxStep(cfg, gate, cutoff, "pace notch1")
+    cfg = _loosen_sonic(cfg, 0.33)
+    yield _BangerRelaxStep(cfg, gate, cutoff, "sonic notch2")
+    cfg = _loosen_pace(cfg, off=True)
+    yield _BangerRelaxStep(cfg, gate, cutoff, "pace off")
+    cfg = _loosen_sonic(cfg, 0.0)
+    yield _BangerRelaxStep(cfg, gate, cutoff, "sonic off")
     # 6 genre notch (one past the user), 7 genre off
     gate = (float(base_genre_gate) * 0.5) if base_genre_gate is not None else None
     yield _BangerRelaxStep(cfg, gate, cutoff, "genre notch1")

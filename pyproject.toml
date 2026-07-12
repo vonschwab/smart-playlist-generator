@@ -97,6 +97,9 @@ extend-ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Tests can use names like `_` and assertion patterns ruff isn't tuned for.
 "tests/**" = ["F841"]
+# Research/eval scripts (kin to scripts/oneoffs) use compact one-off multi-statement
+# lines (`a = x; b = y`) that aren't worth splitting; still linted for F (dead code).
+"scripts/research/**" = ["E701", "E702"]
 
 [tool.mypy]
 # Allowlist policy: by default the codebase is too dense in untyped

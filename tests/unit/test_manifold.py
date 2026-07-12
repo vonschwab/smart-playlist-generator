@@ -1,5 +1,5 @@
 import numpy as np
-from src.playlist.pier_bridge.manifold import build_knn_graph, geodesic_from_source, mutual_proximity
+from src.playlist.pier_bridge.manifold import build_knn_graph, geodesic_from_source
 
 def _ring():
     # 6 points on a circle: nearest neighbours are the ring neighbours.

@@ -1298,7 +1298,8 @@ def test_load_artist_energy_values_warns_when_no_finite(caplog):
 def test_medoid_popularity_term_breaks_tie_toward_popular():
     X = np.array([[1.0, 0.0], [0.98, 0.02], [0.99, 0.01]])
     X = X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-12)
-    indices = [0, 1, 2]; centroid = _centroid_for(X, indices)
+    indices = [0, 1, 2]
+    centroid = _centroid_for(X, indices)
     base = _medoids_for_cluster(X, indices, centroid, ["t0","t1","t2"], 1,
         np.random.default_rng(0), 1, None, None, 0.7, 0.3)
     pop = _medoids_for_cluster(X, indices, centroid, ["t0","t1","t2"], 1,
@@ -1311,7 +1312,8 @@ def test_medoid_popularity_term_breaks_tie_toward_popular():
 def test_medoid_popularity_weight_zero_is_regression_safe():
     X = np.array([[1.0, 0.0], [0.5, 0.5], [0.0, 1.0]])
     X = X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-12)
-    indices = [0, 1, 2]; centroid = _centroid_for(X, indices)
+    indices = [0, 1, 2]
+    centroid = _centroid_for(X, indices)
     base = _medoids_for_cluster(X, indices, centroid, ["t0","t1","t2"], 1,
         np.random.default_rng(3), 1, None, None, 0.7, 0.3)
     z = _medoids_for_cluster(X, indices, centroid, ["t0","t1","t2"], 1,

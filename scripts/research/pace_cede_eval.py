@@ -709,7 +709,7 @@ def run_ablation(*, out_dir: str) -> list[dict]:
     print(f"  artifact: {ARTIFACT_PATH}")
     print(f"  sidecar: {SIDECAR_PATH}")
     print(f"  seeds: {SEEDS}")
-    print(f"  BPM gates: ACTIVE (pace=dynamic; bpm_bridge_max_log_distance=0.85 finite)")
+    print("  BPM gates: ACTIVE (pace=dynamic; bpm_bridge_max_log_distance=0.85 finite)")
 
     _self_test()
 
@@ -1966,7 +1966,7 @@ def run_coequal_calibration(*, out_dir: str) -> dict:
         }
 
         # --- Baseline: k=0, no arc ---
-        print(f"\n  [baseline] k=0, no arc")
+        print("\n  [baseline] k=0, no arc")
         baseline_wes: dict[str, float] = {}
         feasible_seeds: list[str] = []  # seed sets that actually generated
         baseline_ok = True

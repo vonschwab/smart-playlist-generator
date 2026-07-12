@@ -4,7 +4,6 @@ Tests the ladder order, popularity-rung cutoffs, and the final step properties.
 """
 from __future__ import annotations
 
-from dataclasses import replace
 from src.playlist.pipeline.core import _banger_relaxation_steps
 from src.playlist.config import CandidatePoolConfig
 

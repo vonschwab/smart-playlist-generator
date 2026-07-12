@@ -11,7 +11,6 @@ a data write blocked in satellite workspaces). Skips cleanly until then.
 """
 from __future__ import annotations
 
-from pathlib import Path
 
 import numpy as np
 import pytest

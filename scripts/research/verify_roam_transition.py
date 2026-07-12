@@ -6,7 +6,8 @@ Runs a multi-pier generation through the production harness with roam enabled
 (no worktree-stub confound), roam active, generation < 90s, and the edge-T
 distribution is DE-COMPRESSED (the fix is live, not inert).
 """
-import sys, time
+import sys
+import time
 from pathlib import Path
 import numpy as np
 
@@ -78,6 +79,6 @@ print("\n#### EDGE-T DISTRIBUTION ####")
 print(f"  n={len(Ts)}  min={Ts.min():.3f}  p10={np.percentile(Ts,10):.3f}  p50={np.percentile(Ts,50):.3f}  p90={np.percentile(Ts,90):.3f}  max={Ts.max():.3f}")
 wi = int(Ts.argmin())
 print(f"  WORST edge: T={Ts.min():.3f} at {wi+1}->{wi+2}")
-print(f"  De-compressed? legacy (x+1)/2 parks all edges ~0.52-0.77; spread below that => calibrated fix LIVE.")
+print("  De-compressed? legacy (x+1)/2 parks all edges ~0.52-0.77; spread below that => calibrated fix LIVE.")
 print(f"\n  BUDGET: {elapsed:.1f}s / 90s ceiling -> {'OK' if elapsed < 90 else 'OVER BUDGET'}")
 print("##### END #####", flush=True)

@@ -39,7 +39,8 @@ def test_rescue_admits_rhythm_rejected_but_sonic_ok():
     # them sonically close to a seed; rescue should re-admit arousal-spanning ones.
     X_sonic, track_ids, artist_keys = _toy()
     n = len(track_ids)
-    onset = np.full(n, 5.0); onset[:2] = 0.1            # seeds slow, others fast -> onset band rejects others
+    onset = np.full(n, 5.0)
+    onset[:2] = 0.1            # seeds slow, others fast -> onset band rejects others
     arousal = np.linspace(-2, 2, n)
     base = CandidateConfig(
         similarity_floor=-1.0, min_sonic_similarity=None, max_pool_size=1000,
@@ -58,7 +59,8 @@ def test_rescue_admits_rhythm_rejected_but_sonic_ok():
         track_ids=track_ids, cfg=_replace(base, pace_rescue_k_energy=6),
         random_seed=0, X_sonic=X_sonic, onset_rate=onset, X_energy=arousal,
     )
-    n0 = len(no_rescue.pool_indices); n1 = len(with_rescue.pool_indices)
+    n0 = len(no_rescue.pool_indices)
+    n1 = len(with_rescue.pool_indices)
     assert n1 >= n0                                   # additive: never shrinks
     assert n1 > n0                                    # rescue actually admitted some
     # rescued set spans arousal (min and max arousal both present among rescued)
