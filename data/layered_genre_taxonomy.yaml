@@ -3267,30 +3267,6 @@ records:
   source_policy: null
   possible_context_target: null
   notes: Common alternate form.
-- name: lo-fi indie
-  kind: alias
-  role: alias
-  status: alias_only
-  facet_type: null
-  specificity_score: null
-  canonical_target: slacker rock
-  parent_edges: []
-  secondary_roles: []
-  reject_reason: null
-  alias_policy:
-    type: conditional
-    notes: Map to slacker rock only with indie/rock/slacker context; otherwise lo-fi
-      remains production facet.
-    requires_any_context:
-    - slacker rock
-    - indie rock
-    - indie/alternative
-    - rock
-    - lo-fi
-  source_policy: null
-  possible_context_target: null
-  notes: Map to slacker rock only with indie/rock/slacker context; otherwise lo-fi
-    remains production facet.
 - name: low fidelity
   kind: alias
   role: alias
@@ -5426,26 +5402,6 @@ records:
   source_policy: null
   possible_context_target: null
   notes: Unconditional alias for jazz fusion.
-- name: hardcore
-  kind: alias
-  role: alias
-  status: alias_only
-  facet_type: null
-  specificity_score: null
-  canonical_target: hardcore punk
-  parent_edges: []
-  secondary_roles: []
-  reject_reason: null
-  alias_policy:
-    type: conditional
-    requires_any_context:
-    - hardcore punk
-    - punk
-    - punk rock
-    notes: Standalone hardcore is ambiguous; require punk sibling context.
-  source_policy: null
-  possible_context_target: null
-  notes: Standalone hardcore is ambiguous; require punk sibling context.
 - name: female singer-songwriter
   kind: reject
   role: reject
@@ -8311,22 +8267,6 @@ records:
   notes: Better modeled as a texture/conceptual modifier than as a genre. Useful for
     abstract electronic, abstract hip hop, and experimental material. Not to be confused
     with `abstract hip hop`, which already exists as a genre.
-- name: oldies
-  kind: facet
-  role: modifier
-  status: review
-  facet_type: era
-  specificity_score: 0.24
-  canonical_target: null
-  parent_edges: []
-  secondary_roles: []
-  reject_reason: null
-  alias_policy: null
-  source_policy: growth
-  possible_context_target: null
-  notes: More of a radio/era/context label than a genre. Useful for older pop/soul/R&B/rock
-    material, but too broad for leaf routing. Status 'review' because 'oldies' may
-    be better as a source-only low-weight context than an active scoring facet.
 - name: dance-pop
   kind: subgenre
   role: leaf
@@ -23405,20 +23345,6 @@ records:
   source_policy: growth
   possible_context_target: null
   notes: Rejected via taxonomy term adjudication.
-- name: fusion
-  kind: reject
-  role: reject
-  status: rejected
-  facet_type: null
-  specificity_score: null
-  canonical_target: null
-  parent_edges: []
-  secondary_roles: []
-  reject_reason: source_noise
-  alias_policy: null
-  source_policy: growth
-  possible_context_target: null
-  notes: Rejected via taxonomy term adjudication.
 - name: favourite albums
   kind: reject
   role: reject
@@ -29247,29 +29173,6 @@ records:
     slowcore artists). The cooccurrence with slowcore, sadcore, and shoegaze indicates
     this term is descriptive bucketing by mood/tempo rather than a meaningful genre
     classification.
-- name: straight edge
-  kind: reject
-  role: reject
-  status: rejected
-  facet_type: null
-  specificity_score: null
-  canonical_target: null
-  parent_edges: []
-  secondary_roles: []
-  reject_reason: label
-  alias_policy: null
-  source_policy: growth
-  possible_context_target: null
-  notes: Straight edge is a cultural and lifestyle ideology rooted in punk communities
-    (characterized by abstinence from drugs, alcohol, and tobacco), not a musical
-    genre. While historically associated with certain hardcore punk and post-hardcore
-    movements (notably Minor Threat), the term describes the ethos and values of artists
-    and scenes rather than sonic characteristics. A genre taxonomy should organize
-    music by what it sounds like, not by the personal choices or ideologies of its
-    creators. This is fundamentally a lifestyle label, akin to tagging 'vegan' or
-    'anarchist'—valid cultural descriptors but not musical categories. The low album
-    frequency (3) and thematic misalignment further confirm it does not belong in
-    a sonic/genre taxonomy.
 - name: surf music
   kind: reject
   role: reject
@@ -29834,10 +29737,13 @@ records:
   secondary_roles: []
   reject_reason: null
   alias_policy:
-    type: plain
+    type: conditional
+    requires_any_context:
+    - hardcore
+    - punk
   source_policy: null
   possible_context_target: null
-  notes: Spelling variant (growth).
+  notes: Conditional alias to straight edge hardcore; require hardcore/punk context (bare term is a lifestyle label).
 - name: sxe
   kind: alias
   role: alias
