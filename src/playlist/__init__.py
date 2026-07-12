@@ -15,7 +15,6 @@ from .pipeline import DSPipelineResult, generate_playlist_ds
 from . import filtering
 from . import scoring
 from . import history_analyzer
-from . import batch_builder
 from . import reporter
 from . import utils
 
@@ -36,7 +35,6 @@ __all__ = [
     "filtering",
     "scoring",
     "history_analyzer",
-    "batch_builder",
     "reporter",
     "utils",
 ]
