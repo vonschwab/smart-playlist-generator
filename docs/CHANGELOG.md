@@ -2,27 +2,42 @@
 
 ## v6.0.0 - Learned Sonic Embedding, Genre Authority, Browser GUI
 
-**Release Date:** 2026-06 (in preparation)
+**Release Date:** 2026-07-11
 **Focus:** Replace the perceptually-unreliable hand-built sonic towers with a learned
-audio embedding; make published graph-resolved genres the authority; rebuild pace on
-tempo + rhythmic density; consolidate on the browser GUI; and remove deprecated code.
+*contrastive* audio embedding (MuQ); make published graph-resolved genres the authority;
+rebuild pace on tempo + rhythmic density; add weak-edge recovery, collapse prevention, and
+artist-mode tag steering; consolidate on the browser GUI; and remove deprecated code.
 
 ### Sonic
 
-- **Learned MERT sonic embedding is now the default similarity space.** The hand-built
+- **Learned contrastive MuQ embedding is the sole sonic similarity space.** The hand-built
   rhythm/timbre/harmony towers were perceptually coarse (the dominant timbre tower rated
-  Metallica ≈ Yeah Yeah Yeahs), capping playlist quality regardless of tuning. v6.0 folds a
-  **MERT-v1-95M** embedding (768-d, mean-pooled over 13 layers) into the artifact as
-  `X_sonic_mert{,_start,_mid,_end}` and flips `X_sonic_variant` to `mert`. Post-processing is
-  `whiten_l2` (mean-center → per-dim std → L2) fitted on the full library; cross-catalog,
-  seed-artist-excluded neighbour QA beats the towers by ~45–93%. Full-library extraction is
-  resumable (`scripts/extract_mert_sidecar.py`); the fold is `scripts/fold_mert_into_artifact.py`.
-- **Towers remain as a rollback** (`artifacts.sonic_variant_override: tower_weighted`),
-  untouched in the artifact. A startup guard rejects tower-style transition weights under the
-  MERT variant. The pace gate falls back to perceptual-BPM when no rhythm tower exists.
-- **sonic_mode floors recalibrated** to MERT cosine percentiles (strict 0.28 / narrow 0.18 /
-  dynamic 0.08 / discover 0.00) — MERT cosines compress near 0, so the tower-era 0.3–0.5
-  floors no longer apply.
+  Metallica ≈ Yeah Yeah Yeahs), capping playlist quality regardless of tuning. v6.0 replaces
+  them with **MuQ-MuLan-large** — a self-supervised *contrastive* audio embedding (512-d) baked
+  into the artifact as `X_sonic_muq{,_start,_mid,_end}` with `sonic_variant_override: muq`.
+  Post-processing is `center_l2` (mean-center → L2) fitted on the full library. On trusted
+  soundalike triplets MuQ screens ~84% correct vs MERT's ~73% (and the towers far lower).
+- **A short intermediate MERT era preceded MuQ and has been fully removed.** MERT (768-d,
+  `whiten_l2`) briefly replaced the towers before MuQ superseded it; the MERT/tower code paths
+  and the `tower_weights`/`transition_weights` knobs were deleted. The MERT shards + sidecars are
+  archived under `data/archive/mert_2026/` (irreplaceable — ~55h CPU to regenerate; never deleted).
+- **Single live sonic space — no tower/MERT rollback.** Future embeddings slot in via the variant
+  seam (extract a sidecar, add a `fold_<variant>` + auto-fold, register transition calibration).
+- **sonic_mode floors recalibrated** to MuQ cosine percentiles, replacing the tower-era 0.3–0.5
+  floors (MuQ cosines occupy a different range).
+
+### Ordering & structure
+
+- **Weak-edge recovery cascade.** After the beam, the weakest transitions are recovered
+  least-to-most destructive: variable-bridge (add-only) → tail-DP segment endgame → break-glass
+  edge repair (`T < 0.30`, never-worse) → edge delete (never a pier, never-worse).
+- **Collapse prevention.** Anti-center scoring plus structural mini-piers counter
+  bridge-interior sag (genre-blur / sonic collapse in long bridges).
+- **Artist-mode tag steering.** A soft pool + pier lean toward the seed artist's own published
+  genres, so an artist seed's bridges keep that artist's genre character.
+- **Manual artist links.** `data/artist_aliases.yaml` (edited via the GUI "Artist Links" tab)
+  merges aliases into one computed identity and spaces sibling projects ≥ `min_gap` apart — a
+  runtime layer, no DB/artifact write.
 
 ### Pace
 
@@ -30,8 +45,8 @@ tempo + rhythmic density; consolidate on the browser GUI; and remove deprecated 
   unsatisfiable for beatless/ambient artists) is replaced by two embedding-independent hard
   bands — **BPM log-distance** and **onset-rate log-distance** — plus a **soft** rhythm-cosine
   penalty (tower variants only). Bands widen on segment backoff so pace never blows the 90 s
-  budget. Because the bands read DB features, pace is unchanged by the MERT migration, and
-  `pace_mode: narrow` is now usable for an ambient seed.
+  budget. Because the bands read DB features, pace is unchanged by the tower→MERT→MuQ migration,
+  and `pace_mode: narrow` is now usable for an ambient seed.
 
 ### Genre
 
@@ -57,7 +72,7 @@ tempo + rhythmic density; consolidate on the browser GUI; and remove deprecated 
   analyze/enrich), and Genre Review tabs over a FastAPI + NDJSON worker. The PySide6 desktop
   GUI was removed.
 - **`analyze_library.py`** orchestrates the full pipeline as resumable, fingerprint-skipping
-  stages including the new `mert` extraction stage.
+  stages including the new `muq` extraction stage.
 
 ### Repo cleanup
 

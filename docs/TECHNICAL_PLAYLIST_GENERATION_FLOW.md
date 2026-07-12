@@ -1,6 +1,6 @@
 # Technical Playlist Generation Flow
 
-**Last updated:** 2026-07-03
+**Last updated:** 2026-07-11
 **Purpose:** the authoritative, code-level, `file:line`-cited walkthrough of a single playlist
 generation, end to end.
 
