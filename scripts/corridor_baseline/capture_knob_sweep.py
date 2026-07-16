@@ -43,10 +43,12 @@ if str(CODE_ROOT) not in sys.path:
     sys.path.insert(0, str(CODE_ROOT))
 
 from scripts.corridor_baseline.perturb import (  # noqa: E402
+    DID_NOT_RESOLVE_NOTES,
     SKIP,
     config_path_for,
     flatten_leaves,
     perturb_value,
+    retry_config_path_for,
 )
 from scripts.corridor_baseline.runner import (  # noqa: E402
     DETENTS,
@@ -157,48 +159,40 @@ def _record(
     return rec
 
 
-def process_field(
+def _attempt_config_path(
     artist: str, detent: str, tag: str, field: str, baseline_value: Any, ref: dict,
-    log_level: int = logging.INFO,
-) -> dict:
-    """Perturb one field for one cell and fingerprint the result against the
-    cell's reference run. Mirrors the task-5 brief's per-field algorithm
-    exactly -- see module docstring / brief for the status taxonomy."""
+    config_path: str, pv: Any, log_level: int, attempt_suffix: str,
+) -> tuple[dict, bool]:
+    """Run ONE build+generate+fingerprint attempt against a single config_path.
+
+    Returns (record, resolved). resolved is False only for the
+    "did_not_resolve" outcome -- the only outcome process_field is allowed to
+    retry past (residue-fix: mode-suffix / artist-style shadow retry, see
+    perturb.retry_config_path_for). override_failed/error/changed/inert all
+    count as resolved (nothing further to try)."""
     t0 = time.time()
-
-    config_path = config_path_for(field)
-    if config_path is None:
-        return _record(field, None, baseline_value, None, "unmapped", round(time.time() - t0, 3))
-
-    pv = perturb_value(field, baseline_value)
-    if pv is SKIP:
-        return _record(field, config_path, baseline_value, None, "skipped_type", round(time.time() - t0, 3))
-    if _eq(pv, baseline_value):
-        return _record(field, config_path, baseline_value, pv, "skipped_type", round(time.time() - t0, 3),
-                        note="perturbed_equals_baseline")
-
     cfg = build_cell_config(DETENTS[detent], {config_path: pv})
     actual = deep_get(cfg, config_path)
     if not _eq(actual, pv):
         return _record(field, config_path, baseline_value, pv, "override_failed", round(time.time() - t0, 3),
-                        note=f"deep_get(cfg, config_path) == {actual!r}, expected {pv!r}")
+                        note=f"deep_get(cfg, {config_path!r}) == {actual!r}, expected {pv!r}"), True
 
     run = run_cell(
         artist, detent, set_paths={config_path: pv}, log_level=log_level,
-        log_tag=f"sweep_{tag}_{sanitize(field)}",
+        log_tag=f"sweep_{tag}_{sanitize(field)}_{attempt_suffix}",
     )
     wall = run["wall"]
 
     if run["err"]:
-        return _record(field, config_path, baseline_value, pv, "error", wall, note=run["err"])
+        return _record(field, config_path, baseline_value, pv, "error", wall, note=run["err"]), True
     if run["effective"] is None:
         return _record(field, config_path, baseline_value, pv, "error", wall,
-                        note="no DS-success effective blob captured (log parse miss)")
+                        note="no DS-success effective blob captured (log parse miss)"), True
 
     perturbed_flat = flatten_leaves(run["effective"])
     perturbed_leaf = perturbed_flat.get(field)
     if _eq(perturbed_leaf, baseline_value):
-        return _record(field, config_path, baseline_value, pv, "did_not_resolve", wall)
+        return _record(field, config_path, baseline_value, pv, "did_not_resolve", wall), False
 
     ref_ids = ref["track_ids"]
     cur_ids = run["track_ids"]
@@ -212,7 +206,63 @@ def process_field(
         field, config_path, baseline_value, pv, status, wall,
         jaccard=_jaccard(ref_ids, cur_ids), n_position_diffs=_n_position_diffs(ref_ids, cur_ids),
         delta_min_T=delta_min_T, delta_mean_T=delta_mean_T,
+    ), True
+
+
+def process_field(
+    artist: str, detent: str, tag: str, field: str, baseline_value: Any, ref: dict,
+    log_level: int = logging.INFO,
+) -> dict:
+    """Perturb one field for one cell and fingerprint the result against the
+    cell's reference run. Mirrors the task-5 brief's per-field algorithm --
+    see module docstring / brief for the status taxonomy.
+
+    Residue-fix (task-5-report.md "Residue-fix appendix"): if the PRIMARY
+    config_path comes back did_not_resolve AND this field is in perturb.py's
+    verified retry set (perturb.retry_config_path_for), retry ONCE against the
+    shadow-busting path for this cell's cohesion_mode. The retry record
+    replaces the primary one when it differs (config_path_used records which
+    path the FINAL determination is based on); wall_s accumulates both
+    attempts. Fields outside the verified retry set are never retried -- a
+    did_not_resolve there is either a genuine dead outlet (should have been
+    None-mapped in perturb.py) or a documented context-gated survivor (see
+    perturb.DID_NOT_RESOLVE_NOTES)."""
+    t0 = time.time()
+
+    config_path = config_path_for(field)
+    if config_path is None:
+        return _record(field, None, baseline_value, None, "unmapped", round(time.time() - t0, 3))
+
+    pv = perturb_value(field, baseline_value)
+    if pv is SKIP:
+        return _record(field, config_path, baseline_value, None, "skipped_type", round(time.time() - t0, 3))
+    if _eq(pv, baseline_value):
+        return _record(field, config_path, baseline_value, pv, "skipped_type", round(time.time() - t0, 3),
+                        note="perturbed_equals_baseline")
+
+    record, resolved = _attempt_config_path(
+        artist, detent, tag, field, baseline_value, ref, config_path, pv, log_level, "primary",
     )
+
+    if not resolved:
+        cohesion_mode = DETENTS[detent]["cohesion_mode"]
+        retry_path = retry_config_path_for(field, cohesion_mode)
+        if retry_path and retry_path != config_path:
+            primary_wall = record["wall_s"]
+            retry_record, _retry_resolved = _attempt_config_path(
+                artist, detent, tag, field, baseline_value, ref, retry_path, pv, log_level, "retry",
+            )
+            retry_record["config_path_used"] = retry_path
+            retry_record["wall_s"] = round(primary_wall + retry_record["wall_s"], 3)
+            record = retry_record
+
+    if record["status"] == "did_not_resolve":
+        leaf = field.rsplit(".", 1)[-1]
+        dnr_note = DID_NOT_RESOLVE_NOTES.get(leaf)
+        if dnr_note is not None:
+            record["note"] = dnr_note
+
+    return record
 
 
 def sweep_cell(

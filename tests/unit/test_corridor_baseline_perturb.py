@@ -138,14 +138,6 @@ def test_config_path_maps_progress_and_tail_dp_families_nested():
 
 
 def test_config_path_cross_family_redirects():
-    # pipeline/core.py:865-888 unconditionally clobbers pb_cfg.pace_bridge_floor
-    # from cfg.candidate.pace_bridge_floor (a CandidatePoolConfig field) after
-    # apply_pier_bridge_overrides returns -- any pier_bridge.pace_bridge_floor
-    # override is silently overwritten, so the real path is candidate_pool.*.
-    assert (
-        perturb.config_path_for("playlist.pier_config.pace_bridge_floor")
-        == "playlists.ds_pipeline.candidate_pool.pace_bridge_floor"
-    )
     # center_transitions/transition_floor are sourced from constraints.*
     # (src/playlist/config.py::default_ds_config), never from pier_bridge.*.
     assert (
@@ -156,6 +148,108 @@ def test_config_path_cross_family_redirects():
         perturb.config_path_for("playlist.pier_config.transition_floor")
         == "playlists.ds_pipeline.constraints.transition_floor"
     )
+
+
+def test_config_path_pace_bridge_floor_is_dead_outlet():
+    # Residue-fix (corrects the original fix-wave's redirect): pace_bridge_floor
+    # is NOT reachable from candidate_pool.* either -- pipeline/core.py:370-383
+    # unconditionally overwrites cfg.candidate.pace_bridge_floor from
+    # mode_presets.PACE_MODE_PRESETS (always 0.0) BEFORE the candidate_pool.*
+    # redirect's clobber-source is even consulted, and resolve_pace_mode is
+    # called without an overrides param (core.py:362) -- no yaml path reaches
+    # this field at all.
+    assert perturb.config_path_for("playlist.pier_config.pace_bridge_floor") is None
+
+
+def test_config_path_disallow_seed_artist_in_interiors_is_dead_outlet_for_artist_mode():
+    # Residue-fix: pier_bridge_overrides.py:158-162 force-sets this True,
+    # unconditionally, for artist_playlist=True -- both corridor SWEEP_CELLS run
+    # create_playlist_for_artist (artist_playlist=True), so no yaml override can
+    # move it for this sweep specifically (the flat path IS real/working for
+    # non-artist/seeds playlists).
+    assert perturb.config_path_for("playlist.pier_config.disallow_seed_artist_in_interiors") is None
+
+
+def test_config_path_candidate_pool_min_genre_similarity_cross_family():
+    # Residue-fix (genuine mapping bug, not a shadow): min_genre_similarity is
+    # not a CandidatePoolConfig field at all -- it's resolved by
+    # genre_ds_params.py::resolve_genre_ds_params from
+    # playlists.genre_similarity.min_genre_similarity, a SIBLING of
+    # playlists.ds_pipeline (not nested under it).
+    assert (
+        perturb.config_path_for("candidate_pool.min_genre_similarity")
+        == "playlists.genre_similarity.min_genre_similarity"
+    )
+
+
+def test_config_path_candidate_pool_dead_outlets():
+    # Residue-fix: default_ds_config (config.py:544-575) computes these purely
+    # from mode + playlist_len; overrides.get("candidate_pool") is never
+    # consulted for any of the three.
+    assert perturb.config_path_for("candidate_pool.candidates_per_artist") is None
+    assert perturb.config_path_for("candidate_pool.target_artists") is None
+    assert perturb.config_path_for("candidate_pool.seed_artist_bonus") is None
+    # Runtime seed-duration median; no config seam.
+    assert perturb.config_path_for("candidate_pool.duration_reference_ms") is None
+
+
+def test_config_path_candidate_pool_flat_fields_unaffected():
+    # The candidate_pool exception table must not regress already-correct
+    # flat fields.
+    assert (
+        perturb.config_path_for("candidate_pool.similarity_floor")
+        == "playlists.ds_pipeline.candidate_pool.similarity_floor"
+    )
+
+
+# ---- Residue-fix: retry-path templates (mode-suffix shadow + artist-style
+#      cross-family redirect), see perturb.retry_config_path_for -----------
+
+def test_retry_config_path_mode_suffix_shadow_family():
+    assert (
+        perturb.retry_config_path_for("playlist.pier_config.weight_genre", "dynamic")
+        == "playlists.ds_pipeline.pier_bridge.weight_genre_dynamic"
+    )
+    assert (
+        perturb.retry_config_path_for("playlist.pier_config.genre_arc_floor", "strict")
+        == "playlists.ds_pipeline.pier_bridge.genre_arc_floor_strict"
+    )
+    assert (
+        perturb.retry_config_path_for("playlist.pier_config.genre_penalty_strength", "dynamic")
+        == "playlists.ds_pipeline.pier_bridge.soft_genre_penalty_strength_dynamic"
+    )
+
+
+def test_retry_config_path_artist_style_redirect_family():
+    assert (
+        perturb.retry_config_path_for("playlist.pier_config.weight_bridge", "dynamic")
+        == "playlists.ds_pipeline.artist_style.bridge_score_weights.dynamic.bridge"
+    )
+    assert (
+        perturb.retry_config_path_for("playlist.pier_config.bridge_floor", "dynamic")
+        == "playlists.ds_pipeline.artist_style.bridge_floor.dynamic"
+    )
+    assert (
+        perturb.retry_config_path_for("playlist.pier_config.genre_tiebreak_weight", "dynamic")
+        == "playlists.ds_pipeline.artist_style.genre_tiebreak_weight"
+    )
+
+
+def test_retry_config_path_none_outside_verified_set():
+    # Deliberately NOT a blanket retry -- fields outside the verified set
+    # return None (e.g. an ordinary already-correct flat field).
+    assert perturb.retry_config_path_for("playlist.pier_config.mini_pier_enabled", "dynamic") is None
+    assert perturb.retry_config_path_for("candidate_pool.similarity_floor", "dynamic") is None
+
+
+def test_did_not_resolve_notes_cover_experiment_bridge_family():
+    for leaf in (
+        "experiment_bridge_scoring_enabled",
+        "experiment_bridge_min_weight",
+        "experiment_bridge_balance_weight",
+    ):
+        assert leaf in perturb.DID_NOT_RESOLVE_NOTES
+        assert perturb.DID_NOT_RESOLVE_NOTES[leaf]  # non-empty
 
 
 def test_config_path_base_name_mismatch_soft_genre_penalty():

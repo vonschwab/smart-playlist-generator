@@ -71,9 +71,38 @@ _PIER_CONFIG_FIELD_MAP: dict[str, Optional[str]] = {
     # ---- cross-family redirects (blob leaf lives under pier_config, but
     #      production reads a DIFFERENT top-level ds_pipeline family) ----
     "bpm_stability_min": "playlists.ds_pipeline.candidate_pool.bpm_stability_min",
-    "pace_bridge_floor": "playlists.ds_pipeline.candidate_pool.pace_bridge_floor",
     "center_transitions": "playlists.ds_pipeline.constraints.center_transitions",
     "transition_floor": "playlists.ds_pipeline.constraints.transition_floor",
+
+    # ---- residue-fix (Task 5 report appendix reconfirmed, corrected): the
+    #      original fix-wave redirected pace_bridge_floor to
+    #      candidate_pool.pace_bridge_floor, reasoning that pipeline/core.py:
+    #      865-877's post-apply_pier_bridge_overrides `replace(pb_cfg,
+    #      pace_bridge_floor=float(cfg.candidate.pace_bridge_floor), ...)`
+    #      clobber meant candidate_pool.* was the "real" source. That's only
+    #      half right: cfg.candidate.pace_bridge_floor is ITSELF unconditionally
+    #      overwritten a few lines earlier (core.py:370-383) from
+    #      `pace_settings["bridge_floor"]` (mode_presets.PACE_MODE_PRESETS,
+    #      always 0.0 for every pace mode) via `resolve_pace_mode(pace_mode)`
+    #      called WITHOUT an `overrides` param (core.py:362) -- so
+    #      candidate_pool.pace_bridge_floor is written into cfg.candidate by
+    #      default_ds_config but is DISCARDED before pb_cfg ever sees it. No
+    #      yaml path (pier_bridge.* or candidate_pool.*) can reach this field;
+    #      it joins the other pace-preset-only dead outlets below. Confirmed
+    #      empirically: did_not_resolve for BOTH sweep cells even after the
+    #      candidate_pool.* redirect.
+    "pace_bridge_floor": None,
+
+    # ---- residue-fix: force-derived for artist-mode playlists. Both corridor
+    #      sweep cells run create_playlist_for_artist (artist_playlist=True), and
+    #      pier_bridge_overrides.py:158-162 unconditionally sets
+    #      disallow_seed_artist_in_interiors=True for artist_playlist regardless
+    #      of any override -- the flat playlists.ds_pipeline.pier_bridge.
+    #      disallow_seed_artist_in_interiors path IS the real, working path for
+    #      non-artist (seeds) playlists (else-branch at line 163-169), so this is
+    #      deliberately NOT a config_path_for bug -- just unconfigurable for
+    #      THIS sweep's artist-mode cells specifically.
+    "disallow_seed_artist_in_interiors": None,
 
     # ---- base-name mismatch (resolve_pier_bridge_tuning reads "soft_" keys) ----
     "genre_penalty_threshold": _PB + "soft_genre_penalty_threshold",
@@ -235,6 +264,137 @@ _PIER_CONFIG_FIELD_MAP: dict[str, Optional[str]] = {
     "layered_transition_mode": None,  # hardcoded to cfg.mode (cohesion_mode), never read from an override
 }
 
+# Per-field exception table for candidate_pool.<leaf> -> real yaml path (or
+# None for a genuine dead outlet), same shape/purpose as
+# _PIER_CONFIG_FIELD_MAP but for the candidate_pool.* prefix family
+# (residue-fix, task-5-report.md "Residue-fix appendix"):
+_CANDIDATE_POOL_FIELD_MAP: dict[str, Optional[str]] = {
+    # Cross-top-level-family redirect: min_genre_similarity is NOT a
+    # CandidatePoolConfig field at all (grep-confirmed: src/playlist/config.py
+    # has no such field). It's resolved by
+    # src/playlist/genre_ds_params.py::resolve_genre_ds_params from
+    # `genre_cfg = playlists_cfg.get("genre_similarity", {})` --
+    # playlists.genre_similarity is a SIBLING of playlists.ds_pipeline (not
+    # nested under it -- config.yaml: ds_pipeline at line 25, genre_similarity
+    # at line 369, both 2-space indent under playlists:).
+    "min_genre_similarity": "playlists.genre_similarity.min_genre_similarity",
+
+    # Genuinely hardcoded/computed dead outlets: src/playlist/config.py::
+    # default_ds_config (L544-575) computes all three purely from `mode` +
+    # `playlist_len` -- overrides.get("candidate_pool") is NEVER consulted for
+    # any of them. seed_artist_bonus is a bare literal `= 2`; target_artists
+    # and candidates_per_artist are mode-keyed formulas/dicts. No yaml key
+    # (candidate_pool.* or otherwise) reaches them under any path -- confirmed
+    # by reading default_ds_config top to bottom, not just by the sweep result.
+    "candidates_per_artist": None,
+    "target_artists": None,
+    "seed_artist_bonus": None,
+
+    # Runtime-derived: seed-track duration median, computed fresh inside
+    # candidate_pool.py's pool-build function (L644-660) from the ACTUAL
+    # seed tracks' durations fetched from the DB at generation time; no config
+    # seam reads or writes this value -- it can only ever equal whatever this
+    # cell's seed tracks' durations produce.
+    "duration_reference_ms": None,
+}
+
+
+def _candidate_pool_config_path_for(suffix: str) -> str | None:
+    if suffix in _CANDIDATE_POOL_FIELD_MAP:
+        return _CANDIDATE_POOL_FIELD_MAP[suffix]
+    return "playlists.ds_pipeline.candidate_pool." + suffix
+
+
+# ---- retry paths: fields whose PRIMARY config_path IS a real, production-read
+# path but is SHADOWED by a higher-priority resolved value for artist-mode,
+# cohesion_mode=dynamic cells (both corridor SWEEP_CELLS). Verified against real
+# generations + config.yaml content (task-5-report.md "Residue-fix appendix").
+# Two distinct shadowing mechanisms:
+#
+#  1. Same-family mode-suffix priority: src/playlist/config.py::
+#     _resolve_mode_number_with_source reads "<key>_<mode>" before the plain
+#     "<key>" (L169-171). config.yaml sets `<key>_dynamic` for every one of
+#     these 7 fields (grep-confirmed), so a perturbation written to the plain
+#     key is real but outranked.
+#  2. Cross-family artist-mode redirect: for ARTIST-mode playlists specifically
+#     (both sweep cells call create_playlist_for_artist), playlist_generator.py
+#     :2276-2300 (the _build_artist_pier_config call site) reads a SEPARATE
+#     playlists.ds_pipeline.artist_style.* config family in PREFERENCE to the
+#     resolved pier_bridge tuning for these 4 fields. Confirmed via a real
+#     VALUE mismatch: config.yaml's artist_style.bridge_score_weights.dynamic.
+#     bridge=0.6 vs pier_bridge.weight_bridge_dynamic=0.40 -- the captured
+#     reference blob's baseline_value was 0.6, proving artist_style is the
+#     path actually read, not pier_bridge (with or without mode suffix).
+#
+# "{mode}" is substituted with the cell's cohesion_mode at retry time
+# (retry_config_path_for). Keyed by the pier_config LEAF name (i.e. after any
+# _PIER_CONFIG_FIELD_MAP rename, e.g. genre_penalty_strength already means
+# "soft_genre_penalty_strength" downstream).
+_RETRY_PATH_TEMPLATES: dict[str, str] = {
+    # -- mechanism 1: same-family mode-suffix shadow --
+    "weight_genre": _PB + "weight_genre_{mode}",
+    "genre_arc_floor": _PB + "genre_arc_floor_{mode}",
+    "genre_arc_floor_percentile": _PB + "genre_arc_floor_percentile_{mode}",
+    "genre_admission_percentile": _PB + "genre_admission_percentile_{mode}",
+    "genre_pair_floor": _PB + "genre_pair_floor_{mode}",
+    "genre_penalty_strength": _PB + "soft_genre_penalty_strength_{mode}",
+    "genre_penalty_threshold": _PB + "soft_genre_penalty_threshold_{mode}",
+    # -- mechanism 2: cross-family artist-mode style redirect --
+    "bridge_floor": "playlists.ds_pipeline.artist_style.bridge_floor.{mode}",
+    "weight_bridge": "playlists.ds_pipeline.artist_style.bridge_score_weights.{mode}.bridge",
+    "weight_transition": "playlists.ds_pipeline.artist_style.bridge_score_weights.{mode}.transition",
+    "genre_tiebreak_weight": "playlists.ds_pipeline.artist_style.genre_tiebreak_weight",
+}
+
+
+def retry_config_path_for(field: str, cohesion_mode: str) -> Optional[str]:
+    """Return the shadow-busting retry path for a blob field that came back
+    did_not_resolve on its primary config_path, or None if this field is not
+    in the verified retry set (deliberately NOT a blanket retry -- see
+    _RETRY_PATH_TEMPLATES docstring-comment for the evidence per family).
+
+    `field` is the FULL dotted blob path (e.g. "playlist.pier_config.
+    weight_bridge"); only its last component (the leaf) is looked up.
+    """
+    leaf = field.rsplit(".", 1)[-1]
+    template = _RETRY_PATH_TEMPLATES.get(leaf)
+    if template is None:
+        return None
+    return template.format(mode=str(cohesion_mode).strip().lower())
+
+
+# Fields that correctly resolve to a real, production-read config_path but are
+# gated OFF entirely outside dry_run/audit context (pier_bridge_overrides.py:
+# 448-453: `experiments_allowed = bool(dry_run or (audit_cfg and
+# audit_cfg.enabled))`; `if experiment_enabled and not experiments_allowed:
+# experiment_enabled = False`). The corridor sweep's cells are real (non-dry-
+# run, non-audit) generations, so these three will ALWAYS read
+# did_not_resolve for this sweep specifically -- not a mapping bug, not a
+# yaml-unreachable dead outlet (the path IS live in dry_run/audit), just a
+# context this sweep's methodology never exercises. Left mapped (not None) so
+# the record's config_path stays honest about what production reads; a
+# did_not_resolve note documents why per acceptance criterion.
+DID_NOT_RESOLVE_NOTES: dict[str, str] = {
+    "experiment_bridge_scoring_enabled": (
+        "Context-gated, not a mapping bug: pier_bridge_overrides.py:448-453 forces "
+        "experiment_enabled=False outside dry_run/audit_cfg.enabled. The mapped path "
+        "(pier_bridge.experiments.bridge_scoring.enabled) IS what production reads in "
+        "dry_run/audit context; the corridor sweep's cells are real generations "
+        "(neither), so this field is genuinely did_not_resolve for this sweep."
+    ),
+    "experiment_bridge_min_weight": (
+        "Same dry_run/audit-only gate as experiment_bridge_scoring_enabled -- see "
+        "pier_bridge_overrides.py:448-453. Real-generation sweep cells never satisfy "
+        "the gate, so this field is genuinely did_not_resolve for this sweep."
+    ),
+    "experiment_bridge_balance_weight": (
+        "Same dry_run/audit-only gate as experiment_bridge_scoring_enabled -- see "
+        "pier_bridge_overrides.py:448-453. Real-generation sweep cells never satisfy "
+        "the gate, so this field is genuinely did_not_resolve for this sweep."
+    ),
+}
+
+
 # Contract Category C soft-term knobs -> perturb to 0.0 ("term fires" differential).
 C_TERM_FIELDS = frozenset({
     "duration_penalty_weight",          # C1
@@ -283,6 +443,8 @@ def config_path_for(blob_path: str) -> str | None:
                 # full root-cause evidence.
                 if pfx == "playlist." and suffix in _PIER_CONFIG_FIELD_MAP:
                     return _PIER_CONFIG_FIELD_MAP[suffix]
+            if pfx == "candidate_pool.":
+                return _candidate_pool_config_path_for(suffix)
             return target + suffix
     return None
 
