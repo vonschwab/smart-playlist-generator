@@ -1,6 +1,7 @@
 # Corridor-First Pooling — Feature Preservation Contract
 
-**Date:** 2026-07-13 · **Status:** draft for review · **Owner spec:**
+**Date:** 2026-07-13 · **Status:** baselined 2026-07-16 (`docs/corridor_baseline/feature_baseline.json`;
+provenance in its `meta` block) · **Owner spec:**
 `docs/superpowers/specs/2026-07-12-corridor-first-pooling-design.md`
 
 ## Purpose and the hard gate
@@ -21,8 +22,8 @@ acceptance bars — those become one row among many.
 The feature list is derived from code surfaces, not recall:
 
 1. **Effective-config spine** — every field in the resolved `pier_config` + `candidate_pool`
-   config blob (~150 fields; the machine-readable source is any run's DS-success JSON line). Every
-   knob is a feature, a gate, or a scoring term.
+   config blob (~213 resolved fields, 208 blob leaves measured; the machine-readable source is any
+   run's DS-success JSON line). Every knob is a feature, a gate, or a scoring term.
 2. **The 44-gate inventory** (`docs/POOL_STARVATION_RESEARCH_2026-07-12.md`).
 3. **The identity/normalization layer** (`artist_identity_resolver.py`, `identity_keys.py`,
    `normalization.py`, `src/genre/authority.py`).
@@ -35,6 +36,9 @@ after is a caught regression.** This turns "did we remember every feature" into 
 over the entire config surface — the same logic that caught the dead pace gate, as a blanket
 guarantee. Hand-authored assertions (below) cover what isn't a single knob: transforms, identity,
 topology, reporting.
+
+Fields recorded `inert` at baseline are **not** preservation targets — they are deletion candidates
+(see `knob_sweep.json`'s `dead_outlets`), per the activate-don't-scaffold principle.
 
 ## Three test shapes
 
@@ -139,8 +143,12 @@ Run **on current `master`**, before Phase 0 touches code. Produces
 
 Harness: built on `tests/support/gui_fidelity.py::generate_like_gui` +
 `scripts/research/slider_differentiation_eval.py` (reuse-first; both already faithful to the policy
-layer). Corpus + `min_T`/coverage baselines already exist in
-`scratchpad/starvation_validation.json` (2026-07-12) — extend, don't rebuild.
+layer). Corpus + `min_T`/coverage baselines live in `docs/corridor_baseline/corpus_baseline.json`
+(rebuilt 2026-07-16 — the earlier pointer to `scratchpad/starvation_validation.json` is stale, that
+file was session scratchpad and no longer exists). Notably, on current `master` SADE+home no longer
+craters as it did in the 2026-07-12 research snapshot; Swirlies+home is now the stressed regression
+cell (see `SWEEP_CELLS` in `scripts/corridor_baseline/runner.py`, chosen to span the
+dense/default and sparse/stressed regimes).
 
 ## The merge gate (added to the spec)
 
