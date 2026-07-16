@@ -38,7 +38,11 @@ guarantee. Hand-authored assertions (below) cover what isn't a single knob: tran
 topology, reporting.
 
 Fields recorded `inert` at baseline are **not** preservation targets — they are deletion candidates
-(see `knob_sweep.json`'s `dead_outlets`), per the activate-don't-scaffold principle.
+(see `knob_sweep.json`'s `dead_outlets`), per the activate-don't-scaffold principle. **Triage rule:**
+only entries whose inert-ness is *explained* (an `enabling_parent_flag`, or a root-caused None-map
+entry in `perturb.py`) are demolition-ready; the 93 entries with `enabling_parent_flag: null` require
+human triage first — `inert` under one fixed-magnitude perturbation in 2 cells is evidence, not proof
+(see the "Dead-outlets triage" section of `docs/corridor_baseline/README.md`).
 
 ## Three test shapes
 

@@ -156,6 +156,24 @@ does not repeat it for anything it newly writes (the embedded
 and all, since rewriting committed data out from under other tooling is out of
 scope here).
 
+## Dead-outlets triage — `inert` ≠ proven dead
+
+`knob_sweep.json`'s `dead_outlets` (212 entries = every `inert` field) splits in
+two: **119 entries carry an `enabling_parent_flag`** (a `*_enabled` sibling is
+`False` in the reference blob — e.g. the whole `dj_*` family behind
+`dj_bridging_enabled: false`; inert-ness is *explained*), and **93 entries have
+`enabling_parent_flag: null`** — no automated explanation. The null group
+includes knobs that should obviously bind (`candidate_pool.similarity_floor`,
+`max_pool_size`, `initial_beam_width`/`max_beam_width`,
+`genre_admission_percentile`, `genre_arc_floor`): for these, `inert` may only
+mean the single fixed-magnitude perturbation didn't cross a threshold in these
+2 cells (floor below the adaptive percentile that actually binds, pool never
+hitting the cap, beam winner unchanged at width+1). **Rule: a `dead_outlets`
+entry with `enabling_parent_flag: null` is NOT safe to delete without human
+triage** (widen the perturbation, test in a stressed cell, or trace the read
+site). Only flag-explained entries — and knobs independently root-caused as
+unreachable (see `perturb.py`'s None-map comments) — are demolition-ready.
+
 ## Live-DB drift — comparison protocol
 
 `data/metadata.db` is a LIVE database (canonical keeps analyzing/publishing
