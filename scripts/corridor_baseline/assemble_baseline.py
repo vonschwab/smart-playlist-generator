@@ -177,6 +177,13 @@ def main() -> int:
         raise FileNotFoundError(f"Missing config: {args.config}")
     with open(args.config, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f) or {}
+    # Plain config.yaml, not the policy-merged config runner.build_cell_config
+    # produces: load_config_with_overrides only deep-merges empty overrides and
+    # applies mode presets (playlists.* gate/weight fields), neither of which
+    # ever touches artifact_path/database_path -- so the value is identical
+    # either way, and reading it directly avoids importing the engine stack
+    # for two path strings (reuse-first: minimal dependency, not minimal
+    # correctness).
     artifact_path = cfg["playlists"]["ds_pipeline"]["artifact_path"]
     db_path = cfg["library"]["database_path"]
 

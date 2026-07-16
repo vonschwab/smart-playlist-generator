@@ -135,10 +135,14 @@ or `logs/corridor_baseline/` paths from a test.
   date at run time (`time.strftime("%Y-%m-%d")`). Not derived from any input
   file's mtime — those can be stale across a resumed multi-day sweep.
 - `artifact` — `{path, sha256, size_bytes}` of `playlists.ds_pipeline.artifact_path`
-  from the merged config, hashed streaming (1 MiB chunks) so the ~507MB file
-  is never loaded into memory — hashing takes seconds.
-- `db` — `{path, track_count}` of `library.database_path`, read via a
-  read-only SQLite connection.
+  read directly from `config.yaml` (equivalent to the policy-merged config for
+  this key — mode presets never touch `artifact_path`/`database_path` — so
+  `assemble_baseline.py` reads the YAML directly rather than importing the
+  engine stack just to resolve two path strings), hashed streaming (1 MiB
+  chunks) so the ~507MB file is never loaded into memory — hashing takes
+  seconds.
+- `db` — `{path, track_count}` of `library.database_path` (same direct-read
+  rationale), read via a read-only SQLite connection.
 - `corpus`, `detents`, `sweep_cells` — the `runner.py` constants, so the
   baseline is self-describing without cross-referencing source.
 - `perturbation_rules` — the module docstring of `perturb.py`, read via `ast`
