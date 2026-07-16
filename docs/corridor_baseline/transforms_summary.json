@@ -1,0 +1,36 @@
+{
+  "db_track_count": 43036,
+  "generated_on": "e5b2ac1ec9028dc9cd4a6338251e3e24ec84bcff",
+  "tables": [
+    {
+      "name": "artist_identity",
+      "path": "docs\\corridor_baseline\\tables\\artist_identity.json.gz",
+      "rows": 2735,
+      "sha256": "a4d0cef5c915de5e1bf24d82b2d96c0a1522bc9977d4724f59b93e72fec798f6"
+    },
+    {
+      "name": "title_keys",
+      "path": "docs\\corridor_baseline\\tables\\title_keys.json.gz",
+      "rows": 38537,
+      "sha256": "7505703e9db83784540cf26cf9fd5ee19b3a8e27114b52b9cbb83643241c388d"
+    },
+    {
+      "name": "alias_links",
+      "path": "docs\\corridor_baseline\\tables\\alias_links.json.gz",
+      "rows": 2,
+      "sha256": "69ffe083769905f8f2a23bb88977ca8f1c918125466f03d6a482831f1b69bf38"
+    },
+    {
+      "name": "genre_authority",
+      "path": "docs\\corridor_baseline\\tables\\genre_authority.json.gz",
+      "rows": 3772,
+      "sha256": "046ba63b39d6b34fdbe48ce6351846be64ee0d9ef74ca8d6391183700a344a22"
+    },
+    {
+      "name": "dedup_collapse",
+      "path": "docs\\corridor_baseline\\tables\\dedup_collapse.json.gz",
+      "rows": 56,
+      "sha256": "c7e7c8f8584bad4628b88aa57fc11f7b006d9e35d29d0de3d2822c3cc9a47390"
+    }
+  ]
+}
