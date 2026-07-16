@@ -173,23 +173,30 @@ def run_cell(
     err: str | None = None
     track_ids: list[str] = []
     try:
-        merged_cfg = build_cell_config(axes, set_paths)
-        g = build_generator(merged_cfg)
-        res = g.create_playlist_for_artist(
-            artist,
-            track_count=length,
-            dynamic=(axes["cohesion_mode"] == "dynamic"),
-            cohesion_mode_override=axes["cohesion_mode"],
-        )
-        tracks = res.get("tracks", []) if isinstance(res, dict) else []
-        track_ids = [str(t.get("rating_key") or t.get("id") or t.get("track_id") or "") for t in tracks]
-        track_ids = [t for t in track_ids if t]
-    except Exception as e:
-        err = f"{type(e).__name__}: {e}"
+        try:
+            merged_cfg = build_cell_config(axes, set_paths)
+            g = build_generator(merged_cfg)
+            res = g.create_playlist_for_artist(
+                artist,
+                track_count=length,
+                dynamic=(axes["cohesion_mode"] == "dynamic"),
+                cohesion_mode_override=axes["cohesion_mode"],
+            )
+            tracks = res.get("tracks", []) if isinstance(res, dict) else []
+            track_ids = [str(t.get("rating_key") or t.get("id") or t.get("track_id") or "") for t in tracks]
+            track_ids = [t for t in track_ids if t]
+        except Exception as e:
+            err = f"{type(e).__name__}: {e}"
+    finally:
+        # Not try/finally-protected previously: an uncaught BaseException (e.g.
+        # KeyboardInterrupt) mid-generation would skip this cleanup and leak a DEBUG
+        # FileHandler on the root logger for every subsequent run_cell() call in a
+        # loop (capture_corpus.py runs 12 in-process). Guarantee cleanup runs even
+        # when the inner `except Exception` doesn't catch what was raised.
+        root.removeHandler(fh)
+        fh.close()
+        root.setLevel(prev_level)
     wall = round(time.time() - t0, 1)
-    root.removeHandler(fh)
-    fh.close()
-    root.setLevel(prev_level)
 
     log_text = log_path.read_text(encoding="utf-8", errors="ignore")
     effective, run_metrics = parse_ds_success(log_text)
