@@ -74,6 +74,23 @@ def sanitize(name: str) -> str:
     return re.sub(r"[^0-9a-zA-Z_]+", "_", name)
 
 
+def assert_no_checkpoint_collisions(fields: list[str]) -> None:
+    """Fail fast if two distinct field paths sanitize to the same checkpoint
+    filename -- silently overwriting each other's checkpoint would misreport
+    one field's status as the other's and is invisible unless checked up
+    front (Task 5's self-review flagged this as unverified; the sweep runs
+    unattended for hours, so it must fail loud, before any generation runs)."""
+    seen: dict[str, str] = {}
+    for field in fields:
+        token = sanitize(field)
+        if token in seen and seen[token] != field:
+            raise AssertionError(
+                f"Checkpoint filename collision: {seen[token]!r} and {field!r} "
+                f"both sanitize to {token!r}.json"
+            )
+        seen[token] = field
+
+
 def cell_tag(artist: str, detent: str) -> str:
     return sanitize(f"{artist}_{detent}")
 
@@ -243,6 +260,9 @@ def sweep_cell(
 
     flat = ref["effective_flat"]
     fields = sorted(k for k in flat if not k.startswith(_DROP_PREFIXES))
+    # Fail fast, before any generation runs, if two field paths would clobber
+    # each other's checkpoint file.
+    assert_no_checkpoint_collisions(fields)
     if only_field is not None:
         fields = [f for f in fields if f == only_field]
         if not fields:
@@ -259,7 +279,19 @@ def sweep_cell(
                 remaining[0] -= 1
             continue
         logger.info("cell %s field=%s: perturbing ...", tag, field)
-        record = process_field(artist, detent, tag, field, flat[field], ref, log_level)
+        t_field = time.time()
+        try:
+            record = process_field(artist, detent, tag, field, flat[field], ref, log_level)
+        except Exception as exc:
+            # A single pathological field must not kill the unattended,
+            # multi-hour sweep. Record it as its own status and move on --
+            # the raw field path stays inside the JSON (not just the
+            # sanitized filename) so it's identifiable in the merged output.
+            logger.exception("cell %s field=%s: process_field raised -- recording error checkpoint", tag, field)
+            record = _record(
+                field, None, flat[field], None, "error", round(time.time() - t_field, 3),
+                note=f"{type(exc).__name__}: {exc}",
+            )
         ckpt_path.write_text(json.dumps(record, sort_keys=True, indent=2, ensure_ascii=False), encoding="utf-8")
         logger.info("cell %s field=%s status=%s wall=%.1fs", tag, field, record["status"], record["wall_s"])
         if remaining is not None:
