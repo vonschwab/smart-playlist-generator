@@ -156,6 +156,22 @@ does not repeat it for anything it newly writes (the embedded
 and all, since rewriting committed data out from under other tooling is out of
 scope here).
 
+## Live-DB drift — comparison protocol
+
+`data/metadata.db` is a LIVE database (canonical keeps analyzing/publishing
+while baselines exist): it grew 43,036 → 43,088 tracks during the 2026-07-16
+capture day alone. The generation universe is pinned by the **artifact** (fixed
+`.npz`, sha256 in `meta.artifact`), so corpus/sweep runs are stable against DB
+growth — but the Category A tables (`artist_identity`, `genre_authority`, …)
+snapshot DB content and WILL drift as tracks are added or genres published.
+Therefore: a GREEN check against this baseline must not naively diff a fresh
+capture against the committed tables. The protocol is a **paired capture** —
+re-run `capture_transforms.py` on pre-change code (current `master`) and on the
+corridor branch **the same day**, and diff those two against each other; the
+committed 2026-07-16 snapshot is the historical anchor, not the comparison arm.
+(The corpus/sweep comparisons need no pairing — artifact-pinned — but re-baseline
+them per phase anyway, per the contract.)
+
 ## Retirement clause
 
 This harness and baseline exist to serve
