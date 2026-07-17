@@ -17,6 +17,7 @@ Corridor-scoped tooling: delete this module when the corridor contract closes
 """
 from __future__ import annotations
 
+import argparse
 import json
 import logging
 import subprocess
@@ -61,6 +62,17 @@ def print_summary_table(fingerprints: list[dict]) -> None:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=OUT_DIR / "corpus_baseline.json",
+        help="Output path for the captured fingerprint JSON "
+             "(default: docs/corridor_baseline/corpus_baseline.json, unchanged behavior). "
+             "Use a different path to avoid overwriting the committed baseline.",
+    )
+    args = parser.parse_args()
+
     # No basicConfig in scripts/ (test_no_basicconfig_in_src_scripts) -- attach one
     # console handler explicitly instead. run_cell attaches its own per-cell
     # FileHandler on top of this.
@@ -113,8 +125,8 @@ def main() -> int:
         "always_on_patterns_never_seen": always_on_never_seen,
     }
 
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = OUT_DIR / "corpus_baseline.json"
+    out_path = args.out
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(summary, sort_keys=True, indent=2, ensure_ascii=False), encoding="utf-8")
 
     logger.info("done in %.1fs; %d/%d cells clean; wrote %s", time.time() - t0,
