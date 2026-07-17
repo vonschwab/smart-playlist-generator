@@ -1,21 +1,33 @@
-"""Phase 1 Task 3: corridor segment pooling behind the dev flag.
+"""Phase 1 Tasks 3+4: corridor segment pooling + relevance mask / widening
+ladder, behind the dev flag.
 
 Spec: docs/superpowers/specs/2026-07-12-corridor-first-pooling-design.md.
-Report: .superpowers/sdd/p1-task-3-report.md.
+Reports: .superpowers/sdd/p1-task-3-report.md, .superpowers/sdd/p1-task-4-report.md.
 
-Two tiers:
-  * `test_corridor_pooling_*` -- real end-to-end generation via the
-    gui_fidelity harness (@integration @slow, needs the live artifact).
-    Pins the Step-1 contract: corridor flag on, multi-pier generation
-    completes, every non-pier playlist track is a member of its segment's
-    corridor (min_sim >= threshold, recomputed independently here), and the
-    per-segment health line (contract F7) appears exactly once per segment.
+Tiers:
+  * `test_corridor_pooling_*` / `test_corridor_widening_ladder_*` -- real
+    end-to-end generation via the gui_fidelity harness (@integration @slow,
+    needs the live artifact). Pins the Step-1 contract: corridor flag on,
+    multi-pier generation completes, every non-pier playlist track is a
+    member of its segment's corridor (min_sim >= threshold, recomputed
+    independently here), and the per-segment health line (contract F7)
+    appears exactly once per segment -- including under widening (Task 4).
   * `test_corridor_universe_duration_reference_is_none_*` -- fast unit-level
     wiring check (synthetic ArtifactBundle, no artifact needed): the
     dead-knob-trap regression from the Task 3 review. Phase 1 deliberately
     never wires a real duration soft-penalty reference into the corridor
     universe; this pins that off-state so a future change can't start
     silently acting on an unconfigured knob.
+  * `test_corridor_filters_*_before_capping_not_after` -- fast unit-level
+    filter-before-cap regressions (synthetic ArtifactBundle): track-key
+    collision (Task 3 re-review fix) and pier-artist-key exclusion (Task 4,
+    carried finding -- the same one-mask-before-build_corridor fix covers
+    both exclusion kinds, this pins the artist-key half).
+  * `test_corridor_relevance_mask_*` -- fast unit-level wiring check (Task 4):
+    genre_mode keys the relevance-mask floor fed into build_eligible_universe,
+    directly via build_pier_bridge_playlist's genre_mode kwarg (the sole
+    production caller does not thread genre_mode through yet -- see
+    build_pier_bridge_playlist's genre_mode docstring and the Task 4 report).
 """
 from __future__ import annotations
 
@@ -312,3 +324,275 @@ def test_corridor_universe_duration_reference_is_none_dead_knob_trap():
     assert kwargs["title_hard_exclude_flags"] == frozenset()
     assert kwargs["relevance_mask"] is None
     assert kwargs["excluded_track_ids"] == set()
+
+
+# ── Task 4: pier-artist-key collision, filter-before-cap (carried finding) ──
+#
+# Same shape as test_corridor_filters_track_key_collisions_before_capping_
+# not_after above, but the exclusion mechanism under test is pier-artist-key
+# collision (disallow_pier_artists_in_interiors), not track-key collision --
+# the Task 3 re-review's Minor finding: the filter-before-cap fix folds BOTH
+# exclusion kinds into the same one-mask-before-build_corridor pass
+# (_build_corridor_segment_pool's _row_ok closure), but only the track-key
+# half had a regression test. Distinct titles here (unlike the track-key
+# fixture) so this test isolates the artist-key path specifically.
+_S = 10
+_ART_DUP_COUNT = 6
+_S_TRACK_IDS = np.array([f"s{i}" for i in range(_S)], dtype=object)
+_S_ARTISTS = np.array(
+    ["Seed Artist A", "Seed Artist B"]
+    + ["Seed Artist A"] * _ART_DUP_COUNT  # s2..s7: collide with PIER A's artist
+    + ["Clean Artist C", "Clean Artist D"],  # s8, s9: distinct
+    dtype=object,
+)
+_S_TITLES = np.array(
+    ["Seed Song A", "Seed Song B"]
+    + [f"Other Song {i}" for i in range(_ART_DUP_COUNT)]  # distinct titles: no track-key collision
+    + ["Clean Song C", "Clean Song D"],
+    dtype=object,
+)
+_S_SONIC = np.array(
+    [
+        [1.0, 0.0, 0.0],  # s0 pier A
+        [0.0, 1.0, 0.0],  # s1 pier B
+        *([[1.0, 1.0, 0.0]] * _ART_DUP_COUNT),  # s2..s7: balanced -> highest hmean rank
+        [0.9, 0.6, 0.0],  # s8: clean, lower hmean rank than the collisions
+        [0.9, 0.6, 0.0],  # s9: clean, lower hmean rank than the collisions
+    ],
+    dtype=float,
+)
+
+
+def _artist_collision_bundle() -> ArtifactBundle:
+    return ArtifactBundle(
+        artifact_path=Path("fake.npz"),
+        track_ids=_S_TRACK_IDS,
+        artist_keys=_S_ARTISTS,
+        track_artists=_S_ARTISTS,
+        track_titles=_S_TITLES,
+        X_sonic=_S_SONIC,
+        X_sonic_start=None,
+        X_sonic_mid=None,
+        X_sonic_end=None,
+        X_genre_raw=np.zeros((_S, 1)),
+        X_genre_smoothed=np.zeros((_S, 1)),
+        genre_vocab=np.array(["x"], dtype=object),
+        track_id_to_index={str(tid): i for i, tid in enumerate(_S_TRACK_IDS)},
+        durations_ms=np.full(_S, 200_000.0),
+    )
+
+
+def test_corridor_filters_pier_artist_collisions_before_capping_not_after():
+    bundle = _artist_collision_bundle()
+    cfg = PierBridgeConfig(
+        pooling="corridor",
+        corridor_width_percentile=0.0,  # permissive: every non-seed row is a corridor member
+        segment_pool_max=2,
+        # Held small on purpose, same rationale as the track-key fixture: 6
+        # pier-artist collisions ranked above the 2 clean candidates means
+        # expansion-attempt escalation (doubling up to this cap) can NEVER
+        # grow past the collision count -- filter-after-cap would starve on
+        # every attempt.
+        max_segment_pool_max=4,
+        transition_floor=-1.0,
+        progress_enabled=False,
+        collapse_segment_pool_by_artist=False,
+        disallow_pier_artists_in_interiors=True,
+    )
+
+    result = build_pier_bridge_playlist(
+        seed_track_ids=["s0", "s1"],
+        total_tracks=4,
+        bundle=bundle,
+        candidate_pool_indices=list(range(2, _S)),
+        cfg=cfg,
+    )
+
+    assert result.success, f"corridor segment starved: {result.failure_reason}"
+    assert len(result.track_ids) == 4, f"expected 4 tracks, got {result.track_ids}"
+    collision_ids = {f"s{i}" for i in range(2, 2 + _ART_DUP_COUNT)}
+    assert not (set(result.track_ids) & collision_ids), (
+        f"pier-artist-colliding candidates leaked into the playlist: {result.track_ids}"
+    )
+    assert set(result.track_ids) == {"s0", "s1", "s8", "s9"}, (
+        f"expected the 2 clean below-cap-rank candidates to fill the interior, got "
+        f"{result.track_ids}"
+    )
+
+
+# ── Task 4: genre-mode-keyed relevance mask wiring ──────────────────────────
+#
+# 8 rows: 2 piers (seeds), 3 genre-aligned candidates (cos=1.0 to the seeds'
+# genre profile), 3 genre-orthogonal candidates (cos=0.0). genre_mode="strict"
+# floors at 0.30 (see _corridor_genre_relevance_floor) so the orthogonal trio
+# is excluded from the eligible universe; genre_mode="off" disables the mask
+# entirely (relevance_mask=None), so nothing is excluded on genre grounds.
+# Seeds are exempt from exclusion either way (build_eligible_universe never
+# excludes a seed index), so genre_mode="strict" universe = 2 seeds + 3
+# aligned = 5; genre_mode="off" universe = all 8 rows.
+_M = 8
+_M_TRACK_IDS = np.array([f"m{i}" for i in range(_M)], dtype=object)
+_M_ARTISTS = np.array([f"Mask Artist {i}" for i in range(_M)], dtype=object)
+_M_TITLES = np.array([f"Mask Song {i}" for i in range(_M)], dtype=object)
+_M_SONIC = np.array([[float(i), 0.0, 0.0] for i in range(_M)], dtype=float)
+_M_GENRE = np.array(
+    [
+        [1.0, 0.0],  # m0: pier A
+        [1.0, 0.0],  # m1: pier B
+        [1.0, 0.0],  # m2: aligned candidate
+        [1.0, 0.0],  # m3: aligned candidate
+        [1.0, 0.0],  # m4: aligned candidate
+        [0.0, 1.0],  # m5: orthogonal candidate
+        [0.0, 1.0],  # m6: orthogonal candidate
+        [0.0, 1.0],  # m7: orthogonal candidate
+    ],
+    dtype=float,
+)
+
+
+def _mask_wiring_bundle() -> ArtifactBundle:
+    return ArtifactBundle(
+        artifact_path=Path("fake.npz"),
+        track_ids=_M_TRACK_IDS,
+        artist_keys=_M_ARTISTS,
+        track_artists=_M_ARTISTS,
+        track_titles=_M_TITLES,
+        X_sonic=_M_SONIC,
+        X_sonic_start=None,
+        X_sonic_mid=None,
+        X_sonic_end=None,
+        X_genre_raw=_M_GENRE,
+        X_genre_smoothed=_M_GENRE,
+        genre_vocab=np.array(["a", "b"], dtype=object),
+        track_id_to_index={str(tid): i for i, tid in enumerate(_M_TRACK_IDS)},
+        durations_ms=np.full(_M, 200_000.0),
+    )
+
+
+def _run_mask_wiring_case(genre_mode) -> int:
+    bundle = _mask_wiring_bundle()
+    cfg = PierBridgeConfig(
+        pooling="corridor",
+        corridor_width_percentile=0.0,  # permissive width: the mask is the only lever under test
+        transition_floor=-1.0,
+        bridge_floor=-1.0,
+        progress_enabled=False,
+        collapse_segment_pool_by_artist=False,
+    )
+    result = build_pier_bridge_playlist(
+        seed_track_ids=["m0", "m1"],
+        total_tracks=4,
+        bundle=bundle,
+        candidate_pool_indices=list(range(2, _M)),
+        cfg=cfg,
+        genre_mode=genre_mode,
+    )
+    assert result.success, f"[{genre_mode}] corridor segment starved: {result.failure_reason}"
+    return int(result.stats["corridor_universe_size"])
+
+
+def test_corridor_relevance_mask_off_vs_strict_changes_universe_size():
+    off_size = _run_mask_wiring_case("off")
+    strict_size = _run_mask_wiring_case("strict")
+
+    assert off_size == _M, f"genre_mode=off should leave the full universe eligible, got {off_size}"
+    # 2 seeds (exempt) + 3 genre-aligned candidates; the 3 orthogonal
+    # candidates fall below the strict floor (0.30) and are excluded.
+    assert strict_size == 5, f"genre_mode=strict should shrink the universe to 5, got {strict_size}"
+    assert strict_size < off_size
+
+
+def test_corridor_relevance_mask_unspecified_matches_off():
+    """genre_mode=None (unspecified -- the production caller's current state,
+    see build_pier_bridge_playlist's genre_mode docstring) must behave
+    identically to genre_mode="off": a missing signal is never guessed into
+    an active gate."""
+    bundle = _mask_wiring_bundle()
+    cfg = PierBridgeConfig(
+        pooling="corridor",
+        corridor_width_percentile=0.0,
+        transition_floor=-1.0,
+        bridge_floor=-1.0,
+        progress_enabled=False,
+        collapse_segment_pool_by_artist=False,
+    )
+    result = build_pier_bridge_playlist(
+        seed_track_ids=["m0", "m1"],
+        total_tracks=4,
+        bundle=bundle,
+        candidate_pool_indices=list(range(2, _M)),
+        cfg=cfg,
+        # genre_mode intentionally omitted
+    )
+    assert result.success
+    assert int(result.stats["corridor_universe_size"]) == _M
+
+
+# ── Task 4: quality-triggered widening ladder ───────────────────────────────
+
+@pytest.mark.integration
+@pytest.mark.slow
+@_requires_artifact
+def test_corridor_widening_ladder_recovers_stressed_segment(caplog):
+    """Step 1 (task-4-brief.md): force a stressed segment via a tight
+    corridor_width_percentile PLUS a transition_floor override the narrow
+    width can't clear for at least one segment -- assert the widening ladder
+    recovers (widened>=1 in at least one segment's diagnostics) and the run
+    still completes at full length. Values below were selected empirically
+    against this fixture's real artifact (see report for the probe log);
+    corridor_width_percentile alone (without the transition_floor override)
+    does not stress this particular 5-seed/20-track fixture because
+    segment_pool_max caps the corridor's member count well before the width
+    threshold binds at any width the default beam/pool sizing can reach."""
+    ui = gui_ui_state(
+        cohesion_mode="narrow", genre_mode="narrow", sonic_mode="narrow", pace_mode="narrow",
+    )
+    overrides = {
+        "playlists": {"ds_pipeline": {
+            "pier_bridge": {
+                "pooling": "corridor",
+                "corridor_width_percentile": 0.995,
+                "corridor_widen_step": 0.10,
+                "corridor_widen_attempts": 3,
+            },
+            "constraints": {"transition_floor": 0.55},
+        }},
+    }
+
+    with caplog.at_level(logging.INFO, logger="src.playlist.pier_bridge_builder"):
+        res = generate_like_gui(
+            seeds=SEEDS, ui=ui, length=20, random_seed=0,
+            config_overrides=overrides,
+        )
+
+    assert len(res.track_ids) == 20, f"expected 20 tracks, got {len(res.track_ids)}"
+
+    playlist_stats = res.playlist_stats.get("playlist", {})
+    corridor_segments = playlist_stats.get("corridor_segments") or []
+    num_segments = len(SEEDS) - 1
+    assert len(corridor_segments) == num_segments
+
+    widened_values = [int(e.get("widened", 0)) for e in corridor_segments]
+    assert any(w >= 1 for w in widened_values), (
+        f"expected at least one segment to widen under a stressed corridor, "
+        f"got widened values: {widened_values}"
+    )
+
+    # F7 contract preserved under widening (Task 3): exactly one
+    # "Corridor[seg N]:" health line per segment. The ladder's own
+    # "CorridorWiden[seg N]:" progress/exhaustion lines use a DISTINCT prefix
+    # specifically so they never collide with this pinned count.
+    corridor_lines = [
+        r.getMessage() for r in caplog.records
+        if r.name == "src.playlist.pier_bridge_builder" and r.getMessage().startswith("Corridor[seg ")
+    ]
+    assert len(corridor_lines) == num_segments, (
+        f"expected exactly {num_segments} Corridor health lines even under "
+        f"widening, got {len(corridor_lines)}: {corridor_lines}"
+    )
+
+    widen_lines = [
+        r.getMessage() for r in caplog.records
+        if r.name == "src.playlist.pier_bridge_builder" and r.getMessage().startswith("CorridorWiden[seg ")
+    ]
+    assert widen_lines, "expected at least one CorridorWiden[seg N]: log line under a stressed corridor"

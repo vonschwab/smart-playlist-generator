@@ -595,6 +595,15 @@ def seed_genre_relevance_mask(
     never eligible. Returns None when genre data is missing or the seed profile is
     empty, so the caller falls back to the ungated library-wide signal. Non-circular:
     gated on ``artist_indices`` (the seed artist's tracks), not on the piers.
+
+    Public module-level function (no leading underscore, no ``__all__``
+    restricting this module's exports) — reused as-is by
+    ``pier_bridge_builder.build_pier_bridge_playlist``'s corridor-pooling path
+    (Phase 1 Task 4) to build the genre-mode-keyed relevance mask fed into
+    ``build_eligible_universe(relevance_mask=...)``. ``artist_indices`` there is
+    the run's seed/pier track indices (not a single artist's full catalog) —
+    the function itself is agnostic to what the index set represents, it just
+    max-pools their genre profile. Behavior here is unchanged by that reuse.
     """
     if X_genre is None:
         return None

@@ -152,6 +152,11 @@ from src.playlist.pier_bridge.tail_dp import optimize_segment_tail
 from src.playlist.pier_bridge.corridor import build_corridor
 from src.playlist.pier_bridge.eligible_universe import build_eligible_universe, EligibleUniverse
 
+# Phase 1 Task 4: genre-mode-keyed relevance mask, reused from the pier-veto's
+# own genre gate (artist_style.py) so the corridor path's mask is computed by
+# the exact same function, not a reimplementation.
+from src.playlist.artist_style import seed_genre_relevance_mask
+
 
 logger = logging.getLogger(__name__)
 
@@ -168,6 +173,33 @@ logger = logging.getLogger(__name__)
 # that this anchor does not count. TODO: promote to a config knob
 # (playlists.pier_bridge.*).
 _SEGMENT_RELAXATION_BUDGET_S = 40.0
+
+
+def _corridor_genre_relevance_floor(genre_mode: Optional[str]) -> Optional[float]:
+    """Corridor relevance-mask genre-similarity floor, keyed by genre_mode.
+
+    Phase 1 provisional mapping (spec docs/superpowers/specs/2026-07-12-
+    corridor-first-pooling-design.md section 4; NOT yet Phase-2-calibrated):
+      - "off" (or unspecified/unrecognized) -> None: mask disabled, corridor
+        universe ungated by genre relevance. Unspecified is treated the same
+        as "off" deliberately -- see build_pier_bridge_playlist's genre_mode
+        docstring for why the production caller doesn't wire this yet; a
+        missing signal must never be guessed into an active gate.
+      - "strict"/"narrow" -> 0.30, matching today's
+        PierBridgeConfig.pier_bridgeability_genre_floor default (the pier-
+        veto's own tight-mode floor) -- same order of strictness, reused
+        rather than inventing a new constant.
+      - "dynamic"/"discover" -> 0.20, a looser floor for the two modes that
+        already admit more genre variation upstream.
+    """
+    if genre_mode is None:
+        return None
+    m = str(genre_mode).strip().lower()
+    if m in ("strict", "narrow"):
+        return 0.30
+    if m in ("dynamic", "discover"):
+        return 0.20
+    return None  # "off" or unrecognized -> mask disabled
 
 
 def _compute_edge_scores(
@@ -374,6 +406,7 @@ def build_pier_bridge_playlist(
     on_tag_guarantee_ids: Optional[set[str]] = None,
     on_tag_segment_guarantee_max: int = 0,
     on_tag_segment_guarantee_per_artist: int = 0,
+    genre_mode: Optional[str] = None,
 ) -> PierBridgeResult:
     """
     Build playlist using pier + bridge strategy.
@@ -387,6 +420,21 @@ def build_pier_bridge_playlist(
         min_genre_similarity: Optional genre gate threshold
         X_genre_smoothed: Genre vectors for gating
         genre_method: Genre similarity method
+        genre_mode: The run's genre_mode axis ("off"/"strict"/"narrow"/"dynamic"/
+            "discover"), CORRIDOR-POOLING ONLY (Phase 1 Task 4): keys the
+            relevance-mask floor fed to build_eligible_universe (see
+            ``_corridor_genre_relevance_floor`` below). Not consumed anywhere
+            else in this function. KNOWN GAP: the sole production caller
+            (pipeline.core.generate_playlist_ds's ``_run_pier_bridge`` closure)
+            does not pass this yet — genre_mode is resolved into
+            min_genre_similarity/genre_admission_percentile far upstream
+            (mode_presets.apply_mode_presets) and never threaded back out as
+            the raw string, so wiring the live value through requires touching
+            pipeline/core.py (and, to plumb it from the raw config string,
+            likely ds_pipeline_runner.py too) — out of this task's touched-
+            files scope. Until that follow-up lands, corridor-mode generations
+            get the "off" bucket (mask disabled) by default in production; the
+            mechanism is fully wired and covered by direct-call tests here.
 
     Returns:
         PierBridgeResult with ordered track IDs and diagnostics
@@ -467,10 +515,12 @@ def build_pier_bridge_playlist(
     #
     # The corridor's eligible universe is intentionally WIDER than `universe`:
     # it bypasses the upstream candidate-pool's sonic/genre-mode gating
-    # entirely (that gating never runs for corridor mode in Phase 1). Wiring
-    # it back in via a mode-keyed relevance mask is Task 4's job
-    # (`relevance_mask=None` below), not this task's -- see
-    # docs/superpowers/specs/2026-07-12-corridor-first-pooling-design.md.
+    # entirely (that gating never runs for corridor mode in Phase 1). Task 4
+    # wires it back in via the mode-keyed relevance mask below
+    # (`seed_genre_relevance_mask`, floor from `_corridor_genre_relevance_floor`)
+    # -- see docs/superpowers/specs/2026-07-12-corridor-first-pooling-design.md
+    # section 4. Seeds/piers are exempt from the mask by construction
+    # (build_eligible_universe never excludes a seed index, mask or no mask).
     #
     # Phase 1 also leaves two of build_eligible_universe's hard-exclusion
     # inputs deliberately inert:
@@ -500,11 +550,41 @@ def build_pier_bridge_playlist(
     corridor_artist_keys: List[str] = []
     corridor_track_keys: List[Tuple[str, str]] = []
     if pooling_mode == "corridor":
+        # Genre-mode-keyed relevance mask (Task 4). Computed once per
+        # generation from the run's seed/pier indices -- seed_genre_relevance_mask
+        # max-pools their genre profile, same function the pier-veto uses
+        # (artist_style.py), just handed the pier set instead of one artist's
+        # catalog. `_xg_for_mask` mirrors the fallback build_pier_bridge_playlist
+        # applies to X_genre_smoothed later in this function (line ~700):
+        # X_genre_smoothed is resolved from `bundle` here too since that later
+        # fallback hasn't executed yet at this point in the function.
+        _corridor_genre_floor = _corridor_genre_relevance_floor(genre_mode)
+        _xg_for_mask = X_genre_smoothed if X_genre_smoothed is not None else getattr(bundle, "X_genre_smoothed", None)
+        corridor_relevance_mask: Optional[np.ndarray] = None
+        if _corridor_genre_floor is not None:
+            corridor_relevance_mask = seed_genre_relevance_mask(
+                _xg_for_mask, seed_indices, _corridor_genre_floor,
+            )
+            if corridor_relevance_mask is not None:
+                logger.info(
+                    "Corridor relevance mask: %d/%d library rows eligible "
+                    "(genre_mode=%s floor=%.2f)",
+                    int(corridor_relevance_mask.sum()), int(corridor_relevance_mask.size),
+                    str(genre_mode), float(_corridor_genre_floor),
+                )
+            else:
+                logger.warning(
+                    "Corridor relevance mask inactive (genre_mode=%s floor=%.2f) — %s; "
+                    "falling back to the ungated full universe.",
+                    str(genre_mode), float(_corridor_genre_floor),
+                    "X_genre_smoothed absent" if _xg_for_mask is None
+                    else "seed set has no genre profile",
+                )
         corridor_universe = build_eligible_universe(
             bundle=bundle,
             seed_indices=seed_indices,
             excluded_track_ids=set(),
-            relevance_mask=None,
+            relevance_mask=corridor_relevance_mask,
             duration_reference_ms=None,
             duration_cutoff_multiplier=1.0,
             duration_penalty_weight=0.0,
@@ -517,11 +597,13 @@ def build_pier_bridge_playlist(
         if _genre_dense_full_for_corridor is not None:
             corridor_genre_dense_universe = _genre_dense_full_for_corridor[corridor_universe.indices]
         logger.info(
-            "Corridor universe: eligible=%d/%d (excluded_total=%d width_percentile=%.2f)",
+            "Corridor universe: eligible=%d/%d (excluded_total=%d width_percentile=%.2f "
+            "relevance_excluded=%d)",
             int(corridor_universe.stats.get("eligible_count", 0)),
             int(corridor_universe.stats.get("universe_size_total", 0)),
             int(corridor_universe.stats.get("excluded_total", 0)),
             float(cfg.corridor_width_percentile),
+            int(corridor_universe.stats.get("excluded_relevance_mask", 0)),
         )
         # Identity-key arrays, precomputed ONCE PER GENERATION, aligned to
         # corridor_universe.indices -- review fix (2026-07-17): legacy
@@ -943,7 +1025,8 @@ def build_pier_bridge_playlist(
         pier_b_idx: int,
         seg_idx_local: int,
         segment_pool_max_local: int,
-    ) -> Tuple[List[int], Dict[int, str], Dict[int, str]]:
+        width_percentile_override: Optional[float] = None,
+    ) -> Tuple[List[int], Dict[int, str], Dict[int, str], Dict[str, Any]]:
         """Corridor-mode segment pool (Phase 1 dev flag).
 
         Mirrors the legacy builders' output shape exactly (candidates,
@@ -977,6 +1060,20 @@ def build_pier_bridge_playlist(
         disallow_seed_artist_in_interiors relaxation retry, and dj_union
         debug-compare-baseline -- all legacy-only reseat/DJ-bridging features
         out of this task's scope.
+
+        ``width_percentile_override`` (Task 4): when given, overrides
+        ``cfg.corridor_width_percentile`` for this one call -- the widening
+        ladder's mechanism for retrying a segment at a wider (lower-
+        percentile) corridor without mutating ``cfg`` itself. None (default)
+        preserves the original single-width Task 3 behavior byte-for-byte.
+
+        Health-line logging / ``corridor_segments_diag`` are NOT emitted here
+        (Task 3 did this inline, gated to fire once per segment). Task 4
+        moved that to the widening-ladder wrapper (``_run_corridor_widening_
+        ladder``) so the ONE health line + ONE diagnostics entry per segment
+        reflect the ACCEPTED attempt's stats -- which may be a wider, later
+        call, not necessarily this first one. This closure now always
+        returns its per-call stats as the 4th tuple element instead.
         """
         assert corridor_universe is not None
         idx_arr = corridor_universe.indices
@@ -1033,12 +1130,17 @@ def build_pier_bridge_playlist(
             genre_vec_a = X_genre_dense_bundle[int(pier_a_idx)]
             genre_vec_b = X_genre_dense_bundle[int(pier_b_idx)]
 
+        _width_percentile = (
+            float(width_percentile_override)
+            if width_percentile_override is not None
+            else float(cfg.corridor_width_percentile)
+        )
         result = build_corridor(
             vec_a=X_full_norm[int(pier_a_idx)],
             vec_b=X_full_norm[int(pier_b_idx)],
             X_norm=avail_X,
             universe_indices=avail_idx,
-            width_percentile=float(cfg.corridor_width_percentile),
+            width_percentile=_width_percentile,
             segment_pool_max=int(segment_pool_max_local),
             genre_blend_weight=genre_blend_weight,
             X_genre_dense=(avail_genre if genre_blend_weight > 0.0 else None),
@@ -1079,45 +1181,31 @@ def build_pier_bridge_playlist(
         if pier_b_ak is not None:
             cand_artist_keys[int(pier_b_idx)] = pier_b_ak
 
-        if seg_idx_local not in corridor_logged_segments:
-            corridor_logged_segments.add(seg_idx_local)
-            support_a = float(result.stats.get("anchor_support_a", 0.0))
-            support_b = float(result.stats.get("anchor_support_b", 0.0))
-            logger.info(
-                "Corridor[seg %d]: size=%d width=%.2f widened=%d support_a=%.2f "
-                "support_b=%.2f threshold=%.3f capped=%s",
-                int(seg_idx_local),
-                int(len(final_candidates)),
-                float(result.width_percentile),
-                0,
-                support_a,
-                support_b,
-                float(result.threshold),
-                bool(result.capped),
-            )
-            corridor_segments_diag.append(
-                {
-                    "seg": int(seg_idx_local),
-                    "size": int(len(final_candidates)),
-                    "threshold": float(result.threshold),
-                    "width": float(result.width_percentile),
-                    "support_a": support_a,
-                    "support_b": support_b,
-                    "capped": bool(result.capped),
-                    "widened": 0,
-                    # C1 rehome parity (see comment above): mean duration-rank
-                    # penalty applied to this segment's corridor members, and
-                    # the resulting mean adjusted score -- both 1.0x/no-op in
-                    # Phase 1 (duration_reference_ms=None), non-trivial once
-                    # Task 4/5 wires a real reference.
-                    "mean_duration_penalty": _mean_duration_penalty,
-                    "mean_adjusted_score": (
-                        float(np.mean(_adjusted_scores)) if _adjusted_scores else 0.0
-                    ),
-                }
-            )
+        support_a = float(result.stats.get("anchor_support_a", 0.0))
+        support_b = float(result.stats.get("anchor_support_b", 0.0))
+        seg_diag: Dict[str, Any] = {
+            "seg": int(seg_idx_local),
+            "size": int(len(final_candidates)),
+            "threshold": float(result.threshold),
+            "width": float(result.width_percentile),
+            "support_a": support_a,
+            "support_b": support_b,
+            "capped": bool(result.capped),
+            # Filled in by the widening-ladder wrapper for the ACCEPTED
+            # attempt (0 = the initial, un-widened width succeeded).
+            "widened": 0,
+            # C1 rehome parity (see comment above): mean duration-rank
+            # penalty applied to this segment's corridor members, and
+            # the resulting mean adjusted score -- both 1.0x/no-op in
+            # Phase 1 (duration_reference_ms=None), non-trivial once
+            # Task 5 wires a real reference.
+            "mean_duration_penalty": _mean_duration_penalty,
+            "mean_adjusted_score": (
+                float(np.mean(_adjusted_scores)) if _adjusted_scores else 0.0
+            ),
+        }
 
-        return final_candidates, cand_artist_keys, {}
+        return final_candidates, cand_artist_keys, {}, seg_diag
 
     all_segments: List[List[int]] = []
     all_beam_components: List[dict] = []  # flat per-edge component dicts for audit
@@ -1178,6 +1266,17 @@ def build_pier_bridge_playlist(
         return list(dict.fromkeys(artists)) or None
 
     def _bridge_floor_attempts(initial_floor: float) -> list[float]:
+        # Corridor path anti-double-ladder gate (Task 4): when pooling==
+        # "corridor", the corridor widening ladder (_run_corridor_widening_
+        # ladder) is THE segment-level recovery mechanism -- the legacy
+        # bridge_floor backoff below must never also fire, or a single
+        # quality failure would trigger both a bridge_floor relaxation cascade
+        # AND a corridor-width widen cascade at once (the exact "double-
+        # ladder" the design spec warns against). Force single-attempt
+        # regardless of infeasible_handling.enabled; legacy (non-corridor)
+        # behavior is completely unchanged.
+        if pooling_mode == "corridor":
+            return [float(initial_floor)]
         if not infeasible_handling or not infeasible_handling.enabled:
             return [float(initial_floor)]
         steps = list(infeasible_handling.backoff_steps or ())
@@ -1238,6 +1337,7 @@ def build_pier_bridge_playlist(
         recent_boundary_artists: Optional[List[str]],
         transition_floor_override: Optional[float] = None,
         genre_arc_floor_percentile_override: Optional[float] = None,
+        corridor_width_override: Optional[float] = None,
     ) -> dict[str, Any]:
         cfg = cfg_attempt_base
         if transition_floor_override is not None:
@@ -1269,6 +1369,11 @@ def build_pier_bridge_playlist(
         # floor attempt (before the in-loop assignment) crashes with
         # UnboundLocalError (observed: Khruangbin, 2026-06-27).
         last_pool_diag: Dict[str, Any] = {}
+        # Corridor-mode per-call pool stats (Task 4): the 4th return value of
+        # _build_corridor_segment_pool, captured here so the widening ladder
+        # can pick the ACCEPTED attempt's stats for the once-per-segment
+        # health line + diagnostics entry. Empty/unused on the legacy path.
+        last_corridor_pool_diag: Dict[str, Any] = {}
 
         for floor_attempt_idx, bridge_floor in enumerate(backoff_attempts):
             # Shared generation deadline: if a deadline was passed from core.py,
@@ -1418,12 +1523,14 @@ def build_pier_bridge_playlist(
 
                 if pooling_mode == "corridor":
                     pool_diag["pool_strategy"] = "corridor"
-                    segment_candidates, cand_artist_keys, _cand_title_keys = _build_corridor_segment_pool(
+                    segment_candidates, cand_artist_keys, _cand_title_keys, _corridor_pool_diag = _build_corridor_segment_pool(
                         pier_a,
                         pier_b,
                         seg_idx,
                         int(segment_pool_max),
+                        width_percentile_override=corridor_width_override,
                     )
+                    last_corridor_pool_diag = dict(_corridor_pool_diag)
                 elif pool_strategy == "legacy":
                     neighbors_m = min(
                         int(cfg.initial_neighbors_m) * (2 ** int(attempt)),
@@ -1928,7 +2035,168 @@ def build_pier_bridge_playlist(
             "last_waypoint_stats": dict(last_waypoint_stats),
             "last_pool_diag": dict(last_pool_diag),
             "edge_components": list(last_edge_components),
+            "corridor_pool_diag": dict(last_corridor_pool_diag),
         }
+
+    def _segment_min_edge_t(attempt_result: dict[str, Any]) -> Optional[float]:
+        """Worst (minimum) per-edge transition T along a segment's chosen path.
+
+        Source: the beam's own minimax path tracking -- ``edge_components``
+        (populated by ``_beam_search_segment`` via its ``edge_components_out``
+        param, one dict per chosen edge with a ``"T"`` key) is exactly the
+        per-edge score list the beam itself used to pick the path, so this is
+        a read of the beam's own bookkeeping, not a recomputation.
+
+        Returns None when no path was found (nothing to score). Returns
+        +inf for a path with zero scoreable edges (e.g. a 0-interior segment
+        -- trivially satisfies any floor, nothing to violate).
+        """
+        if attempt_result.get("segment_path") is None:
+            return None
+        comps = attempt_result.get("edge_components") or []
+        t_vals = [
+            float(c["T"]) for c in comps
+            if isinstance(c, dict) and c.get("T") is not None
+        ]
+        return min(t_vals) if t_vals else float("inf")
+
+    def _run_corridor_widening_ladder(
+        *,
+        cfg_base: PierBridgeConfig,
+        segment_allow_detours: bool,
+        segment_g_targets: Optional[list[np.ndarray]],
+        segment_g_targets_dense: Optional[list[np.ndarray]],
+        pier_a: int,
+        pier_b: int,
+        interior_len: int,
+        pier_a_id: str,
+        pier_b_id: str,
+        seg_idx: int,
+        recent_boundary_artists: Optional[List[str]],
+    ) -> dict[str, Any]:
+        """Quality-triggered corridor width-widening ladder (Phase 1 Task 4,
+        spec section 4). THE segment-level recovery mechanism for
+        pooling=="corridor" -- replaces the legacy bridge_floor-backoff /
+        transition-floor-relaxation / genre-arc-floor-relaxation tiers for
+        corridor segments (those tiers are gated off for pooling=="corridor"
+        at their own call sites below; see the double-ladder comments there
+        and on ``_bridge_floor_attempts``).
+
+        ::
+
+            corridor = build(width)
+            path = beam(corridor)
+            while (path is None or path.min_edge_T < transition_floor)
+                  and attempts < corridor_widen_attempts:
+                width -= corridor_widen_step   # percentile down = wider
+                corridor = build(width)        # capped at 0.0 = whole universe
+                path = beam(corridor)
+            if still failing: accept best-min-edge path seen; log LOUDLY;
+                              below_floor reporting + repair stack unchanged.
+
+        Deterministic: the width sequence is a fixed arithmetic ladder from
+        ``cfg_base.corridor_width_percentile`` (same inputs -> same widths,
+        same attempts, same result). Each attempt still runs
+        ``_run_segment_backoff_attempts`` (single bridge_floor attempt, see
+        above) so beam invocation itself is completely untouched -- this
+        function only decides which width to try next and which attempt to
+        keep.
+        """
+        width = float(cfg_base.corridor_width_percentile)
+        step = max(0.0, float(cfg_base.corridor_widen_step))
+        max_widen_attempts = max(0, int(cfg_base.corridor_widen_attempts))
+        floor = float(cfg_base.transition_floor)
+
+        best_result: Optional[dict[str, Any]] = None
+        best_comparable = float("-inf")
+        best_widened = 0
+        best_width = width
+
+        attempt = 0
+        while True:
+            result = _run_segment_backoff_attempts(
+                cfg_attempt_base=cfg_base,
+                segment_allow_detours=segment_allow_detours,
+                segment_g_targets=segment_g_targets,
+                segment_g_targets_dense=segment_g_targets_dense,
+                pier_a=pier_a,
+                pier_b=pier_b,
+                interior_len=interior_len,
+                pier_a_id=pier_a_id,
+                pier_b_id=pier_b_id,
+                seg_idx=seg_idx,
+                recent_boundary_artists=recent_boundary_artists,
+                corridor_width_override=width,
+            )
+            min_edge_t = _segment_min_edge_t(result)
+            quality_ok = min_edge_t is not None and min_edge_t >= floor
+            comparable = min_edge_t if min_edge_t is not None else float("-inf")
+
+            if best_result is None or comparable > best_comparable:
+                best_result = result
+                best_comparable = comparable
+                best_widened = attempt
+                best_width = width
+
+            if quality_ok:
+                if attempt > 0:
+                    logger.info(
+                        "CorridorWiden[seg %d]: recovered at attempt %d (width=%.2f "
+                        "min_edge_T=%.3f >= floor=%.3f)",
+                        seg_idx, attempt, width, float(min_edge_t), floor,
+                    )
+                break
+            if attempt >= max_widen_attempts:
+                _best_t_repr = "None" if best_comparable == float("-inf") else f"{best_comparable:.3f}"
+                logger.warning(
+                    "CorridorWiden[seg %d] EXHAUSTED after %d widen attempt(s) "
+                    "(initial width=%.2f, final width=%.2f): best min_edge_T=%s "
+                    "vs floor=%.3f — accepting best-effort path; below-floor "
+                    "reporting + repair stack proceed unchanged.",
+                    seg_idx, attempt, float(cfg_base.corridor_width_percentile),
+                    width, _best_t_repr, floor,
+                )
+                break
+            attempt += 1
+            width = max(0.0, width - step)
+            logger.info(
+                "CorridorWiden[seg %d]: attempt %d — widening width -> %.2f "
+                "(prior min_edge_T=%s, floor=%.3f)",
+                seg_idx, attempt, width,
+                ("None" if min_edge_t is None else f"{min_edge_t:.3f}"), floor,
+            )
+
+        assert best_result is not None  # attempt 0 always runs and is captured above
+
+        # Once-per-segment health line + diagnostics entry (Task 3's F7
+        # contract: exactly one "Corridor[seg N]:" line per segment). Emitted
+        # here, after the ladder concludes, using the ACCEPTED (best) attempt's
+        # pool stats — not necessarily the first (narrowest) attempt's, if
+        # widening changed the outcome. `corridor_logged_segments` (defined
+        # alongside `corridor_segments_diag` near `_build_corridor_segment_pool`)
+        # still gates this to once per segment index across however many times
+        # this wrapper itself is invoked for that index (e.g. variable-bridge-
+        # length re-tries the same seg_idx at different interior lengths).
+        if seg_idx not in corridor_logged_segments:
+            corridor_logged_segments.add(seg_idx)
+            _diag = dict(best_result.get("corridor_pool_diag") or {})
+            _diag.setdefault("seg", int(seg_idx))
+            _diag["widened"] = int(best_widened)
+            logger.info(
+                "Corridor[seg %d]: size=%d width=%.2f widened=%d support_a=%.2f "
+                "support_b=%.2f threshold=%.3f capped=%s",
+                int(seg_idx),
+                int(_diag.get("size", 0)),
+                float(_diag.get("width", best_width)),
+                int(_diag.get("widened", best_widened)),
+                float(_diag.get("support_a", 0.0)),
+                float(_diag.get("support_b", 0.0)),
+                float(_diag.get("threshold", 0.0)),
+                bool(_diag.get("capped", False)),
+            )
+            corridor_segments_diag.append(_diag)
+
+        return best_result
 
     # Wall-clock anchor for the relaxation-tier budget (see
     # _SEGMENT_RELAXATION_BUDGET_S). Cumulative across all segments so the total
@@ -2158,34 +2426,68 @@ def build_pier_bridge_playlist(
             _relax_success: Optional[int] = None
             _cfg_used = cfg_base
             _attempt_result: Optional[dict[str, Any]] = None
-            for relax_idx, relax in enumerate(relaxation_attempts):
-                if _deadline_exceeded_at_segment_start:
-                    break  # skip all beam attempts; fall through to guaranteed-fill
-                _cfg_used = relax["cfg"]
-                attempt_allow_detours = segment_allow_detours_base or bool(relax.get("force_allow_detours"))
-                _attempt_result = _run_segment_backoff_attempts(
-                    cfg_attempt_base=_cfg_used,
-                    segment_allow_detours=attempt_allow_detours,
-                    segment_g_targets=_g_targets,
-                    segment_g_targets_dense=_g_targets_dense,
-                    pier_a=pier_a,
-                    pier_b=pier_b,
-                    interior_len=interior_len,
-                    pier_a_id=pier_a_id,
-                    pier_b_id=pier_b_id,
-                    seg_idx=seg_idx,
-                    recent_boundary_artists=_recent_artists_for_segment(seg_idx),
-                )
-                _attempt_path = _attempt_result["segment_path"]
-                _seg_relax_attempts.append({
-                    "attempt_index": int(relax_idx),
-                    "label": str(relax.get("label", "")),
-                    "changes": list(relax.get("changes") or []),
-                    "failure_reason": (str(_attempt_result["last_failure_reason"]) if _attempt_path is None else None),
-                })
-                if _attempt_path is not None:
-                    _relax_success = int(relax_idx)
-                    break
+            if pooling_mode == "corridor":
+                # Corridor path (Task 4): the widening ladder IS the segment-
+                # level recovery mechanism -- it replaces this relaxation-
+                # attempts loop (which tries different dj-bridging cfg
+                # variants, not corridor width) entirely for corridor
+                # segments. One call, one baseline cfg; the ladder itself
+                # handles retrying at wider corridor widths internally.
+                if not _deadline_exceeded_at_segment_start:
+                    _attempt_result = _run_corridor_widening_ladder(
+                        cfg_base=cfg_base,
+                        segment_allow_detours=segment_allow_detours_base,
+                        segment_g_targets=_g_targets,
+                        segment_g_targets_dense=_g_targets_dense,
+                        pier_a=pier_a,
+                        pier_b=pier_b,
+                        interior_len=interior_len,
+                        pier_a_id=pier_a_id,
+                        pier_b_id=pier_b_id,
+                        seg_idx=seg_idx,
+                        recent_boundary_artists=_recent_artists_for_segment(seg_idx),
+                    )
+                    _attempt_path = _attempt_result["segment_path"]
+                    _seg_relax_attempts.append({
+                        "attempt_index": 0,
+                        "label": "corridor_widening_ladder",
+                        "changes": [],
+                        "failure_reason": (
+                            str(_attempt_result["last_failure_reason"])
+                            if _attempt_path is None else None
+                        ),
+                    })
+                    if _attempt_path is not None:
+                        _relax_success = 0
+            else:
+                for relax_idx, relax in enumerate(relaxation_attempts):
+                    if _deadline_exceeded_at_segment_start:
+                        break  # skip all beam attempts; fall through to guaranteed-fill
+                    _cfg_used = relax["cfg"]
+                    attempt_allow_detours = segment_allow_detours_base or bool(relax.get("force_allow_detours"))
+                    _attempt_result = _run_segment_backoff_attempts(
+                        cfg_attempt_base=_cfg_used,
+                        segment_allow_detours=attempt_allow_detours,
+                        segment_g_targets=_g_targets,
+                        segment_g_targets_dense=_g_targets_dense,
+                        pier_a=pier_a,
+                        pier_b=pier_b,
+                        interior_len=interior_len,
+                        pier_a_id=pier_a_id,
+                        pier_b_id=pier_b_id,
+                        seg_idx=seg_idx,
+                        recent_boundary_artists=_recent_artists_for_segment(seg_idx),
+                    )
+                    _attempt_path = _attempt_result["segment_path"]
+                    _seg_relax_attempts.append({
+                        "attempt_index": int(relax_idx),
+                        "label": str(relax.get("label", "")),
+                        "changes": list(relax.get("changes") or []),
+                        "failure_reason": (str(_attempt_result["last_failure_reason"]) if _attempt_path is None else None),
+                    })
+                    if _attempt_path is not None:
+                        _relax_success = int(relax_idx)
+                        break
 
             return {
                 "attempt_result": _attempt_result,
@@ -2337,7 +2639,19 @@ def build_pier_bridge_playlist(
 
         # Transition-floor relaxation tier: if all bridge_floor backoffs exhausted,
         # progressively lower transition_floor before declaring infeasibility.
-        if segment_path is None and not pool_too_small_for_segment and not over_relaxation_budget:
+        # Gated off for pooling=="corridor" (Task 4): the corridor widening
+        # ladder already re-ran the beam at progressively wider corridors and
+        # accepted a best-effort path (possibly below transition_floor) when
+        # it couldn't clear the floor -- this tier re-relaxing transition_floor
+        # on top of that would be a second, uncoordinated relaxation axis
+        # firing after the corridor ladder already declared its own outcome
+        # (the "double-ladder" the design spec warns against).
+        if (
+            segment_path is None
+            and not pool_too_small_for_segment
+            and not over_relaxation_budget
+            and pooling_mode != "corridor"
+        ):
             _t_attempts = _transition_floor_attempts(float(cfg_base.transition_floor))
             for _t_floor in _t_attempts[1:]:  # first value already tried in relax loop above
                 _now2 = time.monotonic()
@@ -2387,9 +2701,13 @@ def build_pier_bridge_playlist(
         # could not build the segment, progressively lower the genre-arc floor
         # percentile toward infeasible_handling.min_genre_arc_percentile so
         # genre-sparse seeds don't go infeasible. Gated on steering +
-        # infeasible_handling + genre_arc_relaxation.
+        # infeasible_handling + genre_arc_relaxation, AND (Task 4) never for
+        # pooling=="corridor" -- same double-ladder rationale as the
+        # transition-floor tier above: the corridor widening ladder already
+        # ran and declared its outcome.
         if segment_path is None and not pool_too_small_for_segment \
            and not over_relaxation_budget \
+           and pooling_mode != "corridor" \
            and bool(getattr(cfg_base, "genre_steering_enabled", False)) \
            and infeasible_handling and infeasible_handling.enabled \
            and infeasible_handling.genre_arc_relaxation_enabled:
