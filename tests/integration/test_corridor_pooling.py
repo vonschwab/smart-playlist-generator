@@ -893,16 +893,18 @@ def test_corridor_tag_guarantee_absent_by_default():
 # trigger) on the Phase-0a-validated anchor-support coverage metric.
 #
 # Fixture: permissive corridor width (0.0) means the WHOLE tiny synthetic
-# universe is a corridor member for every anchor, so each anchor's top-100-
-# neighbor support trivially clears its own corridor threshold (support_a ==
-# support_b == 1.0 -- as healthy as pool coverage gets). An unreachable
-# transition_floor (2.0; real T is always < 1) guarantees the quality
-# trigger fires on attempt 0 regardless of the sonic geometry chosen, without
-# tripping the beam's only remaining real gate (the -0.5 anti-alignment
-# safety in is_broken_transition -- transition_floor itself no longer hard-
-# gates the beam post-roam-promotion, and center_transitions defaults False
-# here so that safety isn't even armed). The scarcity gate must therefore
-# SKIP widening entirely: the weakness is not pool-limited.
+# universe is a corridor member for every anchor, REGARDLESS of width -- so
+# widening the corridor changes nothing about which candidates are visible,
+# and the beam's chosen path (hence min_edge_T) is bit-identical before and
+# after a widen attempt. An unreachable transition_floor (2.0; real T is
+# always < 1) guarantees the quality trigger fires on attempt 0 regardless of
+# the sonic geometry chosen, without tripping the beam's only remaining real
+# gate (the -0.5 anti-alignment safety in is_broken_transition --
+# transition_floor itself no longer hard-gates the beam post-roam-promotion,
+# and center_transitions defaults False here so that safety isn't even
+# armed). Under the iteration-2 empirical continue-gate: attempt 1 always
+# runs unconditionally, but since it produces ZERO improvement (identical
+# min_edge_T, deterministically), attempt 2 must be STOPPED.
 _W = 4
 _W_TRACK_IDS = np.array([f"w{i}" for i in range(_W)], dtype=object)
 _W_ARTISTS = np.array([f"Widen Artist {i}" for i in range(_W)], dtype=object)
@@ -937,19 +939,21 @@ def _widen_gate_bundle() -> ArtifactBundle:
     )
 
 
-def test_corridor_widening_ladder_skips_when_pool_is_healthy(caplog):
-    """New in Task 6 remediation: a weak edge whose corridor pool is healthy
-    (support_a == support_b == 1.0, well above the default 0.5 scarcity
-    threshold) must SKIP widening entirely -- zero widen attempts, best
-    result accepted at the initial width, ``widen_skipped: true`` recorded in
-    the segment's corridor diagnostics."""
+def test_corridor_widening_ladder_stops_early_when_no_improvement(caplog):
+    """Iteration 2 (empirical continue-gate): a weak edge whose corridor
+    membership is width-INVARIANT (permissive width 0.0 already admits the
+    whole tiny universe, so widening changes nothing) must still try widen
+    attempt 1 unconditionally, then STOP before attempt 2 once that attempt
+    demonstrates zero improvement -- one widen attempt paid for, not the
+    full 2-attempt budget, ``widen_stopped_early: true`` recorded in the
+    segment's corridor diagnostics."""
     bundle = _widen_gate_bundle()
     cfg = PierBridgeConfig(
         pooling="corridor",
         corridor_width_percentile=0.0,
         corridor_widen_step=0.05,
         corridor_widen_attempts=2,
-        corridor_widen_support_threshold=0.5,
+        corridor_widen_improvement_epsilon=0.02,
         transition_floor=2.0,
         bridge_floor=-1.0,
         progress_enabled=False,
@@ -969,40 +973,44 @@ def test_corridor_widening_ladder_skips_when_pool_is_healthy(caplog):
     corridor_segments = result.stats.get("corridor_segments") or []
     assert len(corridor_segments) == 1
     seg = corridor_segments[0]
-    assert seg.get("support_a") == pytest.approx(1.0), seg
-    assert seg.get("support_b") == pytest.approx(1.0), seg
     assert seg.get("widened") == 0, (
-        f"expected zero widen attempts on a healthy-pool weak edge, got: {seg}"
+        f"expected the initial (un-widened) attempt to remain best (attempt 1 "
+        f"tied it, not beat it), got: {seg}"
     )
-    assert seg.get("widen_skipped") is True, (
-        f"expected widen_skipped=True for a healthy-pool weak edge, got: {seg}"
+    assert seg.get("widen_stopped_early") is True, (
+        f"expected widen_stopped_early=True after a non-improving attempt 1, got: {seg}"
     )
 
-    skip_lines = [
+    stopped_lines = [
         r.getMessage() for r in caplog.records
         if r.name == "src.playlist.pier_bridge_builder"
-        and r.getMessage().startswith("CorridorWiden[seg 0] SKIPPED:")
+        and r.getMessage().startswith("CorridorWiden[seg 0] STOPPED")
     ]
-    assert skip_lines, "expected a CorridorWiden[seg 0] SKIPPED log line"
+    assert stopped_lines, "expected a CorridorWiden[seg 0] STOPPED log line"
 
     widen_attempt_lines = [
         r.getMessage() for r in caplog.records
         if r.name == "src.playlist.pier_bridge_builder"
         and r.getMessage().startswith("CorridorWiden[seg 0]: attempt")
     ]
-    assert not widen_attempt_lines, (
-        f"expected no widen attempts once the scarcity gate skipped, got: {widen_attempt_lines}"
+    assert len(widen_attempt_lines) == 1, (
+        f"expected exactly 1 widen attempt (attempt 1, unconditional) before "
+        f"stopping, got: {widen_attempt_lines}"
     )
 
 
-def test_corridor_widening_ladder_still_widens_when_pool_is_starved(caplog):
-    """Companion negative case (fast, synthetic): a starved corridor (tight
-    width => low anchor support, well below the 0.5 threshold) combined with
-    an unreachable transition_floor must still WIDEN up to corridor_widen_
-    attempts -- the scarcity gate must not suppress the pre-existing
-    pool-limited recovery path. Mirrors the real-artifact Swirlies-class
-    stressed test (test_corridor_widening_ladder_recovers_stressed_segment)
-    at unit-test speed/determinism."""
+def test_corridor_widening_ladder_still_widens_when_each_attempt_improves(caplog):
+    """Companion positive case (fast, synthetic, seed=0 deterministic): a
+    starved corridor (tight width -> attempt 0 is infeasible, no path at
+    all) combined with an unreachable transition_floor must still WIDEN
+    through the full corridor_widen_attempts budget as long as each attempt
+    keeps improving (going from "no path" to "a weak path" on attempt 1
+    counts as improvement; attempt 1 -> attempt 2 here empirically improves
+    -0.081 -> 0.173, comfortably > epsilon=0.02) -- the empirical gate must
+    not suppress genuine, demonstrated widening value. Mirrors the
+    real-artifact Swirlies-class stressed test
+    (test_corridor_widening_ladder_recovers_stressed_segment) at unit-test
+    speed/determinism."""
     n = 60
     rng = np.random.default_rng(0)
     X = rng.normal(size=(n, 3)).astype(np.float64)
@@ -1035,10 +1043,10 @@ def test_corridor_widening_ladder_still_widens_when_pool_is_starved(caplog):
     )
     cfg = PierBridgeConfig(
         pooling="corridor",
-        corridor_width_percentile=0.995,  # tight -> sparse membership -> low anchor support
+        corridor_width_percentile=0.995,  # tight -> attempt 0 is infeasible (no path)
         corridor_widen_step=0.10,
         corridor_widen_attempts=2,
-        corridor_widen_support_threshold=0.5,
+        corridor_widen_improvement_epsilon=0.02,
         transition_floor=2.0,
         bridge_floor=-1.0,
         progress_enabled=False,
@@ -1058,14 +1066,12 @@ def test_corridor_widening_ladder_still_widens_when_pool_is_starved(caplog):
     corridor_segments = result.stats.get("corridor_segments") or []
     assert len(corridor_segments) == 1
     seg = corridor_segments[0]
-    assert min(float(seg.get("support_a", 1.0)), float(seg.get("support_b", 1.0))) < 0.5, seg
-    # NOTE: `widened` records the BEST-scoring attempt's index, not necessarily
-    # the last one tried -- it is not a reliable "did it widen" signal on its
-    # own. The reliable signal is the attempt log lines themselves: the ladder
-    # must have progressed through both widen steps (unlike the healthy-pool
-    # case above, where zero widen-attempt lines are emitted).
-    assert not seg.get("widen_skipped"), (
-        f"expected widen_skipped falsy when the corridor is genuinely starved, got: {seg}"
+    assert seg.get("widened") == 2, (
+        f"expected attempt 2 (the fully-widened corridor) to be the best-scoring "
+        f"attempt, got: {seg}"
+    )
+    assert not seg.get("widen_stopped_early"), (
+        f"expected widen_stopped_early falsy when every attempt keeps improving, got: {seg}"
     )
 
     widen_attempt_lines = [

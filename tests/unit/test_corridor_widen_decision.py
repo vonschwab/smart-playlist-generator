@@ -1,14 +1,17 @@
-"""Unit tests for the pure widening-ladder scarcity gate (Task 6 remediation).
+"""Unit tests for the pure widening-ladder continue-gate (Task 6 remediation,
+iteration 2).
 
-Root cause traced (not re-derived here, see .superpowers/sdd/p1-task6-
-remediation-report.md and the SADE/home A/B log): the widening ladder
-triggers correctly on weak edges (min_edge_T < transition_floor) but widens
-even when the corridor is NOT the binding constraint -- a beam-path-internal
-weakness pays 3x beam cost (initial + 2 widen attempts), EXHAUSTS with no
-improvement, and the repair stack fixes the edge anyway. The fix gates
-WIDENING (not the trigger) on corridor scarcity via the Phase-0a-validated
-anchor-support coverage metric: widen only when min(support_a, support_b) <
-corridor_widen_support_threshold.
+Iteration 1 gated widening on a PREDICTIVE signal (anchor-support coverage,
+computed before the beam ever ran). Falsified by real evidence (see
+.superpowers/sdd/p1-task6-remediation-report.md): Alex G/home's segment 1 had
+healthy support (~0.8, well above the 0.5 threshold) yet still gained +0.42 T
+from one widen attempt (0.189 -> 0.611) -- a wider pool can unlock better
+beam-path (interior-to-interior) combinations no anchor-only metric predicts.
+
+Iteration 2 replaces prediction with an EMPIRICAL continue-gate: always try
+widen attempt 1 unconditionally when the quality trigger fires; widen further
+only if the attempt just run improved the best-seen min_edge_T by more than
+``corridor_widen_improvement_epsilon``.
 """
 import pytest
 
@@ -18,106 +21,142 @@ from src.playlist.pier_bridge.corridor import (
 )
 
 
-def test_no_path_always_widens_regardless_of_support():
-    """Hard infeasibility (path is None) always widens -- no path is
-    inherently a pool problem, never gated on scarcity."""
+def test_no_path_always_widens_regardless_of_attempt_index_or_improvement():
+    """Hard infeasibility (path is None) always widens to the full attempt
+    budget -- no path is inherently a pool problem, never gated on
+    improvement, at ANY attempt index."""
+    for attempt_index, improvement in [(0, None), (1, -0.5), (2, 0.9)]:
+        decision = corridor_widen_decision(
+            path_found=False,
+            min_edge_t=None,
+            floor=0.20,
+            attempt_index=attempt_index,
+            improvement=improvement,
+            epsilon=0.02,
+        )
+        assert decision == CorridorWidenDecision.WIDEN, (attempt_index, improvement)
+
+
+def test_quality_ok_accepts_regardless_of_attempt_index():
+    """min_edge_T >= floor: no widening needed at all, regardless of how many
+    widen attempts already ran or whether they improved."""
+    for attempt_index in (0, 1, 2):
+        decision = corridor_widen_decision(
+            path_found=True,
+            min_edge_t=0.25,
+            floor=0.20,
+            attempt_index=attempt_index,
+            improvement=-1.0,  # irrelevant -- quality is already fine
+            epsilon=0.02,
+        )
+        assert decision == CorridorWidenDecision.ACCEPT
+
+
+def test_first_evaluation_always_widens_unconditionally():
+    """attempt_index == 0: the quality trigger just fired for the first
+    time -- always try widening once, no prediction, no improvement signal
+    available yet (this attempt itself hasn't tried widening)."""
     decision = corridor_widen_decision(
-        path_found=False,
-        min_edge_t=None,
+        path_found=True,
+        min_edge_t=0.05,  # far below floor
         floor=0.20,
-        support_a=0.99,  # healthy support -- must NOT suppress widening
-        support_b=0.99,
-        threshold=0.5,
+        attempt_index=0,
+        improvement=None,  # nothing to compare yet
+        epsilon=0.02,
     )
     assert decision == CorridorWidenDecision.WIDEN
 
 
-def test_quality_ok_accepts_without_consulting_support():
-    """min_edge_T >= floor: no widening needed at all, regardless of support."""
-    decision = corridor_widen_decision(
-        path_found=True,
-        min_edge_t=0.25,
-        floor=0.20,
-        support_a=0.01,  # starved support -- irrelevant, quality is already fine
-        support_b=0.01,
-        threshold=0.5,
-    )
-    assert decision == CorridorWidenDecision.ACCEPT
-
-
-def test_weak_edge_with_starved_support_widens():
-    """Weak edge (below floor) AND the corridor is plausibly starved
-    (min support < threshold): widen -- this is the Swirlies-class case."""
-    decision = corridor_widen_decision(
-        path_found=True,
-        min_edge_t=0.10,
-        floor=0.20,
-        support_a=0.15,
-        support_b=0.30,
-        threshold=0.5,
-    )
-    assert decision == CorridorWidenDecision.WIDEN
-
-
-def test_weak_edge_with_healthy_support_skips():
-    """Weak edge (below floor) but healthy corridor pools (min support >=
-    threshold): the weakness is beam-path-internal, not pool-limited -- skip
-    widening and hand the segment to the repair stack. This is the traced
-    SADE/home root cause (min support well above 0.5, min_edge in 0.075-0.185
-    vs floor 0.200)."""
+def test_improving_attempt_continues_widening():
+    """attempt_index >= 1 and this attempt improved the best-seen min_edge_T
+    by more than epsilon: keep widening."""
     decision = corridor_widen_decision(
         path_found=True,
         min_edge_t=0.15,
         floor=0.20,
-        support_a=0.55,
-        support_b=0.80,
-        threshold=0.5,
-    )
-    assert decision == CorridorWidenDecision.SKIP
-
-
-def test_min_of_both_supports_governs_not_max():
-    """One anchor starved, one healthy -- min() must govern (a candidate
-    corridor built from the WORSE anchor's coverage is the plausible
-    bottleneck even if the other anchor is fine)."""
-    decision = corridor_widen_decision(
-        path_found=True,
-        min_edge_t=0.10,
-        floor=0.20,
-        support_a=0.90,  # healthy
-        support_b=0.10,  # starved -- must dominate via min()
-        threshold=0.5,
+        attempt_index=1,
+        improvement=0.05,  # > epsilon=0.02
+        epsilon=0.02,
     )
     assert decision == CorridorWidenDecision.WIDEN
 
 
-@pytest.mark.parametrize("support_a,support_b,threshold,expected", [
-    (0.5, 0.5, 0.5, CorridorWidenDecision.SKIP),   # exactly at threshold: not "< threshold" -> SKIP
-    (0.4999, 0.9, 0.5, CorridorWidenDecision.WIDEN),  # just under -> WIDEN
-])
-def test_threshold_boundary_is_strict_less_than(support_a, support_b, threshold, expected):
+def test_non_improving_attempt_stops():
+    """attempt_index >= 1 and this attempt did NOT improve beyond epsilon
+    (flat or negligible gain): stop widening, hand off to the repair stack."""
+    decision = corridor_widen_decision(
+        path_found=True,
+        min_edge_t=0.15,
+        floor=0.20,
+        attempt_index=1,
+        improvement=0.01,  # < epsilon=0.02
+        epsilon=0.02,
+    )
+    assert decision == CorridorWidenDecision.STOP
+
+
+def test_worsening_attempt_stops():
+    """A widen attempt that made min_edge_T WORSE (negative improvement)
+    must stop, not widen further -- this is the real shape seen in the
+    Swirlies/home corpus log (attempt 1 regressed 0.163 -> 0.145 before
+    attempt 2 eventually recovered); iteration 2 accepts that this
+    empirical rule can stop before a later attempt would have helped, in
+    exchange for never paying for attempts that don't pay off on average."""
     decision = corridor_widen_decision(
         path_found=True,
         min_edge_t=0.10,
         floor=0.20,
-        support_a=support_a,
-        support_b=support_b,
-        threshold=threshold,
+        attempt_index=1,
+        improvement=-0.018,
+        epsilon=0.02,
+    )
+    assert decision == CorridorWidenDecision.STOP
+
+
+@pytest.mark.parametrize("improvement,expected", [
+    (0.02, CorridorWidenDecision.STOP),   # exactly at epsilon: not "> epsilon" -> STOP
+    (0.0201, CorridorWidenDecision.WIDEN),  # just over -> WIDEN
+])
+def test_epsilon_boundary_is_strict_greater_than(improvement, expected):
+    decision = corridor_widen_decision(
+        path_found=True,
+        min_edge_t=0.10,
+        floor=0.20,
+        attempt_index=1,
+        improvement=improvement,
+        epsilon=0.02,
     )
     assert decision == expected
 
 
-def test_min_edge_t_none_with_path_found_treated_as_not_ok():
-    """Defensive: a path found but with no scoreable min_edge_t (None, not
-    +inf -- a 0-interior segment path returns +inf per _segment_min_edge_t's
-    own docstring, so a bare None here is an edge case the gate should not
-    silently treat as passing quality)."""
+def test_improvement_none_at_nonzero_attempt_index_stops_not_widens():
+    """Defensive: improvement=None at attempt_index >= 1 (with path_found
+    True) is treated as no-improvement -- STOP, never silently WIDEN. This
+    combination shouldn't arise from the real ladder (a 0-interior segment
+    with +inf min_edge_t would already be quality_ok and short-circuit
+    above), but the gate must not guess "keep going" from missing data."""
     decision = corridor_widen_decision(
         path_found=True,
-        min_edge_t=None,
+        min_edge_t=0.10,
         floor=0.20,
-        support_a=0.9,
-        support_b=0.9,
-        threshold=0.5,
+        attempt_index=1,
+        improvement=None,
+        epsilon=0.02,
     )
-    assert decision == CorridorWidenDecision.SKIP
+    assert decision == CorridorWidenDecision.STOP
+
+
+def test_continued_widening_can_run_past_attempt_two_if_still_improving():
+    """The gate itself has no hardcoded cap at attempt 2 -- the ladder's own
+    corridor_widen_attempts budget is what bounds the loop. Pin that a
+    hypothetical attempt_index=2 (deciding whether to try a 3rd widen) still
+    follows the same improvement rule as attempt_index=1."""
+    decision = corridor_widen_decision(
+        path_found=True,
+        min_edge_t=0.18,
+        floor=0.20,
+        attempt_index=2,
+        improvement=0.10,
+        epsilon=0.02,
+    )
+    assert decision == CorridorWidenDecision.WIDEN

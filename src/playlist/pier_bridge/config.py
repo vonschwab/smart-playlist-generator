@@ -381,21 +381,30 @@ class PierBridgeConfig:
     # |ratio-1| 0.59). See .superpowers/sdd/p1-task-6-report.md for the full evidence table.
     corridor_widen_step: float = 0.05        # unused until Task 4's widening ladder
     corridor_widen_attempts: int = 2         # unused until Task 4's widening ladder
-    # Task 6 remediation: scarcity-gates WIDENING (not the quality trigger) on
-    # the Phase-0a-validated anchor-support coverage metric
-    # (CorridorResult.stats["anchor_support_a"/"anchor_support_b"] -- fraction
-    # of an anchor's top-100 universe neighbors whose corridor min-sim clears
-    # the threshold). Root cause (SADE/home A/B log): the ladder widened even
-    # on segments whose weak edge was beam-path-internal, not pool-limited --
-    # healthy pools (support well above this threshold) never recovered
-    # across 2 widen attempts, paying 3x beam cost before the repair stack
-    # fixed the edge anyway. Below this threshold, the corridor is plausibly
-    # starved and widening is worth the cost (e.g. the Swirlies-class
-    # stressed case, support ~0.1-0.2); at/above it, skip widening and hand
-    # the segment straight to the repair stack. Hard infeasibility (no path
-    # found) always widens regardless of this knob -- see
+    # Task 6 remediation, iteration 2: empirical continue-gate — widening
+    # continues only while it demonstrably helps; replaces the falsified
+    # support-threshold predictor, see p1-task6-remediation-report.md.
+    #
+    # Iteration 1 tried a PREDICTIVE gate (skip widening when anchor-support
+    # coverage was already healthy, on the theory that a weak edge with a
+    # healthy pool must be beam-path-internal). Falsified by real evidence:
+    # Alex G/home's segment 1 had support ~0.8 (comfortably "healthy") yet
+    # still gained +0.42 T from one widen attempt (0.189 -> 0.611) -- a wider
+    # pool can unlock better interior-to-interior beam combinations no
+    # anchor-only metric can predict. Retired; corridor_widen_support_threshold
+    # never shipped past dev.
+    #
+    # Iteration 2 replaces prediction with observation: the ladder always
+    # tries widen attempt 1 unconditionally (no gate on the first attempt --
+    # the trigger firing is signal enough). After that, it widens FURTHER
+    # only if the attempt just run improved the best-seen min_edge_T by more
+    # than this epsilon versus the best-seen value from strictly before that
+    # attempt; a non-improving (or worsening) attempt means further widening
+    # is empirically not paying for itself, so the ladder stops and hands the
+    # segment to the repair stack. Hard infeasibility (no path found) always
+    # widens to the full attempt budget regardless of this knob -- see
     # src.playlist.pier_bridge.corridor.corridor_widen_decision.
-    corridor_widen_support_threshold: float = 0.5
+    corridor_widen_improvement_epsilon: float = 0.02
 
 
 @dataclass

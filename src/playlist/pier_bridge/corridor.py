@@ -212,25 +212,37 @@ def build_corridor(
 
 
 class CorridorWidenDecision(Enum):
-    """Outcome of the scarcity gate the widening ladder consults on each
-    attempt (Task 6 remediation — see
+    """Outcome of the widening-ladder continue-gate the ladder consults on
+    each attempt (Task 6 remediation, iteration 2 -- see
     docs/superpowers/specs/2026-07-12-corridor-first-pooling-design.md and
-    .superpowers/sdd/p1-task6-remediation-report.md).
+    .superpowers/sdd/p1-task6-remediation-report.md's "Iteration 2 appendix").
+
+    Iteration 1 gated widening on a PREDICTIVE signal (anchor-support
+    coverage, computed before the beam ever ran) -- falsified by real
+    evidence: Alex G/home's segment 1 had healthy support (~0.8, well above
+    the 0.5 threshold) yet still gained +0.42 T from one widen attempt
+    (0.189 -> 0.611), because a wider pool can unlock better BEAM-PATH
+    (interior-to-interior) combinations that a single anchor-similarity
+    metric can't see. Iteration 2 replaces prediction with an EMPIRICAL
+    continue-gate: try the first widen unconditionally, then keep widening
+    only for as long as each attempt demonstrably helps.
 
     ACCEPT -- quality is already fine (min_edge_T >= floor); the ladder loop
         stops on its own, this decision is not actually consulted.
-    WIDEN  -- either no path was found (hard infeasibility -- always widen,
-        never gated on scarcity) or the path is weak AND the corridor is
-        plausibly the binding constraint (min anchor support < threshold).
-    SKIP   -- the path is weak but the corridor pools are healthy (min anchor
-        support >= threshold): widening a healthy corridor wider won't fix a
-        beam-path-internal weakness, so don't pay the extra beam cost -- hand
-        the segment to the repair stack instead.
+    WIDEN  -- either no path was found (hard infeasibility -- always widen to
+        the full attempt budget, never gated), or this is the FIRST
+        evaluation for this segment (attempt_index == 0 -- always try
+        widening once, unconditionally), or a prior widen attempt improved
+        the best-seen min_edge_T by more than ``epsilon``.
+    STOP   -- a prior widen attempt failed to improve the best-seen
+        min_edge_T by more than ``epsilon`` -- further widening is
+        empirically not helping this segment; accept the best-seen path and
+        hand off to the repair stack.
     """
 
     ACCEPT = "accept"
     WIDEN = "widen"
-    SKIP = "skip"
+    STOP = "stop"
 
 
 def corridor_widen_decision(
@@ -238,28 +250,41 @@ def corridor_widen_decision(
     path_found: bool,
     min_edge_t: Optional[float],
     floor: float,
-    support_a: float,
-    support_b: float,
-    threshold: float,
+    attempt_index: int,
+    improvement: Optional[float],
+    epsilon: float,
 ) -> CorridorWidenDecision:
-    """Pure gate decision for one widening-ladder attempt.
+    """Pure continue-gate decision for one widening-ladder attempt.
 
     Hard infeasibility (no path) always widens -- absence of any path is
     inherently a pool problem, never something the repair stack can paper
-    over. Otherwise: widen only when the corridor is plausibly starved (the
-    Phase-0a-validated anchor-support coverage metric, min(support_a,
-    support_b), is below ``threshold`` -- ``PierBridgeConfig.
-    corridor_widen_support_threshold``). A weak edge with healthy anchor
-    support means the weakness is beam-path-internal, not pool-limited --
-    widening wastes a full extra beam invocation and, per the traced Task 6
-    root cause, never recovers (the tie-break correctly keeps the original
-    attempt, and the repair stack fixes the edge anyway).
+    over -- regardless of ``attempt_index`` or ``improvement``.
+
+    Otherwise: ``attempt_index == 0`` means this is the segment's initial
+    (un-widened) attempt and the quality trigger has just fired for the
+    first time -- always widen once, unconditionally (no prediction
+    involved). For ``attempt_index >= 1`` (this attempt WAS itself a widen
+    attempt), ``improvement`` is this attempt's min_edge_T minus the
+    best-seen min_edge_T from strictly BEFORE this attempt ran: widen again
+    only if that improvement exceeds ``epsilon``
+    (``PierBridgeConfig.corridor_widen_improvement_epsilon``); a
+    non-improving (or worsening) attempt means widening further is
+    empirically not paying for itself -- STOP and accept the best-seen path.
+    ``improvement=None`` at ``attempt_index >= 1`` (e.g. this attempt itself
+    found no path) is treated as no-improvement -- STOP, not WIDEN, since a
+    hard-infeasibility WIDEN is already resolved by the ``path_found`` check
+    above; reaching here with ``improvement=None`` and ``path_found=True``
+    only happens for a 0-interior segment producing +inf (never triggers the
+    gate at all, quality_ok short-circuits first) or a defensive caller bug --
+    never silently treated as "keep going".
     """
     if not path_found:
         return CorridorWidenDecision.WIDEN
     quality_ok = min_edge_t is not None and min_edge_t >= floor
     if quality_ok:
         return CorridorWidenDecision.ACCEPT
-    if min(float(support_a), float(support_b)) < float(threshold):
+    if attempt_index == 0:
         return CorridorWidenDecision.WIDEN
-    return CorridorWidenDecision.SKIP
+    if improvement is not None and improvement > float(epsilon):
+        return CorridorWidenDecision.WIDEN
+    return CorridorWidenDecision.STOP
