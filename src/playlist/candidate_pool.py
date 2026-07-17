@@ -147,6 +147,12 @@ def _compute_duration_penalty(
     return penalty
 
 
+# Public alias -- promoted for reuse by src/playlist/pier_bridge/eligible_universe.py
+# (Phase-1 corridor pooling, C1 duration-penalty rehoming). Same function, no behavior
+# change; keeps the private name intact for this module's own call site above.
+compute_duration_penalty = _compute_duration_penalty
+
+
 def _first_rejection_reason(
     *,
     idx: int,
