@@ -756,6 +756,47 @@ def test_corridor_bangers_gate_off_leaves_full_universe():
     )
 
 
+def test_corridor_bangers_gate_exempts_tag_guarantee_ids():
+    """CRITICAL review fix (post-7f0b5da): build_corridor's force_include
+    lookup is scoped to universe_indices=avail_idx, itself derived from
+    corridor_universe.indices. Before this fix, the bangers popularity gate
+    ran without any awareness of on_tag_guarantee_indices -- a below-cutoff
+    on-tag track was dropped from corridor_universe entirely, making it
+    invisible to force_include (silently skipped, no signal, no error).
+    Legacy parity: candidate_pool.select_pool_guarantee (:1348-1369) resolves
+    its guarantee universe BYPASSING _apply_popularity_gate entirely -- the
+    tag guarantee overrides bangers, not the other way around. bg5 is a
+    non-banger (rank 60, cutoff 10) guaranteed via on_tag_guarantee_ids; it
+    must survive the bangers gate and land in the segment corridor
+    (forced_included >= 1) -- this must FAIL on 7f0b5da."""
+    bundle = _bangers_bundle()
+    cfg = PierBridgeConfig(
+        pooling="corridor",
+        corridor_width_percentile=0.0,  # permissive: isolate the bangers/guarantee interaction
+        transition_floor=-1.0,
+        bridge_floor=-1.0,
+        progress_enabled=False,
+        collapse_segment_pool_by_artist=False,
+    )
+    result = build_pier_bridge_playlist(
+        seed_track_ids=["bg0", "bg1"],
+        total_tracks=4,
+        bundle=bundle,
+        candidate_pool_indices=list(range(2, _B)),
+        cfg=cfg,
+        popularity_ranks=_B_RANKS,
+        popularity_rank_cutoff=_B_CUTOFF,
+        on_tag_guarantee_ids={"bg5"},  # bg5: rank 60, well outside the cutoff=10
+    )
+    assert result.success, f"corridor segment starved: {result.failure_reason}"
+    corridor_segments = result.stats.get("corridor_segments") or []
+    assert len(corridor_segments) == 1
+    assert int(corridor_segments[0].get("forced_included", 0)) >= 1, (
+        f"guaranteed non-banger track (bg5) was silently dropped by the "
+        f"bangers gate before force_include ever ran: {corridor_segments[0]}"
+    )
+
+
 # ── Task 5 reseat 2: tag-steering pool guarantee (force_include) ────────────
 #
 # 4 rows: 2 piers (g0, g1) far apart on the sonic axis, plus g2 (aligned with

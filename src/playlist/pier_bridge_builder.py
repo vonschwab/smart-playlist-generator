@@ -522,6 +522,26 @@ def build_pier_bridge_playlist(
 
     logger.info("Pier+Bridge: universe size after dedupe and seed exclusion: %d", len(universe))
 
+    # Resolve on-tag guarantee ids -> indices once (mirrors allowed_set_indices
+    # below). Steering-gated: only non-empty when the caller passed
+    # on_tag_guarantee_ids (tag steering resolved on-tag authority rows);
+    # None/empty means bridge_admission_relaxed below stays False and the
+    # segment pool is byte-identical to the pre-Phase-A path. Moved here
+    # (review fix, Task 5, CRITICAL): must be resolved BEFORE the corridor
+    # branch's bangers popularity gate runs, so that gate can exempt
+    # guarantee ids the same way it exempts seeds -- see the bangers-gate
+    # comment below for why this ordering is load-bearing, not cosmetic.
+    on_tag_guarantee_indices: Optional[Set[int]] = None
+    if on_tag_guarantee_ids:
+        on_tag_guarantee_indices = set()
+        for tid in on_tag_guarantee_ids:
+            idx = bundle.track_id_to_index.get(str(tid))
+            if idx is not None:
+                on_tag_guarantee_indices.add(idx)
+    _bridge_admission_relaxed = bool(
+        tag_steering_relax_bridge_admission and on_tag_guarantee_indices
+    )
+
     # ── Corridor pooling (Phase 1 Task 3, dev flag) ────────────────────────────
     # cfg.pooling == "corridor" swaps the per-segment pool builders below for a
     # library-wide eligible universe (build_eligible_universe) narrowed per
@@ -627,16 +647,32 @@ def build_pier_bridge_playlist(
         # not by an explicit skip. Seeds are exempt (unioned back in), mirroring
         # every other exclusion in this universe (seeds are never dropped from
         # their own generation for failing a popularity check).
+        #
+        # CRITICAL review fix: on-tag guarantee ids MUST be exempted here too,
+        # the same way seeds are. Legacy parity: candidate_pool.py's
+        # select_pool_guarantee (:1348-1369) resolves its guarantee universe
+        # bypassing _apply_popularity_gate entirely -- the tag guarantee
+        # OVERRIDES bangers, not the other way around. Without this exemption,
+        # a below-cutoff on-tag track would be dropped from corridor_universe
+        # entirely, and _build_corridor_segment_pool's force_include lookup
+        # (scoped to avail_idx, itself derived from corridor_universe.indices)
+        # can only skip an id that isn't there -- it has no way to know the id
+        # was supposed to be force-included. This exemption, run BEFORE that
+        # lookup ever executes, is the only correct place to fix this (hence
+        # on_tag_guarantee_indices was moved above to be resolved before this
+        # branch runs).
         if popularity_rank_cutoff is not None and popularity_ranks is not None:
             _pre_gate_idx = corridor_universe.indices.tolist()
-            _kept_list, _pop_excluded = _apply_popularity_gate(
+            _kept_list, _pop_excluded_raw = _apply_popularity_gate(
                 _pre_gate_idx, np.asarray(popularity_ranks), int(popularity_rank_cutoff)
             )
-            _kept_set = set(int(i) for i in _kept_list) | seed_set
+            _tag_guarantee_exempt = set(int(i) for i in (on_tag_guarantee_indices or ()))
+            _kept_set = set(int(i) for i in _kept_list) | seed_set | _tag_guarantee_exempt
             _keep_mask = np.fromiter(
                 (int(i) in _kept_set for i in _pre_gate_idx),
                 dtype=bool, count=len(_pre_gate_idx),
             )
+            _pop_excluded_net = int(len(_pre_gate_idx) - int(_keep_mask.sum()))
             corridor_universe = replace(
                 corridor_universe,
                 indices=corridor_universe.indices[_keep_mask],
@@ -644,14 +680,23 @@ def build_pier_bridge_playlist(
                 duration_rank_penalty=corridor_universe.duration_rank_penalty[_keep_mask],
                 stats={
                     **corridor_universe.stats,
-                    "excluded_popularity_gate": int(len(_pre_gate_idx) - int(_keep_mask.sum())),
+                    "excluded_popularity_gate": _pop_excluded_net,
                     "eligible_count": int(_keep_mask.sum()),
                 },
             )
+            # excluded_raw = the gate's own verdict (rank outside cutoff),
+            # before seed/tag-guarantee exemption is unioned back in;
+            # excluded_net = before-after, i.e. what actually left the
+            # universe. exempted = the reconciling delta between them (Minor
+            # 2 review fix: these two numbers previously diverged whenever a
+            # seed or (as of this fix) a guarantee id had an out-of-cutoff
+            # rank, with no way to tell from the log alone).
             logger.info(
-                "Corridor bangers gate: cutoff=top-%d before=%d after=%d excluded=%d",
+                "Corridor bangers gate: cutoff=top-%d before=%d after=%d "
+                "excluded_raw=%d excluded_net=%d exempted=%d",
                 int(popularity_rank_cutoff), len(_pre_gate_idx),
-                int(corridor_universe.indices.size), int(_pop_excluded),
+                int(corridor_universe.indices.size), int(_pop_excluded_raw),
+                _pop_excluded_net, int(_pop_excluded_raw - _pop_excluded_net),
             )
         _genre_dense_full_for_corridor = getattr(bundle, "X_genre_dense", None)
         if _genre_dense_full_for_corridor is not None:
@@ -960,21 +1005,6 @@ def build_pier_bridge_playlist(
         # Ensure piers are always allowed
         allowed_set_indices.update(seed_indices)
 
-    # Resolve on-tag guarantee ids -> indices once (mirrors allowed_set_indices above).
-    # Steering-gated: only non-empty when the caller passed on_tag_guarantee_ids (tag
-    # steering resolved on-tag authority rows); None/empty means bridge_admission_relaxed
-    # below stays False and the segment pool is byte-identical to the pre-Phase-A path.
-    on_tag_guarantee_indices: Optional[Set[int]] = None
-    if on_tag_guarantee_ids:
-        on_tag_guarantee_indices = set()
-        for tid in on_tag_guarantee_ids:
-            idx = bundle.track_id_to_index.get(str(tid))
-            if idx is not None:
-                on_tag_guarantee_indices.add(idx)
-    _bridge_admission_relaxed = bool(
-        tag_steering_relax_bridge_admission and on_tag_guarantee_indices
-    )
-
     # Order seeds by bridgeability (or preserve order if fixed)
     seed_ordering = str(cfg.dj_seed_ordering or "auto").strip().lower()
     if seed_ordering not in {"auto", "fixed"}:
@@ -1129,11 +1159,13 @@ def build_pier_bridge_playlist(
         cost is array/list indexing + set membership checks, never a second
         identity_keys_for_index pass over the universe.
 
-        NOT replicated in Phase 1 (see .superpowers/sdd/p1-task-3-report.md
-        "concerns for Task 4/5"): internal connectors, on-tag guarantees, the
-        disallow_seed_artist_in_interiors relaxation retry, and dj_union
-        debug-compare-baseline -- all legacy-only reseat/DJ-bridging features
-        out of this task's scope.
+        NOT replicated (see .superpowers/sdd/p1-task-3-report.md "concerns for
+        Task 4/5"): internal connectors, the disallow_seed_artist_in_interiors
+        relaxation retry, and dj_union debug-compare-baseline -- legacy-only
+        reseat/DJ-bridging features out of this task's scope. On-tag
+        guarantees WERE reseated as of Task 5 (see the force_include wiring
+        below) -- this docstring previously named them as not-replicated;
+        that was true only through Task 4.
 
         ``width_percentile_override`` (Task 4): when given, overrides
         ``cfg.corridor_width_percentile`` for this one call -- the widening
