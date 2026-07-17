@@ -48,9 +48,13 @@ def _make_db(tmp: Path) -> Path:
 
 
 def _client(monkeypatch, db: Path) -> TestClient:
-    import src.playlist_web.app as appmod
-    monkeypatch.setattr(appmod, "DB_PATH", db)
-    return TestClient(create_app(worker_cmd=FAKE))
+    # create_app() resolves DB_PATH from config (2026-07-16 fix), so point a
+    # temp config at the temp DB rather than monkeypatching the module
+    # constant directly — create_app() rebinds it from config_path on every
+    # call and would otherwise clobber a pre-call monkeypatch.
+    cfg = db.parent / "config.yaml"
+    cfg.write_text(f"library:\n  database_path: {db.as_posix()}\n", encoding="utf-8")
+    return TestClient(create_app(worker_cmd=FAKE, config_path=str(cfg)))
 
 
 def test_track_search_paginates(monkeypatch):

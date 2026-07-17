@@ -8,10 +8,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Callable, Optional
 
+import yaml
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from src.config_loader import resolve_database_path
 from src.playlist_gui.policy import derive_runtime_config, resolve_dial_axes
 from src.playlist_gui.ui_state import UIStateModel
 
@@ -49,11 +51,21 @@ from .ws import WsHub
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_WORKER_CMD = [sys.executable, "-m", "src.playlist_gui.worker"]
 DEFAULT_CONFIG = str(ROOT / "config.yaml")
-DB_PATH = ROOT / "data" / "metadata.db"
-SIDECAR_DB_PATH = ROOT / "data" / "ai_genre_enrichment.db"
 WEB_DIST = ROOT / "web" / "dist"
 
 logger = logging.getLogger(__name__)
+
+# Import-time fallbacks only — create_app() rebinds these two module globals
+# from the config's library.database_path via resolve_database_path()
+# (2026-07-16 fix). A satellite clone's data/metadata.db is a 0-byte stub;
+# without the rebind every endpoint below silently read the stub instead of
+# the canonical DB named in config.yaml. Endpoints close over these globals,
+# so rebinding them in create_app() is the smallest correct diff. Routed
+# through resolve_database_path(None) (repo-root default), not a ROOT-joined
+# path literal — the latter is exactly what test_no_relative_db_literal.py
+# bans in this file.
+DB_PATH = Path(resolve_database_path(None))
+SIDECAR_DB_PATH = DB_PATH.parent / "ai_genre_enrichment.db"
 
 
 def _resolve_seed_artist_keys(track_ids: list[str]) -> list[str]:
@@ -125,11 +137,45 @@ def _genres_for_tracks(
     return out
 
 
+def _resolve_db_paths(config_path: str) -> tuple[Path, Path]:
+    """DB_PATH / SIDECAR_DB_PATH for this app instance, from ``config_path``.
+
+    Reads ``library.database_path`` the same way the CLI + worker do
+    (``resolve_database_path`` — the 2026-07-07 multi-site DB-path fix), so a
+    satellite clone's absolute config points endpoints at the real canonical
+    DB instead of the clone's 0-byte stub. A bare ``yaml.safe_load`` (not the
+    full ``Config`` class) keeps this cheap and side-effect-free — ``Config``
+    additionally validates unrelated required fields and publishes artifact
+    settings process-wide, neither of which this path resolution needs.
+
+    There is no config key for the enrichment sidecar DB (checked
+    config.example.yaml and the sidecar readers — none resolve it from
+    config); it is derived as a sibling of the resolved metadata.db.
+    """
+    cfg: dict = {}
+    try:
+        cfg_file = Path(config_path)
+        if cfg_file.exists():
+            with open(cfg_file, "r", encoding="utf-8") as f:
+                cfg = yaml.safe_load(f) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        logger.warning(
+            "Failed to load config %s for DB path resolution; falling back "
+            "to repo-root defaults: %s", config_path, exc,
+        )
+    db_path = Path(resolve_database_path(cfg))
+    sidecar_path = db_path.parent / "ai_genre_enrichment.db"
+    return db_path, sidecar_path
+
+
 def create_app(
     worker_cmd: Optional[list[str]] = None,
     config_path: str = DEFAULT_CONFIG,
     seed_artist_resolver: Optional[Callable[[list[str]], list[str]]] = None,
 ) -> FastAPI:
+    global DB_PATH, SIDECAR_DB_PATH
+    DB_PATH, SIDECAR_DB_PATH = _resolve_db_paths(config_path)
+
     registry = JobRegistry()
     hub = WsHub()
 
@@ -438,7 +484,8 @@ def create_app(
                 return {"items": search_artists(conn, q, limit)}
             finally:
                 conn.close()
-        except sqlite3.Error:
+        except sqlite3.Error as exc:
+            logger.warning("artists_search query failed against DB %s: %s", DB_PATH, exc)
             return {"items": []}
 
     @app.get("/api/tracks/search")
@@ -482,7 +529,8 @@ def create_app(
                 return {"items": items, "has_more": has_more}
             finally:
                 conn.close()
-        except Exception:
+        except Exception as exc:
+            logger.warning("track_search query failed against DB %s: %s", DB_PATH, exc)
             return {"items": [], "has_more": False}
 
     @app.post("/api/tracks/genres")
@@ -552,7 +600,8 @@ def create_app(
                 ]}
             finally:
                 conn.close()
-        except sqlite3.Error:
+        except sqlite3.Error as exc:
+            logger.warning("genres_search query failed against DB %s: %s", DB_PATH, exc)
             return {"items": []}
 
     @app.get("/api/genres/for_album")
@@ -573,7 +622,8 @@ def create_app(
                 return {"genres": order_genres_for_display(names)}
             finally:
                 conn.close()
-        except sqlite3.Error:
+        except sqlite3.Error as exc:
+            logger.warning("genres_for_album query failed against DB %s: %s", DB_PATH, exc)
             return {"genres": []}
 
     @app.get("/api/genres/for_artist")
@@ -593,7 +643,8 @@ def create_app(
                 ]}
             finally:
                 conn.close()
-        except sqlite3.Error:
+        except sqlite3.Error as exc:
+            logger.warning("genres_for_artist query failed against DB %s: %s", DB_PATH, exc)
             return {"genres": []}
 
     @app.get("/api/autocomplete")
@@ -633,7 +684,8 @@ def create_app(
                 conn.close()
             has_more = len(rows) > limit
             return {"items": [r[0] for r in rows[:limit]], "has_more": has_more}
-        except Exception:
+        except Exception as exc:
+            logger.warning("autocomplete query failed against DB %s: %s", DB_PATH, exc)
             return {"items": [], "has_more": False}
 
     @app.get("/api/audio/{track_id}")
