@@ -8,6 +8,7 @@
   "collapse_segment_pool_by_artist": true,
   "corridor_widen_attempts": 2,
   "corridor_widen_step": 0.05,
+  "corridor_widen_support_threshold": 0.5,
   "corridor_width_percentile": 0.85,
   "disallow_pier_artists_in_interiors": false,
   "disallow_seed_artist_in_interiors": false,

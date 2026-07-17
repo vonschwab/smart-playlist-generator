@@ -381,6 +381,21 @@ class PierBridgeConfig:
     # |ratio-1| 0.59). See .superpowers/sdd/p1-task-6-report.md for the full evidence table.
     corridor_widen_step: float = 0.05        # unused until Task 4's widening ladder
     corridor_widen_attempts: int = 2         # unused until Task 4's widening ladder
+    # Task 6 remediation: scarcity-gates WIDENING (not the quality trigger) on
+    # the Phase-0a-validated anchor-support coverage metric
+    # (CorridorResult.stats["anchor_support_a"/"anchor_support_b"] -- fraction
+    # of an anchor's top-100 universe neighbors whose corridor min-sim clears
+    # the threshold). Root cause (SADE/home A/B log): the ladder widened even
+    # on segments whose weak edge was beam-path-internal, not pool-limited --
+    # healthy pools (support well above this threshold) never recovered
+    # across 2 widen attempts, paying 3x beam cost before the repair stack
+    # fixed the edge anyway. Below this threshold, the corridor is plausibly
+    # starved and widening is worth the cost (e.g. the Swirlies-class
+    # stressed case, support ~0.1-0.2); at/above it, skip widening and hand
+    # the segment straight to the repair stack. Hard infeasibility (no path
+    # found) always widens regardless of this knob -- see
+    # src.playlist.pier_bridge.corridor.corridor_widen_decision.
+    corridor_widen_support_threshold: float = 0.5
 
 
 @dataclass

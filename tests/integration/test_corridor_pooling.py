@@ -883,6 +883,210 @@ def test_corridor_tag_guarantee_absent_by_default():
     )
 
 
+# ── Task 6 remediation: widening ladder scarcity gate ───────────────────────
+#
+# Root cause (traced, SADE/home A/B log, see .superpowers/sdd/
+# p1-task6-remediation-report.md): the ladder widened even when the corridor
+# was NOT the binding constraint -- a beam-path-internal weak edge paid 3x
+# beam cost (initial + 2 widen attempts), EXHAUSTED with no improvement, and
+# the repair stack fixed the edge anyway. Fix: gate WIDENING (not the
+# trigger) on the Phase-0a-validated anchor-support coverage metric.
+#
+# Fixture: permissive corridor width (0.0) means the WHOLE tiny synthetic
+# universe is a corridor member for every anchor, so each anchor's top-100-
+# neighbor support trivially clears its own corridor threshold (support_a ==
+# support_b == 1.0 -- as healthy as pool coverage gets). An unreachable
+# transition_floor (2.0; real T is always < 1) guarantees the quality
+# trigger fires on attempt 0 regardless of the sonic geometry chosen, without
+# tripping the beam's only remaining real gate (the -0.5 anti-alignment
+# safety in is_broken_transition -- transition_floor itself no longer hard-
+# gates the beam post-roam-promotion, and center_transitions defaults False
+# here so that safety isn't even armed). The scarcity gate must therefore
+# SKIP widening entirely: the weakness is not pool-limited.
+_W = 4
+_W_TRACK_IDS = np.array([f"w{i}" for i in range(_W)], dtype=object)
+_W_ARTISTS = np.array([f"Widen Artist {i}" for i in range(_W)], dtype=object)
+_W_TITLES = np.array([f"Widen Song {i}" for i in range(_W)], dtype=object)
+_W_SONIC = np.array(
+    [
+        [1.0, 0.0, 0.0],   # w0 pier A
+        [0.0, 1.0, 0.0],   # w1 pier B
+        [0.6, 0.6, 0.0],   # w2: interior candidate
+        [0.5, 0.5, 0.1],   # w3: interior candidate
+    ],
+    dtype=float,
+)
+
+
+def _widen_gate_bundle() -> ArtifactBundle:
+    return ArtifactBundle(
+        artifact_path=Path("fake.npz"),
+        track_ids=_W_TRACK_IDS,
+        artist_keys=_W_ARTISTS,
+        track_artists=_W_ARTISTS,
+        track_titles=_W_TITLES,
+        X_sonic=_W_SONIC,
+        X_sonic_start=None,
+        X_sonic_mid=None,
+        X_sonic_end=None,
+        X_genre_raw=np.zeros((_W, 1)),
+        X_genre_smoothed=np.zeros((_W, 1)),
+        genre_vocab=np.array(["x"], dtype=object),
+        track_id_to_index={str(tid): i for i, tid in enumerate(_W_TRACK_IDS)},
+        durations_ms=np.full(_W, 200_000.0),
+    )
+
+
+def test_corridor_widening_ladder_skips_when_pool_is_healthy(caplog):
+    """New in Task 6 remediation: a weak edge whose corridor pool is healthy
+    (support_a == support_b == 1.0, well above the default 0.5 scarcity
+    threshold) must SKIP widening entirely -- zero widen attempts, best
+    result accepted at the initial width, ``widen_skipped: true`` recorded in
+    the segment's corridor diagnostics."""
+    bundle = _widen_gate_bundle()
+    cfg = PierBridgeConfig(
+        pooling="corridor",
+        corridor_width_percentile=0.0,
+        corridor_widen_step=0.05,
+        corridor_widen_attempts=2,
+        corridor_widen_support_threshold=0.5,
+        transition_floor=2.0,
+        bridge_floor=-1.0,
+        progress_enabled=False,
+        collapse_segment_pool_by_artist=False,
+    )
+
+    with caplog.at_level(logging.INFO, logger="src.playlist.pier_bridge_builder"):
+        result = build_pier_bridge_playlist(
+            seed_track_ids=["w0", "w1"],
+            total_tracks=4,
+            bundle=bundle,
+            candidate_pool_indices=[2, 3],
+            cfg=cfg,
+        )
+
+    assert result.success, f"corridor segment starved: {result.failure_reason}"
+    corridor_segments = result.stats.get("corridor_segments") or []
+    assert len(corridor_segments) == 1
+    seg = corridor_segments[0]
+    assert seg.get("support_a") == pytest.approx(1.0), seg
+    assert seg.get("support_b") == pytest.approx(1.0), seg
+    assert seg.get("widened") == 0, (
+        f"expected zero widen attempts on a healthy-pool weak edge, got: {seg}"
+    )
+    assert seg.get("widen_skipped") is True, (
+        f"expected widen_skipped=True for a healthy-pool weak edge, got: {seg}"
+    )
+
+    skip_lines = [
+        r.getMessage() for r in caplog.records
+        if r.name == "src.playlist.pier_bridge_builder"
+        and r.getMessage().startswith("CorridorWiden[seg 0] SKIPPED:")
+    ]
+    assert skip_lines, "expected a CorridorWiden[seg 0] SKIPPED log line"
+
+    widen_attempt_lines = [
+        r.getMessage() for r in caplog.records
+        if r.name == "src.playlist.pier_bridge_builder"
+        and r.getMessage().startswith("CorridorWiden[seg 0]: attempt")
+    ]
+    assert not widen_attempt_lines, (
+        f"expected no widen attempts once the scarcity gate skipped, got: {widen_attempt_lines}"
+    )
+
+
+def test_corridor_widening_ladder_still_widens_when_pool_is_starved(caplog):
+    """Companion negative case (fast, synthetic): a starved corridor (tight
+    width => low anchor support, well below the 0.5 threshold) combined with
+    an unreachable transition_floor must still WIDEN up to corridor_widen_
+    attempts -- the scarcity gate must not suppress the pre-existing
+    pool-limited recovery path. Mirrors the real-artifact Swirlies-class
+    stressed test (test_corridor_widening_ladder_recovers_stressed_segment)
+    at unit-test speed/determinism."""
+    n = 60
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(n, 3)).astype(np.float64)
+    X /= np.linalg.norm(X, axis=1, keepdims=True)
+    # Force w0/w1 (piers) to anti-correlated directions so most of the
+    # random cloud sits far from at least one anchor -- a tight width then
+    # admits only a sparse sliver, starving anchor support.
+    X[0] = np.array([1.0, 0.0, 0.0])
+    X[1] = np.array([-1.0, 0.0, 0.0])
+
+    track_ids = np.array([f"z{i}" for i in range(n)], dtype=object)
+    artists = np.array([f"Starve Artist {i}" for i in range(n)], dtype=object)
+    titles = np.array([f"Starve Song {i}" for i in range(n)], dtype=object)
+
+    bundle = ArtifactBundle(
+        artifact_path=Path("fake.npz"),
+        track_ids=track_ids,
+        artist_keys=artists,
+        track_artists=artists,
+        track_titles=titles,
+        X_sonic=X,
+        X_sonic_start=None,
+        X_sonic_mid=None,
+        X_sonic_end=None,
+        X_genre_raw=np.zeros((n, 1)),
+        X_genre_smoothed=np.zeros((n, 1)),
+        genre_vocab=np.array(["x"], dtype=object),
+        track_id_to_index={str(tid): i for i, tid in enumerate(track_ids)},
+        durations_ms=np.full(n, 200_000.0),
+    )
+    cfg = PierBridgeConfig(
+        pooling="corridor",
+        corridor_width_percentile=0.995,  # tight -> sparse membership -> low anchor support
+        corridor_widen_step=0.10,
+        corridor_widen_attempts=2,
+        corridor_widen_support_threshold=0.5,
+        transition_floor=2.0,
+        bridge_floor=-1.0,
+        progress_enabled=False,
+        collapse_segment_pool_by_artist=False,
+    )
+
+    with caplog.at_level(logging.INFO, logger="src.playlist.pier_bridge_builder"):
+        result = build_pier_bridge_playlist(
+            seed_track_ids=["z0", "z1"],
+            total_tracks=4,
+            bundle=bundle,
+            candidate_pool_indices=list(range(2, n)),
+            cfg=cfg,
+        )
+
+    assert result.success, f"corridor segment starved: {result.failure_reason}"
+    corridor_segments = result.stats.get("corridor_segments") or []
+    assert len(corridor_segments) == 1
+    seg = corridor_segments[0]
+    assert min(float(seg.get("support_a", 1.0)), float(seg.get("support_b", 1.0))) < 0.5, seg
+    # NOTE: `widened` records the BEST-scoring attempt's index, not necessarily
+    # the last one tried -- it is not a reliable "did it widen" signal on its
+    # own. The reliable signal is the attempt log lines themselves: the ladder
+    # must have progressed through both widen steps (unlike the healthy-pool
+    # case above, where zero widen-attempt lines are emitted).
+    assert not seg.get("widen_skipped"), (
+        f"expected widen_skipped falsy when the corridor is genuinely starved, got: {seg}"
+    )
+
+    widen_attempt_lines = [
+        r.getMessage() for r in caplog.records
+        if r.name == "src.playlist.pier_bridge_builder"
+        and r.getMessage().startswith("CorridorWiden[seg 0]: attempt")
+    ]
+    assert len(widen_attempt_lines) == 2, (
+        f"expected exactly 2 widen-attempt log lines, got: {widen_attempt_lines}"
+    )
+
+    exhausted_lines = [
+        r.getMessage() for r in caplog.records
+        if r.name == "src.playlist.pier_bridge_builder"
+        and r.getMessage().startswith("CorridorWiden[seg 0] EXHAUSTED")
+    ]
+    assert exhausted_lines, (
+        f"expected the ladder to EXHAUST (transition_floor=2.0 is unreachable): {caplog.text}"
+    )
+
+
 # ── Task 5 reseats 3+4: tail-DP + edge repair draw only from the corridor
 # union (real, stressed generation) ─────────────────────────────────────────
 

@@ -132,7 +132,9 @@ def apply_pier_bridge_overrides(
                       # Corridor pooling (Phase 1, dev flag; default "legacy" -> inert).
                       ("corridor_width_percentile", float),
                       ("corridor_widen_step", float),
-                      ("corridor_widen_attempts", int)):
+                      ("corridor_widen_attempts", int),
+                      # Task 6 remediation: scarcity gate on the widening ladder.
+                      ("corridor_widen_support_threshold", float)):
         _v = pb_overrides.get(_k)
         if isinstance(_v, (int, float)) and not isinstance(_v, bool):
             pb_cfg = replace(pb_cfg, **{_k: _cast(_v)})

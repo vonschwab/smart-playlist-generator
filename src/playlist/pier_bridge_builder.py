@@ -149,7 +149,11 @@ from src.playlist.pier_bridge.tail_dp import optimize_segment_tail
 # Phase 1 Task 3: corridor segment pooling (dev flag, default off -- see
 # PierBridgeConfig.pooling). build_corridor / build_eligible_universe are pure
 # and are NOT modified by this task; the glue lives entirely here.
-from src.playlist.pier_bridge.corridor import build_corridor
+from src.playlist.pier_bridge.corridor import (
+    CorridorWidenDecision,
+    build_corridor,
+    corridor_widen_decision,
+)
 from src.playlist.pier_bridge.eligible_universe import build_eligible_universe, EligibleUniverse
 
 # Phase 1 Task 4: genre-mode-keyed relevance mask, reused from the pier-veto's
@@ -2224,10 +2228,18 @@ def build_pier_bridge_playlist(
 
         ::
 
-            corridor = build(width)
+            corridor = build(width)          # initial (un-widened) width
             path = beam(corridor)
-            while (path is None or path.min_edge_T < transition_floor)
-                  and attempts < corridor_widen_attempts:
+            if path is None:
+                widen unconditionally             # hard infeasibility -- never a
+                                                    # pool-scarcity judgment call
+            elif path.min_edge_T < transition_floor:
+                if min(support_a, support_b) < corridor_widen_support_threshold:
+                    widen                          # corridor plausibly starved
+                else:
+                    SKIP widening entirely         # weakness is beam-path-internal;
+                                                    # accept the path, hand to repair stack
+            while widening and attempts < corridor_widen_attempts:
                 width -= corridor_widen_step   # percentile down = wider
                 corridor = build(width)        # capped at 0.0 = whole universe
                 path = beam(corridor)
@@ -2241,6 +2253,20 @@ def build_pier_bridge_playlist(
         above) so beam invocation itself is completely untouched -- this
         function only decides which width to try next and which attempt to
         keep.
+
+        Task 6 remediation (scarcity gate, traced root cause: SADE/home A/B
+        log): widening itself -- not the quality trigger -- is gated on
+        corridor scarcity. The gate is evaluated exactly ONCE, at attempt 0
+        (the point the quality trigger first fires), using that INITIAL-width
+        attempt's own anchor-support stats (``corridor_widen_decision`` in
+        ``src.playlist.pier_bridge.corridor``); once the ladder commits to
+        widening it runs the existing unconditional attempts-cap loop
+        unchanged. A segment whose weak edge is beam-path-internal (healthy
+        anchor support, min_edge_T low anyway) used to pay a full extra 2
+        widen attempts (3x beam cost) for zero improvement before the repair
+        stack fixed the edge regardless -- this gate skips straight to
+        accepting the initial-width path in that case, tagging
+        ``widen_skipped: true`` in the segment's corridor diagnostics.
         """
         width = float(cfg_base.corridor_width_percentile)
         step = max(0.0, float(cfg_base.corridor_widen_step))
@@ -2251,6 +2277,10 @@ def build_pier_bridge_playlist(
         best_comparable = float("-inf")
         best_widened = 0
         best_width = width
+
+        support_threshold = float(cfg_base.corridor_widen_support_threshold)
+        widen_gate_checked = False
+        widen_skipped = False
 
         attempt = 0
         while True:
@@ -2286,6 +2316,38 @@ def build_pier_bridge_playlist(
                         seg_idx, attempt, width, float(min_edge_t), floor,
                     )
                 break
+
+            # Scarcity gate (Task 6 remediation): evaluated exactly once, the
+            # first time the quality trigger fires, using THIS (initial-
+            # width) attempt's own anchor-support stats -- see
+            # corridor_widen_decision's docstring. Hard infeasibility
+            # (segment_path is None) always resolves to WIDEN regardless of
+            # support, so the gate never blocks the pre-existing
+            # no-path-found recovery behavior.
+            if not widen_gate_checked:
+                widen_gate_checked = True
+                _pool_diag = result.get("corridor_pool_diag") or {}
+                support_a = float(_pool_diag.get("support_a", 0.0))
+                support_b = float(_pool_diag.get("support_b", 0.0))
+                decision = corridor_widen_decision(
+                    path_found=result.get("segment_path") is not None,
+                    min_edge_t=min_edge_t,
+                    floor=floor,
+                    support_a=support_a,
+                    support_b=support_b,
+                    threshold=support_threshold,
+                )
+                if decision == CorridorWidenDecision.SKIP:
+                    widen_skipped = True
+                    logger.info(
+                        "CorridorWiden[seg %d] SKIPPED: min support %.2f >= %.2f "
+                        "— weakness not pool-limited; handing to repair stack "
+                        "(best min_edge_T=%.3f)",
+                        seg_idx, min(support_a, support_b), support_threshold,
+                        float(min_edge_t),
+                    )
+                    break
+
             if attempt >= max_widen_attempts:
                 _best_t_repr = "None" if best_comparable == float("-inf") else f"{best_comparable:.3f}"
                 logger.warning(
@@ -2322,6 +2384,7 @@ def build_pier_bridge_playlist(
             _diag = dict(best_result.get("corridor_pool_diag") or {})
             _diag.setdefault("seg", int(seg_idx))
             _diag["widened"] = int(best_widened)
+            _diag["widen_skipped"] = bool(widen_skipped)
             logger.info(
                 "Corridor[seg %d]: size=%d width=%.2f widened=%d support_a=%.2f "
                 "support_b=%.2f threshold=%.3f capped=%s",

@@ -49,7 +49,8 @@ author to confirm or correct against the real caller.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from enum import Enum
+from typing import Any, Optional
 
 import numpy as np
 
@@ -208,3 +209,57 @@ def build_corridor(
             "anchor_support_b": anchor_support_b,
         },
     )
+
+
+class CorridorWidenDecision(Enum):
+    """Outcome of the scarcity gate the widening ladder consults on each
+    attempt (Task 6 remediation — see
+    docs/superpowers/specs/2026-07-12-corridor-first-pooling-design.md and
+    .superpowers/sdd/p1-task6-remediation-report.md).
+
+    ACCEPT -- quality is already fine (min_edge_T >= floor); the ladder loop
+        stops on its own, this decision is not actually consulted.
+    WIDEN  -- either no path was found (hard infeasibility -- always widen,
+        never gated on scarcity) or the path is weak AND the corridor is
+        plausibly the binding constraint (min anchor support < threshold).
+    SKIP   -- the path is weak but the corridor pools are healthy (min anchor
+        support >= threshold): widening a healthy corridor wider won't fix a
+        beam-path-internal weakness, so don't pay the extra beam cost -- hand
+        the segment to the repair stack instead.
+    """
+
+    ACCEPT = "accept"
+    WIDEN = "widen"
+    SKIP = "skip"
+
+
+def corridor_widen_decision(
+    *,
+    path_found: bool,
+    min_edge_t: Optional[float],
+    floor: float,
+    support_a: float,
+    support_b: float,
+    threshold: float,
+) -> CorridorWidenDecision:
+    """Pure gate decision for one widening-ladder attempt.
+
+    Hard infeasibility (no path) always widens -- absence of any path is
+    inherently a pool problem, never something the repair stack can paper
+    over. Otherwise: widen only when the corridor is plausibly starved (the
+    Phase-0a-validated anchor-support coverage metric, min(support_a,
+    support_b), is below ``threshold`` -- ``PierBridgeConfig.
+    corridor_widen_support_threshold``). A weak edge with healthy anchor
+    support means the weakness is beam-path-internal, not pool-limited --
+    widening wastes a full extra beam invocation and, per the traced Task 6
+    root cause, never recovers (the tie-break correctly keeps the original
+    attempt, and the repair stack fixes the edge anyway).
+    """
+    if not path_found:
+        return CorridorWidenDecision.WIDEN
+    quality_ok = min_edge_t is not None and min_edge_t >= floor
+    if quality_ok:
+        return CorridorWidenDecision.ACCEPT
+    if min(float(support_a), float(support_b)) < float(threshold):
+        return CorridorWidenDecision.WIDEN
+    return CorridorWidenDecision.SKIP
