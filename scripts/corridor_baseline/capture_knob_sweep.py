@@ -68,6 +68,36 @@ SWEEP_DIR = LOG_DIR / "sweep"
 # per-field loop rather than churning out "unmapped" checkpoints for them.
 _DROP_PREFIXES = ("sonic_variant.", "embedding.")
 
+# --base-set path=value overrides (repeatable), set once by main() and read by
+# every generation this process runs -- BOTH the per-cell reference run and
+# every perturbed run -- so a Phase-1 re-sweep can force e.g.
+# playlists.ds_pipeline.pier_bridge.pooling=corridor onto the whole sweep.
+# Module-level rather than threaded through every function's signature so
+# _attempt_config_path / process_field keep their existing call shape (the
+# mocked unit tests in test_corridor_baseline_knob_sweep.py patch
+# _attempt_config_path directly with a fixed positional signature).
+_BASE_SET: dict[str, Any] = {}
+
+
+def _parse_base_set(items: list[str]) -> dict[str, Any]:
+    """Parse repeated --base-set path=value into a dict, YAML-typing each
+    value (so `pooling=corridor` -> str "corridor", `enabled=true` -> bool
+    True, `weight=0.6` -> float 0.6) the same way config.yaml itself is
+    typed."""
+    import yaml
+
+    out: dict[str, Any] = {}
+    for item in items:
+        if "=" not in item:
+            raise ValueError(f"--base-set expects path=value, got {item!r}")
+        path, _, raw_value = item.partition("=")
+        try:
+            value = yaml.safe_load(raw_value)
+        except Exception:
+            value = raw_value
+        out[path] = value
+    return out
+
 
 def sanitize(name: str) -> str:
     """Filesystem-safe token for a dotted blob path (used as checkpoint filename
@@ -171,14 +201,16 @@ def _attempt_config_path(
     perturb.retry_config_path_for). override_failed/error/changed/inert all
     count as resolved (nothing further to try)."""
     t0 = time.time()
-    cfg = build_cell_config(DETENTS[detent], {config_path: pv})
+    set_paths = {**_BASE_SET, config_path: pv}  # base-set first so the field's own
+    # perturbation always wins if the two ever name the same path.
+    cfg = build_cell_config(DETENTS[detent], set_paths)
     actual = deep_get(cfg, config_path)
     if not _eq(actual, pv):
         return _record(field, config_path, baseline_value, pv, "override_failed", round(time.time() - t0, 3),
                         note=f"deep_get(cfg, {config_path!r}) == {actual!r}, expected {pv!r}"), True
 
     run = run_cell(
-        artist, detent, set_paths={config_path: pv}, log_level=log_level,
+        artist, detent, set_paths=set_paths, log_level=log_level,
         log_tag=f"sweep_{tag}_{sanitize(field)}_{attempt_suffix}",
     )
     wall = run["wall"]
@@ -267,7 +299,7 @@ def process_field(
 
 def sweep_cell(
     artist: str, detent: str, *, remaining: list[int] | None = None, only_field: str | None = None,
-    log_level: int = logging.INFO,
+    log_level: int = logging.INFO, sweep_dir: Path | None = None,
 ) -> None:
     """Sweep one cell's fields. `remaining` is a mutable 1-element box holding
     the global (cross-cell) --limit budget: every field CONSIDERED (whether
@@ -276,13 +308,18 @@ def sweep_cell(
     `--limit 5` with no `--cell` filter touches only the first cell (matching
     "up to 5 perturbed generations on the first cell"), and a resumed run with
     the same limit and the same checkpoints on disk performs zero new
-    generations (it re-consumes the identical budget against existing files)."""
+    generations (it re-consumes the identical budget against existing files).
+
+    `sweep_dir` defaults to the module-level SWEEP_DIR (Phase-0a checkpoints);
+    pass an override (--checkpoint-dir) so a Phase-1 re-sweep under --base-set
+    never reads or clobbers those Phase-0a checkpoints."""
+    sweep_dir = sweep_dir if sweep_dir is not None else SWEEP_DIR
     if remaining is not None and remaining[0] <= 0:
         logger.info("cell %s: skipped entirely (--limit budget exhausted)", cell_tag(artist, detent))
         return
 
     tag = cell_tag(artist, detent)
-    cell_dir = SWEEP_DIR / tag
+    cell_dir = sweep_dir / tag
     cell_dir.mkdir(parents=True, exist_ok=True)
 
     ref_path = cell_dir / "_reference.json"
@@ -290,8 +327,9 @@ def sweep_cell(
         ref = json.loads(ref_path.read_text(encoding="utf-8"))
         logger.info("cell %s: cached reference (tracks=%d)", tag, len(ref["track_ids"]))
     else:
-        logger.info("cell %s: running reference generation ...", tag)
-        run = run_cell(artist, detent, log_level=log_level, log_tag=f"sweep_ref_{tag}")
+        logger.info("cell %s: running reference generation (base_set=%s) ...", tag, _BASE_SET)
+        run = run_cell(artist, detent, set_paths=(dict(_BASE_SET) or None), log_level=log_level,
+                        log_tag=f"sweep_ref_{tag}")
         if run["err"]:
             logger.error("cell %s: reference run FAILED (%s) -- aborting cell", tag, run["err"])
             return
@@ -304,6 +342,7 @@ def sweep_cell(
             "min_transition": run["min_transition"],
             "mean_transition": run["mean_transition"],
             "wall": run["wall"],
+            "base_set": dict(_BASE_SET),
         }
         ref_path.write_text(json.dumps(ref, sort_keys=True, indent=2, ensure_ascii=False), encoding="utf-8")
         logger.info("cell %s: reference done wall=%.1fs tracks=%d", tag, run["wall"], len(run["track_ids"]))
@@ -342,6 +381,7 @@ def sweep_cell(
                 field, None, flat[field], None, "error", round(time.time() - t_field, 3),
                 note=f"{type(exc).__name__}: {exc}",
             )
+        record["base_set"] = dict(_BASE_SET)
         ckpt_path.write_text(json.dumps(record, sort_keys=True, indent=2, ensure_ascii=False), encoding="utf-8")
         logger.info("cell %s field=%s status=%s wall=%.1fs", tag, field, record["status"], record["wall_s"])
         if remaining is not None:
@@ -380,16 +420,26 @@ def find_enabling_parent(leaf: str, reference_flat: dict[str, Any]) -> str | Non
     return disabled[best]
 
 
-def merge_checkpoints() -> int:
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+def merge_checkpoints(sweep_dir: Path | None = None, merge_out: Path | None = None) -> int:
+    """Merge checkpoints under `sweep_dir` (default SWEEP_DIR, i.e. the
+    Phase-0a location) into `merge_out` (default docs/corridor_baseline/
+    knob_sweep.json, the committed Phase-0a baseline). Pass both overrides
+    (--checkpoint-dir / --merge-out) for a Phase-1 re-sweep so it can never
+    read stale Phase-0a checkpoints or overwrite the committed baseline."""
+    sweep_dir = sweep_dir if sweep_dir is not None else SWEEP_DIR
+    merge_out = merge_out if merge_out is not None else (OUT_DIR / "knob_sweep.json")
+    merge_out.parent.mkdir(parents=True, exist_ok=True)
     records: list[dict] = []
     reference_by_cell: dict[str, dict] = {}
+    base_sets_seen: set[str] = set()
 
-    if SWEEP_DIR.exists():
-        for cell_dir in sorted(p for p in SWEEP_DIR.iterdir() if p.is_dir()):
+    if sweep_dir.exists():
+        for cell_dir in sorted(p for p in sweep_dir.iterdir() if p.is_dir()):
             ref_path = cell_dir / "_reference.json"
             if ref_path.exists():
-                reference_by_cell[cell_dir.name] = json.loads(ref_path.read_text(encoding="utf-8"))
+                ref_data = json.loads(ref_path.read_text(encoding="utf-8"))
+                reference_by_cell[cell_dir.name] = ref_data
+                base_sets_seen.add(json.dumps(ref_data.get("base_set") or {}, sort_keys=True))
             for ckpt in sorted(cell_dir.glob("*.json")):
                 if ckpt.name == "_reference.json":
                     continue
@@ -414,16 +464,28 @@ def merge_checkpoints() -> int:
             "enabling_parent_flag": find_enabling_parent(leaf, flat_ref),
         })
 
+    # Provenance: the --base-set overrides forced onto every run this merge's
+    # checkpoints came from. {} when no --base-set was used (Phase-0a shape,
+    # unchanged). If checkpoints from different --base-set invocations somehow
+    # ended up under the same sweep_dir, surface that as "_mixed" rather than
+    # silently picking one -- that would be a checkpoint-dir hygiene bug.
+    if len(base_sets_seen) == 1:
+        base_set_provenance: Any = json.loads(next(iter(base_sets_seen)))
+    elif base_sets_seen:
+        base_set_provenance = {"_mixed": [json.loads(s) for s in sorted(base_sets_seen)]}
+    else:
+        base_set_provenance = {}
+
     summary = {
         "records": sorted(records, key=lambda r: (r["cell"], r["field"])),
         "status_counts": status_counts,
         "dead_outlets": sorted(dead_outlets, key=lambda d: (d["cell"], d["field"])),
         "cells_swept": sorted(reference_by_cell.keys()),
         "n_checkpoints": len(records),
+        "base_set": base_set_provenance,
     }
-    out_path = OUT_DIR / "knob_sweep.json"
-    out_path.write_text(json.dumps(summary, sort_keys=True, indent=2, ensure_ascii=False), encoding="utf-8")
-    logger.info("merged %d records %s -> %s", len(records), status_counts, out_path)
+    merge_out.write_text(json.dumps(summary, sort_keys=True, indent=2, ensure_ascii=False), encoding="utf-8")
+    logger.info("merged %d records %s -> %s", len(records), status_counts, merge_out)
     return 0
 
 
@@ -442,10 +504,33 @@ def main() -> int:
     ap.add_argument("--only-field", default=None, help="Process only this single blob field path")
     ap.add_argument("--cell", default=None, help='Filter to one SWEEP_CELLS entry, e.g. "Bill Evans Trio:open"')
     ap.add_argument("--merge", action="store_true", help="Merge-only mode: skip sweeping, just merge checkpoints")
+    ap.add_argument(
+        "--base-set", action="append", default=[], metavar="path=value",
+        help="Config override injected into EVERY run this invocation performs (reference AND "
+             "perturbed), repeatable. E.g. --base-set playlists.ds_pipeline.pier_bridge.pooling=corridor. "
+             "Recorded in every checkpoint and in the merged JSON's top-level base_set provenance.",
+    )
+    ap.add_argument(
+        "--checkpoint-dir", default=None,
+        help="Override checkpoint directory (default: logs/corridor_baseline/sweep, the Phase-0a "
+             "location). Use a fresh dir for any --base-set re-sweep so it can never read or "
+             "clobber the Phase-0a checkpoints.",
+    )
+    ap.add_argument(
+        "--merge-out", default=None,
+        help="Override the merged output path (default: docs/corridor_baseline/knob_sweep.json, "
+             "the committed Phase-0a baseline). Use a scratch/phase-tagged path for any re-sweep "
+             "so the committed baseline is never overwritten.",
+    )
     args = ap.parse_args()
 
+    global _BASE_SET
+    _BASE_SET = _parse_base_set(args.base_set)
+    sweep_dir = Path(args.checkpoint_dir) if args.checkpoint_dir else SWEEP_DIR
+    merge_out = Path(args.merge_out) if args.merge_out else (OUT_DIR / "knob_sweep.json")
+
     if args.merge:
-        return merge_checkpoints()
+        return merge_checkpoints(sweep_dir=sweep_dir, merge_out=merge_out)
 
     cells = SWEEP_CELLS
     if args.cell:
@@ -459,10 +544,10 @@ def main() -> int:
     t0 = time.time()
     for artist, detent in cells:
         logger.info("=== sweeping cell %s / %s ===", artist, detent)
-        sweep_cell(artist, detent, remaining=remaining, only_field=args.only_field)
+        sweep_cell(artist, detent, remaining=remaining, only_field=args.only_field, sweep_dir=sweep_dir)
     logger.info("sweep loop done in %.1fs", time.time() - t0)
 
-    return merge_checkpoints()
+    return merge_checkpoints(sweep_dir=sweep_dir, merge_out=merge_out)
 
 
 if __name__ == "__main__":

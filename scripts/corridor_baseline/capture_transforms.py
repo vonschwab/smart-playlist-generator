@@ -30,6 +30,7 @@ Zero writes, zero ATTACH, zero PRAGMA journal changes.
 """
 from __future__ import annotations
 
+import argparse
 import gzip
 import hashlib
 import json
@@ -208,6 +209,17 @@ def main() -> None:
     logging.getLogger().setLevel(logging.INFO)
     t0 = time.time()
 
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument(
+        "--out-dir", default=None,
+        help="Override the output directory for tables/*.json.gz + transforms_summary.json "
+             "(default: docs/corridor_baseline/). Use a scratch dir for a paired-capture "
+             "comparison run so it never collides with the committed baseline.",
+    )
+    args = ap.parse_args()
+    out_dir = Path(args.out_dir) if args.out_dir else OUT_DIR
+    tables_dir = out_dir / "tables"
+
     merged = build_cell_config(DETENTS["open"])
     db_path = merged["library"]["database_path"]
     artifact_path = merged["playlists"]["ds_pipeline"]["artifact_path"]
@@ -218,19 +230,19 @@ def main() -> None:
 
         metas = []
         logger.info("capturing artist_identity ...")
-        metas.append(write_table("artist_identity", capture_artist_identity(conn, cfg)))
+        metas.append(write_table("artist_identity", capture_artist_identity(conn, cfg), out_dir=tables_dir))
         logger.info("capturing title_keys ...")
-        metas.append(write_table("title_keys", capture_title_keys(conn)))
+        metas.append(write_table("title_keys", capture_title_keys(conn), out_dir=tables_dir))
         logger.info("capturing alias_links ...")
-        metas.append(write_table("alias_links", capture_alias_links()))
+        metas.append(write_table("alias_links", capture_alias_links(), out_dir=tables_dir))
         logger.info("capturing genre_authority ...")
-        metas.append(write_table("genre_authority", capture_genre_authority(conn)))
+        metas.append(write_table("genre_authority", capture_genre_authority(conn), out_dir=tables_dir))
 
         logger.info("loading artifact bundle (single load) ...")
         from src.features.artifacts import load_artifact_bundle
         bundle = load_artifact_bundle(artifact_path)
         logger.info("capturing dedup_collapse ...")
-        metas.append(write_table("dedup_collapse", capture_dedup_collapse(conn, bundle)))
+        metas.append(write_table("dedup_collapse", capture_dedup_collapse(conn, bundle), out_dir=tables_dir))
 
         db_track_count = conn.execute("SELECT COUNT(*) FROM tracks").fetchone()[0]
     finally:
@@ -241,7 +253,7 @@ def main() -> None:
     ).stdout.strip()
 
     summary = {"tables": metas, "generated_on": git_sha, "db_track_count": db_track_count}
-    summary_path = OUT_DIR / "transforms_summary.json"
+    summary_path = out_dir / "transforms_summary.json"
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path.write_text(json.dumps(summary, sort_keys=True, indent=2, ensure_ascii=False), encoding="utf-8")
 
