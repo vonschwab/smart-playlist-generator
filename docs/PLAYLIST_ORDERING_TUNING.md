@@ -84,6 +84,12 @@ See `ARCHITECTURE.md` §"Sonic feature space" for the current single-embedding p
 
 ---
 
+## Pool-level artist cap + never-starve backstop (retired 2026-07, corridor Phase 0)
+
+The `candidates_per_artist`, `target_artists`, `max_pool_size`, `min_pool_size`, and `seed_artist_bonus` knobs (under `playlists.ds_pipeline.candidate_pool` and `playlists.ds_pipeline.pier_bridge.*_pool_size`) are retired. The beam now enforces diversity natively; pre-beam pool artist caps and min-pool backstops are no longer needed. See `docs/superpowers/specs/2026-07-12-corridor-first-pooling-design.md` for the rationale.
+
+---
+
 ## Knob 1: Title-artifact penalty
 
 **Use when:** the audit shows `title_flags` like `demo`, `live`, `medley` on bad-feeling tracks.

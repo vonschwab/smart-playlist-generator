@@ -159,7 +159,7 @@ playlists:
       min_sonic_similarity_dynamic: 0.00
       # fallback if mode-specific not set:
       # min_sonic_similarity: 0.00
-      max_pool_size: 1200     # Max candidates before construction phase
+      # candidates_per_artist / target_artists / max_pool_size / min_pool_size / seed_artist_bonus retired 2026-07 (corridor Phase 0): pool artist-cap + backstop removed; beam enforces diversity
       max_artist_fraction: 0.125  # Max tracks from one artist as fraction of playlist
       duration_penalty_enabled: true    # Penalize long tracks vs median seed duration
       duration_penalty_weight: 0.60     # Penalty strength (higher = more severe)
