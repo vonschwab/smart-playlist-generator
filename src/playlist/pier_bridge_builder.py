@@ -30,7 +30,6 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 import numpy as np
 from src.features.artifacts import ArtifactBundle
 from src.cancellation import raise_if_cancelled
-from src.title_dedupe import normalize_artist_key
 from src.string_utils import sanitize_for_logging
 from src.playlist.identity_keys import identity_keys_for_index
 from src.playlist.artist_identity_resolver import (
@@ -189,104 +188,6 @@ def _compute_edge_scores(
         scores.append(score)
 
     return (min(scores), sum(scores) / len(scores))
-
-
-def _enforce_min_gap_global(
-    indices: List[int],
-    artist_keys: Optional[np.ndarray] = None,
-    min_gap: int = 1,
-    *,
-    bundle: Optional[ArtifactBundle] = None,
-    artist_identity_cfg: Optional[ArtistIdentityConfig] = None,
-) -> Tuple[List[int], int]:
-    """
-    Drop tracks that would violate a global min_gap across concatenated segments.
-
-    Pier-bridge already enforces one-per-artist per segment, but adjacent
-    duplicates can appear at segment boundaries. This pass removes any track
-    that would repeat a normalized artist within the last `min_gap` slots.
-
-    If artist_identity_cfg is provided and enabled, uses identity-based matching
-    (collapsing ensemble variants and splitting collaborations). Each collaboration
-    track contributes ALL participant identity keys to the recent window.
-    """
-    if not indices or min_gap <= 0:
-        return indices, 0
-
-    recent: List[str] = []
-    output: List[int] = []
-    dropped = 0
-
-    use_identity = artist_identity_cfg is not None and artist_identity_cfg.enabled
-
-    for idx in indices:
-        if use_identity:
-            # Identity mode: use raw artist string to preserve collaborations
-            # (identity_keys_for_index has collaborations stripped)
-            artist_str = ""
-            if bundle is not None and bundle.track_artists is not None:
-                try:
-                    artist_str = str(bundle.track_artists[int(idx)] or "")
-                except Exception:
-                    artist_str = ""
-            if not artist_str and artist_keys is not None:
-                try:
-                    artist_str = str(artist_keys[int(idx)])
-                except Exception:
-                    artist_str = ""
-
-            # Resolve to identity keys
-            identity_keys_set = resolve_artist_identity_keys(artist_str, artist_identity_cfg)
-
-            # Check if ANY identity key violates min_gap
-            violated_key = None
-            for identity_key in identity_keys_set:
-                if identity_key in recent:
-                    violated_key = identity_key
-                    break
-
-            if violated_key is not None:
-                dropped += 1
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Rejected candidate idx=%d due to identity_min_gap: key=%r in recent window (distance<=%d)",
-                        idx, violated_key, min_gap
-                    )
-                continue
-
-            # Accept track: add to output and update recent window with ALL identity keys
-            output.append(idx)
-            for identity_key in identity_keys_set:
-                recent.append(identity_key)
-            # Trim recent window to size min_gap
-            while len(recent) > min_gap:
-                recent.pop(0)
-        else:
-            # Legacy mode: single artist key
-            key = ""
-            if bundle is not None:
-                try:
-                    key = identity_keys_for_index(bundle, int(idx)).artist_key
-                except Exception:
-                    key = ""
-            if not key and artist_keys is not None:
-                try:
-                    key = normalize_artist_key(str(artist_keys[int(idx)]))
-                except Exception:
-                    key = ""
-            if not key:
-                key = f"unknown_artist:{idx}"
-
-            if key in recent:
-                dropped += 1
-                continue
-
-            output.append(idx)
-            recent.append(key)
-            if len(recent) > min_gap:
-                recent.pop(0)
-
-    return output, dropped
 
 
 def _order_avoiding_adjacent_artist(
@@ -2492,8 +2393,9 @@ def build_pier_bridge_playlist(
                 # "Assembled playlist so far" = all prior committed segments
                 # (all_segments has not yet been appended-to for this segment)
                 # + the kept prefix of this segment. Used for the trailing
-                # min_gap recency window (mirrors _enforce_min_gap_global: a
-                # rolling window of the last min_gap identity keys).
+                # min_gap recency window (a rolling window of the last
+                # min_gap identity keys; same pattern the deleted
+                # _enforce_min_gap_global backstop used).
                 td_assembled_so_far: List[int] = []
                 for td_ci, td_cseg in enumerate(all_segments):
                     if td_ci == 0:

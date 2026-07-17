@@ -1,15 +1,8 @@
-"""Onset bridge band gates; rhythm-cosine soft penalty demotes; both skip cleanly
-when their inputs are absent (MERT no-tower path)."""
-import numpy as np
-from src.playlist.pier_bridge.pace_gate import filter_candidates_by_onset_target
+"""Rhythm-cosine soft penalty demotes below threshold (MERT no-tower path).
 
-
-def test_onset_bridge_band_rejects_far_density():
-    onset = np.array([4.0, 4.5, 32.0])
-    kept = filter_candidates_by_onset_target(
-        candidate_indices=[0, 1, 2], onset_rate=onset, target_onset=4.0, max_log_distance=0.6,
-    )
-    assert kept == [0, 1]  # 32.0 (3 octaves) rejected
+The onset bridge band gate test was removed with filter_candidates_by_onset_target
+(dead code, Phase 0 Task 2, 2026-07-16): beam.py never called it (onset
+banding is enforced via compute_energy_pace_penalty inline in the beam)."""
 
 
 def test_soft_penalty_multiplier_below_threshold():

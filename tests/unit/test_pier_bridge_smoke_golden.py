@@ -11,9 +11,11 @@ min-gap enforcement — so any extraction in PR-7 (pool.py), PR-8
 (beam.py + genre_targets.py), and PR-9 (assemble.py) that silently
 changes behaviour will be caught here.
 
-Also contains direct unit tests for three small functions that are
+Also contains direct unit tests for two small functions that are
 currently untested and are targets for extraction:
-  _compute_bridge_score, _compute_edge_scores, _enforce_min_gap_global.
+  _compute_bridge_score, _compute_edge_scores.
+(_enforce_min_gap_global was deleted as dead code — Phase 0 Task 2,
+2026-07-16 — along with its direct unit tests below.)
 
 To re-baseline after an INTENTIONAL behaviour change, delete the
 relevant golden file and re-run.
@@ -32,7 +34,6 @@ from src.playlist.pier_bridge_builder import (
     PierBridgeConfig,
     _compute_bridge_score,
     _compute_edge_scores,
-    _enforce_min_gap_global,
     build_pier_bridge_playlist,
 )
 
@@ -113,49 +114,6 @@ class TestComputeEdgeScores:
         X = rng.standard_normal((6, 8))
         worst, mean = _compute_edge_scores([0, 1, 2], X, None, None, None, cfg)
         assert worst <= mean + 1e-9
-
-
-# ---------------------------------------------------------------------------
-# Direct unit tests — _enforce_min_gap_global
-# ---------------------------------------------------------------------------
-
-
-class TestEnforceMinGapGlobal:
-    def test_empty_input(self):
-        result, dropped = _enforce_min_gap_global([], min_gap=1)
-        assert result == []
-        assert dropped == 0
-
-    def test_min_gap_zero_is_noop(self):
-        artist_keys = np.array(["a", "a", "a"])
-        result, dropped = _enforce_min_gap_global([0, 1, 2], artist_keys, min_gap=0)
-        assert result == [0, 1, 2]
-        assert dropped == 0
-
-    def test_drops_adjacent_same_artist(self):
-        # min_gap=1: "a" at idx=0 blocks "a" at idx=1; "b" at idx=2 passes
-        artist_keys = np.array(["a", "a", "b"])
-        result, dropped = _enforce_min_gap_global([0, 1, 2], artist_keys, min_gap=1)
-        assert 0 in result
-        assert 1 not in result
-        assert 2 in result
-        assert dropped == 1
-
-    def test_gap_2_drops_within_window(self):
-        # min_gap=2: "a" appears at position 0 and 2 — position 2 is within the window
-        artist_keys = np.array(["a", "b", "a", "c"])
-        result, dropped = _enforce_min_gap_global([0, 1, 2, 3], artist_keys, min_gap=2)
-        assert 0 in result
-        assert 1 in result
-        assert 2 not in result
-        assert 3 in result
-        assert dropped == 1
-
-    def test_distinct_artists_nothing_dropped(self):
-        artist_keys = np.array(["a", "b", "c", "d"])
-        result, dropped = _enforce_min_gap_global([0, 1, 2, 3], artist_keys, min_gap=2)
-        assert result == [0, 1, 2, 3]
-        assert dropped == 0
 
 
 # ---------------------------------------------------------------------------
