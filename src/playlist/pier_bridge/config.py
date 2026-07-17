@@ -372,7 +372,13 @@ class PierBridgeConfig:
     # default and deletes the legacy path -- see
     # docs/superpowers/specs/2026-07-12-corridor-first-pooling-design.md.
     pooling: str = "legacy"  # "legacy" | "corridor"
-    corridor_width_percentile: float = 0.90  # provisional; Task 6 pins per cohesion_mode
+    corridor_width_percentile: float = 0.85  # Task 6 width-pinning: 4 corpus artists (Bill Evans
+    # Trio, SADE, Alex G, The Strokes) x open/dynamic, probed at {0.85, 0.90, 0.95}, matched
+    # against legacy's per-segment "pool_before" size (pier_bridge_builder.py:3302-3305, fires
+    # unconditionally for both strategies) for the SAME cells. 0.85 gave the closest match
+    # (mean corridor/legacy size ratio 0.89, mean |ratio-1| 0.28 across the 4 artists) --
+    # 0.90 undershot (ratio 0.68, |ratio-1| 0.33) and 0.95 undershot badly (ratio 0.41,
+    # |ratio-1| 0.59). See .superpowers/sdd/p1-task-6-report.md for the full evidence table.
     corridor_widen_step: float = 0.05        # unused until Task 4's widening ladder
     corridor_widen_attempts: int = 2         # unused until Task 4's widening ladder
 
