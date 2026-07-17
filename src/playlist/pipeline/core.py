@@ -537,20 +537,6 @@ def generate_playlist_ds(
         except (TypeError, ValueError):
             pass
 
-    # Never-starve backstop (Task 3): min_pool_size lower bound on pool size.
-    # Mode-specific key (e.g. min_pool_size_narrow) takes priority over base key.
-    _min_pool_size: Optional[int] = None
-    _raw_mps = pb_overrides.get(f"min_pool_size_{mode}")
-    if _raw_mps is None:
-        _raw_mps = pb_overrides.get("min_pool_size")
-    if _raw_mps is not None:
-        try:
-            _v = int(_raw_mps)
-            if _v >= 0:
-                _min_pool_size = _v
-        except (TypeError, ValueError):
-            pass
-
     # Genre admission aggregate mode: "centroid" (default) | "per_seed".
     _genre_admission_aggregate = str(pb_overrides.get("genre_admission_aggregate", "centroid")).strip().lower()
     if _genre_admission_aggregate not in {"centroid", "per_seed"}:
@@ -748,7 +734,6 @@ def generate_playlist_ds(
             genre_vocab=genre_vocab,
             broad_filters=broad_filters,
             mode=mode,
-            uncap_pool=not artist_playlist,
             perceptual_bpm=perceptual_bpm,
             tempo_stability=tempo_stability_bpm,
             onset_rate=onset_rate_arr,
@@ -782,8 +767,6 @@ def generate_playlist_ds(
     )
     if _sonic_admission_percentile is not None:
         _candidate_cfg_kwargs["sonic_admission_percentile"] = _sonic_admission_percentile
-    if _min_pool_size is not None:
-        _candidate_cfg_kwargs["min_pool_size"] = _min_pool_size
     _candidate_cfg = replace(cfg.candidate, **_candidate_cfg_kwargs)
     pool = _build_pool(_candidate_cfg, min_genre_similarity)
     pool.stats["target_length"] = num_tracks

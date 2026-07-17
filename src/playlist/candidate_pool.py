@@ -578,12 +578,6 @@ def build_candidate_pool(
     genre_vocab: Optional[list[str]] = None,
     broad_filters: tuple[str, ...] = (),
     mode: str = "dynamic",  # "dynamic", "narrow", "discover"
-    # Phase 0 (corridor rework, 2026-07-16): dead parameter — the pool no longer
-    # truncates by max_pool_size/target_artists/per-artist cap at all (see the
-    # rank-walk loop below), so this toggle has nothing left to skip. Kept only
-    # because src/playlist/pipeline/core.py still passes it positionally by
-    # keyword; out of this task's scope to touch that call site.
-    uncap_pool: bool = False,
     perceptual_bpm: Optional[np.ndarray] = None,
     tempo_stability: Optional[np.ndarray] = None,
     onset_rate: Optional[np.ndarray] = None,
@@ -1392,6 +1386,13 @@ def build_candidate_pool(
     # and JobOut still read it — but it is now always 0.
     artist_cap_excluded = 0
 
+    # Vestigial (Phase 0 corridor rework, 2026-07-16): max_pool_size,
+    # target_artists, candidates_per_artist, and seed_artist_bonus are echoed
+    # here as if still active, but the cap/backstop machinery that consumed
+    # them is gone (see artist_cap_excluded above) — they no longer affect
+    # pool composition. Kept in the dict because downstream reporters/JobOut
+    # read these keys by name; pending Task 3 (loud retirement warnings) /
+    # Task 4 (config cleanup) to resolve properly.
     params_effective = {
         "similarity_floor": cfg.similarity_floor,
         "max_pool_size": cfg.max_pool_size,

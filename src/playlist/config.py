@@ -68,10 +68,12 @@ class CandidatePoolConfig:
     # seed's own sonic similarity distribution (admits ~top 1-p fraction).
     # 0.0 / None → legacy absolute-floor behavior unchanged.
     sonic_admission_percentile: Optional[float] = None
-    # Never-starve backstop (Task 3): after all admission filters, if the pool
-    # has fewer than min_pool_size candidates, backfill from the highest
-    # sonic_seed_sim candidates not yet admitted (per-artist cap respected,
-    # seeds never admitted).  0 = disabled → byte-identical legacy behavior.
+    # RETIRED (corridor Phase 0, 2026-07-16): never-starve backstop removed —
+    # this value is ignored by candidate_pool.py (no remaining reader); the
+    # mode-preset chain that fed it (mode_presets.py SONIC_MODE_PRESETS +
+    # pipeline/core.py's pb_overrides resolution) was deleted alongside it.
+    # The field itself stays (Task 3 turns configured-but-retired keys into
+    # a loud startup warning rather than removing the field outright).
     min_pool_size: int = 0
     # Genre-rescue (Fix 3, 2026-07-04): re-admit the top-K sonic-nearest tracks
     # rejected ONLY by the genre hard gate, so tight genre modes cannot strip
