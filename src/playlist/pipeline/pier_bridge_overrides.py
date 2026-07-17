@@ -128,10 +128,22 @@ def apply_pier_bridge_overrides(
                       # SP3 mini-piers (off by default).
                       ("mini_pier_max_interior", int), ("mini_pier_smoothness_margin", float),
                       # Instrumental lean penalty weight (static tuning; off by default).
-                      ("instrumental_penalty_weight", float)):
+                      ("instrumental_penalty_weight", float),
+                      # Corridor pooling (Phase 1, dev flag; default "legacy" -> inert).
+                      ("corridor_width_percentile", float),
+                      ("corridor_widen_step", float),
+                      ("corridor_widen_attempts", int)):
         _v = pb_overrides.get(_k)
         if isinstance(_v, (int, float)) and not isinstance(_v, bool):
             pb_cfg = replace(pb_cfg, **{_k: _cast(_v)})
+
+    # Corridor pooling strategy switch (Phase 1, BRANCH-LOCAL dev flag). Mirrors
+    # the segment_pool_strategy str-override block below. Default "legacy" ->
+    # byte-identical to pre-corridor behavior; "corridor" activates the new
+    # per-segment corridor pool builder in pier_bridge_builder.py.
+    pooling_raw = pb_overrides.get("pooling")
+    if isinstance(pooling_raw, str) and pooling_raw.strip():
+        pb_cfg = replace(pb_cfg, pooling=str(pooling_raw).strip().lower())
 
     # instrumental_enabled is a bool (the generic loop above skips bools) —
     # per-request flag set by the policy layer.

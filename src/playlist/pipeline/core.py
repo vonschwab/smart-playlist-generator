@@ -1240,6 +1240,10 @@ def generate_playlist_ds(
                     "one_each_candidate_relaxation": one_each_candidate_relaxation,
                     "beam_edge_components": (pb_result.stats or {}).get("beam_edge_components") or [],
                     "bpm_summary": (pb_result.stats or {}).get("bpm_summary"),
+                    # Phase 1 Task 3 corridor pooling diagnostics (dev flag;
+                    # empty/"legacy" unless pier_bridge.pooling="corridor").
+                    "pooling_strategy": (pb_result.stats or {}).get("pooling_strategy"),
+                    "corridor_segments": (pb_result.stats or {}).get("corridor_segments") or [],
                     "layered_transition_diagnostics": layered_transition_diagnostics,
                     "receipt_pool": receipt_pool_stats,
                 },

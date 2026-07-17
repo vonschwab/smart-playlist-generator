@@ -146,6 +146,12 @@ from src.playlist.transition_metrics import (
 )
 from src.playlist.pier_bridge.tail_dp import optimize_segment_tail
 
+# Phase 1 Task 3: corridor segment pooling (dev flag, default off -- see
+# PierBridgeConfig.pooling). build_corridor / build_eligible_universe are pure
+# and are NOT modified by this task; the glue lives entirely here.
+from src.playlist.pier_bridge.corridor import build_corridor
+from src.playlist.pier_bridge.eligible_universe import build_eligible_universe, EligibleUniverse
+
 
 logger = logging.getLogger(__name__)
 
@@ -450,6 +456,71 @@ def build_pier_bridge_playlist(
     universe = [idx for idx in deduped_pool if idx not in seed_set]
 
     logger.info("Pier+Bridge: universe size after dedupe and seed exclusion: %d", len(universe))
+
+    # ── Corridor pooling (Phase 1 Task 3, dev flag) ────────────────────────────
+    # cfg.pooling == "corridor" swaps the per-segment pool builders below for a
+    # library-wide eligible universe (build_eligible_universe) narrowed per
+    # segment by a self-calibrating min-sim corridor (build_corridor), instead
+    # of `universe` above (deduped_pool minus seeds) + the legacy KNN-union /
+    # segment-scored builders. `legacy` (default) is completely untouched --
+    # this block only runs when the flag is on.
+    #
+    # The corridor's eligible universe is intentionally WIDER than `universe`:
+    # it bypasses the upstream candidate-pool's sonic/genre-mode gating
+    # entirely (that gating never runs for corridor mode in Phase 1). Wiring
+    # it back in via a mode-keyed relevance mask is Task 4's job
+    # (`relevance_mask=None` below), not this task's -- see
+    # docs/superpowers/specs/2026-07-12-corridor-first-pooling-design.md.
+    #
+    # Phase 1 also leaves two of build_eligible_universe's hard-exclusion
+    # inputs deliberately inert:
+    #   - `excluded_track_ids=set()`: recency/blacklist exclusion is already
+    #     baked into `bundle` itself by pipeline.core's restrict_bundle() call
+    #     BEFORE bundle reaches this function, so re-passing it here would be
+    #     redundant, not missing.
+    #   - `duration_reference_ms=None`, `title_hard_exclude_flags=frozenset()`:
+    #     the C1 duration soft-penalty and title-hygiene hard exclusion need
+    #     real config plumbing (a reference duration derived from seed
+    #     durations, and the title hard-exclude flag set) that PierBridgeConfig
+    #     does not carry yet -- out of this task's scope (Task 4/5). Passing
+    #     None/empty is the module's documented, fully-supported "off" state,
+    #     not a partial wiring bug -- see the dead-knob-trap regression test in
+    #     tests/integration/test_corridor_pooling.py, which pins this off-state
+    #     so a future change can't start silently acting on an unconfigured
+    #     knob (CLAUDE.md: "a configured knob that can't act is a startup
+    #     error" -- the inverse trap, an unconfigured knob that silently
+    #     starts acting, is exactly what that test guards against here).
+    pooling_mode = str(getattr(cfg, "pooling", "legacy") or "legacy").strip().lower()
+    if pooling_mode not in ("legacy", "corridor"):
+        raise ValueError(
+            f"Unknown pier_bridge.pooling='{pooling_mode}' (expected 'legacy' or 'corridor')"
+        )
+    corridor_universe: Optional[EligibleUniverse] = None
+    corridor_genre_dense_universe: Optional[np.ndarray] = None
+    if pooling_mode == "corridor":
+        corridor_universe = build_eligible_universe(
+            bundle=bundle,
+            seed_indices=seed_indices,
+            excluded_track_ids=set(),
+            relevance_mask=None,
+            duration_reference_ms=None,
+            duration_cutoff_multiplier=1.0,
+            duration_penalty_weight=0.0,
+            title_hard_exclude_flags=frozenset(),
+            instrumental_enabled=bool(cfg.instrumental_enabled),
+            instrumental_penalty_weight=float(cfg.instrumental_penalty_weight),
+            voice_prob=voice_prob,
+        )
+        _genre_dense_full_for_corridor = getattr(bundle, "X_genre_dense", None)
+        if _genre_dense_full_for_corridor is not None:
+            corridor_genre_dense_universe = _genre_dense_full_for_corridor[corridor_universe.indices]
+        logger.info(
+            "Corridor universe: eligible=%d/%d (excluded_total=%d width_percentile=%.2f)",
+            int(corridor_universe.stats.get("eligible_count", 0)),
+            int(corridor_universe.stats.get("universe_size_total", 0)),
+            int(corridor_universe.stats.get("excluded_total", 0)),
+            float(cfg.corridor_width_percentile),
+        )
 
     # Get sonic matrices (raw beat3tower space)
     X_full_raw = bundle.X_sonic
@@ -836,6 +907,175 @@ def build_pier_bridge_playlist(
             continue
     used_track_keys: Set[tuple[str, str]] = set(seed_track_keys)
 
+    # ── Corridor pooling (Phase 1 Task 3) per-run accumulators ──────────────
+    corridor_segments_diag: List[Dict[str, Any]] = []
+    corridor_logged_segments: Set[int] = set()
+
+    def _build_corridor_segment_pool(
+        pier_a_idx: int,
+        pier_b_idx: int,
+        seg_idx_local: int,
+        segment_pool_max_local: int,
+    ) -> Tuple[List[int], Dict[int, str], Dict[int, str]]:
+        """Corridor-mode segment pool (Phase 1 dev flag).
+
+        Mirrors the legacy builders' output shape exactly (candidates,
+        artist_key_by_idx, title_key_by_idx) so the call site + everything
+        downstream (beam search) is unchanged. Structural filtering order
+        mirrors segment_pool_builder.py's phases but is applied in TWO passes
+        for performance: index-set exclusions (used_track_ids, allowed_set)
+        run BEFORE build_corridor (cheap, shrinks the O(N) similarity pass);
+        identity-key-dependent exclusions (seed/pier-artist-in-interiors,
+        track-key collision) run AFTER, on build_corridor's already-capped
+        result (small, <= segment_pool_max) rather than on the full eligible
+        universe -- computing identity keys for the whole (library-wide, not
+        candidate-pool-narrowed) corridor universe per segment would be the
+        dominant per-segment cost otherwise. Because these are pure filters
+        (never additive), every survivor is still a genuine corridor member
+        (min_sim >= threshold), so the Step-1 membership contract holds
+        regardless of which pass removed a given track.
+
+        NOT replicated in Phase 1 (see .superpowers/sdd/p1-task-3-report.md
+        "concerns for Task 4/5"): internal connectors, on-tag guarantees, the
+        disallow_seed_artist_in_interiors relaxation retry, and dj_union
+        debug-compare-baseline -- all legacy-only reseat/DJ-bridging features
+        out of this task's scope.
+        """
+        assert corridor_universe is not None
+        idx_arr = corridor_universe.indices
+        if allowed_set_indices is not None:
+            _allowed = allowed_set_indices
+            mask = np.fromiter(
+                (
+                    (int(i) not in global_used) and (int(i) in _allowed)
+                    for i in idx_arr
+                ),
+                dtype=bool,
+                count=len(idx_arr),
+            )
+        else:
+            mask = np.fromiter(
+                (int(i) not in global_used for i in idx_arr),
+                dtype=bool,
+                count=len(idx_arr),
+            )
+
+        avail_idx = idx_arr[mask]
+        avail_X = corridor_universe.X_norm[mask]
+        avail_penalty = corridor_universe.duration_rank_penalty[mask]
+        avail_genre = (
+            corridor_genre_dense_universe[mask]
+            if corridor_genre_dense_universe is not None
+            else None
+        )
+
+        genre_blend_weight = max(0.0, min(1.0, float(getattr(cfg, "segment_pool_genre_weight", 0.0))))
+        genre_vec_a = genre_vec_b = None
+        X_genre_dense_bundle = getattr(bundle, "X_genre_dense", None)
+        if genre_blend_weight > 0.0 and X_genre_dense_bundle is not None:
+            genre_vec_a = X_genre_dense_bundle[int(pier_a_idx)]
+            genre_vec_b = X_genre_dense_bundle[int(pier_b_idx)]
+
+        result = build_corridor(
+            vec_a=X_full_norm[int(pier_a_idx)],
+            vec_b=X_full_norm[int(pier_b_idx)],
+            X_norm=avail_X,
+            universe_indices=avail_idx,
+            width_percentile=float(cfg.corridor_width_percentile),
+            segment_pool_max=int(segment_pool_max_local),
+            genre_blend_weight=genre_blend_weight,
+            X_genre_dense=(avail_genre if genre_blend_weight > 0.0 else None),
+            force_include=None,  # Phase 1: no reseat guarantees yet (Task 5)
+            genre_vec_a=genre_vec_a,
+            genre_vec_b=genre_vec_b,
+        )
+
+        # C1 rehome: multiplicative duration-rank penalty (Task 2), applied
+        # AFTER build_corridor returns so corridor.py stays pure/universe-
+        # agnostic. Phase 1 always passes duration_reference_ms=None to
+        # build_eligible_universe (see the call site above), so
+        # corridor_universe.duration_rank_penalty is a constant-1.0 vector
+        # today -- this multiply is a documented no-op until the C1 penalty
+        # is wired for real (Task 4/5). Computed for parity with the design
+        # contract and exposed via corridor diagnostics, not currently used
+        # to reorder `final_candidates`.
+        _penalty_by_idx = dict(zip(avail_idx.tolist(), avail_penalty.tolist()))
+        _adjusted_scores = [
+            float(s) * float(_penalty_by_idx.get(int(i), 1.0))
+            for i, s in zip(result.indices.tolist(), result.rank_scores.tolist())
+        ]
+        _mean_duration_penalty = float(np.mean(avail_penalty)) if len(avail_penalty) else 1.0
+
+        pier_a_ak: Optional[str] = None
+        pier_b_ak: Optional[str] = None
+        try:
+            pier_a_ak = identity_keys_for_index(bundle, int(pier_a_idx)).artist_key
+            pier_b_ak = identity_keys_for_index(bundle, int(pier_b_idx)).artist_key
+        except Exception:
+            pass
+
+        final_candidates: List[int] = []
+        cand_artist_keys: Dict[int, str] = {}
+        for i in result.indices.tolist():
+            i = int(i)
+            try:
+                keys = identity_keys_for_index(bundle, i)
+            except Exception:
+                continue
+            ak = keys.artist_key
+            if cfg.disallow_seed_artist_in_interiors and seed_artist_key and ak == seed_artist_key:
+                continue
+            if cfg.disallow_pier_artists_in_interiors and ak in {pier_a_ak, pier_b_ak}:
+                continue
+            if keys.track_key in used_track_keys:
+                continue
+            cand_artist_keys[i] = ak
+            final_candidates.append(i)
+        if pier_a_ak is not None:
+            cand_artist_keys[int(pier_a_idx)] = pier_a_ak
+        if pier_b_ak is not None:
+            cand_artist_keys[int(pier_b_idx)] = pier_b_ak
+
+        if seg_idx_local not in corridor_logged_segments:
+            corridor_logged_segments.add(seg_idx_local)
+            support_a = float(result.stats.get("anchor_support_a", 0.0))
+            support_b = float(result.stats.get("anchor_support_b", 0.0))
+            logger.info(
+                "Corridor[seg %d]: size=%d width=%.2f widened=%d support_a=%.2f "
+                "support_b=%.2f threshold=%.3f capped=%s",
+                int(seg_idx_local),
+                int(len(final_candidates)),
+                float(result.width_percentile),
+                0,
+                support_a,
+                support_b,
+                float(result.threshold),
+                bool(result.capped),
+            )
+            corridor_segments_diag.append(
+                {
+                    "seg": int(seg_idx_local),
+                    "size": int(len(final_candidates)),
+                    "threshold": float(result.threshold),
+                    "width": float(result.width_percentile),
+                    "support_a": support_a,
+                    "support_b": support_b,
+                    "capped": bool(result.capped),
+                    "widened": 0,
+                    # C1 rehome parity (see comment above): mean duration-rank
+                    # penalty applied to this segment's corridor members, and
+                    # the resulting mean adjusted score -- both 1.0x/no-op in
+                    # Phase 1 (duration_reference_ms=None), non-trivial once
+                    # Task 4/5 wires a real reference.
+                    "mean_duration_penalty": _mean_duration_penalty,
+                    "mean_adjusted_score": (
+                        float(np.mean(_adjusted_scores)) if _adjusted_scores else 0.0
+                    ),
+                }
+            )
+
+        return final_candidates, cand_artist_keys, {}
+
     all_segments: List[List[int]] = []
     all_beam_components: List[dict] = []  # flat per-edge component dicts for audit
     diagnostics: List[SegmentDiagnostics] = []
@@ -1133,7 +1373,15 @@ def build_pier_bridge_playlist(
                                 segment_internal_connectors = set(dj_connectors)
                             segment_connector_cap = max(segment_connector_cap, dj_connector_cap)
 
-                if pool_strategy == "legacy":
+                if pooling_mode == "corridor":
+                    pool_diag["pool_strategy"] = "corridor"
+                    segment_candidates, cand_artist_keys, _cand_title_keys = _build_corridor_segment_pool(
+                        pier_a,
+                        pier_b,
+                        seg_idx,
+                        int(segment_pool_max),
+                    )
+                elif pool_strategy == "legacy":
                     neighbors_m = min(
                         int(cfg.initial_neighbors_m) * (2 ** int(attempt)),
                         int(cfg.max_neighbors_m),
@@ -1530,7 +1778,7 @@ def build_pier_bridge_playlist(
                     break
 
                 expansions += 1
-                if str(cfg.segment_pool_strategy).strip().lower() != "legacy":
+                if pooling_mode == "corridor" or str(cfg.segment_pool_strategy).strip().lower() != "legacy":
                     segment_pool_max = min(int(segment_pool_max) * 2, int(cfg.max_segment_pool_max))
                 beam_width = min(int(beam_width) * 2, int(cfg.max_beam_width))
 
@@ -2987,6 +3235,14 @@ def build_pier_bridge_playlist(
         "non_seed_artist_counts": non_seed_artist_counts,
         "max_non_seed_tracks_per_artist": cfg.max_non_seed_tracks_per_artist,
         "universe_size": len(universe),
+        # Phase 1 Task 3 corridor pooling diagnostics (empty/None on the legacy
+        # path -- see PierBridgeConfig.pooling). Summary stats ONLY, never
+        # member-index lists (worker NDJSON line-size trap).
+        "pooling_strategy": pooling_mode,
+        "corridor_segments": list(corridor_segments_diag),
+        "corridor_universe_size": (
+            int(len(corridor_universe.indices)) if corridor_universe is not None else None
+        ),
         "segments_built": len(all_segments),
         "segments_successful": sum(1 for d in diagnostics if d.success),
         "total_expansions": sum(d.expansions for d in diagnostics),

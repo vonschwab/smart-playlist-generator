@@ -363,6 +363,19 @@ class PierBridgeConfig:
     variable_bridge_epsilon: float = 0.02   # prefer nominal length unless a flex beats it by > eps
     variable_bridge_max_flex_segments: int = 3  # max segments that may actually flex (deterministic cap)
 
+    # ── Corridor segment pooling (Phase 1, BRANCH-LOCAL dev flag; default "legacy") ──
+    # "legacy" = today's KNN-union / segment-scored pool builders (unchanged).
+    # "corridor" = per-segment corridor pooling: a library-wide eligible universe
+    # (pier_bridge.eligible_universe.build_eligible_universe) narrowed per segment
+    # by a self-calibrating min-sim corridor (pier_bridge.corridor.build_corridor)
+    # instead of a fixed bridge_floor + KNN union. Dev-only until Task 8 flips the
+    # default and deletes the legacy path -- see
+    # docs/superpowers/specs/2026-07-12-corridor-first-pooling-design.md.
+    pooling: str = "legacy"  # "legacy" | "corridor"
+    corridor_width_percentile: float = 0.90  # provisional; Task 6 pins per cohesion_mode
+    corridor_widen_step: float = 0.05        # unused until Task 4's widening ladder
+    corridor_widen_attempts: int = 2         # unused until Task 4's widening ladder
+
 
 @dataclass
 class PierBridgeResult:
