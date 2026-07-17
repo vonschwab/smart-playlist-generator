@@ -45,6 +45,24 @@ from src.playlist.ds_pipeline_runner import generate_playlist_ds
 DEFAULT_CONFIG = "config.yaml"
 
 
+def _deep_merge(base: dict, override: dict) -> dict:
+    """Recursive dict merge — same semantics as worker.load_config_with_overrides's
+    internal deep_merge (not importable: it's a private closure there). Used ONLY
+    to splice ``config_overrides`` into the ALREADY-POLICY-RESOLVED merged config
+    (i.e. after mode presets have applied), so a perturbation targeting a
+    preset-controlled key (e.g. pier_bridge.min_pool_size) survives instead of
+    being clobbered by _apply_mode_presets — the same post-policy-splice pattern
+    scripts/corridor_baseline/runner.py::deep_set uses for the identical reason.
+    """
+    result = dict(base)
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
 def gui_ui_state(**overrides: Any) -> UIStateModel:
     """Build a UIStateModel for seeds-mode generation with production-like defaults.
 
@@ -61,16 +79,27 @@ def resolve_gui_overrides(
     *,
     config_path: str = DEFAULT_CONFIG,
     seed_artist_keys: Optional[list[str]] = None,
+    config_overrides: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Resolve the EXACT ds-pipeline overrides the GUI worker would send for ``ui``.
 
     Walks the real chain so config.yaml defaults (disallow_pier_artists,
     artist_identity, etc.) are present. Returns the dict accepted by
     ``generate_playlist_ds(overrides=...)``.
+
+    ``config_overrides`` (optional): a yaml-shaped dict fragment (e.g.
+    ``{"playlists": {"ds_pipeline": {"pier_bridge": {"min_pool_size": 999}}}}``)
+    deep-merged into the ALREADY-RESOLVED merged config, i.e. AFTER
+    ``load_config_with_overrides`` (which runs ``_apply_mode_presets`` internally,
+    so splicing earlier would let a preset silently clobber the perturbation — see
+    ``_deep_merge``'s docstring). Thin passthrough only: it does not reimplement
+    the slider->config mapping.
     """
     decisions = derive_runtime_config(ui, seed_artist_keys=seed_artist_keys)
     overrides = merge_overrides({}, decisions.overrides)
     merged = load_config_with_overrides(config_path, overrides)
+    if config_overrides:
+        merged = _deep_merge(merged, config_overrides)
     ds_cfg = (merged.get("playlists", {}) or {}).get("ds_pipeline", {}) or {}
     return build_ds_overrides(ds_cfg)
 
@@ -80,16 +109,21 @@ def resolve_gui_genre_params(
     *,
     config_path: str = DEFAULT_CONFIG,
     seed_artist_keys: Optional[list[str]] = None,
+    config_overrides: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Resolve the genre gate + hybrid weights the GUI orchestrator passes to
     ``generate_playlist_ds`` (these are explicit params, NOT carried in the
     overrides dict). Mirrors ``playlist_generator`` via the shared
     ``resolve_genre_ds_params`` so the harness runs the genre gate instead of
     silently leaving it off. Keyed by the cohesion mode, exactly like the orchestrator.
+
+    ``config_overrides``: see ``resolve_gui_overrides`` — same post-policy splice.
     """
     decisions = derive_runtime_config(ui, seed_artist_keys=seed_artist_keys)
     overrides = merge_overrides({}, decisions.overrides)
     merged = load_config_with_overrides(config_path, overrides)
+    if config_overrides:
+        merged = _deep_merge(merged, config_overrides)
     playlists_cfg = (merged.get("playlists", {}) or {})
     return resolve_genre_ds_params(playlists_cfg, ui.cohesion_mode)
 
@@ -108,17 +142,20 @@ def generate_like_gui(
     artifact_path: Optional[str] = None,
     length: Optional[int] = None,
     random_seed: int = 0,
+    config_overrides: Optional[dict[str, Any]] = None,
     **ui_kwargs: Any,
 ):
     """Generate a seeds-mode playlist exactly as the GUI worker resolves config.
 
     ``seeds`` are bundle track_ids used as piers. Extra kwargs build the UIStateModel
     (cohesion_mode, genre_mode, sonic_mode, pace_mode, artist_spacing, ...).
+    ``config_overrides``: see ``resolve_gui_overrides`` — thin post-policy passthrough
+    for tests that need to perturb one config.yaml leaf directly.
     Returns the DsRunResult from generate_playlist_ds.
     """
     ui = ui or gui_ui_state(**ui_kwargs)
-    ds_overrides = resolve_gui_overrides(ui, config_path=config_path)
-    genre_params = resolve_gui_genre_params(ui, config_path=config_path)
+    ds_overrides = resolve_gui_overrides(ui, config_path=config_path, config_overrides=config_overrides)
+    genre_params = resolve_gui_genre_params(ui, config_path=config_path, config_overrides=config_overrides)
     art = artifact_path or resolved_artifact_path(config_path)
     seeds = list(seeds)
     return generate_playlist_ds(

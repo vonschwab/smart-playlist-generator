@@ -9,6 +9,7 @@ Marked @integration @slow: they need the live artifact bundle + sidecar.
 """
 from __future__ import annotations
 
+import dataclasses
 import logging
 import re
 import sqlite3
@@ -16,11 +17,13 @@ from pathlib import Path
 
 import pytest
 
+import src.playlist.pipeline.core as _pipeline_core
 from tests.support.gui_fidelity import (
     generate_like_gui,
     gui_ui_state,
     artist_at_positions,
     find_min_gap_violations,
+    resolved_artifact_path,
 )
 from src.features.artifacts import load_artifact_bundle
 from src.config_loader import Config, resolve_database_path
@@ -31,7 +34,15 @@ from src.playlist_generator import PlaylistGenerator
 from src.playlist_gui.policy import derive_runtime_config, merge_overrides as _merge_overrides
 from src.playlist_gui.ui_state import UIStateModel
 
-ART = Path("data/artifacts/beat3tower_32k/data_matrices_step1.npz")
+# Resolved via config.yaml (not a hardcoded repo-relative path): in a satellite
+# workspace (docs/superpowers/specs/2026-07-06-simultaneous-sessions-design.md)
+# data/ holds only a 0-byte metadata.db stub and no artifacts/ dir at all --
+# config.yaml's playlists.ds_pipeline.artifact_path is the absolute canonical
+# path. A hardcoded "data/artifacts/..." literal here silently skipped every
+# test in this file (and generate_like_gui's own artifact_path fallback uses
+# this exact same resolver, so this also guarantees load_artifact_bundle(ART)
+# and generate_like_gui() share one artifact instance).
+ART = Path(resolved_artifact_path())
 _requires_artifact = pytest.mark.skipif(not ART.exists(), reason="live artifact required")
 
 # Five seeds from the seeds-mode run where Smog clustered at 14/17 under min_gap=9.
@@ -528,4 +539,210 @@ def test_phase_b_anchors_rollback_seed_only_piers():
     assert not intruders, (
         f"anchor_max=0 (rollback) still injected non-seed anchor pier(s): {intruders} "
         f"(realized piers={piers})"
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 0 Task 1: retire the pool-level artist cap + never-starve backstop
+# (docs/superpowers/plans/2026-07-12-corridor-phase0-subtraction.md, Task 1)
+#
+# The cap (CandidatePoolConfig.candidates_per_artist, walked in
+# src/playlist/candidate_pool.py's per-artist rank walk) and the backstop
+# (CandidatePoolConfig.min_pool_size) both go: the beam already enforces
+# per-segment/cross-segment artist diversity, and the pool cap alone was
+# independently deleting 14-60% of post-floor candidates (M2, docs/
+# POOL_STARVATION_RESEARCH_2026-07-12.md).
+#
+# Neither field has the config.yaml seam the original task brief assumed:
+#   - candidates_per_artist: default_ds_config (src/playlist/config.py:544-560)
+#     computes it PURELY from `mode` + `playlist_len` via a mode-keyed formula.
+#     overrides.get("candidate_pool") is never consulted for it at all -- no
+#     yaml key reaches it under ANY path. Confirmed independently two ways:
+#     scripts/corridor_baseline/perturb.py's _CANDIDATE_POOL_FIELD_MAP maps it
+#     to None with the comment "no yaml key ... reaches them under any path --
+#     confirmed by reading default_ds_config top to bottom", and
+#     docs/corridor_baseline/knob_sweep.json's real sweep run recorded
+#     status="unmapped" for both live corridor cells. A config_overrides
+#     splice therefore CANNOT move this field -- see
+#     _force_candidates_per_artist below for the (only) way to isolate it.
+#   - min_pool_size: default_ds_config never populates CandidatePoolConfig.
+#     min_pool_size from ANY override at all (it only reaches its dataclass
+#     default of 0 there). The live value comes from a DIFFERENT family --
+#     src/playlist/pipeline/core.py:540-552 reads pb_overrides["min_pool_size"]
+#     (i.e. playlists.ds_pipeline.pier_bridge.min_pool_size, populated by
+#     sonic_mode presets in mode_presets.py) and injects it post-hoc via
+#     `replace(cfg.candidate, min_pool_size=...)`. That path IS reachable
+#     through config_overrides (verified below).
+# ─────────────────────────────────────────────────────────────────────────────
+
+BET_ARTIST = "Bill Evans Trio"
+
+
+def _load_bundle_for_seed_lookup():
+    """load_artifact_bundle(ART) directly, with the process-wide sonic-variant
+    override freshly re-resolved from config.yaml first.
+
+    tests/conftest.py's autouse ``_reset_sonic_variant_override`` fixture resets
+    the global to None before every test (so a synthetic-artifact test elsewhere
+    never inherits it); a bare ``load_artifact_bundle(str(ART))`` here would then
+    fail on the MuQ-only live artifact ("Artifact missing required keys:
+    ['X_sonic']"). ``resolved_artifact_path()`` re-runs the same
+    ``load_config_with_overrides`` call generate_like_gui uses internally, so
+    this bundle and the one generate_like_gui loads later in the same test are
+    guaranteed to resolve the identical sonic variant.
+    """
+    resolved_artifact_path()
+    load_artifact_bundle.cache_clear()
+    return load_artifact_bundle(str(ART))
+
+
+def _dense_artist_seeds(bundle, artist_name: str, n: int) -> list[str]:
+    """Deterministic n pier track_ids for a dense corpus artist.
+
+    Sorted lexicographically by track_id (stable across machines/runs -- no
+    similarity ranking involved), so seed selection itself introduces zero
+    randomness into the RED/GREEN comparison. Bill Evans Trio is used
+    throughout the corridor baselines (scripts/corridor_baseline/runner.py's
+    CORPUS/SWEEP_CELLS) -- dense (66 tracks in the live artifact, verified) and
+    known-bridgeable, so it needs no fixture beyond the shared artifact bundle.
+    """
+    arts = [str(a) for a in bundle.track_artists]
+    idxs = [i for i, a in enumerate(arts) if a.strip().lower() == artist_name.strip().lower()]
+    assert len(idxs) >= n, f"{artist_name} has only {len(idxs)} tracks in the artifact, need >= {n}"
+    tids = sorted(str(bundle.track_ids[i]) for i in idxs)
+    return tids[:n]
+
+
+def _force_candidates_per_artist(monkeypatch: pytest.MonkeyPatch, cap: int) -> None:
+    """Monkeypatch default_ds_config so the resolved CandidatePoolConfig carries
+    candidates_per_artist=cap, regardless of mode/playlist_len -- the only way
+    to isolate this field (see the module-docstring-comment above for why no
+    config_overrides path reaches it). Patches the name in
+    src.playlist.pipeline.core's namespace, which is where
+    generate_playlist_ds -> _generate_playlist_ds_impl actually calls it
+    (src/playlist/pipeline/core.py:361), so every other resolved value (floors,
+    target_artists, min_gap, ...) stays exactly what production would compute
+    for this mode/playlist_len -- only the per-artist cap differs.
+    """
+    real = _pipeline_core.default_ds_config
+
+    def _wrapped(mode, *, playlist_len, overrides=None):
+        cfg = real(mode, playlist_len=playlist_len, overrides=overrides)
+        return dataclasses.replace(
+            cfg, candidate=dataclasses.replace(cfg.candidate, candidates_per_artist=cap)
+        )
+
+    monkeypatch.setattr(_pipeline_core, "default_ds_config", _wrapped)
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@_requires_artifact
+def test_artist_cap_knob_is_inert_after_phase0(monkeypatch):
+    """Phase 0 Task 1: the pool-level per-artist cap must no longer gate
+    build_candidate_pool. Same seeds+modes at candidates_per_artist=2 vs =12
+    (forced directly onto the resolved CandidatePoolConfig, holding every other
+    resolved value fixed) must produce the IDENTICAL candidate pool once the
+    cap walk is deleted.
+
+    Primary assertions are on playlist_stats["candidate_pool"] (pool_size /
+    artist_cap_excluded), NOT track_ids equality. Measured on this seed set:
+    cap=2 vs cap=12 already converge to the SAME final 30-track playlist even
+    PRE-fix (the beam never needed >2-per-artist here) -- so track_ids
+    equality alone is a VACUOUS RED/GREEN signal for this corpus. The cap's
+    actual, provable-pre-fix effect is on pool COMPOSITION (measured:
+    pool_size 884 (cap=2) vs 3291 (cap=12) out of eligible_count=5619,
+    artist_cap_excluded 4735 vs 2328) -- exactly the mechanism Task 1's
+    Produces contract targets ("returns every post-floor-eligible index ...
+    without per-artist truncation"; "artist_cap_excluded (now always 0)").
+    track_ids equality is kept as a secondary no-regression check.
+    """
+    bundle = _load_bundle_for_seed_lookup()
+    seeds = _dense_artist_seeds(bundle, BET_ARTIST, n=4)
+    common = dict(
+        seeds=seeds, cohesion_mode="dynamic", genre_mode="dynamic",
+        sonic_mode="dynamic", pace_mode="dynamic", length=30, random_seed=0,
+    )
+
+    _force_candidates_per_artist(monkeypatch, 2)
+    a = generate_like_gui(**common)
+    _force_candidates_per_artist(monkeypatch, 12)
+    b = generate_like_gui(**common)
+
+    # Non-vacuity: prove the forced values actually landed on the resolved
+    # config before trusting any equality/inequality below.
+    # DsRunResult.effective nests pool-family params under "candidate_pool"
+    # (verified empirically -- not the flat shape the original brief assumed).
+    assert a.effective.get("candidate_pool", {}).get("candidates_per_artist") == 2, a.effective
+    assert b.effective.get("candidate_pool", {}).get("candidates_per_artist") == 12, b.effective
+
+    a_cp = a.playlist_stats["candidate_pool"]
+    b_cp = b.playlist_stats["candidate_pool"]
+    assert a_cp["eligible_count"] == b_cp["eligible_count"], (a_cp, b_cp)
+
+    # After Phase 0 the cap must not truncate the pool at all: pool_size ==
+    # eligible_count for BOTH forced cap values, and artist_cap_excluded == 0
+    # regardless of what candidates_per_artist was forced to.
+    assert a_cp["pool_size"] == b_cp["pool_size"] == a_cp["eligible_count"], (
+        f"candidates_per_artist=2 vs =12 produced DIFFERENT pool sizes after "
+        f"Phase 0 (the cap should be fully inert): a_pool={a_cp['pool_size']} "
+        f"b_pool={b_cp['pool_size']} eligible={a_cp['eligible_count']}"
+    )
+    assert a_cp["artist_cap_excluded"] == 0, a_cp
+    assert b_cp["artist_cap_excluded"] == 0, b_cp
+
+    assert a.track_ids == b.track_ids, (
+        "candidates_per_artist=2 vs =12 produced DIFFERENT final playlists: "
+        f"a={a.track_ids} b={b.track_ids}"
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@_requires_artifact
+def test_min_pool_size_backstop_is_inert_after_phase0():
+    """Phase 0 Task 1: the never-starve backstop must no longer gate the pool.
+    Reachable via playlists.ds_pipeline.pier_bridge.min_pool_size (NOT
+    candidate_pool.min_pool_size -- see module-docstring-comment above).
+
+    Primary assertions are on playlist_stats["candidate_pool"]["pool_size"],
+    NOT track_ids equality -- same rationale as
+    test_artist_cap_knob_is_inert_after_phase0: measured on this seed set,
+    min_pool_size=0 vs =5000 already produce the SAME final 30-track playlist
+    even PRE-fix, but the backstop's actual, provable-pre-fix effect is a
+    massive pool-composition swing (measured: pool_size 2146 (off) vs 5000
+    (on), distinct_artists 509 vs 1519, out of eligible_count=5619).
+    track_ids equality is kept as a secondary no-regression check.
+    """
+    bundle = _load_bundle_for_seed_lookup()
+    seeds = _dense_artist_seeds(bundle, BET_ARTIST, n=4)
+    common = dict(
+        seeds=seeds, cohesion_mode="dynamic", genre_mode="dynamic",
+        sonic_mode="dynamic", pace_mode="dynamic", length=30, random_seed=0,
+    )
+
+    off = generate_like_gui(
+        **common,
+        config_overrides={"playlists": {"ds_pipeline": {"pier_bridge": {"min_pool_size": 0}}}},
+    )
+    on = generate_like_gui(
+        **common,
+        config_overrides={"playlists": {"ds_pipeline": {"pier_bridge": {"min_pool_size": 5000}}}},
+    )
+
+    off_cp = off.playlist_stats["candidate_pool"]
+    on_cp = on.playlist_stats["candidate_pool"]
+    assert off_cp["eligible_count"] == on_cp["eligible_count"], (off_cp, on_cp)
+
+    # After Phase 0 the backstop must not act at all: pool_size == pool_size
+    # regardless of min_pool_size (the field becomes a pure no-op).
+    assert off_cp["pool_size"] == on_cp["pool_size"], (
+        f"min_pool_size=0 vs =5000 produced DIFFERENT pool sizes after Phase 0 "
+        f"(the backstop should be fully inert): off_pool={off_cp['pool_size']} "
+        f"on_pool={on_cp['pool_size']}"
+    )
+
+    assert off.track_ids == on.track_ids, (
+        "min_pool_size=0 vs =5000 produced DIFFERENT final playlists: "
+        f"off={off.track_ids} on={on.track_ids}"
     )

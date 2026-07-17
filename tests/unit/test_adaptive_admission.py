@@ -196,40 +196,38 @@ def test_genre_percentile_runs_without_absolute_floor():
     )
 
 
-def test_min_pool_guarantee_never_starves():
-    """With a very tight percentile (0.98) that admits only ~2% of candidates,
-    min_pool_size=15 must backfill using top sonic-sim, respecting per-artist cap.
+def test_min_pool_size_is_inert_after_phase0():
+    """Phase 0 (corridor rework, 2026-07-16) retired the never-starve backstop:
+    min_pool_size no longer backfills the pool. Superseded
+    test_min_pool_guarantee_never_starves, which asserted the OLD backfill
+    contract (min_pool_size=15 must top up a percentile-starved pool to >= 15
+    entries) — that mechanism is gone (src/playlist/candidate_pool.py's
+    _min_pool_size block was deleted), so min_pool_size=0 vs a large value must
+    now yield the IDENTICAL pool. The beam enforces artist diversity
+    downstream; the pool no longer manufactures it.
     """
-    import numpy as np
-    from dataclasses import replace as _replace
-    from src.playlist.candidate_pool import build_candidate_pool, CandidateConfig
     n = 40
     rng = np.random.default_rng(2)
     X_sonic = rng.normal(size=(n, 8)).astype(np.float64)
     tids = [f"t{i}" for i in range(n)]
     aks = [f"a{i%6}" for i in range(n)]  # 6 distinct artists
-    # Tight percentile would admit very few; min_pool_size must backfill.
     cfg = CandidateConfig(similarity_floor=-1.0, min_sonic_similarity=None,
                           max_pool_size=10_000, target_artists=10_000,
                           candidates_per_artist=10_000, seed_artist_bonus=0,
                           max_artist_fraction_final=1.0, duration_penalty_enabled=False)
-    res = build_candidate_pool(
+    kwargs = dict(
         seed_idx=0, seed_indices=[0], embedding=X_sonic, artist_keys=np.array(aks),
-        track_ids=np.array(tids),
-        cfg=_replace(cfg, sonic_admission_percentile=0.98, min_pool_size=15),
-        random_seed=0,
-        X_sonic=X_sonic,
+        track_ids=np.array(tids), random_seed=0, X_sonic=X_sonic,
     )
-    assert len(res.pool_indices) >= 15, (
-        f"Expected min_pool_size backstop to ensure >= 15 pool entries, got {len(res.pool_indices)}"
+    off = build_candidate_pool(cfg=_replace(cfg, sonic_admission_percentile=0.98, min_pool_size=0), **kwargs)
+    on = build_candidate_pool(cfg=_replace(cfg, sonic_admission_percentile=0.98, min_pool_size=15), **kwargs)
+    assert sorted(off.pool_indices) == sorted(on.pool_indices), (
+        f"min_pool_size=0 vs =15 produced different pools after Phase 0 (the "
+        f"backstop should be fully inert): off={sorted(off.pool_indices)} "
+        f"on={sorted(on.pool_indices)}"
     )
-    # seeds must never be admitted by the backstop
-    assert 0 not in res.pool_indices, (
+    # seeds must never be admitted (unrelated invariant, still holds)
+    assert 0 not in off.pool_indices, (
         f"Seed index 0 must not appear in pool_indices (never-admit-seeds invariant), "
-        f"but pool contains: {res.pool_indices[:20]!r}"
-    )
-    # diversity respected: not a single-artist pool
-    pooled_artists = {aks[i] for i in res.pool_indices}
-    assert len(pooled_artists) >= 2, (
-        f"Expected at least 2 distinct artists in pool, got {pooled_artists!r}"
+        f"but pool contains: {list(off.pool_indices)[:20]!r}"
     )

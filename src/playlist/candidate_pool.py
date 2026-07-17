@@ -578,7 +578,12 @@ def build_candidate_pool(
     genre_vocab: Optional[list[str]] = None,
     broad_filters: tuple[str, ...] = (),
     mode: str = "dynamic",  # "dynamic", "narrow", "discover"
-    uncap_pool: bool = False,  # seeded mode: skip max_pool_size; per-artist cap still applies
+    # Phase 0 (corridor rework, 2026-07-16): dead parameter — the pool no longer
+    # truncates by max_pool_size/target_artists/per-artist cap at all (see the
+    # rank-walk loop below), so this toggle has nothing left to skip. Kept only
+    # because src/playlist/pipeline/core.py still passes it positionally by
+    # keyword; out of this task's scope to touch that call site.
+    uncap_pool: bool = False,
     perceptual_bpm: Optional[np.ndarray] = None,
     tempo_stability: Optional[np.ndarray] = None,
     onset_rate: Optional[np.ndarray] = None,
@@ -625,9 +630,11 @@ def build_candidate_pool(
         - [NEW] optionally filter by genre_similarity (hard gate in dynamic/narrow)
         - group by artist_keys
         - rank artists by max seed_sim within artist
-        - walk artists in rank order, taking up to candidates_per_artist,
-      plus seed_artist_bonus for seed artist (if present),
-      until max_pool_size reached AND target_artists satisfied (when possible).
+        - walk artists in rank order, admitting EVERY eligible index (sonic-sorted
+          within each artist group). Phase 0 (corridor rework, 2026-07-16): no
+          per-artist cap, no max_pool_size/target_artists early-stop, no
+          never-starve backstop — the beam enforces artist diversity downstream;
+          the pool now returns every post-floor-eligible candidate.
     """
     rng = np.random.default_rng(random_seed)
     emb_norm = embedding / (np.linalg.norm(embedding, axis=1, keepdims=True) + 1e-12)
@@ -1311,72 +1318,23 @@ def build_candidate_pool(
     pool_artists: set[str] = set()
     seed_artist_key = _normalize_artist_key(artist_keys[seed_idx])
 
+    # Phase 0 (corridor rework, 2026-07-16): the per-artist rank walk no longer
+    # truncates. It used to cap admission at candidates_per_artist and early-stop
+    # once max_pool_size/target_artists were hit; the beam already enforces
+    # per-segment/cross-segment artist diversity downstream, and the pool cap was
+    # independently deleting 14-60% of post-floor candidates for no benefit (M2,
+    # docs/POOL_STARVATION_RESEARCH_2026-07-12.md). Every eligible index is now
+    # admitted, sonic-sorted within each artist group; ordering/dedup unchanged.
     for artist, _, idxs, _max_genre in artist_rank:
-        per_artist_cap = cfg.candidates_per_artist
-        if artist == seed_artist_key:
-            per_artist_cap += cfg.seed_artist_bonus
         _genre_key = genre_sim_all if genre_sim_all is not None else None
         sorted_idxs = sorted(
             idxs,
             key=lambda i: (-seed_sim_all[i], -(float(_genre_key[i]) if _genre_key is not None else 0.0), i),
         )
-        take = sorted_idxs[:per_artist_cap]
-        for idx in take:
-            if not uncap_pool and len(pool_indices) >= cfg.max_pool_size and len(pool_artists) >= cfg.target_artists:
-                break
-            pool_indices.append(idx)
+        pool_indices.extend(sorted_idxs)
         pool_artists.add(artist)
-        if not uncap_pool and len(pool_indices) >= cfg.max_pool_size and len(pool_artists) >= cfg.target_artists:
-            break
 
     pool_indices = list(dict.fromkeys(pool_indices))  # dedupe, preserve order
-
-    # Capture pool size before backstop so artist_cap_excluded reflects the normal
-    # walk only (not inflated/deflated by backfill).
-    _pool_size_before_backstop = len(pool_indices)
-
-    # Never-starve backstop (Task 3): if the pool is below the minimum target,
-    # backfill from the highest-sonic-sim candidates not yet admitted.
-    # Per-artist cap is respected; seeds are never admitted.
-    # Default min_pool_size=0 disables this → byte-identical legacy behavior.
-    _min_pool_size = int(getattr(cfg, "min_pool_size", 0) or 0)
-    if _min_pool_size > 0 and len(pool_indices) < _min_pool_size:
-        from collections import Counter
-        _already = set(int(i) for i in pool_indices)
-        _per_artist: Counter = Counter(
-            _normalize_artist_key(artist_keys[i]) for i in pool_indices
-        )
-        _cap = int(getattr(cfg, "candidates_per_artist", 6) or 6)
-        _seed_set = set(int(i) for i in seed_list)
-        _gate_on = popularity_ranks is not None and popularity_rank_cutoff is not None
-        _ranked = sorted(
-            (i for i in range(len(track_ids))
-             if i not in _already and i not in _seed_set
-             and (not _gate_on or 0 <= int(popularity_ranks[i]) < int(popularity_rank_cutoff))),
-            # When no sonic embedding is present, admission order falls back to
-            # index order (arbitrary but bounded + still artist-cap-respecting).
-            key=lambda i: float(sonic_seed_sim[i]) if sonic_seed_sim is not None else 0.0,
-            reverse=True,
-        )
-        _added = 0
-        for i in _ranked:
-            if len(pool_indices) >= _min_pool_size:
-                break
-            _ak = _normalize_artist_key(artist_keys[i])
-            if _per_artist[_ak] >= _cap:
-                continue
-            pool_indices.append(int(i))
-            _already.add(int(i))
-            _per_artist[_ak] += 1
-            pool_artists.add(_ak)  # keep distinct_artists accurate after backfill
-            _added += 1
-        if _added:
-            logger.info(
-                "Min-pool backstop: pool %d below min %d; admitted %d more (top sonic-sim, artist-cap respected)",
-                len(pool_indices) - _added,
-                _min_pool_size,
-                _added,
-            )
 
     # Tag steering pool guarantee: force-admit on-tag tracks past the per-artist rank
     # walk AND the sonic pool floor. On-tag bridges are genre-adjacent and smooth in
@@ -1428,9 +1386,11 @@ def build_candidate_pool(
         else None
     )
 
-    # Count how many were excluded due to artist cap during the normal walk only.
-    # Uses _pool_size_before_backstop so backfill doesn't make this go negative.
-    artist_cap_excluded = len(eligible) - _pool_size_before_backstop
+    # Phase 0 (corridor rework, 2026-07-16): the per-artist cap walk and the
+    # never-starve backstop are both gone (see the rank-walk loop above), so
+    # nothing is ever excluded by them any more. The key is kept — reporters
+    # and JobOut still read it — but it is now always 0.
+    artist_cap_excluded = 0
 
     params_effective = {
         "similarity_floor": cfg.similarity_floor,
