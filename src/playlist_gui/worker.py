@@ -418,6 +418,83 @@ def setup_worker_logging():
 # Config Loading
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Corridor Phase 0 (2026-07): candidate_pool's per-artist cap walk and
+# never-starve backstop were deleted (Task 1: src/playlist/candidate_pool.py),
+# and the min_pool_size preset/resolution chains that fed them -- plus the
+# reviewer-confirmed-dead PierBridgeTuning.min_pool_size family -- were
+# deleted with them (Task 2: src/playlist/mode_presets.py,
+# src/playlist/pipeline/core.py). The dataclass fields themselves
+# (CandidatePoolConfig.min_pool_size, PierBridgeTuning.min_pool_size) were
+# kept as inert placeholders so old config.yaml values don't raise, per the
+# "configured knob that can't act is a startup error, not a silent no-op"
+# rule -- this is that startup error. Two distinct yaml locations can carry
+# retired keys:
+#   - playlists.ds_pipeline.candidate_pool.* -- fed default_ds_config's
+#     per-artist cap walk (candidates_per_artist/target_artists/
+#     seed_artist_bonus were dead outlets even before Phase 0 -- see
+#     scripts/corridor_baseline/perturb.py's _CANDIDATE_POOL_FIELD_MAP --
+#     max_pool_size/min_pool_size were live until Task 1/2 deleted their
+#     consumers)
+#   - playlists.ds_pipeline.pier_bridge.min_pool_size (+ cohesion_mode-suffixed
+#     variants _strict/_narrow/_dynamic/_discover, resolved via
+#     _resolve_mode_number_with_source) -- fed PierBridgeTuning.min_pool_size,
+#     which has zero readers in pier_bridge/config.py, pier_bridge/beam.py, or
+#     pier_bridge_builder.py (Task 2 reviewer finding)
+_RETIRED_CANDIDATE_POOL_KEYS = {
+    "candidates_per_artist": "pool artist-cap removed (corridor Phase 0); beam enforces diversity",
+    "target_artists": "pool artist-cap removed (corridor Phase 0); beam enforces diversity",
+    "max_pool_size": "global pool size cap removed (corridor Phase 0); segment_pool_max bounds beam input",
+    "min_pool_size": "never-starve backstop removed (corridor Phase 0); quality-triggered widening replaces it (corridor Phase 1)",
+    "seed_artist_bonus": "pool artist-cap removed (corridor Phase 0); only fed the deleted cap allocation",
+}
+
+_RETIRED_PIER_BRIDGE_MIN_POOL_SIZE_KEYS = {
+    "min_pool_size": "min_pool_size resolution chain removed (corridor Phase 0 Task 2); PierBridgeTuning.min_pool_size has no reader",
+    "min_pool_size_strict": "min_pool_size resolution chain removed (corridor Phase 0 Task 2); PierBridgeTuning.min_pool_size has no reader",
+    "min_pool_size_narrow": "min_pool_size resolution chain removed (corridor Phase 0 Task 2); PierBridgeTuning.min_pool_size has no reader",
+    "min_pool_size_dynamic": "min_pool_size resolution chain removed (corridor Phase 0 Task 2); PierBridgeTuning.min_pool_size has no reader",
+    "min_pool_size_discover": "min_pool_size resolution chain removed (corridor Phase 0 Task 2); PierBridgeTuning.min_pool_size has no reader",
+}
+
+
+def _warn_retired_keys(config: Dict[str, Any]) -> list[str]:
+    """
+    Warn loudly (once per configured key) for every retired candidate-pool /
+    pier-bridge knob still present in a merged config, naming the replacement
+    rationale. Returns the qualified ("<section>.<key>") names found, for
+    tests and callers that want to surface this beyond the log.
+
+    "A configured knob that can't act is a startup error, not a silent
+    no-op" (CLAUDE.md) -- these two families were retired in corridor
+    Phase 0 (Tasks 1-2) but their dataclass fields were kept as inert
+    placeholders so old config.yaml values don't raise. This is that
+    startup error, downgraded to a warning since the fields are genuinely
+    harmless no-ops now (not silent -- logged).
+    """
+    ds_pipeline = ((config.get("playlists") or {}).get("ds_pipeline") or {})
+    found: list[str] = []
+
+    candidate_pool = ds_pipeline.get("candidate_pool") or {}
+    for key, rationale in _RETIRED_CANDIDATE_POOL_KEYS.items():
+        if key in candidate_pool:
+            qualified = f"candidate_pool.{key}"
+            found.append(qualified)
+            logging.getLogger(__name__).warning(
+                "Config key 'playlists.ds_pipeline.%s' is RETIRED (%s). "
+                "Remove it from config.yaml.", qualified, rationale)
+
+    pier_bridge = ds_pipeline.get("pier_bridge") or {}
+    for key, rationale in _RETIRED_PIER_BRIDGE_MIN_POOL_SIZE_KEYS.items():
+        if key in pier_bridge:
+            qualified = f"pier_bridge.{key}"
+            found.append(qualified)
+            logging.getLogger(__name__).warning(
+                "Config key 'playlists.ds_pipeline.%s' is RETIRED (%s). "
+                "Remove it from config.yaml.", qualified, rationale)
+
+    return found
+
+
 def load_config_with_overrides(base_path: str, overrides: Dict[str, Any]) -> Dict[str, Any]:
     """Load base config and merge with overrides."""
     if not Path(base_path).exists():
@@ -437,6 +514,10 @@ def load_config_with_overrides(base_path: str, overrides: Dict[str, Any]) -> Dic
         return result
 
     merged = deep_merge(config, overrides)
+
+    # Corridor Phase 0: warn loudly on any retired candidate_pool/pier_bridge
+    # min_pool_size knob still configured -- see _warn_retired_keys docstring.
+    _warn_retired_keys(merged)
 
     # Apply mode presets (genre_mode/sonic_mode) to resolve weights and thresholds
     _apply_mode_presets(merged)
