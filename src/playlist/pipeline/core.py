@@ -269,6 +269,7 @@ def generate_playlist_ds(
     min_genre_similarity: Optional[float] = None,
     genre_method: Optional[str] = None,
     genre_admission_percentile: Optional[float] = None,
+    genre_mode: Optional[str] = None,
     allowed_track_ids_set: Optional[set[str]] = None,
     internal_connector_ids: Optional[List[str]] = None,
     internal_connector_max_per_segment: int = 0,
@@ -297,6 +298,13 @@ def generate_playlist_ds(
     - sonic_weight, genre_weight: control hybrid embedding balance
     - min_genre_similarity: gate threshold
     - genre_method: which genre similarity algorithm to use
+    - genre_mode: raw playlists.genre_mode string (Phase 1 Task 5). Threaded
+      straight through to build_pier_bridge_playlist's genre_mode kwarg,
+      CORRIDOR-POOLING ONLY (Phase 1 Task 4's relevance mask) -- not consumed
+      by anything else in this function. min_genre_similarity/genre_admission_
+      percentile above are the NUMBERS this mode resolves to upstream
+      (mode_presets.apply_mode_presets via genre_ds_params.resolve_genre_ds_
+      params); this is the raw string itself.
     """
     # Normalize optional lists to avoid NoneType len issues downstream.
     anchor_seed_ids = list(dict.fromkeys(anchor_seed_ids or []))
@@ -1048,6 +1056,19 @@ def generate_playlist_ds(
                     on_tag_guarantee_ids=_on_tag_guarantee_ids,
                     on_tag_segment_guarantee_max=_seg_guar_max,
                     on_tag_segment_guarantee_per_artist=_seg_guar_pa,
+                    # Phase 1 Task 5 req 0: thread the raw genre_mode string
+                    # through so the corridor path's genre-mode-keyed
+                    # relevance mask (Phase 1 Task 4) gets the real slider
+                    # value instead of always landing in the "off" bucket.
+                    genre_mode=genre_mode,
+                    # Phase 1 Task 5 reseat: Oops-All-Bangers on the corridor
+                    # universe. Same (ranks, cutoff) pair already resolved
+                    # once above via _banger_gate_inputs for the legacy pool
+                    # (aligned to the FULL bundle) -- inert on the legacy path
+                    # (pier_bridge_builder.py only reads these inside its
+                    # pooling=="corridor" branch).
+                    popularity_ranks=_banger_ranks,
+                    popularity_rank_cutoff=_banger_cutoff,
                 )
 
             one_each_candidate_relaxation: Optional[Dict[str, Any]] = None
@@ -1244,6 +1265,11 @@ def generate_playlist_ds(
                     # empty/"legacy" unless pier_bridge.pooling="corridor").
                     "pooling_strategy": (pb_result.stats or {}).get("pooling_strategy"),
                     "corridor_segments": (pb_result.stats or {}).get("corridor_segments") or [],
+                    # Task 5 req 0's wiring test caught this missing: without it,
+                    # corridor_universe_size never reached a production-path
+                    # caller (build_pier_bridge_playlist's raw stats dict has it;
+                    # this per-run summarization layer just wasn't copying it).
+                    "corridor_universe_size": (pb_result.stats or {}).get("corridor_universe_size"),
                     "layered_transition_diagnostics": layered_transition_diagnostics,
                     "receipt_pool": receipt_pool_stats,
                 },

@@ -83,3 +83,34 @@ def test_sonic_only_with_mode_overrides_keeps_genre():
     cfg["genre_mode"] = "narrow"  # mode override active
     out = resolve_genre_ds_params(cfg, "sonic_only")
     assert out["min_genre_similarity"] == 0.40
+
+
+# ── Phase 1 Task 5 req 0: raw genre_mode passthrough ────────────────────────
+#
+# The corridor path's genre-mode-keyed relevance mask (Phase 1 Task 4) needs
+# the raw playlists.genre_mode STRING, not just the numbers apply_mode_presets
+# resolves it to. apply_mode_presets reads the key but never deletes it, so
+# it survives on playlists_cfg for this function to read straight through.
+
+def test_genre_mode_passthrough():
+    cfg = _cfg(enabled=True, min_genre_similarity=0.30)
+    cfg["genre_mode"] = "strict"
+    out = resolve_genre_ds_params(cfg, "dynamic")
+    assert out["genre_mode"] == "strict"
+
+
+def test_genre_mode_none_when_absent():
+    out = resolve_genre_ds_params(_cfg(enabled=True, min_genre_similarity=0.30), "dynamic")
+    assert out["genre_mode"] is None
+
+
+def test_genre_mode_passthrough_independent_of_cohesion_mode():
+    """genre_mode is read verbatim off playlists_cfg -- unlike min_genre_similarity
+    (see test_cohesion_mode_does_not_alter_genre_floor), cohesion `mode` was never
+    involved in resolving it, so there's no coupling to pin against, only that it's
+    the same string regardless of which cohesion mode is passed."""
+    cfg = _cfg(enabled=True, min_genre_similarity=0.30)
+    cfg["genre_mode"] = "discover"
+    for cohesion_mode in ("strict", "narrow", "dynamic", "discover", "sonic_only"):
+        out = resolve_genre_ds_params(cfg, cohesion_mode)
+        assert out["genre_mode"] == "discover", cohesion_mode

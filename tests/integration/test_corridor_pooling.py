@@ -1,8 +1,10 @@
-"""Phase 1 Tasks 3+4: corridor segment pooling + relevance mask / widening
-ladder, behind the dev flag.
+"""Phase 1 Tasks 3+4+5: corridor segment pooling + relevance mask / widening
+ladder + reseats (bangers, tag guarantee, tail-DP, edge repair) + genre_mode
+production wiring, behind the dev flag.
 
 Spec: docs/superpowers/specs/2026-07-12-corridor-first-pooling-design.md.
-Reports: .superpowers/sdd/p1-task-3-report.md, .superpowers/sdd/p1-task-4-report.md.
+Reports: .superpowers/sdd/p1-task-3-report.md, .superpowers/sdd/p1-task-4-report.md,
+.superpowers/sdd/p1-task-5-report.md.
 
 Tiers:
   * `test_corridor_pooling_*` / `test_corridor_widening_ladder_*` -- real
@@ -25,9 +27,37 @@ Tiers:
     both exclusion kinds, this pins the artist-key half).
   * `test_corridor_relevance_mask_*` -- fast unit-level wiring check (Task 4):
     genre_mode keys the relevance-mask floor fed into build_eligible_universe,
-    directly via build_pier_bridge_playlist's genre_mode kwarg (the sole
-    production caller does not thread genre_mode through yet -- see
-    build_pier_bridge_playlist's genre_mode docstring and the Task 4 report).
+    directly via build_pier_bridge_playlist's genre_mode kwarg. As of Task 5
+    this kwarg is ALSO reachable from real production config (see the
+    genre_mode production-wiring test below) -- these tests keep exercising
+    the mechanism directly (bypassing the full config chain) since that's
+    what they're pinning.
+  * `test_corridor_genre_mode_threads_through_production_wiring` -- real
+    end-to-end generation (@integration @slow): Task 5 req 0. genre_mode
+    reaches build_pier_bridge_playlist via the REAL production call chain
+    (playlist_generator.py -> ds_pipeline_runner.py -> pipeline/core.py),
+    driven purely by config -- no test-only kwargs. Task 4 built the
+    mechanism but left this wiring gap open (documented in its own report as
+    a KNOWN GAP); every corridor generation silently got genre_mode="off"
+    regardless of the slider until Task 5 closed it.
+  * `test_corridor_bangers_*` -- fast unit-level wiring check (Task 5 reseat
+    1): the Oops-All-Bangers popularity rank-cutoff gate, applied once at
+    corridor universe build via build_pier_bridge_playlist's new
+    popularity_ranks/popularity_rank_cutoff kwargs (core.py's _run_pier_bridge
+    closure plumbs the same array it already resolves for the legacy pool).
+  * `test_corridor_tag_guarantee_*` -- fast unit-level wiring check (Task 5
+    reseat 2): on-tag guarantee ids reach build_corridor's force_include for
+    every segment; verified via the new forced_included diagnostics count
+    (never a member-id dump).
+  * `test_corridor_repair_stack_draws_only_from_corridor_union` -- real,
+    stressed end-to-end generation (@integration @slow, Task 5 reseats 3+4):
+    with tail_dp_enabled + edge_repair_enabled on a corridor run stressed
+    enough to actually trigger both, every final track still clears at least
+    ONE segment's recorded corridor threshold (a corridor-membership recheck
+    against the run's own threshold diagnostics -- edge repair draws from the
+    UNION of every segment's final corridor members under corridor pooling,
+    not any one segment's alone, so per-segment-only membership is not
+    guaranteed for a repaired track; per-union membership is).
 """
 from __future__ import annotations
 
@@ -596,3 +626,307 @@ def test_corridor_widening_ladder_recovers_stressed_segment(caplog):
         if r.name == "src.playlist.pier_bridge_builder" and r.getMessage().startswith("CorridorWiden[seg ")
     ]
     assert widen_lines, "expected at least one CorridorWiden[seg N]: log line under a stressed corridor"
+
+
+# ── Task 5 req 0: genre_mode production wiring (HARD requirement) ───────────
+
+@pytest.mark.integration
+@pytest.mark.slow
+@_requires_artifact
+def test_corridor_genre_mode_threads_through_production_wiring():
+    """Req 0 (task-5-brief.md, HARD, carried from Task 4's own report as a
+    KNOWN GAP): genre_mode must reach build_pier_bridge_playlist via the REAL
+    production call chain (playlist_generator.py -> ds_pipeline_runner.py ->
+    pipeline/core.py -> build_pier_bridge_playlist), driven purely by config
+    -- no test-only kwargs (this is the anti-dead-knob proof). Compares
+    corridor_universe_size between genre_mode="off" and genre_mode="strict"
+    on an otherwise-identical real generation via generate_like_gui, which
+    resolves genre_mode exactly the way the GUI worker does (UIStateModel ->
+    derive_runtime_config -> merge_overrides -> load_config_with_overrides ->
+    resolve_genre_ds_params) -- Task 4 built the relevance-mask mechanism but
+    left this wiring gap open; before this test can pass, every corridor
+    generation silently got the "off" bucket regardless of the slider."""
+    ui_off = gui_ui_state(
+        cohesion_mode="narrow", genre_mode="off", sonic_mode="narrow", pace_mode="narrow",
+    )
+    ui_strict = gui_ui_state(
+        cohesion_mode="narrow", genre_mode="strict", sonic_mode="narrow", pace_mode="narrow",
+    )
+
+    res_off = generate_like_gui(
+        seeds=SEEDS, ui=ui_off, length=20, random_seed=0,
+        config_overrides=CORRIDOR_OVERRIDES,
+    )
+    res_strict = generate_like_gui(
+        seeds=SEEDS, ui=ui_strict, length=20, random_seed=0,
+        config_overrides=CORRIDOR_OVERRIDES,
+    )
+
+    size_off = res_off.playlist_stats.get("playlist", {}).get("corridor_universe_size")
+    size_strict = res_strict.playlist_stats.get("playlist", {}).get("corridor_universe_size")
+    assert size_off is not None and size_strict is not None, (
+        f"corridor_universe_size missing from diagnostics: off={size_off} strict={size_strict}"
+    )
+    assert size_strict < size_off, (
+        f"genre_mode=strict should shrink corridor_universe_size vs genre_mode=off "
+        f"(pure config-driven, no test-only kwargs) -- got strict={size_strict} off={size_off}. "
+        f"If these are equal, genre_mode never reached build_pier_bridge_playlist."
+    )
+
+
+# ── Task 5 reseat 1: Oops-All-Bangers on the corridor universe ──────────────
+#
+# 6 rows: 2 piers (b0, b1) + 4 candidates spread along one sonic axis so every
+# non-pier row clears a permissive (0.0) corridor width regardless of
+# popularity. b2/b3 are "bangers" (rank 0/1, well inside a cutoff of 10);
+# b4/b5 are "non-bangers" (rank 50/60, well outside). interior_len=2 makes the
+# gated case a DETERMINISTIC fill (exactly 2 candidates survive the gate, so
+# the beam has no choice but to use both) -- avoiding any dependence on beam
+# preference to prove membership, same principle as the tag-guarantee test's
+# diagnostics-route check below.
+_B = 6
+_B_TRACK_IDS = np.array([f"bg{i}" for i in range(_B)], dtype=object)
+_B_ARTISTS = np.array([f"Bangers Artist {i}" for i in range(_B)], dtype=object)
+_B_TITLES = np.array([f"Bangers Song {i}" for i in range(_B)], dtype=object)
+_B_SONIC = np.array([[float(i), 0.0, 0.0] for i in range(_B)], dtype=float)
+_B_RANKS = np.array([-1, -1, 0, 1, 50, 60], dtype=float)
+_B_CUTOFF = 10
+
+
+def _bangers_bundle() -> ArtifactBundle:
+    return ArtifactBundle(
+        artifact_path=Path("fake.npz"),
+        track_ids=_B_TRACK_IDS,
+        artist_keys=_B_ARTISTS,
+        track_artists=_B_ARTISTS,
+        track_titles=_B_TITLES,
+        X_sonic=_B_SONIC,
+        X_sonic_start=None,
+        X_sonic_mid=None,
+        X_sonic_end=None,
+        X_genre_raw=np.zeros((_B, 1)),
+        X_genre_smoothed=np.zeros((_B, 1)),
+        genre_vocab=np.array(["x"], dtype=object),
+        track_id_to_index={str(tid): i for i, tid in enumerate(_B_TRACK_IDS)},
+        durations_ms=np.full(_B, 200_000.0),
+    )
+
+
+def _run_bangers_case(gated: bool):
+    bundle = _bangers_bundle()
+    cfg = PierBridgeConfig(
+        pooling="corridor",
+        corridor_width_percentile=0.0,  # permissive: the bangers gate is the only lever under test
+        transition_floor=-1.0,
+        bridge_floor=-1.0,
+        progress_enabled=False,
+        collapse_segment_pool_by_artist=False,
+    )
+    kwargs = dict(popularity_ranks=_B_RANKS, popularity_rank_cutoff=_B_CUTOFF) if gated else {}
+    return build_pier_bridge_playlist(
+        seed_track_ids=["bg0", "bg1"],
+        total_tracks=4,
+        bundle=bundle,
+        candidate_pool_indices=list(range(2, _B)),
+        cfg=cfg,
+        **kwargs,
+    )
+
+
+def test_corridor_bangers_gate_shrinks_universe_and_every_member_clears_cutoff():
+    result = _run_bangers_case(gated=True)
+    assert result.success, f"corridor segment starved: {result.failure_reason}"
+    assert int(result.stats["corridor_universe_size"]) == 4, (
+        f"expected 2 piers + 2 bangers = 4, got {result.stats['corridor_universe_size']}"
+    )
+    # Deterministic fill: exactly the 2 surviving bangers fill the 2 interior
+    # slots -- every corridor member (hence every playlist track) is within
+    # the rank cutoff.
+    assert set(result.track_ids) == {"bg0", "bg1", "bg2", "bg3"}, (
+        f"non-banger track leaked into the playlist: {result.track_ids}"
+    )
+
+
+def test_corridor_bangers_gate_off_leaves_full_universe():
+    result = _run_bangers_case(gated=False)
+    assert result.success, f"corridor segment starved: {result.failure_reason}"
+    assert int(result.stats["corridor_universe_size"]) == _B, (
+        f"gate inactive (no popularity_ranks/cutoff passed) should leave the full "
+        f"universe eligible, got {result.stats['corridor_universe_size']}"
+    )
+
+
+# ── Task 5 reseat 2: tag-steering pool guarantee (force_include) ────────────
+#
+# 4 rows: 2 piers (g0, g1) far apart on the sonic axis, plus g2 (aligned with
+# BOTH piers -- clears a tight width) and g3 (far off-axis -- fails the same
+# tight width). Without a guarantee, g3 can never enter g1<->g0's corridor;
+# with on_tag_guarantee_ids={"g3"}, corridor.py's force_include (Task 1,
+# forced-first semantics) admits it regardless of width. Checked via the new
+# `forced_included` diagnostics summary count (never a member-id dump, per
+# the NDJSON size discipline every other corridor_segments field follows).
+_G = 4
+_G_TRACK_IDS = np.array([f"g{i}" for i in range(_G)], dtype=object)
+_G_ARTISTS = np.array([f"Guarantee Artist {i}" for i in range(_G)], dtype=object)
+_G_TITLES = np.array([f"Guarantee Song {i}" for i in range(_G)], dtype=object)
+_G_SONIC = np.array(
+    [
+        [0.0, 0.0, 0.0],   # g0 pier A
+        [1.0, 1.0, 0.0],   # g1 pier B
+        [0.5, 0.5, 0.0],   # g2: on the A-B line -- clears a tight width
+        [0.0, 0.0, 1.0],   # g3: orthogonal to the A-B plane -- fails a tight width
+    ],
+    dtype=float,
+)
+
+
+def _guarantee_bundle() -> ArtifactBundle:
+    return ArtifactBundle(
+        artifact_path=Path("fake.npz"),
+        track_ids=_G_TRACK_IDS,
+        artist_keys=_G_ARTISTS,
+        track_artists=_G_ARTISTS,
+        track_titles=_G_TITLES,
+        X_sonic=_G_SONIC,
+        X_sonic_start=None,
+        X_sonic_mid=None,
+        X_sonic_end=None,
+        X_genre_raw=np.zeros((_G, 1)),
+        X_genre_smoothed=np.zeros((_G, 1)),
+        genre_vocab=np.array(["x"], dtype=object),
+        track_id_to_index={str(tid): i for i, tid in enumerate(_G_TRACK_IDS)},
+        durations_ms=np.full(_G, 200_000.0),
+    )
+
+
+def _run_guarantee_case(guaranteed: bool):
+    bundle = _guarantee_bundle()
+    cfg = PierBridgeConfig(
+        pooling="corridor",
+        corridor_width_percentile=0.85,  # tight enough that g3 fails membership on its own
+        transition_floor=-1.0,
+        bridge_floor=-1.0,
+        progress_enabled=False,
+        collapse_segment_pool_by_artist=False,
+    )
+    kwargs = dict(on_tag_guarantee_ids={"g3"}) if guaranteed else {}
+    return build_pier_bridge_playlist(
+        seed_track_ids=["g0", "g1"],
+        total_tracks=3,
+        bundle=bundle,
+        candidate_pool_indices=[2, 3],
+        cfg=cfg,
+        **kwargs,
+    )
+
+
+def test_corridor_tag_guarantee_forces_below_threshold_track_into_segment_corridor():
+    result = _run_guarantee_case(guaranteed=True)
+    assert result.success, f"corridor segment starved: {result.failure_reason}"
+    corridor_segments = result.stats.get("corridor_segments") or []
+    assert len(corridor_segments) == 1
+    assert int(corridor_segments[0].get("forced_included", 0)) >= 1, (
+        f"expected the guaranteed below-threshold track to be counted as "
+        f"forced_included, got: {corridor_segments[0]}"
+    )
+
+
+def test_corridor_tag_guarantee_absent_by_default():
+    result = _run_guarantee_case(guaranteed=False)
+    assert result.success, f"corridor segment starved: {result.failure_reason}"
+    corridor_segments = result.stats.get("corridor_segments") or []
+    assert len(corridor_segments) == 1
+    assert int(corridor_segments[0].get("forced_included", 0)) == 0, (
+        f"expected no forced inclusions without on_tag_guarantee_ids, got: "
+        f"{corridor_segments[0]}"
+    )
+
+
+# ── Task 5 reseats 3+4: tail-DP + edge repair draw only from the corridor
+# union (real, stressed generation) ─────────────────────────────────────────
+
+@pytest.mark.integration
+@pytest.mark.slow
+@_requires_artifact
+def test_corridor_repair_stack_draws_only_from_corridor_union():
+    """Stressed run (same stress shape as the widening-ladder test: a tight
+    width the ladder can't always fully recover from) with tail_dp_enabled
+    (default True) AND edge_repair_enabled turned on. Corridor-membership
+    recheck via the run's own threshold diagnostics (never a member-id dump):
+    every final track -- including any tail-DP swap or edge-repair swap --
+    must clear at least ONE segment's recorded corridor threshold. Under
+    corridor pooling, edge repair draws from the UNION of every segment's
+    final corridor members (design spec §3's sanctioned substitute for
+    per-edge scoping, since repair_playlist_edges takes one candidate pool
+    for the whole pass), so a repaired track's home segment need not be the
+    one it clears -- the OR-across-segments check below is the correct
+    membership contract for this reseat, not a per-segment-only check."""
+    ui = gui_ui_state(
+        cohesion_mode="narrow", genre_mode="narrow", sonic_mode="narrow", pace_mode="narrow",
+    )
+    overrides = {
+        "playlists": {"ds_pipeline": {
+            "pier_bridge": {
+                "pooling": "corridor",
+                "corridor_width_percentile": 0.995,
+                "corridor_widen_step": 0.10,
+                "corridor_widen_attempts": 3,
+                "edge_repair_enabled": True,
+            },
+            "constraints": {"transition_floor": 0.55},
+        }},
+    }
+
+    res = generate_like_gui(
+        seeds=SEEDS, ui=ui, length=20, random_seed=0,
+        config_overrides=overrides,
+    )
+
+    assert len(res.track_ids) == 20, f"expected 20 tracks, got {len(res.track_ids)}"
+
+    playlist_stats = res.playlist_stats.get("playlist", {})
+    corridor_segments = playlist_stats.get("corridor_segments") or []
+    num_segments = len(SEEDS) - 1
+    assert len(corridor_segments) == num_segments
+
+    # Load AFTER generate_like_gui (side effect sets the sonic-variant
+    # override), same ordering discipline as the membership test above.
+    load_artifact_bundle.cache_clear()
+    bundle = load_artifact_bundle(str(ART))
+    X_norm = _l2norm(bundle.X_sonic)
+    seed_id_set = set(SEEDS)
+    pier_positions = [i for i, tid in enumerate(res.track_ids) if tid in seed_id_set]
+    assert len(pier_positions) == len(SEEDS)
+
+    threshold_by_seg = {int(e["seg"]): float(e["threshold"]) for e in corridor_segments}
+    seg_pier_vecs = []
+    for seg in range(len(pier_positions) - 1):
+        a_vec = X_norm[bundle.track_id_to_index[res.track_ids[pier_positions[seg]]]]
+        b_vec = X_norm[bundle.track_id_to_index[res.track_ids[pier_positions[seg + 1]]]]
+        seg_pier_vecs.append((a_vec, b_vec, threshold_by_seg[seg]))
+
+    for pos, tid in enumerate(res.track_ids):
+        if tid in seed_id_set:
+            continue
+        vec = X_norm[bundle.track_id_to_index[tid]]
+        clears_any_segment = any(
+            min(float(np.dot(vec, a_vec)), float(np.dot(vec, b_vec))) >= threshold - 1e-6
+            for a_vec, b_vec, threshold in seg_pier_vecs
+        )
+        assert clears_any_segment, (
+            f"track {tid} at position {pos} clears NO segment's corridor threshold -- "
+            f"came from outside the corridor union"
+        )
+
+    # Confidence check: this stress config must actually exercise both repair
+    # mechanisms, or the membership recheck above is vacuous (every track
+    # trivially self-satisfies its own un-repaired segment). Evidence, not
+    # member-id dumps: edge_repair_applied is a diagnostics boolean; tail-DP
+    # has no stats-dict entry (see pier_bridge_builder.py's tail-DP comment),
+    # so its evidence is the log line it already emits on every real swap.
+    assert playlist_stats.get("repair_applied") is True, (
+        "expected this stressed config to actually trigger edge repair -- "
+        "otherwise the membership recheck above is vacuous "
+        f"(full playlist_stats repair keys: repair_applied="
+        f"{playlist_stats.get('repair_applied')!r})"
+    )

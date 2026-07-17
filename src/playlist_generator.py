@@ -816,6 +816,10 @@ class PlaylistGenerator:
         genre_method = _genre_params["genre_method"]
         genre_admission_pct = _genre_params["genre_admission_percentile"]
         genre_enabled = min_genre_sim is not None
+        # Raw genre_mode string (Phase 1 Task 5 req 0): the corridor path's
+        # genre-mode-keyed relevance mask (Phase 1 Task 4) needs the mode
+        # itself, not just the numbers it resolves to above.
+        genre_mode_resolved = _genre_params["genre_mode"]
 
         if artist_style_enabled and not allowed_track_ids:
             raise ValueError(
@@ -879,6 +883,7 @@ class PlaylistGenerator:
             min_genre_similarity=min_genre_sim,
             genre_method=genre_method,
             genre_admission_percentile=genre_admission_pct,
+            genre_mode=genre_mode_resolved,
             internal_connector_ids=internal_connector_ids,
             internal_connector_max_per_segment=internal_connector_max_per_segment,
             internal_connector_priority=internal_connector_priority,

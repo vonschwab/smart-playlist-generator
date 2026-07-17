@@ -157,6 +157,11 @@ from src.playlist.pier_bridge.eligible_universe import build_eligible_universe, 
 # the exact same function, not a reimplementation.
 from src.playlist.artist_style import seed_genre_relevance_mask
 
+# Phase 1 Task 5: Oops-All-Bangers reseat onto the corridor universe -- reuses
+# candidate_pool.py's own rank-cutoff gate (imported, not copied) so both
+# pooling strategies filter identically.
+from src.playlist.candidate_pool import _apply_popularity_gate
+
 
 logger = logging.getLogger(__name__)
 
@@ -407,6 +412,8 @@ def build_pier_bridge_playlist(
     on_tag_segment_guarantee_max: int = 0,
     on_tag_segment_guarantee_per_artist: int = 0,
     genre_mode: Optional[str] = None,
+    popularity_ranks: Optional[np.ndarray] = None,
+    popularity_rank_cutoff: Optional[int] = None,
 ) -> PierBridgeResult:
     """
     Build playlist using pier + bridge strategy.
@@ -424,17 +431,27 @@ def build_pier_bridge_playlist(
             "discover"), CORRIDOR-POOLING ONLY (Phase 1 Task 4): keys the
             relevance-mask floor fed to build_eligible_universe (see
             ``_corridor_genre_relevance_floor`` below). Not consumed anywhere
-            else in this function. KNOWN GAP: the sole production caller
-            (pipeline.core.generate_playlist_ds's ``_run_pier_bridge`` closure)
-            does not pass this yet — genre_mode is resolved into
-            min_genre_similarity/genre_admission_percentile far upstream
-            (mode_presets.apply_mode_presets) and never threaded back out as
-            the raw string, so wiring the live value through requires touching
-            pipeline/core.py (and, to plumb it from the raw config string,
-            likely ds_pipeline_runner.py too) — out of this task's touched-
-            files scope. Until that follow-up lands, corridor-mode generations
-            get the "off" bucket (mask disabled) by default in production; the
-            mechanism is fully wired and covered by direct-call tests here.
+            else in this function. Phase 1 Task 5 closed the production gap
+            noted here through Task 4: ``pipeline.core.generate_playlist_ds``'s
+            ``_run_pier_bridge`` closure now threads the raw genre_mode string
+            (resolved via ``genre_ds_params.resolve_genre_ds_params``, which
+            reads ``playlists_cfg.get("genre_mode")`` -- the same raw value
+            ``mode_presets.apply_mode_presets`` consumes but never deletes)
+            all the way from ``playlist_generator.py`` through
+            ``ds_pipeline_runner.generate_playlist_ds`` to here. Corridor-mode
+            generations now get the real slider value.
+        popularity_ranks: Optional (N,) array of per-bundle-row 0-based
+            Last.fm popularity ranks, CORRIDOR-POOLING ONLY (Phase 1 Task 5
+            reseat): when given together with ``popularity_rank_cutoff``,
+            gates the corridor eligible universe to bangers once at universe
+            build (mirrors ``candidate_pool.py``'s ``_apply_popularity_gate``,
+            imported not copied). Same array core.py's ``_banger_gate_inputs``
+            already resolves for the legacy pool (aligned to the full bundle,
+            not just ``candidate_pool_indices``). None = gate inactive.
+        popularity_rank_cutoff: 0-based rank cutoff paired with
+            ``popularity_ranks`` (keep rank in ``[0, cutoff)``). None = gate
+            inactive. No relax-to-fill cascade under corridor pooling -- the
+            widening ladder is the sole relaxation mechanism for this path.
 
     Returns:
         PierBridgeResult with ordered track IDs and diagnostics
@@ -593,17 +610,61 @@ def build_pier_bridge_playlist(
             instrumental_penalty_weight=float(cfg.instrumental_penalty_weight),
             voice_prob=voice_prob,
         )
+        # Oops, All Bangers (Task 5 reseat, design spec §3: "popularity filter
+        # applies to the corridor universe when enabled"). Applied ONCE here,
+        # at universe build -- NOT inside eligible_universe.py (its reviewed
+        # interface stays frozen this task) -- via the SAME rank-cutoff gate
+        # candidate_pool.py's legacy pool uses (_apply_popularity_gate,
+        # imported above, not copied). core.py's `_run_pier_bridge` closure
+        # plumbs the same (popularity_ranks, popularity_rank_cutoff) pair it
+        # already resolves once via `_banger_gate_inputs` for the legacy pool
+        # (aligned to the FULL bundle, so it applies unchanged here). No
+        # relax-to-fill cascade: unlike the legacy path's `_banger_relaxation_
+        # steps` cascade (core.py), the corridor path's only relaxation
+        # mechanism is the widening ladder (Task 4) -- core.py's relax-to-fill
+        # loop only rebuilds the LEGACY `pool`/`universe` variable, which the
+        # corridor branch never reads, so it is inert here by construction,
+        # not by an explicit skip. Seeds are exempt (unioned back in), mirroring
+        # every other exclusion in this universe (seeds are never dropped from
+        # their own generation for failing a popularity check).
+        if popularity_rank_cutoff is not None and popularity_ranks is not None:
+            _pre_gate_idx = corridor_universe.indices.tolist()
+            _kept_list, _pop_excluded = _apply_popularity_gate(
+                _pre_gate_idx, np.asarray(popularity_ranks), int(popularity_rank_cutoff)
+            )
+            _kept_set = set(int(i) for i in _kept_list) | seed_set
+            _keep_mask = np.fromiter(
+                (int(i) in _kept_set for i in _pre_gate_idx),
+                dtype=bool, count=len(_pre_gate_idx),
+            )
+            corridor_universe = replace(
+                corridor_universe,
+                indices=corridor_universe.indices[_keep_mask],
+                X_norm=corridor_universe.X_norm[_keep_mask],
+                duration_rank_penalty=corridor_universe.duration_rank_penalty[_keep_mask],
+                stats={
+                    **corridor_universe.stats,
+                    "excluded_popularity_gate": int(len(_pre_gate_idx) - int(_keep_mask.sum())),
+                    "eligible_count": int(_keep_mask.sum()),
+                },
+            )
+            logger.info(
+                "Corridor bangers gate: cutoff=top-%d before=%d after=%d excluded=%d",
+                int(popularity_rank_cutoff), len(_pre_gate_idx),
+                int(corridor_universe.indices.size), int(_pop_excluded),
+            )
         _genre_dense_full_for_corridor = getattr(bundle, "X_genre_dense", None)
         if _genre_dense_full_for_corridor is not None:
             corridor_genre_dense_universe = _genre_dense_full_for_corridor[corridor_universe.indices]
         logger.info(
             "Corridor universe: eligible=%d/%d (excluded_total=%d width_percentile=%.2f "
-            "relevance_excluded=%d)",
+            "relevance_excluded=%d popularity_excluded=%d)",
             int(corridor_universe.stats.get("eligible_count", 0)),
             int(corridor_universe.stats.get("universe_size_total", 0)),
             int(corridor_universe.stats.get("excluded_total", 0)),
             float(cfg.corridor_width_percentile),
             int(corridor_universe.stats.get("excluded_relevance_mask", 0)),
+            int(corridor_universe.stats.get("excluded_popularity_gate", 0)),
         )
         # Identity-key arrays, precomputed ONCE PER GENERATION, aligned to
         # corridor_universe.indices -- review fix (2026-07-17): legacy
@@ -1019,6 +1080,19 @@ def build_pier_bridge_playlist(
     # ── Corridor pooling (Phase 1 Task 3) per-run accumulators ──────────────
     corridor_segments_diag: List[Dict[str, Any]] = []
     corridor_logged_segments: Set[int] = set()
+    # Edge-repair reseat (Task 5): accumulates every segment's FINAL corridor
+    # membership (post-widening-ladder, i.e. the widened corridor if widening
+    # fired -- `last_segment_candidates` at each segment's acceptance point,
+    # see the main segment loop below) across the whole generation.
+    # repair_playlist_edges takes ONE candidate_indices for the entire repair
+    # pass (confirmed: src/playlist/repair/edge_repair.py has no per-edge
+    # scoping), so per the design spec §3 ("Repair stack ... candidate
+    # universe becomes the segment's corridor, including widened material")
+    # this union is the sanctioned corridor-mode substitute for the legacy
+    # `universe` argument -- a repaired-in candidate is guaranteed to be a
+    # member of AT LEAST ONE segment's corridor, not necessarily the specific
+    # edge's own segment. Empty/unused on the legacy path.
+    corridor_segment_members_union: Set[int] = set()
 
     def _build_corridor_segment_pool(
         pier_a_idx: int,
@@ -1135,6 +1209,30 @@ def build_pier_bridge_playlist(
             if width_percentile_override is not None
             else float(cfg.corridor_width_percentile)
         )
+        # Tag-steering pool guarantee (Task 5 reseat, design spec §3:
+        # "force-include on-tag tracks into relevant corridors"). Pass EVERY
+        # on-tag guarantee index to EVERY segment's build_corridor call --
+        # build_corridor's own force_include lookup is scoped to
+        # `universe_indices=avail_idx` (this segment's structurally-eligible,
+        # not-yet-used candidates, i.e. the `_row_ok` mask above already
+        # applied), so an id not eligible HERE (used elsewhere, blocked by
+        # disallow_seed/pier_artist_in_interiors, or a track-key collision)
+        # is silently skipped -- that scoping IS the "relevant corridors"
+        # semantics, no extra per-segment filtering needed. Unlike the legacy
+        # dj_union pool's on_tag_guarantee_max / on_tag_guarantee_per_artist
+        # caps, the corridor path applies no separate cap on the guarantee
+        # itself (corridor.py's forced-first semantics, reviewed in Task 1,
+        # never truncate the forced set -- only the ranked/non-forced portion
+        # is capped by segment_pool_max). This also resolves the legacy
+        # segment-relaxed-max vs beam-strict-min bridge-floor contradiction
+        # (#32/#36, design spec §2) for the corridor path: there is no
+        # relaxed-max special case here at all -- beam strict-min
+        # (transition_floor) is the only floor check corridor segments ever
+        # go through (the widening ladder is the sole recovery mechanism).
+        _force_include_arr = (
+            np.array(sorted(int(i) for i in on_tag_guarantee_indices), dtype=np.int64)
+            if on_tag_guarantee_indices else None
+        )
         result = build_corridor(
             vec_a=X_full_norm[int(pier_a_idx)],
             vec_b=X_full_norm[int(pier_b_idx)],
@@ -1144,7 +1242,7 @@ def build_pier_bridge_playlist(
             segment_pool_max=int(segment_pool_max_local),
             genre_blend_weight=genre_blend_weight,
             X_genre_dense=(avail_genre if genre_blend_weight > 0.0 else None),
-            force_include=None,  # Phase 1: no reseat guarantees yet (Task 5)
+            force_include=_force_include_arr,
             genre_vec_a=genre_vec_a,
             genre_vec_b=genre_vec_b,
         )
@@ -1183,6 +1281,15 @@ def build_pier_bridge_playlist(
 
         support_a = float(result.stats.get("anchor_support_a", 0.0))
         support_b = float(result.stats.get("anchor_support_b", 0.0))
+        # Tag-guarantee summary count (Task 5): how many of the on-tag
+        # guarantee ids actually landed in THIS segment's corridor -- a
+        # diagnostics-route summary count, never a member-id list (worker
+        # NDJSON line-size trap, same discipline as every other corridor_
+        # segments field).
+        _forced_included = (
+            len(set(int(i) for i in on_tag_guarantee_indices) & set(final_candidates))
+            if on_tag_guarantee_indices else 0
+        )
         seg_diag: Dict[str, Any] = {
             "seg": int(seg_idx_local),
             "size": int(len(final_candidates)),
@@ -1194,6 +1301,7 @@ def build_pier_bridge_playlist(
             # Filled in by the widening-ladder wrapper for the ACCEPTED
             # attempt (0 = the initial, un-widened width succeeded).
             "widened": 0,
+            "forced_included": int(_forced_included),
             # C1 rehome parity (see comment above): mean duration-rank
             # penalty applied to this segment's corridor members, and
             # the resulting mean adjusted score -- both 1.0x/no-op in
@@ -2587,6 +2695,12 @@ def build_pier_bridge_playlist(
             local_sonic_stats_segment = dict(attempt_result.get("local_sonic_stats_segment", {}))
             last_failure_reason = attempt_result["last_failure_reason"]
             last_segment_candidates = list(attempt_result["last_segment_candidates"])
+            if pooling_mode == "corridor":
+                # Edge-repair reseat (Task 5): fold this segment's FINAL
+                # corridor membership (post-widening-ladder -- see the
+                # accumulator's own comment above) into the whole-generation
+                # union edge repair will draw from.
+                corridor_segment_members_union.update(int(i) for i in last_segment_candidates)
             last_candidate_artist_keys = dict(attempt_result["last_candidate_artist_keys"])
             pool_cache = attempt_result.get("segment_pool_cache")
             last_segment_pool_cache = dict(pool_cache) if pool_cache is not None else None
@@ -2972,6 +3086,20 @@ def build_pier_bridge_playlist(
         # global_used commit, audits) sees the re-optimized path. Never-worse
         # by construction (tail_dp.optimize_segment_tail); never raises — any
         # internal error here is caught and logged, leaving segment_path as-is.
+        #
+        # Corridor reseat (Task 5, design spec §3: "candidate universe becomes
+        # the segment's corridor, including widened material"): `td_candidates`
+        # below is filtered from `last_segment_candidates`, which for
+        # pooling_mode=="corridor" already IS this segment's FINAL (post-
+        # widening-ladder) corridor membership -- the ladder's accepted
+        # attempt sets it (see `attempt_result["last_segment_candidates"]`
+        # unpacked above, and `_run_segment_backoff_attempts`'s own
+        # `last_segment_candidates = list(segment_candidates)` assignment,
+        # where `segment_candidates` came straight from
+        # `_build_corridor_segment_pool`). No separate plumbing was needed:
+        # this reseat was already correct as of Task 3/4's existing
+        # `last_segment_candidates` chain -- pinned by a regression test
+        # (test_corridor_pooling.py) rather than new code.
         if bool(getattr(cfg, "tail_dp_enabled", False)) and segment_path:
             tail_dp_attempted_segments += 1
             try:
@@ -3428,9 +3556,24 @@ def build_pier_bridge_playlist(
                     )
                 except Exception:
                     continue
+        # Edge repair (Task 5 reseat, design spec §3: "candidate universe
+        # becomes the segment's corridor, including widened material"):
+        # repair_playlist_edges takes ONE candidate_indices for the entire
+        # pass (no per-edge scoping in repair/edge_repair.py, confirmed by
+        # reading its signature -- read-only, not modified by this task), so
+        # the spec-sanctioned substitute for "the corridor of the segment
+        # containing each repaired edge" is the UNION of every segment's
+        # final corridor members (see corridor_segment_members_union's own
+        # comment above). Legacy `universe` is untouched and still used
+        # unchanged when pooling_mode != "corridor".
+        _repair_candidate_indices = (
+            sorted(corridor_segment_members_union)
+            if pooling_mode == "corridor"
+            else universe
+        )
         repair_result = repair_playlist_edges(
             final_indices=final_indices,
-            candidate_indices=universe,
+            candidate_indices=_repair_candidate_indices,
             metric_context=transition_metric_context,
             bundle=bundle,
             seed_indices=seed_indices,
