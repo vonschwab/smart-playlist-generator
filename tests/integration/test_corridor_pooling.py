@@ -177,6 +177,104 @@ def _synthetic_bundle() -> ArtifactBundle:
     )
 
 
+# ── Filter-before-cap regression (review fix, 2026-07-17) ──────────────────
+#
+# Legacy (SegmentCandidatePoolBuilder.build) runs ALL structural filters --
+# including track-key collision -- on the FULL universe before scoring/
+# capping. An earlier version of the corridor path ran track-key collision
+# AFTER build_corridor's own segment_pool_max cap, so a segment whose
+# corridor top-K happened to be dominated by already-used track keys could
+# starve even though clean, lower-ranked candidates existed just below the
+# cap. This fixture forces exactly that shape: 6 "duplicate" candidates that
+# outrank 2 "clean" candidates on corridor score but collide (by
+# artist+title, i.e. track_key) with a seed, plus segment_pool_max/
+# max_segment_pool_max held small enough that expansion-attempt escalation
+# can never grow the cap past the duplicate count. Filter-before-cap must
+# exclude the 6 duplicates BEFORE ranking/capping, leaving exactly the 2
+# clean candidates for the interior; filter-after-cap always caps on
+# duplicates first and starves permanently.
+_R = 10
+_DUP_COUNT = 6
+_R_TRACK_IDS = np.array([f"r{i}" for i in range(_R)], dtype=object)
+_R_ARTISTS = np.array(
+    ["Seed Artist A", "Seed Artist B"]
+    + ["Seed Artist A"] * _DUP_COUNT  # r2..r7: collide with seed r0's artist
+    + ["Clean Artist C", "Clean Artist D"],  # r8, r9: distinct
+    dtype=object,
+)
+_R_TITLES = np.array(
+    ["Seed Song A", "Seed Song B"]
+    + ["Seed Song A"] * _DUP_COUNT  # r2..r7: collide with seed r0's title too
+    + ["Clean Song C", "Clean Song D"],
+    dtype=object,
+)
+_R_SONIC = np.array(
+    [
+        [1.0, 0.0, 0.0],  # r0 pier A
+        [0.0, 1.0, 0.0],  # r1 pier B
+        *([[1.0, 1.0, 0.0]] * _DUP_COUNT),  # r2..r7: balanced -> highest hmean rank
+        [0.9, 0.6, 0.0],  # r8: clean, lower hmean rank than the duplicates
+        [0.9, 0.6, 0.0],  # r9: clean, lower hmean rank than the duplicates
+    ],
+    dtype=float,
+)
+
+
+def _dup_collision_bundle() -> ArtifactBundle:
+    return ArtifactBundle(
+        artifact_path=Path("fake.npz"),
+        track_ids=_R_TRACK_IDS,
+        artist_keys=_R_ARTISTS,
+        track_artists=_R_ARTISTS,
+        track_titles=_R_TITLES,
+        X_sonic=_R_SONIC,
+        X_sonic_start=None,
+        X_sonic_mid=None,
+        X_sonic_end=None,
+        X_genre_raw=np.zeros((_R, 1)),
+        X_genre_smoothed=np.zeros((_R, 1)),
+        genre_vocab=np.array(["x"], dtype=object),
+        track_id_to_index={str(tid): i for i, tid in enumerate(_R_TRACK_IDS)},
+        durations_ms=np.full(_R, 200_000.0),
+    )
+
+
+def test_corridor_filters_track_key_collisions_before_capping_not_after():
+    bundle = _dup_collision_bundle()
+    cfg = PierBridgeConfig(
+        pooling="corridor",
+        corridor_width_percentile=0.0,  # permissive: every non-seed row is a corridor member
+        segment_pool_max=2,
+        # Held small on purpose: with 6 duplicates ranked above the 2 clean
+        # candidates, expansion-attempt escalation (doubling up to this cap)
+        # can NEVER grow past the duplicate count -- so filter-after-cap
+        # would starve on every attempt, not just the first.
+        max_segment_pool_max=4,
+        transition_floor=-1.0,
+        progress_enabled=False,
+        collapse_segment_pool_by_artist=False,
+    )
+
+    result = build_pier_bridge_playlist(
+        seed_track_ids=["r0", "r1"],
+        total_tracks=4,
+        bundle=bundle,
+        candidate_pool_indices=list(range(2, _R)),
+        cfg=cfg,
+    )
+
+    assert result.success, f"corridor segment starved: {result.failure_reason}"
+    assert len(result.track_ids) == 4, f"expected 4 tracks, got {result.track_ids}"
+    dup_ids = {f"r{i}" for i in range(2, 2 + _DUP_COUNT)}
+    assert not (set(result.track_ids) & dup_ids), (
+        f"track-key-colliding duplicates leaked into the playlist: {result.track_ids}"
+    )
+    assert set(result.track_ids) == {"r0", "r1", "r8", "r9"}, (
+        f"expected the 2 clean below-cap-rank candidates to fill the interior, got "
+        f"{result.track_ids}"
+    )
+
+
 def test_corridor_universe_duration_reference_is_none_dead_knob_trap():
     """Phase 1 scope (see pier_bridge_builder.py's corridor-universe comment):
     the corridor path never wires a real duration soft-penalty reference --

@@ -497,6 +497,8 @@ def build_pier_bridge_playlist(
         )
     corridor_universe: Optional[EligibleUniverse] = None
     corridor_genre_dense_universe: Optional[np.ndarray] = None
+    corridor_artist_keys: List[str] = []
+    corridor_track_keys: List[Tuple[str, str]] = []
     if pooling_mode == "corridor":
         corridor_universe = build_eligible_universe(
             bundle=bundle,
@@ -521,6 +523,31 @@ def build_pier_bridge_playlist(
             int(corridor_universe.stats.get("excluded_total", 0)),
             float(cfg.corridor_width_percentile),
         )
+        # Identity-key arrays, precomputed ONCE PER GENERATION, aligned to
+        # corridor_universe.indices -- review fix (2026-07-17): legacy
+        # (segment_pool_builder.SegmentCandidatePoolBuilder.build) runs ALL
+        # structural filters, including the identity-key ones
+        # (disallow_seed_artist_in_interiors, disallow_pier_artists_in_interiors,
+        # track-key collision), on the full universe BEFORE scoring/capping.
+        # The original Task 3 pass ran these post-cap (on build_corridor's
+        # already-capped result) purely to avoid the per-segment cost of
+        # identity_keys_for_index -- but that reordering is a real correctness
+        # bug, not just a perf tradeoff: a segment whose corridor top-K is
+        # dominated by used_track_keys collisions could starve even though
+        # clean, lower-ranked candidates exist just below the cap (legacy
+        # structurally can't hit this, since it filters first). Computing
+        # these arrays ONCE here (not per segment) gets both: filter-before-cap
+        # correctness AND no repeated identity_keys_for_index cost.
+        corridor_artist_keys = []
+        corridor_track_keys = []
+        for _idx in corridor_universe.indices.tolist():
+            try:
+                _keys = identity_keys_for_index(bundle, int(_idx))
+                corridor_artist_keys.append(_keys.artist_key)
+                corridor_track_keys.append(_keys.track_key)
+            except Exception:
+                corridor_artist_keys.append("")
+                corridor_track_keys.append(("", ""))
 
     # Get sonic matrices (raw beat3tower space)
     X_full_raw = bundle.X_sonic
@@ -921,19 +948,29 @@ def build_pier_bridge_playlist(
 
         Mirrors the legacy builders' output shape exactly (candidates,
         artist_key_by_idx, title_key_by_idx) so the call site + everything
-        downstream (beam search) is unchanged. Structural filtering order
-        mirrors segment_pool_builder.py's phases but is applied in TWO passes
-        for performance: index-set exclusions (used_track_ids, allowed_set)
-        run BEFORE build_corridor (cheap, shrinks the O(N) similarity pass);
-        identity-key-dependent exclusions (seed/pier-artist-in-interiors,
-        track-key collision) run AFTER, on build_corridor's already-capped
-        result (small, <= segment_pool_max) rather than on the full eligible
-        universe -- computing identity keys for the whole (library-wide, not
-        candidate-pool-narrowed) corridor universe per segment would be the
-        dominant per-segment cost otherwise. Because these are pure filters
-        (never additive), every survivor is still a genuine corridor member
-        (min_sim >= threshold), so the Step-1 membership contract holds
-        regardless of which pass removed a given track.
+        downstream (beam search) is unchanged.
+
+        Structural filtering order mirrors legacy exactly (review fix,
+        2026-07-17): segment_pool_builder.SegmentCandidatePoolBuilder.build
+        runs ALL structural filters -- used_track_ids, allowed_set,
+        disallow_seed_artist_in_interiors, disallow_pier_artists_in_interiors,
+        track-key collision -- on the FULL universe BEFORE scoring/capping.
+        This closure now does the same: every exclusion (index-set AND
+        identity-key-based) folds into ONE boolean mask applied to the
+        eligible universe BEFORE build_corridor runs, so its internal
+        segment_pool_max cap only ever truncates the ALREADY-CLEAN candidate
+        set -- exactly like legacy. A prior version of this closure ran the
+        identity-key filters (artist/track-key) AFTER build_corridor's cap to
+        avoid recomputing identity_keys_for_index per segment; that was a
+        real correctness bug, not just a perf tradeoff -- a segment whose
+        corridor top-K was dominated by used_track_keys collisions could
+        starve even though clean, lower-ranked candidates existed just below
+        the cap (legacy structurally can't hit this). The fix: identity keys
+        are precomputed ONCE PER GENERATION (`corridor_artist_keys` /
+        `corridor_track_keys`, aligned to `corridor_universe.indices`, built
+        right after `corridor_universe` itself), so this closure's per-segment
+        cost is array/list indexing + set membership checks, never a second
+        identity_keys_for_index pass over the universe.
 
         NOT replicated in Phase 1 (see .superpowers/sdd/p1-task-3-report.md
         "concerns for Task 4/5"): internal connectors, on-tag guarantees, the
@@ -943,26 +980,46 @@ def build_pier_bridge_playlist(
         """
         assert corridor_universe is not None
         idx_arr = corridor_universe.indices
-        if allowed_set_indices is not None:
-            _allowed = allowed_set_indices
-            mask = np.fromiter(
-                (
-                    (int(i) not in global_used) and (int(i) in _allowed)
-                    for i in idx_arr
-                ),
-                dtype=bool,
-                count=len(idx_arr),
-            )
-        else:
-            mask = np.fromiter(
-                (int(i) not in global_used for i in idx_arr),
-                dtype=bool,
-                count=len(idx_arr),
-            )
+
+        pier_a_ak: Optional[str] = None
+        pier_b_ak: Optional[str] = None
+        try:
+            pier_a_ak = identity_keys_for_index(bundle, int(pier_a_idx)).artist_key
+            pier_b_ak = identity_keys_for_index(bundle, int(pier_b_idx)).artist_key
+        except Exception:
+            pass
+        _pier_artist_block = (
+            {pier_a_ak, pier_b_ak} if cfg.disallow_pier_artists_in_interiors else None
+        )
+        _disallow_seed = bool(cfg.disallow_seed_artist_in_interiors) and bool(seed_artist_key)
+        _allowed = allowed_set_indices
+
+        def _row_ok(i: int, ak: str, tk: Tuple[str, str]) -> bool:
+            if i in global_used:
+                return False
+            if _allowed is not None and i not in _allowed:
+                return False
+            if _disallow_seed and ak == seed_artist_key:
+                return False
+            if _pier_artist_block is not None and ak in _pier_artist_block:
+                return False
+            if tk in used_track_keys:
+                return False
+            return True
+
+        mask = np.fromiter(
+            (
+                _row_ok(int(i), ak, tk)
+                for i, ak, tk in zip(idx_arr.tolist(), corridor_artist_keys, corridor_track_keys)
+            ),
+            dtype=bool,
+            count=len(idx_arr),
+        )
 
         avail_idx = idx_arr[mask]
         avail_X = corridor_universe.X_norm[mask]
         avail_penalty = corridor_universe.duration_rank_penalty[mask]
+        avail_artist_keys = [ak for ak, keep in zip(corridor_artist_keys, mask.tolist()) if keep]
         avail_genre = (
             corridor_genre_dense_universe[mask]
             if corridor_genre_dense_universe is not None
@@ -998,39 +1055,25 @@ def build_pier_bridge_playlist(
         # today -- this multiply is a documented no-op until the C1 penalty
         # is wired for real (Task 4/5). Computed for parity with the design
         # contract and exposed via corridor diagnostics, not currently used
-        # to reorder `final_candidates`.
+        # to reorder `final_candidates`. Averaged over the RESULT members
+        # (the actual segment pool), matching what the field name promises
+        # (review fix: was previously averaged over the full pre-cap
+        # `avail_penalty`, which doesn't match "this segment's corridor
+        # members").
         _penalty_by_idx = dict(zip(avail_idx.tolist(), avail_penalty.tolist()))
-        _adjusted_scores = [
-            float(s) * float(_penalty_by_idx.get(int(i), 1.0))
-            for i, s in zip(result.indices.tolist(), result.rank_scores.tolist())
+        _result_penalties = [
+            float(_penalty_by_idx.get(int(i), 1.0)) for i in result.indices.tolist()
         ]
-        _mean_duration_penalty = float(np.mean(avail_penalty)) if len(avail_penalty) else 1.0
+        _adjusted_scores = [
+            float(s) * p for s, p in zip(result.rank_scores.tolist(), _result_penalties)
+        ]
+        _mean_duration_penalty = float(np.mean(_result_penalties)) if _result_penalties else 1.0
 
-        pier_a_ak: Optional[str] = None
-        pier_b_ak: Optional[str] = None
-        try:
-            pier_a_ak = identity_keys_for_index(bundle, int(pier_a_idx)).artist_key
-            pier_b_ak = identity_keys_for_index(bundle, int(pier_b_idx)).artist_key
-        except Exception:
-            pass
-
-        final_candidates: List[int] = []
-        cand_artist_keys: Dict[int, str] = {}
-        for i in result.indices.tolist():
-            i = int(i)
-            try:
-                keys = identity_keys_for_index(bundle, i)
-            except Exception:
-                continue
-            ak = keys.artist_key
-            if cfg.disallow_seed_artist_in_interiors and seed_artist_key and ak == seed_artist_key:
-                continue
-            if cfg.disallow_pier_artists_in_interiors and ak in {pier_a_ak, pier_b_ak}:
-                continue
-            if keys.track_key in used_track_keys:
-                continue
-            cand_artist_keys[i] = ak
-            final_candidates.append(i)
+        _artist_key_by_avail_idx = dict(zip(avail_idx.tolist(), avail_artist_keys))
+        final_candidates: List[int] = [int(i) for i in result.indices.tolist()]
+        cand_artist_keys: Dict[int, str] = {
+            i: _artist_key_by_avail_idx.get(i, "") for i in final_candidates
+        }
         if pier_a_ak is not None:
             cand_artist_keys[int(pier_a_idx)] = pier_a_ak
         if pier_b_ak is not None:
