@@ -456,6 +456,8 @@ _RETIRED_PIER_BRIDGE_MIN_POOL_SIZE_KEYS = {
     "min_pool_size_discover": "min_pool_size resolution chain removed (corridor Phase 0 Task 2); PierBridgeTuning.min_pool_size has no reader",
 }
 
+_WARNED_RETIRED_KEYS: set[str] = set()  # per-process dedup (final-review finding, corridor Phase 0)
+
 
 def _warn_retired_keys(config: Dict[str, Any]) -> list[str]:
     """
@@ -479,18 +481,22 @@ def _warn_retired_keys(config: Dict[str, Any]) -> list[str]:
         if key in candidate_pool:
             qualified = f"candidate_pool.{key}"
             found.append(qualified)
-            logging.getLogger(__name__).warning(
-                "Config key 'playlists.ds_pipeline.%s' is RETIRED (%s). "
-                "Remove it from config.yaml.", qualified, rationale)
+            if qualified not in _WARNED_RETIRED_KEYS:
+                logging.getLogger(__name__).warning(
+                    "Config key 'playlists.ds_pipeline.%s' is RETIRED (%s). "
+                    "Remove it from config.yaml.", qualified, rationale)
+                _WARNED_RETIRED_KEYS.add(qualified)
 
     pier_bridge = ds_pipeline.get("pier_bridge") or {}
     for key, rationale in _RETIRED_PIER_BRIDGE_MIN_POOL_SIZE_KEYS.items():
         if key in pier_bridge:
             qualified = f"pier_bridge.{key}"
             found.append(qualified)
-            logging.getLogger(__name__).warning(
-                "Config key 'playlists.ds_pipeline.%s' is RETIRED (%s). "
-                "Remove it from config.yaml.", qualified, rationale)
+            if qualified not in _WARNED_RETIRED_KEYS:
+                logging.getLogger(__name__).warning(
+                    "Config key 'playlists.ds_pipeline.%s' is RETIRED (%s). "
+                    "Remove it from config.yaml.", qualified, rationale)
+                _WARNED_RETIRED_KEYS.add(qualified)
 
     return found
 

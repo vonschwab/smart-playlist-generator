@@ -15,7 +15,31 @@ now-deleted code paths, in both locations they can appear:
     suffixed variants (min_pool_size_strict/_narrow/_dynamic/_discover)
 """
 
-from src.playlist_gui.worker import _warn_retired_keys
+from src.playlist_gui.worker import _warn_retired_keys, _WARNED_RETIRED_KEYS
+
+
+def test_dedup_warnings_per_process(caplog):
+    """Verify that retired-key warnings are deduped per process: same key
+    only logs once even if _warn_retired_keys is called multiple times.
+    Both calls must still return the found key."""
+    _WARNED_RETIRED_KEYS.clear()
+    cfg = {"playlists": {"ds_pipeline": {"candidate_pool": {
+        "min_pool_size": 0,
+    }}}}
+
+    with caplog.at_level("WARNING"):
+        found1 = _warn_retired_keys(cfg)
+        found2 = _warn_retired_keys(cfg)
+
+    # Both calls must return the key
+    assert "candidate_pool.min_pool_size" in found1
+    assert "candidate_pool.min_pool_size" in found2
+
+    # Warning text must appear exactly once across both calls
+    warning_records = [r for r in caplog.records if r.levelname == "WARNING"]
+    min_pool_size_warnings = [r for r in warning_records
+                               if "candidate_pool.min_pool_size" in r.message]
+    assert len(min_pool_size_warnings) == 1
 
 
 def test_retired_candidate_pool_knobs_warn():
