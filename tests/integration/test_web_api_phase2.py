@@ -58,13 +58,21 @@ def _make_audio_db(tmp: Path) -> Path:
     return db
 
 
-def test_audio_full_request(monkeypatch):
+def _config_for_db(tmp: Path, db: Path) -> str:
+    # create_app() resolves DB_PATH from config (2026-07-16 fix), so point a
+    # temp config at the temp DB rather than monkeypatching the module
+    # constant directly — create_app() rebinds it from config_path on every
+    # call and would otherwise clobber a pre-call monkeypatch.
+    cfg = tmp / "config.yaml"
+    cfg.write_text(f"library:\n  database_path: {db.as_posix()}\n", encoding="utf-8")
+    return str(cfg)
+
+
+def test_audio_full_request():
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
         db = _make_audio_db(tmp)
-        import src.playlist_web.app as appmod
-        monkeypatch.setattr(appmod, "DB_PATH", db)
-        with TestClient(create_app(worker_cmd=FAKE)) as client:
+        with TestClient(create_app(worker_cmd=FAKE, config_path=_config_for_db(tmp, db))) as client:
             resp = client.get("/api/audio/k0")
             assert resp.status_code == 200
             assert resp.headers["content-type"] == "audio/mpeg"
@@ -72,26 +80,22 @@ def test_audio_full_request(monkeypatch):
             assert len(resp.content) == 1003
 
 
-def test_audio_range_request(monkeypatch):
+def test_audio_range_request():
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
         db = _make_audio_db(tmp)
-        import src.playlist_web.app as appmod
-        monkeypatch.setattr(appmod, "DB_PATH", db)
-        with TestClient(create_app(worker_cmd=FAKE)) as client:
+        with TestClient(create_app(worker_cmd=FAKE, config_path=_config_for_db(tmp, db))) as client:
             resp = client.get("/api/audio/k0", headers={"Range": "bytes=0-99"})
             assert resp.status_code == 206
             assert resp.headers["content-range"] == "bytes 0-99/1003"
             assert len(resp.content) == 100
 
 
-def test_audio_unknown_track_404(monkeypatch):
+def test_audio_unknown_track_404():
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
         db = _make_audio_db(tmp)
-        import src.playlist_web.app as appmod
-        monkeypatch.setattr(appmod, "DB_PATH", db)
-        with TestClient(create_app(worker_cmd=FAKE)) as client:
+        with TestClient(create_app(worker_cmd=FAKE, config_path=_config_for_db(tmp, db))) as client:
             resp = client.get("/api/audio/nope")
             assert resp.status_code == 404
 

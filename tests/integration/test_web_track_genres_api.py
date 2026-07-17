@@ -11,7 +11,6 @@ import sys
 import pytest
 from fastapi.testclient import TestClient
 
-import src.playlist_web.app as app_module
 from src.playlist_web.app import create_app
 
 FAKE = [sys.executable, "tests/fixtures/fake_worker.py"]
@@ -69,7 +68,11 @@ def client(tmp_path, monkeypatch):
     # --- tmp enrichment sidecar: t-enriched's release, stored broad-first ---
     from src.ai_genre_enrichment.storage import SidecarStore
 
-    sidecar_path = tmp_path / "sidecar.db"
+    # Named ai_genre_enrichment.db (not an arbitrary name) so it lands where
+    # create_app()'s config-driven resolution derives the sidecar path: a
+    # sibling of the resolved metadata.db (2026-07-16 fix; no config key
+    # exists for the sidecar path, so it's always derived, never overridden).
+    sidecar_path = tmp_path / "ai_genre_enrichment.db"
     store = SidecarStore(str(sidecar_path))
     store.initialize()
     with store.connect() as sconn:
@@ -100,9 +103,16 @@ def client(tmp_path, monkeypatch):
         )
         sconn.commit()
 
-    monkeypatch.setattr(app_module, "DB_PATH", db_path)
-    monkeypatch.setattr(app_module, "SIDECAR_DB_PATH", sidecar_path)
-    app = create_app(worker_cmd=FAKE)
+    # create_app() resolves DB_PATH/SIDECAR_DB_PATH from config (2026-07-16
+    # fix), so point a temp config at the temp DB rather than monkeypatching
+    # the module constants directly — create_app() rebinds them from
+    # config_path on every call and would otherwise clobber a pre-call
+    # monkeypatch.
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text(
+        f"library:\n  database_path: {db_path.as_posix()}\n", encoding="utf-8"
+    )
+    app = create_app(worker_cmd=FAKE, config_path=str(cfg_path))
     with TestClient(app) as c:
         yield c
 
