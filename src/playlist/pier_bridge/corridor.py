@@ -21,6 +21,13 @@ semantics are byte-identical to the pre-existing segment-pool builder:
         denom = g_a_i + g_b_i
         genre_hmean = 0.0 if denom <= 1e-9 else (2.0 * g_a_i * g_b_i) / denom
         score = (1.0 - genre_w) * score + genre_w * genre_hmean
+  - Tie-break (score desc, then global index asc): segment_pool_builder.py:602-605
+        passing_sorted = sorted(passing, key=lambda i: (-float(bridge_sim[i]), int(i)))
+  - Guaranteed-first final selection (force_include never evicted by the cap):
+    segment_pool_builder.py:1020-1116 (_select_final_candidates) — guaranteed
+    candidates are inserted ahead of the segment_pool_max truncation of the
+    ordinary ranked fill, so the cap only ever truncates the non-guaranteed
+    portion.
 
 This module is pure: numpy only, no config objects, no bundle, no logging (the
 caller logs) and deterministic for fixed inputs.
@@ -46,6 +53,8 @@ from typing import Any
 
 import numpy as np
 
+from .percentiles import floor_at_percentile
+
 
 @dataclass(frozen=True)
 class CorridorResult:
@@ -54,7 +63,7 @@ class CorridorResult:
     rank_scores: np.ndarray      # hmean (+ optional genre blend), aligned
     threshold: float             # the min-sim cutoff actually applied
     width_percentile: float      # requested percentile
-    capped: bool                 # segment_pool_max truncation applied
+    capped: bool                 # segment_pool_max truncation applied to the ranked (non-forced) portion
     stats: dict[str, Any]        # size_before_cap, universe_size, anchor_support_a/b
 
 
@@ -109,7 +118,7 @@ def build_corridor(
     sim_a = X_norm @ vec_a
     sim_b = X_norm @ vec_b
     min_sims = np.minimum(sim_a, sim_b)
-    threshold = float(np.quantile(min_sims, width_percentile))
+    threshold = floor_at_percentile(min_sims, width_percentile)
 
     rank_scores = _hmean(sim_a, sim_b)
 
@@ -136,36 +145,54 @@ def build_corridor(
     anchor_support_b = float(np.mean(min_sims[top_b] >= threshold))
 
     member_local = np.nonzero(min_sims >= threshold)[0]
-    order = np.argsort(-rank_scores[member_local], kind="stable")
+    # Explicit tie-break: rank score desc, then GLOBAL (universe) index asc --
+    # matches segment_pool_builder.py:602-605 regardless of whether
+    # universe_indices happens to be ascending. np.lexsort's last key is
+    # primary, so (-score) sorts first and the global index breaks ties.
+    member_scores = rank_scores[member_local]
+    member_global = universe_indices[member_local]
+    order = np.lexsort((member_global, -member_scores))
     ranked_local = member_local[order]
 
+    # Resolve force_include to local positions FIRST, independent of the
+    # threshold/ranked set, so a forced candidate that also happens to pass
+    # the threshold but ranks below the segment_pool_max cutoff is never
+    # silently dropped -- mirrors the reference's guaranteed-first final
+    # selection (segment_pool_builder.py:1020-1116): the guaranteed set is
+    # assembled before the ranked fill is truncated to the cap, so the cap
+    # can only ever truncate the non-guaranteed portion.
     forced_local: np.ndarray = np.array([], dtype=np.int64)
     if force_include is not None and len(force_include) > 0:
         lookup = {int(g): i for i, g in enumerate(universe_indices)}
-        ranked_set = set(int(i) for i in ranked_local)
         seen: set[int] = set()
         forced_candidates = []
         for g in force_include:
             local = lookup.get(int(g))
-            if local is None or local in ranked_set or local in seen:
+            if local is None or local in seen:
                 continue
             seen.add(local)
             forced_candidates.append(local)
         if forced_candidates:
             forced_arr = np.array(forced_candidates, dtype=np.int64)
-            forced_order = np.argsort(-rank_scores[forced_arr], kind="stable")
-            forced_local = forced_arr[forced_order]
+            f_scores = rank_scores[forced_arr]
+            f_global = universe_indices[forced_arr]
+            f_order = np.lexsort((f_global, -f_scores))
+            forced_local = forced_arr[f_order]
 
-    size_before_cap = int(len(ranked_local) + len(forced_local))
-    cap = int(segment_pool_max)
-    capped = size_before_cap > cap
-    if capped:
-        # Truncate only the ranked (threshold-passing) portion; force-included
-        # rows are guaranteed admission and are never evicted by the cap.
-        ranked_final = ranked_local[: max(0, cap)]
+    if forced_local.size:
+        ranked_excl_forced = ranked_local[~np.isin(ranked_local, forced_local)]
     else:
-        ranked_final = ranked_local
-    final_local = np.concatenate([ranked_final, forced_local]).astype(np.int64)
+        ranked_excl_forced = ranked_local
+
+    cap = int(segment_pool_max)
+    ranked_truncated = ranked_excl_forced[: max(0, cap)]
+    # capped reflects truncation of the ranked (non-forced) portion only --
+    # force_include overflow beyond segment_pool_max never sets this, by
+    # design, matching the reference's guaranteed-first selection.
+    capped = len(ranked_excl_forced) > cap
+
+    final_local = np.concatenate([ranked_truncated, forced_local]).astype(np.int64)
+    size_before_cap = int(len(ranked_excl_forced) + len(forced_local))
 
     return CorridorResult(
         indices=universe_indices[final_local],
