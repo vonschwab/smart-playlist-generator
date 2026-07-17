@@ -24,6 +24,9 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Any
+
+import yaml
 
 CODE_ROOT = Path(__file__).resolve().parents[2]
 if str(CODE_ROOT) not in sys.path:
@@ -35,8 +38,31 @@ from scripts.corridor_baseline.runner import CORPUS, DETENTS, OUT_DIR, run_cell 
 logger = logging.getLogger(__name__)
 
 
-def capture_cell(artist: str, detent: str) -> dict:
-    run = run_cell(artist, detent, log_tag=f"corpus_{artist}_{detent}".replace(" ", "_"))
+def parse_set_args(pairs: list[str] | None) -> dict[str, Any]:
+    """Parse repeated ``--set path=value`` CLI args into a ``deep_set``-ready dict.
+
+    ``value`` is parsed as a YAML scalar (via ``yaml.safe_load``) so bools/floats/
+    ints/strings all come through as the right Python type without a bespoke
+    mini-parser -- ``--set foo.bar=0.90`` yields a float, ``--set foo.bar=true``
+    yields a bool, ``--set foo.bar=corridor`` yields a str. Forwarded verbatim into
+    ``runner.run_cell(set_paths=...)``, which applies each entry via ``deep_set``
+    AFTER the policy layer runs (so mode presets cannot clobber it -- see
+    runner.py's module docstring).
+    """
+    out: dict[str, Any] = {}
+    for pair in pairs or []:
+        if "=" not in pair:
+            raise ValueError(f"--set expects path=value, got: {pair!r}")
+        path, raw_value = pair.split("=", 1)
+        out[path.strip()] = yaml.safe_load(raw_value)
+    return out
+
+
+def capture_cell(artist: str, detent: str, set_paths: dict[str, Any] | None = None) -> dict:
+    run = run_cell(
+        artist, detent, set_paths=set_paths,
+        log_tag=f"corpus_{artist}_{detent}".replace(" ", "_"),
+    )
     log_path = Path(run["log_path"])
     log_text = log_path.read_text(encoding="utf-8", errors="ignore")
     run_stamped = dict(run)
@@ -71,7 +97,20 @@ def main() -> int:
              "(default: docs/corridor_baseline/corpus_baseline.json, unchanged behavior). "
              "Use a different path to avoid overwriting the committed baseline.",
     )
+    parser.add_argument(
+        "--set",
+        dest="set_paths",
+        action="append",
+        default=None,
+        metavar="path=value",
+        help="Repeatable post-policy config override, e.g. "
+             "--set playlists.ds_pipeline.pier_bridge.pooling=corridor. Value is parsed "
+             "as a YAML scalar (so 0.90/true/corridor come through as float/bool/str). "
+             "Forwarded into runner.run_cell(set_paths=...) -- applied AFTER the policy "
+             "layer, so mode presets cannot clobber it. Applied to every cell in this run.",
+    )
     args = parser.parse_args()
+    set_paths = parse_set_args(args.set_paths)
 
     # No basicConfig in scripts/ (test_no_basicconfig_in_src_scripts) -- attach one
     # console handler explicitly instead. run_cell attaches its own per-cell
@@ -90,7 +129,7 @@ def main() -> int:
             cell_key = f"{artist}::{detent}"
             logger.info("=== capturing cell %s ===", cell_key)
             try:
-                fp = capture_cell(artist, detent)
+                fp = capture_cell(artist, detent, set_paths=set_paths)
             except Exception as e:  # capture_cell itself should not normally raise
                 # (run_cell already catches generation errors into run["err"]), but
                 # guard the loop so one broken cell doesn't abort the other 11.
@@ -123,6 +162,7 @@ def main() -> int:
         "generated_on": git_sha,
         "wall_s": round(time.time() - t0, 1),
         "always_on_patterns_never_seen": always_on_never_seen,
+        "set_paths": set_paths,
     }
 
     out_path = args.out
