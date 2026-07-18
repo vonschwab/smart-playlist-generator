@@ -58,52 +58,31 @@ SEEDS = [
 @pytest.mark.integration
 @pytest.mark.slow
 @_requires_artifact
-@pytest.mark.xfail(
-    reason=(
-        "Phase 1 Task 9 investigation (2026-07-18): SECOND real finding surfaced by "
-        "running -m slow in isolation for the first time (see Task 8 report Concern "
-        "#1, 'the gap'). CONFIRMED deterministic (identical violations across "
-        "repeated runs): [(7,13,'Golden Brown',6), (11,17,'Hayden Pedigo',6), "
-        "(16,21,'Dylan Golden Aycock',5)] under artist_spacing='strong' (min_gap=9) "
-        "-- exactly the failure mode commit 8101ac1 originally fixed, now "
-        "reappearing. NOT unilaterally engine-fixed per the task's STOP-and-report "
-        "rule (out of the test-fix-only scope). Investigated, not blindly reported: "
-        "the design spec explicitly states diversity/min_gap enforcement is 'beam "
-        "placement -- unchanged' by corridor pooling, so this is either a latent bug "
-        "corridor exposed for the first time or a corridor-adjacent regression. "
-        "Config-level causes were ruled out (SPACING_MAP['strong']=9 and "
-        "artist_identity.enabled=true both resolve correctly in this satellite). "
-        "Debug trace shows this SEEDS fixture triggers MINI-PIER waypoint insertion "
-        "(plan_pier_sequence subdivides the nominal 4 segments into many more, "
-        "shorter interior=3 sub-segments between extra internal piers) -- 'Golden "
-        "Brown' appears twice in segment 1's own top-10 candidate list (Bloom and "
-        "Decay, I Saw a City in the Clouds), and segment 0 logged 'EXHAUSTED ... "
-        "best min_edge_T=None ... pool_after=0' (a fully infeasible corridor "
-        "recovered via the accept-best-effort path) immediately before it. Plausible "
-        "mechanism: recent_boundary_artists (the cross-segment min_gap carry-over "
-        "window, pier_bridge_builder.py ~line 3264) is recomputed from the "
-        "concatenated all_segments result after each segment lands, which should be "
-        "robust to mini-pier subdivision in principle -- but the EXHAUSTED/accept-"
-        "best-effort path for an infeasible segment (min_edge_T=None) was not traced "
-        "far enough to confirm whether it (or the beam's own per-segment novelty "
-        "check under the now much-shorter mini-pier interior lengths) still honors "
-        "the blocked-artist set correctly. Not root-caused to a definitive fix -- "
-        "flagged for Dylan in .superpowers/sdd/p1-task-9-report.md, higher severity "
-        "than the membership-bug finding (diversity enforcement is a Layer 2 "
-        "'enforce, don't recommend' architectural commitment per CLAUDE.md, not just "
-        "a diagnostics-fidelity issue)."
-    ),
-    strict=False,
-)
 def test_strong_artist_gap_enforced_across_segments():
     """Regression for commit 8101ac1: cross-segment min_gap was hardcoded to 1, so
     'Artist Gap: strong' (min_gap=9) still produced same-artist pairs 3-5 apart that
     straddled segment boundaries (Smog 14/17, Hayden Pedigo 6/11, William Ackerman 21/24).
 
-    XFAIL (Phase 1 Task 9, see the marker above): a second, real, deterministic
-    cross-segment min_gap violation was found running -m slow in isolation for the
-    first time -- confirmed, not root-caused to a fix, reported per the task's
-    STOP-and-report rule rather than silently patched.
+    Regression for the Phase 1 min_gap fix (2026-07-18, root-caused via this same
+    fixture): CONFIRMED, deterministic violations under artist_spacing='strong'
+    (min_gap=9) -- [(7,13,'Golden Brown',6), (11,17,'Hayden Pedigo',6),
+    (16,21,'Dylan Golden Aycock',5)] (1-indexed positions). Traced to a
+    pre-existing hole in cross-segment min_gap enforcement, exposed (not caused)
+    by mini-pier waypoint subdivision: ``recent_boundary_artists``
+    (pier_bridge_builder.py, fixed 2026-06-01) only ever blocked artists BACKWARD
+    (already-placed tracks). ``ordered_seeds`` -- the full pier sequence including
+    mini-pier waypoints (SP3, 2026-06-30) -- is fully fixed before the segment
+    loop starts, so an early segment could freely place an interior track by the
+    same artist as a not-yet-built pier/waypoint a few positions later; nothing
+    re-validated that placement once the later pier committed, since piers are
+    placed unconditionally (never gated on artist novelty). Fixed by adding a
+    FORWARD half to the same mechanism: ``_forward_pier_gap_block_indices`` +
+    ``_pier_nominal_positions`` (pier_bridge_builder.py) compute, once per
+    generation, which upcoming piers land within ``min_gap`` of each segment and
+    fold their artist keys into ``_recent_artists_for_segment`` -- the single
+    choke point every placement mechanism (corridor pool artist-gate, beam,
+    micro-pier, terminal-greedy fallback) already reads. See
+    .superpowers/sdd/p1-mingap-fix-report.md.
     """
     load_artifact_bundle.cache_clear()
     # sonic_variant_override passed explicitly (not relied on as a generate_like_gui
@@ -189,7 +168,13 @@ def test_hard_seed_pair_never_fails():
         pace_mode="dynamic", artist_spacing="strong", length=30, random_seed=0,
     )
     tids = getattr(res, "track_ids", res)
-    assert len(tids) == 30, f"expected 30 tracks, got {len(tids)} — greedy terminal did not fire"
+    # >= 30 (not == 30): the Phase 1 min_gap fix (2026-07-18, forward pier-gap
+    # blocking -- see test_strong_artist_gap_enforced_across_segments) removes
+    # one more candidate from segment 5's pool here, so variable_bridge_length's
+    # add-only bottleneck-maximizing choice now legitimately flexes that segment
+    # nominal=2 -> chosen=3 (31 tracks total, confirmed zero min_gap violations).
+    # Same relaxation precedent as test_corridor_pooling.py's `in (20, 21)`.
+    assert len(tids) >= 30, f"expected >= 30 tracks, got {len(tids)} — greedy terminal did not fire"
 
 
 # ─────────────────────────────────────────────────────────────────────────────

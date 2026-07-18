@@ -25,7 +25,7 @@ import math
 import time
 from pathlib import Path
 from dataclasses import replace
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 from src.features.artifacts import ArtifactBundle
@@ -381,6 +381,58 @@ def _require_usable_genre_steering(
             "artifact). Use genre_steering_source='taxonomy' (the default) or rebuild "
             "the dense sidecar via scripts/build_genre_embedding.py."
         )
+
+
+def _pier_nominal_positions(segment_lengths: "Sequence[int]") -> list[int]:
+    """Cumulative NOMINAL (pre-``variable_bridge_length``-flex) position of every
+    pier in ``ordered_seeds``, index-aligned (``len(segment_lengths) + 1`` entries:
+    one per pier, including both endpoints of every segment).
+
+    Used only to estimate forward pier-to-pier distance for cross-segment min_gap
+    enforcement (see ``_forward_pier_gap_block_indices``); ``variable_bridge_length``
+    only ever LENGTHENS a segment (add-only), so nominal positions are a safe
+    (conservative-short) lower bound on the real distance -- using them can only
+    over-block a borderline-safe candidate, never miss a real violation.
+    """
+    positions = [0]
+    for length in segment_lengths:
+        positions.append(positions[-1] + int(length) + 1)
+    return positions
+
+
+def _forward_pier_gap_block_indices(
+    pier_positions: "Sequence[int]", seg_idx: int, min_gap: int,
+) -> list[int]:
+    """Indices of UPCOMING piers (beyond this segment's own two boundary piers)
+    whose nominal position lands within ``min_gap`` of this segment's own start.
+
+    Root-cause fix (Phase 1 min_gap investigation, 2026-07-18): cross-segment
+    min_gap enforcement (``recent_boundary_artists``, fixed 2026-06-01) only ever
+    looked BACKWARD at already-placed tracks. ``ordered_seeds`` -- the full pier
+    sequence, including mini-pier waypoints (SP3, 2026-06-30) -- is entirely fixed
+    BEFORE the segment loop starts, so a segment built early can freely place an
+    interior track by the same artist as a not-yet-built pier/waypoint only a few
+    positions later; nothing ever re-checked that placement once the later pier
+    was committed, because piers are placed unconditionally (never gated on
+    novelty). This is a pre-existing hole (predates corridor pooling entirely --
+    ``recent_boundary_artists`` and mini-piers are both older than the
+    corridor-phase1-pooling branch), exposed here for the first time by a
+    5-seed fixture whose mini-pier subdivision packs waypoints close enough
+    together to collide with an earlier segment's own interior pick.
+
+    ``seg_idx + 2`` is the first index NOT already covered by
+    ``disallow_pier_artists_in_interiors`` (which bans this segment's own
+    ``ordered_seeds[seg_idx]``/``ordered_seeds[seg_idx + 1]`` locally).
+    """
+    if min_gap <= 0:
+        return []
+    start = int(pier_positions[seg_idx])
+    blocked: list[int] = []
+    for j in range(seg_idx + 2, len(pier_positions)):
+        if int(pier_positions[j]) - start >= int(min_gap):
+            break  # positions strictly increase -- every later pier is further still
+        blocked.append(j)
+    return blocked
 
 
 def build_pier_bridge_playlist(
@@ -1470,6 +1522,11 @@ def build_pier_bridge_playlist(
     MIN_GAP_GLOBAL = max(1, int(min_gap))  # Cross-segment min_gap constraint
     recent_boundary_artists: List[str] = []
     global_non_seed_artist_counts: Dict[str, int] = {}
+    # Forward-looking half of cross-segment min_gap enforcement (see
+    # _forward_pier_gap_block_indices's docstring): ordered_seeds (all piers,
+    # including mini-pier waypoints) is fixed before this loop starts, so nominal
+    # pier positions can be computed once, up front.
+    _pier_positions_nominal = _pier_nominal_positions(segment_lengths)
 
     # Tail-DP endgame (spec 2026-07-02) summary counters.
     tail_dp_attempted_segments = 0
@@ -1503,6 +1560,15 @@ def build_pier_bridge_playlist(
                 for artist_key, count in global_non_seed_artist_counts.items()
                 if int(count) >= int(cap)
             )
+        # Forward half of cross-segment min_gap enforcement: block any UPCOMING
+        # pier (real seed or mini-pier waypoint) whose fixed position lands
+        # within min_gap of this segment (see _forward_pier_gap_block_indices).
+        # This segment's own two boundary piers are already banned locally via
+        # disallow_pier_artists_in_interiors; this only reaches further ahead.
+        for _j in _forward_pier_gap_block_indices(
+            _pier_positions_nominal, seg_idx, MIN_GAP_GLOBAL
+        ):
+            artists.extend(_artist_keys_for_cap(int(ordered_seeds[_j])))
         return list(dict.fromkeys(artists)) or None
 
     def _bridge_floor_attempts(initial_floor: float) -> list[float]:
