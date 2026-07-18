@@ -3032,6 +3032,26 @@ def build_pier_bridge_playlist(
                 if int(min_gap) > 0:
                     for td_ridx in td_recent_source[-int(min_gap):]:
                         td_recent_keys |= _artist_keys_for_cap(int(td_ridx))
+                # Forward-pier gap enforcement (choke point, 91e7d91): every
+                # other placement mechanism -- the corridor pool's artist
+                # gate, the beam's recent_global_artists, micro-pier, and the
+                # terminal-greedy fallback -- reads blocked artists through
+                # _recent_artists_for_segment(seg_idx), which folds in both
+                # the backward boundary window AND upcoming (not-yet-reached)
+                # pier/waypoint artists within min_gap. Tail-DP re-optimizes
+                # AFTER those mechanisms run and built td_recent_keys from
+                # only its own (more precise, since it includes this
+                # segment's own kept prefix) backward window -- missing the
+                # forward half entirely, so a swap could still land a
+                # same-artist track within min_gap of an UPCOMING pier. Union
+                # in the choke point's view rather than replace: it can only
+                # ADD candidates to the blocked set, so is_allowed_pair can
+                # only refuse a swap it previously would have allowed, never
+                # force one that wasn't already going to be picked
+                # (never-worse semantics are preserved -- optimize_segment_tail
+                # falls back to the beam's own (already forward-safe) choice
+                # whenever no allowed candidate beats it).
+                td_recent_keys |= set(_recent_artists_for_segment(seg_idx) or [])
 
                 def _tail_dp_is_allowed_pair(x: int, y: int) -> bool:
                     try:

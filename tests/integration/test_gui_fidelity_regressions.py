@@ -14,9 +14,11 @@ import logging
 import re
 import sqlite3
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
+import src.playlist.pier_bridge_builder as pier_bridge_builder
 import src.playlist.pipeline.core as _pipeline_core
 from tests.support.gui_fidelity import (
     generate_like_gui,
@@ -103,6 +105,110 @@ def test_strong_artist_gap_enforced_across_segments():
     artists = artist_at_positions(bundle, res.track_ids)
     violations = find_min_gap_violations(artists, min_gap=9)
     assert not violations, f"cross-segment min_gap=9 violated: {violations}"
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@_requires_artifact
+def test_tail_dp_respects_forward_pier_gap():
+    """Regression: tail-DP's OWN allowed-pair gate ignored the forward half of
+    cross-segment min_gap enforcement (final-review finding on
+    corridor-phase1-pooling, 2026-07-18 -- see
+    .superpowers/sdd/p1-final-fixwave-report.md).
+
+    ``_forward_pier_gap_block_indices`` / ``_recent_artists_for_segment`` (the
+    choke point 91e7d91 added) IS read by the corridor pool's artist gate,
+    the beam, micro-pier, and the terminal-greedy fallback -- but tail-DP's
+    own ``_tail_dp_is_allowed_pair`` built a parallel, backward-only
+    ``td_recent_keys`` from ``td_assembled_so_far + td_kept_prefix`` instead.
+    In THIS exact fixture the corridor pool's own artist gate already
+    excludes the forward-conflicting artist from ``last_segment_candidates``
+    (so ``td_candidates`` never contains it and no end-to-end min_gap
+    violation is observable here -- confirmed by sweeping cohesion/genre/
+    sonic/pace mode combinations with tail_dp forced to always search,
+    epsilon=0, floor=0.99: zero violations, before AND after this fix). The
+    bug is real regardless: it lives in ``_tail_dp_is_allowed_pair`` itself,
+    which is one candidate-source change away from admitting a forward-
+    conflicting swap (e.g. a wider ``dj_micro_piers_candidate_source`` or a
+    future reseat). This test isolates that callback directly -- patching
+    ``optimize_segment_tail`` to intercept segment 1's real
+    ``is_allowed_pair`` closure *synchronously* (must probe it inside the
+    patch callback, before the next loop iteration rebinds the closure's
+    free variables -- Python's classic loop-closure late-binding trap, since
+    ``_tail_dp_is_allowed_pair`` is redefined each segment iteration inside
+    the SAME ``build_pier_bridge_playlist`` frame) -- and asks it directly:
+    would you allow a swap onto the mini-pier waypoint 2 segments ahead
+    (Golden Brown, within min_gap=9 of segment 1 -- the exact repro geometry
+    from test_strong_artist_gap_enforced_across_segments above and
+    test_forward_pier_gap.py's ``seg_idx=1 -> block index 3`` case)?
+
+    RED pre-fix: both orderings return True (allowed) -- confirmed by
+    reverting the fix and rerunning this exact probe. GREEN post-fix: both
+    return False, while an unrelated pair (two clean candidates sharing
+    neither artist) still returns True -- proving the fix is a surgical
+    addition, not a blanket block.
+    """
+    load_artifact_bundle.cache_clear()
+    bundle = load_artifact_bundle(str(ART), sonic_variant_override="muq")
+    # Mini-pier waypoint "Golden Brown" (POS 12 in the original repro log) --
+    # pier_a of segment 3, i.e. ordered_seeds[seg_idx + 2] from segment 1's
+    # perspective, within min_gap=9 of segment 1's start (nominal distance 8,
+    # see test_forward_pier_gap.py::test_forward_block_catches_the_reported_
+    # violation_shape's seg_idx=1 case).
+    forward_pier_id = "06c8f67650c464e9825a4f3aa17c801a"
+    forward_pier_idx = bundle.track_id_to_index[forward_pier_id]
+
+    real_optimize = pier_bridge_builder.optimize_segment_tail
+    seg_counter = {"i": 0}
+    probed: dict[str, bool] = {}
+
+    def _intercept(ctx, *, segment_path, pier_a, pier_b, candidates, epsilon,
+                   is_allowed_pair, floor=None, **kw):
+        i = seg_counter["i"]
+        seg_counter["i"] += 1
+        if i == 1:
+            other = next(
+                c for c in candidates
+                if bundle.track_artists[c] != bundle.track_artists[forward_pier_idx]
+            )
+            other2 = next(
+                c for c in candidates
+                if bundle.track_artists[c] not in (
+                    bundle.track_artists[forward_pier_idx],
+                    bundle.track_artists[other],
+                )
+            )
+            probed["fwd_then_other"] = is_allowed_pair(forward_pier_idx, other)
+            probed["other_then_fwd"] = is_allowed_pair(other, forward_pier_idx)
+            probed["unrelated_sanity"] = is_allowed_pair(other, other2)
+        return real_optimize(
+            ctx, segment_path=segment_path, pier_a=pier_a, pier_b=pier_b,
+            candidates=candidates, epsilon=epsilon, is_allowed_pair=is_allowed_pair,
+            floor=floor, **kw,
+        )
+
+    ui = gui_ui_state(
+        cohesion_mode="narrow", genre_mode="narrow", sonic_mode="narrow",
+        pace_mode="narrow", artist_spacing="strong",
+    )
+    with patch(
+        "src.playlist.pier_bridge_builder.optimize_segment_tail", side_effect=_intercept
+    ):
+        generate_like_gui(seeds=SEEDS, ui=ui, length=30, random_seed=0)
+
+    assert probed, "segment 1's tail-DP call was never intercepted -- geometry changed?"
+    assert probed["fwd_then_other"] is False, (
+        "tail-DP allowed a swap placing the forward-blocked pier's artist "
+        "(Golden Brown, within min_gap of an upcoming pier) as the first tail slot"
+    )
+    assert probed["other_then_fwd"] is False, (
+        "tail-DP allowed a swap placing the forward-blocked pier's artist "
+        "as the second tail slot"
+    )
+    assert probed["unrelated_sanity"] is True, (
+        "the fix over-blocked: an unrelated candidate pair (sharing neither the "
+        "forward-blocked artist) was incorrectly rejected"
+    )
 
 
 # Green-House track IDs from the failing run (beatless/ambient artist).
