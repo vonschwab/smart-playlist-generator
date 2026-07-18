@@ -866,6 +866,14 @@ def generate_playlist_ds(
                 energy_step_strength=float(pace_settings.get("energy_step_strength", 0.0)),
                 energy_arc_band=float(pace_settings.get("energy_arc_band", 0.0)),
                 energy_arc_strength=float(pace_settings.get("energy_arc_strength", 0.0)),
+                # C1 duration soft-penalty ON-case + title-hygiene (Task 7 fix):
+                # corridor-pooling-only seam (see PierBridgeConfig's field
+                # comments) -- inert for pooling="legacy", which reads
+                # cfg.candidate directly and never touches these fields.
+                duration_penalty_enabled=bool(cfg.candidate.duration_penalty_enabled),
+                duration_penalty_weight=float(cfg.candidate.duration_penalty_weight),
+                duration_cutoff_multiplier=float(cfg.candidate.duration_cutoff_multiplier),
+                title_hard_exclude_flags=tuple(sorted(cfg.candidate.title_hard_exclude_flags)),
             )
             # Apply config.yaml pier_bridge energy overrides on top of preset defaults.
             # Keys: energy_step_cap, energy_step_strength, energy_arc_band, energy_arc_strength.

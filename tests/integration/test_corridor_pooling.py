@@ -356,6 +356,125 @@ def test_corridor_universe_duration_reference_is_none_dead_knob_trap():
     assert kwargs["excluded_track_ids"] == set()
 
 
+# ── Task 7: C1 duration-penalty ON-case + title-hygiene wiring ─────────────
+#
+# Companion to the dead-knob-trap test above: that test pins the OFF-state
+# (duration_penalty_enabled=False, the PierBridgeConfig default). These pin
+# the ON-state -- when cfg.duration_penalty_enabled=True /
+# cfg.title_hard_exclude_flags is non-empty, build_eligible_universe must
+# receive the REAL computed reference/weight/flags, not None/0.0/frozenset().
+# Prior to the Task 7 fix, the corridor call site hardcoded
+# duration_reference_ms=None, duration_penalty_weight=0.0,
+# title_hard_exclude_flags=frozenset() UNCONDITIONALLY -- these two tests
+# fail (RED) against that hardcoding regardless of cfg.
+
+
+def test_corridor_universe_duration_reference_wired_when_enabled():
+    """C1 rehome ON-case: cfg.duration_penalty_enabled=True must produce a
+    real seed-median duration_reference_ms and the configured
+    duration_penalty_weight/duration_cutoff_multiplier at the
+    build_eligible_universe call site -- not the module's off-state."""
+    from dataclasses import replace as _dc_replace
+
+    bundle = _dc_replace(
+        _synthetic_bundle(),
+        # Seeds t0, t3 both 200_000ms -> seed-median reference is 200_000ms
+        # (unambiguous, no averaging needed).
+        durations_ms=np.array([200_000.0, 250_000.0, 500_000.0, 200_000.0]),
+    )
+    cfg = PierBridgeConfig(
+        pooling="corridor",
+        corridor_width_percentile=0.0,
+        transition_floor=-1.0,
+        bridge_floor=-1.0,
+        progress_enabled=False,
+        collapse_segment_pool_by_artist=False,
+        duration_penalty_enabled=True,
+        duration_penalty_weight=0.6,
+        duration_cutoff_multiplier=1.5,
+    )
+
+    with patch(
+        "src.playlist.pier_bridge_builder.build_eligible_universe",
+        wraps=build_eligible_universe,
+    ) as mock_build:
+        build_pier_bridge_playlist(
+            seed_track_ids=["t0", "t3"],
+            total_tracks=3,
+            bundle=bundle,
+            candidate_pool_indices=[1, 2],
+            cfg=cfg,
+        )
+
+    assert mock_build.called, "corridor path must call build_eligible_universe"
+    _, kwargs = mock_build.call_args
+    assert kwargs["duration_reference_ms"] == pytest.approx(200_000.0), (
+        "expected the real seed-median duration (200_000ms), not the dead-knob None"
+    )
+    assert kwargs["duration_penalty_weight"] == pytest.approx(0.6)
+    assert kwargs["duration_cutoff_multiplier"] == pytest.approx(1.5)
+
+    # And the wiring actually BITES: track 2 (500_000ms) is > cutoff
+    # (200_000 * 1.5 = 300_000ms) so build_eligible_universe's own hard
+    # cutoff excludes it -- proving this isn't just an inert kwarg pass-through.
+    # Recomputed directly (not read off the mock) for a version-independent
+    # assertion of the real returned EligibleUniverse.
+    universe = build_eligible_universe(**kwargs)
+    assert 2 not in universe.indices.tolist(), (
+        "track 2 (500_000ms, over the 300_000ms cutoff) must be hard-excluded "
+        "once the duration reference is real"
+    )
+    assert universe.stats["excluded_duration_cutoff"] == 1
+
+
+def test_corridor_universe_title_hard_exclude_flags_wired_when_configured():
+    """Category B4 (INVARIANT hard gate): cfg.title_hard_exclude_flags must
+    reach build_eligible_universe as the real configured flag set, not the
+    dead-knob frozenset(). Without this wiring, a flagged title (e.g. an
+    "Interlude") can leak into a corridor-mode playlist."""
+    from dataclasses import replace as _dc_replace
+
+    bundle = _dc_replace(
+        _synthetic_bundle(),
+        track_titles=np.array(["Track 0", "Some Interlude", "Track 2", "Track 3"], dtype=object),
+    )
+    cfg = PierBridgeConfig(
+        pooling="corridor",
+        corridor_width_percentile=0.0,
+        transition_floor=-1.0,
+        bridge_floor=-1.0,
+        progress_enabled=False,
+        collapse_segment_pool_by_artist=False,
+        title_hard_exclude_flags=("interlude",),  # tuple: JSON-safe field type, see PierBridgeConfig
+    )
+
+    with patch(
+        "src.playlist.pier_bridge_builder.build_eligible_universe",
+        wraps=build_eligible_universe,
+    ) as mock_build:
+        result = build_pier_bridge_playlist(
+            seed_track_ids=["t0", "t3"],
+            total_tracks=3,
+            bundle=bundle,
+            candidate_pool_indices=[1, 2],
+            cfg=cfg,
+        )
+
+    assert mock_build.called
+    _, kwargs = mock_build.call_args
+    assert kwargs["title_hard_exclude_flags"] == frozenset({"interlude"}), (
+        "expected the real configured flag set, not the dead-knob frozenset()"
+    )
+    universe = build_eligible_universe(**kwargs)
+    assert 1 not in universe.indices.tolist(), (
+        "track 1 ('Some Interlude') must be hard-excluded once title hygiene is wired"
+    )
+    assert universe.stats["excluded_title_hygiene"] == 1
+    assert "t1" not in result.track_ids, (
+        "the flagged-title track must never surface in the final corridor playlist"
+    )
+
+
 # ── Task 4: pier-artist-key collision, filter-before-cap (carried finding) ──
 #
 # Same shape as test_corridor_filters_track_key_collisions_before_capping_

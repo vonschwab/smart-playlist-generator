@@ -76,6 +76,9 @@
   "dj_waypoint_squash_alpha": 4.0,
   "dj_waypoint_tie_break_band": null,
   "dj_waypoint_weight": 0.15,
+  "duration_cutoff_multiplier": 2.5,
+  "duration_penalty_enabled": true,
+  "duration_penalty_weight": 0.6,
   "edge_delete_enabled": true,
   "edge_delete_floor": 0.3,
   "edge_delete_max_deletions": 4,
@@ -171,6 +174,11 @@
   "taxonomy_waypoint_min_library_mass": 0,
   "title_artifact_penalty_enabled": false,
   "title_artifact_penalty_weights": null,
+  "title_hard_exclude_flags": [
+    "acapella",
+    "interlude",
+    "skit"
+  ],
   "transition_calib_center": 0.594,
   "transition_calib_gain": 1.0,
   "transition_calib_scale": 0.092,

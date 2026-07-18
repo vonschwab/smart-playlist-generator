@@ -406,6 +406,36 @@ class PierBridgeConfig:
     # src.playlist.pier_bridge.corridor.corridor_widen_decision.
     corridor_widen_improvement_epsilon: float = 0.02
 
+    # ── C1 duration soft-penalty + title-hygiene ON-case (Task 7 fix) ──
+    # Corridor-pooling-ONLY seam: build_eligible_universe's corridor call site
+    # (pier_bridge_builder.py) reads these to wire the duration penalty's ON
+    # case and title hard-exclusion. core.py's generate_playlist_ds populates
+    # them from cfg.candidate (the SAME CandidatePoolConfig fields the legacy
+    # pool reads: candidate_pool.duration_penalty_enabled/_weight/
+    # _cutoff_multiplier/title_hard_exclude_flags in config.yaml) via
+    # `replace(pb_cfg, ...)`, mirroring how pace_bridge_floor/bpm_stability_min
+    # are already threaded there. Legacy (candidate_pool.py) never reads these
+    # PierBridgeConfig fields -- it reads cfg.candidate directly -- so this
+    # addition is corridor-only and inert for pooling="legacy".
+    # Defaults keep the dead-knob-trap regression (Task 3,
+    # test_corridor_universe_duration_reference_is_none_dead_knob_trap) green
+    # for any PierBridgeConfig built without this threading (e.g. direct
+    # unit-test construction): duration_penalty_enabled=False ->
+    # duration_reference_ms=None, duration_penalty_weight=0.0 at the call site.
+    duration_penalty_enabled: bool = False
+    duration_penalty_weight: float = 0.0
+    duration_cutoff_multiplier: float = 2.5
+    # tuple, NOT frozenset: core.py's generate_playlist_ds (ds_pipeline_runner.py:211)
+    # unconditionally `json.dumps(pb_cfg.__dict__)`-logs the effective pier-bridge
+    # config on every generation (enable_logging: true is the config.yaml default,
+    # legacy AND corridor). A frozenset field there raises
+    # "TypeError: Object of type frozenset is not JSON serializable" on EVERY
+    # generation, not just corridor -- caught via the corridor_baseline sweep
+    # harness during this task. tuple is JSON-safe (serializes as an array) and
+    # still immutable/hashable; the corridor call site (pier_bridge_builder.py)
+    # wraps it in frozenset(...) only at the point build_eligible_universe needs it.
+    title_hard_exclude_flags: tuple[str, ...] = ()
+
 
 @dataclass
 class PierBridgeResult:

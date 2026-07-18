@@ -153,6 +153,37 @@ def _compute_duration_penalty(
 compute_duration_penalty = _compute_duration_penalty
 
 
+def compute_seed_reference_duration_ms(
+    durations_ms: Optional[np.ndarray],
+    seed_indices: Sequence[int],
+) -> float:
+    """Seed-median duration reference for the duration soft-penalty/hard cutoff.
+
+    Median of the positive seed durations (ms); 0.0 if none are available
+    (no durations column, no seeds with a known positive duration). Extracted
+    (Phase 1 Task 7, C1 rehome-gap fix -- corridor-pooling never wired the
+    duration penalty's ON case) so both the legacy per-pool build below AND
+    the corridor eligible-universe path (pier_bridge_builder.py) compute the
+    reference from ONE function, guaranteeing identical semantics rather than
+    a parallel re-derivation that could silently drift.
+    """
+    if durations_ms is None:
+        return 0.0
+    seed_durations: list[float] = []
+    for idx in seed_indices:
+        if 0 <= idx < len(durations_ms):
+            dur = float(durations_ms[idx])
+            if dur > 0:
+                seed_durations.append(dur)
+    if not seed_durations:
+        return 0.0
+    seed_durations.sort()
+    mid = len(seed_durations) // 2
+    if len(seed_durations) % 2 == 1:
+        return seed_durations[mid]
+    return (seed_durations[mid - 1] + seed_durations[mid]) / 2.0
+
+
 def _first_rejection_reason(
     *,
     idx: int,
@@ -650,21 +681,7 @@ def build_candidate_pool(
     duration_penalty_active = bool(cfg.duration_penalty_enabled) and durations_ms is not None
     reference_duration_ms = 0.0
     if duration_penalty_active:
-        seed_durations = []
-        for idx in seed_list:
-            if 0 <= idx < len(durations_ms):
-                dur = float(durations_ms[idx])
-                if dur > 0:
-                    seed_durations.append(dur)
-        if seed_durations:
-            seed_durations.sort()
-            mid = len(seed_durations) // 2
-            if len(seed_durations) % 2 == 1:
-                reference_duration_ms = seed_durations[mid]
-            else:
-                reference_duration_ms = (seed_durations[mid - 1] + seed_durations[mid]) / 2.0
-        else:
-            reference_duration_ms = 0.0
+        reference_duration_ms = compute_seed_reference_duration_ms(durations_ms, seed_list)
         if reference_duration_ms <= 0:
             duration_penalty_active = False
 

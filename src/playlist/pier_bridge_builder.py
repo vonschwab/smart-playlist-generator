@@ -164,7 +164,7 @@ from src.playlist.artist_style import seed_genre_relevance_mask
 # Phase 1 Task 5: Oops-All-Bangers reseat onto the corridor universe -- reuses
 # candidate_pool.py's own rank-cutoff gate (imported, not copied) so both
 # pooling strategies filter identically.
-from src.playlist.candidate_pool import _apply_popularity_gate
+from src.playlist.candidate_pool import _apply_popularity_gate, compute_seed_reference_duration_ms
 
 
 logger = logging.getLogger(__name__)
@@ -563,24 +563,32 @@ def build_pier_bridge_playlist(
     # section 4. Seeds/piers are exempt from the mask by construction
     # (build_eligible_universe never excludes a seed index, mask or no mask).
     #
-    # Phase 1 also leaves two of build_eligible_universe's hard-exclusion
-    # inputs deliberately inert:
+    # Phase 1 leaves one of build_eligible_universe's hard-exclusion inputs
+    # deliberately inert:
     #   - `excluded_track_ids=set()`: recency/blacklist exclusion is already
     #     baked into `bundle` itself by pipeline.core's restrict_bundle() call
     #     BEFORE bundle reaches this function, so re-passing it here would be
     #     redundant, not missing.
-    #   - `duration_reference_ms=None`, `title_hard_exclude_flags=frozenset()`:
-    #     the C1 duration soft-penalty and title-hygiene hard exclusion need
-    #     real config plumbing (a reference duration derived from seed
-    #     durations, and the title hard-exclude flag set) that PierBridgeConfig
-    #     does not carry yet -- out of this task's scope (Task 4/5). Passing
-    #     None/empty is the module's documented, fully-supported "off" state,
-    #     not a partial wiring bug -- see the dead-knob-trap regression test in
-    #     tests/integration/test_corridor_pooling.py, which pins this off-state
-    #     so a future change can't start silently acting on an unconfigured
-    #     knob (CLAUDE.md: "a configured knob that can't act is a startup
-    #     error" -- the inverse trap, an unconfigured knob that silently
-    #     starts acting, is exactly what that test guards against here).
+    #
+    # Task 7 C1 fix: `duration_reference_ms`/`duration_penalty_weight` and
+    # `title_hard_exclude_flags` are now wired for real. cfg.duration_*
+    # fields (see PierBridgeConfig) are populated by core.py's
+    # generate_playlist_ds from cfg.candidate -- the SAME CandidatePoolConfig
+    # fields the legacy pool reads -- via `replace(pb_cfg, ...)`, so a
+    # generation reads one config source regardless of pooling mode. The
+    # reference duration itself is the seed-median of positive seed
+    # durations, computed by `compute_seed_reference_duration_ms` (imported
+    # from candidate_pool.py, not re-derived, so the math can't drift from
+    # legacy's identical computation). `cfg.duration_penalty_enabled=False`
+    # (the PierBridgeConfig default, e.g. for a PierBridgeConfig built
+    # directly by a test without threading through core.py) keeps
+    # `duration_reference_ms=None`/`duration_penalty_weight=0.0` -- the
+    # module's documented "off" state -- so the Task 3 dead-knob-trap
+    # regression (tests/integration/test_corridor_pooling.py) stays green.
+    # `title_hard_exclude_flags` has no separate enabled bool (mirrors
+    # legacy: candidate_pool.py applies it unconditionally from
+    # cfg.title_hard_exclude_flags) -- an empty frozenset (the default) is
+    # itself the off-state.
     pooling_mode = str(getattr(cfg, "pooling", "legacy") or "legacy").strip().lower()
     if pooling_mode not in ("legacy", "corridor"):
         raise ValueError(
@@ -621,18 +629,44 @@ def build_pier_bridge_playlist(
                     "X_genre_smoothed absent" if _xg_for_mask is None
                     else "seed set has no genre profile",
                 )
+        _corridor_duration_reference_ms: Optional[float] = None
+        _corridor_duration_penalty_weight = 0.0
+        if bool(cfg.duration_penalty_enabled):
+            _ref = compute_seed_reference_duration_ms(
+                getattr(bundle, "durations_ms", None), seed_indices,
+            )
+            if _ref and _ref > 0:
+                _corridor_duration_reference_ms = float(_ref)
+                _corridor_duration_penalty_weight = float(cfg.duration_penalty_weight)
+            # else: no durations column / no seed with a known positive
+            # duration -- mirrors candidate_pool.py's duration_penalty_active
+            # falling back to inert when reference_duration_ms <= 0.
         corridor_universe = build_eligible_universe(
             bundle=bundle,
             seed_indices=seed_indices,
             excluded_track_ids=set(),
             relevance_mask=corridor_relevance_mask,
-            duration_reference_ms=None,
-            duration_cutoff_multiplier=1.0,
-            duration_penalty_weight=0.0,
-            title_hard_exclude_flags=frozenset(),
+            duration_reference_ms=_corridor_duration_reference_ms,
+            duration_cutoff_multiplier=float(cfg.duration_cutoff_multiplier),
+            duration_penalty_weight=_corridor_duration_penalty_weight,
+            # cfg.title_hard_exclude_flags is a tuple (JSON-safe on PierBridgeConfig,
+            # see its field comment); build_eligible_universe's frozen interface
+            # expects a frozenset -- convert only at this point-of-use.
+            title_hard_exclude_flags=frozenset(cfg.title_hard_exclude_flags),
             instrumental_enabled=bool(cfg.instrumental_enabled),
             instrumental_penalty_weight=float(cfg.instrumental_penalty_weight),
             voice_prob=voice_prob,
+        )
+        logger.info(
+            "Corridor duration/title hygiene: duration_penalty_enabled=%s "
+            "reference_ms=%s weight=%.3f title_hard_exclude_flags=%s "
+            "excluded_duration_cutoff=%d excluded_title_hygiene=%d",
+            bool(cfg.duration_penalty_enabled),
+            f"{_corridor_duration_reference_ms:.0f}" if _corridor_duration_reference_ms else "None",
+            _corridor_duration_penalty_weight,
+            sorted(cfg.title_hard_exclude_flags),
+            int(corridor_universe.stats.get("excluded_duration_cutoff", 0)),
+            int(corridor_universe.stats.get("excluded_title_hygiene", 0)),
         )
         # Oops, All Bangers (Task 5 reseat, design spec §3: "popularity filter
         # applies to the corridor universe when enabled"). Applied ONCE here,
