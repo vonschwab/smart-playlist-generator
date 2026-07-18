@@ -260,6 +260,16 @@ def _run_and_parse(cfg_fn, gen_call) -> dict[str, Any]:
     _rl = re.findall(r"Roam\[seg \d+\]: sonic detour mean=([\d.]+) max=([\d.]+)", log)
     out["roam_segs"] = len(_rl)
     out["roam_detour_mean"] = round(float(np.mean([float(x[0]) for x in _rl])), 3) if _rl else None
+    # Per-mode corridor width (spec section 4, pulled forward from Phase 2 by
+    # Dylan's 2026-07-18 decision): per-segment "Corridor[seg N]: size=.. width=.."
+    # health lines -- the dial-range audit's evidence that sonic_mode's width
+    # mapping (not just the genre relevance mask) actually differentiates
+    # detents. Captured per-cell here (before the log is truncated for the
+    # next cell in a sweep).
+    _cl = re.findall(r"Corridor\[seg \d+\]: size=(\d+) width=([\d.]+)", log)
+    out["corridor_sizes"] = [int(x[0]) for x in _cl]
+    out["corridor_widths"] = sorted({round(float(x[1]), 4) for x in _cl})
+    out["corridor_size_mean"] = round(float(np.mean([int(x[0]) for x in _cl])), 1) if _cl else None
     # Worst live edge (calibrated T): "DS pipeline success ... min_transition=0.240"
     # (also matches the older '"min_transition": 0.240' JSON form).
     out["min_transition"] = grp(r'min_transition[="\s:]+([0-9.]+)', float)
@@ -466,6 +476,18 @@ def sweep_artist_dial(artist: str, dial: str, length: int = 30) -> None:
         mt = c.get("min_transition")
         mt = f"{mt:.3f}" if isinstance(mt, float) else str(mt)
         print(f"  {d:9s} {c.get('n', 0):>3d} {ov:>11.3f} {mt:>6} {str(c.get('admitted')):>8} {str(c.get('bpm_std')):>6} {c['wall']:>5}")
+    # Per-mode corridor width evidence (dial-range audit, Step 6): the pool
+    # mask (admitted, above) and the corridor width must BOTH differentiate
+    # detents -- a detent pair with identical corridor sizes/widths means the
+    # width mapping isn't wired, regardless of what "admitted" shows (that
+    # number reflects the largely-vestigial legacy pool, not the corridor).
+    print("  -- corridor evidence (width mapping, not just the mask) --")
+    print(f"  {'detent':9s} {'widths':>20s} {'sizeMean':>9s} {'sizes'}")
+    for d in detents:
+        c = cells[d]
+        if c.get("err"):
+            continue
+        print(f"  {d:9s} {str(c.get('corridor_widths')):>20s} {str(c.get('corridor_size_mean')):>9} {c.get('corridor_sizes')}")
 
 
 def main():
