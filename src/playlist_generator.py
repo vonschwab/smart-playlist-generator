@@ -1753,8 +1753,13 @@ class PlaylistGenerator:
             cluster_k_max=style_cfg_raw.get("cluster_k_max", 6),
             cluster_k_heuristic_enabled=style_cfg_raw.get("cluster_k_heuristic_enabled", True),
             piers_per_cluster=style_cfg_raw.get("piers_per_cluster", 1),
-            per_cluster_candidate_pool_size=style_cfg_raw.get("per_cluster_candidate_pool_size", 400),
-            pool_balance_mode=style_cfg_raw.get("pool_balance_mode", "equal"),
+            # per_cluster_candidate_pool_size / pool_balance_mode: NOT populated
+            # here any more (final-review minor, corridor-phase1-pooling,
+            # 2026-07-18) -- both are retired (build_balanced_candidate_pool,
+            # the only reader, was deleted in Task 8; grep-gated zero readers
+            # remain) and warn loudly via _warn_retired_keys if still set in
+            # config.yaml. ArtistStyleConfig's own field defaults are inert
+            # either way.
             internal_connector_priority=style_cfg_raw.get("internal_connector_priority", True),
             internal_connector_max_per_segment=style_cfg_raw.get("internal_connector_max_per_segment", 2),
             medoid_top_k=style_cfg_raw.get("medoid_top_k", 5),
@@ -3035,8 +3040,11 @@ class PlaylistGenerator:
                 cluster_k_max=style_cfg_raw.get("cluster_k_max", 6),
                 cluster_k_heuristic_enabled=style_cfg_raw.get("cluster_k_heuristic_enabled", True),
                 piers_per_cluster=style_cfg_raw.get("piers_per_cluster", 1),
-                per_cluster_candidate_pool_size=style_cfg_raw.get("per_cluster_candidate_pool_size", 400),
-                pool_balance_mode=style_cfg_raw.get("pool_balance_mode", "equal"),
+                # per_cluster_candidate_pool_size / pool_balance_mode: NOT
+                # populated here any more (final-review minor,
+                # corridor-phase1-pooling, 2026-07-18) -- see the identical
+                # comment on this file's other ArtistStyleConfig construction
+                # site.
                 internal_connector_priority=style_cfg_raw.get("internal_connector_priority", True),
                 internal_connector_max_per_segment=style_cfg_raw.get("internal_connector_max_per_segment", 2),
                 bridge_floor_strict=style_cfg_raw.get("bridge_floor", {}).get("strict", 0.10),

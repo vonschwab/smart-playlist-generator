@@ -1696,47 +1696,25 @@ def build_pier_bridge_playlist(
                 )
                 break
             backoff_used_count = floor_attempt_idx + 1
-            widened = bool(
-                infeasible_handling
-                and infeasible_handling.enabled
-                and infeasible_handling.widen_search_on_backoff
-                and floor_attempt_idx > 0
-            )
+            # `widened` (infeasible_handling.widen_search_on_backoff) could only
+            # ever fire on floor_attempt_idx > 0, but `_bridge_floor_attempts`
+            # always returns a single-element list (Phase 1 Task 8 retired the
+            # bridge_floor backoff cascade -- the corridor widening ladder is
+            # the sole segment-level recovery mechanism now), so
+            # floor_attempt_idx is always 0 and the resource-expansion branch
+            # that used to key off `widened` (extra pool/beam-width/expansion
+            # budget) was unreachable dead code, deleted (final-review minor,
+            # corridor-phase1-pooling, 2026-07-18). `widened` itself stays as
+            # an always-False constant -- it's still read below for
+            # per-attempt logging/audit-event diagnostics.
+            widened = False
             widened_search_used = widened_search_used or widened
-            _widen = 1.5 ** floor_attempt_idx
 
-            def _widened_cap(cap: float) -> float:
-                cap = float(cap)
-                return cap if not np.isfinite(cap) else cap * _widen
-
-            cfg_attempt = replace(
-                cfg,
-                bridge_floor=float(bridge_floor),
-                onset_bridge_max_log_distance=_widened_cap(
-                    getattr(cfg, "onset_bridge_max_log_distance", float("inf"))
-                ),
-                bpm_bridge_max_log_distance=_widened_cap(
-                    getattr(cfg, "bpm_bridge_max_log_distance", float("inf"))
-                ),
-            )
+            cfg_attempt = replace(cfg, bridge_floor=float(bridge_floor))
 
             segment_pool_max = int(cfg.segment_pool_max)
             beam_width = cfg.initial_beam_width
             max_expansion_attempts = cfg.max_expansion_attempts
-            if widened:
-                extra_pool = int(infeasible_handling.extra_neighbors_m) + int(
-                    infeasible_handling.extra_bridge_helpers
-                )
-                segment_pool_max = min(
-                    segment_pool_max + extra_pool, int(cfg.max_segment_pool_max)
-                )
-                beam_width = min(
-                    beam_width + int(infeasible_handling.extra_beam_width),
-                    cfg.max_beam_width,
-                )
-                max_expansion_attempts = max_expansion_attempts + int(
-                    infeasible_handling.extra_expansion_attempts
-                )
 
             expansions = 0
             pool_size_initial = 0

@@ -139,7 +139,13 @@ def test_corridor_pooling_generation_completes_with_corridor_membership_and_heal
     load_artifact_bundle.cache_clear()
     bundle = load_artifact_bundle(str(ART))
 
-    assert len(res.track_ids) in (20, 21), f"expected 20 tracks, got {len(res.track_ids)}"
+    # 20 (nominal) or 21: variable_bridge_length is add-only -- one segment may
+    # legitimately flex one track longer under this fixture's corridor width,
+    # same relaxation precedent as test_gui_fidelity_regressions.py's
+    # test_hard_seed_pair_never_fails (>= 30) and the Phase 1 min_gap fix's
+    # forward-pier-gap blocking, which can shrink a segment's pool by exactly
+    # one candidate.
+    assert len(res.track_ids) in (20, 21), f"expected 20 or 21 tracks, got {len(res.track_ids)}"
 
     playlist_stats = res.playlist_stats.get("playlist", {})
     assert playlist_stats.get("pooling_strategy") == "corridor"

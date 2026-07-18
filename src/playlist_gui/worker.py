@@ -496,8 +496,23 @@ _RETIRED_PIER_BRIDGE_INFEASIBLE_HANDLING_KEYS = {
 # dj_connectors cache; `strategy` itself is still read for diagnostics).
 _RETIRED_PIER_BRIDGE_DJ_POOLING_KEYS = {
     k: "the dj_union segment-pool strategy's implementation was deleted with the legacy segment-scored pool builder (corridor Phase 1 Task 8)"
-    for k in ("k_local", "k_toward", "k_genre", "k_union_max", "step_stride", "debug_compare_baseline")
+    for k in ("step_stride", "debug_compare_baseline")
 }
+# k_local/k_toward/k_genre/k_union_max (final-review correction,
+# corridor-phase1-pooling, 2026-07-18): NOT simply unread. micro_pier.py's
+# `_build_dj_relaxation_attempts` ("relax_effort" attempt, :57-61) still
+# reads all four into a scaled derived config (`* pool_scale`, e.g.
+# `effort_cfg.dj_pooling_k_local`) -- but that derived value is itself never
+# consumed by anything: the dj_union pool implementation it would have
+# configured was deleted in Task 8, and `_attempt_micro_pier_split` only
+# reaches this attempt when `dj_bridging_enabled` is on (off by default,
+# superseded by taxonomy steering -- CLAUDE.md Layer 3 item 16). So a value
+# set here is still a no-op in config.yaml, just via an inert scale-and-
+# discard rather than a plain unread key.
+_RETIRED_PIER_BRIDGE_DJ_POOLING_KEYS.update({
+    k: "reads into an inert scaled copy in micro_pier.py's relax_effort DJ-bridging relaxation attempt (dj_bridging_enabled is off by default) -- the dj_union segment-pool strategy that copy would have configured was deleted with the legacy segment-scored pool builder (corridor Phase 1 Task 8), so the derived value is never consumed"
+    for k in ("k_local", "k_toward", "k_genre", "k_union_max")
+})
 
 # playlists.ds_pipeline.artist_style.*: fed build_balanced_candidate_pool,
 # the per-cluster sonic-neighbor "external pool" that hard-clamped Artist
