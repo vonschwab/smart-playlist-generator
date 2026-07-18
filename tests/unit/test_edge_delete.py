@@ -232,7 +232,6 @@ def _build_outlier(*, edge_delete_enabled: bool):
         bundle=bundle,
         candidate_pool_indices=[1, 2],
         cfg=cfg,
-        min_genre_similarity=None,
         X_genre_smoothed=bundle.X_genre_smoothed,
     )
 

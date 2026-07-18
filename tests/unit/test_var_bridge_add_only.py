@@ -96,7 +96,6 @@ def _build_with_var_bridge(caplog):
             bundle=bundle,
             candidate_pool_indices=[1, 2, 3, 4],
             cfg=cfg,
-            min_genre_similarity=None,
             X_genre_smoothed=bundle.X_genre_smoothed,
         )
     return result, caplog

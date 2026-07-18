@@ -284,7 +284,6 @@ def _dup_collision_bundle() -> ArtifactBundle:
 def test_corridor_filters_track_key_collisions_before_capping_not_after():
     bundle = _dup_collision_bundle()
     cfg = PierBridgeConfig(
-        pooling="corridor",
         corridor_width_percentile=0.0,  # permissive: every non-seed row is a corridor member
         segment_pool_max=2,
         # Held small on purpose: with 6 duplicates ranked above the 2 clean
@@ -327,7 +326,6 @@ def test_corridor_universe_duration_reference_is_none_dead_knob_trap():
     reverse: an UNconfigured knob must never start silently acting)."""
     bundle = _synthetic_bundle()
     cfg = PierBridgeConfig(
-        pooling="corridor",
         corridor_width_percentile=0.0,  # permissive: this test only checks wiring
         transition_floor=-1.0,
         bridge_floor=-1.0,
@@ -383,7 +381,6 @@ def test_corridor_universe_duration_reference_wired_when_enabled():
         durations_ms=np.array([200_000.0, 250_000.0, 500_000.0, 200_000.0]),
     )
     cfg = PierBridgeConfig(
-        pooling="corridor",
         corridor_width_percentile=0.0,
         transition_floor=-1.0,
         bridge_floor=-1.0,
@@ -439,7 +436,6 @@ def test_corridor_universe_title_hard_exclude_flags_wired_when_configured():
         track_titles=np.array(["Track 0", "Some Interlude", "Track 2", "Track 3"], dtype=object),
     )
     cfg = PierBridgeConfig(
-        pooling="corridor",
         corridor_width_percentile=0.0,
         transition_floor=-1.0,
         bridge_floor=-1.0,
@@ -534,7 +530,6 @@ def _artist_collision_bundle() -> ArtifactBundle:
 def test_corridor_filters_pier_artist_collisions_before_capping_not_after():
     bundle = _artist_collision_bundle()
     cfg = PierBridgeConfig(
-        pooling="corridor",
         corridor_width_percentile=0.0,  # permissive: every non-seed row is a corridor member
         segment_pool_max=2,
         # Held small on purpose, same rationale as the track-key fixture: 6
@@ -621,7 +616,6 @@ def _mask_wiring_bundle() -> ArtifactBundle:
 def _run_mask_wiring_case(genre_mode) -> int:
     bundle = _mask_wiring_bundle()
     cfg = PierBridgeConfig(
-        pooling="corridor",
         corridor_width_percentile=0.0,  # permissive width: the mask is the only lever under test
         transition_floor=-1.0,
         bridge_floor=-1.0,
@@ -658,7 +652,6 @@ def test_corridor_relevance_mask_unspecified_matches_off():
     an active gate."""
     bundle = _mask_wiring_bundle()
     cfg = PierBridgeConfig(
-        pooling="corridor",
         corridor_width_percentile=0.0,
         transition_floor=-1.0,
         bridge_floor=-1.0,
@@ -834,7 +827,6 @@ def _bangers_bundle() -> ArtifactBundle:
 def _run_bangers_case(gated: bool):
     bundle = _bangers_bundle()
     cfg = PierBridgeConfig(
-        pooling="corridor",
         corridor_width_percentile=0.0,  # permissive: the bangers gate is the only lever under test
         transition_floor=-1.0,
         bridge_floor=-1.0,
@@ -890,7 +882,6 @@ def test_corridor_bangers_gate_exempts_tag_guarantee_ids():
     (forced_included >= 1) -- this must FAIL on 7f0b5da."""
     bundle = _bangers_bundle()
     cfg = PierBridgeConfig(
-        pooling="corridor",
         corridor_width_percentile=0.0,  # permissive: isolate the bangers/guarantee interaction
         transition_floor=-1.0,
         bridge_floor=-1.0,
@@ -962,7 +953,6 @@ def _guarantee_bundle() -> ArtifactBundle:
 def _run_guarantee_case(guaranteed: bool):
     bundle = _guarantee_bundle()
     cfg = PierBridgeConfig(
-        pooling="corridor",
         corridor_width_percentile=0.85,  # tight enough that g3 fails membership on its own
         transition_floor=-1.0,
         bridge_floor=-1.0,
@@ -1068,7 +1058,6 @@ def test_corridor_widening_ladder_stops_early_when_no_improvement(caplog):
     segment's corridor diagnostics."""
     bundle = _widen_gate_bundle()
     cfg = PierBridgeConfig(
-        pooling="corridor",
         corridor_width_percentile=0.0,
         corridor_widen_step=0.05,
         corridor_widen_attempts=2,
@@ -1161,7 +1150,6 @@ def test_corridor_widening_ladder_still_widens_when_each_attempt_improves(caplog
         durations_ms=np.full(n, 200_000.0),
     )
     cfg = PierBridgeConfig(
-        pooling="corridor",
         corridor_width_percentile=0.995,  # tight -> attempt 0 is infeasible (no path)
         corridor_widen_step=0.10,
         corridor_widen_attempts=2,

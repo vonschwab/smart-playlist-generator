@@ -192,7 +192,6 @@ def test_builder_edge_scores_match_final_reporter_edges(monkeypatch):
         bundle=bundle,
         candidate_pool_indices=[1],
         cfg=cfg,
-        min_genre_similarity=None,
         X_genre_smoothed=bundle.X_genre_smoothed,
     )
 

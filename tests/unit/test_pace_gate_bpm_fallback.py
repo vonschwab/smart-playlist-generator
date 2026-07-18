@@ -71,6 +71,13 @@ def _build(*, pace_bridge_floor: float, perceptual_bpm):
         progress_enabled=False,
         center_transitions=False,
         collapse_segment_pool_by_artist=False,
+        # Phase 1 Task 8: corridor is the sole pooling path. bridge_floor=-1.0
+        # was this fixture's "admit everyone" sentinel under legacy's fixed-
+        # floor gate; corridor's percentile-based membership needs the
+        # equivalent -- width_percentile=0.0 admits the full 2-candidate
+        # universe (t1, t2) so the beam-level pace-gate differentiation this
+        # test exists to demonstrate can actually compete between both.
+        corridor_width_percentile=0.0,
     )
     return build_pier_bridge_playlist(
         seed_track_ids=["t0", "t3"],
@@ -78,7 +85,6 @@ def _build(*, pace_bridge_floor: float, perceptual_bpm):
         bundle=bundle,
         candidate_pool_indices=[1, 2],
         cfg=cfg,
-        min_genre_similarity=None,
         X_genre_smoothed=bundle.X_genre_smoothed,
         perceptual_bpm=perceptual_bpm,
     )

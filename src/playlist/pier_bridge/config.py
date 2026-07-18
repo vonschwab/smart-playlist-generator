@@ -363,15 +363,16 @@ class PierBridgeConfig:
     variable_bridge_epsilon: float = 0.02   # prefer nominal length unless a flex beats it by > eps
     variable_bridge_max_flex_segments: int = 3  # max segments that may actually flex (deterministic cap)
 
-    # ── Corridor segment pooling (Phase 1, BRANCH-LOCAL dev flag; default "legacy") ──
-    # "legacy" = today's KNN-union / segment-scored pool builders (unchanged).
-    # "corridor" = per-segment corridor pooling: a library-wide eligible universe
-    # (pier_bridge.eligible_universe.build_eligible_universe) narrowed per segment
-    # by a self-calibrating min-sim corridor (pier_bridge.corridor.build_corridor)
-    # instead of a fixed bridge_floor + KNN union. Dev-only until Task 8 flips the
-    # default and deletes the legacy path -- see
-    # docs/superpowers/specs/2026-07-12-corridor-first-pooling-design.md.
-    pooling: str = "legacy"  # "legacy" | "corridor"
+    # ── Corridor segment pooling (Phase 1) ──
+    # Corridor pooling (a library-wide eligible universe --
+    # pier_bridge.eligible_universe.build_eligible_universe -- narrowed per
+    # segment by a self-calibrating min-sim corridor --
+    # pier_bridge.corridor.build_corridor) is THE segment-pool strategy since
+    # Phase 1 Task 8. The "legacy"/"corridor" dev flag (`pooling: str`) and
+    # the legacy KNN-union / segment-scored pool builders it selected between
+    # were deleted in that task -- see
+    # docs/superpowers/specs/2026-07-12-corridor-first-pooling-design.md and
+    # .superpowers/sdd/p1-task-8-report.md.
     corridor_width_percentile: float = 0.85  # Task 6 width-pinning: 4 corpus artists (Bill Evans
     # Trio, SADE, Alex G, The Strokes) x open/dynamic, probed at {0.85, 0.90, 0.95}, matched
     # against legacy's per-segment "pool_before" size (pier_bridge_builder.py:3302-3305, fires
@@ -416,7 +417,7 @@ class PierBridgeConfig:
     # `replace(pb_cfg, ...)`, mirroring how pace_bridge_floor/bpm_stability_min
     # are already threaded there. Legacy (candidate_pool.py) never reads these
     # PierBridgeConfig fields -- it reads cfg.candidate directly -- so this
-    # addition is corridor-only and inert for pooling="legacy".
+    # addition backs the corridor-pooling seam (the sole pooling path).
     # Defaults keep the dead-knob-trap regression (Task 3,
     # test_corridor_universe_duration_reference_is_none_dead_knob_trap) green
     # for any PierBridgeConfig built without this threading (e.g. direct

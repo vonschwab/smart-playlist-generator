@@ -113,10 +113,9 @@ from src.playlist.pier_bridge.seeds import (  # noqa: F401
     _select_connector_candidates,
 )
 
-# Tier-3.1 PR-7: pool builders + bridge-score kernel.
+# Tier-3.1 PR-7: bridge-score kernel. (_build_segment_candidate_pool_legacy
+# and _build_segment_candidate_pool_scored deleted -- Phase 1 Task 8.)
 from src.playlist.pier_bridge.pool import (  # noqa: F401  (re-exported for tests/back-compat)
-    _build_segment_candidate_pool_legacy,
-    _build_segment_candidate_pool_scored,
     _compute_bridge_score,
 )
 
@@ -126,9 +125,6 @@ from src.playlist.pier_bridge.genre_targets import (  # noqa: F401  (re-exported
     _fallback_genre_vector,
     build_dense_genre_targets,
 )
-
-# Genre-arc steering: distribution-relative floor relaxation.
-from src.playlist.pier_bridge.percentiles import relax_percentile
 
 # Tier-3.1 PR-8: beam search engine + duration penalty.
 from src.playlist.pier_bridge.beam import (  # noqa: F401  (re-exported for tests/back-compat)
@@ -393,7 +389,6 @@ def build_pier_bridge_playlist(
     bundle: ArtifactBundle,
     candidate_pool_indices: List[int],
     cfg: Optional[PierBridgeConfig] = None,
-    min_genre_similarity: Optional[float] = None,
     X_genre_smoothed: Optional[np.ndarray] = None,
     genre_method: str = "ensemble",
     internal_connector_indices: Optional[Set[int]] = None,
@@ -432,7 +427,6 @@ def build_pier_bridge_playlist(
         bundle: Artifact bundle with sonic features
         candidate_pool_indices: Pre-filtered candidate pool indices
         cfg: Configuration (uses defaults if None)
-        min_genre_similarity: Optional genre gate threshold
         X_genre_smoothed: Genre vectors for gating
         genre_method: Genre similarity method
         genre_mode: The run's genre_mode axis ("off"/"strict"/"narrow"/"dynamic"/
@@ -593,20 +587,20 @@ def build_pier_bridge_playlist(
     # legacy: candidate_pool.py applies it unconditionally from
     # cfg.title_hard_exclude_flags) -- an empty frozenset (the default) is
     # itself the off-state.
-    pooling_mode = str(getattr(cfg, "pooling", "legacy") or "legacy").strip().lower()
-    if pooling_mode not in ("legacy", "corridor"):
-        raise ValueError(
-            f"Unknown pier_bridge.pooling='{pooling_mode}' (expected 'legacy' or 'corridor')"
-        )
+    # Phase 1 Task 8: corridor pooling is THE sole path -- the "legacy"/
+    # "corridor" dev flag (PierBridgeConfig.pooling) and every legacy
+    # KNN-union / segment-scored pool builder it used to select between were
+    # deleted. `pooling_mode` stays as a local constant (rather than being
+    # excised at every call site) so the corridor-only code below reads
+    # identically to how it did behind the flag -- every remaining
+    # `pooling_mode == "corridor"` check is now always-true by construction.
+    pooling_mode = "corridor"
     corridor_universe: Optional[EligibleUniverse] = None
     corridor_genre_dense_universe: Optional[np.ndarray] = None
     corridor_artist_keys: List[str] = []
     corridor_track_keys: List[Tuple[str, str]] = []
     # C1 beam rehome (controller decision, Task 7 follow-up): a precomputed
-    # per-candidate duration-penalty array, threaded into the beam ONLY when
-    # pooling_mode == "corridor". Stays None for legacy by construction (see
-    # beam.py's `duration_penalty_values is not None` gate) -- legacy already
-    # applies its own duration soft-penalty once, during pool ranking.
+    # per-candidate duration-penalty array, threaded into the beam.
     corridor_duration_penalty_values: Optional[np.ndarray] = None
     if pooling_mode == "corridor":
         # Genre-mode-keyed relevance mask (Task 4). Computed once per
@@ -1355,25 +1349,19 @@ def build_pier_bridge_playlist(
             genre_vec_b=genre_vec_b,
         )
 
-        # C1 rehome: multiplicative duration-rank penalty (Task 2), applied
-        # AFTER build_corridor returns so corridor.py stays pure/universe-
-        # agnostic. Phase 1 always passes duration_reference_ms=None to
-        # build_eligible_universe (see the call site above), so
-        # corridor_universe.duration_rank_penalty is a constant-1.0 vector
-        # today -- this multiply is a documented no-op until the C1 penalty
-        # is wired for real (Task 4/5). Computed for parity with the design
-        # contract and exposed via corridor diagnostics, not currently used
-        # to reorder `final_candidates`. Averaged over the RESULT members
-        # (the actual segment pool), matching what the field name promises
-        # (review fix: was previously averaged over the full pre-cap
-        # `avail_penalty`, which doesn't match "this segment's corridor
-        # members").
+        # C1 rehome (Task 2): duration-rank penalty vector, kept for
+        # diagnostics only. The beam owns C1 enforcement since f142677
+        # (duration_penalty_values threaded additively into
+        # _beam_search_segment's per-edge scoring, the same pattern as C10's
+        # instrumental lean) -- multiplying it into `rank_scores` here too
+        # would double-apply the penalty at the segment_pool_max cap margin,
+        # violating single-enforcement (Phase 1 Task 8 review finding; see
+        # CLAUDE.md Layer 3 item 18's "single-enforcement" discipline).
+        # Averaged over the RESULT members (the actual segment pool),
+        # matching what the field name promises.
         _penalty_by_idx = dict(zip(avail_idx.tolist(), avail_penalty.tolist()))
         _result_penalties = [
             float(_penalty_by_idx.get(int(i), 1.0)) for i in result.indices.tolist()
-        ]
-        _adjusted_scores = [
-            float(s) * p for s, p in zip(result.rank_scores.tolist(), _result_penalties)
         ]
         _mean_duration_penalty = float(np.mean(_result_penalties)) if _result_penalties else 1.0
 
@@ -1411,14 +1399,9 @@ def build_pier_bridge_playlist(
             "widened": 0,
             "forced_included": int(_forced_included),
             # C1 rehome parity (see comment above): mean duration-rank
-            # penalty applied to this segment's corridor members, and
-            # the resulting mean adjusted score -- both 1.0x/no-op in
-            # Phase 1 (duration_reference_ms=None), non-trivial once
-            # Task 5 wires a real reference.
+            # penalty applied to this segment's corridor members
+            # (diagnostics only -- the beam is the sole enforcer).
             "mean_duration_penalty": _mean_duration_penalty,
-            "mean_adjusted_score": (
-                float(np.mean(_adjusted_scores)) if _adjusted_scores else 0.0
-            ),
         }
 
         return final_candidates, cand_artist_keys, {}, seg_diag
@@ -1482,61 +1465,23 @@ def build_pier_bridge_playlist(
         return list(dict.fromkeys(artists)) or None
 
     def _bridge_floor_attempts(initial_floor: float) -> list[float]:
-        # Corridor path anti-double-ladder gate (Task 4): when pooling==
-        # "corridor", the corridor widening ladder (_run_corridor_widening_
-        # ladder) is THE segment-level recovery mechanism -- the legacy
-        # bridge_floor backoff below must never also fire, or a single
-        # quality failure would trigger both a bridge_floor relaxation cascade
-        # AND a corridor-width widen cascade at once (the exact "double-
-        # ladder" the design spec warns against). Force single-attempt
-        # regardless of infeasible_handling.enabled; legacy (non-corridor)
-        # behavior is completely unchanged.
-        if pooling_mode == "corridor":
-            return [float(initial_floor)]
-        if not infeasible_handling or not infeasible_handling.enabled:
-            return [float(initial_floor)]
-        steps = list(infeasible_handling.backoff_steps or ())
-        if not steps:
-            cur = float(initial_floor)
-            while cur >= float(infeasible_handling.min_bridge_floor) - 1e-9:
-                steps.append(round(cur, 2))
-                cur -= 0.01
-        attempts: list[float] = [float(initial_floor)]
-        for v in steps:
-            if not isinstance(v, (int, float)):
-                continue
-            f = float(v)
-            if f < float(initial_floor) and f >= float(infeasible_handling.min_bridge_floor) - 1e-9:
-                attempts.append(float(f))
-        attempts = list(dict.fromkeys(attempts))
-        max_attempts = max(1, int(infeasible_handling.max_attempts_per_segment))
-        return attempts[:max_attempts]
-
-    def _transition_floor_attempts(initial_floor: float) -> list[float]:
-        """Return transition_floor values to try in order (initial first, then lower).
-
-        Only relaxes when infeasible_handling is enabled and
-        transition_floor_relaxation_enabled is True.  Steps down by 0.07
-        from initial_floor to min_transition_floor (up to 3 extra attempts),
-        e.g. 0.35→0.28→0.21→0.20 for initial=0.35, min=0.20.
-        """
-        if (
-            not infeasible_handling
-            or not infeasible_handling.enabled
-            or not infeasible_handling.transition_floor_relaxation_enabled
-        ):
-            return [float(initial_floor)]
-        min_t = float(infeasible_handling.min_transition_floor)
-        if min_t >= float(initial_floor) - 1e-9:
-            return [float(initial_floor)]
-        attempts: list[float] = [float(initial_floor)]
-        cur = round(float(initial_floor) - 0.07, 2)
-        while cur > min_t + 1e-9 and len(attempts) < 4:
-            attempts.append(cur)
-            cur = round(cur - 0.07, 2)
-        if not any(abs(a - min_t) < 1e-9 for a in attempts):
-            attempts.append(min_t)
-        return attempts
+        # Phase 1 Task 8: the legacy infeasible_handling bridge_floor backoff
+        # cascade was deleted -- the corridor widening ladder
+        # (_run_corridor_widening_ladder) is THE sole segment-level recovery
+        # mechanism now (this was already true behind the flag: this function
+        # forced single-attempt whenever pooling_mode == "corridor", which is
+        # now unconditional). Retired config family:
+        # playlists.ds_pipeline.pier_bridge.infeasible_handling.{enabled,
+        # strategy,min_bridge_floor,backoff_steps,max_attempts_per_segment,
+        # widen_search_on_backoff,extra_neighbors_m,extra_bridge_helpers,
+        # extra_beam_width,extra_expansion_attempts,
+        # transition_floor_relaxation_enabled,min_transition_floor,
+        # genre_arc_relaxation_enabled,min_genre_arc_percentile} -- warned via
+        # src.playlist_gui.worker._warn_retired_keys. `.guarantee_feasible`
+        # and `.greedy_genre_weight` remain live (terminal fallback
+        # placement, see the guarantee_feasible check later in this
+        # function) and are NOT retired.
+        return [float(initial_floor)]
 
     def _run_segment_backoff_attempts(
         *,
@@ -1737,248 +1682,22 @@ def build_pier_bridge_playlist(
                                 segment_internal_connectors = set(dj_connectors)
                             segment_connector_cap = max(segment_connector_cap, dj_connector_cap)
 
-                if pooling_mode == "corridor":
-                    pool_diag["pool_strategy"] = "corridor"
-                    segment_candidates, cand_artist_keys, _cand_title_keys, _corridor_pool_diag = _build_corridor_segment_pool(
-                        pier_a,
-                        pier_b,
-                        seg_idx,
-                        int(segment_pool_max),
-                        width_percentile_override=corridor_width_override,
-                    )
-                    last_corridor_pool_diag = dict(_corridor_pool_diag)
-                elif pool_strategy == "legacy":
-                    neighbors_m = min(
-                        int(cfg.initial_neighbors_m) * (2 ** int(attempt)),
-                        int(cfg.max_neighbors_m),
-                    )
-                    bridge_helpers = min(
-                        int(cfg.initial_bridge_helpers) * (2 ** int(attempt)),
-                        int(cfg.max_bridge_helpers),
-                    )
-                    pool_diag["pool_strategy"] = "legacy"
-                    pool_diag["neighbors_m"] = int(neighbors_m)
-                    pool_diag["bridge_helpers"] = int(bridge_helpers)
-                    segment_candidates = _build_segment_candidate_pool_legacy(
-                        pier_a,
-                        pier_b,
-                        X_full_norm,
-                        universe,
-                        global_used,
-                        int(neighbors_m),
-                        int(bridge_helpers),
-                        artist_keys=bundle.artist_keys,
-                        bridge_floor=float(bridge_floor),
-                        allowed_set=(allowed_set_indices if allowed_set_indices is not None else None),
-                        internal_connectors=segment_internal_connectors,
-                        internal_connector_cap=segment_connector_cap,
-                        internal_connector_priority=internal_connector_priority,
-                        diagnostics=pool_diag,
-                    )
-                    try:
-                        cand_artist_keys[int(pier_a)] = identity_keys_for_index(
-                            bundle, int(pier_a)
-                        ).artist_key
-                        cand_artist_keys[int(pier_b)] = identity_keys_for_index(
-                            bundle, int(pier_b)
-                        ).artist_key
-                    except Exception:
-                        cand_artist_keys = {}
-                else:
-                    pool_diag["pool_strategy"] = pool_strategy
-                    segment_candidates, cand_artist_keys, _cand_title_keys = _build_segment_candidate_pool_scored(
-                        pier_a=pier_a,
-                        pier_b=pier_b,
-                        X_full_norm=X_full_norm,
-                        universe_indices=universe,
-                        used_track_ids=global_used,
-                        bundle=bundle,
-                        bridge_floor=float(bridge_floor),
-                        segment_pool_max=int(segment_pool_max),
-                        allowed_set=allowed_set_indices if allowed_set_indices is not None else None,
-                        internal_connectors=segment_internal_connectors,
-                        internal_connector_cap=segment_connector_cap,
-                        internal_connector_priority=internal_connector_priority,
-                        seed_artist_key=seed_artist_key,
-                        disallow_pier_artists_in_interiors=bool(cfg.disallow_pier_artists_in_interiors),
-                        disallow_seed_artist_in_interiors=bool(cfg.disallow_seed_artist_in_interiors),
-                        used_track_keys=used_track_keys,
-                        seed_track_keys=seed_track_keys,
-                        diagnostics=pool_diag,
-                        experiment_bridge_scoring_enabled=bool(
-                            cfg.experiment_bridge_scoring_enabled
-                        ),
-                        experiment_bridge_min_weight=float(
-                            cfg.experiment_bridge_min_weight
-                        ),
-                        experiment_bridge_balance_weight=float(
-                            cfg.experiment_bridge_balance_weight
-                        ),
-                        pool_strategy=str(pool_strategy),
-                        interior_length=int(interior_len),
-                        progress_arc_enabled=bool(cfg.progress_arc_enabled),
-                        progress_arc_shape=str(cfg.progress_arc_shape),
-                        X_genre_norm=X_genre_norm,
-                        X_genre_norm_idf=X_genre_norm_idf,
-                        genre_targets=segment_g_targets,
-                        pool_k_local=int(cfg.dj_pooling_k_local),
-                        pool_k_toward=int(cfg.dj_pooling_k_toward),
-                        pool_k_genre=int(cfg.dj_pooling_k_genre),
-                        pool_k_union_max=int(cfg.dj_pooling_k_union_max),
-                        pool_step_stride=int(cfg.dj_pooling_step_stride),
-                        pool_cache_enabled=bool(cfg.dj_pooling_cache_enabled),
-                        pooling_cache=segment_pool_cache,
-                        pool_verbose=bool(cfg.dj_diagnostics_pool_verbose),  # Phase 3 fix
-                        genre_pool_transition_blend=float(cfg.dj_genre_pool_transition_blend),  # Task D
-                        collapse_by_artist=bool(cfg.collapse_segment_pool_by_artist),
-                        X_genre_dense=getattr(bundle, "X_genre_dense", None),
-                        genre_bridge_weight=float(getattr(cfg, "segment_pool_genre_weight", 0.0)),
-                        bridge_admission_relaxed=_bridge_admission_relaxed,
-                        on_tag_guarantee_indices=on_tag_guarantee_indices,
-                        on_tag_guarantee_max=int(on_tag_segment_guarantee_max),
-                        on_tag_guarantee_per_artist=int(on_tag_segment_guarantee_per_artist),
-                    )
-                    try:
-                        cand_artist_keys = dict(cand_artist_keys)
-                        cand_artist_keys[int(pier_a)] = identity_keys_for_index(
-                            bundle, int(pier_a)
-                        ).artist_key
-                        cand_artist_keys[int(pier_b)] = identity_keys_for_index(
-                            bundle, int(pier_b)
-                        ).artist_key
-                    except Exception:
-                        cand_artist_keys = {}
-                    if (
-                        len(segment_candidates) < interior_len
-                        and bool(cfg.disallow_seed_artist_in_interiors)
-                        and seed_artist_key
-                    ):
-                        relaxed_candidates, relaxed_artist_keys, _relaxed_title_keys = _build_segment_candidate_pool_scored(
-                            pier_a=pier_a,
-                            pier_b=pier_b,
-                            X_full_norm=X_full_norm,
-                            universe_indices=universe,
-                            used_track_ids=global_used,
-                            bundle=bundle,
-                            bridge_floor=float(bridge_floor),
-                            segment_pool_max=int(segment_pool_max),
-                            allowed_set=allowed_set_indices if allowed_set_indices is not None else None,
-                            internal_connectors=segment_internal_connectors,
-                            internal_connector_cap=segment_connector_cap,
-                            internal_connector_priority=internal_connector_priority,
-                            seed_artist_key=seed_artist_key,
-                            disallow_pier_artists_in_interiors=bool(cfg.disallow_pier_artists_in_interiors),
-                            disallow_seed_artist_in_interiors=False,
-                            used_track_keys=used_track_keys,
-                            seed_track_keys=seed_track_keys,
-                            diagnostics=None,
-                            experiment_bridge_scoring_enabled=bool(
-                                cfg.experiment_bridge_scoring_enabled
-                            ),
-                            experiment_bridge_min_weight=float(
-                                cfg.experiment_bridge_min_weight
-                            ),
-                            experiment_bridge_balance_weight=float(
-                                cfg.experiment_bridge_balance_weight
-                            ),
-                            pool_strategy=str(pool_strategy),
-                            interior_length=int(interior_len),
-                            progress_arc_enabled=bool(cfg.progress_arc_enabled),
-                            progress_arc_shape=str(cfg.progress_arc_shape),
-                            X_genre_norm=X_genre_norm,
-                            X_genre_norm_idf=X_genre_norm_idf,
-                            genre_targets=segment_g_targets,
-                            pool_k_local=int(cfg.dj_pooling_k_local),
-                            pool_k_toward=int(cfg.dj_pooling_k_toward),
-                            pool_k_genre=int(cfg.dj_pooling_k_genre),
-                            pool_k_union_max=int(cfg.dj_pooling_k_union_max),
-                            pool_step_stride=int(cfg.dj_pooling_step_stride),
-                            pool_cache_enabled=bool(cfg.dj_pooling_cache_enabled),
-                            pooling_cache=segment_pool_cache,
-                            pool_verbose=bool(cfg.dj_diagnostics_pool_verbose),  # Phase 3 fix
-                            genre_pool_transition_blend=float(cfg.dj_genre_pool_transition_blend),  # Task D
-                            collapse_by_artist=bool(cfg.collapse_segment_pool_by_artist),
-                            X_genre_dense=getattr(bundle, "X_genre_dense", None),
-                            genre_bridge_weight=float(getattr(cfg, "segment_pool_genre_weight", 0.0)),
-                        )
-                        if len(relaxed_candidates) > len(segment_candidates):
-                            segment_candidates = relaxed_candidates
-                            cand_artist_keys = dict(relaxed_artist_keys)
-                            pool_diag["relaxed_seed_artist_in_interiors"] = True
-                            pool_diag["relaxed_seed_artist_pool_size"] = int(
-                                len(relaxed_candidates)
-                            )
-                            warnings.append(
-                                {
-                                    "type": "relax_seed_artist_in_interiors",
-                                    "scope": "segment",
-                                    "segment_index": int(seg_idx),
-                                    "message": (
-                                        "Relaxed seed-artist exclusion in bridge interiors "
-                                        "due to insufficient candidates."
-                                    ),
-                                }
-                            )
-                    if (
-                        bool(cfg.dj_bridging_enabled)
-                        and str(cfg.dj_pooling_strategy or "baseline")
-                        .strip()
-                        .lower()
-                        == "dj_union"
-                        and bool(cfg.dj_pooling_debug_compare_baseline)
-                    ):
-                        baseline_candidates, _, _ = _build_segment_candidate_pool_scored(
-                            pier_a=pier_a,
-                            pier_b=pier_b,
-                            X_full_norm=X_full_norm,
-                            universe_indices=universe,
-                            used_track_ids=global_used,
-                            bundle=bundle,
-                            bridge_floor=float(bridge_floor),
-                            segment_pool_max=int(segment_pool_max),
-                            allowed_set=allowed_set_indices if allowed_set_indices is not None else None,
-                            internal_connectors=segment_internal_connectors,
-                            internal_connector_cap=segment_connector_cap,
-                            internal_connector_priority=internal_connector_priority,
-                            seed_artist_key=seed_artist_key,
-                            disallow_pier_artists_in_interiors=bool(cfg.disallow_pier_artists_in_interiors),
-                            disallow_seed_artist_in_interiors=bool(cfg.disallow_seed_artist_in_interiors),
-                            used_track_keys=used_track_keys,
-                            seed_track_keys=seed_track_keys,
-                            diagnostics=None,
-                            experiment_bridge_scoring_enabled=bool(
-                                cfg.experiment_bridge_scoring_enabled
-                            ),
-                            experiment_bridge_min_weight=float(
-                                cfg.experiment_bridge_min_weight
-                            ),
-                            experiment_bridge_balance_weight=float(
-                                cfg.experiment_bridge_balance_weight
-                            ),
-                            pool_strategy=str(pool_strategy),
-                            interior_length=int(interior_len),
-                            progress_arc_enabled=bool(cfg.progress_arc_enabled),
-                            progress_arc_shape=str(cfg.progress_arc_shape),
-                            X_genre_norm=X_genre_norm,
-                            X_genre_norm_idf=X_genre_norm_idf,
-                            genre_targets=segment_g_targets,
-                            pool_k_local=int(cfg.dj_pooling_k_local),
-                            pool_k_toward=int(cfg.dj_pooling_k_toward),
-                            pool_k_genre=int(cfg.dj_pooling_k_genre),
-                            pool_k_union_max=int(cfg.dj_pooling_k_union_max),
-                            pool_step_stride=int(cfg.dj_pooling_step_stride),
-                            pool_cache_enabled=bool(cfg.dj_pooling_cache_enabled),
-                            pooling_cache=segment_pool_cache,
-                            pool_verbose=bool(cfg.dj_diagnostics_pool_verbose),  # Phase 3 fix
-                            genre_pool_transition_blend=float(cfg.dj_genre_pool_transition_blend),  # Task D
-                            collapse_by_artist=bool(cfg.collapse_segment_pool_by_artist),
-                            X_genre_dense=getattr(bundle, "X_genre_dense", None),
-                            genre_bridge_weight=float(getattr(cfg, "segment_pool_genre_weight", 0.0)),
-                        )
-                        if segment_pool_cache is not None:
-                            segment_pool_cache["dj_baseline_pool"] = set(
-                                int(i) for i in baseline_candidates
-                            )
+                # Phase 1 Task 8: corridor pooling is the sole segment-pool
+                # strategy -- the legacy KNN-union (_build_segment_candidate_pool_legacy)
+                # and segment-scored (_build_segment_candidate_pool_scored,
+                # incl. its disallow_seed_artist_in_interiors relaxed retry
+                # and its dj_union debug_compare_baseline comparison) builders
+                # were deleted along with the elif/else selector that chose
+                # between them and this corridor branch.
+                pool_diag["pool_strategy"] = "corridor"
+                segment_candidates, cand_artist_keys, _cand_title_keys, _corridor_pool_diag = _build_corridor_segment_pool(
+                    pier_a,
+                    pier_b,
+                    seg_idx,
+                    int(segment_pool_max),
+                    width_percentile_override=corridor_width_override,
+                )
+                last_corridor_pool_diag = dict(_corridor_pool_diag)
 
                 if segment_candidates and recent_boundary_artists:
                     blocked_artist_keys = set(str(k) for k in recent_boundary_artists if k)
@@ -2145,8 +1864,10 @@ def build_pier_bridge_playlist(
                     break
 
                 expansions += 1
-                if pooling_mode == "corridor" or str(cfg.segment_pool_strategy).strip().lower() != "legacy":
-                    segment_pool_max = min(int(segment_pool_max) * 2, int(cfg.max_segment_pool_max))
+                # Phase 1 Task 8: corridor is the only pooling strategy, so this
+                # doubling is now unconditional (was already unconditional for
+                # corridor before the legacy elif/else pool builders were deleted).
+                segment_pool_max = min(int(segment_pool_max) * 2, int(cfg.max_segment_pool_max))
                 beam_width = min(int(beam_width) * 2, int(cfg.max_beam_width))
 
                 if infeasible_handling and infeasible_handling.enabled:
@@ -2586,11 +2307,6 @@ def build_pier_bridge_playlist(
             and bool(cfg.dj_relaxation_enabled)
             and str(cfg.dj_route_shape or "linear").strip().lower() == "ladder"
         )
-        relaxation_attempts = (
-            _build_dj_relaxation_attempts(cfg)
-            if relaxation_enabled
-            else [{"label": "baseline", "cfg": cfg, "changes": [], "force_allow_detours": False}]
-        )
         cfg_base = cfg
         segment_allow_detours_base = segment_allow_detours
 
@@ -2723,68 +2439,39 @@ def build_pier_bridge_playlist(
             _relax_success: Optional[int] = None
             _cfg_used = cfg_base
             _attempt_result: Optional[dict[str, Any]] = None
-            if pooling_mode == "corridor":
-                # Corridor path (Task 4): the widening ladder IS the segment-
-                # level recovery mechanism -- it replaces this relaxation-
-                # attempts loop (which tries different dj-bridging cfg
-                # variants, not corridor width) entirely for corridor
-                # segments. One call, one baseline cfg; the ladder itself
-                # handles retrying at wider corridor widths internally.
-                if not _deadline_exceeded_at_segment_start:
-                    _attempt_result = _run_corridor_widening_ladder(
-                        cfg_base=cfg_base,
-                        segment_allow_detours=segment_allow_detours_base,
-                        segment_g_targets=_g_targets,
-                        segment_g_targets_dense=_g_targets_dense,
-                        pier_a=pier_a,
-                        pier_b=pier_b,
-                        interior_len=interior_len,
-                        pier_a_id=pier_a_id,
-                        pier_b_id=pier_b_id,
-                        seg_idx=seg_idx,
-                        recent_boundary_artists=_recent_artists_for_segment(seg_idx),
-                    )
-                    _attempt_path = _attempt_result["segment_path"]
-                    _seg_relax_attempts.append({
-                        "attempt_index": 0,
-                        "label": "corridor_widening_ladder",
-                        "changes": [],
-                        "failure_reason": (
-                            str(_attempt_result["last_failure_reason"])
-                            if _attempt_path is None else None
-                        ),
-                    })
-                    if _attempt_path is not None:
-                        _relax_success = 0
-            else:
-                for relax_idx, relax in enumerate(relaxation_attempts):
-                    if _deadline_exceeded_at_segment_start:
-                        break  # skip all beam attempts; fall through to guaranteed-fill
-                    _cfg_used = relax["cfg"]
-                    attempt_allow_detours = segment_allow_detours_base or bool(relax.get("force_allow_detours"))
-                    _attempt_result = _run_segment_backoff_attempts(
-                        cfg_attempt_base=_cfg_used,
-                        segment_allow_detours=attempt_allow_detours,
-                        segment_g_targets=_g_targets,
-                        segment_g_targets_dense=_g_targets_dense,
-                        pier_a=pier_a,
-                        pier_b=pier_b,
-                        interior_len=interior_len,
-                        pier_a_id=pier_a_id,
-                        pier_b_id=pier_b_id,
-                        seg_idx=seg_idx,
-                        recent_boundary_artists=_recent_artists_for_segment(seg_idx),
-                    )
-                    _attempt_path = _attempt_result["segment_path"]
-                    _seg_relax_attempts.append({
-                        "attempt_index": int(relax_idx),
-                        "label": str(relax.get("label", "")),
-                        "changes": list(relax.get("changes") or []),
-                        "failure_reason": (str(_attempt_result["last_failure_reason"]) if _attempt_path is None else None),
-                    })
-                    if _attempt_path is not None:
-                        _relax_success = int(relax_idx)
-                        break
+            # Phase 1 Task 8: corridor pooling is the only path -- the widening
+            # ladder IS the segment-level recovery mechanism now (it replaced
+            # the legacy relaxation-attempts loop, which tried different
+            # dj-bridging cfg variants, not corridor width; that loop and the
+            # `relaxation_attempts` list it consumed were deleted). One call,
+            # one baseline cfg; the ladder itself handles retrying at wider
+            # corridor widths internally.
+            if not _deadline_exceeded_at_segment_start:
+                _attempt_result = _run_corridor_widening_ladder(
+                    cfg_base=cfg_base,
+                    segment_allow_detours=segment_allow_detours_base,
+                    segment_g_targets=_g_targets,
+                    segment_g_targets_dense=_g_targets_dense,
+                    pier_a=pier_a,
+                    pier_b=pier_b,
+                    interior_len=interior_len,
+                    pier_a_id=pier_a_id,
+                    pier_b_id=pier_b_id,
+                    seg_idx=seg_idx,
+                    recent_boundary_artists=_recent_artists_for_segment(seg_idx),
+                )
+                _attempt_path = _attempt_result["segment_path"]
+                _seg_relax_attempts.append({
+                    "attempt_index": 0,
+                    "label": "corridor_widening_ladder",
+                    "changes": [],
+                    "failure_reason": (
+                        str(_attempt_result["last_failure_reason"])
+                        if _attempt_path is None else None
+                    ),
+                })
+                if _attempt_path is not None:
+                    _relax_success = 0
 
             return {
                 "attempt_result": _attempt_result,
@@ -2884,12 +2571,11 @@ def build_pier_bridge_playlist(
             local_sonic_stats_segment = dict(attempt_result.get("local_sonic_stats_segment", {}))
             last_failure_reason = attempt_result["last_failure_reason"]
             last_segment_candidates = list(attempt_result["last_segment_candidates"])
-            if pooling_mode == "corridor":
-                # Edge-repair reseat (Task 5): fold this segment's FINAL
-                # corridor membership (post-widening-ladder -- see the
-                # accumulator's own comment above) into the whole-generation
-                # union edge repair will draw from.
-                corridor_segment_members_union.update(int(i) for i in last_segment_candidates)
+            # Edge-repair reseat (Task 5): fold this segment's FINAL corridor
+            # membership (post-widening-ladder -- see the accumulator's own
+            # comment above) into the whole-generation union edge repair will
+            # draw from.
+            corridor_segment_members_union.update(int(i) for i in last_segment_candidates)
             last_candidate_artist_keys = dict(attempt_result["last_candidate_artist_keys"])
             pool_cache = attempt_result.get("segment_pool_cache")
             last_segment_pool_cache = dict(pool_cache) if pool_cache is not None else None
@@ -2940,142 +2626,14 @@ def build_pier_bridge_playlist(
                 seg_idx, _SEGMENT_RELAXATION_BUDGET_S,
             )
 
-        # Transition-floor relaxation tier: if all bridge_floor backoffs exhausted,
-        # progressively lower transition_floor before declaring infeasibility.
-        # Gated off for pooling=="corridor" (Task 4): the corridor widening
-        # ladder already re-ran the beam at progressively wider corridors and
-        # accepted a best-effort path (possibly below transition_floor) when
-        # it couldn't clear the floor -- this tier re-relaxing transition_floor
-        # on top of that would be a second, uncoordinated relaxation axis
-        # firing after the corridor ladder already declared its own outcome
-        # (the "double-ladder" the design spec warns against).
-        if (
-            segment_path is None
-            and not pool_too_small_for_segment
-            and not over_relaxation_budget
-            and pooling_mode != "corridor"
-        ):
-            _t_attempts = _transition_floor_attempts(float(cfg_base.transition_floor))
-            for _t_floor in _t_attempts[1:]:  # first value already tried in relax loop above
-                _now2 = time.monotonic()
-                if (deadline is not None and _now2 > deadline) or (_now2 - _pb_build_start) > _relax_budget_s:
-                    break
-                for _relax in relaxation_attempts:
-                    _t_result = _run_segment_backoff_attempts(
-                        cfg_attempt_base=_relax["cfg"],
-                        segment_allow_detours=segment_allow_detours_base or bool(_relax.get("force_allow_detours")),
-                        segment_g_targets=segment_g_targets,
-                        segment_g_targets_dense=segment_g_targets_dense,
-                        pier_a=pier_a,
-                        pier_b=pier_b,
-                        interior_len=interior_len,
-                        pier_a_id=pier_a_id,
-                        pier_b_id=pier_b_id,
-                        seg_idx=seg_idx,
-                        recent_boundary_artists=_recent_artists_for_segment(seg_idx),
-                        transition_floor_override=float(_t_floor),
-                    )
-                    if _t_result["segment_path"] is not None:
-                        segment_path = _t_result["segment_path"]
-                        chosen_bridge_floor = float(_t_result["chosen_bridge_floor"])
-                        backoff_used_count = int(_t_result["backoff_used_count"])
-                        backoff_attempts = list(_t_result.get("backoff_attempts") or [])
-                        widened_search_used = bool(_t_result["widened_search_used"])
-                        expansions = int(_t_result["expansions"])
-                        pool_size_initial = int(_t_result["pool_size_initial"])
-                        pool_size_final = int(_t_result["pool_size_final"])
-                        beam_width_used = int(_t_result["beam_width_used"])
-                        soft_genre_penalty_hits_segment = int(_t_result["soft_genre_penalty_hits_segment"])
-                        soft_genre_penalty_edges_scored_segment = int(_t_result["soft_genre_penalty_edges_scored_segment"])
-                        local_sonic_stats_segment = dict(_t_result.get("local_sonic_stats_segment", {}))
-                        last_failure_reason = _t_result["last_failure_reason"]
-                        last_segment_candidates = list(_t_result["last_segment_candidates"])
-                        last_candidate_artist_keys = dict(_t_result["last_candidate_artist_keys"])
-                        pool_cache = _t_result.get("segment_pool_cache")
-                        last_segment_pool_cache = dict(pool_cache) if pool_cache is not None else None
-                        last_waypoint_stats = dict(_t_result.get("last_waypoint_stats", {}))
-                        last_pool_diag = dict(_t_result.get("last_pool_diag", {}))
-                        segment_edge_components = list(_t_result.get("edge_components") or [])
-                        break
-                if segment_path is not None:
-                    break
-
-        # Genre-arc-floor relaxation tier: if the transition-floor tier still
-        # could not build the segment, progressively lower the genre-arc floor
-        # percentile toward infeasible_handling.min_genre_arc_percentile so
-        # genre-sparse seeds don't go infeasible. Gated on steering +
-        # infeasible_handling + genre_arc_relaxation, AND (Task 4) never for
-        # pooling=="corridor" -- same double-ladder rationale as the
-        # transition-floor tier above: the corridor widening ladder already
-        # ran and declared its outcome.
-        if segment_path is None and not pool_too_small_for_segment \
-           and not over_relaxation_budget \
-           and pooling_mode != "corridor" \
-           and bool(getattr(cfg_base, "genre_steering_enabled", False)) \
-           and infeasible_handling and infeasible_handling.enabled \
-           and infeasible_handling.genre_arc_relaxation_enabled:
-            _gfloors = relax_percentile(
-                float(cfg_base.genre_arc_floor_percentile),
-                float(infeasible_handling.min_genre_arc_percentile),
-                step=0.15,
-            )
-            # Niche-genre seeds (jazz, hyperpop) often need the genre-arc floor AND the
-            # transition floor relaxed *together* — the genre-coherent candidates and the
-            # sonically-reachable ones only overlap once both gates ease. The earlier tiers
-            # relax these dimensions independently and never explore the joint relaxation,
-            # so sweep transition_floor inside the arc-floor loop here.
-            _t_attempts_arc = _transition_floor_attempts(float(cfg_base.transition_floor))
-            for _gf in _gfloors[1:]:  # first value already tried in the relax loop above
-                _now3 = time.monotonic()
-                if (deadline is not None and _now3 > deadline) or (_now3 - _pb_build_start) > _relax_budget_s:
-                    logger.warning(
-                        "Segment %d: relaxation budget exceeded mid genre-arc tier — "
-                        "bailing to fallback placement", seg_idx,
-                    )
-                    break
-                for _t_floor in _t_attempts_arc:
-                    for _relax in relaxation_attempts:
-                        _g_result = _run_segment_backoff_attempts(
-                            cfg_attempt_base=_relax["cfg"],
-                            segment_allow_detours=segment_allow_detours_base or bool(_relax.get("force_allow_detours")),
-                            segment_g_targets=segment_g_targets,
-                            segment_g_targets_dense=segment_g_targets_dense,
-                            pier_a=pier_a,
-                            pier_b=pier_b,
-                            interior_len=interior_len,
-                            pier_a_id=pier_a_id,
-                            pier_b_id=pier_b_id,
-                            seg_idx=seg_idx,
-                            recent_boundary_artists=_recent_artists_for_segment(seg_idx),
-                            genre_arc_floor_percentile_override=float(_gf),
-                            transition_floor_override=float(_t_floor),
-                        )
-                        if _g_result["segment_path"] is not None:
-                            break
-                    if _g_result["segment_path"] is not None:
-                        segment_path = _g_result["segment_path"]
-                        chosen_bridge_floor = float(_g_result["chosen_bridge_floor"])
-                        backoff_used_count = int(_g_result["backoff_used_count"])
-                        backoff_attempts = list(_g_result.get("backoff_attempts") or [])
-                        widened_search_used = bool(_g_result["widened_search_used"])
-                        expansions = int(_g_result["expansions"])
-                        pool_size_initial = int(_g_result["pool_size_initial"])
-                        pool_size_final = int(_g_result["pool_size_final"])
-                        beam_width_used = int(_g_result["beam_width_used"])
-                        soft_genre_penalty_hits_segment = int(_g_result["soft_genre_penalty_hits_segment"])
-                        soft_genre_penalty_edges_scored_segment = int(_g_result["soft_genre_penalty_edges_scored_segment"])
-                        local_sonic_stats_segment = dict(_g_result.get("local_sonic_stats_segment", {}))
-                        last_failure_reason = _g_result["last_failure_reason"]
-                        last_segment_candidates = list(_g_result["last_segment_candidates"])
-                        last_candidate_artist_keys = dict(_g_result["last_candidate_artist_keys"])
-                        pool_cache = _g_result.get("segment_pool_cache")
-                        last_segment_pool_cache = dict(pool_cache) if pool_cache is not None else None
-                        last_waypoint_stats = dict(_g_result.get("last_waypoint_stats", {}))
-                        last_pool_diag = dict(_g_result.get("last_pool_diag", {}))
-                        segment_edge_components = list(_g_result.get("edge_components") or [])
-                        break
-                if segment_path is not None:
-                    break
+        # Phase 1 Task 8: the legacy transition-floor and genre-arc-floor
+        # relaxation tiers were deleted. Both were already gated
+        # `pooling_mode != "corridor"` (never-fired under corridor by
+        # construction, per the "double-ladder" rationale in
+        # _bridge_floor_attempts above) and are now provably unreachable
+        # since pooling_mode is always "corridor". The corridor widening
+        # ladder (_run_corridor_widening_ladder) remains the sole
+        # segment-level recovery mechanism.
 
         micro_pier_diag: dict[str, Any] = {}
         if relaxation_enabled and bool(cfg.dj_relaxation_emit_warnings):
@@ -3753,13 +3311,8 @@ def build_pier_bridge_playlist(
         # the spec-sanctioned substitute for "the corridor of the segment
         # containing each repaired edge" is the UNION of every segment's
         # final corridor members (see corridor_segment_members_union's own
-        # comment above). Legacy `universe` is untouched and still used
-        # unchanged when pooling_mode != "corridor".
-        _repair_candidate_indices = (
-            sorted(corridor_segment_members_union)
-            if pooling_mode == "corridor"
-            else universe
-        )
+        # comment above).
+        _repair_candidate_indices = sorted(corridor_segment_members_union)
         repair_result = repair_playlist_edges(
             final_indices=final_indices,
             candidate_indices=_repair_candidate_indices,

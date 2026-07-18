@@ -149,7 +149,6 @@ def test_tag_steering_beam_off_is_byte_identical():
             bundle=bundle,
             candidate_pool_indices=candidate_pool,
             cfg=cfg,
-            min_genre_similarity=None,
             X_genre_smoothed=None,
             **extra_kwargs,
         )
@@ -218,7 +217,6 @@ def test_piers_preserved_through_cascade():
             bundle=bundle,
             candidate_pool_indices=candidate_pool,
             cfg=cfg,
-            min_genre_similarity=None,
             X_genre_smoothed=None,
         )
 

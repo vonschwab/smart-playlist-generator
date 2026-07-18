@@ -117,7 +117,6 @@ def _run_builder(bundle: ArtifactBundle):
         bundle=bundle,
         candidate_pool_indices=candidate_pool,
         cfg=cfg,
-        min_genre_similarity=None,
         X_genre_smoothed=None,
     )
 

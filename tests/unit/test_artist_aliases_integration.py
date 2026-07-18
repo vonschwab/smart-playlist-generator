@@ -184,7 +184,17 @@ def test_siblings_never_within_min_gap():
     cfg = PierBridgeConfig(bridge_floor=0.0, transition_floor=0.0, center_transitions=False,
                            variable_bridge_length=False, edge_delete_enabled=False,
                            collapse_segment_pool_by_artist=False, tail_dp_enabled=False,
-                           progress_enabled=False)
+                           progress_enabled=False,
+                           # Phase 1 Task 8: corridor is the sole pooling path.
+                           # bridge_floor=0.0 was this fixture's "admit
+                           # everyone" sentinel under legacy's fixed-floor
+                           # gate; corridor's percentile-based membership
+                           # needs the equivalent so both Smog and Bill
+                           # Callahan are corridor members from the start
+                           # (not just reachable after several widen
+                           # attempts), matching what this sibling-repulsion
+                           # regression test's fixture was built to exercise.
+                           corridor_width_percentile=0.0)
 
     # Control: WITHOUT the sibling link, Smog and Bill Callahan's near-identical
     # embeddings land them adjacent -- proving this fixture actually exercises
@@ -193,7 +203,7 @@ def test_siblings_never_within_min_gap():
     baseline = build_pier_bridge_playlist(
         seed_track_ids=["t0", "t1"], total_tracks=14, bundle=bundle,
         candidate_pool_indices=[i for i in range(n) if i not in (0, 1)],
-        cfg=cfg, min_gap=min_gap, min_genre_similarity=None, X_genre_smoothed=None,
+        cfg=cfg, min_gap=min_gap, X_genre_smoothed=None,
     )
     base_smog = _artist_positions(baseline.track_ids, bundle, "Smog")
     base_bill = _artist_positions(baseline.track_ids, bundle, "Bill Callahan")
@@ -207,7 +217,7 @@ def test_siblings_never_within_min_gap():
     result = build_pier_bridge_playlist(
         seed_track_ids=["t0", "t1"], total_tracks=14, bundle=bundle,
         candidate_pool_indices=[i for i in range(n) if i not in (0, 1)],
-        cfg=cfg, min_gap=min_gap, min_genre_similarity=None, X_genre_smoothed=None,
+        cfg=cfg, min_gap=min_gap, X_genre_smoothed=None,
     )
     smog = _artist_positions(result.track_ids, bundle, "Smog")
     bill = _artist_positions(result.track_ids, bundle, "Bill Callahan")
@@ -246,7 +256,7 @@ def test_empty_map_leaves_smoke_generation_identical():
                variable_bridge_length=False, edge_delete_enabled=False)
     kw = dict(seed_track_ids=["t0", "t10"], total_tracks=12,
               candidate_pool_indices=[i for i in range(50) if i not in (0, 10)],
-              min_gap=3, min_genre_similarity=None, X_genre_smoothed=None)
+              min_gap=3, X_genre_smoothed=None)
 
     set_artist_link_map_for_testing(None)  # empty
     r1 = build_pier_bridge_playlist(bundle=_mk(), cfg=PierBridgeConfig(**cfg), **kw)

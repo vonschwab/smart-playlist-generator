@@ -236,7 +236,6 @@ def test_pier_bridge_smoke_golden(scenario_name, smoke_bundle):
         bundle=smoke_bundle,
         candidate_pool_indices=candidate_pool,
         cfg=cfg,
-        min_genre_similarity=None,
         X_genre_smoothed=None,
     )
 

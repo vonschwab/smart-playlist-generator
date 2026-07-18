@@ -79,6 +79,13 @@ def _build(genre_pair_floor: float):
         genre_arc_floor=0.0,
         genre_arc_floor_percentile=0.0,
         genre_pair_floor=genre_pair_floor,
+        # Phase 1 Task 8: corridor is the sole pooling path. bridge_floor=-1.0
+        # was this fixture's "admit everyone" sentinel under legacy's fixed-
+        # floor gate; corridor's percentile-based membership needs the
+        # equivalent -- width_percentile=0.0 admits the full 2-candidate
+        # universe (t1, t2) so the beam-level pair-floor demotion this test
+        # exists to demonstrate can actually compete between both.
+        corridor_width_percentile=0.0,
     )
     bundle = _bundle()
     return build_pier_bridge_playlist(
@@ -87,7 +94,6 @@ def _build(genre_pair_floor: float):
         bundle=bundle,
         candidate_pool_indices=[1, 2],
         cfg=cfg,
-        min_genre_similarity=None,
         X_genre_smoothed=bundle.X_genre_smoothed,
     )
 

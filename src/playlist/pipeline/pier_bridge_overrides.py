@@ -129,7 +129,10 @@ def apply_pier_bridge_overrides(
                       ("mini_pier_max_interior", int), ("mini_pier_smoothness_margin", float),
                       # Instrumental lean penalty weight (static tuning; off by default).
                       ("instrumental_penalty_weight", float),
-                      # Corridor pooling (Phase 1, dev flag; default "legacy" -> inert).
+                      # Corridor pooling (Phase 1 Task 3-7 dev-flag knobs; corridor is
+                      # now the sole pooling path -- the "pooling" strategy switch
+                      # itself was deleted in Phase 1 Task 8, see the retired-key
+                      # warning below).
                       ("corridor_width_percentile", float),
                       ("corridor_widen_step", float),
                       ("corridor_widen_attempts", int),
@@ -139,13 +142,11 @@ def apply_pier_bridge_overrides(
         if isinstance(_v, (int, float)) and not isinstance(_v, bool):
             pb_cfg = replace(pb_cfg, **{_k: _cast(_v)})
 
-    # Corridor pooling strategy switch (Phase 1, BRANCH-LOCAL dev flag). Mirrors
-    # the segment_pool_strategy str-override block below. Default "legacy" ->
-    # byte-identical to pre-corridor behavior; "corridor" activates the new
-    # per-segment corridor pool builder in pier_bridge_builder.py.
-    pooling_raw = pb_overrides.get("pooling")
-    if isinstance(pooling_raw, str) and pooling_raw.strip():
-        pb_cfg = replace(pb_cfg, pooling=str(pooling_raw).strip().lower())
+    # Phase 1 Task 8: the "pooling" legacy|corridor dev flag is retired --
+    # corridor is the only path (PierBridgeConfig.pooling field deleted). A
+    # leftover yaml value is a no-op; src.playlist_gui.worker._warn_retired_keys
+    # warns loudly at startup if it's still configured. Do NOT re-add a
+    # `replace(pb_cfg, pooling=...)` call here -- the field no longer exists.
 
     # instrumental_enabled is a bool (the generic loop above skips bools) —
     # per-request flag set by the policy layer.
