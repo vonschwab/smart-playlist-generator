@@ -373,13 +373,24 @@ class PierBridgeConfig:
     # were deleted in that task -- see
     # docs/superpowers/specs/2026-07-12-corridor-first-pooling-design.md and
     # .superpowers/sdd/p1-task-8-report.md.
-    corridor_width_percentile: float = 0.85  # Task 6 width-pinning: 4 corpus artists (Bill Evans
-    # Trio, SADE, Alex G, The Strokes) x open/dynamic, probed at {0.85, 0.90, 0.95}, matched
-    # against legacy's per-segment "pool_before" size (pier_bridge_builder.py:3302-3305, fires
-    # unconditionally for both strategies) for the SAME cells. 0.85 gave the closest match
-    # (mean corridor/legacy size ratio 0.89, mean |ratio-1| 0.28 across the 4 artists) --
-    # 0.90 undershot (ratio 0.68, |ratio-1| 0.33) and 0.95 undershot badly (ratio 0.41,
-    # |ratio-1| 0.59). See .superpowers/sdd/p1-task-6-report.md for the full evidence table.
+    corridor_width_percentile: float = 0.95  # RE-PINNED post-Task-8: Task 6's 0.85 was
+    # calibrated against Artist mode's OLD amputated universe (build_balanced_candidate_pool's
+    # hard clamp, a few thousand tracks). Task 8's restrict_bundle fix (13256f1) widened that
+    # universe to the full ~43k-track library, invalidating the 0.85 pin -- percentile-of-min-sim
+    # over a much bigger universe yields 2-15x larger corridors at the same percentile. Re-probed
+    # 4 corpus artists (Bill Evans Trio, SADE, Alex G, The Strokes) x open/dynamic at
+    # {0.93, 0.95, 0.97, 0.99} against the REAL post-fix universe. Size-parity metric (mean
+    # |corridor/legacy_pool_size - 1|, same metric as Task 6) is noisy/non-monotonic and
+    # confounded: Alex G and The Strokes are segment_pool_max=800-capped at every percentile
+    # <=0.97 (2 of 4 artists' "size" reflects the cap, not the percentile), so size-parity
+    # alone narrowly favors 0.93 (0.404) over 0.97 (0.441) over 0.95 (0.477) -- not a clean
+    # signal. min_T quality recovery vs the legacy baseline (phase0_corpus_validation.json) is
+    # the decisive, unconfounded signal: 0.95 gives by far the smallest mean |min_T delta| (0.049,
+    # no cell worse than -0.078) vs 0.93 (0.1225), 0.97 (0.133), 0.99 (0.106) -- SADE/open
+    # recovers to 0.621 (legacy 0.699) and BET/open to 0.776 (legacy 0.817), both within noise,
+    # vs the old 0.85 pin's SADE/open 0.332 (-0.37) and BET/open 0.545 (-0.27) under the real
+    # universe. Picked quality-leaning per the re-pin brief's own rule when size-parity and
+    # quality disagree. See .superpowers/sdd/p1-width-repin-report.md for the full probe table.
     corridor_widen_step: float = 0.05        # unused until Task 4's widening ladder
     corridor_widen_attempts: int = 2         # unused until Task 4's widening ladder
     # Task 6 remediation, iteration 2: empirical continue-gate — widening
