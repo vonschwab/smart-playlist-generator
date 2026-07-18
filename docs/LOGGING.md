@@ -276,6 +276,69 @@ in the module.
 
 ---
 
+## Corridor / CorridorWiden health lines (Phase 1, 2026-07)
+
+`src.playlist.pier_bridge_builder`, INFO level. Every pier-bridge generation (corridor pooling is
+the sole path since Task 8) emits these per segment — read them, not summary metrics alone, per
+CLAUDE.md's session-discipline rule ("to explain WHY a playlist came out the way it did, read the
+generation logs"). See `docs/TECHNICAL_PLAYLIST_GENERATION_FLOW.md` §5.0 for the mechanism these
+lines describe.
+
+**The per-segment health line (contract F7 — exactly one per segment index):**
+
+```
+Corridor[seg 2]: size=248 width=0.97 widened=0 support_a=0.15 support_b=0.55 threshold=0.507 capped=False
+```
+
+- `size` — final corridor member count for this segment (post-`segment_pool_max` cap).
+- `width` — the resolved `width_percentile` actually used for the **accepted** attempt (may differ
+  from the initial `sonic_mode`-resolved width if the widening ladder fired).
+- `widened` — how many widen attempts it took to reach the accepted result (`0` = the initial,
+  un-widened width already cleared `transition_floor`).
+- `support_a`/`support_b` — fraction of the corridor closer to pier A / pier B respectively
+  (`anchor_support_a`/`anchor_support_b`); near-0 or near-1 on one side signals a lopsided corridor
+  worth investigating.
+- `threshold` — the actual min-sim cutoff `quantile(min_sims, width)` resolved to for this segment
+  (self-calibrating per anchor pair, not a fixed global number).
+- `capped` — whether `segment_pool_max` truncated the ranked (non-`force_include`) portion.
+
+**Known diagnostics-fidelity gap (Task 9 finding, not yet fixed):** when
+`variable_bridge_length` flexes a segment's interior length across multiple candidate lengths
+(`choose_segment_length` in `var_bridge.py`), each candidate length runs its **own** widening-ladder
+invocation, but the once-per-segment gate on this health line latches onto the **first** attempt
+tried — not necessarily the length var-bridge ultimately picks. The line can therefore describe a
+different corridor (different `width`/`threshold`) than the one that actually supplied the
+segment's emitted tracks. Every emitted track is still a legitimate corridor member of *some*
+attempt (a diagnostics-fidelity issue, not a candidate-legality one) — but don't treat this line as
+authoritative for the *final* corridor under variable-bridge-length flex without cross-checking
+against `corridor_segments` in the playlist stats and, if needed, an independent membership
+recheck (see `tests/integration/test_corridor_pooling.py`'s xfail'd membership test and
+`.superpowers/sdd/p1-task-9-report.md` for the full writeup).
+
+**The widening-ladder lines**, emitted only when the quality trigger (`min_edge_T <
+transition_floor`) fires:
+
+```
+CorridorWiden[seg 0]: attempt 1 — widening width -> 0.92 (prior min_edge_T=0.067, floor=0.200)
+CorridorWiden[seg 0]: recovered at attempt 1 (width=0.92 min_edge_T=0.609 >= floor=0.200)
+```
+
+or, when the ladder can't recover before exhausting `corridor_widen_attempts`:
+
+```
+CorridorWiden[seg 0] EXHAUSTED after 2 widen attempt(s) (initial width=0.97, final width=0.87):
+best min_edge_T=None vs floor=0.200 — accepting best-effort path; below-floor reporting + repair
+stack proceed unchanged.
+```
+
+`EXHAUSTED` is a WARNING (not an error) — the run always completes, handing the best-seen path to
+the below-floor reporter and repair stack unchanged. A corpus with frequent `EXHAUSTED` lines is
+the signal to widen the base `corridor_width_percentile_<mode>` rather than chase it purely via
+`corridor_widen_attempts`/`corridor_widen_step` — see `PLAYLIST_ORDERING_TUNING.md`'s corridor
+knob section for the tuning recipe.
+
+---
+
 ## Redaction policy
 
 ### Never log

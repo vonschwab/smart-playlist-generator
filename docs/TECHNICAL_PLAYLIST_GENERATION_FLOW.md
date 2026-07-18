@@ -1,6 +1,6 @@
 # Technical Playlist Generation Flow
 
-**Last updated:** 2026-07-11
+**Last updated:** 2026-07-18 (corridor pooling, Phase 1 §5.0)
 **Purpose:** the authoritative, code-level, `file:line`-cited walkthrough of a single playlist
 generation, end to end.
 
@@ -366,12 +366,32 @@ popularity (in that order, popularity last — the only purity-breaking rung) an
 (`pipeline/core.py:632–652`). Off by default; see `ARCHITECTURE.md` and `CONFIG.md` for the full
 knob set.
 
-### 4.7 Output
+### 4.7 Output — narrowed role since corridor pooling (Phase 1, 2026-07)
 
 `pool.eligible_indices` is deduped by `(artist, normalized title)` track key, keeping the
 best-scored version per group (`dedupe_pool_by_track_key`, `pier_resolver.py:98–138`, called at
-`pipeline/core.py:679–680`) before being handed to the pier-bridge builder as
-`candidate_pool_indices`.
+`pipeline/core.py:679–680`), producing `candidate_pool_indices`.
+
+> **This is no longer the pier-bridge segment admission mechanism.** Through Phase 0 of the
+> corridor-pooling work, `candidate_pool_indices` *was* what each segment's beam search chose
+> from (via the now-deleted `SegmentCandidatePoolBuilder` / `_build_segment_candidate_pool_scored`
+> KNN-union). Phase 1 replaced that with the **corridor** mechanism (5.0 below), which is built
+> from its own, much wider **eligible universe** — intentionally bypassing this pool's sonic/
+> genre-mode gating (see 5.0). `candidate_pool_indices` is still real and still computed every
+> run, but it now only feeds three narrower, non-segment-admission consumers:
+> mini-pier waypoint planning (`plan_pier_sequence`, Phase 6.2), dj-connector candidate selection
+> (the opt-in, off-by-default `dj_bridging` lever, 5.3), and the absolute last-resort
+> terminal-greedy fallback when a segment totally fails to produce a path. `build_candidate_pool`
+> itself, `restrict_bundle` (4.5's recency/blacklist exclusion), and this section's admission
+> logic were **not** deleted — grep-proven still load-bearing for these consumers and for the
+> single-seed path, which shares this same call graph (`.superpowers/sdd/p1-task-8-report.md`).
+> What *was* deleted: `build_balanced_candidate_pool` (Artist mode's per-cluster external pool —
+> §3.1 above no longer has an external-pool step; medoid piers now flow straight into corridor's
+> universe), `SegmentCandidatePoolBuilder`/`segment_pool_builder.py` (1129 lines), the
+> `_build_segment_candidate_pool_{legacy,scored}` KNN-union builders, the segment-level
+> infeasible-relaxation ladder (replaced by the corridor widening ladder, 5.0), and the
+> `playlists.ds_pipeline.pier_bridge.pooling` dev flag itself (corridor is now the unconditional
+> default — no legacy fallback exists on this codebase any more).
 
 ---
 
@@ -389,6 +409,116 @@ mechanics — the per-step scoring formula, transition calibration, anti-sag lev
 weak-edge recovery cascade — see [`DJ_BRIDGE_ARCHITECTURE.md`](DJ_BRIDGE_ARCHITECTURE.md), which
 documents the current taxonomy-steering arc as well as the separate, off-by-default legacy
 `dj_bridging` lever (the S1/S2/S3 IDF/coverage system).**
+
+### 5.0 Corridor pooling: from eligible universe to per-segment candidates
+
+Phase 1 of `docs/superpowers/specs/2026-07-12-corridor-first-pooling-design.md` (2026-07,
+completed and flipped to the sole default): where each segment's beam candidates come from,
+**before** any beam scoring happens. This replaced the KNN-union `SegmentCandidatePoolBuilder`
+(deleted; see 4.7's note) with a percentile-membership corridor computed once per generation from
+a library-wide eligible universe.
+
+**1. The eligible universe (once per generation).** `build_eligible_universe`
+(`src/playlist/pier_bridge/eligible_universe.py:57`) scans the **whole bundle** — deliberately
+wider than the legacy candidate pool, bypassing its sonic/genre-mode gating entirely — and returns
+an `EligibleUniverse` (`indices`, L2-normalized `X_norm`, and a `duration_rank_penalty` array) after
+applying only **hard, structural** exclusions: recency/blacklist (already baked into `bundle` by
+`restrict_bundle` before this function ever runs, so it passes `excluded_track_ids=set()` here —
+not a second recency filter), duration hard cutoff, title hygiene, and — when `genre_mode` isn't
+`"off"` — a genre relevance mask keyed to `genre_mode`'s floor (`strict`/`narrow` tighter,
+`dynamic`/`discover` looser; see `pier_bridge_builder.py:~663`). Seeds/piers are exempt from every
+exclusion. The C1 (duration) and C10 (instrumental-lean) soft penalties are folded into one
+multiplicative `duration_rank_penalty` factor here for **diagnostics only** — neither is enforced
+by admission or ranking at this layer; C1 is enforced by the beam's own per-edge scoring
+(`beam.py`'s `duration_penalty_values`, see 5.1's note on C1) and C10 by the beam's `voice_prob`
+penalty (`beam.py:~1255`) — single-enforcement discipline (CLAUDE.md Layer 3 item 18).
+
+**2. The per-segment corridor.** For each adjacent pier pair, `build_corridor`
+(`src/playlist/pier_bridge/corridor.py:101`) takes the eligible universe (minus indices already
+used elsewhere / structurally blocked for this segment) and computes, per candidate,
+`corridor_score(x) = min(cos(pier_a, x), cos(pier_b, x))`. A candidate is a **corridor member**
+when its score clears `quantile(min_sims, width_percentile)` — a **self-calibrating, per-anchor-
+pair floor**, not a fixed global cosine value, so it survives embedding rebuilds. Membership is
+ranked by harmonic mean of (sim_a, sim_b) — optionally blended with a genre harmonic mean when
+`segment_pool_genre_weight > 0` — and capped at `segment_pool_max` (any `force_include` ids, e.g.
+on-tag guarantees, are never evicted by that cap; see reseats below). Returns a `CorridorResult`
+(`indices`, `min_sims`, `rank_scores`, `threshold`, `width_percentile`, `capped`, `stats`) logged
+once per segment as the `Corridor[seg N]: size=... width=... widened=... support_a=... support_b=...
+threshold=... capped=...` health line (contract F7; see `LOGGING.md`).
+
+**3. Per-mode widths.** `width_percentile` is not a single global knob. `resolve_corridor_width_percentile`
+(`src/playlist/pier_bridge/corridor.py:293`, pure function) maps `sonic_mode` → a concrete float,
+with a **tuning escape hatch**: the plain `corridor_width_percentile` config field (`Optional[float]`,
+default `None`) wins unconditionally over the mode mapping when set explicitly.
+
+| `sonic_mode` | Resolves to | Basis |
+|---|---|---|
+| `strict` | `corridor_width_percentile_strict` (0.985) | Best mean\|Δmin_T\| of {0.985, 0.99, 0.995} probed on 4 home cells; Swirlies/home below_floor=0 held at every tested width |
+| `narrow` | `corridor_width_percentile_narrow` (0.9675) | midpoint(strict, dynamic) — **provisional**, not directly corpus-probed |
+| `dynamic` | `corridor_width_percentile_dynamic` (0.95) | Best mean\|Δmin_T\| of {0.95, 0.97} probed on 4 open cells; matches the pre-per-mode flat pin (history continuity) |
+| `discover` | `corridor_width_percentile_discover` (0.93) | dynamic − 0.02 — **provisional**, not directly corpus-probed |
+| `off` | `0.0` (hardcoded, no config field) | percentile 0 = the whole eligible universe qualifies — no sonic narrowing at all |
+| unset / unrecognized | falls back to `dynamic` | mirrors `policy.py:316`'s established sonic_mode fallback; a corridor must always resolve to a concrete float (unlike the genre relevance mask, which can legitimately be absent) |
+
+Full calibration method, probe tables, and the width history (0.90 → 0.85 pin → 0.95 flat re-pin
+→ this per-mode mapping) are in `.superpowers/sdd/p1-permode-width-report.md` and
+`PLAYLIST_ORDERING_TUNING.md`'s corridor knob table.
+
+**4. The widening ladder — the sole segment-level recovery mechanism.**
+`_run_corridor_widening_ladder` (`pier_bridge_builder.py:2042`) replaced the legacy
+bridge-floor-backoff / transition-floor-relaxation / genre-arc-floor-relaxation tiers for
+corridor segments (those tiers are gated off under corridor pooling — corridor is the only pooling
+strategy left, so there's no "else" branch to gate). Deterministic, quality-triggered:
+
+```
+corridor = build(width)                       # initial (un-widened) width
+path = beam(corridor)
+if path is None: widen unconditionally to the full attempt budget   # hard infeasibility
+elif path.min_edge_T < transition_floor:
+    widen attempt 1 unconditionally           # trigger firing is signal enough
+    while attempts < corridor_widen_attempts:
+        if this attempt's improvement over the prior best > corridor_widen_improvement_epsilon:
+            width -= corridor_widen_step      # percentile down = wider; capped at 0.0 = whole universe
+            corridor = build(width); path = beam(corridor)
+        else: STOP widening                  # empirically not paying for itself
+if still failing: accept the best-min-edge-T path seen; log loudly (`CorridorWiden[seg N]
+EXHAUSTED ...`); below_floor reporting + repair stack proceed unchanged
+```
+
+The empirical continue-gate (Task 6 remediation iteration 2) replaced an earlier predictive
+anchor-support gate that a real cell (Alex G/home) falsified — see
+`.superpowers/sdd/p1-task6-remediation-report.md`. **Known limitation** (Phase 1 Task 9
+investigation, not yet fixed): when `variable_bridge_length` flexes a segment's interior length,
+`choose_segment_length` (`var_bridge.py`) may try multiple interior lengths, each running its own
+independent widening-ladder invocation — but the once-per-segment health-line/diagnostics gate
+latches onto the **first** attempt tried, not necessarily the length var-bridge ultimately
+chooses. The recorded `Corridor[seg N]:` line and `corridor_segments` diagnostic can therefore
+describe a different corridor (different width/threshold) than the one that actually supplied the
+segment's emitted tracks — a diagnostics-fidelity gap, not a candidate-legality one (every emitted
+track is still a legitimate corridor member of *some* attempt). See
+`.superpowers/sdd/p1-task-9-report.md` and `tests/integration/test_corridor_pooling.py`'s xfail'd
+membership test for the full writeup.
+
+**5. Reseats — features layered back onto the corridor path (Phase 1 Task 5).** Four mechanisms
+that existed pre-corridor were re-homed onto the corridor universe/segment builders rather than
+lost in the flip:
+
+- **Bangers** (Oops-All-Bangers popularity gate): applied once at corridor **universe** build via
+  `build_pier_bridge_playlist`'s `popularity_ranks`/`popularity_rank_cutoff` kwargs — the same
+  array `core.py`'s `_run_pier_bridge` closure already resolved for the legacy pool. On-tag
+  guarantee ids are unioned into the gate's keep-set (a guaranteed track must never be silently
+  dropped by the popularity gate before it even reaches force_include — a Critical fix from the
+  Task 5 review).
+- **Tag-first pier / on-tag guarantee**: guarantee ids reach every segment's `build_corridor` call
+  via `force_include` (never evicted by `segment_pool_max`), tracked by a `forced_included`
+  diagnostics count (never a member-id dump, per the worker NDJSON line-size discipline).
+- **Tail-DP**: already correct via the Task 3/4 `last_segment_candidates` chain — no new code
+  needed, only a regression test.
+- **Edge repair**: draws from the **union** of every segment's final corridor members (not any one
+  segment's alone) — the design spec's sanctioned substitute for per-edge pool scoping, since
+  `repair_playlist_edges` takes one candidate pool for its whole pass. A repaired track's home
+  segment need not be the one it clears; per-union membership is the correct contract, checked via
+  an OR-across-segments recheck in `test_corridor_repair_stack_draws_only_from_corridor_union`.
 
 ### 5.1 Per-candidate combined score
 

@@ -90,6 +90,86 @@ The `candidates_per_artist`, `target_artists`, `max_pool_size`, `min_pool_size`,
 
 ---
 
+## Corridor pooling (Phase 1, 2026-07): the segment admission mechanism
+
+`docs/superpowers/specs/2026-07-12-corridor-first-pooling-design.md`, flipped to the sole
+pier-bridge pooling path (2026-07-17); see
+`docs/TECHNICAL_PLAYLIST_GENERATION_FLOW.md` §5.0 for the full universe → corridor → widening →
+reseat walkthrough. This section is the knob-by-knob tuning reference.
+
+**Per-mode widths + escape hatch.** `corridor_width_percentile` (`Optional[float]`, default
+`None`) is the plain global override — set it to force one width regardless of `sonic_mode`, the
+same "tuning escape hatch" pattern as every other per-mode knob in this codebase. Left `None` (the
+default), the active `sonic_mode` resolves a width via the per-mode fields below
+(`src/playlist/pier_bridge/config.py:415-419`, `resolve_corridor_width_percentile` in
+`corridor.py:293`):
+
+| Config key | Default | `sonic_mode` | Effect of raising it |
+|---|---|---|---|
+| `corridor_width_percentile_strict` | 0.985 | `strict` | Tighter corridor (fewer, closer candidates) — home/strict cells |
+| `corridor_width_percentile_narrow` | 0.9675 | `narrow` | Midway; **provisional** — interpolated, not directly corpus-probed |
+| `corridor_width_percentile_dynamic` | 0.95 | `dynamic`, unset, or unrecognized | The historical flat pin; open/dynamic cells |
+| `corridor_width_percentile_discover` | 0.93 | `discover` | Widest of the four named modes — **provisional**, not directly corpus-probed |
+| *(hardcoded, no field)* | 0.0 | `off` | Whole eligible universe qualifies — no sonic narrowing at all |
+
+**Tuning:** raising a mode's percentile tightens that mode's corridor (fewer members, higher
+min-sim floor) — use when a mode feels too loose/generic. Lowering it widens (more members, lower
+floor) — use when a mode craters (a segment can't find a path, or the widening ladder fires on
+nearly every segment). `narrow`/`discover` are calibrated by interpolation only; if you tune them,
+re-run the 12-cell corpus (`scripts/corridor_baseline/capture_corpus.py`) to confirm the change
+before trusting it — see the known-issues note in `docs/corridor_baseline/phase1_contract_report.md`.
+
+**The widening ladder.** Three knobs govern the sole segment-level recovery mechanism (replaces
+every legacy relaxation tier for corridor segments — see the flow doc §5.0 point 4 for the full
+state machine):
+
+| Config key | Default | Meaning |
+|---|---|---|
+| `corridor_widen_step` | 0.05 | Percentile subtracted from `width_percentile` per widen attempt (lower percentile = wider corridor) |
+| `corridor_widen_attempts` | 2 | Max widen attempts after the initial (un-widened) build, once the quality trigger (`min_edge_T < transition_floor`) fires |
+| `corridor_widen_improvement_epsilon` | 0.02 | Attempt ≥2 only widens further if the *previous* attempt improved the best-seen `min_edge_T` by more than this; otherwise the ladder stops early and hands the best-seen path to the repair stack |
+
+**Tuning:** a corpus with frequent `CorridorWiden[seg N] EXHAUSTED` warnings (see `LOGGING.md`)
+either needs a wider starting `corridor_width_percentile_<mode>` (fewer widen cycles needed at
+all) or a larger `corridor_widen_attempts`/smaller `corridor_widen_step` (finer-grained widening,
+more attempts to find a working width) — the latter costs wall-clock (each attempt re-builds the
+corridor + re-runs the beam). `corridor_widen_improvement_epsilon` trades quality-chasing against
+wall-clock: lower it to keep widening on marginal gains (slower, occasionally better); raise it to
+stop sooner (faster, accepts a merely-adequate path sooner). The Task 6 remediation report
+(`.superpowers/sdd/p1-task6-remediation-report.md`) has the empirical basis for 0.02 — an earlier
+*predictive* gate (widen only if anchor support looked promising) was tried and **falsified** by a
+real cell (Alex G/home) that needed a widen the predictor said wouldn't help; the current gate is
+purely empirical (did the last attempt actually help) for that reason.
+
+**`segment_pool_max` / `max_segment_pool_max`.** Unchanged in *meaning* from the pre-corridor
+world (still the cap on a segment's ranked candidate count after `build_corridor`'s harmonic-mean
+ranking, with `force_include` ids exempt from the cap), but now capping a **corridor**'s ranked
+output rather than a KNN-union pool's. `segment_pool_max` defaults to 400, escalating (doubling,
+capped at `max_segment_pool_max`=1200) via the separate, pre-existing expansion-attempts loop
+inside `_run_segment_backoff_attempts` — this is an orthogonal axis from the widening ladder's
+`width_percentile`: widening controls *which* candidates qualify as corridor members; the pool-max
+expansion controls *how many* of the ranked, qualifying members the beam gets to see. Both can fire
+in the same segment build.
+
+**Small-fixture note (Task 8 finding, keep in mind for new unit tests).** Corridor's
+percentile-based membership degenerates on very small (2-4 candidate) synthetic fixtures — a fixed
+floor and a percentile behave identically only in the large-N limit. Several existing unit tests
+needed an explicit `corridor_width_percentile=0.0` override to restore the admission behavior
+their fixed-floor-era fixtures assumed. If you write a new tiny-fixture unit test against the
+corridor path, expect the same: either build a fixture with enough rows for percentile math to be
+meaningful, or override `corridor_width_percentile=0.0` explicitly rather than relying on a
+per-mode default.
+
+**Retired keys.** Corridor's Task 8 flip retired 24 warning conditions (`pooling`,
+`collapse_segment_pool_by_artist`, the 14-key legacy `infeasible_handling.*` relaxation ladder, the
+6-key `dj_bridging.pooling.*` KNN-union family + its `strategy: dj_union` value, and Artist mode's
+`per_cluster_candidate_pool_size`/`pool_balance_mode`) — every one now fires a loud startup warning
+via `_warn_retired_keys` rather than silently no-op-ing. Full list + rationale per key:
+`docs/CONFIG.md` (struck-through rows) and `.superpowers/sdd/p1-task-8-report.md` §4; don't
+re-derive it from scratch, it's already enumerated there.
+
+---
+
 ## Knob 1: Title-artifact penalty
 
 **Use when:** the audit shows `title_flags` like `demo`, `live`, `medley` on bad-feeling tracks.
