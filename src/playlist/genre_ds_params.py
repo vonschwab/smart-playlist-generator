@@ -13,6 +13,12 @@ string, passed straight through to ``build_pier_bridge_playlist`` for the corrid
 path's genre-mode-keyed relevance mask (Phase 1 Task 4). Every other key here is a
 NUMBER genre_mode resolves to (via ``mode_presets.apply_mode_presets``); this is the
 one seam that carries the raw mode string itself.
+
+``sonic_mode`` (per-mode corridor width, spec section 4, pulled forward from Phase 2
+by Dylan's 2026-07-18 decision): the raw ``playlists.sonic_mode`` string, passed
+straight through to ``build_pier_bridge_playlist`` for the corridor path's
+sonic-mode-keyed width (``pier_bridge.corridor.resolve_corridor_width_percentile``).
+Same "carry the raw string itself, not a number it resolves to" seam as genre_mode.
 """
 from __future__ import annotations
 
@@ -67,6 +73,15 @@ def resolve_genre_ds_params(playlists_cfg: Dict[str, Any], mode: str) -> Dict[st
     # single source of truth for every genre-mode-derived value.
     genre_mode: Optional[str] = playlists_cfg.get("genre_mode")
 
+    # The raw sonic_mode string (per-mode corridor width task, req 0 mirror):
+    # same rationale as genre_mode above -- apply_mode_presets reads
+    # playlists_cfg["sonic_mode"] to derive legacy CandidatePoolConfig numbers
+    # (min_sonic_similarity/sonic_admission_percentile), but never deletes the
+    # key. This is the seam the corridor path's
+    # build_pier_bridge_playlist(sonic_mode=...) kwarg needs (see its
+    # docstring) to key its per-segment corridor width.
+    sonic_mode: Optional[str] = playlists_cfg.get("sonic_mode")
+
     mode_overrides_active = bool(
         playlists_cfg.get("genre_mode") or playlists_cfg.get("sonic_mode")
     )
@@ -84,4 +99,5 @@ def resolve_genre_ds_params(playlists_cfg: Dict[str, Any], mode: str) -> Dict[st
         "genre_method": genre_method,
         "genre_admission_percentile": genre_admission_percentile,
         "genre_mode": genre_mode,
+        "sonic_mode": sonic_mode,
     }

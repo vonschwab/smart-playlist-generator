@@ -288,3 +288,61 @@ def corridor_widen_decision(
     if improvement is not None and improvement > float(epsilon):
         return CorridorWidenDecision.WIDEN
     return CorridorWidenDecision.STOP
+
+
+def resolve_corridor_width_percentile(
+    sonic_mode: Optional[str],
+    *,
+    override: Optional[float],
+    strict: float,
+    narrow: float,
+    dynamic: float,
+    discover: float,
+) -> float:
+    """Pure ``sonic_mode`` -> corridor width percentile mapping.
+
+    Design spec section 4 (docs/superpowers/specs/2026-07-12-corridor-first-
+    pooling-design.md), pulled forward from Phase 2 to Phase 1 by Dylan's
+    2026-07-18 decision. Before this, ``sonic_mode`` was a near-dead axis for
+    pier-bridge/corridor generation (verified: it only ever reached the now-
+    largely-vestigial legacy ``CandidatePoolConfig``/pool build, which the
+    corridor path never reads except through the disabled-by-default
+    ``dj_bridging`` path and the last-resort terminal-greedy fallback) — this
+    function re-animates it as the spec intends.
+
+    Priority (mirrors this codebase's other per-mode knobs, e.g.
+    ``bridge_floor_<cohesion_mode>`` in config.yaml, plus the "tuning escape
+    hatch" pattern used throughout):
+
+      1. ``override`` (the plain ``corridor_width_percentile`` config field)
+         wins UNCONDITIONALLY when not ``None`` — regardless of
+         ``sonic_mode``. This is the documented tuning escape hatch: a
+         Dylan-set number always beats the mode mapping.
+      2. ``sonic_mode == "off"`` -> ``0.0`` (percentile 0 = the whole eligible
+         universe qualifies as corridor member; no sonic narrowing at all).
+         Hardcoded here, not a config field, per spec section 4 ("`off` =
+         universe").
+      3. ``"strict"``/``"narrow"``/``"discover"`` -> the correspondingly
+         named field.
+      4. ``"dynamic"``, ``None`` (unspecified), or any unrecognized string ->
+         ``dynamic``. Mirrors this codebase's established sonic_mode
+         fallback (src/playlist_gui/policy.py:316: ``ui.sonic_mode if
+         ui.sonic_mode in VALID_MODES else "dynamic"``). Unlike the genre
+         relevance mask (which can be legitimately absent when unspecified —
+         see ``_corridor_genre_relevance_floor`` in pier_bridge_builder.py),
+         a corridor MUST always resolve to a concrete, usable float: there is
+         no "off" fallback for an unspecified/unrecognized mode, only for the
+         mode literally named "off".
+    """
+    if override is not None:
+        return float(override)
+    m = str(sonic_mode).strip().lower() if sonic_mode else ""
+    if m == "off":
+        return 0.0
+    if m == "strict":
+        return float(strict)
+    if m == "narrow":
+        return float(narrow)
+    if m == "discover":
+        return float(discover)
+    return float(dynamic)  # "dynamic", unset, or unrecognized -> dynamic

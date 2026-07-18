@@ -133,7 +133,20 @@ def apply_pier_bridge_overrides(
                       # now the sole pooling path -- the "pooling" strategy switch
                       # itself was deleted in Phase 1 Task 8, see the retired-key
                       # warning below).
+                      # corridor_width_percentile: TUNING ESCAPE HATCH ONLY -- an
+                      # explicit config.yaml value here wins over the sonic_mode
+                      # mapping unconditionally (see PierBridgeConfig's field
+                      # comment + resolve_corridor_width_percentile). Normal tuning
+                      # should use the four per-mode fields below instead.
                       ("corridor_width_percentile", float),
+                      # Per-mode corridor width (spec section 4, pulled forward from
+                      # Phase 2 by Dylan's 2026-07-18 decision): sonic_mode ->
+                      # corridor width percentile. "off" is hardcoded to 0.0 in
+                      # resolve_corridor_width_percentile -- no config field.
+                      ("corridor_width_percentile_strict", float),
+                      ("corridor_width_percentile_narrow", float),
+                      ("corridor_width_percentile_dynamic", float),
+                      ("corridor_width_percentile_discover", float),
                       ("corridor_widen_step", float),
                       ("corridor_widen_attempts", int),
                       # Task 6 remediation (iteration 2): empirical continue-gate.

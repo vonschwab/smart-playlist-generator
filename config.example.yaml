@@ -441,6 +441,26 @@ playlists:
       sonic_admission_percentile_narrow: 0.60
       sonic_admission_percentile_dynamic: 0.40
       sonic_admission_percentile_discover: 0.20
+      # Per-mode corridor width (spec section 4, pulled forward from Phase 2
+      # by Dylan's 2026-07-18 decision): sonic_mode -> corridor width
+      # percentile. NOT the same knob as sonic_admission_percentile_* above —
+      # that one is keyed by cohesion_mode and feeds the legacy candidate-pool
+      # gate (a near-dead path under corridor pooling: it only reaches the
+      # beam through the disabled-by-default dj_bridging path and the
+      # last-resort terminal-greedy fallback). These four fields are keyed by
+      # sonic_mode and ARE the corridor path's live sonic-similarity lever —
+      # see PierBridgeConfig.corridor_width_percentile_<mode> and
+      # pier_bridge.corridor.resolve_corridor_width_percentile. Higher
+      # percentile = tighter/narrower corridor (only the best-scoring
+      # candidates admitted); lower = wider. sonic_mode="off" hardcodes to
+      # 0.0 (whole eligible universe) — no config field for it.
+      corridor_width_percentile_strict: 0.99
+      corridor_width_percentile_narrow: 0.965
+      corridor_width_percentile_dynamic: 0.95
+      corridor_width_percentile_discover: 0.93
+      # Tuning escape hatch: uncomment to force EVERY sonic_mode to this one
+      # width, overriding the per-mode mapping above unconditionally.
+      # corridor_width_percentile: 0.95
       genre_arc_floor_percentile_strict: 0.90
       genre_arc_floor_percentile_narrow: 0.85
       genre_arc_floor_percentile_dynamic: 0.70

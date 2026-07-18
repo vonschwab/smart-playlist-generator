@@ -270,6 +270,7 @@ def generate_playlist_ds(
     genre_method: Optional[str] = None,
     genre_admission_percentile: Optional[float] = None,
     genre_mode: Optional[str] = None,
+    sonic_mode: Optional[str] = None,
     allowed_track_ids_set: Optional[set[str]] = None,
     internal_connector_ids: Optional[List[str]] = None,
     internal_connector_max_per_segment: int = 0,
@@ -305,6 +306,12 @@ def generate_playlist_ds(
       percentile above are the NUMBERS this mode resolves to upstream
       (mode_presets.apply_mode_presets via genre_ds_params.resolve_genre_ds_
       params); this is the raw string itself.
+    - sonic_mode: raw playlists.sonic_mode string (per-mode corridor width,
+      spec section 4, pulled forward from Phase 2 by Dylan's 2026-07-18
+      decision). Threaded straight through to build_pier_bridge_playlist's
+      sonic_mode kwarg, CORRIDOR-POOLING ONLY (keys the per-segment corridor
+      width percentile) -- not consumed by anything else in this function.
+      Same "raw string, not a resolved number" seam as genre_mode above.
     """
     # Normalize optional lists to avoid NoneType len issues downstream.
     anchor_seed_ids = list(dict.fromkeys(anchor_seed_ids or []))
@@ -1067,6 +1074,12 @@ def generate_playlist_ds(
                     # relevance mask (Phase 1 Task 4) gets the real slider
                     # value instead of always landing in the "off" bucket.
                     genre_mode=genre_mode,
+                    # Per-mode corridor width task, req 0 mirror: thread the
+                    # raw sonic_mode string through so the corridor path's
+                    # sonic-mode-keyed width (pier_bridge.corridor.resolve_
+                    # corridor_width_percentile) gets the real slider value
+                    # instead of always falling back to "dynamic".
+                    sonic_mode=sonic_mode,
                     # Phase 1 Task 5 reseat: Oops-All-Bangers on the corridor
                     # universe. Same (ranks, cutoff) pair already resolved
                     # once above via _banger_gate_inputs for the legacy pool

@@ -786,6 +786,71 @@ def test_corridor_genre_mode_threads_through_production_wiring():
     )
 
 
+# ── Per-mode corridor width: sonic_mode production wiring ───────────────────
+# (spec section 4, pulled forward from Phase 2 by Dylan's 2026-07-18 decision)
+
+@pytest.mark.integration
+@pytest.mark.slow
+@_requires_artifact
+def test_corridor_sonic_mode_threads_through_production_wiring():
+    """sonic_mode must reach build_pier_bridge_playlist via the REAL
+    production call chain (playlist_generator.py -> ds_pipeline_runner.py ->
+    pipeline/core.py -> build_pier_bridge_playlist), driven purely by config
+    -- no test-only kwargs (same anti-dead-knob proof as the genre_mode test
+    above, mirrored for the sonic axis). Before this task, sonic_mode never
+    reached the corridor path at all (it only ever moved the now-vestigial
+    legacy candidate-pool gate) -- every corridor generation silently used
+    the same width regardless of the slider.
+
+    Compares per-segment corridor sizes (``playlist_stats["corridor_segments"]``)
+    between sonic_mode="strict" (width 0.985, tighter) and sonic_mode="dynamic"
+    (width 0.95, wider) on an otherwise-identical real generation via
+    generate_like_gui. genre_mode is held at "off" (mask disabled) so genre's
+    relevance mask cannot confound the comparison -- this isolates the sonic
+    width lever specifically."""
+    ui_strict = gui_ui_state(
+        cohesion_mode="narrow", genre_mode="off", sonic_mode="strict", pace_mode="narrow",
+    )
+    ui_dynamic = gui_ui_state(
+        cohesion_mode="narrow", genre_mode="off", sonic_mode="dynamic", pace_mode="narrow",
+    )
+
+    res_strict = generate_like_gui(
+        seeds=SEEDS, ui=ui_strict, length=20, random_seed=0,
+        config_overrides=CORRIDOR_OVERRIDES,
+    )
+    res_dynamic = generate_like_gui(
+        seeds=SEEDS, ui=ui_dynamic, length=20, random_seed=0,
+        config_overrides=CORRIDOR_OVERRIDES,
+    )
+
+    segs_strict = res_strict.playlist_stats.get("playlist", {}).get("corridor_segments") or []
+    segs_dynamic = res_dynamic.playlist_stats.get("playlist", {}).get("corridor_segments") or []
+    assert segs_strict and segs_dynamic, (
+        f"corridor_segments missing from diagnostics: strict={segs_strict} dynamic={segs_dynamic}"
+    )
+
+    total_strict = sum(int(e.get("size", 0)) for e in segs_strict)
+    total_dynamic = sum(int(e.get("size", 0)) for e in segs_dynamic)
+    assert total_strict < total_dynamic, (
+        f"sonic_mode=strict (width=0.985) should shrink corridor sizes vs "
+        f"sonic_mode=dynamic (width=0.95) (pure config-driven, no test-only "
+        f"kwargs) -- got strict_total={total_strict} dynamic_total={total_dynamic} "
+        f"(strict sizes={[e.get('size') for e in segs_strict]}, "
+        f"dynamic sizes={[e.get('size') for e in segs_dynamic]}). If these are "
+        f"equal, sonic_mode never reached build_pier_bridge_playlist."
+    )
+
+    # Confirm the width itself is really the resolved per-mode value (not
+    # just coincidentally smaller for some unrelated reason).
+    widths_strict = {round(float(e.get("width", -1)), 4) for e in segs_strict}
+    widths_dynamic = {round(float(e.get("width", -1)), 4) for e in segs_dynamic}
+    assert widths_strict != widths_dynamic, (
+        f"expected different resolved corridor widths per sonic_mode -- "
+        f"got strict={widths_strict} dynamic={widths_dynamic}"
+    )
+
+
 # ── Task 5 reseat 1: Oops-All-Bangers on the corridor universe ──────────────
 #
 # 6 rows: 2 piers (b0, b1) + 4 candidates spread along one sonic axis so every

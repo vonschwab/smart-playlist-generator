@@ -373,24 +373,42 @@ class PierBridgeConfig:
     # were deleted in that task -- see
     # docs/superpowers/specs/2026-07-12-corridor-first-pooling-design.md and
     # .superpowers/sdd/p1-task-8-report.md.
-    corridor_width_percentile: float = 0.95  # RE-PINNED post-Task-8: Task 6's 0.85 was
-    # calibrated against Artist mode's OLD amputated universe (build_balanced_candidate_pool's
-    # hard clamp, a few thousand tracks). Task 8's restrict_bundle fix (13256f1) widened that
-    # universe to the full ~43k-track library, invalidating the 0.85 pin -- percentile-of-min-sim
-    # over a much bigger universe yields 2-15x larger corridors at the same percentile. Re-probed
-    # 4 corpus artists (Bill Evans Trio, SADE, Alex G, The Strokes) x open/dynamic at
-    # {0.93, 0.95, 0.97, 0.99} against the REAL post-fix universe. Size-parity metric (mean
-    # |corridor/legacy_pool_size - 1|, same metric as Task 6) is noisy/non-monotonic and
-    # confounded: Alex G and The Strokes are segment_pool_max=800-capped at every percentile
-    # <=0.97 (2 of 4 artists' "size" reflects the cap, not the percentile), so size-parity
-    # alone narrowly favors 0.93 (0.404) over 0.97 (0.441) over 0.95 (0.477) -- not a clean
-    # signal. min_T quality recovery vs the legacy baseline (phase0_corpus_validation.json) is
-    # the decisive, unconfounded signal: 0.95 gives by far the smallest mean |min_T delta| (0.049,
-    # no cell worse than -0.078) vs 0.93 (0.1225), 0.97 (0.133), 0.99 (0.106) -- SADE/open
-    # recovers to 0.621 (legacy 0.699) and BET/open to 0.776 (legacy 0.817), both within noise,
-    # vs the old 0.85 pin's SADE/open 0.332 (-0.37) and BET/open 0.545 (-0.27) under the real
-    # universe. Picked quality-leaning per the re-pin brief's own rule when size-parity and
-    # quality disagree. See .superpowers/sdd/p1-width-repin-report.md for the full probe table.
+    corridor_width_percentile: Optional[float] = None  # TUNING ESCAPE HATCH ONLY.
+    # None (default) = "use the sonic_mode -> width mapping below"; an explicit
+    # numeric value here WINS OVER the mode mapping unconditionally (same
+    # override discipline as every other per-mode knob in this codebase). Set
+    # this only for one-off tuning/debugging -- normal runs should let
+    # sonic_mode drive the width via corridor_width_percentile_<mode> below.
+    #
+    # HISTORY: through the width re-pin (.superpowers/sdd/p1-width-repin-report.md),
+    # this field WAS the sole width knob (flat default 0.95, no mode axis) --
+    # Task 8's restrict_bundle fix (13256f1) had widened the corridor universe
+    # from Artist mode's old amputated universe (a few thousand tracks) to the
+    # full ~43k-track library, and 0.95 was the best single value found by
+    # probing 4 open-mode artists against min_T recovery. That probe's own
+    # concerns section flagged the real problem: a single global percentile
+    # cannot serve both strict and dynamic sonic modes over the same much-
+    # bigger universe (SADE/home cratered to 0.374 at 0.95 vs legacy 0.706,
+    # while open cells were fine) -- recommending a per-sonic_mode width as
+    # the real fix. This task (spec section 4, pulled forward from Phase 2 by
+    # Dylan's 2026-07-18 decision) is that fix: see
+    # corridor_width_percentile_strict/narrow/dynamic/discover below and
+    # ``pier_bridge.corridor.resolve_corridor_width_percentile`` (the pure
+    # resolver; "off" sonic_mode hardcodes to 0.0 = whole universe, no field
+    # needed). ``corridor_width_percentile_dynamic``'s default carries
+    # forward the 0.95 pin (dynamic is the mode the old probe actually
+    # calibrated against -- policy.py's "open" detent is sonic_mode=dynamic).
+    # See .superpowers/sdd/p1-permode-width-report.md for the per-mode
+    # calibration probe tables (initial values below; calibrated in a
+    # follow-up commit against the 4 home / 4 open probe cells).
+    corridor_width_percentile_strict: float = 0.99
+    corridor_width_percentile_narrow: float = 0.965
+    corridor_width_percentile_dynamic: float = 0.95
+    corridor_width_percentile_discover: float = 0.93
+    # NOTE: sonic_mode "off" is NOT a field here -- resolve_corridor_width_percentile
+    # hardcodes it to 0.0 (whole eligible universe, no sonic narrowing at all),
+    # matching spec section 4 ("`off` = universe") exactly the way genre_mode
+    # "off" disables the relevance mask rather than resolving to a number.
     corridor_widen_step: float = 0.05        # unused until Task 4's widening ladder
     corridor_widen_attempts: int = 2         # unused until Task 4's widening ladder
     # Task 6 remediation, iteration 2: empirical continue-gate — widening

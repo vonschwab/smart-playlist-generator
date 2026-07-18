@@ -819,6 +819,11 @@ class PlaylistGenerator:
         # genre-mode-keyed relevance mask (Phase 1 Task 4) needs the mode
         # itself, not just the numbers it resolves to above.
         genre_mode_resolved = _genre_params["genre_mode"]
+        # Raw sonic_mode string (per-mode corridor width, spec section 4,
+        # pulled forward from Phase 2 by Dylan's 2026-07-18 decision): the
+        # corridor path's sonic-mode-keyed width needs the mode itself, same
+        # seam as genre_mode_resolved above.
+        sonic_mode_resolved = _genre_params["sonic_mode"]
 
         # Phase 1 Task 8 fix: this guard predates corridor pooling, when Artist
         # mode's ONLY admission mechanism was a hand-built allowed_track_ids
@@ -897,6 +902,7 @@ class PlaylistGenerator:
             genre_method=genre_method,
             genre_admission_percentile=genre_admission_pct,
             genre_mode=genre_mode_resolved,
+            sonic_mode=sonic_mode_resolved,
             internal_connector_ids=internal_connector_ids,
             internal_connector_max_per_segment=internal_connector_max_per_segment,
             internal_connector_priority=internal_connector_priority,

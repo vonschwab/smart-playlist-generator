@@ -149,6 +149,7 @@ from src.playlist.pier_bridge.corridor import (
     CorridorWidenDecision,
     build_corridor,
     corridor_widen_decision,
+    resolve_corridor_width_percentile,
 )
 from src.playlist.pier_bridge.eligible_universe import build_eligible_universe, EligibleUniverse
 
@@ -415,6 +416,7 @@ def build_pier_bridge_playlist(
     on_tag_segment_guarantee_max: int = 0,
     on_tag_segment_guarantee_per_artist: int = 0,
     genre_mode: Optional[str] = None,
+    sonic_mode: Optional[str] = None,
     popularity_ranks: Optional[np.ndarray] = None,
     popularity_rank_cutoff: Optional[int] = None,
 ) -> PierBridgeResult:
@@ -442,6 +444,25 @@ def build_pier_bridge_playlist(
             all the way from ``playlist_generator.py`` through
             ``ds_pipeline_runner.generate_playlist_ds`` to here. Corridor-mode
             generations now get the real slider value.
+        sonic_mode: The run's sonic_mode axis ("off"/"strict"/"narrow"/
+            "dynamic"/"discover"), CORRIDOR-POOLING ONLY (per-mode corridor
+            width, spec section 4, pulled forward from Phase 2 by Dylan's
+            2026-07-18 decision): resolves the per-segment corridor width
+            percentile via ``resolve_corridor_width_percentile`` (see
+            ``pier_bridge.corridor``), same seam pattern as ``genre_mode``
+            above -- threaded from ``playlist_generator.py`` through
+            ``genre_ds_params.resolve_genre_ds_params`` (which reads
+            ``playlists_cfg.get("sonic_mode")``) and
+            ``ds_pipeline_runner.generate_playlist_ds`` to here. Resolved
+            ONCE, near the top of this function, into a concrete
+            ``cfg.corridor_width_percentile`` float (via ``replace(cfg,
+            ...)``) that every downstream corridor call site in this function
+            already reads unchanged -- so this is the ONLY place sonic_mode
+            is consumed. Before this task, sonic_mode was a near-dead axis
+            for corridor generation (it only ever reached the largely-
+            vestigial legacy candidate pool, which the corridor path ignores
+            except through the disabled-by-default dj_bridging path and the
+            last-resort terminal-greedy fallback).
         popularity_ranks: Optional (N,) array of per-bundle-row 0-based
             Last.fm popularity ranks, CORRIDOR-POOLING ONLY (Phase 1 Task 5
             reseat): when given together with ``popularity_rank_cutoff``,
@@ -477,6 +498,26 @@ def build_pier_bridge_playlist(
         transition_calib_center=_cal_c,
         transition_calib_scale=_cal_s,
         transition_calib_gain=_cal_g,
+    )
+    # Per-mode corridor width (spec section 4, pulled forward from Phase 2 by
+    # Dylan's 2026-07-18 decision). Resolved ONCE here, before any corridor
+    # code below runs, into a concrete float written back onto
+    # cfg.corridor_width_percentile -- every corridor call site in this
+    # function (the segment-pool closure, the widening ladder, the universe
+    # log line) already reads that field unchanged, so this single
+    # replace() is the entire seam; see resolve_corridor_width_percentile's
+    # docstring for the priority order (explicit override > sonic_mode > the
+    # "dynamic" fallback for unspecified/unrecognized modes; "off" -> 0.0).
+    cfg = replace(
+        cfg,
+        corridor_width_percentile=resolve_corridor_width_percentile(
+            sonic_mode,
+            override=cfg.corridor_width_percentile,
+            strict=cfg.corridor_width_percentile_strict,
+            narrow=cfg.corridor_width_percentile_narrow,
+            dynamic=cfg.corridor_width_percentile_dynamic,
+            discover=cfg.corridor_width_percentile_discover,
+        ),
     )
     # Genre steering supersedes the older dj_bridging waypoint system. They are two
     # overlapping genre-arc implementations (dense 64-dim arc vote vs. 893-dim waypoint
