@@ -21,7 +21,6 @@ from src.config_loader import Config
 from src.features.artifacts import load_artifact_bundle
 from src.playlist.artist_style import (
     ArtistStyleConfig,
-    build_balanced_candidate_pool,
     cluster_artist_tracks,
     get_internal_connectors,
     order_clusters,
@@ -88,19 +87,8 @@ def main():
             [_label(m) for m in medoids_by_cluster[idx]],
         )
     logger.info("Pier order (medoids): %s", [_label(i) for i in ordered_medoids])
-    cluster_piers = medoids_by_cluster
-    per_cluster_size = style_cfg.per_cluster_candidate_pool_size
     global_floor = get_min_sonic_similarity(ds_cfg.get("candidate_pool", {}), args.cohesion_mode)
     bridge_floor = style_cfg.bridge_floor_narrow if args.cohesion_mode == "narrow" else style_cfg.bridge_floor_dynamic
-    pool = build_balanced_candidate_pool(
-        bundle=bundle,
-        cluster_piers=cluster_piers,
-        X_norm=X_norm,
-        per_cluster_size=per_cluster_size,
-        pool_balance_mode=style_cfg.pool_balance_mode,
-        global_floor=global_floor,
-        artist_key=normalize_artist_key(args.artist),
-    )
     pier_ids = [str(bundle.track_ids[m]) for m in ordered_medoids]
     internal_ids = (
         get_internal_connectors(
@@ -114,11 +102,21 @@ def main():
         if style_cfg.internal_connector_priority
         else []
     )
-    allowed_ids = list(dict.fromkeys(pier_ids + pool + list(internal_ids or [])))
+    # NOTE (Phase 1 Task 8/9): the per-cluster EXTERNAL candidate pool this
+    # diagnostic used to report on (`build_balanced_candidate_pool`, keyed by
+    # `per_cluster_candidate_pool_size`/`pool_balance_mode`) was deleted along
+    # with the rest of the legacy pier-bridge pooling machinery -- Artist mode
+    # now scans corridor's own eligible universe (percentile-membership over
+    # the ~43k-track library, see build_eligible_universe /
+    # resolve_corridor_width_percentile), which has no per-cluster-sized-pool
+    # equivalent to inspect here. `allowed_ids` below is therefore piers +
+    # internal connectors only; the per-segment pass-count sweep further down
+    # is scoped to that reduced set, not the corridor's actual universe.
+    allowed_ids = list(dict.fromkeys(pier_ids + list(internal_ids or [])))
     logger.info(
-        "Pools: piers=%d external=%d internal=%d allowed_total=%d global_floor=%.2f bridge_floor_default=%.2f",
+        "Pools: piers=%d internal=%d allowed_total=%d global_floor=%.2f bridge_floor_default=%.2f "
+        "(NOTE: no external per-cluster pool under corridor pooling -- see comment above)",
         len(pier_ids),
-        len(pool),
         len(internal_ids or []),
         len(allowed_ids),
         float(global_floor) if global_floor is not None else float("nan"),
