@@ -204,3 +204,209 @@ single-pass, post-fix run with zero `override_failed`/`error`. This is
 reported un-rationalized per rule 3 — root cause (real insensitivity in a
 2-cell sample vs. an undiscovered downstream clobber) is not established and
 is the controller's call.
+
+**RESOLVED — see "RED root-cause resolutions" below (2026-07-17 follow-up).
+Verdict amended to CONTRACT PASS-AS-AMENDED: all 13 fields root-cause to
+category (a), CONDITIONALLY LIVE.**
+
+## RED root-cause resolutions
+
+Follow-up task, same branch. Every RED field was probed with hand-built
+`scripts.corridor_baseline.runner.run_cell(artist, detent, set_paths={...})`
+pairs — real generations, `pooling=corridor` forced via `set_paths`, diffed
+by `track_ids` jaccard/order (throwaway probe scripts, not committed; exact
+`set_paths` given per row below for reproducibility). All 13 land in
+**category (a): CONDITIONALLY LIVE** — the knob fires when its firing
+condition occurs; the two `SWEEP_CELLS` at their default corridor settings
+just never trigger that condition. **Zero (b), zero (c).**
+
+### Mechanism families
+
+**1. `segment_pool_max` / `segment_pool_genre_weight` — share one root cause.**
+`build_corridor` (`src/playlist/pier_bridge/corridor.py:188-193`) only
+truncates to `segment_pool_max` when `size_before_cap > cap`; at the sweep's
+default corridor width (`corridor_width_percentile=0.85`), corridor sizes run
+162-358 per segment (see the harness-completeness note at the top of this
+doc) — well under the default cap of 800 — so the cap **never binds** on
+either sweep cell. `segment_pool_genre_weight` only feeds `rank_scores`
+(`corridor.py:124-137`), which matters for two things: (a) which candidates
+survive the `segment_pool_max` truncation, and (b) `final_candidates`'
+*list order* — but `_beam_search_segment` (`src/playlist/pier_bridge/beam.py`)
+re-scores and re-sorts every candidate itself and truncates to `beam_width`
+by its own score (`beam.py:1765`, `next_beam[:beam_width]`), so input-list
+order carries zero signal downstream. With the cap never binding, genre-weight
+perturbations only ever reorder a set that (a) never changes and whose (b)
+never matters — pure no-op, exactly matching both fields' bit-exact-inert
+signature.
+  - PROBE (`segment_pool_max`, default width 0.85/widen=2, `pooling=corridor`
+    only): `segment_pool_max=100` vs the `=800` default — Bill Evans
+    Trio/open jaccard=0.378 vs reference. `=50` vs `=800`: BET/open
+    jaccard=0.326, Swirlies/home jaccard=0.212.
+  - PROBE (`segment_pool_genre_weight`, same base + `segment_pool_max=50`
+    forced so the cap now binds): weight 0.0 vs 0.25 (default) vs 1.0 —
+    BET/open jaccard 0.0-vs-default=0.167, 0.0-vs-1.0=0.235; Swirlies/home
+    0.0-vs-default=0.224, 0.0-vs-1.0=0.145. Membership changes once capping
+    is real.
+  - **Disposition:** no code fix needed (both fields ARE wired correctly);
+    the sweep's fixed `×1.5` perturbation (800→1200) is structurally
+    incapable of ever exercising the cap on these 2 cells' natural corridor
+    sizes — this is the sweep's own blind spot, not the knob's. Worth a
+    one-line note for Task 8/9: the *effective* default cap value relative to
+    typical corridor sizes should be revisited if `segment_pool_genre_weight`
+    is meant to matter in production, since at today's defaults it's a no-op
+    on typical-sized corridors, not just on these 2 sampled cells.
+
+**2. `edge_repair_enabled` / `edge_repair_margin` (Swirlies_home).**
+`repair_playlist_edges` (`src/playlist/repair/edge_repair.py`) only touches
+edges with `T < transition_floor`; corridor's widening ladder
+(`_run_corridor_widening_ladder`) already drives every edge above floor on
+the sweep's default-width cells (confirmed: `below_floor=0` in both cells'
+reference runs), so there is nothing for repair to fix regardless of
+`enabled`/`margin`.
+  - PROBE: forced sub-floor edges via
+    `corridor_width_percentile=0.985, corridor_widen_attempts=0`
+    (Swirlies/home) — CorridorWiden logs show seg 2 EXHAUSTED at
+    `min_edge_T=0.120` and seg 4 at `0.145`, both `< floor=0.200`.
+    `edge_repair.enabled=False` vs the True/default reference: jaccard=0.818,
+    `min_transition` drops 0.545→0.340 (repair demonstrably fixing the weak
+    edges). `edge_repair.margin=0.5` (vs default 0.05) reproduces the
+    **exact same** degraded output as `enabled=False` (margin so strict no
+    swap ever clears it) — same jaccard, same `min_transition`.
+  - **Disposition:** no action. CONDITIONALLY LIVE, cleanly demonstrated.
+
+**3. `tail_dp_epsilon` (Swirlies_home).**
+`optimize_segment_tail` (`src/playlist/pier_bridge/tail_dp.py:93-94,109-110,134-135`)
+gates on `floor` (`tail_dp_floor`, default 0.30) **first** — if the existing
+landing window already clears the floor it returns `None` without ever
+consulting `epsilon`. Corridor's default-width cells mostly already clear
+0.30.
+  - PROBE: same sub-floor base as #2 (seg 2/4 land at 0.120/0.145, well under
+    `tail_dp_floor=0.30`) — `tail_dp.epsilon=0.5` (vs default 0.02) now
+    differs from reference: jaccard=0.875.
+  - **Disposition:** no action. CONDITIONALLY LIVE.
+
+**4. `variable_bridge_length` / `_flex` / `_min_edge` / `_epsilon` (multiple
+cells).** `choose_segment_length` (`src/playlist/pier_bridge/var_bridge.py:37-40`)
+tries the nominal length first; if its bottleneck already clears
+`good_enough` (`variable_bridge_min_edge`, default 0.30) it returns
+immediately with `flexed=False` — `_flex`, `_epsilon`, and `_min_edge`'s own
+magnitude are then never consulted. Under corridor's default-width cells
+(widening ladder already active), nominal segments mostly clear 0.30.
+  - PROBE 1 (sub-floor via tight width + 0 widen attempts, default
+    `segment_pool_max=800`, Swirlies/home): `_vbl` genuinely **searches**
+    (log: `Var-bridge seg 2: ... flexed=True`, `seg 4: ... flexed=True`) but
+    the search never finds a length beating nominal (`chosen == nominal`
+    both times) — so `variable_bridge_length` True/False, `_flex` magnitude,
+    `_epsilon`, and `_min_edge` all still produce bit-identical output at
+    this setting alone (matches the original RED finding exactly).
+  - PROBE 2 (added a scarce pool, `segment_pool_max=15`, on top of PROBE 1's
+    base, so path length itself — not corridor width — is the real
+    bottleneck): `variable_bridge_length=True` (reference) vs `False` now
+    diverges sharply — the reference run actually **lengthens the playlist**
+    (34 tracks vs the requested 30 when flexing is off), jaccard=0.422,
+    `min_transition` 0.506 vs 0.292. Reproduced on Bill Evans Trio/open too,
+    though that cell stayed jaccard=1.0 (no sub-floor segments arose there
+    even at this setting — cell-specific, consistent with #6 below).
+  - PROBE 3 (same scarce-pool base where flexing is confirmed to win):
+    `variable_bridge_flex=1` (vs default 2) jaccard=0.571;
+    `variable_bridge_min_edge=0.95` (vs default 0.30) jaccard=0.327;
+    `variable_bridge_epsilon=0.5` (vs default 0.02) jaccard=0.422 — each
+    independently moves the output substantially once flexing actually wins.
+  - **Disposition:** no action. CONDITIONALLY LIVE for the whole family.
+
+**5. `disallow_pier_artists_in_interiors` (Swirlies_home RED;
+Bill_Evans_Trio_open already GREEN at Phase 1).** PROBE at default settings
+reproduces the split exactly: BET/open True vs False jaccard=0.622 (live,
+matches the original sweep); Swirlies/home True vs False jaccard=1.000
+(bit-identical, matches the original RED). Cell-specific: for these
+particular Swirlies piers, no Swirlies-authored track ranks inside the
+corridor's threshold-passing set to begin with, so the exclusion mask has
+nothing to remove — a genuine no-op for this cell only, not a structural
+corridor defect (the code path IS exercised and DOES change output on the
+other cell, and the mask logic itself — `pier_bridge_builder.py:1270-1271,
+1283-1284` — is unconditional and correct for both cells).
+  - **Disposition:** no action. CONDITIONALLY LIVE, cell-specific — confirms
+    the original doc's own hypothesis verbatim.
+
+**6. `progress_arc_enabled` (RED in both cells).** Wiring confirmed correct
+via the nested `progress_arc.enabled`/`progress_arc.weight` path (matches
+`perturb.py`'s own field map; a first probe attempt using the WRONG flat
+`progress_arc_enabled` path silently no-opped, confirming by contrast that
+the *real* sweep's field-mapped path was never the bug). At the sweep's
+actual perturbation magnitude (bool flip only, `progress_arc_weight` stays
+at its default 0.25), both cells reproduce bit-exact identical
+(jaccard=1.000) — the original RED finding is real, not a probe artifact.
+Raising `progress_arc.weight` to 3.0 (12x default) while `enabled=True`
+flips the output substantially: BET/open jaccard=0.875, Swirlies/home
+jaccard=0.432.
+  - **Disposition:** no code fix. CONDITIONALLY LIVE, but flagging a tuning
+    concern for Task 8/9 (not blocking): the *default* `progress_arc_weight`
+    (0.25) is empirically too small to ever matter under corridor's tighter,
+    more-converged candidate pools on these 2 cells specifically — worth
+    revisiting the default magnitude if progress-arc steering is meant to be
+    load-bearing under corridor, since a mechanically-correct term that never
+    fires at its shipped default is functionally the same as dead code in
+    production even though this sweep correctly reports it as "wired."
+
+**7. `candidate_pool.duration_cutoff_multiplier` / `duration_penalty_weight`
+(Bill_Evans_Trio_open cell only — Swirlies_home already resolved by
+f142677).** Per `.superpowers/sdd/p1-task-7-c1beam-report.md`: the beam-level
+rehome (commit f142677) is confirmed genuinely active by a dedicated
+magnitude probe — a "Corridor beam duration penalty: active" log line plus
+904/1984 (45%) of the eligible universe penalized (mean=0.11, max=0.48),
+tens of thousands of candidate evaluations demoted per segment on
+Bill_Evans_Trio_open itself. The null result there is a **candidate-geometry
+finding** (Bill Evans Trio recordings cluster tightly in length — the
+winning candidates in that artist's corridors simply never happen to be
+duration outliers), not a wiring defect — the identical architecture to
+C10's already-accepted null pattern (instrumental lean, `jaccard=0.622` on
+the one cell where it fires).
+  - **Disposition:** no action beyond what f142677 already shipped.
+    CONDITIONALLY LIVE / candidate-geometry null. Fold into this resolution
+    rather than treating as separately unresolved, per the brief.
+
+### Verdict table
+
+| Field | Cell(s) | Category | Disposition |
+|---|---|---|---|
+| `segment_pool_max` | both | (a) | No action; cap-vs-corridor-size blind spot noted for Task 8/9 |
+| `segment_pool_genre_weight` | both | (a) | No action; same root cause as above |
+| `edge_repair_enabled` | Swirlies_home | (a) | No action |
+| `edge_repair_margin` | Swirlies_home | (a) | No action |
+| `tail_dp_epsilon` | Swirlies_home | (a) | No action |
+| `variable_bridge_length` | Bill_Evans_Trio_open | (a) | No action |
+| `variable_bridge_flex` | Bill_Evans_Trio_open | (a) | No action |
+| `variable_bridge_min_edge` | Swirlies_home | (a) | No action |
+| `variable_bridge_epsilon` | Swirlies_home | (a) | No action |
+| `disallow_pier_artists_in_interiors` | Swirlies_home | (a) | No action, cell-specific |
+| `progress_arc_enabled` | both | (a) | No action; default-weight tuning concern noted |
+| `candidate_pool.duration_cutoff_multiplier` | Bill_Evans_Trio_open | (a) | No action; candidate-geometry null (f142677) |
+| `candidate_pool.duration_penalty_weight` | Bill_Evans_Trio_open | (a) | No action; candidate-geometry null (f142677) |
+
+**Harness gap fixed separately** (not a RED field, but blocked 6 of the 12
+`did_not_resolve` records): `scripts/corridor_baseline/perturb.py`'s
+`_PIER_CONFIG_FIELD_MAP` gained a redirect for the 3
+`playlist.pier_config.duration_*` mirror leaves
+(`duration_penalty_enabled`/`_weight`, `duration_cutoff_multiplier`) to their
+real yaml source (`playlists.ds_pipeline.candidate_pool.duration_*`) — same
+pattern as the pre-existing `pace_bridge_floor`/`bpm_stability_min`/
+`center_transitions`/`transition_floor` redirects. Unlike `pace_bridge_floor`
+this is **not** a dead outlet: `pipeline/core.py:873-875` mirrors
+`cfg.candidate.duration_*` into `pb_cfg` unconditionally, with nothing
+discarding it first — so the redirect resolves to a real, live path.
+Covered by 3 new assertions in `tests/unit/test_corridor_baseline_perturb.py`
+(`test_config_path_duration_mirror_fields_redirect_to_candidate_pool`).
+
+### Overall (amended)
+
+**CONTRACT PASS-AS-AMENDED.** All 13 RED fields are category (a),
+CONDITIONALLY LIVE — each fires under a real, reachable firing condition;
+the 2 `SWEEP_CELLS` at their default corridor settings (generous
+`segment_pool_max`, wide-enough `corridor_width_percentile`, an
+already-effective widening ladder) simply never trigger that condition
+naturally. Zero (b) genuinely-dead knobs, zero (c) regressions. One
+non-blocking concern carried forward for Task 8/9: `progress_arc_weight`'s
+shipped default (0.25) is empirically inert on both sampled cells even when
+`progress_arc_enabled=True` — mechanically correct but tuned too weak to
+matter under corridor at its current default, worth a deliberate look before
+corridor becomes the only path.
