@@ -44,7 +44,15 @@ def test_instrumental_flag_lowers_mean_voice_prob():
     through the real GUI config chain, on the validated multi-pier SEEDS set.
     """
     load_artifact_bundle.cache_clear()
-    bundle = load_artifact_bundle(str(ART))
+    # sonic_variant_override passed explicitly (established precedent:
+    # test_dense_genre_integration.py's live_bundle fixture) rather than relied on as
+    # a generate_like_gui side effect: tests/conftest.py's autouse
+    # _reset_sonic_variant_override resets the process-wide override to None before
+    # every test, so loading directly here (before any generate_like_gui call in THIS
+    # test) would otherwise fail with "Artifact missing required keys: ['X_sonic']" --
+    # pre-existing bug found running -m slow in isolation for the first time (Phase 1
+    # Task 9, 2026-07-18).
+    bundle = load_artifact_bundle(str(ART), sonic_variant_override="muq")
 
     off = generate_like_gui(
         seeds=SEEDS, cohesion_mode="narrow", genre_mode="narrow",
