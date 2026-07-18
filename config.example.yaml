@@ -454,8 +454,8 @@ playlists:
       # percentile = tighter/narrower corridor (only the best-scoring
       # candidates admitted); lower = wider. sonic_mode="off" hardcodes to
       # 0.0 (whole eligible universe) — no config field for it.
-      corridor_width_percentile_strict: 0.99
-      corridor_width_percentile_narrow: 0.965
+      corridor_width_percentile_strict: 0.985
+      corridor_width_percentile_narrow: 0.9675
       corridor_width_percentile_dynamic: 0.95
       corridor_width_percentile_discover: 0.93
       # Tuning escape hatch: uncomment to force EVERY sonic_mode to this one

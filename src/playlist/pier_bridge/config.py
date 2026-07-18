@@ -398,11 +398,22 @@ class PierBridgeConfig:
     # needed). ``corridor_width_percentile_dynamic``'s default carries
     # forward the 0.95 pin (dynamic is the mode the old probe actually
     # calibrated against -- policy.py's "open" detent is sonic_mode=dynamic).
-    # See .superpowers/sdd/p1-permode-width-report.md for the per-mode
-    # calibration probe tables (initial values below; calibrated in a
-    # follow-up commit against the 4 home / 4 open probe cells).
-    corridor_width_percentile_strict: float = 0.99
-    corridor_width_percentile_narrow: float = 0.965
+    #
+    # CALIBRATION (.superpowers/sdd/p1-permode-width-report.md): strict probed
+    # {0.985, 0.99, 0.995} on the 4 home cells (BET/SADE/Aaliyah/Swirlies);
+    # 0.985 gave the smallest mean |min_T delta| vs legacy (0.218 vs 0.230 at
+    # 0.99, 0.263 at 0.995) while keeping Swirlies/home below_floor=0 at every
+    # tested width -- picked per the brief's own min_T-recovery-primary rule.
+    # dynamic probed {0.95, 0.97} on the 4 open cells (SADE/Aaliyah/AlexG/
+    # Strokes); 0.95 gave the smaller mean |min_T delta| (0.114 vs 0.135 at
+    # 0.97) AND matches the pre-existing flat pin (continuity with history) --
+    # kept at 0.95. narrow = midpoint(strict, dynamic) = 0.9675 and
+    # discover = dynamic - 0.02 = 0.93 are PROVISIONAL interpolations (no
+    # corpus cells exercise narrow/discover directly; the dial-range audit
+    # checks detent differentiation instead), documented as such per the
+    # brief.
+    corridor_width_percentile_strict: float = 0.985
+    corridor_width_percentile_narrow: float = 0.9675
     corridor_width_percentile_dynamic: float = 0.95
     corridor_width_percentile_discover: float = 0.93
     # NOTE: sonic_mode "off" is NOT a field here -- resolve_corridor_width_percentile
