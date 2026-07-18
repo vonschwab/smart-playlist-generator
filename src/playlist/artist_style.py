@@ -1032,66 +1032,16 @@ def order_clusters(
     return order
 
 
-def build_balanced_candidate_pool(
-    *,
-    bundle,
-    cluster_piers: List[List[int]],
-    X_norm: np.ndarray,
-    per_cluster_size: int,
-    pool_balance_mode: str,
-    global_floor: Optional[float],
-    artist_key: str,
-    artist_name: Optional[str] = None,
-    include_collaborations: bool = False,
-) -> List[str]:
-    """Build union of per-cluster sub-pools with balancing."""
-    all_candidates: List[int] = []
-    track_ids = bundle.track_ids
-    total_tracks = X_norm.shape[0]
-    # Mask of tracks that count as the seed artist (incl. collaborations when
-    # opted in). These are excluded from the *external* candidate pool because
-    # they are intended to be piers, not bridge fillers.
-    if include_collaborations and artist_name:
-        seed_artist_indices = set(
-            _artist_indices_in_bundle(
-                bundle, artist_name, include_collaborations=True
-            )
-        )
-        mask_artist = np.array(
-            [i in seed_artist_indices for i in range(total_tracks)], dtype=bool
-        )
-    else:
-        mask_artist = np.array([
-            normalize_artist_key(str(bundle.artist_keys[i])) == artist_key
-            if bundle.artist_keys is not None else False
-            for i in range(total_tracks)
-        ], dtype=bool)
-    for cluster_idx, pier_indices in enumerate(cluster_piers):
-        if not pier_indices:
-            continue
-        pier_vecs = X_norm[pier_indices]
-        sims = np.max(np.dot(X_norm, pier_vecs.T), axis=1)
-        sims[mask_artist] = -1.0  # exclude artist for external pool
-        if global_floor is not None:
-            sims = np.where(sims < global_floor, -1.0, sims)
-        order = np.argsort(-sims)
-        take = []
-        for idx in order:
-            if sims[idx] < 0:
-                break
-            take.append(int(idx))
-            if len(take) >= per_cluster_size:
-                break
-        all_candidates.extend(take)
-        logger.info(
-            "Cluster %d: selected %d/%d external candidates",
-            cluster_idx,
-            len(take),
-            per_cluster_size,
-        )
-    # balancing: dedupe, preserve insertion; equal already enforced by per_cluster_size
-    deduped = list(dict.fromkeys(all_candidates))
-    return [str(track_ids[i]) for i in deduped]
+# build_balanced_candidate_pool (the per-cluster sonic-neighbor "external pool"
+# that hard-clamped Artist mode's allowed_track_ids) was DELETED in Phase 1
+# Task 8 -- corridor pooling's library-wide eligible universe (per-segment
+# corridors, src/playlist/pier_bridge/corridor.py) replaces it for the
+# pier-bridge path; the medoid clustering above (cluster_artist_tracks) is
+# unaffected and still selects the artist's pier set. See
+# docs/POOL_STARVATION_RESEARCH_2026-07-12.md (M1: this hard clamp was the
+# "amputated manifold" pool-starvation mechanism the corridor rework targets).
+# Retired config keys: playlists.ds_pipeline.artist_style.per_cluster_candidate_pool_size,
+# .pool_balance_mode (warn via src.playlist_gui.worker._warn_retired_keys).
 
 
 def build_genre_neighbor_candidate_pool(

@@ -1,12 +1,18 @@
 """
-Per-segment candidate pool tests — Layer 1 + Layer 2.
+Per-segment candidate pool tests — Layer 1.
 
 Layer 1  genre_admission_aggregate in build_candidate_pool
          "per_seed"  = union of per-seed genre neighborhoods (new)
          "centroid"  = legacy centroid average (unchanged default)
 
-Layer 2  genre_bridge_weight in SegmentPoolConfig
-         blends genre score into bridge re-ranking (new, re-rank only, no hard gate)
+Layer 2 (genre_bridge_weight in segment_pool_builder.SegmentPoolConfig) was
+deleted (Phase 1 Task 8): SegmentCandidatePoolBuilder had zero production
+callers once the legacy segment-scored pool builder
+(_build_segment_candidate_pool_scored) was deleted along with the legacy/
+corridor pooling selector -- corridor pooling's own genre blend
+(playlist.pier_config.segment_pool_genre_weight, read directly by
+_build_corridor_segment_pool / build_corridor) replaces it. See
+src/playlist/pier_bridge/corridor.py.
 """
 
 from __future__ import annotations
@@ -16,7 +22,6 @@ import numpy as np
 from src.features.artifacts import ArtifactBundle
 from src.playlist.candidate_pool import build_candidate_pool
 from src.playlist.config import CandidatePoolConfig
-from src.playlist.segment_pool_builder import SegmentCandidatePoolBuilder, SegmentPoolConfig
 
 
 # ── shared helpers ─────────────────────────────────────────────────────────────
@@ -217,110 +222,3 @@ class TestGenreAdmissionAggregate:
         )
 
 
-# ── Layer 2 helpers ────────────────────────────────────────────────────────────
-
-def _segment_setup():
-    """
-    4 tracks. Pier 0 is indie [1,0], pier 1 is rock [0,1].
-    Candidate 2: genre between both piers → high genre_hmean.
-    Candidate 3: genre only matches pier 0 → lower genre_hmean.
-    All tracks identical in sonic space → equal sonic bridge scores.
-    """
-    X_sonic = np.array(
-        [[1.0, 0.0], [1.0, 0.0], [1.0, 0.0], [1.0, 0.0]],
-        dtype=np.float64,
-    )  # identical sonic → identical hmean(simA, simB)
-
-    v = 1.0 / np.sqrt(2)
-    X_genre = np.array(
-        [
-            [1.0, 0.0],  # pier 0 (indie)
-            [0.0, 1.0],  # pier 1 (rock)
-            [v,   v  ],  # candidate 2: genre bridge (equal to both)
-            [1.0, 0.0],  # candidate 3: genre matches only pier 0
-        ],
-        dtype=np.float64,
-    )
-
-    bundle = _make_bundle(4)
-
-    return X_sonic, X_genre, bundle
-
-
-# ── Layer 2 tests ──────────────────────────────────────────────────────────────
-
-class TestSegmentPoolGenreBlend:
-
-    def test_genre_blend_promotes_bridge_candidate(self):
-        """genre_bridge_weight > 0 must rank the genre-bridge candidate above the one-sided match."""
-        X_sonic, X_genre, bundle = _segment_setup()
-
-        cfg = SegmentPoolConfig(
-            pier_a=0,
-            pier_b=1,
-            X_full_norm=X_sonic,
-            universe_indices=[2, 3],
-            used_track_ids=set(),
-            bundle=bundle,
-            bridge_floor=0.0,
-            segment_pool_max=4,
-            X_genre_dense=X_genre,
-            genre_bridge_weight=0.5,
-        )
-        result = SegmentCandidatePoolBuilder().build(cfg)
-
-        # Both candidates must be present
-        assert 2 in result.candidates
-        assert 3 in result.candidates
-        idx2 = result.candidates.index(2)
-        idx3 = result.candidates.index(3)
-        assert idx2 < idx3, (
-            "genre_bridge_weight=0.5 must rank genre-bridge candidate (2) "
-            "before one-sided candidate (3)"
-        )
-
-    def test_genre_weight_zero_ordering_unchanged(self):
-        """genre_bridge_weight=0.0 must produce byte-identical ordering to no X_genre_dense."""
-        X_sonic, X_genre, bundle = _segment_setup()
-
-        base_kwargs: dict = dict(
-            pier_a=0,
-            pier_b=1,
-            X_full_norm=X_sonic,
-            universe_indices=[2, 3],
-            used_track_ids=set(),
-            bundle=bundle,
-            bridge_floor=0.0,
-            segment_pool_max=4,
-        )
-
-        result_no_genre = SegmentCandidatePoolBuilder().build(
-            SegmentPoolConfig(**base_kwargs, X_genre_dense=None, genre_bridge_weight=0.0)
-        )
-        result_zero_weight = SegmentCandidatePoolBuilder().build(
-            SegmentPoolConfig(**base_kwargs, X_genre_dense=X_genre, genre_bridge_weight=0.0)
-        )
-
-        assert result_no_genre.candidates == result_zero_weight.candidates, (
-            "genre_bridge_weight=0.0 must not change candidate ordering"
-        )
-
-    def test_genre_blend_requires_x_genre_dense(self):
-        """genre_bridge_weight > 0 with X_genre_dense=None must not raise and falls back to sonic."""
-        X_sonic, _, bundle = _segment_setup()
-
-        cfg = SegmentPoolConfig(
-            pier_a=0,
-            pier_b=1,
-            X_full_norm=X_sonic,
-            universe_indices=[2, 3],
-            used_track_ids=set(),
-            bundle=bundle,
-            bridge_floor=0.0,
-            segment_pool_max=4,
-            X_genre_dense=None,
-            genre_bridge_weight=0.5,  # non-zero but no matrix → fallback silently
-        )
-
-        result = SegmentCandidatePoolBuilder().build(cfg)
-        assert len(result.candidates) == 2, "fallback must still return both candidates"

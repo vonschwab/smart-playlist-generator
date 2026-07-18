@@ -6,7 +6,6 @@ import pytest
 
 from src.playlist.artist_style import (
     ArtistStyleConfig,
-    build_balanced_candidate_pool,
     build_genre_neighbor_candidate_pool,
     cluster_artist_tracks,
     order_clusters,
@@ -71,35 +70,11 @@ def test_selects_multiple_clusters_and_medoids():
     assert set(ordered) == set(medoids)
 
 
-def test_balanced_candidate_pool_respects_per_cluster_limits():
-    artist_keys = np.array(["a", "a", "b", "c", "d", "e"])
-    track_ids = np.array([str(i) for i in range(6)])
-    X = np.array([
-        [1.0, 0.0],
-        [0.9, 0.0],
-        [0.0, 1.0],
-        [0.0, 0.9],
-        [0.7, 0.7],
-        [0.6, 0.6],
-    ])
-    bundle = DummyBundle(X_sonic=X, artist_keys=artist_keys, track_ids=track_ids)
-    X_norm = X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-12)
-    # Two clusters with single pier each
-    cluster_piers = [[0], [2]]
-    cfg = ArtistStyleConfig(per_cluster_candidate_pool_size=1)
-    pool = build_balanced_candidate_pool(
-        bundle=bundle,
-        cluster_piers=cluster_piers,
-        X_norm=X_norm,
-        per_cluster_size=1,
-        pool_balance_mode="equal",
-        global_floor=0.0,
-        artist_key="a",
-    )
-    # Should take one from each cluster
-    assert len(pool) == 2
-    assert any(pid in pool for pid in ["4", "5"])
-    assert any(pid in pool for pid in ["2", "3"])
+# test_balanced_candidate_pool_respects_per_cluster_limits deleted (Phase 1
+# Task 8): build_balanced_candidate_pool itself was deleted -- corridor
+# pooling's library-wide eligible universe replaces the per-cluster external
+# pool it used to build. See src/playlist/artist_style.py's retirement
+# comment where the function used to live.
 
 
 def test_genre_neighbor_pool_recovers_low_sonic_genre_match():
@@ -145,62 +120,13 @@ def test_allowed_invariant_helper():
         enforce_allowed_invariant(["1", "3"], allowed, context="test")
 
 
-def test_bridge_endpoint_gate_blocks_low_sim():
-    from src.playlist.pier_bridge_builder import _build_segment_candidate_pool_scored
-    X = np.array([
-        [1.0, 0.0],
-        [0.0, 1.0],
-        [0.9, 0.1],  # high to A, low to B
-    ])
-    X_norm = X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-12)
-    bundle = DummyBundle(
-        X_sonic=X,
-        artist_keys=np.array(["a", "b", "c"]),
-        track_ids=np.array(["a0", "b0", "c0"]),
-        track_artists=np.array(["a", "b", "c"]),
-        track_titles=np.array(["A", "B", "C"]),
-    )
-    pool, _artist_keys, _title_keys = _build_segment_candidate_pool_scored(
-        pier_a=0,
-        pier_b=1,
-        X_full_norm=X_norm,
-        universe_indices=[2],
-        used_track_ids=set(),
-        bundle=bundle,
-        bridge_floor=0.2,
-        segment_pool_max=50,
-    )
-    assert pool == []
-
-
-def test_narrow_bridge_floor_default_blocks_low_sim():
-    # Candidate min(simA, simB) below 0.08 should be excluded by bridge gate.
-    from src.playlist.pier_bridge_builder import _build_segment_candidate_pool_scored
-
-    X = np.array([
-        [1.0, 0.0],
-        [0.0, 1.0],
-        [0.99, 0.06],  # simB ~= 0.06 < 0.08
-    ])
-    X_norm = X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-12)
-    bundle = DummyBundle(
-        X_sonic=X,
-        artist_keys=np.array(["a", "b", "c"]),
-        track_ids=np.array(["a0", "b0", "c0"]),
-        track_artists=np.array(["a", "b", "c"]),
-        track_titles=np.array(["A", "B", "C"]),
-    )
-    pool, _artist_keys, _title_keys = _build_segment_candidate_pool_scored(
-        pier_a=0,
-        pier_b=1,
-        X_full_norm=X_norm,
-        universe_indices=[2],
-        used_track_ids=set(),
-        bundle=bundle,
-        bridge_floor=0.08,
-        segment_pool_max=50,
-    )
-    assert pool == []
+# test_bridge_endpoint_gate_blocks_low_sim and
+# test_narrow_bridge_floor_default_blocks_low_sim deleted (Phase 1 Task 8):
+# both drove _build_segment_candidate_pool_scored directly (the legacy
+# segment-scored pool builder), which was deleted along with the
+# legacy/corridor pooling selector. Corridor's equivalent bridge-floor-style
+# gating (percentile min-sim membership) is covered by
+# tests/unit/test_corridor_builder.py.
 
 
 def test_seed_artist_disallowed_in_interiors_when_enabled():
@@ -296,42 +222,12 @@ def test_builder_wires_roam_detour_when_enabled(monkeypatch):
     assert captured["roam"] is None              # not computed when disabled
 
 
-def test_one_artist_per_segment_collapses_feat_with_variants():
-    from src.playlist.pier_bridge_builder import _build_segment_candidate_pool_scored
-
-    X = np.array([
-        [1.0, 0.0],   # pier A
-        [0.0, 1.0],   # pier B
-        [0.7, 0.7],   # Mount Eerie (candidate 1)
-        [0.7, 0.7],   # Mount Eerie with ... (candidate 2)
-    ])
-    X_norm = X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-12)
-    bundle = DummyBundle(
-        X_sonic=X,
-        artist_keys=np.array(["a", "b", "c", "d"]),
-        track_ids=np.array(["a0", "b0", "c0", "d0"]),
-        track_artists=np.array([
-            "Pier A",
-            "Pier B",
-            "Mount Eerie",
-            "Mount Eerie with Julie Doiron & Fred Squire",
-        ]),
-        track_titles=np.array(["A", "B", "Moon", "Swan"]),
-    )
-    diag = {}
-    pool, _artist_keys, _title_keys = _build_segment_candidate_pool_scored(
-        pier_a=0,
-        pier_b=1,
-        X_full_norm=X_norm,
-        universe_indices=[2, 3],
-        used_track_ids=set(),
-        bundle=bundle,
-        bridge_floor=0.0,
-        segment_pool_max=50,
-        diagnostics=diag,
-    )
-    assert len(pool) == 1
-    assert diag.get("collapsed_by_artist_key") == 1
+# test_one_artist_per_segment_collapses_feat_with_variants deleted (Phase 1
+# Task 8): drove _build_segment_candidate_pool_scored's
+# collapse_segment_pool_by_artist path directly (deleted -- corridor doesn't
+# collapse the pool by artist at build time; the beam enforces per-segment
+# artist diversity on its own, per CLAUDE.md's project-specific gotcha on
+# collapse_segment_pool_by_artist).
 
 
 def test_seed_track_key_collision_excludes_duplicate_song():
@@ -402,6 +298,14 @@ def test_one_per_artist_cap_applies_across_segments_but_exempts_seeds():
             weight_transition=0.0,
             eta_destination_pull=0.0,
             max_non_seed_tracks_per_artist=1,
+            # Phase 1 Task 8: corridor is the sole pooling path. bridge_floor=0.0
+            # was this fixture's "admit everyone" sentinel under legacy's
+            # fixed-floor gate; corridor's percentile-based membership needs
+            # the equivalent -- width_percentile=0.0 admits the full
+            # 3-candidate universe (repeat_1, repeat_2, other_1) into every
+            # segment's corridor so the cross-segment artist cap this test
+            # exists to demonstrate can actually be exercised.
+            corridor_width_percentile=0.0,
         ),
         allowed_track_ids_set={"seed_a", "seed_b", "seed_c", "repeat_1", "repeat_2", "other_1"},
     )
@@ -412,36 +316,10 @@ def test_one_per_artist_cap_applies_across_segments_but_exempts_seeds():
     assert result.stats["non_seed_artist_counts"]["repeat"] == 1
 
 
-def test_segment_pool_is_endpoint_local_not_global_seed_max():
-    # A candidate can be identical to some other seed C, but should still be excluded
-    # from a segment A->B if it fails the bridge gate vs (A,B).
-    from src.playlist.pier_bridge_builder import _build_segment_candidate_pool_scored
-
-    X = np.array([
-        [1.0, 0.0],   # pier A
-        [0.0, 1.0],   # pier B
-        [-1.0, 0.0],  # other seed C (not used by this segment)
-        [-1.0, 0.0],  # candidate identical to C
-    ])
-    X_norm = X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-12)
-    bundle = DummyBundle(
-        X_sonic=X,
-        artist_keys=np.array(["a", "b", "c", "d"]),
-        track_ids=np.array(["a0", "b0", "c0", "d0"]),
-        track_artists=np.array(["A", "B", "C", "Cand"]),
-        track_titles=np.array(["A", "B", "C", "Cand"]),
-    )
-    pool, _artist_keys, _title_keys = _build_segment_candidate_pool_scored(
-        pier_a=0,
-        pier_b=1,
-        X_full_norm=X_norm,
-        universe_indices=[3],
-        used_track_ids=set(),
-        bundle=bundle,
-        bridge_floor=0.10,
-        segment_pool_max=50,
-    )
-    assert pool == []
+# test_segment_pool_is_endpoint_local_not_global_seed_max deleted (Phase 1
+# Task 8): drove _build_segment_candidate_pool_scored directly (deleted).
+# Corridor's per-segment membership is inherently endpoint-local (min-sim
+# to THIS segment's two anchors), covered by test_corridor_builder.py.
 
 
 def test_progress_monotonicity_in_beam_search_segment():
@@ -563,6 +441,15 @@ def test_soft_genre_penalty_changes_ranking_without_gating():
         genre_tiebreak_weight=0.0,
         genre_penalty_threshold=0.20,
         genre_penalty_strength=0.0,
+        # Phase 1 Task 8: corridor is the sole pooling path. bridge_floor=0.0
+        # was this fixture's "admit everyone" sentinel under legacy's
+        # fixed-floor gate; corridor's percentile-based membership needs the
+        # equivalent -- width_percentile=0.0 admits the full 2-candidate
+        # universe (c_low, c_high) so the beam-level soft-genre-penalty
+        # differentiation this test exists to demonstrate can actually
+        # compete between both (inherited by `penalized` below via
+        # **base_cfg.__dict__).
+        corridor_width_percentile=0.0,
     )
     base = build_pier_bridge_playlist(
         seed_track_ids=["a0", "b0"],
@@ -879,109 +766,35 @@ def test_build_ds_overrides_includes_pier_bridge():
     assert overrides["pier_bridge"]["bridge_floor_dynamic"] == 0.04
 
 
-def test_high_bridge_floor_fails_segment():
-    # guarantee_feasible=False restores the legacy failure path so the high bridge_floor gate is exercised.
-    from src.playlist.pier_bridge_builder import build_pier_bridge_playlist, PierBridgeConfig
-    from src.playlist.run_audit import InfeasibleHandlingConfig
-    X = np.array([
-        [1.0, 0.0],
-        [0.0, 1.0],
-        [0.5, 0.5],
-    ])
-    bundle = DummyBundle(
-        X_sonic=X,
-        artist_keys=np.array(["a", "b", "c"]),
-        track_ids=np.array(["a0", "b0", "c0"]),
-        track_titles=np.array(["A", "B", "C"]),
-    )
-    result = build_pier_bridge_playlist(
-        seed_track_ids=["a0", "b0"],
-        total_tracks=2,
-        bundle=bundle,
-        candidate_pool_indices=[2],
-        cfg=PierBridgeConfig(bridge_floor=0.9, transition_floor=0.8),
-        allowed_track_ids_set={"a0", "b0", "c0"},
-        infeasible_handling=InfeasibleHandlingConfig(guarantee_feasible=False),
-    )
-    assert not result.success
-    assert result.failure_reason
+# test_high_bridge_floor_fails_segment deleted (Phase 1 Task 8, investigated
+# not just reflexively removed): its premise -- a high bridge_floor/
+# transition_floor makes an infeasible segment hard-FAIL the whole build --
+# was already stale independent of corridor. Traced via --log-cli-level=DEBUG:
+# with seed_track_ids=["a0","b0"] and total_tracks=2, interior_len=0, so the
+# segment takes beam.py's interior_length==0 fast path (direct pier_a->pier_b
+# edge scoring) which does not hard-gate on bridge_floor/transition_floor --
+# it scored the direct edge at transition=0.707 (well below the test's
+# transition_floor=0.8) and still returned success=True, matching the SAME
+# "soft floor, not a hard gate" behavior the adjacent (kept)
+# test_transition_floor_no_longer_hard_gates_low_t already documents and
+# asserts for. Not a corridor-vs-legacy difference -- corridor's own pooling
+# is provably irrelevant here (interior_len=0 never consults the segment
+# pool at all).
 
 
-def test_bridge_floor_backoff_disabled_infeasible_segment_fails():
-    # Initial bridge_floor is too strict for the only candidate; without backoff,
-    # segment remains infeasible (default behavior).
-    # guarantee_feasible=False restores the legacy failure path so the bridge_floor gate is exercised.
-    from src.playlist.pier_bridge_builder import build_pier_bridge_playlist, PierBridgeConfig
-    from src.playlist.run_audit import InfeasibleHandlingConfig
-
-    x = 0.04  # min(simA, simB)
-    X = np.array([
-        [1.0, 0.0],                       # pier A
-        [0.0, 1.0],                       # pier B
-        [x, float(np.sqrt(1 - x**2))],    # candidate: very low sim to A, high to B
-    ])
-    bundle = DummyBundle(
-        X_sonic=X,
-        artist_keys=np.array(["a", "b", "c"]),
-        track_ids=np.array(["a0", "b0", "c0"]),
-        track_titles=np.array(["A", "B", "C"]),
-    )
-    result = build_pier_bridge_playlist(
-        seed_track_ids=["a0", "b0"],
-        total_tracks=3,
-        bundle=bundle,
-        candidate_pool_indices=[2],
-        cfg=PierBridgeConfig(bridge_floor=0.08, transition_floor=0.0, eta_destination_pull=0.0),
-        allowed_track_ids_set={"a0", "b0", "c0"},
-        infeasible_handling=InfeasibleHandlingConfig(guarantee_feasible=False),
-    )
-    assert not result.success
-    assert result.failure_reason and "bridge_floor=0.08" in result.failure_reason
-
-
-def test_bridge_floor_backoff_enabled_succeeds_and_records_attempts():
-    from src.playlist.pier_bridge_builder import build_pier_bridge_playlist, PierBridgeConfig
-    from src.playlist.run_audit import InfeasibleHandlingConfig, RunAuditConfig
-
-    x = 0.04
-    X = np.array([
-        [1.0, 0.0],
-        [0.0, 1.0],
-        [x, float(np.sqrt(1 - x**2))],
-    ])
-    bundle = DummyBundle(
-        X_sonic=X,
-        artist_keys=np.array(["a", "b", "c"]),
-        track_ids=np.array(["a0", "b0", "c0"]),
-        track_titles=np.array(["A", "B", "C"]),
-    )
-    events = []
-    result = build_pier_bridge_playlist(
-        seed_track_ids=["a0", "b0"],
-        total_tracks=3,
-        bundle=bundle,
-        candidate_pool_indices=[2],
-        cfg=PierBridgeConfig(bridge_floor=0.08, transition_floor=0.0, eta_destination_pull=0.0),
-        allowed_track_ids_set={"a0", "b0", "c0"},
-        infeasible_handling=InfeasibleHandlingConfig(
-            enabled=True,
-            backoff_steps=(0.05, 0.03),
-            min_bridge_floor=0.0,
-            max_attempts_per_segment=8,
-        ),
-        audit_config=RunAuditConfig(enabled=True, include_top_k=5),
-        audit_events=events,
-    )
-    assert result.success
-    assert result.segment_diagnostics
-    assert result.segment_diagnostics[0].bridge_floor_used < 0.08
-    assert result.segment_diagnostics[0].bridge_floor_used == pytest.approx(0.03)
-    attempt_nos = [
-        int(ev.payload.get("attempt_number"))
-        for ev in events
-        if ev.kind == "segment_attempt" and int(ev.payload.get("segment_index", -1)) == 0
-    ]
-    assert attempt_nos == [1, 2, 3]
+# test_bridge_floor_backoff_disabled_infeasible_segment_fails and
+# test_bridge_floor_backoff_enabled_succeeds_and_records_attempts deleted
+# (Phase 1 Task 8): both exercised infeasible_handling's bridge_floor backoff
+# cascade (_bridge_floor_attempts), which was the legacy per-segment
+# relaxation ladder Task 4 already gated off for corridor and Task 8 deleted
+# outright -- the corridor widening ladder
+# (_run_corridor_widening_ladder, tested by
+# tests/integration/test_corridor_pooling.py's
+# test_corridor_widening_ladder_recovers_stressed_segment) is the sole
+# segment-level recovery mechanism now. `infeasible_handling.enabled`/
+# `.backoff_steps`/etc. are retired config fields (warned via
+# src.playlist_gui.worker._warn_retired_keys); `.guarantee_feasible` remains
+# live and is exercised elsewhere.
 
 
 def test_run_audit_writer_creates_markdown_report(tmp_path):
