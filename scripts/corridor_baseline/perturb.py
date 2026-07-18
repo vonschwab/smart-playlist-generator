@@ -74,6 +74,24 @@ _PIER_CONFIG_FIELD_MAP: dict[str, Optional[str]] = {
     "center_transitions": "playlists.ds_pipeline.constraints.center_transitions",
     "transition_floor": "playlists.ds_pipeline.constraints.transition_floor",
 
+    # ---- C1 duration mirror fields (e34a5ad's new PierBridgeConfig leaves):
+    #      config.py:579-584 sources CandidatePoolConfig.duration_penalty_enabled/
+    #      _weight/_cutoff_multiplier from candidate_pool.* yaml, and
+    #      pipeline/core.py:873-875 unconditionally copies cfg.candidate.duration_*
+    #      into pb_cfg (the mirror leaves that surface under
+    #      playlist.pier_config.duration_* in the effective blob) -- NOT a
+    #      pace_bridge_floor-style clobber (nothing discards this before pb_cfg
+    #      sees it), just a same-generation mirror. The real, production-read
+    #      yaml source is candidate_pool.duration_* (already covered by the
+    #      pre-existing candidate_pool.* sweep rows); redirecting here so a
+    #      perturbation written to the flat playlists.ds_pipeline.pier_bridge.
+    #      duration_* path (which nothing ever reads) resolves instead of
+    #      reading did_not_resolve. See phase1_contract_knob_verdict.md's
+    #      "RED root-cause resolutions" for the empirical confirmation.
+    "duration_penalty_enabled": "playlists.ds_pipeline.candidate_pool.duration_penalty_enabled",
+    "duration_penalty_weight": "playlists.ds_pipeline.candidate_pool.duration_penalty_weight",
+    "duration_cutoff_multiplier": "playlists.ds_pipeline.candidate_pool.duration_cutoff_multiplier",
+
     # ---- residue-fix (Task 5 report appendix reconfirmed, corrected): the
     #      original fix-wave redirected pace_bridge_floor to
     #      candidate_pool.pace_bridge_floor, reasoning that pipeline/core.py:

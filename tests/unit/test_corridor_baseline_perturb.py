@@ -150,6 +150,33 @@ def test_config_path_cross_family_redirects():
     )
 
 
+def test_config_path_duration_mirror_fields_redirect_to_candidate_pool():
+    # e34a5ad's new PierBridgeConfig mirror leaves (duration_penalty_enabled/
+    # _weight, duration_cutoff_multiplier) surface under playlist.pier_config.*
+    # in the effective blob, but config.py:579-584 sources
+    # CandidatePoolConfig.duration_* from candidate_pool.* yaml and
+    # pipeline/core.py:873-875 unconditionally mirrors cfg.candidate.duration_*
+    # into pb_cfg -- so the flat playlists.ds_pipeline.pier_bridge.duration_*
+    # path (which nothing ever reads) must redirect to the real
+    # candidate_pool.* source, same pattern as center_transitions/
+    # transition_floor above. Unlike pace_bridge_floor, this is NOT a dead
+    # outlet -- nothing discards cfg.candidate.duration_* before pb_cfg sees
+    # it (empirically confirmed live: phase1_contract_knob_verdict.md's "RED
+    # root-cause resolutions").
+    assert (
+        perturb.config_path_for("playlist.pier_config.duration_penalty_enabled")
+        == "playlists.ds_pipeline.candidate_pool.duration_penalty_enabled"
+    )
+    assert (
+        perturb.config_path_for("playlist.pier_config.duration_penalty_weight")
+        == "playlists.ds_pipeline.candidate_pool.duration_penalty_weight"
+    )
+    assert (
+        perturb.config_path_for("playlist.pier_config.duration_cutoff_multiplier")
+        == "playlists.ds_pipeline.candidate_pool.duration_cutoff_multiplier"
+    )
+
+
 def test_config_path_pace_bridge_floor_is_dead_outlet():
     # Residue-fix (corrects the original fix-wave's redirect): pace_bridge_floor
     # is NOT reachable from candidate_pool.* either -- pipeline/core.py:370-383
