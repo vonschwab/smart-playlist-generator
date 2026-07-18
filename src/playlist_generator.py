@@ -16,7 +16,6 @@ from src.playlist.ds_pipeline_runner import DsRunResult, generate_playlist_ds as
 from src.playlist.artist_style import (
     ArtistStyleConfig,
     allocate_piers_by_tag_affinity,
-    build_balanced_candidate_pool,
     build_genre_neighbor_candidate_pool,
     cluster_artist_tracks,
     order_clusters,
@@ -821,7 +820,21 @@ class PlaylistGenerator:
         # itself, not just the numbers it resolves to above.
         genre_mode_resolved = _genre_params["genre_mode"]
 
-        if artist_style_enabled and not allowed_track_ids:
+        # Phase 1 Task 8 fix: this guard predates corridor pooling, when Artist
+        # mode's ONLY admission mechanism was a hand-built allowed_track_ids
+        # hard clamp (build_balanced_candidate_pool's per-cluster external
+        # pool) -- an empty clamp meant clustering silently produced nothing
+        # to generate from. Corridor pooling's library-wide eligible universe
+        # (+ genre-mode-keyed relevance mask, duration/title hygiene) is now
+        # Artist mode's admission mechanism instead, and deliberately leaves
+        # allowed_track_ids=None (unrestricted -- see create_playlist_for_artist
+        # / _create_playlists_from_single_artists) once clustering has
+        # resolved real piers, exactly the pool-starvation "amputated
+        # manifold" fix docs/POOL_STARVATION_RESEARCH_2026-07-12.md (M1)
+        # describes. Only an EXPLICIT EMPTY LIST (a caller that tried to
+        # build a restriction and got nothing) is still the real failure
+        # this guard exists to catch; None means "intentionally unrestricted."
+        if artist_style_enabled and allowed_track_ids is not None and not allowed_track_ids:
             raise ValueError(
                 "Artist style mode enabled but allowed_track_ids is empty; refusing to run DS without clamp."
             )
@@ -1787,6 +1800,7 @@ class PlaylistGenerator:
         style_anchor_tracks: Optional[List[Dict[str, Any]]] = None
         style_anchor_ids: Optional[List[str]] = None
         style_allowed_track_ids: Optional[List[str]] = None
+        style_ds_allowed_track_ids: Optional[List[str]] = None
         internal_connector_ids: Optional[List[str]] = None
 
         if style_cfg.enabled and artifact_path and (not artist_only) and (not track_title) and not fixed_seed_tracks:
@@ -2155,23 +2169,16 @@ class PlaylistGenerator:
                             float(_pbc.get("tag_steering_anchor_min_bridge", 0.35)),
                         )
 
-                cluster_piers = medoids_by_cluster
-
-                # Global admission floor (same as DS candidate admission)
+                # Global admission floor (same as DS candidate admission) --
+                # kept as a diagnostic value (global_sonic_floor below) even
+                # though it no longer gates a hand-built external pool: Phase 1
+                # Task 8 deleted build_balanced_candidate_pool (the per-cluster
+                # sonic-neighbor pool that used to hard-clamp Artist mode's
+                # allowed_track_ids); corridor pooling's library-wide eligible
+                # universe replaces it.
                 min_sonic = get_min_sonic_similarity(ds_cfg.get("candidate_pool", {}), cohesion_mode_effective)
                 artist_key_norm = normalize_artist_key(artist_name)
 
-                external_pool = build_balanced_candidate_pool(
-                    bundle=bundle,
-                    cluster_piers=cluster_piers,
-                    X_norm=X_norm,
-                    per_cluster_size=style_cfg.per_cluster_candidate_pool_size,
-                    pool_balance_mode=style_cfg.pool_balance_mode,
-                    global_floor=min_sonic,
-                    artist_key=artist_key_norm,
-                    artist_name=artist_name,
-                    include_collaborations=include_collaborations,
-                )
                 genre_neighbor_pool: List[str] = []
                 if style_cfg.genre_neighbor_pool_enabled:
                     genre_method_cfg = (
@@ -2219,7 +2226,7 @@ class PlaylistGenerator:
                 # gates + the sonic pool lever then admit/rank within the universe.
                 _rescued_on_tag = [
                     tid for tid in _on_tag_track_ids
-                    if tid not in set(pier_ids + external_pool + genre_neighbor_pool)
+                    if tid not in set(pier_ids + genre_neighbor_pool)
                 ]
                 if _rescued_on_tag:
                     logger.info(
@@ -2228,11 +2235,30 @@ class PlaylistGenerator:
                         len(_rescued_on_tag),
                     )
                 style_allowed_track_ids = list(dict.fromkeys(
-                    pier_ids + external_pool + genre_neighbor_pool
+                    pier_ids + genre_neighbor_pool
                     + _rescued_on_tag + list(internal_connector_ids or [])
                 ))
                 if not style_allowed_track_ids:
                     raise ValueError("Artist style allowed pool empty")
+                # Phase 1 Task 8 fix: style_allowed_track_ids stays as the
+                # gate/diagnostics value above (never empty once clustering
+                # succeeds), but is NO LONGER passed as the DS call's
+                # allowed_track_ids restriction -- doing so was an
+                # unintended pool-starvation regression this task
+                # introduced: restrict_bundle's hard clamp (core.py) runs
+                # BEFORE corridor's eligible-universe build ever sees the
+                # bundle, so a narrow style_allowed_track_ids (now missing
+                # build_balanced_candidate_pool's deleted per-cluster
+                # external pool, which used to be the bulk of this list)
+                # amputated the manifold corridor is supposed to scan in
+                # full -- exactly the M1 pattern
+                # docs/POOL_STARVATION_RESEARCH_2026-07-12.md diagnoses.
+                # None = unrestricted; corridor's own eligible universe +
+                # genre-mode-keyed relevance mask + duration/title hygiene
+                # are the admission mechanism now. Piers still flow in via
+                # style_seed_track_id/style_anchor_ids below, independently
+                # of this.
+                style_ds_allowed_track_ids = None
 
                 style_seed_track_id = pier_ids[0]
                 style_anchor_ids = pier_ids[1:]
@@ -2268,7 +2294,6 @@ class PlaylistGenerator:
                         for m in ordered_medoids
                     ],
                     "allowed_ids_count": int(len(style_allowed_track_ids)),
-                    "external_pool_count": int(len(external_pool)),
                     "genre_neighbor_pool_count": int(len(genre_neighbor_pool)),
                     "internal_connectors_count": int(len(internal_connector_ids or [])),
                 }
@@ -2362,7 +2387,7 @@ class PlaylistGenerator:
                     target_length=track_count,
                     mode_override=cohesion_mode_effective,
                     seed_artist=artist_name,
-                    allowed_track_ids=style_allowed_track_ids,
+                    allowed_track_ids=style_ds_allowed_track_ids,
                     excluded_track_ids=excluded_ids or None,
                     anchor_seed_tracks=style_anchor_tracks,
                     anchor_seed_ids=style_anchor_ids,
@@ -2402,7 +2427,7 @@ class PlaylistGenerator:
                             target_length=track_count,
                             mode_override=cohesion_mode_effective,
                             seed_artist=artist_name,
-                            allowed_track_ids=style_allowed_track_ids,
+                            allowed_track_ids=style_ds_allowed_track_ids,
                             excluded_track_ids=excluded_ids or None,
                             anchor_seed_tracks=style_anchor_tracks,
                             anchor_seed_ids=style_anchor_ids,
@@ -3041,6 +3066,7 @@ class PlaylistGenerator:
             style_anchor_tracks = seeds
             style_anchor_ids = None
             allowed_track_ids = None
+            ds_allowed_track_ids = None
             pier_cfg = None
             internal_connectors = None
             artifact_path = ds_cfg.get("artifact_path")
@@ -3104,18 +3130,11 @@ class PlaylistGenerator:
                     if not ordered_medoids:
                         raise ValueError("Artist style piers empty after title exclusions")
 
-                    cluster_piers = medoids_by_cluster
-                    min_sonic = get_min_sonic_similarity(ds_cfg.get("candidate_pool", {}), cohesion_mode_effective)
                     artist_key = normalize_artist_key(artist)
-                    external_pool = build_balanced_candidate_pool(
-                        bundle=bundle,
-                        cluster_piers=cluster_piers,
-                        X_norm=X_norm,
-                        per_cluster_size=style_cfg.per_cluster_candidate_pool_size,
-                        pool_balance_mode=style_cfg.pool_balance_mode,
-                        global_floor=min_sonic,
-                        artist_key=artist_key,
-                    )
+                    # Phase 1 Task 8: build_balanced_candidate_pool (the
+                    # per-cluster sonic-neighbor external pool) deleted --
+                    # corridor pooling's library-wide eligible universe
+                    # replaces it.
                     genre_neighbor_pool: List[str] = []
                     if style_cfg.genre_neighbor_pool_enabled:
                         genre_method_cfg = (
@@ -3137,10 +3156,18 @@ class PlaylistGenerator:
                     internal_connectors = []
                     pier_ids = [str(bundle.track_ids[m]) for m in ordered_medoids]
                     allowed_track_ids = list(dict.fromkeys(
-                        pier_ids + external_pool + genre_neighbor_pool + internal_connectors
+                        pier_ids + genre_neighbor_pool + internal_connectors
                     ))
                     if not allowed_track_ids:
                         raise ValueError("Artist style allowed pool empty")
+                    # Phase 1 Task 8 fix: same pool-starvation fix as
+                    # create_playlist_for_artist above -- allowed_track_ids
+                    # stays as the gate/diagnostics value (never empty once
+                    # clustering succeeds), but the DS call below passes
+                    # ds_allowed_track_ids=None (unrestricted) instead;
+                    # corridor's own eligible universe is the admission
+                    # mechanism now, not a hand-built clamp.
+                    ds_allowed_track_ids = None
                     style_seed_track_id = pier_ids[0]
                     style_anchor_ids = pier_ids[1:]
                     style_anchor_tracks = [
@@ -3209,6 +3236,7 @@ class PlaylistGenerator:
                 except Exception as exc:
                     logger.warning("Artist style clustering failed (%s); using default artist flow", exc, exc_info=True)
                     allowed_track_ids = None
+                    ds_allowed_track_ids = None
                     pier_cfg = None
                     internal_connectors = None
                     using_artist_style = False
@@ -3221,7 +3249,7 @@ class PlaylistGenerator:
                 mode_override=cohesion_mode_effective,
                 seed_artist=artist,
                 anchor_seed_tracks=style_anchor_tracks,  # Pass full seed track info for title+artist resolution
-                allowed_track_ids=allowed_track_ids,
+                allowed_track_ids=ds_allowed_track_ids,
                 excluded_track_ids=excluded_ids_batch or None,
                 anchor_seed_ids=style_anchor_ids,
                 pier_bridge_config=pier_cfg,
