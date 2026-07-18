@@ -1,18 +1,18 @@
 {
   "track_ids": [
     "golden_track_0000",
-    "golden_track_0064",
     "golden_track_0095",
     "golden_track_0089",
     "golden_track_0058",
-    "golden_track_0008",
+    "golden_track_0022",
     "golden_track_0096",
-    "golden_track_0022"
+    "golden_track_0008",
+    "golden_track_0064"
   ],
   "track_count": 8,
   "metrics": {
-    "mean_transition": 0.045236616207471984,
-    "min_transition": 0.0024452345433093993,
+    "mean_transition": 0.06408360428271195,
+    "min_transition": 0.002723881532129331,
     "artist_diversity": 1.0,
     "unique_artists": 8
   },

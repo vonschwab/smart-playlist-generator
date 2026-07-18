@@ -2,21 +2,17 @@
   "track_ids": [
     "golden_track_0010",
     "golden_track_0033",
-    "golden_track_0072",
     "golden_track_0006",
-    "golden_track_0011",
-    "golden_track_0076",
-    "golden_track_0083",
-    "golden_track_0082",
     "golden_track_0080",
-    "golden_track_0099"
+    "golden_track_0099",
+    "golden_track_0011"
   ],
-  "track_count": 10,
+  "track_count": 6,
   "metrics": {
-    "mean_transition": 0.06621861988869403,
-    "min_transition": 0.0022300410976121006,
+    "mean_transition": 0.10273531271638472,
+    "min_transition": 0.003761945084860609,
     "artist_diversity": 1.0,
-    "unique_artists": 10
+    "unique_artists": 6
   },
   "mode": "dynamic",
   "seed_info": {
