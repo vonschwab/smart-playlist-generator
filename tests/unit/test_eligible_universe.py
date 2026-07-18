@@ -2,14 +2,28 @@
 
 Spec: docs/superpowers/specs/2026-07-12-corridor-first-pooling-design.md.
 Computes ONCE per generation the index set + aligned normalized sonic rows
-surviving all standing hard exclusions, plus the rehomed C1 (duration) / C10
-(instrumental-lean) rank-penalty vector that Task 3's corridor consumes as a
-multiplicative factor on `rank_scores`.
+surviving all standing hard exclusions, plus a `duration_rank_penalty`
+placeholder vector.
+
+`duration_rank_penalty` used to carry a REAL per-row C1 (duration) / C10
+(instrumental-lean) penalty factor here, intended as a multiplicative factor
+on Task 3 corridor's `rank_scores` -- but `build_corridor` never actually
+read it (the beam ended up owning both effects' real selection impact
+instead, to avoid double-applying at the segment_pool_max cap margin), so
+computing the real math for every row of the whole eligible universe was a
+dead full-universe pass (final-review finding, corridor-phase1-pooling,
+2026-07-18 -- see eligible_universe.py's module docstring). The vector is
+now always `1.0` (neutral) for every row, with no per-row work; the "penalty-
+vector fidelity" tests below were updated to pin that neutral contract. The
+real math (same formulas, same reference/weight semantics) now lives in
+pier_bridge_builder.py, computed directly over each segment's small accepted
+corridor -- see
+tests/integration/test_corridor_pooling.py::test_mean_duration_penalty_diagnostic_reflects_real_penalty_math
+for its regression coverage.
 
 Reference math reused (not copied) from src/playlist/candidate_pool.py:
-  - duration hard cutoff + soft penalty: :678, `_compute_duration_penalty` (:112-147)
+  - duration hard cutoff: :678
   - title hygiene hard-exclude bitmask check: :1084-1089 (`detect_title_artifacts`)
-  - instrumental pool-demote math: :709-712 (`compute_instrumental_penalty`)
 Seed exemption semantics mirror src/playlist/pipeline/bundle_restrict.py:66-128.
 """
 from __future__ import annotations
@@ -20,8 +34,6 @@ from typing import Optional
 import numpy as np
 import pytest
 
-from src.playlist.candidate_pool import compute_duration_penalty
-from src.playlist.pier_bridge.pace_gate import compute_instrumental_penalty
 from src.playlist.pier_bridge.eligible_universe import build_eligible_universe
 
 
@@ -176,18 +188,31 @@ def test_seed_exempt_from_every_exclusion():
     assert result.stats["excluded_duration_cutoff"] == 0
     assert result.stats["excluded_title_hygiene"] == 0
     assert result.stats["excluded_relevance_mask"] == 0
-    # Seed also exempt from the soft rank penalty (mirrors candidate_pool's seed_mask skip).
+    # Seed is also exempt from the (now-placeholder) penalty vector -- trivially
+    # true post-cleanup since every row is 1.0, kept as documentation of intent.
     pos = list(result.indices).index(1)
     assert result.duration_rank_penalty[pos] == pytest.approx(1.0)
 
 
-# --- penalty-vector fidelity ----------------------------------------------------
+# --- penalty-vector neutrality (post-cleanup contract) --------------------------
+#
+# `duration_rank_penalty` used to carry REAL per-row duration/instrumental
+# penalty factors here (see the module docstring's history). Final-review
+# cleanup (corridor-phase1-pooling, 2026-07-18) removed that dead
+# full-universe computation -- nothing ever consumed it except a diagnostic
+# mean now computed directly over each segment's tiny accepted corridor in
+# pier_bridge_builder.py (see
+# tests/integration/test_corridor_pooling.py::test_mean_duration_penalty_diagnostic_reflects_real_penalty_math).
+# These tests pin the NEW contract: `build_eligible_universe` returns an
+# all-ones vector regardless of duration/instrumental configuration -- a
+# regression here (a non-1.0 value reappearing) would mean the expensive
+# full-universe loop was silently reintroduced.
 
 
-def test_duration_penalty_matches_reference_math():
+def test_duration_penalty_is_neutral_placeholder_even_when_configured():
     n = 8
     durations = np.full(n, 200_000.0)
-    durations[3] = 260_000.0  # 30% excess -- moderate phase, no cutoff at 2.0x
+    durations[3] = 260_000.0  # 30% excess -- would have been a real penalty pre-cleanup
     bundle = _mk_bundle(n=n, durations_ms=durations)
     result = _call(
         bundle,
@@ -195,19 +220,16 @@ def test_duration_penalty_matches_reference_math():
         duration_cutoff_multiplier=2.0,
         duration_penalty_weight=0.5,
     )
-    expected_penalty = compute_duration_penalty(260_000.0, 200_000.0, 0.5)
-    expected_factor = max(0.0, 1.0 - expected_penalty)
-    pos = list(result.indices).index(3)
-    assert result.duration_rank_penalty[pos] == pytest.approx(expected_factor)
-    # Untouched rows keep the neutral factor.
-    pos0 = list(result.indices).index(0)
-    assert result.duration_rank_penalty[pos0] == pytest.approx(1.0)
+    assert np.allclose(result.duration_rank_penalty, np.ones(n)), (
+        "duration_rank_penalty must stay the neutral placeholder -- the real "
+        "math lives in pier_bridge_builder.py now, not here"
+    )
 
 
-def test_instrumental_penalty_matches_reference_math():
+def test_instrumental_penalty_is_neutral_placeholder_even_when_configured():
     n = 8
     voice_prob = np.full(n, 0.1)
-    voice_prob[5] = 0.9
+    voice_prob[5] = 0.9  # would have been a real penalty pre-cleanup
     bundle = _mk_bundle(n=n)
     result = _call(
         bundle,
@@ -215,33 +237,10 @@ def test_instrumental_penalty_matches_reference_math():
         instrumental_penalty_weight=0.4,
         voice_prob=voice_prob,
     )
-    expected_penalty = compute_instrumental_penalty(voice_prob, cand=5, weight=0.4)
-    expected_factor = max(0.0, 1.0 - expected_penalty)
-    pos = list(result.indices).index(5)
-    assert result.duration_rank_penalty[pos] == pytest.approx(expected_factor)
-
-
-def test_duration_and_instrumental_penalties_combine_multiplicatively():
-    n = 8
-    durations = np.full(n, 200_000.0)
-    durations[2] = 260_000.0
-    voice_prob = np.full(n, 0.0)
-    voice_prob[2] = 0.5
-    bundle = _mk_bundle(n=n, durations_ms=durations)
-    result = _call(
-        bundle,
-        duration_reference_ms=200_000.0,
-        duration_cutoff_multiplier=2.0,
-        duration_penalty_weight=0.5,
-        instrumental_enabled=True,
-        instrumental_penalty_weight=0.4,
-        voice_prob=voice_prob,
+    assert np.allclose(result.duration_rank_penalty, np.ones(n)), (
+        "duration_rank_penalty must stay the neutral placeholder -- the real "
+        "math lives in pier_bridge_builder.py now, not here"
     )
-    dp = compute_duration_penalty(260_000.0, 200_000.0, 0.5)
-    ip = compute_instrumental_penalty(voice_prob, cand=2, weight=0.4)
-    expected = max(0.0, 1.0 - dp) * max(0.0, 1.0 - ip)
-    pos = list(result.indices).index(2)
-    assert result.duration_rank_penalty[pos] == pytest.approx(expected)
 
 
 def test_instrumental_disabled_is_inert_even_with_voice_prob():

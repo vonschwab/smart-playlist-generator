@@ -1390,7 +1390,6 @@ def build_pier_bridge_playlist(
 
         avail_idx = idx_arr[mask]
         avail_X = corridor_universe.X_norm[mask]
-        avail_penalty = corridor_universe.duration_rank_penalty[mask]
         avail_artist_keys = [ak for ak, keep in zip(corridor_artist_keys, mask.tolist()) if keep]
         avail_genre = (
             corridor_genre_dense_universe[mask]
@@ -1448,20 +1447,57 @@ def build_pier_bridge_playlist(
             genre_vec_b=genre_vec_b,
         )
 
-        # C1 rehome (Task 2): duration-rank penalty vector, kept for
-        # diagnostics only. The beam owns C1 enforcement since f142677
+        # C1 rehome (Task 2): mean duration-rank penalty, diagnostics only.
+        # The beam owns C1's SELECTION effect since f142677
         # (duration_penalty_values threaded additively into
         # _beam_search_segment's per-edge scoring, the same pattern as C10's
-        # instrumental lean) -- multiplying it into `rank_scores` here too
-        # would double-apply the penalty at the segment_pool_max cap margin,
-        # violating single-enforcement (Phase 1 Task 8 review finding; see
-        # CLAUDE.md Layer 3 item 18's "single-enforcement" discipline).
-        # Averaged over the RESULT members (the actual segment pool),
-        # matching what the field name promises.
-        _penalty_by_idx = dict(zip(avail_idx.tolist(), avail_penalty.tolist()))
-        _result_penalties = [
-            float(_penalty_by_idx.get(int(i), 1.0)) for i in result.indices.tolist()
-        ]
+        # instrumental lean) -- multiplying a penalty vector into
+        # `rank_scores` here too would double-apply it at the
+        # segment_pool_max cap margin, violating single-enforcement (Phase 1
+        # Task 8 review finding; see CLAUDE.md Layer 3 item 18's
+        # "single-enforcement" discipline).
+        #
+        # Computed directly over THIS segment's small (final_candidates-
+        # sized) accepted corridor, not the whole eligible universe:
+        # `EligibleUniverse.duration_rank_penalty` used to carry a REAL
+        # per-row factor computed for every eligible track in the whole
+        # library (tens of thousands of rows) purely so this mean could look
+        # up the handful (~2-30) that ended up here -- a dead full-universe
+        # pass (final-review finding, corridor-phase1-pooling, 2026-07-18;
+        # see eligible_universe.py's module docstring). The vector field
+        # stays on `EligibleUniverse` (a structural placeholder, always
+        # 1.0 -- nothing else reads it) but the real math now lives here,
+        # where it's cheap.
+        _duration_seed_set = set(int(i) for i in seed_indices)
+        _result_penalties: List[float] = []
+        for _i in result.indices.tolist():
+            _factor = 1.0
+            if int(_i) not in _duration_seed_set:
+                if (
+                    _corridor_duration_reference_ms is not None
+                    and _corridor_duration_penalty_weight > 0.0
+                    and getattr(bundle, "durations_ms", None) is not None
+                ):
+                    _dur = float(bundle.durations_ms[int(_i)])
+                    if _dur > 0.0 and _dur > float(_corridor_duration_reference_ms):
+                        _dp = compute_duration_penalty(
+                            _dur, float(_corridor_duration_reference_ms),
+                            float(_corridor_duration_penalty_weight),
+                        )
+                        if _dp > 0:
+                            _factor *= max(0.0, 1.0 - _dp)
+                if (
+                    bool(cfg.instrumental_enabled)
+                    and float(cfg.instrumental_penalty_weight) > 0.0
+                    and voice_prob is not None
+                ):
+                    from src.playlist.pier_bridge.pace_gate import compute_instrumental_penalty
+                    _ip = compute_instrumental_penalty(
+                        voice_prob, cand=int(_i), weight=float(cfg.instrumental_penalty_weight)
+                    )
+                    if _ip > 0:
+                        _factor *= max(0.0, 1.0 - _ip)
+            _result_penalties.append(_factor)
         _mean_duration_penalty = float(np.mean(_result_penalties)) if _result_penalties else 1.0
 
         _artist_key_by_avail_idx = dict(zip(avail_idx.tolist(), avail_artist_keys))

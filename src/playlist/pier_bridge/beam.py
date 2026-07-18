@@ -1262,11 +1262,12 @@ def _beam_search_segment(
                 # Duration soft penalty (Phase-1 corridor pooling, C1 rehome):
                 # additive demotion of over-length candidates. Corridor's
                 # pool-ranking penalty (eligible_universe.py's
-                # duration_rank_penalty) is architecturally cap-gated -- it only
-                # bites when a segment's corridor exceeds segment_pool_max,
-                # which real generations essentially never hit -- so C1's
-                # SELECTION effect is rehomed here instead, mirroring C10's
-                # beam half immediately above. `duration_penalty_values` is a
+                # duration_rank_penalty) is never wired into `build_corridor`'s
+                # `rank_scores` at all -- it's a structural placeholder
+                # (always 1.0, see eligible_universe.py's module docstring),
+                # not a cap-gated rarity -- so C1's SELECTION effect is
+                # rehomed here instead, mirroring C10's beam half immediately
+                # above. `duration_penalty_values` is a
                 # precomputed per-candidate array (weight already baked in,
                 # from src.playlist.candidate_pool.compute_duration_penalty)
                 # threaded ONLY by the corridor call site in

@@ -2,11 +2,11 @@
 docs/superpowers/specs/2026-07-12-corridor-first-pooling-design.md.
 
 Computes, ONCE per generation, the index set + aligned L2-normalized sonic
-rows surviving all standing hard exclusions, plus the rehomed rank-penalty
-vector that Task 3's per-segment corridor builder (`build_corridor`) consumes
-as a multiplicative factor on `rank_scores`. Replaces the per-segment
-re-application of these exclusions/penalties that `candidate_pool.py` does
-today (once per pier pair) with a single pass over the whole bundle.
+rows surviving all standing hard exclusions, plus a `duration_rank_penalty`
+placeholder vector (see the C1/C10 section below -- `build_corridor` does
+NOT consume it; nothing does any more). Replaces the per-segment
+re-application of these exclusions that `candidate_pool.py` does today
+(once per pier pair) with a single pass over the whole bundle.
 
 Hard exclusions (index-set membership, no bundle slicing):
   - recency/blacklist (`excluded_track_ids`, same pre-pipeline source as
@@ -19,23 +19,33 @@ Hard exclusions (index-set membership, no bundle slicing):
 
 Seeds/piers (`seed_indices`) are always exempt from every exclusion above,
 mirroring `src/playlist/pipeline/bundle_restrict.py:66-128`'s exemption
-semantics -- and from the soft rank penalty below, mirroring
-`candidate_pool.py`'s `seed_mask[i]: continue` skip ahead of both penalty
-loops (:671, :707).
+semantics.
 
 C1 rehome (duration soft penalty) + C10-pool rehome (instrumental-lean pool
 demotion): both were previously *subtracted* from a cosine-similarity score
-in `candidate_pool.py` (additive, similarity-space). Here they are reframed
-as multiplicative factors in `[0, 1]` on the corridor's `rank_scores`
-(`1.0 - penalty`, clamped at 0 so an extreme duration overshoot can never
-flip the sign of a downstream score), then combined multiplicatively:
+in `candidate_pool.py` (additive, similarity-space). An earlier version of
+this module reframed them as multiplicative factors in `[0, 1]`
+(`duration_rank_penalty[i] = max(0, 1 - duration_penalty(i)) * max(0, 1 -
+instrumental_penalty(i))`) intended for `build_corridor`'s `rank_scores` --
+but the beam ended up owning BOTH effects' actual selection impact instead
+(`beam.py`'s "Duration soft penalty" / "Instrumental lean" terms, additive
+in transition-score space, matching C10's existing pattern) to avoid
+double-applying the penalty at the segment_pool_max cap margin
+(single-enforcement; see `pier_bridge_builder.py`'s C1-rehome comment and
+CLAUDE.md Layer 3 item 18). `build_corridor` never reads
+`duration_rank_penalty` -- it never did, once the beam rehome landed.
 
-    duration_rank_penalty[i] = max(0, 1 - duration_penalty(i))
-                              * max(0, 1 - instrumental_penalty(i))
-
-`1.0` means "no penalty" for both hard-exempt seeds and untouched rows.
-C10's beam half (`beam.py:1256-1257`) is untouched by this module --
-preserving the never-fail contract stays the beam's job.
+`duration_rank_penalty` is therefore now a structural placeholder: always
+`1.0` (no penalty) for every eligible row, computed with no per-row work.
+The field/param stays on `EligibleUniverse` (interface compatibility -- any
+future consumer that indexes it by position still gets a valid, aligned
+array) but nothing currently reads it: looping the real C1/C10 math over the
+WHOLE eligible universe (tens of thousands of rows) purely to feed the
+`mean_duration_penalty` diagnostic (which only ever reads a handful of
+accepted-corridor members, ~2-30 per segment) was a dead full-universe pass
+(final-review finding, corridor-phase1-pooling, 2026-07-18). The real
+per-track math now lives in `pier_bridge_builder.py`, computed directly over
+each segment's small accepted corridor at diagnostic time.
 """
 from __future__ import annotations
 
@@ -44,8 +54,6 @@ from typing import Any
 
 import numpy as np
 
-from src.playlist.candidate_pool import compute_duration_penalty
-from src.playlist.pier_bridge.pace_gate import compute_instrumental_penalty
 from src.playlist.pier_bridge.vec import _l2_normalize_rows  # noqa: F401 -- reused private helper
 from src.playlist.title_quality import detect_title_artifacts
 
@@ -54,7 +62,7 @@ from src.playlist.title_quality import detect_title_artifacts
 class EligibleUniverse:
     indices: np.ndarray  # bundle indices surviving all standing hard exclusions, ascending
     X_norm: np.ndarray  # aligned L2-normalized sonic rows
-    duration_rank_penalty: np.ndarray  # aligned multiplicative penalty (C1 + C10), 1.0 = none
+    duration_rank_penalty: np.ndarray  # structural placeholder, always 1.0 -- see module docstring
     stats: dict[str, Any] = field(default_factory=dict)  # counts per exclusion class
 
 
@@ -153,28 +161,12 @@ def build_eligible_universe(
     X_full_norm = _l2_normalize_rows(bundle.X_sonic)
     X_norm = X_full_norm[indices]
 
+    # Structural placeholder only -- see the module docstring's C1/C10
+    # section. No per-row work: the real duration/instrumental penalty math
+    # is computed on demand, over each segment's small accepted corridor, by
+    # pier_bridge_builder.py's diagnostic code, not by looping the whole
+    # (tens-of-thousands-of-row) eligible universe here.
     penalty = np.ones(len(indices), dtype=np.float64)
-    for pos in range(len(indices)):
-        idx = int(indices[pos])
-        if idx in seed_set:
-            continue  # seeds exempt from the soft penalty too (candidate_pool seed_mask skip)
-
-        factor = 1.0
-        if duration_active and durations_ms is not None:
-            dur = float(durations_ms[idx])
-            if dur > 0.0 and dur > float(duration_reference_ms):  # type: ignore[arg-type]
-                dp = compute_duration_penalty(
-                    dur, float(duration_reference_ms), float(duration_penalty_weight)  # type: ignore[arg-type]
-                )
-                if dp > 0:
-                    factor *= max(0.0, 1.0 - dp)
-
-        if instrumental_enabled and instrumental_penalty_weight > 0.0 and voice_prob is not None:
-            ip = compute_instrumental_penalty(voice_prob, cand=idx, weight=float(instrumental_penalty_weight))
-            if ip > 0:
-                factor *= max(0.0, 1.0 - ip)
-
-        penalty[pos] = factor
 
     stats: dict[str, Any] = {
         "universe_size_total": n,

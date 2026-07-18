@@ -615,6 +615,66 @@ def test_corridor_universe_title_hard_exclude_flags_wired_when_configured():
     )
 
 
+def test_mean_duration_penalty_diagnostic_reflects_real_penalty_math():
+    """Companion to the eligible-universe full-universe-pass cleanup
+    (final-review finding, corridor-phase1-pooling, 2026-07-18):
+    eligible_universe.py no longer computes a real per-row duration/
+    instrumental penalty over the whole eligible universe -- it was a dead
+    pass (`build_corridor` never read `duration_rank_penalty`; the beam owns
+    C1's actual selection effect via its own separate additive term). The
+    real per-track math moved to pier_bridge_builder.py's diagnostic point,
+    computed directly over the tiny accepted-corridor set instead. This pins
+    that the relocation still produces the SAME real value (not a stub 1.0)
+    for the segment's `mean_duration_penalty` diagnostic -- "SOME C1
+    visibility" (the reviewer's phrase) survives the cleanup.
+
+    Both non-seed candidates (t1, t2) are given the SAME over-length
+    duration so the assertion doesn't depend on which one the beam's
+    transition-score/duration-penalty tradeoff happens to pick for this
+    fixture's single interior slot.
+    """
+    from dataclasses import replace as _dc_replace
+
+    from src.playlist.candidate_pool import compute_duration_penalty
+
+    bundle = _dc_replace(
+        _synthetic_bundle(),
+        # t0/t3 (seeds) both 200_000ms -> seed-median reference is 200_000ms.
+        # t1/t2 (candidates) both 30% over that reference.
+        durations_ms=np.array([200_000.0, 260_000.0, 260_000.0, 200_000.0]),
+    )
+    cfg = PierBridgeConfig(
+        corridor_width_percentile=0.0,
+        transition_floor=-1.0,
+        bridge_floor=-1.0,
+        progress_enabled=False,
+        collapse_segment_pool_by_artist=False,
+        duration_penalty_enabled=True,
+        duration_penalty_weight=0.5,
+    )
+
+    result = build_pier_bridge_playlist(
+        seed_track_ids=["t0", "t3"],
+        total_tracks=3,
+        bundle=bundle,
+        candidate_pool_indices=[1, 2],
+        cfg=cfg,
+    )
+
+    assert result.success, f"corridor segment starved: {result.failure_reason}"
+    corridor_segments = result.stats.get("corridor_segments") or []
+    assert len(corridor_segments) == 1
+
+    expected_dp = compute_duration_penalty(260_000.0, 200_000.0, 0.5)
+    expected_mean = max(0.0, 1.0 - expected_dp)
+    assert corridor_segments[0]["mean_duration_penalty"] == pytest.approx(expected_mean), (
+        f"expected the real duration-penalty factor ({expected_mean}), got "
+        f"{corridor_segments[0]['mean_duration_penalty']} -- did the diagnostic "
+        f"relocation silently start returning the eligible-universe placeholder "
+        f"(always 1.0) instead of the real per-track math?"
+    )
+
+
 # ── Task 4: pier-artist-key collision, filter-before-cap (carried finding) ──
 #
 # Same shape as test_corridor_filters_track_key_collisions_before_capping_
