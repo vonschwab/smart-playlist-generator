@@ -208,6 +208,7 @@ def _beam_search_segment(
     pair_sim_provider: Optional[Any] = None,
     energy_matrix: Optional[np.ndarray] = None,
     voice_prob: Optional[np.ndarray] = None,
+    duration_penalty_values: Optional[np.ndarray] = None,
     roam_detour_sonic: Optional[np.ndarray] = None,
     roam_dev_genre: Optional[np.ndarray] = None,
     roam_dev_energy: Optional[np.ndarray] = None,
@@ -233,6 +234,7 @@ def _beam_search_segment(
     """
 
     genre_penalty_hits = 0
+    duration_penalty_hits = 0
     edges_scored = 0
     penalty_strength = float(cfg.genre_penalty_strength)
     if not math.isfinite(penalty_strength):
@@ -1257,6 +1259,27 @@ def _beam_search_segment(
                         voice_prob, cand=int(cand), weight=_instr_w
                     )
 
+                # Duration soft penalty (Phase-1 corridor pooling, C1 rehome):
+                # additive demotion of over-length candidates. Corridor's
+                # pool-ranking penalty (eligible_universe.py's
+                # duration_rank_penalty) is architecturally cap-gated -- it only
+                # bites when a segment's corridor exceeds segment_pool_max,
+                # which real generations essentially never hit -- so C1's
+                # SELECTION effect is rehomed here instead, mirroring C10's
+                # beam half immediately above. `duration_penalty_values` is a
+                # precomputed per-candidate array (weight already baked in,
+                # from src.playlist.candidate_pool.compute_duration_penalty)
+                # threaded ONLY by the corridor call site in
+                # pier_bridge_builder.py; legacy pooling never sets it, so this
+                # term is a pure no-op there by construction (legacy already
+                # applies its own duration soft-penalty once, during pool
+                # ranking -- a second beam subtraction would double-penalize).
+                if duration_penalty_values is not None:
+                    _dur_pen = float(duration_penalty_values[int(cand)])
+                    if _dur_pen > 0.0:
+                        _pace_penalty += _dur_pen
+                        duration_penalty_hits += 1
+
                 # Artist diversity: check if candidate artist already used
                 if artist_key_by_idx is not None:
                     use_identity = artist_identity_cfg is not None and artist_identity_cfg.enabled
@@ -2074,6 +2097,12 @@ def _beam_search_segment(
             _pair_floor,
             _pair_penalty,
             pair_penalty_hits,
+            edges_scored,
+        )
+    if duration_penalty_values is not None and duration_penalty_hits > 0:
+        logger.info(
+            "Duration soft penalty (beam): %d candidate evaluations demoted (%d edges scored this segment)",
+            duration_penalty_hits,
             edges_scored,
         )
     return best_final.path[1:], genre_penalty_hits, edges_scored, None

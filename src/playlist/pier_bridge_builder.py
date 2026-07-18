@@ -164,7 +164,11 @@ from src.playlist.artist_style import seed_genre_relevance_mask
 # Phase 1 Task 5: Oops-All-Bangers reseat onto the corridor universe -- reuses
 # candidate_pool.py's own rank-cutoff gate (imported, not copied) so both
 # pooling strategies filter identically.
-from src.playlist.candidate_pool import _apply_popularity_gate, compute_seed_reference_duration_ms
+from src.playlist.candidate_pool import (
+    _apply_popularity_gate,
+    compute_duration_penalty,
+    compute_seed_reference_duration_ms,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -598,6 +602,12 @@ def build_pier_bridge_playlist(
     corridor_genre_dense_universe: Optional[np.ndarray] = None
     corridor_artist_keys: List[str] = []
     corridor_track_keys: List[Tuple[str, str]] = []
+    # C1 beam rehome (controller decision, Task 7 follow-up): a precomputed
+    # per-candidate duration-penalty array, threaded into the beam ONLY when
+    # pooling_mode == "corridor". Stays None for legacy by construction (see
+    # beam.py's `duration_penalty_values is not None` gate) -- legacy already
+    # applies its own duration soft-penalty once, during pool ranking.
+    corridor_duration_penalty_values: Optional[np.ndarray] = None
     if pooling_mode == "corridor":
         # Genre-mode-keyed relevance mask (Task 4). Computed once per
         # generation from the run's seed/pier indices -- seed_genre_relevance_mask
@@ -668,6 +678,34 @@ def build_pier_bridge_playlist(
             int(corridor_universe.stats.get("excluded_duration_cutoff", 0)),
             int(corridor_universe.stats.get("excluded_title_hygiene", 0)),
         )
+        # C1 beam rehome: precompute the per-candidate duration penalty over
+        # the corridor-eligible indices (a superset of every candidate the
+        # beam will see this generation) using the SAME reference/weight just
+        # resolved above and the SAME compute_duration_penalty math legacy's
+        # pool uses. Stays None (beam term off) when the penalty is disabled
+        # or there is no usable seed reference -- mirrors the universe build's
+        # own duration_active gate just above.
+        if _corridor_duration_reference_ms is not None and _corridor_duration_penalty_weight > 0.0:
+            _durations_ms_full = getattr(bundle, "durations_ms", None)
+            if _durations_ms_full is not None:
+                corridor_duration_penalty_values = np.zeros(len(bundle.track_ids), dtype=np.float64)
+                for _idx in corridor_universe.indices:
+                    _dur = float(_durations_ms_full[int(_idx)])
+                    if _dur > 0.0 and _dur > _corridor_duration_reference_ms:
+                        corridor_duration_penalty_values[int(_idx)] = compute_duration_penalty(
+                            _dur, _corridor_duration_reference_ms, _corridor_duration_penalty_weight
+                        )
+        if corridor_duration_penalty_values is not None:
+            logger.info(
+                "Corridor beam duration penalty: active (reference_ms=%.0f weight=%.2f)",
+                float(_corridor_duration_reference_ms),
+                float(_corridor_duration_penalty_weight),
+            )
+        else:
+            logger.info(
+                "Corridor beam duration penalty: inactive (duration_penalty_enabled=%s)",
+                bool(cfg.duration_penalty_enabled),
+            )
         # Oops, All Bangers (Task 5 reseat, design spec §3: "popularity filter
         # applies to the corridor universe when enabled"). Applied ONCE here,
         # at universe build -- NOT inside eligible_universe.py (its reviewed
@@ -2026,6 +2064,7 @@ def build_pier_bridge_playlist(
                         pair_sim_provider=pair_sim_provider,
                         energy_matrix=energy_matrix,
                         voice_prob=voice_prob,
+                        duration_penalty_values=corridor_duration_penalty_values,
                         roam_detour_sonic=_roam_detour_sonic,
                         roam_dev_energy=_roam_dev_energy,
                         popularity_values=popularity_values,
