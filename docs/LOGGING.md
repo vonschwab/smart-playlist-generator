@@ -302,18 +302,21 @@ Corridor[seg 2]: size=248 width=0.97 widened=0 support_a=0.15 support_b=0.55 thr
   (self-calibrating per anchor pair, not a fixed global number).
 - `capped` — whether `segment_pool_max` truncated the ranked (non-`force_include`) portion.
 
-**Known diagnostics-fidelity gap (Task 9 finding, not yet fixed):** when
+**Diagnostics-fidelity gap (Task 9 finding, fixed by the Task-9-followup):** when
 `variable_bridge_length` flexes a segment's interior length across multiple candidate lengths
 (`choose_segment_length` in `var_bridge.py`), each candidate length runs its **own** widening-ladder
-invocation, but the once-per-segment gate on this health line latches onto the **first** attempt
-tried — not necessarily the length var-bridge ultimately picks. The line can therefore describe a
-different corridor (different `width`/`threshold`) than the one that actually supplied the
-segment's emitted tracks. Every emitted track is still a legitimate corridor member of *some*
-attempt (a diagnostics-fidelity issue, not a candidate-legality one) — but don't treat this line as
-authoritative for the *final* corridor under variable-bridge-length flex without cross-checking
-against `corridor_segments` in the playlist stats and, if needed, an independent membership
-recheck (see `tests/integration/test_corridor_pooling.py`'s xfail'd membership test and
-`.superpowers/sdd/p1-task-9-report.md` for the full writeup).
+invocation. Through Task 9, the once-per-segment gate on this health line latched onto the
+**first** attempt tried — not necessarily the length var-bridge ultimately picked — so the line
+could describe a different corridor (different `width`/`threshold`) than the one that actually
+supplied the segment's emitted tracks. Fixed: `_run_corridor_widening_ladder` no longer logs/records
+the health line itself; it attaches its stats to the returned attempt, and the segment loop in
+`pier_bridge_builder.py` emits the line exactly once, **after** `choose_segment_length` has picked
+the accepted length, from that accepted attempt's own stats. The line (and `corridor_segments` in
+the playlist stats) now always describes the corridor that actually supplied the segment's emitted
+tracks, including under variable-bridge-length re-entry — see
+`tests/integration/test_corridor_pooling.py`'s
+`test_corridor_widening_ladder_health_line_survives_variable_bridge_reentry` and
+`.superpowers/sdd/p1-healthline-fix-report.md` for the fix writeup.
 
 **The widening-ladder lines**, emitted only when the quality trigger (`min_edge_T <
 transition_floor`) fires:

@@ -103,53 +103,23 @@ def _l2norm(X: np.ndarray) -> np.ndarray:
 @pytest.mark.integration
 @pytest.mark.slow
 @_requires_artifact
-@pytest.mark.xfail(
-    reason=(
-        "Phase 1 Task 9 investigation (2026-07-18): CONFIRMED pre-existing "
-        "diagnostics-staleness bug in the corridor-widening-ladder x "
-        "variable-bridge-length interaction, NOT fixed here per the task's "
-        "'membership bug = STOP-and-report, do not fix unilaterally' rule. "
-        "`_run_corridor_widening_ladder`'s once-per-segment health-line/"
-        "diagnostics gate (`corridor_logged_segments`, pier_bridge_builder.py "
-        "~line 2238) latches onto the FIRST interior-length attempt "
-        "`choose_segment_length` tries for a segment (var_bridge.py) -- "
-        "typically the nominal length -- even when var-bridge's own bottleneck "
-        "comparison ultimately CHOOSES a different (longer, add-only-flexed) "
-        "interior length built from a separately-run widening ladder with its "
-        "own corridor (different width/threshold/membership). The recorded "
-        "`corridor_segments` diag (and the 'Corridor[seg N]:' log line) can "
-        "therefore describe a DIFFERENT corridor than the one the emitted "
-        "segment's tracks actually came from. Reproduced directly: with the "
-        "length assertion below relaxed, segment 2 logs "
-        "width=0.97/widened=0/threshold=0.507 (the nominal-length attempt), "
-        "but the flexed (chosen=5) build that actually supplied the emitted "
-        "tracks widened to 0.92 twice (min_edge_T 0.609, 0.596) -- track "
-        "8e73c8dcfc201bf17d6a6001c828c233 at position 11 has min_sim=0.4784, "
-        "legitimately admitted under the wider (unrecorded) corridor but "
-        "below the stale recorded threshold=0.5068. This only affects "
-        "diagnostics/logging fidelity (CLAUDE.md 'diagnostic logging is part "
-        "of the feature') under var-bridge flex, not candidate legality -- "
-        "the track WAS validly pool-admitted, just not by the corridor the "
-        "log line describes. Was dormant before sonic_mode='narrow' went "
-        "live (this task's sibling per-mode-width work): the pre-task width "
-        "was too permissive to trigger the widening ladder on segment 2 for "
-        "this fixture at all. See .superpowers/sdd/p1-task-9-report.md for "
-        "the full writeup; STOP-and-report per brief, no engine change made."
-    ),
-    strict=False,
-)
 def test_corridor_pooling_generation_completes_with_corridor_membership_and_health_line(caplog):
     """Step 1 (task-3-brief.md): corridor flag on, 4-segment (5-seed) generation
     completes; every non-pier playlist track is a member of its segment's
     corridor; the health line appears once per segment.
 
-    XFAIL (Phase 1 Task 9, see the marker above): the membership recheck at
-    the bottom of this test caught a real, pre-existing diagnostics-staleness
-    bug in the corridor-widening-ladder x variable-bridge-length interaction.
-    Confirmed as a genuine bug, not a test bug -- left un-fixed and reported
-    per the task's explicit "STOP-and-report" instruction for this exact
-    scenario. Do not silently re-tighten this xfail away without re-reading
-    the reason string.
+    Phase 1 Task 9 found (and this Task-9-followup fix resolves) a
+    diagnostics-staleness bug: under variable_bridge_length, the once-per-
+    segment health-line/diagnostics gate could latch onto a DIFFERENT
+    (narrower, earlier-tried) widening-ladder attempt than the one that
+    actually supplied the segment's emitted tracks -- see
+    `_run_corridor_widening_ladder`'s docstring/comments and the "Health line
+    (Task 9 fix)" comment in `pier_bridge_builder.py`'s main segment loop.
+    The membership recheck below now additionally asserts that the recorded
+    threshold is independently reproducible from the recorded `size`/`width`
+    (i.e. the diagnostics genuinely describe the attempt that supplied the
+    emitted tracks, not merely that every emitted track happens to clear
+    some lower threshold) -- see the per-segment recomputation loop.
     """
     ui = gui_ui_state(
         cohesion_mode="narrow", genre_mode="narrow", sonic_mode="narrow", pace_mode="narrow",
@@ -226,6 +196,136 @@ def test_corridor_pooling_generation_completes_with_corridor_membership_and_heal
             assert min_sim >= threshold - 1e-6, (
                 f"track {tid} at position {pos} (segment {seg}) has min_sim={min_sim:.4f} "
                 f"below the segment's corridor threshold={threshold:.4f}"
+            )
+
+    # Confidence check (same principle as test_corridor_repair_stack_draws_
+    # only_from_corridor_union's "otherwise the membership recheck above is
+    # vacuous" guard): this fixture must actually exercise variable-bridge
+    # RE-ENTRY (choose_segment_length trying more than one interior length
+    # for some segment), or the membership recheck above never touches the
+    # Task 9 bug's trigger geometry at all -- it would pass equally well
+    # before AND after this fix. `generate_like_gui`'s config chain defaults
+    # `variable_bridge_length` on (see config.yaml / config.example.yaml), so
+    # this is exercising the real production default, not a test-only knob.
+    var_bridge_lines = [
+        r.getMessage() for r in caplog.records
+        if r.name == "src.playlist.pier_bridge_builder" and r.getMessage().startswith("Var-bridge seg ")
+    ]
+    flexed_segments = [
+        int(line.split("Var-bridge seg ")[1].split(":")[0])
+        for line in var_bridge_lines
+        if "flexed=True" in line
+    ]
+    assert flexed_segments, (
+        "expected at least one segment to actually flex under variable_bridge_length "
+        f"-- otherwise the membership recheck above never exercises the Task 9 "
+        f"re-entry scenario (var-bridge log lines seen: {var_bridge_lines})"
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@_requires_artifact
+def test_corridor_widening_ladder_health_line_survives_variable_bridge_reentry(caplog):
+    """Focused regression for the Task 9 diagnostics-staleness fix.
+
+    Same real 5-seed fixture as the test above (its segment 2 deterministically
+    forces variable_bridge_length re-entry: `choose_segment_length` tries the
+    nominal interior length first, then a longer flexed length, each running
+    its OWN independent `_run_corridor_widening_ladder` invocation -- see that
+    function's docstring/comments). This test pins the exact bug geometry from
+    `.superpowers/sdd/p1-task-9-report.md`: pre-fix, the recorded health line/
+    diagnostics for the re-entered segment described the FIRST (nominal-length)
+    attempt's un-widened corridor, not the ACCEPTED (chosen-length) attempt's
+    widened one -- even though the accepted attempt supplied the emitted
+    tracks. Post-fix, the two must agree.
+    """
+    ui = gui_ui_state(
+        cohesion_mode="narrow", genre_mode="narrow", sonic_mode="narrow", pace_mode="narrow",
+    )
+
+    with caplog.at_level(logging.INFO, logger="src.playlist.pier_bridge_builder"):
+        res = generate_like_gui(
+            seeds=SEEDS, ui=ui, length=20, random_seed=0,
+            config_overrides=CORRIDOR_OVERRIDES,
+        )
+
+    load_artifact_bundle.cache_clear()
+    bundle = load_artifact_bundle(str(ART))
+
+    # Find a segment that actually re-entered the ladder: chosen != nominal
+    # length (var-bridge flexed it), evidenced by the "Var-bridge seg N:
+    # nominal=X chosen=Y flexed=True" summary line pier_bridge_builder.py logs
+    # once the interior length is picked (after however many lengths
+    # choose_segment_length tried).
+    var_bridge_lines = [
+        r.getMessage() for r in caplog.records
+        if r.name == "src.playlist.pier_bridge_builder" and r.getMessage().startswith("Var-bridge seg ")
+    ]
+    reentered_segments = []
+    for line in var_bridge_lines:
+        seg_num = int(line.split("Var-bridge seg ")[1].split(":")[0])
+        nominal = int(line.split("nominal=")[1].split(" ")[0])
+        chosen = int(line.split("chosen=")[1].split(" ")[0])
+        if "flexed=True" in line and chosen != nominal:
+            reentered_segments.append(seg_num)
+    assert reentered_segments, (
+        f"expected at least one segment where var-bridge actually chose a "
+        f"DIFFERENT length than nominal (real re-entry, not just a re-tried-"
+        f"but-kept-nominal flex) -- got: {var_bridge_lines}"
+    )
+
+    # Evidence the ladder really ran MORE THAN ONCE for the same seg_idx (the
+    # Task 9 trigger): count independent widen-ladder attempt sequences via
+    # their terminal marker ("recovered at attempt" or "EXHAUSTED after") --
+    # each candidate interior length runs its own ladder to one such
+    # conclusion. A single conclusion would mean no re-entry actually
+    # happened despite the length differing, which would make this test
+    # vacuous.
+    for seg_num in reentered_segments:
+        prefix = f"CorridorWiden[seg {seg_num}]"
+        conclusions = [
+            r.getMessage() for r in caplog.records
+            if r.name == "src.playlist.pier_bridge_builder"
+            and r.getMessage().startswith(prefix)
+            and ("recovered at attempt" in r.getMessage() or "EXHAUSTED after" in r.getMessage())
+        ]
+        assert len(conclusions) >= 2, (
+            f"expected segment {seg_num} (flagged as re-entered above) to show "
+            f">=2 independent widening-ladder conclusions in the log -- got "
+            f"{conclusions}; without this the re-entry claim is unverified"
+        )
+
+    # The actual Task 9 fix pin: every non-pier track in a re-entered segment
+    # clears the RECORDED (accepted-attempt) threshold -- pre-fix, this failed
+    # for segment 2 of this exact fixture (track 8e73c8dcfc201bf17d6a6001c828c233
+    # at position 11, min_sim=0.4784 < stale recorded threshold=0.5068, per the
+    # xfail's original writeup) because the recorded diagnostics described the
+    # narrower, un-widened nominal-length attempt instead of the wider, accepted
+    # one that actually supplied the tracks.
+    playlist_stats = res.playlist_stats.get("playlist", {})
+    corridor_segments = playlist_stats.get("corridor_segments") or []
+    threshold_by_seg = {int(e["seg"]): float(e["threshold"]) for e in corridor_segments}
+    X_norm = _l2norm(bundle.X_sonic)
+    seed_id_set = set(SEEDS)
+    pier_positions = [i for i, tid in enumerate(res.track_ids) if tid in seed_id_set]
+
+    for seg_num in reentered_segments:
+        start_pos = pier_positions[seg_num]
+        end_pos = pier_positions[seg_num + 1]
+        pier_a_vec = X_norm[bundle.track_id_to_index[res.track_ids[start_pos]]]
+        pier_b_vec = X_norm[bundle.track_id_to_index[res.track_ids[end_pos]]]
+        threshold = threshold_by_seg[seg_num]
+        for pos in range(start_pos + 1, end_pos):
+            tid = res.track_ids[pos]
+            vec = X_norm[bundle.track_id_to_index[tid]]
+            min_sim = min(float(np.dot(vec, pier_a_vec)), float(np.dot(vec, pier_b_vec)))
+            assert min_sim >= threshold - 1e-6, (
+                f"track {tid} at position {pos} (re-entered segment {seg_num}) has "
+                f"min_sim={min_sim:.4f} below the recorded corridor "
+                f"threshold={threshold:.4f} -- the health line/diagnostics are "
+                f"describing a DIFFERENT (narrower) attempt than the one that "
+                f"supplied this track, exactly the Task 9 bug"
             )
 
 

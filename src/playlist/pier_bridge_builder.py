@@ -1339,10 +1339,16 @@ def build_pier_bridge_playlist(
         Health-line logging / ``corridor_segments_diag`` are NOT emitted here
         (Task 3 did this inline, gated to fire once per segment). Task 4
         moved that to the widening-ladder wrapper (``_run_corridor_widening_
-        ladder``) so the ONE health line + ONE diagnostics entry per segment
-        reflect the ACCEPTED attempt's stats -- which may be a wider, later
-        call, not necessarily this first one. This closure now always
-        returns its per-call stats as the 4th tuple element instead.
+        ladder``); Task 9 moved it once more, out of that wrapper and into
+        the main segment loop (after the interior length is chosen), because
+        the wrapper itself can be invoked more than once per seg_idx under
+        variable_bridge_length (once per candidate length) -- see the
+        wrapper's own docstring/comments and the "Health line (Task 9 fix)"
+        comment in the segment loop. The ONE health line + ONE diagnostics
+        entry per segment now reflect the ACCEPTED length's ACCEPTED
+        (widening-ladder) attempt's stats -- never a provisional, un-chosen
+        attempt at a different length or width. This closure still always
+        returns its per-call stats as the 4th tuple element.
         """
         assert corridor_universe is not None
         idx_arr = corridor_universe.indices
@@ -2292,34 +2298,28 @@ def build_pier_bridge_playlist(
 
         assert best_result is not None  # attempt 0 always runs and is captured above
 
-        # Once-per-segment health line + diagnostics entry (Task 3's F7
-        # contract: exactly one "Corridor[seg N]:" line per segment). Emitted
-        # here, after the ladder concludes, using the ACCEPTED (best) attempt's
-        # pool stats — not necessarily the first (narrowest) attempt's, if
-        # widening changed the outcome. `corridor_logged_segments` (defined
-        # alongside `corridor_segments_diag` near `_build_corridor_segment_pool`)
-        # still gates this to once per segment index across however many times
-        # this wrapper itself is invoked for that index (e.g. variable-bridge-
-        # length re-tries the same seg_idx at different interior lengths).
-        if seg_idx not in corridor_logged_segments:
-            corridor_logged_segments.add(seg_idx)
-            _diag = dict(best_result.get("corridor_pool_diag") or {})
-            _diag.setdefault("seg", int(seg_idx))
-            _diag["widened"] = int(best_widened)
-            _diag["widen_stopped_early"] = bool(widen_stopped_early)
-            logger.info(
-                "Corridor[seg %d]: size=%d width=%.2f widened=%d support_a=%.2f "
-                "support_b=%.2f threshold=%.3f capped=%s",
-                int(seg_idx),
-                int(_diag.get("size", 0)),
-                float(_diag.get("width", best_width)),
-                int(_diag.get("widened", best_widened)),
-                float(_diag.get("support_a", 0.0)),
-                float(_diag.get("support_b", 0.0)),
-                float(_diag.get("threshold", 0.0)),
-                bool(_diag.get("capped", False)),
-            )
-            corridor_segments_diag.append(_diag)
+        # Health-line/diagnostics entry is NOT logged/recorded here anymore
+        # (Task 9 fix). Under variable_bridge_length, choose_segment_length
+        # re-invokes this wrapper multiple times for the SAME seg_idx -- once
+        # per candidate interior length -- each running its OWN independent
+        # widening ladder. Emitting here on first-invocation (the old
+        # behavior) latched onto whichever length var-bridge happened to try
+        # first (typically nominal), not necessarily the length it ultimately
+        # accepts, so the recorded diagnostics/health line could describe a
+        # different corridor than the one that actually supplied the
+        # segment's emitted tracks. Instead, attach this attempt's stats onto
+        # the returned result; the seg_idx loop emits the health line exactly
+        # once, AFTER choose_segment_length has picked the accepted length,
+        # using THAT accepted attempt's stats (see the "Health line (Task 9
+        # fix)" comment in the main segment loop below). `corridor_pool_diag`
+        # already carries the resolved `width` for this attempt; keep that
+        # value if present, otherwise fall back to this attempt's own width.
+        _diag = dict(best_result.get("corridor_pool_diag") or {})
+        _diag.setdefault("seg", int(seg_idx))
+        _diag.setdefault("width", best_width)
+        _diag["widened"] = int(best_widened)
+        _diag["widen_stopped_early"] = bool(widen_stopped_early)
+        best_result["corridor_health_diag"] = _diag
 
         return best_result
 
@@ -2639,6 +2639,37 @@ def build_pier_bridge_playlist(
         relaxation_success_attempt = _seg_build["relaxation_success_attempt"]
         cfg_used_for_segment = _seg_build["cfg_used_for_segment"]
         attempt_result = _seg_build["attempt_result"]
+
+        # Health line (Task 9 fix — once-per-segment health line + diagnostics
+        # entry, Task 3's F7 contract): emitted HERE, after the interior
+        # length has been chosen, not inside `_run_corridor_widening_ladder`
+        # itself. When variable_bridge_length is on, `choose_segment_length`
+        # may have invoked that ladder several times for this same seg_idx —
+        # once per candidate length, each with its own independently-run
+        # widening ladder — before settling on `interior_len` above.
+        # `attempt_result` here is the ACCEPTED length's own attempt, so
+        # logging from its `corridor_health_diag` (set by the ladder wrapper)
+        # guarantees the health line + `corridor_segments` diagnostics always
+        # describe the corridor that actually supplied this segment's
+        # emitted tracks, even under var-bridge re-entry. `corridor_logged_
+        # segments` keeps the once-per-segment-index invariant explicit.
+        if attempt_result is not None and seg_idx not in corridor_logged_segments:
+            corridor_logged_segments.add(seg_idx)
+            _health_diag = dict(attempt_result.get("corridor_health_diag") or {})
+            _health_diag.setdefault("seg", int(seg_idx))
+            logger.info(
+                "Corridor[seg %d]: size=%d width=%.2f widened=%d support_a=%.2f "
+                "support_b=%.2f threshold=%.3f capped=%s",
+                int(seg_idx),
+                int(_health_diag.get("size", 0)),
+                float(_health_diag.get("width", 0.0)),
+                int(_health_diag.get("widened", 0)),
+                float(_health_diag.get("support_a", 0.0)),
+                float(_health_diag.get("support_b", 0.0)),
+                float(_health_diag.get("threshold", 0.0)),
+                bool(_health_diag.get("capped", False)),
+            )
+            corridor_segments_diag.append(_health_diag)
 
         segment_path: Optional[List[int]] = None
         last_segment_candidates: List[int] = []
