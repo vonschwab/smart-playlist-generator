@@ -295,8 +295,8 @@ medoid per cluster as a pier, instead of picking piers by the legacy heuristic.
 | `cluster_k_min` / `cluster_k_max` | `3` / `6` | Cluster count bounds. |
 | `cluster_k_heuristic_enabled` | `true` | Auto-pick `k` within bounds vs. a fixed value. |
 | `piers_per_cluster` | `1` | Piers drawn per style cluster. |
-| `per_cluster_candidate_pool_size` | `400` | External candidate pool per cluster (live config raises this to `2000` — the top-N nearest-to-medoid tracks in a narrow style band skew toward artist-clones, leaving few genuine bridging candidates). |
-| `pool_balance_mode` | `equal` | `equal` \| `proportional_capped` — how per-cluster pool budgets are split. |
+| ~~`per_cluster_candidate_pool_size`~~ | ~~`400`~~ | **RETIRED 2026-07** (corridor Phase 1 Task 8): fed `build_balanced_candidate_pool` (deleted); corridor pooling's library-wide eligible universe replaces the artist-mode external pool. Warns loudly if still set. |
+| ~~`pool_balance_mode`~~ | ~~`equal`~~ | **RETIRED 2026-07** (corridor Phase 1 Task 8), same reason. `proportional_capped` was never implemented anyway. |
 | `internal_connector_priority` / `_max_per_segment` | `true` / `2` | Prefer the artist's own tracks as bridge connectors, up to this cap. |
 | `bridge_floor.{strict,narrow,dynamic}` | `0.10` / `0.05` / `0.02` | Per-cohesion-mode floor for style-cluster bridges. |
 | `bridge_score_weights.{dynamic,narrow}` | `{bridge:0.6,transition:0.4}` / `{bridge:0.7,transition:0.3}` | Per-mode edge-score weights for artist-style bridges. **Shadows** the global `pier_bridge.weight_bridge_<mode>` / `weight_transition_<mode>` keys for artist playlists — two sources, one wins silently; see `CLEANUP_LIST.md` if reconciling them. |
@@ -360,7 +360,7 @@ Leave `enabled: false` unless you're specifically reviving this path.
 | `progress.enabled` / `.monotonic_epsilon` / `.penalty_weight` | `true` / `0.05` / `0.15` | Penalizes "teleporting"/bouncing via projection onto the pier-A→pier-B direction. |
 | `progress_arc.enabled` | `false` | Optional stronger progress-arc shaping (linear/arc target curve) — off by default, layered on top of `progress`. |
 | `duration_penalty.enabled` / `.weight` | `true` / `0.30` | Geometric penalty on bridge candidates much longer than the pier tracks (separate from the candidate-pool duration penalty, which runs earlier in the pipeline). |
-| `infeasible_handling.enabled` | `false` | Opt-in bridge-floor backoff retry for an infeasible segment (deterministic step list). Off by default — segments fail loudly instead. |
+| ~~`infeasible_handling.{enabled,strategy,min_bridge_floor,backoff_steps,max_attempts_per_segment,widen_search_on_backoff,extra_*,transition_floor_relaxation_enabled,min_transition_floor,genre_arc_relaxation_enabled,min_genre_arc_percentile}`~~ | — | **RETIRED 2026-07** (corridor Phase 1 Task 8): the legacy per-segment relaxation ladder was deleted — the corridor widening ladder (`corridor_widen_step`/`corridor_widen_attempts`/`corridor_widen_improvement_epsilon`) is the sole segment-level recovery mechanism now. Warns loudly if still set. `infeasible_handling.guarantee_feasible` (terminal last-resort placement) and `.greedy_genre_weight` remain live, NOT retired. |
 | `audit_run.enabled` | `false` | Opt-in markdown run-audit report under `docs/run_audits/` (`--audit-run` CLI flag also enables it). |
 | `emit_selected_edge_audit` | not set (file default `false`) | Diagnostic per-edge log block (`T`, `T_centered_cos`, `bridge`, `trans_beam`, etc.) — see `PLAYLIST_ORDERING_TUNING.md` for how to read it. |
 

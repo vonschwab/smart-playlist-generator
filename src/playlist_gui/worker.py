@@ -456,20 +456,91 @@ _RETIRED_PIER_BRIDGE_MIN_POOL_SIZE_KEYS = {
     "min_pool_size_discover": "min_pool_size resolution chain removed (corridor Phase 0 Task 2); PierBridgeTuning.min_pool_size has no reader",
 }
 
+# Corridor Phase 1 Task 8 (the flip): corridor pooling is now the SOLE
+# pier-bridge pooling path -- the "legacy"/"corridor" dev flag and every
+# legacy segment-pool builder it selected between (_build_segment_candidate_
+# pool_legacy, _build_segment_candidate_pool_scored, SegmentCandidatePool
+# Builder) were deleted, along with the legacy per-segment relaxation ladder
+# (infeasible_handling's bridge_floor backoff / transition-floor / genre-arc-
+# floor tiers -- the corridor widening ladder is the sole segment-level
+# recovery mechanism now) and the artist-mode external candidate pool
+# (build_balanced_candidate_pool -- corridor's library-wide eligible universe
+# replaces it).
+_RETIRED_PIER_BRIDGE_TOP_LEVEL_KEYS = {
+    "pooling": "the legacy|corridor dev flag was deleted (corridor Phase 1 Task 8); corridor is the sole pooling path",
+    "collapse_segment_pool_by_artist": "read only inside the deleted legacy segment-scored pool builder (corridor Phase 1 Task 8); the beam enforces per-segment artist diversity on its own",
+}
+
+# infeasible_handling.* (nested under playlists.ds_pipeline.pier_bridge):
+# every sub-field EXCEPT guarantee_feasible/greedy_genre_weight was only
+# consumed by the deleted bridge_floor-backoff / transition-floor / genre-
+# arc-floor relaxation tiers. guarantee_feasible (terminal last-resort
+# placement) and greedy_genre_weight (its genre blend weight) remain live
+# and are NOT retired.
+_RETIRED_PIER_BRIDGE_INFEASIBLE_HANDLING_KEYS = {
+    k: "the legacy per-segment relaxation ladder was deleted (corridor Phase 1 Task 8); the corridor widening ladder (corridor_widen_*) is the sole segment-level recovery mechanism"
+    for k in (
+        "enabled", "strategy", "min_bridge_floor", "backoff_steps",
+        "max_attempts_per_segment", "widen_search_on_backoff",
+        "extra_neighbors_m", "extra_bridge_helpers", "extra_beam_width",
+        "extra_expansion_attempts", "transition_floor_relaxation_enabled",
+        "min_transition_floor", "genre_arc_relaxation_enabled",
+        "min_genre_arc_percentile",
+    )
+}
+
+# dj_bridging.pooling.* (nested under playlists.ds_pipeline.pier_bridge):
+# the "dj_union" segment-pool strategy's implementation lived entirely
+# inside the deleted legacy segment-scored pool builder. `strategy`/
+# `cache_enabled` are NOT retired (cache_enabled still backs the live
+# dj_connectors cache; `strategy` itself is still read for diagnostics).
+_RETIRED_PIER_BRIDGE_DJ_POOLING_KEYS = {
+    k: "the dj_union segment-pool strategy's implementation was deleted with the legacy segment-scored pool builder (corridor Phase 1 Task 8)"
+    for k in ("k_local", "k_toward", "k_genre", "k_union_max", "step_stride", "debug_compare_baseline")
+}
+
+# playlists.ds_pipeline.artist_style.*: fed build_balanced_candidate_pool,
+# the per-cluster sonic-neighbor "external pool" that hard-clamped Artist
+# mode's allowed_track_ids -- deleted (corridor Phase 1 Task 8); corridor's
+# library-wide eligible universe replaces it.
+_RETIRED_ARTIST_STYLE_KEYS = {
+    "per_cluster_candidate_pool_size": "build_balanced_candidate_pool deleted (corridor Phase 1 Task 8); corridor's eligible universe replaces the artist-mode external pool",
+    "pool_balance_mode": "build_balanced_candidate_pool deleted (corridor Phase 1 Task 8); pool_balance_mode's only non-default value (proportional_capped) was never implemented anyway",
+}
+
 _WARNED_RETIRED_KEYS: set[str] = set()  # per-process dedup (final-review finding, corridor Phase 0)
+
+
+def _warn_retired_section(
+    section: Dict[str, Any], prefix: str, retired: Dict[str, str], found: list[str]
+) -> None:
+    """Check one flat config dict against one retired-key/rationale map,
+    warning loudly (once per process, per qualified key) and appending every
+    match to ``found``. Shared by every family _warn_retired_keys checks."""
+    for key, rationale in retired.items():
+        if key in section:
+            qualified = f"{prefix}.{key}"
+            found.append(qualified)
+            if qualified not in _WARNED_RETIRED_KEYS:
+                logging.getLogger(__name__).warning(
+                    "Config key 'playlists.ds_pipeline.%s' is RETIRED (%s). "
+                    "Remove it from config.yaml.", qualified, rationale)
+                _WARNED_RETIRED_KEYS.add(qualified)
 
 
 def _warn_retired_keys(config: Dict[str, Any]) -> list[str]:
     """
     Warn loudly (once per configured key) for every retired candidate-pool /
-    pier-bridge knob still present in a merged config, naming the replacement
-    rationale. Returns the qualified ("<section>.<key>") names found, for
-    tests and callers that want to surface this beyond the log.
+    pier-bridge / artist-style knob still present in a merged config, naming
+    the replacement rationale. Returns the qualified ("<section>.<key>")
+    names found, for tests and callers that want to surface this beyond the
+    log.
 
     "A configured knob that can't act is a startup error, not a silent
-    no-op" (CLAUDE.md) -- these two families were retired in corridor
-    Phase 0 (Tasks 1-2) but their dataclass fields were kept as inert
-    placeholders so old config.yaml values don't raise. This is that
+    no-op" (CLAUDE.md) -- these families were retired in corridor Phase 0
+    (Tasks 1-2) and Phase 1 (Task 8, the flip) but their dataclass fields
+    were kept as inert placeholders (or, for `pooling`, simply have no
+    effect once absent) so old config.yaml values don't raise. This is that
     startup error, downgraded to a warning since the fields are genuinely
     harmless no-ops now (not silent -- logged).
     """
@@ -477,26 +548,45 @@ def _warn_retired_keys(config: Dict[str, Any]) -> list[str]:
     found: list[str] = []
 
     candidate_pool = ds_pipeline.get("candidate_pool") or {}
-    for key, rationale in _RETIRED_CANDIDATE_POOL_KEYS.items():
-        if key in candidate_pool:
-            qualified = f"candidate_pool.{key}"
-            found.append(qualified)
-            if qualified not in _WARNED_RETIRED_KEYS:
-                logging.getLogger(__name__).warning(
-                    "Config key 'playlists.ds_pipeline.%s' is RETIRED (%s). "
-                    "Remove it from config.yaml.", qualified, rationale)
-                _WARNED_RETIRED_KEYS.add(qualified)
+    _warn_retired_section(candidate_pool, "candidate_pool", _RETIRED_CANDIDATE_POOL_KEYS, found)
 
     pier_bridge = ds_pipeline.get("pier_bridge") or {}
-    for key, rationale in _RETIRED_PIER_BRIDGE_MIN_POOL_SIZE_KEYS.items():
-        if key in pier_bridge:
-            qualified = f"pier_bridge.{key}"
-            found.append(qualified)
-            if qualified not in _WARNED_RETIRED_KEYS:
-                logging.getLogger(__name__).warning(
-                    "Config key 'playlists.ds_pipeline.%s' is RETIRED (%s). "
-                    "Remove it from config.yaml.", qualified, rationale)
-                _WARNED_RETIRED_KEYS.add(qualified)
+    _warn_retired_section(pier_bridge, "pier_bridge", _RETIRED_PIER_BRIDGE_MIN_POOL_SIZE_KEYS, found)
+    _warn_retired_section(pier_bridge, "pier_bridge", _RETIRED_PIER_BRIDGE_TOP_LEVEL_KEYS, found)
+
+    infeasible_handling = pier_bridge.get("infeasible_handling") or {}
+    _warn_retired_section(
+        infeasible_handling, "pier_bridge.infeasible_handling",
+        _RETIRED_PIER_BRIDGE_INFEASIBLE_HANDLING_KEYS, found,
+    )
+
+    dj_pooling = (pier_bridge.get("dj_bridging") or {}).get("pooling") or {}
+    _warn_retired_section(
+        dj_pooling, "pier_bridge.dj_bridging.pooling",
+        _RETIRED_PIER_BRIDGE_DJ_POOLING_KEYS, found,
+    )
+    # `strategy` itself is NOT a retired key (its "baseline" value is a
+    # harmless label with no corridor-era reader either way) -- but the
+    # "dj_union" VALUE specifically is now a silent no-op (its
+    # implementation died with the rest of this family), which is exactly
+    # the "configured knob that can't act" trap a presence-only check would
+    # miss. Value-conditional, so handled separately from
+    # _warn_retired_section's key-presence checks.
+    if str(dj_pooling.get("strategy", "")).strip().lower() == "dj_union":
+        qualified = "pier_bridge.dj_bridging.pooling.strategy=dj_union"
+        found.append(qualified)
+        if qualified not in _WARNED_RETIRED_KEYS:
+            logging.getLogger(__name__).warning(
+                "Config value 'playlists.ds_pipeline.pier_bridge.dj_bridging."
+                "pooling.strategy: dj_union' is RETIRED (the dj_union segment-"
+                "pool strategy's implementation was deleted with the legacy "
+                "segment-scored pool builder, corridor Phase 1 Task 8); this "
+                "now behaves identically to strategy: baseline. Update "
+                "config.yaml.")
+            _WARNED_RETIRED_KEYS.add(qualified)
+
+    artist_style = ds_pipeline.get("artist_style") or {}
+    _warn_retired_section(artist_style, "artist_style", _RETIRED_ARTIST_STYLE_KEYS, found)
 
     return found
 

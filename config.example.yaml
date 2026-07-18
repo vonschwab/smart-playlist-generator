@@ -179,8 +179,12 @@ playlists:
       cluster_k_max: 6
       cluster_k_heuristic_enabled: true
       piers_per_cluster: 1
-      per_cluster_candidate_pool_size: 400
-      pool_balance_mode: equal  # equal | proportional_capped
+      # per_cluster_candidate_pool_size / pool_balance_mode RETIRED 2026-07
+      # (corridor Phase 1 Task 8): fed build_balanced_candidate_pool, the
+      # per-cluster sonic-neighbor "external pool" that hard-clamped Artist
+      # mode's allowed_track_ids -- deleted; corridor pooling's library-wide
+      # eligible universe replaces it. A leftover value warns loudly at
+      # startup, it does not silently no-op.
       internal_connector_priority: true
       internal_connector_max_per_segment: 2
       bridge_floor:
@@ -538,18 +542,19 @@ playlists:
         pooling:
           # Pool construction strategy for segment candidates
           # - baseline: neighbors(A) ∪ neighbors(B) (default, safe fallback)
-          # - dj_union: local + toward-B + genre-waypoint union (S1+S2+S3, genre-aware)
+          # - dj_union: RETIRED 2026-07 (corridor Phase 1 Task 8) -- its
+          #   implementation lived entirely inside the deleted legacy
+          #   segment-scored pool builder; setting strategy: dj_union is now
+          #   a no-op (corridor pooling is the sole segment-pool strategy).
           #
           # IMPORTANT: Use nested 'pooling.strategy' key as shown below.
           # The flat key 'dj_pooling_strategy' is deprecated and will log a warning.
-          strategy: baseline        # baseline | dj_union
-          k_local: 200
-          k_toward: 80
-          k_genre: 0  # Opt-in: Set >0 to enable genre pool (discovery mode)
-          k_union_max: 900
-          step_stride: 1
+          strategy: baseline        # baseline (dj_union retired, see above)
+          # k_local / k_toward / k_genre / k_union_max / step_stride /
+          # debug_compare_baseline RETIRED 2026-07 (corridor Phase 1 Task 8):
+          # only consumed by the deleted dj_union pool builder. A leftover
+          # value warns loudly at startup, it does not silently no-op.
           cache_enabled: true
-          debug_compare_baseline: false
         allow_detours_when_far: true
         far_thresholds:
           sonic: 0.45
@@ -722,26 +727,21 @@ playlists:
       # energy_arc_strength: 0.0    # penalty weight for deviation from the pier->pier energy arc
       # energy_arc_band: 0.0        # z-std dead-band around arc target (ignored when arc_strength=0)
 
-      # Optional: segment infeasibility handling (default OFF).
-      # If a segment is infeasible under the current bridge_floor + allowed pool,
-      # this can retry the SAME segment with a lower bridge_floor.
+      # Segment infeasibility handling: the legacy per-segment relaxation
+      # ladder (enabled/strategy/backoff_steps/min_bridge_floor/
+      # max_attempts_per_segment/widen_search_on_backoff/extra_*/
+      # transition_floor_relaxation_enabled/min_transition_floor/
+      # genre_arc_relaxation_enabled/min_genre_arc_percentile) was RETIRED
+      # 2026-07 (corridor Phase 1 Task 8): the corridor widening ladder
+      # (corridor_widen_step/corridor_widen_attempts/
+      # corridor_widen_improvement_epsilon, above) is the sole segment-level
+      # recovery mechanism now. A leftover value warns loudly at startup, it
+      # does not silently no-op. Only guarantee_feasible (the terminal
+      # last-resort placement) and greedy_genre_weight (its genre blend
+      # weight, default 0.5) remain live:
       infeasible_handling:
-        enabled: false
-        genre_arc_relaxation_enabled: true
-        min_transition_floor: 0.0
-        min_genre_arc_percentile: 0.0
-        strategy: "backoff"
-        min_bridge_floor: 0.00
-        backoff_steps: [0.08, 0.06, 0.05, 0.04, 0.03, 0.02, 0.01, 0.00]
-        max_attempts_per_segment: 8
-        widen_search_on_backoff: true
-        # Widening knobs applied only after the first failure:
-        extra_neighbors_m: 200
-        extra_bridge_helpers: 100
-        extra_beam_width: 50
-        extra_expansion_attempts: 2
         # When true, a terminal last-resort placement guarantees generation never
-        # fails completely even after all relaxation tiers are exhausted.
+        # fails completely even after the corridor widening ladder is exhausted.
         guarantee_feasible: true
 
       # Optional: write a markdown run audit report (default OFF).

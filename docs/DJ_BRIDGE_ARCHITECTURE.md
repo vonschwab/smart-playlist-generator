@@ -45,12 +45,17 @@ default drives.
    (`pier_bridge_builder.py:886-892`). Variable bridge length (§9, pass 1) can later flex an
    individual segment's length within a small band.
 5. **Per-segment candidate pool.** Default `segment_pool_strategy: segment_scored`
-   (`src/playlist/segment_pool_builder.py::SegmentCandidatePoolBuilder`) scores every remaining
-   candidate jointly against *both* piers and takes the top `segment_pool_max` (400, cap 1200) —
-   not a union of each pier's neighbor list. The legacy union-of-neighbors pool
-   (`_build_segment_candidate_pool_legacy`, `src/playlist/pier_bridge/pool.py:58`) and the
+   scored every remaining candidate jointly against *both* piers and took the top
+   `segment_pool_max` (400, cap 1200) — not a union of each pier's neighbor list. **RETIRED
+   2026-07 (corridor Phase 1 Task 8):** this segment-scored pool
+   (`src/playlist/segment_pool_builder.py::SegmentCandidatePoolBuilder`, deleted), the legacy
+   union-of-neighbors pool (`_build_segment_candidate_pool_legacy`, deleted), and the
    DJ-bridging S1(local)/S2(toward)/S3(genre-waypoint) union pool
-   (`dj_bridging.pooling.strategy: dj_union`) still exist but are debug/opt-in paths.
+   (`dj_bridging.pooling.strategy: dj_union`, now a no-op — its implementation died with the
+   segment-scored pool) were all superseded by corridor pooling
+   (`src/playlist/pier_bridge/corridor.py`), the sole segment-pool strategy now. The DJ-bridging
+   genre-arc-vote/routing machinery described elsewhere in this doc (waypoint targets, ladder
+   routing) is unaffected — only its *pooling* strategy died.
 6. **Per-segment beam search** fills the interior (§2-§6).
 7. **Assembly** concatenates segments, dropping duplicate pier boundaries
    (`pier_bridge_builder.py:2851-2874`).

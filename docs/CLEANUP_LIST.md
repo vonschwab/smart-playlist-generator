@@ -550,6 +550,10 @@ and indirect threading:
   a pure delete.
 - **`pool_balance_mode` is read** (passed to `build_balanced_candidate_pool` at
   `playlist_generator.py:1974/2903`; the function ignores it) — removal needs the param dropped too.
+  **RESOLVED 2026-07 (corridor Phase 1 Task 8):** `build_balanced_candidate_pool` itself was
+  deleted (corridor pooling's eligible universe replaces the artist-mode external pool);
+  `pool_balance_mode`/`per_cluster_candidate_pool_size` are now retired config keys (warn via
+  `src.playlist_gui.worker._warn_retired_keys`), not just an ignored param.
 - The genuinely-dead ArtistStyleConfig fields (`bridge_floor_strict/narrow/dynamic`, `bridge_weight`,
   `transition_weight`, the ArtistStyle `genre_tiebreak_weight` copy) are best removed as part of the
   tracked **"artist-style path drops resolved-tuning fields"** refactor (consolidate the double-parse,
