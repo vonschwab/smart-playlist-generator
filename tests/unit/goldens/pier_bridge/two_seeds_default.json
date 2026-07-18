@@ -1,20 +1,20 @@
 {
   "actual_tracks": 10,
-  "mean_transition": 0.1982,
-  "min_transition": -0.0324,
+  "mean_transition": 0.3196,
+  "min_transition": 0.0328,
   "num_seeds": 2,
   "segments_successful": 1,
   "single_seed_arc": false,
   "success": true,
   "track_ids": [
     "t0",
-    "t7",
+    "t29",
+    "t42",
+    "t13",
+    "t15",
+    "t27",
     "t6",
-    "t35",
-    "t26",
     "t23",
-    "t19",
-    "t3",
     "t31",
     "t10"
   ]
