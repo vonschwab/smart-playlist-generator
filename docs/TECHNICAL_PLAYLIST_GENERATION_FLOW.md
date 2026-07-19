@@ -196,13 +196,28 @@ using a single seed track:
    applied inside cluster scoring at `src/playlist/artist_style.py:680–700` only when a
    `steering_target` is supplied and `medoid_tag_weight > 0`).
 2. `cluster_artist_tracks` (`artist_style.py:540`) clusters and picks one medoid per cluster
-   (`medoid_top_k` per cluster, `playlist_generator.py:1721,1802–1814`).
+   (`medoid_top_k` per cluster, `playlist_generator.py:1721,1802–1814`). **Pier-support demotion**
+   (Phase 2 Task 3): each cluster's candidate scoring also folds in a continuous rank penalty —
+   `compute_within_artist_support(X_norm, artist_indices, pier_support_k=10)` scores every
+   candidate by mean cosine similarity to its own `k` nearest tracks BY THE SAME ARTIST, normalized
+   by the artist's median; `_support_penalty(support, pier_support_demotion_strength=1.0)` then
+   demotes below-typical candidates (`max(0, 1-support) * strength`, never promotes, never excludes)
+   inside `_medoids_for_cluster`'s existing combined score. This is what stops a sonically
+   off-character track from a seed artist's own catalog (e.g. an outlier EP cut) from winning a
+   medoid slot when a more representative alternative is competitive. `pier_support_enabled` (True)
+   is the master switch; `pier_support_demotion_strength: 0.0` reproduces pre-Task-3 behavior
+   byte-for-byte. `cluster_artist_tracks`'s return signature carries a 5th value,
+   `support_by_index`, consumed by ordering (next step) and diagnostics. If every candidate in a
+   cluster is below `pier_support_floor` (0.50, diagnostic-only), the best-available candidate is
+   kept anyway and a `Pier support: cluster N has NO candidate with typical support` WARNING fires
+   — never a hard filter.
 3. If `popular_seeds_mode == "fire"`, the cluster medoids are overridden outright by
    `select_popular_piers` — pure top-N Last.fm hits, no clustering (`playlist_generator.py:1882–
    1898`).
-4. `order_clusters` (`artist_style.py:743`) orders the medoids; the result is capped to
+4. `order_clusters` (`artist_style.py:1153`) orders the medoids; the result is capped to
    `target_pier_count` (`playlist_generator.py:1902–1909`) and becomes `anchor_seed_ids` fed
-   into `generate_playlist_ds`.
+   into `generate_playlist_ds`. **Arc-aware terminal avoidance** (Phase 2 Task 3, see 3.3) then runs
+   as a tie-break on top of this ordering when `pier_support_terminal_avoidance` is on.
 
 > **Shipped-vs-live gap.** `config.example.yaml:173` ships `artist_style.enabled: false` — a
 > fresh clone runs the **legacy per-seed pier path** below, not medoid clustering, for artist
@@ -230,8 +245,24 @@ matters, not the average) — `seeds.py:94–140`.
 A single seed becomes both start and end pier — an **arc** — by duplicating it
 (`pier_bridge_builder.py:849–855`, `is_single_seed_arc`), producing one segment instead of zero.
 
+**Arc-aware terminal avoidance** (Phase 2 Task 3, artist mode only —
+`reorder_avoiding_low_support_terminal`, `artist_style.py:1184`): once medoids are ordered and
+capped to `target_pier_count` (`_cap_order`, `playlist_generator.py:198`, and the two other
+ordering branches — tag-steering's `order_clusters` call and the direct legacy-path branch), the
+pier with the lowest `support_by_index` value is checked against both terminal seats (index 0 and
+-1). If it sits at a terminal seat, every alternate `order_clusters(start=...)` walk over the
+*same* pier set (same greedy nearest-neighbor algorithm, different start node) is tried in order;
+the first one that seats the low-support pier in the interior wins — logged as `Arc-aware
+ordering: moved the lowest-support pier off the terminal seat`. This is a **tie-break, not an
+override**: it never invents a topology `order_clusters` couldn't already produce, and it's a pure
+no-op (original order kept) with `<3` piers or when no alternate walk avoids the terminal seat —
+gated on `pier_support_terminal_avoidance` (True).
+
 Structural mini-pier insertion (SP3) happens *after* this ordering step, splitting long segments
-by pinning extra waypoint piers — that's part of anti-sag scoring, covered in Phase 6.1.
+by pinning extra waypoint piers — that's part of anti-sag scoring, covered in Phase 6.1. Mini-pier
+waypoint selection is **not** support-aware (deliberately, Phase 2 Task 3 decision) — a bridge
+candidate isn't the seed artist's own catalog, so within-artist support has no meaning there; see
+`docs/DESIGN_RATIONALE.md`.
 
 ### 3.4 Artist-link resolution (aliases & sibling projects)
 
@@ -343,6 +374,24 @@ Tracks rejected *only* by these bands (not by sonic/genre) can be re-admitted by
 evenly spaced across the sorted arousal distribution, up to `pace_rescue_k_energy` (0 in `dynamic`
 mode — off by default; active in `strict`/`narrow`).
 
+**Pace override plumbing (Phase 2 Task 4 fix).** `resolve_pace_mode(mode, overrides=...)`
+(`mode_presets.py:355`) previously received no `overrides` argument at its `pipeline/core.py` call
+site — a config value under `playlists.ds_pipeline.candidate_pool.*` or
+`playlists.ds_pipeline.pier_bridge.*` for a pace-preset field (e.g.
+`bpm_bridge_max_log_distance`, `energy_arc_band`, `pace_rescue_k_energy`) could never reach the
+resolved preset; it was a dead outlet regardless of what `config.yaml` said. `_resolve_pace_overrides`
+(`pipeline/core.py:246`) fixes this: it builds one flat override dict from two sources —
+`_PACE_CANDIDATE_POOL_OVERRIDE_KEYS` (admission-side fields, which already had a real
+`candidate_pool.*` override honored by `default_ds_config` but were being silently clobbered by
+this module's later `replace(cfg.candidate, ...)` call — sourcing them here restores that override
+instead of losing it) and `_PACE_PIER_BRIDGE_OVERRIDE_KEYS` (bridge-side + energy fields, previously
+dead in both directions) — and passes it into `resolve_pace_mode` at `pipeline/core.py:469`. Only
+numeric (non-bool) values are forwarded, so a malformed config value falls back to the preset
+default rather than corrupting the resolved settings dict. All per-mode pace band knobs in
+`PLAYLIST_ORDERING_TUNING.md` Knob 5 are yaml-reachable as a result, including
+`pace_rescue_k_energy` (previously silently dead via the same missing-`overrides=` outlet, revived
+as a side effect of this fix).
+
 ### 4.5 Diversity + recency (pre-order, never post-order)
 
 A per-artist cap (`candidates_per_artist` (+ `seed_artist_bonus` for the seed's own artist),
@@ -453,15 +502,20 @@ default `None`) wins unconditionally over the mode mapping when set explicitly.
 
 | `sonic_mode` | Resolves to | Basis |
 |---|---|---|
-| `strict` | `corridor_width_percentile_strict` (0.985) | Best mean\|Δmin_T\| of {0.985, 0.99, 0.995} probed on 4 home cells; Swirlies/home below_floor=0 held at every tested width |
-| `narrow` | `corridor_width_percentile_narrow` (0.9675) | midpoint(strict, dynamic) — **provisional**, not directly corpus-probed |
-| `dynamic` | `corridor_width_percentile_dynamic` (0.95) | Best mean\|Δmin_T\| of {0.95, 0.97} probed on 4 open cells; matches the pre-per-mode flat pin (history continuity) |
-| `discover` | `corridor_width_percentile_discover` (0.93) | dynamic − 0.02 — **provisional**, not directly corpus-probed |
+| `strict` | `corridor_width_percentile_strict` (0.985) | Best mean\|Δmin_T\| of {0.985, 0.99, 0.995} probed on 4 home cells (Phase 1); Swirlies/home below_floor=0 held at every tested width |
+| `narrow` | `corridor_width_percentile_narrow` (0.975) | **Pinned by direct probe** (Phase 2 Task 4): 3 artists (SADE, Swirlies, Alex G) × the `close` detent × 3 widths bracketing the old provisional 0.9675 interpolation — 0.975 won on both mean AND worst-case min_T, superseding (not merely confirming) the interpolation |
+| `dynamic` | `corridor_width_percentile_dynamic` (0.95) | Best mean\|Δmin_T\| of {0.95, 0.97} probed on 4 open cells (Phase 1); matches the pre-per-mode flat pin (history continuity) |
+| `discover` | `corridor_width_percentile_discover` (0.94) | **Pinned by direct probe** (Phase 2 Task 4): same method as `narrow`, using the `wander` detent — 0.94 won decisively on both mean and worst-case (Alex G/wander +0.074), superseding the old 0.93 interpolation |
 | `off` | `0.0` (hardcoded, no config field) | percentile 0 = the whole eligible universe qualifies — no sonic narrowing at all |
 | unset / unrecognized | falls back to `dynamic` | mirrors `policy.py:316`'s established sonic_mode fallback; a corridor must always resolve to a concrete float (unlike the genre relevance mask, which can legitimately be absent) |
 
-Full calibration method, probe tables, and the width history (0.90 → 0.85 pin → 0.95 flat re-pin
-→ this per-mode mapping) are in `.superpowers/sdd/p1-permode-width-report.md` and
+`below_floor=0` held throughout the Task 4 narrow/discover probe (18 real generations). One
+caveat carried forward from Phase 1: the `discover` width's win is partly confounded by
+`segment_pool_max=800` cap saturation on 2 of 3 probe artists — the win traces to which candidates
+enter the pre-cap top-800 ranking, not to post-cap size differentiation (same pattern Phase 1
+flagged for `open`/`wander`). Full calibration method, probe tables, and the width history (0.90 →
+0.85 pin → 0.95 flat re-pin → per-mode mapping → this re-pin) are in
+`.superpowers/sdd/p1-permode-width-report.md`, `.superpowers/sdd/p2-task-4-report.md`, and
 `PLAYLIST_ORDERING_TUNING.md`'s corridor knob table.
 
 **4. The widening ladder — the sole segment-level recovery mechanism.**
@@ -657,9 +711,30 @@ re-optimized by an earlier pass.
 | # | Pass | File:line | Scope | Trigger |
 |---|------|-----------|-------|---------|
 | 1 | **Variable bridge length** (add-only) | gate check `pier_bridge_builder.py:1724`; mechanics in `src/playlist/pier_bridge/var_bridge.py:25–49` | per-segment, pre-assembly | worst edge `< variable_bridge_min_edge` (0.30, `pier_bridge_builder.py:1731`) |
-| 2 | **Tail-DP** | `pier_bridge_builder.py:2434–2514`, engine `src/playlist/pier_bridge/tail_dp.py` | per-segment, pre-assembly (re-opens last ≤2 interior slots) | window min-edge below `tail_dp.floor` |
-| 3 | **Edge repair** (break-glass) | `pier_bridge_builder.py:2877–2908`, engine `src/playlist/repair/edge_repair.py:233` (`repair_playlist_edges`) | global, post-assembly (swaps ONE interior track, never changes length) | `T < t_floor` (0.30) **or** catastrophic `T_centered_cos < centered_cos_floor` (−0.5) |
+| 2 | **Tail-DP** | `pier_bridge_builder.py:2434–2514` (trigger resolution at ~3091–3117), engine `src/playlist/pier_bridge/tail_dp.py` | per-segment, pre-assembly (re-opens last ≤2 interior slots) | window min-edge below the **relative trigger floor** (Phase 2 Task 2, see below) |
+| 3 | **Edge repair** (break-glass) | `pier_bridge_builder.py:2877–2908` (trigger resolution at ~3521–3550), engine `src/playlist/repair/edge_repair.py:233` (`repair_playlist_edges`) | global, post-assembly (swaps ONE interior track, never changes length) | `T <` the **relative trigger floor** (Phase 2 Task 2) **or** catastrophic `T_centered_cos < centered_cos_floor` (−0.5) |
 | 4 | **Edge delete** (remove-only, last resort) | `pier_bridge_builder.py:2919–2939`, engine `src/playlist/repair/edge_delete.py:46` | global, post-repair (deletes ONE interior endpoint) | worst `T` below `edge_delete.floor`, up to `max_deletions` |
+
+**Relative repair triggers (Phase 2 Task 2).** Tail-DP and edge repair no longer gate on a single
+fixed absolute floor. `compute_relative_trigger_floor` (`src/playlist/pier_bridge/repair_triggers.py`)
+resolves the effective floor as `max(base_floor, reference_mean - relative_epsilon)` — the
+`reference_mean` is the segment's own pre-swap mean `T` for tail-DP (`segment_mean_T`) and the
+whole playlist's pre-repair mean `T` for edge repair (`playlist_mean_T`), both computed via the
+same `score_transition_edge` currency the reporter and beam already share (single-source-of-truth
+discipline, Layer 3 item 18). This closes the gap Task 1's mechanism probes found: an edge that
+*clears* the absolute floor (0.30) but sits well below what the rest of the segment/playlist
+actually achieved used to get no fixer attention at all — Parquet Courts segment 4's 0.394 cleared
+`tail_dp_floor=0.3` while a ~0.7–0.8-class connector sat unused in the same admitted pool.
+`tail_dp_relative_epsilon` / `edge_repair_relative_epsilon` (both default `0.25`) control the
+margin; **`<= 0.0` is the legacy-rollback escape hatch** — effective floor becomes the absolute
+floor exactly, regardless of `reference_mean` (byte-identical to pre-Task-2 behavior). A tie
+(`relative_threshold == base_floor`) stays `"absolute"`, deterministically — no floating-point
+flip-flop at the boundary. Both call sites log the resolved floor, its source
+(`absolute`/`relative`), and the reference mean at DEBUG; the tail-DP swap and edge-repair summary
+INFO lines both state which trigger fired (see `LOGGING.md`). **Escape-hatch caveat:** setting
+`edge_repair_t_floor: 0` no longer fully disables edge repair's weak-`T` arm on its own once
+`edge_repair_relative_epsilon > 0` — the relative arm doesn't know about that intent. The true
+"fully legacy" rollback is `edge_repair_relative_epsilon: 0.0`, not `t_floor: 0` alone.
 
 Variable bridge length works by building the nominal even-split segment, and if its bottleneck
 edge (including the pier-return edge) is already `>= good_enough`, keeping it; otherwise it

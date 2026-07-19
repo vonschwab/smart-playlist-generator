@@ -342,6 +342,71 @@ knob section for the tuning recipe.
 
 ---
 
+## Relative repair-trigger lines (Phase 2 Task 2, 2026-07)
+
+`src.playlist.pier_bridge_builder`. Tail-DP and edge repair each resolve their effective trigger
+floor via `compute_relative_trigger_floor` (`src/playlist/pier_bridge/repair_triggers.py`) — see
+`docs/TECHNICAL_PLAYLIST_GENERATION_FLOW.md` §6.3 and `PLAYLIST_ORDERING_TUNING.md` Knob 4 for the
+mechanism. Every invocation logs the resolved floor at DEBUG, whether or not the pass ends up
+firing (so a near-miss is visible even when nothing triggers):
+
+```
+Tail-DP seg 2: trigger floor=0.540 (source=relative, base=0.30, relative_threshold=0.540, segment_mean_T=0.790)
+Edge repair: trigger floor=0.563 (source=relative, base=0.30, relative_threshold=0.563, playlist_mean_T=0.813)
+```
+
+- `source` — `"relative"` when `reference_mean - relative_epsilon` beat the absolute floor;
+  `"absolute"` when the absolute floor won (including the `relative_epsilon <= 0` legacy-rollback
+  case, and exact ties, which always resolve to `"absolute"` deterministically).
+- `base` — the raw `tail_dp_floor` / `edge_repair_t_floor` config value (0.30 by default).
+- `relative_threshold` — `reference_mean - relative_epsilon`, logged even when `source=absolute` so
+  you can see how close a segment/playlist came to tripping the relative arm.
+- `segment_mean_T` / `playlist_mean_T` — the reference level the relative arm measures against
+  (pre-swap segment mean for tail-DP; pre-repair playlist mean for edge repair), same `T` currency
+  as the beam and reporter.
+
+**Whether the pass actually fired** is stated in its own INFO summary line, which now also carries
+the trigger source:
+
+```
+Tail-DP seg 2: window min 0.240 -> 0.810 (swapped [...] -> [...]) [trigger=relative floor=0.540]
+Edge repair: swapped pos=1 worst-T 0.452 -> 0.730 (t_floor=0.30 trigger=relative relative_threshold=0.563)
+```
+
+A corpus where `trigger=relative` never appears (every fired pass shows `trigger=absolute`) means
+the relative arm isn't adding anything beyond the legacy absolute floor on that corpus — not
+necessarily a problem, but worth checking against `relative_epsilon`'s current value if you expected
+it to bind.
+
+## Pier-support demotion + arc-aware ordering lines (Phase 2 Task 3, 2026-07)
+
+`src.playlist.artist_style` / `src.playlist_generator`, artist mode only (medoid clustering path).
+See `docs/TECHNICAL_PLAYLIST_GENERATION_FLOW.md` §3.1/3.3 and `PLAYLIST_ORDERING_TUNING.md`'s pier
+quality section for the mechanism.
+
+```
+Pier support: cluster 2 has NO candidate with typical support (best=0.481, all below diagnostic floor=0.50, keeping the best-available candidate, no candidates excluded: [...]
+```
+
+A WARNING, not an error — fires when every candidate in a cluster sits below `pier_support_floor`
+(diagnostic-only; this never filters, the best-available candidate is always kept). Frequent
+warnings on one artist mean that artist's own catalog is stylistically scattered (no track reads as
+clearly "typical") — not necessarily a bug, but a signal that pier selection for that artist is
+working with thin support data.
+
+```
+Arc-aware ordering: moved the lowest-support pier off the terminal seat (support=0.873) via an
+alternate sonic-order start
+```
+
+An INFO line — fires only when `pier_support_terminal_avoidance` actually changed the pier order
+(the lowest-support pier was seated at a terminal position and an alternate walk avoided it). Its
+absence does not mean the mechanism is off; it may simply have had nothing to do (the lowest-support
+pier was already interior, or `<3` piers, or no alternate walk avoided the terminal seat — all
+silent no-ops by design).
+
+---
+
 ## Redaction policy
 
 ### Never log

@@ -160,9 +160,131 @@ The sonic similarity space has been replaced twice, each time because measuremen
   preferred to a deletion, and deletion is a genuine last resort guarded "never-worse" and against
   breaching a bystander artist's `min_gap`.
 - **Status:** live. **Known open limits** (tracked in `CLEANUP_LIST.md`): a *deadzone* (every
-  trigger floor is 0.30, so an ugly-but-legal edge at T ≈ 0.46 gets no attention), and an
+  trigger floor is 0.30, so an ugly-but-legal edge at T ≈ 0.46 gets no attention — the corridor
+  project's relative-trigger work below narrows but does not eliminate this), and an
   edge-repair-vs-reporter **T-mismatch** (repair has flagged edges the reporter scores as healthy)
   that must be root-caused before the floors are retuned.
+
+---
+
+## The corridor project (2026-07): pooling, repair triggers, pier quality
+
+Two phases replacing how candidates are admitted per segment, when the repair cascade fires, and
+which of a seed artist's own tracks become piers. Full detail: `TECHNICAL_PLAYLIST_GENERATION_FLOW.md`
+§3.1/3.3/5.0/6.3, `PLAYLIST_ORDERING_TUNING.md`'s corridor + pier-quality sections.
+
+### Pool-starvation research → corridor-first pooling
+- **Decision:** replace the pre-generation seed-proximity-ball pool with a **per-segment corridor**
+  — candidates whose similarity to *both* adjacent piers clears a self-calibrating percentile floor,
+  drawn from a library-wide eligible universe computed once per generation. "The path defines the
+  pool," not the other way around.
+- **Why:** `docs/POOL_STARVATION_RESEARCH_2026-07-12.md` traced a shipped T=0.028 edge (SADE +
+  `home`) to three validated mechanisms, dose-response confirmed on 6 artists: (M1) the seed-ball
+  pool was frozen before mini-piers got promoted to anchors, so a promoted anchor's own real
+  1,200-neighbor neighborhood was never provisioned; (M2) a pool-level per-artist cap deleted
+  14–60% of post-floor survivors that the beam's own `min_gap` enforcement re-does anyway; (M3)
+  every one of ~26 relaxation/fallback mechanisms fired on pool *size* or hard infeasibility, never
+  on edge *quality* — a numerically healthy pool could still be qualitatively bankrupt for one
+  specific anchor pair and nothing upstream would ever learn.
+- **Evidence:** the failures were overwhelmingly *manufactured*, not library scarcity — the library
+  held 0.6+-quality bridges for every broken edge examined. `docs/superpowers/specs/
+  2026-07-12-corridor-first-pooling-design.md` was approved on this evidence, gated by
+  `CORRIDOR_FEATURE_PRESERVATION_CONTRACT.md`'s non-degradation bar (every transform/gate/soft-term
+  rehomed, zero features lost, an automated no-knob-goes-inert sweep).
+- **Status:** live and sole (Phase 1 Task 8 flip, 2026-07-17) — the legacy `SegmentCandidatePoolBuilder`
+  KNN-union and its 1,129-line implementation are deleted, not flagged off.
+
+### The `restrict_bundle` discovery
+- **Decision:** when the legacy per-cluster external pool (`build_balanced_candidate_pool`) was
+  deleted at the Phase 1 flip, Artist mode's `allowed_track_ids` is kept for diagnostics/guard use
+  only — `None` is passed to the actual eligible-universe build.
+- **Why:** the flip's own post-change corpus caught a critical, unplanned regression:
+  `allowed_track_ids` was still hard-clamping the bundle **upstream** of corridor's eligible-universe
+  build via `restrict_bundle`, silently reintroducing the exact M1 seed-ball mechanism the whole
+  project existed to remove — for Artist mode specifically, corridor had been scanning the ball, not
+  the library.
+- **Evidence:** root-caused (data/artifact drift and a `candidate_pool.py` code diff both ruled out
+  byte-for-byte); after the fix, `below_floor` returned to 0/12 and the admitted universe grew
+  2–15× for Artist mode.
+- **Status:** live. Generalized into a standing review question for any future change to what feeds
+  `build_eligible_universe`: is anything upstream still silently narrowing "the whole library"?
+
+### Per-mode corridor widths
+- **Decision:** `corridor_width_percentile` is resolved per `sonic_mode`
+  (`corridor_width_percentile_{strict,narrow,dynamic,discover}`), not one global number, with a
+  plain-override escape hatch for anyone who wants a fixed width regardless of mode.
+- **Why:** narrow (`strict`/`home`-style) and wide (`dynamic`/`discover`-style) corridors need
+  different floors to hold `below_floor=0` without over- or under-admitting; a single global
+  percentile can't serve both.
+- **Evidence:** Phase 1 pinned `strict` (0.985) and `dynamic` (0.95) from direct 4-cell probes;
+  `narrow`/`discover` shipped as interpolations for lack of probe time. Phase 2 Task 4 ran 18 real
+  generations (3 artists × both remaining detent families × 3 bracketing widths) and **superseded**
+  both interpolations: `narrow` 0.9675 → **0.975**, `discover` 0.93 → **0.94**, each winning on mean
+  AND worst-case min_T over every width tested, `below_floor=0` throughout. One confound disclosed,
+  not resolved: `discover`'s win is partly `segment_pool_max=800` cap saturation on 2 of 3 probe
+  artists.
+- **Status:** live, all four modes now directly probed (none left as pure interpolation).
+
+### The refuted ramp hypothesis
+- **Decision:** do NOT build either of Task 2's originally scoped candidates (anchor-ramp
+  force-include; support-triggered pre-beam widening).
+- **Why:** Phase 1 left one known weakness — an apparent "outlier-anchor ramp exclusion" pattern,
+  naturally hypothesized as corridor's sonic admission excluding the better connector. Task 1's
+  mechanism probes (`docs/corridor_baseline/phase2_mechanism_probes.md`) reproduced both deep-dived
+  cases directly against the production corridor functions and found the hypothesis **false** for
+  both: Parquet Courts segment 4's known-good fix ("Theresa's Sound-World") was already a corridor
+  member (41st of 43,241 by similarity), simply not ranked highly enough by the beam, and unused
+  because `tail_dp_floor=0.3`/`transition_floor=0.2` both read "clears the floor" as "good enough"
+  even with a 30–40-point-better connector sitting unused in the same pool. SADE/home showed a real
+  partial match (a genre-relevance-mask exclusion of high-sonic-similarity candidates) but the
+  actual best already-admitted candidate still went unused for the same reason, plus a structural
+  gap: tail-DP only ever re-opens a segment's *last* slots, so a bad *first* edge is untouchable.
+- **Evidence:** both original candidates patch pool admission; the pool was never the problem in
+  either deep-dived case — building either would have cost real engineering time on an inert lever.
+- **Status:** neither candidate built. Dylan chose the evidence-driven re-plan (relative repair
+  triggers, below) over proceeding with the original A/B as scoped.
+
+### Relative repair triggers: "fix broken" → "polish toward achievable"
+- **Decision:** tail-DP and edge repair gate on `max(absolute_floor, reference_mean −
+  relative_epsilon)` instead of a fixed absolute floor alone (`compute_relative_trigger_floor`,
+  `src/playlist/pier_bridge/repair_triggers.py`) — a segment's own realized mean `T` for tail-DP, the
+  whole playlist's mean `T` for edge repair.
+- **Why:** the mechanism probes reframed the defect precisely — the floors were calibrated to catch
+  *broken* edges, not edges merely *worse than what the run could achieve*. An edge that clears 0.30
+  but sits well below its neighborhood's own achievable level previously got no fixer attention at
+  all.
+- **Evidence:** Parquet Courts segment 4 recovered 0.240 → 0.810 (almost exactly the legacy
+  manual-swap reference of 0.802); SADE/home's structurally tail-DP-unreachable first edge recovered
+  via edge repair, 0.452 → 0.730. 12-cell corpus: **12/12 min_T flat-or-better**, wall-clock *faster*
+  (0.92×), `below_floor=0` throughout.
+- **Status:** live, default `relative_epsilon=0.25` both mechanisms. `relative_epsilon ≤ 0` is the
+  legacy-rollback escape hatch — **not symmetric** with the old `t_floor: 0` disable: once
+  `edge_repair_relative_epsilon > 0`, `edge_repair_t_floor: 0` alone no longer fully disables the
+  weak-`T` repair arm. The true full-legacy rollback is `edge_repair_relative_epsilon: 0.0`.
+
+### Pier quality: within-artist support, not library-wide density
+- **Decision:** demote (never exclude) medoid/pier candidates whose `compute_within_artist_support`
+  — mean similarity to their own artist's other tracks, normalized by that artist's median — falls
+  below typical; pair it with `reorder_avoiding_low_support_terminal`, a tie-break that prefers any
+  same-pier-set re-walk keeping the lowest-support pier off a terminal (opening/closing) seat.
+- **Why:** the historical Parquet Courts/Swirlies incidents both trace to an outlier EP cut winning
+  a medoid slot and landing at the playlist's most exposed position, purely because clustering had
+  no notion of "typical for this artist." The first estimator attempt — a whole-library
+  top-100-neighbor density mirroring the existing pier-bridgeability veto — **failed** to separate
+  the known outliers from normal candidates (`docs/corridor_baseline/phase2_task3_probe_findings.md`)
+  and was not shipped.
+- **Evidence:** `compute_within_artist_support` cleanly separated both known outliers (bottom
+  ~10–20th percentile of their artist's candidates) and stayed stable across `k=5..20` — a
+  fundamentally different reference frame (within-catalog typicality vs. library-wide density).
+  12-cell corpus: 11/12 min_T flat-or-better (Bill Evans Trio +0.13/+0.20), one disclosed, bounded
+  regression (Alex G/open −0.038, root-caused to forcing a different, imperfect pier into a
+  now-vacated terminal seat — a structural trade-off with only two interior seats among four piers,
+  not a systemic pattern).
+- **Status:** live, default `pier_support_demotion_strength=1.0`. Deliberately **not** wired into
+  mini-pier waypoint selection — a bridge waypoint isn't the seed artist's own catalog, so
+  within-artist support has no defined meaning there, and the library-wide alternative tried in the
+  same probe didn't discriminate the known cases either; an unvalidated mechanism was held out
+  rather than guessed at.
 
 ---
 
@@ -181,6 +303,11 @@ The sonic similarity space has been replaced twice, each time because measuremen
   MERT→MuQ migration unchanged. The **energy arc** extension is built but **parked** — measured
   redundant with MuQ for smoothness (MuQ-similarity predicts energy-closeness ~2.5× better than
   tempo-closeness), worth reviving only for *intentional directional* arcs, not anti-whiplash.
+  **Corridor Phase 2 finding:** every per-mode pace band field (`bpm_bridge_max_log_distance`,
+  `energy_arc_band`, `pace_rescue_k_energy`, …) was silently unreachable from `config.yaml` —
+  `resolve_pace_mode` was called with no `overrides` argument at all. Fixed (`_resolve_pace_overrides`,
+  `src/playlist/pipeline/core.py:246`) without changing any shipped default; see
+  `PLAYLIST_ORDERING_TUNING.md` Knob 5 for the now-live override surface.
 
 ---
 

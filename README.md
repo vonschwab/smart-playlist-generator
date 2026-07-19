@@ -89,6 +89,15 @@ builds a playlist that:
 - **Manual artist links.** A new "Artist Links" GUI tab lets you declare aliases (full identity
   merge) and sibling projects (independent catalogs, kept spaced apart) for names automatic
   normalization can't catch — a runtime resolution layer with no `metadata.db` or artifact changes.
+- **Rebuilt candidate pooling fixes broken transitions.** Each segment's candidates are now drawn
+  from the whole library relative to that segment's two anchor tracks, instead of a fixed
+  neighborhood decided before the playlist's shape was known — this closes the small number of
+  cases where a genuinely bad, "sticks out" transition used to ship even though a much better
+  connecting track existed in your library. The weak-edge recovery pass now also catches an edge
+  that's merely *worse than what the rest of the playlist achieved*, not only edges that are
+  outright broken. A seed artist's own outlier/one-off tracks are now less likely to be picked as
+  the playlist's very first or last track when a more representative track from their catalog is
+  available.
 
 ## Quick Start
 
