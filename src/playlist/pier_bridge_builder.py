@@ -3527,6 +3527,11 @@ def build_pier_bridge_playlist(
         # edge_repair_t_floor=0.3 with an unused 0.697-class connector already
         # admitted). playlist_mean_T reads the same "T" currency _needs_repair
         # compares against, via the same score_transition_edge path.
+        # Intentionally non-progressive: computed once over the pre-repair
+        # playlist, not recomputed after each swap inside the pass below --
+        # a moving target would risk the trigger floor drifting mid-pass
+        # (non-determinism) and could churn indefinitely as swaps keep
+        # nudging the mean (no guaranteed termination).
         _, _er_playlist_mean_T = _compute_edge_scores(
             list(final_indices), X_full_tr_norm, X_start_tr_norm, X_mid_tr_norm,
             X_end_tr_norm, cfg, metric_context=transition_metric_context,

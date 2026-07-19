@@ -66,8 +66,16 @@ def _needs_repair(
 ) -> bool:
     """Break-glass trigger: weak T (below t_floor) OR catastrophic anti-alignment.
 
-    t_floor=0 disables the weak-T arm (T is always > 0 post-sigmoid), reverting to
-    the legacy anti-alignment-only behavior. is_broken_transition itself is untouched.
+    ``t_floor`` is whatever the caller resolved and passed in -- as of Phase 2
+    Task 2 that is ``max(edge_repair_t_floor, playlist_mean_T -
+    edge_repair_relative_epsilon)`` via ``compute_relative_trigger_floor``,
+    not the raw absolute config value. Setting the absolute
+    ``edge_repair_t_floor`` to 0 no longer disables the weak-T arm by itself:
+    with the default ``edge_repair_relative_epsilon=0.25``, the caller still
+    resolves an effective floor ~= playlist_mean_T - 0.25 (typically > 0).
+    Full legacy (anti-alignment-only) behavior requires ALSO setting
+    ``edge_repair_relative_epsilon: 0.0`` -- see config.yaml /
+    config.example.yaml. is_broken_transition itself is untouched.
     """
     t_val = edge.get("T")
     if isinstance(t_val, (int, float)) and float(t_val) < float(t_floor):

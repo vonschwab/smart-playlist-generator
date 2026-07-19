@@ -309,6 +309,9 @@ playlists:
         # effective floor = max(floor, segment_mean_T - relative_epsilon).
         # 0.0 = legacy absolute-only rollback. See
         # docs/corridor_baseline/phase2_mechanism_probes.md.
+        # Full legacy disable = relative_epsilon: 0.0 -- floor alone no longer
+        # suffices (a non-zero relative_epsilon still keeps an effective floor
+        # even with floor: 0).
         relative_epsilon: 0.25
       # Break-glass edge repair (spec 2026-07-02, live default ON): after tail-DP, if an
       # edge is STILL below t_floor (or centered_cos below centered_cos_floor), try
@@ -325,6 +328,9 @@ playlists:
         # effective floor = max(t_floor, playlist_mean_T - relative_epsilon).
         # 0.0 = legacy absolute-only rollback. See
         # docs/corridor_baseline/phase2_mechanism_probes.md.
+        # Full legacy disable = relative_epsilon: 0.0 -- t_floor alone no
+        # longer suffices (a non-zero relative_epsilon still keeps an
+        # effective floor even with t_floor: 0).
         relative_epsilon: 0.25
         variety_guard:
           enabled: false

@@ -120,3 +120,150 @@ def test_swirlies_home_does_not_crater():
     widths). This test pins that recovery permanently, golden-file-
     independent, per spec section 6."""
     _assert_no_crater(SWIRLIES_SEEDS, "Swirlies+home")
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Phase 2 Task 2 headline outcomes (RELATIVE repair triggers, commit fea3e8c
+# and its parent 74d8add). These pin the *specific* measured improvements
+# the relative-epsilon trigger (tail-DP + edge repair, `*_relative_epsilon`
+# default 0.25) produced, not just "no crater" -- a much tighter bar than
+# the transition_floor=0.2 the tests above check against, since Task 2's own
+# job is to lift weak-but-not-broken edges, not merely keep them off the
+# floor. Thresholds (0.55 / 0.55 / 0.339) are the corpus's own measured
+# values minus generous slack -- but PC and Swirlies reproduce comfortably
+# above their thresholds on THIS file's hand-picked seed topology (0.6851
+# and 0.8127 respectively, both measured 2026-07-18), while SADE's proxy
+# lands much closer to its floor (0.5531 vs 0.55) than the corpus's own
+# 0.6676 would suggest -- see that test's docstring for why (same "proxy
+# topology != corpus topology" caveat test_sade_home_does_not_crater already
+# documents above). Measured numbers are recorded in each docstring so a
+# future re-measurement can tell drift from noise.
+# ─────────────────────────────────────────────────────────────────────────
+
+# 6 real Parquet Courts tracks -- the exact pier set from the Phase 2 Task 1
+# probe (docs/corridor_baseline/phase2_mechanism_probes.md, "Probe 1") and
+# its Task 2 deep-dive reproduction (.superpowers/sdd/p2-task-2-report.md),
+# recovered from logs/playlists/2026-07-18_174422_Parquet_Courts_b06d13.log
+# and re-confirmed identical in the reproduction log
+# logs/playlists/2026-07-18_203637_Parquet_Courts_000001.log. This cell is
+# NOT one of the 6 artists in the 12-cell docs/corridor_baseline/
+# phase2_task2_corpus.json corpus file -- it is the Task 1/2 "deep-dived"
+# regression case reported separately in p2-task-2-report.md, run at
+# production defaults (cohesion_mode=dynamic, pace_mode=dynamic; no mode
+# flags passed in the original `main_app.py --artist "Parquet Courts"
+# --anchor-seed-ids ...` reproduction), hence no HOME_UI_KWARGS below.
+PARQUET_COURTS_SEEDS = [
+    "13e7fd470c7ee9d802e2e05d1205b04f",  # Bodies made of
+    "44c065f0f201fb843a8b1a82bfbb9f61",  # Freebird II
+    "da6dc06b3bdb2c303eb5fc969b43adac",  # Mardi Gras Beads
+    "d83034823de937da82d855995501f60a",  # Borrowed Time
+    "7a6d3bae11fa410feb97f5d26cbe02fc",  # Human Performance
+    "f86a9b71d2e35855ffc91f0488297915",  # Into the garden
+]
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@_requires_artifact
+def test_parquet_courts_task2_min_transition():
+    """PC segment 4's Human Performance -> ... -> Into the garden landing
+    edge was the playlist's global weakest edge pre-Task-2 (T=0.394, Probe 1
+    of docs/corridor_baseline/phase2_mechanism_probes.md -- corridor
+    admission was refuted as the cause; the actual mechanism was the
+    tail-DP/edge-repair floor gates under-triggering on a "clears 0.3, not
+    close to achievable" edge). With the relative trigger active
+    (tail_dp_relative_epsilon default 0.25), the Task 2 reproduction
+    (.superpowers/sdd/p2-task-2-report.md, 2026-07-18) measured the landing
+    edge at T=0.805 and the playlist's own min_transition at 0.6851,
+    below_floor=0. Threshold 0.55 sits well below either number -- generous
+    slack under the measured 0.805/0.6851, tight enough to catch a real
+    reversion of the relative-trigger fix."""
+    ui = gui_ui_state()
+    res = generate_like_gui(seeds=PARQUET_COURTS_SEEDS, ui=ui, length=30, random_seed=0)
+    playlist_stats = res.playlist_stats.get("playlist", {})
+    min_t = playlist_stats.get("min_transition")
+
+    assert min_t is not None, "Parquet Courts: min_transition missing from playlist_stats"
+    assert min_t >= 0.55, (
+        f"Parquet Courts: min_T={min_t:.4f} fell below the Task 2 regression floor 0.55 "
+        f"(measured 0.805 landing edge / 0.6851 playlist min_T on 2026-07-18; "
+        f"track_ids={res.track_ids})"
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@_requires_artifact
+def test_sade_home_task2_min_transition():
+    """SADE+home's segment-0 first edge (Sade "Siempre Hay Esperanza" ->
+    Isaac Hayes "Let's Stay Together") was the run's weakest at T=0.454
+    pre-Task-2 (Probe 2 of phase2_mechanism_probes.md -- a materially better,
+    fully-admitted connector (Plunky & Oneness of Juju, min_sim=0.697) sat in
+    the same pool unused; tail-DP structurally cannot reach a segment's
+    *first* edge, only edge repair can). With the relative trigger active,
+    edge repair fired (pos=1 swap worst-T 0.452 -> 0.730) and the corpus's
+    OWN clustered-pier SADE/home cell (docs/corridor_baseline/
+    phase2_task2_corpus.json, 2026-07-18) measured min_transition=0.6676
+    (up from 0.454), below_floor=0.
+
+    This test's hand-picked SADE_SEEDS proxy (same topology as
+    test_sade_home_does_not_crater above, per that test's own docstring
+    caveat that this proxy's numbers do NOT match the corpus's clustered-pier
+    cell) measures noticeably lower on this harness: min_transition=0.5531
+    as of 2026-07-18, only ~0.003 above the 0.55 threshold below -- NOT the
+    generous margin the corpus number would suggest. 0.55 is used anyway
+    (matches the corpus-derived floor the fix is meant to guard, and this
+    proxy did clear it on measurement), but a future re-run landing between
+    0.50 and 0.55 is much more likely to be normal topology-proxy noise than
+    an actual relative-trigger regression -- cross-check against
+    test_sade_home_does_not_crater (which never craters, i.e. never drops
+    below transition_floor=0.2) before concluding the fix broke."""
+    ui = gui_ui_state(**HOME_UI_KWARGS)
+    res = generate_like_gui(seeds=SADE_SEEDS, ui=ui, length=20, random_seed=0)
+    playlist_stats = res.playlist_stats.get("playlist", {})
+    min_t = playlist_stats.get("min_transition")
+
+    assert min_t is not None, "SADE+home: min_transition missing from playlist_stats"
+    assert min_t >= 0.55, (
+        f"SADE+home: min_T={min_t:.4f} fell below the Task 2 regression floor 0.55 "
+        f"(this proxy measured 0.5531 on 2026-07-18; corpus clustered-pier cell "
+        f"measured 0.6676, phase2_task2_corpus.json; track_ids={res.track_ids})"
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@_requires_artifact
+def test_swirlies_home_task2_regression():
+    """Swirlies+home (the M1 pool-starvation sentinel, see
+    test_swirlies_home_does_not_crater above) also improved under the Task 2
+    relative trigger: tail-DP fired on segments 2 and 3 (window min
+    0.353->0.801 and 0.351->0.872). The corpus's OWN clustered-pier
+    Swirlies/home cell (docs/corridor_baseline/phase2_task2_corpus.json,
+    2026-07-18) measured min_transition=0.5955 (up from 0.359 pre-Task-2),
+    below_floor=0 held.
+
+    This test's hand-picked SWIRLIES_SEEDS proxy (same topology as
+    test_swirlies_home_does_not_crater above) measures higher on this
+    harness: min_transition=0.8127 as of 2026-07-18, below_floor=0.
+    Threshold 0.339 is "within -0.02 of the pre-Task-2 0.359" per the Task 2
+    report's own acceptance bar -- comfortable slack under either the corpus's
+    0.5955 or this proxy's own 0.8127, while still catching a reversion back
+    toward the pre-Task-2 number."""
+    ui = gui_ui_state(**HOME_UI_KWARGS)
+    res = generate_like_gui(seeds=SWIRLIES_SEEDS, ui=ui, length=20, random_seed=0)
+    playlist_stats = res.playlist_stats.get("playlist", {})
+    min_t = playlist_stats.get("min_transition")
+    below_floor = playlist_stats.get("below_floor_count")
+
+    assert min_t is not None, "Swirlies+home: min_transition missing from playlist_stats"
+    assert below_floor is not None, "Swirlies+home: below_floor_count missing from playlist_stats"
+    assert below_floor == 0, (
+        f"Swirlies+home: {below_floor} edge(s) below the transition floor "
+        f"(min_T={min_t:.4f}; track_ids={res.track_ids})"
+    )
+    assert min_t >= 0.339, (
+        f"Swirlies+home: min_T={min_t:.4f} fell below the Task 2 regression floor 0.339 "
+        f"(this proxy measured 0.8127 on 2026-07-18; corpus clustered-pier cell measured "
+        f"0.5955, phase2_task2_corpus.json; track_ids={res.track_ids})"
+    )

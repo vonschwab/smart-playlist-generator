@@ -139,6 +139,9 @@ class PierBridgeConfig:
     # below the segment's own level" without over-firing on normal variance. See
     # docs/corridor_baseline/phase2_mechanism_probes.md. 0.0 = legacy
     # absolute-only behavior (rollback).
+    # Full legacy disable = relative_epsilon: 0.0 -- tail_dp_floor alone no
+    # longer suffices (a non-zero relative_epsilon still keeps an effective
+    # floor at segment_mean_T - relative_epsilon even with tail_dp_floor=0).
     tail_dp_relative_epsilon: float = 0.25
     # Layered genre graph transition scoring (opt-in; default OFF).
     # Uses sidecar-derived leaf/family/bridge/facet matrices when present on
@@ -351,6 +354,9 @@ class PierBridgeConfig:
     # a fully-admitted 0.697-class connector went unused. Same 0.25 default and
     # rollback semantics as tail_dp_relative_epsilon (0.0 = legacy absolute-only).
     # See docs/corridor_baseline/phase2_mechanism_probes.md.
+    # Full legacy disable = relative_epsilon: 0.0 -- edge_repair_t_floor alone
+    # no longer suffices (a non-zero relative_epsilon still keeps an effective
+    # floor at playlist_mean_T - relative_epsilon even with edge_repair_t_floor=0).
     edge_repair_relative_epsilon: float = 0.25
     edge_repair_margin: float = 0.05
     edge_repair_variety_guard_enabled: bool = False
