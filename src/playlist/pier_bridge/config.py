@@ -442,23 +442,36 @@ class PierBridgeConfig:
     # -- superseded by a direct probe (3 artists: SADE/Swirlies/Alex G, via the
     # GUI's close/wander detents so genre_mode moves with sonic_mode, matching
     # real usage) bracketing each interpolation with 3 candidate widths.
-    # narrow {0.96, 0.9675, 0.975}: 0.975 won on BOTH mean|min_T| (0.6164 vs
-    # 0.9675's 0.6144, 0.96's 0.6102) AND worst-case min_T across the 3 artists
-    # (0.6005 vs 0.9675's 0.5939) -- below_floor=0 at every width. Pinned
-    # 0.975 (changed from the 0.9675 interpolation).
-    # discover {0.92, 0.93, 0.94}: 0.94 won decisively on both mean (0.6290 vs
-    # 0.6044 tied at 0.92/0.93) and worst-case (0.6228 vs 0.5490, Alex G/wander
-    # specifically) -- below_floor=0 at every width. Pinned 0.94 (changed from
-    # the 0.93 interpolation). Two of three probe artists (Swirlies, Alex G)
-    # hit segment_pool_max=800 post-cap at every tested discover width (the
-    # SAME cap-saturation pattern the Phase 1 per-mode-width report's dial
-    # audit found for open/wander) -- the win traces to which candidates enter
-    # the pre-cap top-800 ranking at the tighter 0.94 threshold, not to size
+    # narrow {0.96, 0.9675, 0.975}: 0.975 won on worst-case min_T across the 3
+    # artists (0.6005 vs 0.9675's 0.5939, 0.96's 0.5939 -- the tiebreaker the
+    # brief's own rule prioritizes) and edges out on mean|min_T| too (0.6164
+    # vs 0.9675's 0.6144, 0.96's 0.6102), but that mean margin is thin (+0.002)
+    # and the per-artist directions DISAGREE: SADE's min_T falls monotonically
+    # as width widens (0.6408 -> 0.6266 -> 0.6005), Swirlies rises (0.5939 ->
+    # 0.5939 -> 0.6297), Alex G is mixed (peaks at 0.9675, dips slightly at
+    # 0.975). below_floor=0 at every width regardless. Read this as a worst-
+    # case-justified pin, not a corpus-wide consensus -- one of the three
+    # probe artists (SADE) is measurably worse off at the pinned value.
+    # Pinned 0.975 (changed from the 0.9675 interpolation).
+    # discover {0.92, 0.93, 0.94}: in the 3-artist bracket probe, only Alex G
+    # actually discriminated between 0.93 and 0.94 (min_T 0.5490 -> 0.6228,
+    # +0.074) -- SADE and Swirlies are BYTE-IDENTICAL on min_T across all
+    # three tested widths (SADE 0.6408, Swirlies 0.6233 at 0.92/0.93/0.94
+    # alike), so the mean/worst-case margin favoring 0.94 (mean 0.6290 vs
+    # 0.6044 tied at 0.92/0.93) is entirely carried by that one artist, not a
+    # 3-artist consensus -- weakly dominant (no regressions, one clear mover),
+    # not corpus-wide agreement. below_floor=0 at every width. Two of three
+    # probe artists (Swirlies, Alex G) hit segment_pool_max=800 post-cap at
+    # every tested discover width (the SAME cap-saturation pattern the Phase 1
+    # per-mode-width report's dial audit found for open/wander) -- Alex G's
+    # move traces to which candidates enter the pre-cap top-800 ranking at the
+    # tighter 0.94 threshold, i.e. a cap-interaction effect, not post-cap size
     # differentiation; SADE (not cap-bound, sizes 566->495->424 across
     # 0.92->0.93->0.94) stayed flat across the whole bracket, a legitimate
     # beam-convergence saturation (its winning sequence's candidates all
-    # survive well within the tightest tested width). Full probe data + mini-
-    # corpus regression check: docs/corridor_baseline/phase2_task4_width_calibration.md.
+    # survive well within the tightest tested width). Pinned 0.94 (changed
+    # from the 0.93 interpolation). Full probe data + mini-corpus regression
+    # check: docs/corridor_baseline/phase2_task4_width_calibration.md.
     corridor_width_percentile_strict: float = 0.985
     corridor_width_percentile_narrow: float = 0.975
     corridor_width_percentile_dynamic: float = 0.95

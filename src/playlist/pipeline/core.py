@@ -236,7 +236,10 @@ _PACE_PIER_BRIDGE_OVERRIDE_KEYS: Tuple[str, ...] = (
     "energy_step_strength",
     "energy_arc_band",
     "energy_arc_strength",
-    "pace_rescue_k_energy",
+    "pace_rescue_k_energy",  # AUDIT (review follow-up): also silently dead pre-
+    # fix (same missing-overrides= dead outlet as the rest of this list) --
+    # revived as a side effect of this fix, not separately tested; verify live
+    # in the final contract sweep.
 )
 
 
