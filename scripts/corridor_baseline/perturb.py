@@ -200,6 +200,12 @@ _PIER_CONFIG_FIELD_MAP: dict[str, Optional[str]] = {
     "edge_repair_t_floor": _PB + "edge_repair.t_floor",
     "edge_repair_variety_guard_enabled": _PB + "edge_repair.variety_guard.enabled",
     "edge_repair_variety_guard_threshold": _PB + "edge_repair.variety_guard.threshold",
+    # Phase 2 Task 2 field, missed when the FIELD_MAP was first built -- caught
+    # by the Task 5 contract re-sweep (did_not_resolve on both cells: the
+    # default flat-path guess pier_bridge.edge_repair_relative_epsilon is never
+    # read; apply_pier_bridge_overrides only consumes the nested
+    # edge_repair.relative_epsilon key, same pattern as t_floor/margin above).
+    "edge_repair_relative_epsilon": _PB + "edge_repair.relative_epsilon",
 
     # ---- progress / progress_arc (nested; progress_arc has TWO source paths in
     #      production -- pier_bridge.progress_arc.* (unconditional) and
@@ -226,6 +232,9 @@ _PIER_CONFIG_FIELD_MAP: dict[str, Optional[str]] = {
     "tail_dp_enabled": _PB + "tail_dp.enabled",
     "tail_dp_epsilon": _PB + "tail_dp.epsilon",
     "tail_dp_floor": _PB + "tail_dp.floor",
+    # Phase 2 Task 2 field, same missed-mapping class as edge_repair_relative_
+    # epsilon above (did_not_resolve on both cells pre-fix).
+    "tail_dp_relative_epsilon": _PB + "tail_dp.relative_epsilon",
 
     # ---- genre.* (nested; only tie_break_band is wired) ----
     "genre_tie_break_band": _PB + "genre.tie_break_band",
