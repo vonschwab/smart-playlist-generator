@@ -623,6 +623,44 @@ budget, since they're the ones that do extra trial work per segment.
 
 ---
 
+## Knob 11: `progress_arc` (experimental monotonic-progress beam term, off by default)
+
+```yaml
+playlists:
+  ds_pipeline:
+    pier_bridge:
+      progress_arc:
+        enabled: false     # default OFF -- see calibration note below
+        weight: 0.25
+```
+
+**What it does.** An optional beam-scoring term that penalizes a candidate for being
+sonically "behind" or "ahead of" where it should sit along the pier-to-pier interpolation
+line for its segment position (`beam.py`'s `_progress_arc_loss`), shaped by
+`progress_arc_shape`/`tolerance`/`loss` and scaled by pier-to-pier `ab_distance` (and
+optionally by segment length via `autoscale.per_step_scale`, off by default).
+
+**Calibration note (Phase 2 Task 4, 2026-07-18):** Task 7's contract sweep flagged the shipped
+`weight: 0.25` default as too weak against corridor's tighter beam ("effectively runs at 3.0" in
+that sweep's own experiment). A dedicated probe (`docs/corridor_baseline/
+phase2_task4_progress_arc_probe.md`, `progress_arc` forced on across weight `{0.25, 0.5, 1.0, 2.0,
+3.0}` on the project's two canonical sweep cells — Bill Evans Trio/open, Swirlies/home — vs an
+arc-disabled baseline) found the "audible" threshold is **cell-dependent, not a single number**:
+because the effective weight scales with pier-to-pier `ab_distance`, one cell (Swirlies/home) was
+already fully saturated at the shipped `0.25` (a real +0.0144 min_T improvement, unchanged through
+3.0), while the other (Bill Evans Trio/open) was barely perturbed at `0.25` (jaccard 0.818 vs
+baseline) and only became clearly audible at `weight=0.5` (jaccard drops to ~0.43, a genuine
+track-set reshuffle), with a second, transition-quality-costing step at `weight=2.0` (-0.047 min_T
+vs baseline). Recommended experimentation floor if you want to deliberately try this lever:
+**`weight=0.5`** is reliably audible on both tested cells; `0.25` is not.
+
+**No default change shipped.** The two probed cells disagree on direction (one improves, one
+degrades as weight increases past 0.5) — not the "clear win" bar the calibration task required to
+flip a default. `progress_arc_enabled` stays `False`; `weight: 0.25` is unchanged. This section is
+a tuning recipe for opting in deliberately, not evidence the feature should ship on.
+
+---
+
 ## The four mode axes and per-cohesion-mode knobs
 
 Cohesion-vs-discovery is exposed as four independent axes (`ARCHITECTURE.md` §"The four mode

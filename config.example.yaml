@@ -545,6 +545,12 @@ playlists:
         monotonic_epsilon: 0.05
         penalty_weight: 0.15
       # Optional: progress arc scoring to shape segment pacing (default OFF).
+      # Calibration recipe (docs/PLAYLIST_ORDERING_TUNING.md Knob 11,
+      # docs/corridor_baseline/phase2_task4_progress_arc_probe.md): the
+      # "audible" weight is cell-dependent (scales with pier-to-pier
+      # distance) -- 0.25 is inconsistent (near-inert on some segments,
+      # already-saturated on others); weight=0.5 is reliably audible if you
+      # want to experiment. No clear win across cells found -- stays OFF.
       progress_arc:
         enabled: false
         weight: 0.25
