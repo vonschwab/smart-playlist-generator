@@ -5,7 +5,7 @@ import math
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Set
+from typing import Any, Dict, Iterator, List, Optional, Set, Tuple
 
 import numpy as np
 
@@ -175,6 +175,73 @@ def _relaxed_one_each_candidate_attempts(
         )
 
     return attempts
+
+
+# ---------------------------------------------------------------------------
+# Pace-mode override plumbing (Phase 2 Task 4 pace-plumb fix)
+# ---------------------------------------------------------------------------
+#
+# Two config.yaml sources feed a PACE_MODE_PRESETS-shaped override dict for
+# resolve_pace_mode(), mirroring the two places pace_settings values land
+# downstream in this module (fixes the pre-existing dead-outlet documented in
+# scripts/corridor_baseline/perturb.py: resolve_pace_mode was called with NO
+# overrides param at all, so no yaml key could ever reach these fields --
+# genuine per-mode pace band knobs like bpm_bridge_max_log_distance were
+# preset-only):
+#   - Admission-side keys (admission_floor/bridge_floor/bpm_admission_max_log_
+#     distance/onset_admission_max_log_distance) already have a REAL
+#     `playlists.ds_pipeline.candidate_pool.*` override consumed by
+#     default_ds_config (src/playlist/config.py:615-633) -- but it was
+#     silently discarded by this module's later `replace(cfg.candidate, ...)`
+#     call (below), which always used the bare preset value. Sourcing them
+#     here from the same candidate_pool dict restores that override instead
+#     of clobbering it.
+#   - Bridge-side + energy keys have no candidate_pool equivalent; they come
+#     from `playlists.ds_pipeline.pier_bridge.<key>` (pb_overrides), the same
+#     flat-key convention the energy-only override block (folded into this
+#     function) used.
+_PACE_CANDIDATE_POOL_OVERRIDE_KEYS: Dict[str, str] = {
+    "admission_floor": "pace_admission_floor",
+    "bridge_floor": "pace_bridge_floor",
+    "bpm_admission_max_log_distance": "bpm_admission_max_log_distance",
+    "onset_admission_max_log_distance": "onset_admission_max_log_distance",
+}
+_PACE_PIER_BRIDGE_OVERRIDE_KEYS: Tuple[str, ...] = (
+    "bpm_bridge_max_log_distance",
+    "bpm_trust_min_onset_rate",
+    "onset_bridge_max_log_distance",
+    "bpm_bridge_soft_penalty_strength",
+    "onset_bridge_soft_penalty_strength",
+    "energy_step_cap",
+    "energy_step_strength",
+    "energy_arc_band",
+    "energy_arc_strength",
+    "pace_rescue_k_energy",
+)
+
+
+def _resolve_pace_overrides(overrides: Optional[dict], pb_overrides: dict) -> Dict[str, float]:
+    """Build the flat override dict passed as ``resolve_pace_mode(..., overrides=...)``.
+
+    Pure function (no engine imports) -- see module comment above for the two
+    config sources. Only numeric (non-bool) values are forwarded; anything
+    else is left for the preset default so a malformed config value can never
+    silently corrupt the resolved settings dict.
+    """
+    candidate_pool_overrides = (overrides or {}).get("candidate_pool", {}) if isinstance(overrides, dict) else {}
+    if not isinstance(candidate_pool_overrides, dict):
+        candidate_pool_overrides = {}
+
+    pace_overrides: Dict[str, float] = {}
+    for preset_key, config_key in _PACE_CANDIDATE_POOL_OVERRIDE_KEYS.items():
+        value = candidate_pool_overrides.get(config_key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            pace_overrides[preset_key] = float(value)
+    for key in _PACE_PIER_BRIDGE_OVERRIDE_KEYS:
+        value = pb_overrides.get(key) if isinstance(pb_overrides, dict) else None
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            pace_overrides[key] = float(value)
+    return pace_overrides
 
 
 # ---------------------------------------------------------------------------
@@ -374,7 +441,12 @@ def generate_playlist_ds(
     playlist_len = min(num_tracks, bundle.track_ids.shape[0])
     # Pass config.yaml overrides to default_ds_config for initial config creation
     cfg = default_ds_config(mode, playlist_len=playlist_len, overrides=overrides)
-    pace_settings = resolve_pace_mode(pace_mode)
+    # pb_overrides (playlists.ds_pipeline.pier_bridge.*) was already extracted
+    # above (audit_cfg/infeasible_cfg parsing) -- reused here, not re-derived.
+    pace_settings = resolve_pace_mode(
+        pace_mode,
+        overrides=_resolve_pace_overrides(overrides, pb_overrides) or None,
+    )
     # default_ds_config resolves admission caps from `overrides`, which does NOT
     # carry pace_mode (it flows as a separate parameter) — so resolve_thresholds
     # falls back to the "dynamic" caps. Patch the BPM + onset admission caps from
@@ -382,6 +454,10 @@ def generate_playlist_ds(
     # pb_cfg downstream. Without this, narrow/strict admission silently ran at the
     # dynamic caps (0.75) instead of their calibrated values (CLAUDE.md: a
     # configured knob that acts at the wrong value is a wiring bug).
+    # pace_settings now also carries any yaml overrides (_resolve_pace_overrides
+    # above), so an explicit candidate_pool.pace_admission_floor / .pace_bridge_
+    # floor / .bpm_admission_max_log_distance / .onset_admission_max_log_distance
+    # value survives this replace() instead of being silently discarded.
     cfg = replace(
         cfg,
         candidate=replace(
@@ -880,16 +956,10 @@ def generate_playlist_ds(
                 duration_cutoff_multiplier=float(cfg.candidate.duration_cutoff_multiplier),
                 title_hard_exclude_flags=tuple(sorted(cfg.candidate.title_hard_exclude_flags)),
             )
-            # Apply config.yaml pier_bridge energy overrides on top of preset defaults.
-            # Keys: energy_step_cap, energy_step_strength, energy_arc_band, energy_arc_strength.
-            # These override the preset values (all 0.0) so users can opt-in via config.yaml
-            # without defining a custom pace_mode preset.
-            _energy_overrides: dict = {}
-            for _ek in ("energy_step_cap", "energy_step_strength", "energy_arc_band", "energy_arc_strength"):
-                if isinstance(pb_overrides.get(_ek), (int, float)):
-                    _energy_overrides[_ek] = float(pb_overrides[_ek])
-            if _energy_overrides:
-                pb_cfg = replace(pb_cfg, **_energy_overrides)
+            # (config.yaml pier_bridge.<energy_*> overrides on top of preset defaults
+            # are now folded into pace_settings via _resolve_pace_overrides above, so
+            # the replace() block just above already reflects them -- no separate
+            # post-hoc override pass needed here anymore.)
 
             # Instrumental lean: voice_prob is loaded ONCE, earlier (before pool
             # build, near _banger_gate_inputs) because build_candidate_pool (Task 8)

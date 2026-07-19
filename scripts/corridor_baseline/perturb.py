@@ -92,24 +92,20 @@ _PIER_CONFIG_FIELD_MAP: dict[str, Optional[str]] = {
     "duration_penalty_weight": "playlists.ds_pipeline.candidate_pool.duration_penalty_weight",
     "duration_cutoff_multiplier": "playlists.ds_pipeline.candidate_pool.duration_cutoff_multiplier",
 
-    # ---- residue-fix (Task 5 report appendix reconfirmed, corrected): the
-    #      original fix-wave redirected pace_bridge_floor to
-    #      candidate_pool.pace_bridge_floor, reasoning that pipeline/core.py:
-    #      865-877's post-apply_pier_bridge_overrides `replace(pb_cfg,
-    #      pace_bridge_floor=float(cfg.candidate.pace_bridge_floor), ...)`
-    #      clobber meant candidate_pool.* was the "real" source. That's only
-    #      half right: cfg.candidate.pace_bridge_floor is ITSELF unconditionally
-    #      overwritten a few lines earlier (core.py:370-383) from
-    #      `pace_settings["bridge_floor"]` (mode_presets.PACE_MODE_PRESETS,
-    #      always 0.0 for every pace mode) via `resolve_pace_mode(pace_mode)`
-    #      called WITHOUT an `overrides` param (core.py:362) -- so
-    #      candidate_pool.pace_bridge_floor is written into cfg.candidate by
-    #      default_ds_config but is DISCARDED before pb_cfg ever sees it. No
-    #      yaml path (pier_bridge.* or candidate_pool.*) can reach this field;
-    #      it joins the other pace-preset-only dead outlets below. Confirmed
-    #      empirically: did_not_resolve for BOTH sweep cells even after the
-    #      candidate_pool.* redirect.
-    "pace_bridge_floor": None,
+    # ---- Phase 2 Task 4 pace-plumb fix: core._resolve_pace_overrides now
+    #      threads an overrides dict into resolve_pace_mode(pace_mode, ...) at
+    #      its pipeline/core.py call site, sourced from (among other keys)
+    #      playlists.ds_pipeline.candidate_pool.pace_bridge_floor. That value
+    #      now survives into pace_settings["bridge_floor"] BEFORE the
+    #      cfg.candidate replace() (core.py ~447) and before the later
+    #      pb_cfg replace() mirrors cfg.candidate.pace_bridge_floor into
+    #      pb_cfg.pace_bridge_floor -- so an explicit candidate_pool.
+    #      pace_bridge_floor value is no longer silently discarded. This was
+    #      the ORIGINAL fix-wave's redirect (reverted by the residue-fix
+    #      above, re-confirmed correct now that the underlying clobber is
+    #      fixed) -- same cross-family-redirect shape as bpm_stability_min/
+    #      center_transitions/transition_floor above.
+    "pace_bridge_floor": "playlists.ds_pipeline.candidate_pool.pace_bridge_floor",
 
     # ---- residue-fix: force-derived for artist-mode playlists. Both corridor
     #      sweep cells run create_playlist_for_artist (artist_playlist=True), and
@@ -256,18 +252,20 @@ _PIER_CONFIG_FIELD_MAP: dict[str, Optional[str]] = {
     "roam_penalty_slope": _PB + "roam.penalty_slope",
     "worst_edge_minimax_enabled": _PB + "roam.worst_edge_minimax",  # ONLY path; no flat alias
 
+    # ---- Phase 2 Task 4 pace-plumb fix: these 5 were pace_mode-preset-only
+    #      (resolve_pace_mode was called WITHOUT an overrides param in
+    #      pipeline/core.py, so pier_bridge.* config could never reach them
+    #      even though the preset->override seam existed in the function
+    #      signature). core._resolve_pace_overrides now sources them straight
+    #      from pb_overrides (playlists.ds_pipeline.pier_bridge.<key>, same
+    #      leaf name in both the blob and the config key -- no rename), so
+    #      they are REMOVED from this exception table entirely and now fall
+    #      through to the default flat playlists.ds_pipeline.pier_bridge.<leaf>
+    #      mapping below, which is correct again.
+    #
     # ---- genuinely dead outlets: never assigned from ANY override dict in
-    #      src/ (confirmed by grep across src/playlist*) -- either a
-    #      pace_mode-preset-only value (resolve_pace_mode is called WITHOUT an
-    #      overrides param in pipeline/core.py:362, so these can never be
-    #      influenced by pier_bridge.* config even though a preset->override
-    #      seam exists in the function signature) or a dataclass-default-only
-    #      constant with no override call site at all ----
-    "bpm_bridge_max_log_distance": None,
-    "bpm_bridge_soft_penalty_strength": None,
-    "bpm_trust_min_onset_rate": None,
-    "onset_bridge_max_log_distance": None,
-    "onset_bridge_soft_penalty_strength": None,
+    #      src/ (confirmed by grep across src/playlist*) -- dataclass-default-
+    #      only constants with no override call site at all ----
     "weight_end_start": None,
     "weight_mid_mid": None,
     "weight_full_full": None,

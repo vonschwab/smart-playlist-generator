@@ -159,10 +159,10 @@ def test_config_path_duration_mirror_fields_redirect_to_candidate_pool():
     # into pb_cfg -- so the flat playlists.ds_pipeline.pier_bridge.duration_*
     # path (which nothing ever reads) must redirect to the real
     # candidate_pool.* source, same pattern as center_transitions/
-    # transition_floor above. Unlike pace_bridge_floor, this is NOT a dead
-    # outlet -- nothing discards cfg.candidate.duration_* before pb_cfg sees
-    # it (empirically confirmed live: phase1_contract_knob_verdict.md's "RED
-    # root-cause resolutions").
+    # transition_floor above (and pace_bridge_floor, since the Phase 2 Task 4
+    # pace-plumb fix) -- nothing discards cfg.candidate.duration_* before
+    # pb_cfg sees it (empirically confirmed live: phase1_contract_knob_
+    # verdict.md's "RED root-cause resolutions").
     assert (
         perturb.config_path_for("playlist.pier_config.duration_penalty_enabled")
         == "playlists.ds_pipeline.candidate_pool.duration_penalty_enabled"
@@ -177,15 +177,17 @@ def test_config_path_duration_mirror_fields_redirect_to_candidate_pool():
     )
 
 
-def test_config_path_pace_bridge_floor_is_dead_outlet():
-    # Residue-fix (corrects the original fix-wave's redirect): pace_bridge_floor
-    # is NOT reachable from candidate_pool.* either -- pipeline/core.py:370-383
-    # unconditionally overwrites cfg.candidate.pace_bridge_floor from
-    # mode_presets.PACE_MODE_PRESETS (always 0.0) BEFORE the candidate_pool.*
-    # redirect's clobber-source is even consulted, and resolve_pace_mode is
-    # called without an overrides param (core.py:362) -- no yaml path reaches
-    # this field at all.
-    assert perturb.config_path_for("playlist.pier_config.pace_bridge_floor") is None
+def test_config_path_pace_bridge_floor_now_live_via_candidate_pool():
+    # Phase 2 Task 4 pace-plumb fix: core._resolve_pace_overrides threads
+    # candidate_pool.pace_bridge_floor into resolve_pace_mode(...)'s overrides
+    # dict, so it survives the cfg.candidate replace() that previously
+    # discarded it unconditionally. Re-activates the ORIGINAL fix-wave's
+    # redirect (which the residue-fix above had correctly reverted while the
+    # clobber was still live).
+    assert (
+        perturb.config_path_for("playlist.pier_config.pace_bridge_floor")
+        == "playlists.ds_pipeline.candidate_pool.pace_bridge_floor"
+    )
 
 
 def test_config_path_disallow_seed_artist_in_interiors_is_dead_outlet_for_artist_mode():
@@ -293,12 +295,26 @@ def test_config_path_base_name_mismatch_soft_genre_penalty():
     )
 
 
+def test_config_path_pace_bridge_side_fields_now_live_via_pier_bridge():
+    # Phase 2 Task 4 pace-plumb fix: these 5 were pace_mode-preset-only
+    # (resolve_pace_mode called without an overrides param); core.
+    # _resolve_pace_overrides now sources them straight from pb_overrides
+    # (same leaf name, no rename needed), so they fall through to the default
+    # flat playlists.ds_pipeline.pier_bridge.<leaf> mapping instead of None.
+    for leaf in (
+        "bpm_bridge_max_log_distance",
+        "bpm_bridge_soft_penalty_strength",
+        "bpm_trust_min_onset_rate",
+        "onset_bridge_max_log_distance",
+        "onset_bridge_soft_penalty_strength",
+    ):
+        assert (
+            perturb.config_path_for(f"playlist.pier_config.{leaf}")
+            == f"playlists.ds_pipeline.pier_bridge.{leaf}"
+        )
+
+
 def test_config_path_genuine_dead_outlets_map_to_none():
-    # Populated ONLY from mode_presets.PACE_MODE_PRESETS; resolve_pace_mode is
-    # called without an overrides param in pipeline/core.py:362, so no yaml
-    # path can reach these -- honestly mapped to None (unmapped), not a flat
-    # path that will always read did_not_resolve.
-    assert perturb.config_path_for("playlist.pier_config.bpm_bridge_max_log_distance") is None
     # Never assigned from any override dict anywhere in src/ (dataclass-default
     # only): weight_end_start / transition_calib_* / eta_destination_pull.
     assert perturb.config_path_for("playlist.pier_config.weight_end_start") is None
