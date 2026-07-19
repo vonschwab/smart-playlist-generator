@@ -180,6 +180,7 @@ def test_tail_dp_knobs_default_and_override():
     assert cfg.tail_dp_enabled is True
     assert cfg.tail_dp_epsilon == 0.02
     assert cfg.tail_dp_floor == 0.30
+    assert cfg.tail_dp_relative_epsilon == 0.25
 
     # mirror the invocation shape used by test_edge_repair_break_glass.py's
     # knob test (the real apply_pier_bridge_overrides signature).
@@ -187,7 +188,11 @@ def test_tail_dp_knobs_default_and_override():
         pier_bridge_config=PierBridgeConfig(),
         cfg=default_ds_config("dynamic", playlist_len=3),
         overrides={},
-        pb_overrides={"tail_dp": {"enabled": False, "epsilon": 0.05, "floor": 0.1}},
+        pb_overrides={
+            "tail_dp": {
+                "enabled": False, "epsilon": 0.05, "floor": 0.1, "relative_epsilon": 0.4,
+            },
+        },
         artist_playlist=False,
         dry_run=True,
         audit_cfg=None,
@@ -196,3 +201,4 @@ def test_tail_dp_knobs_default_and_override():
     assert pb_cfg.tail_dp_enabled is False
     assert pb_cfg.tail_dp_epsilon == 0.05
     assert pb_cfg.tail_dp_floor == 0.1
+    assert pb_cfg.tail_dp_relative_epsilon == 0.4

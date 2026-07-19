@@ -129,6 +129,17 @@ class PierBridgeConfig:
     tail_dp_epsilon: float = 0.02
     tail_dp_floor: float = 0.30  # weak-landing trigger: re-optimize a segment only
     # when its landing-window min-edge is below this. 0 = always-on. Spec 2026-07-02.
+    # RELATIVE trigger (Phase 2 Task 2, spec 2026-07-18): the effective floor
+    # becomes max(tail_dp_floor, segment_mean_T - tail_dp_relative_epsilon), so a
+    # landing that clears the absolute floor but sits well below its OWN
+    # segment's achievable level still re-opens the search. Evidence: Parquet
+    # Courts segment 4's worst edge (0.394) cleared tail_dp_floor=0.3 while a
+    # ~0.7-0.8-class connector sat unused in the same admitted pool; healthy
+    # segments' internal T spread runs ~0.10-0.15, so 0.25 targets "meaningfully
+    # below the segment's own level" without over-firing on normal variance. See
+    # docs/corridor_baseline/phase2_mechanism_probes.md. 0.0 = legacy
+    # absolute-only behavior (rollback).
+    tail_dp_relative_epsilon: float = 0.25
     # Layered genre graph transition scoring (opt-in; default OFF).
     # Uses sidecar-derived leaf/family/bridge/facet matrices when present on
     # the artifact bundle. This is separate from legacy flat genre steering.
@@ -331,6 +342,16 @@ class PierBridgeConfig:
     # Break-glass weak-edge trigger: repair edges with T below this (0 = legacy
     # anti-alignment-only). Aligned with variable_bridge_min_edge. Spec 2026-07-01.
     edge_repair_t_floor: float = 0.30
+    # RELATIVE trigger (Phase 2 Task 2, spec 2026-07-18): the effective floor
+    # becomes max(edge_repair_t_floor, playlist_mean_T - edge_repair_relative_epsilon),
+    # so an edge that clears the absolute floor but sits well below the whole
+    # playlist's own achievable level is still considered repair-worthy.
+    # Evidence: SADE/home's weakest edge (0.454, the segment's FIRST edge --
+    # structurally unreachable by tail-DP) cleared edge_repair_t_floor=0.3 while
+    # a fully-admitted 0.697-class connector went unused. Same 0.25 default and
+    # rollback semantics as tail_dp_relative_epsilon (0.0 = legacy absolute-only).
+    # See docs/corridor_baseline/phase2_mechanism_probes.md.
+    edge_repair_relative_epsilon: float = 0.25
     edge_repair_margin: float = 0.05
     edge_repair_variety_guard_enabled: bool = False
     edge_repair_variety_guard_threshold: float = 0.85

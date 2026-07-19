@@ -141,6 +141,7 @@ from src.playlist.transition_metrics import (
     score_transition_edge,
 )
 from src.playlist.pier_bridge.tail_dp import optimize_segment_tail
+from src.playlist.pier_bridge.repair_triggers import compute_relative_trigger_floor
 
 # Phase 1 Task 3: corridor segment pooling (dev flag, default off -- see
 # PierBridgeConfig.pooling). build_corridor / build_eligible_universe are pure
@@ -3087,6 +3088,34 @@ def build_pier_bridge_playlist(
                     except Exception:
                         return False
 
+                # Relative trigger (Phase 2 Task 2): the effective floor is
+                # max(tail_dp_floor, segment_mean_T - tail_dp_relative_epsilon),
+                # so a landing that clears the absolute floor but sits well
+                # below its OWN segment's realized level still re-opens the
+                # search (docs/corridor_baseline/phase2_mechanism_probes.md --
+                # PC seg 4's 0.394 cleared tail_dp_floor=0.3 with an unused
+                # ~0.7-0.8-class connector in-pool). segment_mean_T reads the
+                # SAME currency (score_transition_edge's "T") as old_min inside
+                # optimize_segment_tail, computed over the pre-swap segment
+                # path so the reference isn't polluted by the swap it may gate.
+                _td_full_segment_pre = [int(pier_a)] + [int(i) for i in segment_path] + [int(pier_b)]
+                _, td_segment_mean_T = _compute_edge_scores(
+                    _td_full_segment_pre, X_full_tr_norm, X_start_tr_norm, X_mid_tr_norm,
+                    X_end_tr_norm, cfg, metric_context=transition_metric_context,
+                )
+                td_trigger = compute_relative_trigger_floor(
+                    base_floor=float(getattr(cfg, "tail_dp_floor", 0.30)),
+                    reference_mean=float(td_segment_mean_T),
+                    relative_epsilon=float(getattr(cfg, "tail_dp_relative_epsilon", 0.25)),
+                )
+                logger.debug(
+                    "Tail-DP seg %d: trigger floor=%.3f (source=%s, base=%.2f, "
+                    "relative_threshold=%.3f, segment_mean_T=%.3f)",
+                    seg_idx, td_trigger.effective_floor, td_trigger.source,
+                    float(getattr(cfg, "tail_dp_floor", 0.30)), td_trigger.relative_threshold,
+                    float(td_segment_mean_T),
+                )
+
                 td_swap = optimize_segment_tail(
                     transition_metric_context,
                     segment_path=segment_path,
@@ -3095,7 +3124,7 @@ def build_pier_bridge_playlist(
                     candidates=td_candidates,
                     epsilon=float(getattr(cfg, "tail_dp_epsilon", 0.02)),
                     is_allowed_pair=_tail_dp_is_allowed_pair,
-                    floor=float(getattr(cfg, "tail_dp_floor", 0.30)),
+                    floor=float(td_trigger.effective_floor),
                 )
                 if td_swap is not None:
                     td_old_tail = tuple(int(i) for i in segment_path[-td_window:])
@@ -3108,12 +3137,15 @@ def build_pier_bridge_playlist(
                         td_old_ids = [str(i) for i in td_old_tail]
                         td_new_ids = [str(i) for i in td_swap.new_tail]
                     logger.info(
-                        "Tail-DP seg %d: window min %.3f -> %.3f (swapped [%s] -> [%s])",
+                        "Tail-DP seg %d: window min %.3f -> %.3f (swapped [%s] -> [%s]) "
+                        "[trigger=%s floor=%.3f]",
                         seg_idx,
                         float(td_swap.old_min),
                         float(td_swap.new_min),
                         ", ".join(td_old_ids),
                         ", ".join(td_new_ids),
+                        td_trigger.source,
+                        float(td_trigger.effective_floor),
                     )
             except Exception:
                 logger.warning(
@@ -3485,6 +3517,33 @@ def build_pier_bridge_playlist(
         # final corridor members (see corridor_segment_members_union's own
         # comment above).
         _repair_candidate_indices = sorted(corridor_segment_members_union)
+
+        # Relative trigger (Phase 2 Task 2): the effective floor is
+        # max(edge_repair_t_floor, playlist_mean_T - edge_repair_relative_epsilon),
+        # computed ONCE over the pre-repair playlist so an edge that clears the
+        # absolute floor but sits well below the playlist's own achievable
+        # level is still repair-worthy (docs/corridor_baseline/
+        # phase2_mechanism_probes.md -- SADE/home's 0.454 first-edge cleared
+        # edge_repair_t_floor=0.3 with an unused 0.697-class connector already
+        # admitted). playlist_mean_T reads the same "T" currency _needs_repair
+        # compares against, via the same score_transition_edge path.
+        _, _er_playlist_mean_T = _compute_edge_scores(
+            list(final_indices), X_full_tr_norm, X_start_tr_norm, X_mid_tr_norm,
+            X_end_tr_norm, cfg, metric_context=transition_metric_context,
+        )
+        er_trigger = compute_relative_trigger_floor(
+            base_floor=float(getattr(cfg, "edge_repair_t_floor", 0.30)),
+            reference_mean=float(_er_playlist_mean_T),
+            relative_epsilon=float(getattr(cfg, "edge_repair_relative_epsilon", 0.25)),
+        )
+        logger.debug(
+            "Edge repair: trigger floor=%.3f (source=%s, base=%.2f, "
+            "relative_threshold=%.3f, playlist_mean_T=%.3f)",
+            er_trigger.effective_floor, er_trigger.source,
+            float(getattr(cfg, "edge_repair_t_floor", 0.30)), er_trigger.relative_threshold,
+            float(_er_playlist_mean_T),
+        )
+
         repair_result = repair_playlist_edges(
             final_indices=final_indices,
             candidate_indices=_repair_candidate_indices,
@@ -3501,8 +3560,10 @@ def build_pier_bridge_playlist(
             variety_guard_threshold=float(getattr(cfg, "edge_repair_variety_guard_threshold", 0.85)),
             max_non_seed_tracks_per_artist=getattr(cfg, "max_non_seed_tracks_per_artist", None),
             artist_identity_cfg=artist_identity_cfg,
-            t_floor=float(getattr(cfg, "edge_repair_t_floor", 0.30)),
+            t_floor=float(er_trigger.effective_floor),
             min_gap=int(min_gap),
+            trigger_floor_source=er_trigger.source,
+            relative_threshold=float(er_trigger.relative_threshold),
         )
         edge_repair_swap_log = list(repair_result.swap_log)
         if list(repair_result.indices) != list(final_indices):

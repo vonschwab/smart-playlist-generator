@@ -305,6 +305,11 @@ playlists:
         enabled: true
         epsilon: 0.02
         floor: 0.3
+        # Relative trigger (Phase 2 Task 2, spec 2026-07-18, live default ON):
+        # effective floor = max(floor, segment_mean_T - relative_epsilon).
+        # 0.0 = legacy absolute-only rollback. See
+        # docs/corridor_baseline/phase2_mechanism_probes.md.
+        relative_epsilon: 0.25
       # Break-glass edge repair (spec 2026-07-02, live default ON): after tail-DP, if an
       # edge is STILL below t_floor (or centered_cos below centered_cos_floor), try
       # swapping the weaker interior endpoint for a pool candidate that lifts the edge —
@@ -316,6 +321,11 @@ playlists:
         enabled: true
         margin: 0.05
         t_floor: 0.3
+        # Relative trigger (Phase 2 Task 2, spec 2026-07-18, live default ON):
+        # effective floor = max(t_floor, playlist_mean_T - relative_epsilon).
+        # 0.0 = legacy absolute-only rollback. See
+        # docs/corridor_baseline/phase2_mechanism_probes.md.
+        relative_epsilon: 0.25
         variety_guard:
           enabled: false
           threshold: 0.85

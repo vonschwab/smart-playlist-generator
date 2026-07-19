@@ -145,15 +145,17 @@ def test_edge_repair_t_floor_default_and_override():
     from src.playlist.pipeline.pier_bridge_overrides import apply_pier_bridge_overrides
 
     assert PierBridgeConfig().edge_repair_t_floor == 0.30
+    assert PierBridgeConfig().edge_repair_relative_epsilon == 0.25
 
     pb_cfg, _tuning, _sources = apply_pier_bridge_overrides(
         pier_bridge_config=PierBridgeConfig(),
         cfg=default_ds_config("dynamic", playlist_len=3),
         overrides={},
-        pb_overrides={"edge_repair": {"t_floor": 0.42}},
+        pb_overrides={"edge_repair": {"t_floor": 0.42, "relative_epsilon": 0.35}},
         artist_playlist=False,
         dry_run=True,
         audit_cfg=None,
     )
 
     assert pb_cfg.edge_repair_t_floor == 0.42
+    assert pb_cfg.edge_repair_relative_epsilon == 0.35

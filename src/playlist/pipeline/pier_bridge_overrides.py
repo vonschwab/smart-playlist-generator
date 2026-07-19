@@ -263,6 +263,8 @@ def apply_pier_bridge_overrides(
             pb_cfg = replace(pb_cfg, tail_dp_epsilon=float(tail_dp.get("epsilon")))
         if isinstance(tail_dp.get("floor"), (int, float)):
             pb_cfg = replace(pb_cfg, tail_dp_floor=float(tail_dp.get("floor")))
+        if isinstance(tail_dp.get("relative_epsilon"), (int, float)):
+            pb_cfg = replace(pb_cfg, tail_dp_relative_epsilon=float(tail_dp.get("relative_epsilon")))
 
     edge_repair = pb_overrides.get("edge_repair")
     if isinstance(edge_repair, dict):
@@ -277,6 +279,10 @@ def apply_pier_bridge_overrides(
             pb_cfg = replace(pb_cfg, edge_repair_margin=float(edge_repair.get("margin")))
         if isinstance(edge_repair.get("t_floor"), (int, float)):
             pb_cfg = replace(pb_cfg, edge_repair_t_floor=float(edge_repair.get("t_floor")))
+        if isinstance(edge_repair.get("relative_epsilon"), (int, float)):
+            pb_cfg = replace(
+                pb_cfg, edge_repair_relative_epsilon=float(edge_repair.get("relative_epsilon")),
+            )
         variety_guard = edge_repair.get("variety_guard")
         if isinstance(variety_guard, dict):
             if isinstance(variety_guard.get("enabled"), bool):

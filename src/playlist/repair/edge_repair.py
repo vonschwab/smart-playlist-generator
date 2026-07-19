@@ -293,6 +293,8 @@ def repair_playlist_edges(
     artist_identity_cfg: Optional[ArtistIdentityConfig] = None,
     t_floor: float = 0.0,
     min_gap: int = 0,
+    trigger_floor_source: str = "absolute",
+    relative_threshold: Optional[float] = None,
 ) -> EdgeRepairResult:
     """Best-effort swap of interior tracks to lift weak/broken adjacent transitions.
 
@@ -301,6 +303,15 @@ def repair_playlist_edges(
     adjacent edge may still end lower than before (bounded below by
     old_worst + margin). Edges triggered only as a side-effect of a later swap
     are not re-enqueued this pass.
+
+    ``t_floor`` is expected pre-resolved by the caller (Phase 2 Task 2: the
+    caller computes max(edge_repair_t_floor, playlist_mean_T -
+    edge_repair_relative_epsilon) via ``compute_relative_trigger_floor`` and
+    passes the resolved value here -- this function's own trigger logic
+    (``_needs_repair``) is unchanged). ``trigger_floor_source`` /
+    ``relative_threshold`` are diagnostic-only passthroughs for the summary
+    log, so the measurability rule (state WHICH trigger fired) is satisfied
+    without this module needing to know about segment/playlist means itself.
     """
 
     indices = [int(i) for i in final_indices]
@@ -443,8 +454,11 @@ def repair_playlist_edges(
 
     if repair_edge_position is None and edges_triggered:
         logger.info(
-            "Edge repair summary: triggered=%d repaired=%d left_alone=%d (t_floor=%.2f)",
+            "Edge repair summary: triggered=%d repaired=%d left_alone=%d "
+            "(t_floor=%.2f trigger=%s relative_threshold=%s)",
             edges_triggered, edges_repaired, edges_triggered - edges_repaired, float(t_floor),
+            str(trigger_floor_source),
+            f"{float(relative_threshold):.3f}" if relative_threshold is not None else "n/a",
         )
 
     return EdgeRepairResult(indices=indices, swap_log=swap_log)
