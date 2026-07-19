@@ -63,10 +63,10 @@ def test_sonic_prototype_raises_ambient_pier_affinity(bundle):
     aff_vec = _sonic_tag_affinity(bundle, tags)
     cfg = ArtistStyleConfig(enabled=True, medoid_tag_weight=0.3)
 
-    _, med_base, _, _ = cluster_artist_tracks(
+    _, med_base, _, _, _ = cluster_artist_tracks(
         bundle=bundle, artist_name="Brian Eno", cfg=cfg, random_seed=0,
         medoid_top_k=10, steering_target=target, metadata_db_path=DB)
-    _, med_sonic, _, _ = cluster_artist_tracks(
+    _, med_sonic, _, _, _ = cluster_artist_tracks(
         bundle=bundle, artist_name="Brian Eno", cfg=cfg, random_seed=0,
         medoid_top_k=10, steering_target=target, metadata_db_path=DB,
         sonic_tag_affinity=aff_vec, sonic_tag_weight=0.5)
@@ -137,10 +137,10 @@ def test_no_sonic_affinity_is_byte_identical_piers(bundle):
     target, _, _ = resolve_tag_steering_target(
         tags, genre_vocab=[str(v) for v in bundle.genre_vocab], genre_emb=bundle.genre_emb)
     cfg = ArtistStyleConfig(enabled=True, medoid_tag_weight=0.3)
-    _, med_a, _, _ = cluster_artist_tracks(
+    _, med_a, _, _, _ = cluster_artist_tracks(
         bundle=bundle, artist_name="Brian Eno", cfg=cfg, random_seed=0,
         medoid_top_k=10, steering_target=target, metadata_db_path=DB)
-    _, med_b, _, _ = cluster_artist_tracks(
+    _, med_b, _, _, _ = cluster_artist_tracks(
         bundle=bundle, artist_name="Brian Eno", cfg=cfg, random_seed=0,
         medoid_top_k=10, steering_target=target, metadata_db_path=DB,
         sonic_tag_affinity=None, sonic_tag_weight=0.5)

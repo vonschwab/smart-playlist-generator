@@ -9,12 +9,15 @@ from src.playlist.artist_style import (
     build_genre_neighbor_candidate_pool,
     cluster_artist_tracks,
     order_clusters,
+    reorder_avoiding_low_support_terminal,
+    compute_within_artist_support,
     _finite_median,
     _robust_energy_span,
     _slot_targets_by_quantile,
     _slot_proximity,
     _medoids_for_cluster,
     _dedupe_artist_indices,
+    _support_penalty,
     load_artist_energy_values,
     compute_pier_bridgeability,
     seed_genre_relevance_mask,
@@ -58,7 +61,7 @@ def test_selects_multiple_clusters_and_medoids():
     ])
     bundle = DummyBundle(X_sonic=X, artist_keys=artist_keys, track_ids=track_ids)
     cfg = ArtistStyleConfig(cluster_k_min=2, cluster_k_max=2, piers_per_cluster=1, enabled=True)
-    clusters, medoids, medoids_by_cluster, X_norm = cluster_artist_tracks(
+    clusters, medoids, medoids_by_cluster, X_norm, _support = cluster_artist_tracks(
         bundle=bundle,
         artist_name="A",
         cfg=cfg,
@@ -673,7 +676,7 @@ def test_cluster_artist_tracks_energy_runs_and_returns_medoids():
         cluster_k_min=2, cluster_k_max=2, enabled=True, medoid_energy_weight=5.0
     )
     energy = np.array([2.0, -2.0, 0.0, 2.0, -2.0, 0.0])
-    clusters, medoids, by_cluster, X_norm = cluster_artist_tracks(
+    clusters, medoids, by_cluster, X_norm, _support = cluster_artist_tracks(
         bundle=bundle, artist_name="A", cfg=cfg, random_seed=0, energy_values=energy
     )
     assert len(clusters) == 2
@@ -1216,7 +1219,7 @@ def _cfg_bridge(**kw):
 
 def test_outlier_cluster_contributes_no_piers_and_slots_reallocate():
     bundle = _bridgeability_fixture()
-    clusters, medoids, by_cluster, X_norm = cluster_artist_tracks(
+    clusters, medoids, by_cluster, X_norm, _support = cluster_artist_tracks(
         bundle=bundle, artist_name="A", cfg=_cfg_bridge(), random_seed=0,
         medoid_top_k=2, target_pier_count=4,
     )
@@ -1363,7 +1366,7 @@ def test_genre_gate_vetoes_collapse_outlier_that_library_wide_missed():
     # genre_floor gates the junk. Cluster B (~e1) is sonically ~1.0 with junk rows
     # (10-14) but those are genre-incompatible -> masked -> B has no eligible
     # neighbors -> vetoed; cluster A keeps its on-genre neighbors -> survives.
-    clusters, medoids, by_cluster, X_norm = cluster_artist_tracks(
+    clusters, medoids, by_cluster, X_norm, _support = cluster_artist_tracks(
         bundle=bundle, artist_name="A",
         cfg=_cfg_bridge(pier_bridgeability_genre_floor=0.30), random_seed=0,
         medoid_top_k=2, target_pier_count=4)
@@ -1371,7 +1374,7 @@ def test_genre_gate_vetoes_collapse_outlier_that_library_wide_missed():
     assert all(m in {0, 1, 2} for m in medoids)     # every pier from cluster A (~e0)
     # Control: WITHOUT the genre gate (floor 0.0 => all eligible), B's junk neighbors
     # rescue it -> both clusters contribute (proves the GATE, not the geometry, vetoed B).
-    _, _, by_ungated, _ = cluster_artist_tracks(
+    _, _, by_ungated, _, _ = cluster_artist_tracks(
         bundle=bundle, artist_name="A",
         cfg=_cfg_bridge(pier_bridgeability_genre_floor=0.0), random_seed=0,
         medoid_top_k=2, target_pier_count=4)
@@ -1381,3 +1384,185 @@ def test_genre_gate_vetoes_collapse_outlier_that_library_wide_missed():
 def test_artist_style_config_has_genre_floor_default():
     cfg = ArtistStyleConfig()
     assert cfg.pier_bridgeability_genre_floor == 0.30
+
+
+# ---------------------------------------------------------------------------
+# Corridor Phase 2 Task 3: support-aware pier demotion + arc-aware ordering
+# ---------------------------------------------------------------------------
+
+def test_artist_style_config_has_support_defaults():
+    cfg = ArtistStyleConfig()
+    assert cfg.pier_support_enabled is True          # live default (activate-fixes rule)
+    assert cfg.pier_support_k == 10
+    assert cfg.pier_support_demotion_strength == 1.0
+    assert cfg.pier_support_floor == 0.50
+    assert cfg.pier_support_terminal_avoidance is True
+
+
+def test_support_penalty_zero_when_typical_or_above():
+    assert _support_penalty(1.0, strength=1.0) == 0.0
+    assert _support_penalty(1.5, strength=1.0) == 0.0   # above-typical never promoted
+
+
+def test_support_penalty_grows_linearly_below_typical():
+    assert _support_penalty(0.7, strength=1.0) == pytest.approx(0.3)
+    assert _support_penalty(0.5, strength=1.0) == pytest.approx(0.5)
+    # scaled by strength
+    assert _support_penalty(0.5, strength=0.5) == pytest.approx(0.25)
+
+
+def test_support_penalty_inert_when_strength_zero():
+    assert _support_penalty(0.1, strength=0.0) == 0.0
+
+
+def test_compute_within_artist_support_uniform_cluster_near_one():
+    # 4 tightly-clustered same-artist tracks: everyone's kNN density is close to
+    # everyone else's -> relative support ~= 1.0 for all (typical for itself).
+    e = np.eye(3)
+    rows = [e[0], e[0] * 0.98 + e[1] * 0.02, e[0] * 0.97 - e[1] * 0.02, e[0] * 0.99 + e[1] * 0.01]
+    Xn = _unit_rows(rows)
+    support = compute_within_artist_support(Xn, [0, 1, 2, 3], k=2)
+    for v in support.values():
+        assert v == pytest.approx(1.0, abs=0.05)
+
+
+def test_compute_within_artist_support_flags_off_character_track():
+    # 4 same-artist tracks tightly clustered near e0, 1 off-character track (idx 4)
+    # near e1 -- sonically far from the REST of this artist's own catalog (the
+    # off-character-EP-track shape from the probe: Parquet Courts "Into the
+    # garden", Swirlies "His Life of Academic Freedom").
+    e = np.eye(3)
+    rows = [e[0], e[0] * 0.95 + e[1] * 0.1, e[0] * 0.9 - e[1] * 0.1, e[0] * 0.92 + e[1] * 0.05, e[1]]
+    Xn = _unit_rows(rows)
+    support = compute_within_artist_support(Xn, [0, 1, 2, 3, 4], k=2)
+    assert support[4] < 0.5   # far sparser than its artist-typical (~1.0) peers
+    assert all(support[i] > 0.9 for i in (0, 1, 2, 3))
+
+
+def test_compute_within_artist_support_single_track_inert():
+    Xn = _unit_rows([[1.0, 0.0]])
+    assert compute_within_artist_support(Xn, [0], k=10) == {0: 1.0}
+
+
+def test_medoids_for_cluster_support_demotes_sparse_candidate():
+    # Candidate 1 scores HIGHER on raw sim-to-centroid than candidate 0, but has
+    # low support -- with support demotion on, candidate 0 should win instead.
+    X = _unit_rows([[1.0, 0.02], [1.0, 0.0]])   # both near-identical sim to centroid
+    centroid = X[1]  # favors candidate 1 slightly (exact match)
+    rng = np.random.default_rng(0)
+    without = _medoids_for_cluster(
+        X, [0, 1], centroid, np.array(["t0", "t1"]), per_cluster=1, rng=rng, top_k=1,
+        support_weight=0.0, support_values=np.array([1.0, 0.1]),
+    )
+    rng2 = np.random.default_rng(0)
+    with_demotion = _medoids_for_cluster(
+        X, [0, 1], centroid, np.array(["t0", "t1"]), per_cluster=1, rng=rng2, top_k=1,
+        support_weight=5.0, support_values=np.array([1.0, 0.1]),
+    )
+    assert without == [1]            # without demotion: raw-similarity winner (candidate 1)
+    assert with_demotion == [0]      # candidate 1's low support (0.1) demotes it below 0
+
+
+def test_medoids_for_cluster_support_weight_zero_is_byte_identical():
+    X = _unit_rows([[1.0, 0.02], [1.0, 0.0]])
+    centroid = X[1]
+    rng_a = np.random.default_rng(0)
+    a = _medoids_for_cluster(
+        X, [0, 1], centroid, np.array(["t0", "t1"]), per_cluster=1, rng=rng_a, top_k=1,
+    )
+    rng_b = np.random.default_rng(0)
+    b = _medoids_for_cluster(
+        X, [0, 1], centroid, np.array(["t0", "t1"]), per_cluster=1, rng=rng_b, top_k=1,
+        support_weight=0.0, support_values=np.array([0.01, 1.0]),
+    )
+    assert a == b
+
+
+def test_medoids_for_cluster_support_misaligned_array_warns_and_skips(caplog):
+    X = _unit_rows([[1.0, 0.02], [1.0, 0.0]])
+    centroid = X[1]
+    rng = np.random.default_rng(0)
+    with caplog.at_level("WARNING"):
+        result = _medoids_for_cluster(
+            X, [0, 1], centroid, np.array(["t0", "t1"]), per_cluster=1, rng=rng, top_k=1,
+            support_weight=5.0, support_values=np.array([0.1]),   # wrong length
+        )
+    assert result == [1]   # falls back to unpenalized ranking, never crashes
+    assert any("support_values" in r.message for r in caplog.records)
+
+
+def _order_fixture():
+    """4 piers on a rough path X-Y-Z-W (X_norm rows) -- see the probe/report for
+    the derivation. Default greedy walk from X seats W (deliberately the
+    lowest-support pier) at the closing (terminal) seat; an alternate start
+    (Z) finds a walk that seats W in the interior instead."""
+    def unit(v):
+        v = np.array(v, dtype=float)
+        return v / np.linalg.norm(v)
+    X = unit([1, 0, 0, 0])
+    Y = unit([0.9, 0.44, 0, 0])
+    Z = unit([0, 0.3, 0.85, 0])
+    W = unit([0, 0, 0.9, 0.1])
+    return np.stack([X, Y, Z, W])
+
+
+def test_order_clusters_start_param_defaults_to_first_backward_compatible():
+    Xn = _order_fixture()
+    assert order_clusters([0, 1, 2, 3], Xn) == order_clusters([0, 1, 2, 3], Xn, start=None)
+    assert order_clusters([0, 1, 2, 3], Xn)[0] == 0
+
+
+def test_reorder_avoiding_low_support_terminal_moves_worst_off_end():
+    Xn = _order_fixture()
+    order = order_clusters([0, 1, 2, 3], Xn)
+    assert order[-1] == 3   # today's (pre-Task-3) behavior: W lands terminal
+    support = {0: 1.0, 1: 1.0, 2: 1.0, 3: 0.3}   # W (idx 3) is the outlier pier
+    result, changed = reorder_avoiding_low_support_terminal(order, support, Xn)
+    assert changed is True
+    assert result[0] != 3 and result[-1] != 3
+    assert set(result) == set(order)   # same pier set, no piers dropped or duplicated
+
+
+def test_reorder_avoiding_low_support_terminal_noop_when_already_interior():
+    Xn = _order_fixture()
+    order = order_clusters([0, 1, 2, 3], Xn)   # [0, 1, 2, 3]
+    support = {0: 1.0, 1: 0.2, 2: 1.0, 3: 1.0}   # worst (idx 1) already interior
+    result, changed = reorder_avoiding_low_support_terminal(order, support, Xn)
+    assert changed is False
+    assert result == order
+
+
+def test_reorder_avoiding_low_support_terminal_too_few_piers_noop():
+    Xn = _order_fixture()[:2]
+    support = {0: 1.0, 1: 0.1}
+    result, changed = reorder_avoiding_low_support_terminal([0, 1], support, Xn)
+    assert changed is False
+    assert result == [0, 1]
+
+
+def test_reorder_avoiding_low_support_terminal_no_freedom_keeps_original():
+    # 3-node case: C isolated from both A and B -> no Hamiltonian re-walk over
+    # this SAME greedy algorithm can avoid seating C terminal. Never fails --
+    # falls back to the original order.
+    def unit(v):
+        v = np.array(v, dtype=float)
+        return v / np.linalg.norm(v)
+    A = unit([1, 0, 0])
+    B = unit([0.9, 0.44, 0])
+    C = unit([0, 0, 1])
+    Xn = np.stack([A, B, C])
+    order = order_clusters([0, 1, 2], Xn)
+    support = {0: 1.0, 1: 1.0, 2: 0.2}
+    result, changed = reorder_avoiding_low_support_terminal(order, support, Xn)
+    assert changed is False
+    assert result == order
+
+
+def test_reorder_avoiding_low_support_terminal_tie_break_deterministic():
+    Xn = _order_fixture()
+    order = order_clusters([0, 1, 2, 3], Xn)
+    # 0 and 3 tie at the lowest support; tie breaks to the EARLIER position (0).
+    support = {0: 0.2, 1: 1.0, 2: 1.0, 3: 0.2}
+    result, changed = reorder_avoiding_low_support_terminal(order, support, Xn)
+    assert changed is True
+    assert result[0] != 0 and result[-1] != 0

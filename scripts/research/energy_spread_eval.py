@@ -86,7 +86,7 @@ def _seed_energies(
         kw = {"cluster_k_min": num_seeds, "cluster_k_max": num_seeds}
     cfg = ArtistStyleConfig(enabled=True, medoid_energy_weight=energy_weight, **kw)
     try:
-        _clusters, medoids, _by, _X = cluster_artist_tracks(
+        _clusters, medoids, _by, _X, _support = cluster_artist_tracks(
             bundle=bundle, artist_name=artist, cfg=cfg, random_seed=0,
             energy_values=energy if energy_weight > 0 else None,
         )

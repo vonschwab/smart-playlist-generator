@@ -49,7 +49,7 @@ def test_skew_raises_pier_affinity(bundle):
     # plus medoid_tag_weight=0.3; leave the rest at their dataclass defaults.
     style_cfg = ArtistStyleConfig(enabled=True, medoid_tag_weight=0.3)
 
-    clusters, medoids, medoids_by_cluster, X_norm = cluster_artist_tracks(
+    clusters, medoids, medoids_by_cluster, X_norm, _support = cluster_artist_tracks(
         bundle=bundle,
         artist_name="Real Estate",
         cfg=style_cfg,

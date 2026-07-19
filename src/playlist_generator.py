@@ -19,6 +19,7 @@ from src.playlist.artist_style import (
     build_genre_neighbor_candidate_pool,
     cluster_artist_tracks,
     order_clusters,
+    reorder_avoiding_low_support_terminal,
     select_popular_piers,
     _select_k,
     _artist_indices_in_bundle,
@@ -194,15 +195,33 @@ def _resolve_popular_seeds_mode(popular_seeds_mode: str, popularity_mode: str) -
     return m if m in {"off", "on", "fire"} else "off"
 
 
-def _cap_order(medoids: List[int], X_norm: np.ndarray, target: int) -> List[int]:
+def _cap_order(
+    medoids: List[int],
+    X_norm: np.ndarray,
+    target: int,
+    support_by_index: Optional[Dict[int, float]] = None,
+) -> List[int]:
     """Sequence medoids in sonic space and cap to target_pier_count (avoids ceiling
-    overshoot, e.g. 5 clusters x ceil(6/5)=2 per cluster = 10 when we want 6)."""
+    overshoot, e.g. 5 clusters x ceil(6/5)=2 per cluster = 10 when we want 6).
+
+    ``support_by_index``, when given (i.e. ``pier_support_terminal_avoidance``
+    is on), applies the Task 3 arc-aware ordering tie-break AFTER capping — the
+    terminal seats are defined by the FINAL (capped) pier sequence, not the
+    pre-cap candidate set."""
     ordered = order_clusters(medoids, X_norm)
     if len(ordered) > target:
         logger.info(
             "Capping medoids from %d to target_pier_count=%d", len(ordered), target,
         )
         ordered = ordered[:target]
+    if support_by_index is not None:
+        ordered, changed = reorder_avoiding_low_support_terminal(ordered, support_by_index, X_norm)
+        if changed:
+            logger.info(
+                "Arc-aware ordering: moved the lowest-support pier off the terminal seat "
+                "(support=%.3f) via an alternate sonic-order start",
+                min(support_by_index.get(i, 1.0) for i in ordered),
+            )
     return ordered
 
 
@@ -1792,6 +1811,11 @@ class PlaylistGenerator:
             pier_bridgeability_floor_t=float(style_cfg_raw.get("pier_bridgeability_floor_t", 0.30)),
             pier_bridgeability_k=int(style_cfg_raw.get("pier_bridgeability_k", 10)),
             pier_bridgeability_genre_floor=float(style_cfg_raw.get("pier_bridgeability_genre_floor", 0.30)),
+            pier_support_enabled=bool(style_cfg_raw.get("pier_support_enabled", True)),
+            pier_support_k=int(style_cfg_raw.get("pier_support_k", 10)),
+            pier_support_demotion_strength=float(style_cfg_raw.get("pier_support_demotion_strength", 1.0)),
+            pier_support_floor=float(style_cfg_raw.get("pier_support_floor", 0.50)),
+            pier_support_terminal_avoidance=bool(style_cfg_raw.get("pier_support_terminal_avoidance", True)),
         )
         playlists_cfg = self.config.config.get("playlists", {}) or {}
         cohesion_mode_effective = cohesion_mode_override or ("dynamic" if dynamic else resolve_cohesion_mode(playlists_cfg))
@@ -2040,7 +2064,7 @@ class PlaylistGenerator:
                     logger.warning(
                         "Tag-first piers enabled but X_genre_dense absent — legacy pier selection.")
 
-                clusters, medoids, medoids_by_cluster, X_norm = cluster_artist_tracks(
+                clusters, medoids, medoids_by_cluster, X_norm, support_by_index = cluster_artist_tracks(
                     bundle=bundle,
                     artist_name=artist_name,
                     cfg=style_cfg,
@@ -2055,6 +2079,9 @@ class PlaylistGenerator:
                     sonic_tag_weight=sonic_tag_weight,
                     target_pier_count=target_pier_count,
                     restrict_to_track_ids=_M_ids,
+                )
+                _terminal_avoidance_support = (
+                    support_by_index if style_cfg.pier_support_terminal_avoidance else None
                 )
                 # 🔥 Pure-hits piers: override cluster medoids with the artist's top-N
                 # most-popular tracks (selection only — order_clusters still sequences them).
@@ -2099,7 +2126,9 @@ class PlaylistGenerator:
                             "Tag-first piers (ON): no popular piers resolved within on-tag "
                             "members — falling back to cluster-medoid piers",
                         )
-                    ordered_medoids = _cap_order(medoids, X_norm, target_pier_count)
+                    ordered_medoids = _cap_order(
+                        medoids, X_norm, target_pier_count, _terminal_avoidance_support
+                    )
                 elif (
                     steering_target is not None
                     and popular_seeds_mode != "fire"
@@ -2126,6 +2155,15 @@ class PlaylistGenerator:
                         medoids_by_cluster, cluster_affinities, target_pier_count, pier_tag_skew,
                     )
                     ordered_medoids = order_clusters(selected, X_norm)
+                    if _terminal_avoidance_support is not None:
+                        ordered_medoids, _changed = reorder_avoiding_low_support_terminal(
+                            ordered_medoids, _terminal_avoidance_support, X_norm
+                        )
+                        if _changed:
+                            logger.info(
+                                "Arc-aware ordering: moved the lowest-support pier off the "
+                                "terminal seat (tag-steering allocation path)",
+                            )
                     logger.info(
                         "Tag steering pier allocation: skew=%.2f cluster_affinities=%s selected=%d/%d",
                         pier_tag_skew,
@@ -2133,7 +2171,9 @@ class PlaylistGenerator:
                         len(selected), len(medoids),
                     )
                 else:
-                    ordered_medoids = _cap_order(medoids, X_norm, target_pier_count)
+                    ordered_medoids = _cap_order(
+                        medoids, X_norm, target_pier_count, _terminal_avoidance_support
+                    )
 
                 ordered_medoids = self._filter_title_excluded_bundle_indices(
                     bundle,
@@ -3073,6 +3113,11 @@ class PlaylistGenerator:
                 pier_bridgeability_floor_t=float(style_cfg_raw.get("pier_bridgeability_floor_t", 0.30)),
                 pier_bridgeability_k=int(style_cfg_raw.get("pier_bridgeability_k", 10)),
                 pier_bridgeability_genre_floor=float(style_cfg_raw.get("pier_bridgeability_genre_floor", 0.30)),
+                pier_support_enabled=bool(style_cfg_raw.get("pier_support_enabled", True)),
+                pier_support_k=int(style_cfg_raw.get("pier_support_k", 10)),
+                pier_support_demotion_strength=float(style_cfg_raw.get("pier_support_demotion_strength", 1.0)),
+                pier_support_floor=float(style_cfg_raw.get("pier_support_floor", 0.50)),
+                pier_support_terminal_avoidance=bool(style_cfg_raw.get("pier_support_terminal_avoidance", True)),
             )
             playlists_cfg = self.config.config.get("playlists", {}) or {}
             cohesion_mode_effective = cohesion_mode_override or ("dynamic" if dynamic else resolve_cohesion_mode(playlists_cfg))
@@ -3115,7 +3160,7 @@ class PlaylistGenerator:
                         max_artist_fraction, target_pier_count, predicted_k, medoid_top_k, target_playlist_size
                     )
 
-                    clusters, medoids, medoids_by_cluster, X_norm = cluster_artist_tracks(
+                    clusters, medoids, medoids_by_cluster, X_norm, support_by_index = cluster_artist_tracks(
                         bundle=bundle,
                         artist_name=artist,
                         cfg=style_cfg,
@@ -3135,6 +3180,16 @@ class PlaylistGenerator:
                             len(ordered_medoids), target_pier_count
                         )
                         ordered_medoids = ordered_medoids[:target_pier_count]
+
+                    if style_cfg.pier_support_terminal_avoidance:
+                        ordered_medoids, _changed = reorder_avoiding_low_support_terminal(
+                            ordered_medoids, support_by_index, X_norm
+                        )
+                        if _changed:
+                            logger.info(
+                                "Arc-aware ordering: moved the lowest-support pier off the "
+                                "terminal seat (single-artist-seeds path)",
+                            )
 
                     ordered_medoids = self._filter_title_excluded_bundle_indices(
                         bundle,

@@ -60,7 +60,7 @@ def main():
         bridge_floor_dynamic=style_raw.get("bridge_floor", {}).get("dynamic", 0.03),
     )
 
-    clusters, medoids, medoids_by_cluster, X_norm = cluster_artist_tracks(
+    clusters, medoids, medoids_by_cluster, X_norm, _support = cluster_artist_tracks(
         bundle=bundle,
         artist_name=args.artist,
         cfg=style_cfg,

@@ -112,6 +112,28 @@ class ArtistStyleConfig:
     # degenerate/collapsed sonic embedding (e.g. MuQ mapping near-silent audio to
     # one point) from faking bridgeability via genre-unrelated neighbors.
     pier_bridgeability_genre_floor: float = 0.30
+    # Support-aware pier demotion (Corridor Phase 2 Task 3, spec
+    # docs/superpowers/plans/2026-07-18-corridor-phase2.md): a candidate whose
+    # within-artist-catalog neighborhood is sparser than typical for this artist
+    # gets its medoid-selection score demoted (never vetoed -- pier COUNT is
+    # never reduced). See compute_within_artist_support for why this is
+    # WITHIN-ARTIST, not library-wide (a scratchpad probe found library-wide
+    # top-K density does not separate the known outlier cases -- they are
+    # perfectly well-supported by OTHER artists elsewhere in the library, just
+    # off-character for THIS artist's own catalog).
+    pier_support_enabled: bool = True
+    pier_support_k: int = 10
+    pier_support_demotion_strength: float = 1.0   # 0.0 = inert (today's behavior)
+    # Diagnostic-only floor (never filters candidates): below this, a cluster's
+    # best-available candidate is logged loudly as "no confidently-supported
+    # alternative" rather than silently demoted with no trace.
+    pier_support_floor: float = 0.50
+    # Arc-aware ordering: prefer NOT seating the lowest-support pier at either
+    # terminal position (opening/closing) when an alternate sonic-order start
+    # avoids it. Pure tie-break among orderings order_clusters could already
+    # produce -- never invents a new topology, never fails (see
+    # reorder_avoiding_low_support_terminal).
+    pier_support_terminal_avoidance: bool = True
 
 
 def load_artist_energy_values(bundle, cfg: "ArtistStyleConfig") -> Optional[np.ndarray]:
@@ -413,6 +435,75 @@ def _dedupe_artist_indices(
     return sorted(kept)
 
 
+def compute_within_artist_support(
+    X_norm: np.ndarray,
+    artist_indices: Sequence[int],
+    k: int,
+) -> Dict[int, float]:
+    """Cheap within-artist-catalog support estimate for pier candidacy.
+
+    For each of the artist's own tracks, computes the mean cosine similarity to
+    its ``k`` nearest OTHER same-artist tracks, then normalizes by the artist's
+    own median (so 1.0 = typical neighborhood density for THIS artist's
+    catalog, < 1.0 = sparser / more off-character than typical, > 1.0 = denser
+    than typical). Deliberately scoped to the seed artist's own catalog, not
+    the whole library.
+
+    Why within-artist, not library-wide (documented per the design-doc
+    requirement to justify the estimator against real data before wiring it
+    in; probe script + numbers: docs/corridor_baseline/phase2_task3_probe_findings.md): a
+    scratchpad probe against the live MuQ artifact found that library-wide
+    top-100-neighbor density (fraction/mean of a candidate's nearest library
+    neighbors clearing a threshold, gated to the seed's genre-relevant
+    universe like the existing pier-bridgeability veto) does NOT separate the
+    two known outlier-EP pier candidates (Parquet Courts "Into the garden",
+    Swirlies "His Life of Academic Freedom") from normal candidates -- both
+    rank only in the bottom ~25-35th percentile of their artist's candidates,
+    not a clear outlier tail, and "Into the garden" specifically is already
+    confirmed well-supported library-wide by the EXISTING pier-bridgeability
+    signal (kth-of-10 calibrated T = 0.865, comfortably above the 0.30 floor --
+    it has plenty of close neighbors, just mostly by OTHER artists). What
+    actually distinguishes both known outliers is that they don't resemble the
+    REST OF THEIR OWN ARTIST'S catalog: within-artist KNN density puts both in
+    the bottom ~10-20th percentile of their artist's candidate pool, robust
+    across k=5..20 (the live generation log for Parquet Courts independently
+    corroborates this -- "Into the garden"'s raw _medoids_for_cluster score,
+    0.774, was the lowest of all 10 medoid candidates across all 5 clusters
+    for that artist).
+
+    Returns ``{bundle_index: relative_support}`` for every index in
+    ``artist_indices``. An artist with <=1 track returns support=1.0 for it
+    (no peers to compare against; inert, never demoted). Pure numpy -- one
+    (n_artist_tracks x n_artist_tracks) matmul, a few matvecs total -- cheap
+    enough to compute once per generation and cache alongside clustering.
+    """
+    members = np.asarray(list(artist_indices), dtype=int)
+    n = members.size
+    if n <= 1:
+        return {int(i): 1.0 for i in members}
+    sims = X_norm[members] @ X_norm[members].T
+    np.fill_diagonal(sims, -np.inf)
+    kk = max(1, min(int(k), n - 1))
+    part = np.partition(sims, n - kk, axis=1)[:, n - kk:]
+    mean_knn = part.mean(axis=1)
+    median = float(np.median(mean_knn))
+    if median <= 1e-9:
+        return {int(i): 1.0 for i in members}
+    rel = mean_knn / median
+    return {int(idx): float(rel[j]) for j, idx in enumerate(members)}
+
+
+def _support_penalty(support: float, strength: float) -> float:
+    """Continuous rank-demotion penalty from a relative support score.
+
+    0.0 when ``support >= 1.0`` (never promotes above-typical candidates, only
+    demotes below-typical ones) or when ``strength <= 0`` (inert). Grows
+    linearly as support falls below 1.0, scaled by ``strength``. Pure,
+    unit-tested directly (no clustering/artifact dependency).
+    """
+    return max(0.0, 1.0 - float(support)) * max(0.0, float(strength))
+
+
 def _medoids_for_cluster(
     X: np.ndarray,
     indices: List[int],
@@ -431,6 +522,8 @@ def _medoids_for_cluster(
     popularity_values: Optional[np.ndarray] = None,
     tag_weight: float = 0.0,
     tag_affinity: Optional[np.ndarray] = None,
+    support_weight: float = 0.0,
+    support_values: Optional[np.ndarray] = None,
 ) -> List[int]:
     """
     Select medoids using weighted scoring that penalizes duration outliers.
@@ -493,6 +586,20 @@ def _medoids_for_cluster(
         ta = np.asarray(tag_affinity, dtype=float)
         if ta.shape[0] == len(indices):
             scores = scores + ta * tag_weight
+
+    # Support-aware demotion (Task 3): candidates sparser than typical for this
+    # artist's own catalog lose rank, never get excluded. See
+    # compute_within_artist_support / _support_penalty.
+    if support_values is not None and support_weight > 0:
+        sv = np.asarray(support_values, dtype=float)
+        if sv.shape[0] == len(indices):
+            penalty = np.array([_support_penalty(s, support_weight) for s in sv])
+            scores = scores - penalty
+        else:  # defensive: misaligned support array must never silently corrupt scores
+            logger.warning(
+                "artist_style: support_values len %d != cluster size %d; skipping support term",
+                sv.shape[0], len(indices),
+            )
 
     # Select from top-k by combined score
     order = np.argsort(-scores)
@@ -712,8 +819,15 @@ def cluster_artist_tracks(
     sonic_tag_weight: float = 0.0,
     target_pier_count: Optional[int] = None,
     restrict_to_track_ids: Optional[set[str]] = None,
-) -> Tuple[List[List[int]], List[int], List[List[int]], np.ndarray]:
-    """Cluster artist tracks in sonic space and return clusters + medoids."""
+) -> Tuple[List[List[int]], List[int], List[List[int]], np.ndarray, Dict[int, float]]:
+    """Cluster artist tracks in sonic space and return clusters + medoids.
+
+    The 5th return value, ``support_by_index``, maps every bundle index in the
+    (post-filter) artist candidate pool to its within-artist support score
+    (see ``compute_within_artist_support``) -- computed once here and reused
+    both for the per-cluster medoid demotion below and by callers doing
+    arc-aware pier ordering (``reorder_avoiding_low_support_terminal``).
+    """
     track_ids = bundle.track_ids
     if bundle.artist_keys is None:
         raise ValueError("Artifact missing artist_keys for clustering.")
@@ -769,6 +883,16 @@ def cluster_artist_tracks(
             )
     if len(artist_indices) < max(3, cfg.cluster_k_min):
         raise ValueError(f"Not enough tracks to cluster for artist {artist_name}")
+
+    # Support-aware pier demotion (Task 3): within-artist-catalog neighborhood
+    # density, computed once over the full (post-filter) candidate pool so it's
+    # available both per-cluster below and to the caller's arc-aware ordering
+    # step. Cheap (one (n_artist x n_artist) matmul) -- always computed even
+    # when demotion/terminal-avoidance are both off, so a later opt-in never
+    # needs a new code path (only new weight/flag values).
+    support_by_index: Dict[int, float] = compute_within_artist_support(
+        X_norm, artist_indices, cfg.pier_support_k
+    )
 
     # Pier bridgeability veto (medoid candidacy only — never mutates clusters).
     bridgeable_set: Optional[set] = None
@@ -946,6 +1070,19 @@ def cluster_artist_tracks(
                 sonic_tag_affinity, dtype=float
             )[members_eligible]
             tag_slice = _sonic_slice if tag_slice is None else (tag_slice + _sonic_slice)
+        support_slice: Optional[np.ndarray] = None
+        if cfg.pier_support_enabled and cfg.pier_support_demotion_strength > 0:
+            support_slice = np.array(
+                [support_by_index.get(m, 1.0) for m in members_eligible], dtype=float
+            )
+            if float(np.max(support_slice)) < cfg.pier_support_floor:
+                logger.warning(
+                    "Pier support: cluster %d has NO candidate with typical support "
+                    "(best=%.3f, all below diagnostic floor=%.2f) — keeping the "
+                    "best-available candidate, no candidates excluded: %s",
+                    ci, float(np.max(support_slice)), cfg.pier_support_floor,
+                    [str(bundle.track_ids[m]) for m in members_eligible],
+                )
         medoid_list = _medoids_for_cluster(
             X_norm,
             members_eligible,
@@ -964,6 +1101,8 @@ def cluster_artist_tracks(
             pop_slice,
             cfg.medoid_tag_weight,
             tag_slice,
+            cfg.pier_support_demotion_strength if cfg.pier_support_enabled else 0.0,
+            support_slice,
         )
         medoids_by_cluster.append(medoid_list)
         medoids.extend(medoid_list)
@@ -1008,19 +1147,29 @@ def cluster_artist_tracks(
             )
     except Exception:
         logger.debug("Failed to compute intra/inter cluster stats", exc_info=True)
-    return clusters, medoids, medoids_by_cluster, X_norm
+    return clusters, medoids, medoids_by_cluster, X_norm, support_by_index
 
 
 def order_clusters(
     medoid_indices: List[int],
     X_norm: np.ndarray,
+    *,
+    start: Optional[int] = None,
 ) -> List[int]:
-    """Order medoids with greedy nearest-neighbor to minimize jumps."""
+    """Order medoids with greedy nearest-neighbor to minimize jumps.
+
+    ``start``: which medoid to begin the walk from; must be a member of
+    ``medoid_indices``. Defaults to ``medoid_indices[0]`` (today's behavior,
+    byte-identical when omitted). Used by
+    ``reorder_avoiding_low_support_terminal`` to explore alternate Hamiltonian
+    paths over the SAME pier set that don't terminate on the lowest-support
+    pier.
+    """
     if not medoid_indices:
         return []
     remaining = set(medoid_indices)
+    current = start if start is not None and start in remaining else medoid_indices[0]
     order: List[int] = []
-    current = medoid_indices[0]
     order.append(current)
     remaining.remove(current)
     while remaining:
@@ -1030,6 +1179,55 @@ def order_clusters(
         remaining.remove(next_idx)
         current = next_idx
     return order
+
+
+def reorder_avoiding_low_support_terminal(
+    ordered_indices: Sequence[int],
+    support_by_index: Dict[int, float],
+    X_norm: np.ndarray,
+) -> Tuple[List[int], bool]:
+    """Arc-aware ordering tie-break (Corridor Phase 2 Task 3).
+
+    Weakest edges cluster at anchor/terminal seats (memory
+    ``project_corridor_outlier_anchor_mechanism``; live example: Parquet
+    Courts' clustering picked the outlier-EP "Into the garden" as a pier AND
+    seated it at the closing position, manufacturing the playlist's globally
+    weakest edge right where it's most exposed). Among the Hamiltonian paths
+    ``order_clusters`` could already produce over this SAME pier set (same
+    greedy-nearest-neighbor algorithm, different start node), prefer one that
+    does not seat the lowest-support pier at either terminal position (index 0
+    or -1).
+
+    This is a PREFERENCE / tie-break, not an override: it never invents a new
+    topology (every candidate order is something ``order_clusters`` itself
+    could produce) and it never fails --
+
+    - With < 3 piers there is no interior seat to move a pier to (both
+      positions are inescapably terminal); returns the input unchanged.
+    - If the lowest-support pier isn't at a terminal seat already, returns the
+      input unchanged (nothing to do).
+    - If no alternate start avoids the terminal placement either (possible for
+      the greedy heuristic in degenerate/near-degenerate sonic layouts), the
+      original order is kept -- never raises, never drops a pier.
+
+    Ties in "lowest support" break to the pier appearing earliest in
+    ``ordered_indices``, for determinism.
+
+    Returns ``(order, changed)``.
+    """
+    indices = [int(i) for i in ordered_indices]
+    if len(indices) < 3:
+        return indices, False
+    worst = min(indices, key=lambda i: (support_by_index.get(i, 1.0), indices.index(i)))
+    if indices[0] != worst and indices[-1] != worst:
+        return indices, False
+    for start in indices:
+        if start == indices[0]:
+            continue  # identical to the current (already-failing) order
+        candidate = order_clusters(indices, X_norm, start=start)
+        if candidate[0] != worst and candidate[-1] != worst:
+            return candidate, True
+    return indices, False
 
 
 # build_balanced_candidate_pool (the per-cluster sonic-neighbor "external pool"

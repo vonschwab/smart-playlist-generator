@@ -94,7 +94,7 @@ def test_cluster_restrict_to_track_ids_subsets_members(monkeypatch):
                         lambda bundle, name, include_collaborations=False: list(range(12)))
     keep = {f"t{i}" for i in range(6)}
     cfg = ArtistStyleConfig(pier_bridgeability_enabled=False, dedupe_versions=False)
-    clusters, medoids, _mbc, _xn = cluster_artist_tracks(
+    clusters, medoids, _mbc, _xn, _support = cluster_artist_tracks(
         bundle=B(), artist_name="boc", cfg=cfg, random_seed=0, restrict_to_track_ids=keep,
     )
     picked = {str(B.track_ids[i]) for c in clusters for i in c}

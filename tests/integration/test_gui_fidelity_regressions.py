@@ -16,6 +16,7 @@ import sqlite3
 from pathlib import Path
 from unittest.mock import patch
 
+import numpy as np
 import pytest
 
 import src.playlist.pier_bridge_builder as pier_bridge_builder
@@ -315,14 +316,21 @@ class _PiersCaptured(Exception):
 
 
 def _artist_mode_config(steering_tags, *, tag_first_pier_selection=None, anchor_max=None,
-                        config_path="config.yaml"):
+                        config_path="config.yaml", artist_style_overrides=None,
+                        candidate_pool_overrides=None):
     """A real Config() (full config.yaml fidelity, presets baked as normal) with
     playlists.ds_pipeline.pier_bridge.tag_steering_tags set via the production
     derive_runtime_config -> merge_overrides -> load_config_with_overrides chain —
     the same one resolve_gui_overrides() uses. tag_first_pier_selection and
     tag_steering_anchor_max have no GUI slider (both are engineering rollback knobs,
     not user controls), so they are set directly on the loaded pier_bridge dict,
-    mirroring how the plan describes them.
+    mirroring how the plan describes them. ``artist_style_overrides`` (dict) is
+    applied the same way onto playlists.ds_pipeline.artist_style — used by the
+    Corridor Phase 2 Task 3 tests to toggle pier_support_* knobs (also no GUI
+    slider — engineering rollback knobs) without hand-building a whole config.
+    ``candidate_pool_overrides`` (dict) applies onto
+    playlists.ds_pipeline.candidate_pool (e.g. max_artist_fraction, which
+    controls target_pier_count).
     """
     from src.playlist_gui.worker import load_config_with_overrides
 
@@ -339,26 +347,38 @@ def _artist_mode_config(steering_tags, *, tag_first_pier_selection=None, anchor_
         pb["tag_first_pier_selection"] = bool(tag_first_pier_selection)
     if anchor_max is not None:
         pb["tag_steering_anchor_max"] = int(anchor_max)
+    if artist_style_overrides:
+        style = cfg.config.setdefault("playlists", {}).setdefault("ds_pipeline", {}).setdefault("artist_style", {})
+        style.update(artist_style_overrides)
+    if candidate_pool_overrides:
+        cp = cfg.config.setdefault("playlists", {}).setdefault("ds_pipeline", {}).setdefault("candidate_pool", {})
+        cp.update(candidate_pool_overrides)
     return cfg
 
 
 def _artist_generator(steering_tags, *, tag_first_pier_selection=None, anchor_max=None,
-                      config_path="config.yaml"):
+                      config_path="config.yaml", artist_style_overrides=None,
+                      candidate_pool_overrides=None):
     cfg = _artist_mode_config(
         steering_tags, tag_first_pier_selection=tag_first_pier_selection,
         anchor_max=anchor_max, config_path=config_path,
+        artist_style_overrides=artist_style_overrides,
+        candidate_pool_overrides=candidate_pool_overrides,
     )
     library = LocalLibraryClient(db_path=resolve_database_path(cfg))
     return PlaylistGenerator(library_client=library, config=cfg)
 
 
 def _select_piers(artist_name, steering_tags, *, popular_seeds_mode="off",
-                   tag_first_pier_selection=None, anchor_max=None, track_count=30):
+                   tag_first_pier_selection=None, anchor_max=None, track_count=30,
+                   artist_style_overrides=None, candidate_pool_overrides=None):
     """The exact piers create_playlist_for_artist hands to the DS pipeline, without
     paying for the beam search. Includes any Phase-B on-tag anchors, since those are
     injected into ordered_medoids -> pier_ids BEFORE the DS handoff."""
     generator = _artist_generator(
         steering_tags, tag_first_pier_selection=tag_first_pier_selection, anchor_max=anchor_max,
+        artist_style_overrides=artist_style_overrides,
+        candidate_pool_overrides=candidate_pool_overrides,
     )
     generator._maybe_generate_ds_playlist = (
         lambda **kwargs: (_ for _ in ()).throw(
@@ -911,3 +931,203 @@ def test_min_pool_size_backstop_is_inert_after_phase0():
         "min_pool_size=0 vs =5000 produced DIFFERENT final playlists: "
         f"off={off.track_ids} on={on.track_ids}"
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Corridor Phase 2 Task 3: support-aware pier demotion + arc-aware ordering.
+# Regression cases from docs/superpowers/sdd/task-3-brief.md — 6/6 analyzed runs
+# put weakest edges at anchor seats; Parquet Courts' clustering picked the
+# outlier-EP "Into the garden" (Monastic Living noise EP) as a pier AND seated it
+# at the closing position; Swirlies picked "His Life of Academic Freedom" (a 2:07
+# noise miniature). Uses _select_piers (real create_playlist_for_artist pier
+# selection, DS beam skipped) — pier selection is exactly the code path Task 3
+# touches, and paying for a full beam search here would be needless cost.
+# ─────────────────────────────────────────────────────────────────────────────
+
+PARQUET_COURTS = "Parquet Courts"
+PC_OUTLIER_TID = "f86a9b71d2e35855ffc91f0488297915"      # "Into the garden"
+SWIRLIES_OUTLIER_TID = "fa09a81cec0805f33649ad86ea0389f1"  # "His Life of Academic Freedom"
+
+# Pre-fix state: both knobs off reproduces the pier_bridgeability-only behavior
+# Task 3 builds on top of (see project_corridor_outlier_anchor_mechanism memory).
+_PRE_TASK3_OVERRIDES = {
+    "pier_support_demotion_strength": 0.0,
+    "pier_support_terminal_avoidance": False,
+}
+
+
+#  max_artist_fraction=0.20 reproduces the live A/B log's target_piers=6 (this
+#  repo's config.yaml default is 0.125 -> target_piers=4). Note (see report):
+#  the library has grown/re-clustered since the 2026-07-18 log was captured,
+#  so a fresh live regeneration no longer byte-reproduces that exact incident
+#  (k-means cluster membership shifts with library growth) — the direct
+#  real-vector tests below instead pin the MECHANISM against today's real
+#  cluster membership, which is the reproducible, stable claim.
+_SIX_PIER_OVERRIDE = {"max_artist_fraction": 0.20}
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@_requires_artifact
+def test_compute_within_artist_support_flags_known_outliers_live():
+    """Core estimator claim, pinned against the live artifact: both known
+    outlier-EP tracks land in the bottom ~20th percentile of their artist's
+    own within-catalog support distribution (probe findings: PC ~17th
+    percentile, Swirlies ~15th percentile, robust across k=5..20 — see
+    report). This is the stable, non-RNG-dependent regression pin — pier
+    SELECTION (below) additionally depends on k-means cluster assignment,
+    which drifts as the library grows; this per-track support signal does
+    not."""
+    from src.playlist.artist_style import _artist_indices_in_bundle, compute_within_artist_support
+
+    bundle = _load_bundle_for_seed_lookup()
+    X_raw = bundle.X_sonic
+    X_norm = X_raw / (np.linalg.norm(X_raw, axis=1, keepdims=True) + 1e-12)
+
+    for artist, outlier_tid in ((PARQUET_COURTS, PC_OUTLIER_TID), ("Swirlies", SWIRLIES_OUTLIER_TID)):
+        idx_list = _artist_indices_in_bundle(bundle, artist, include_collaborations=False)
+        tid_to_idx = {str(t): i for i, t in enumerate(bundle.track_ids)}
+        support = compute_within_artist_support(X_norm, idx_list, k=10)
+        outlier_idx = tid_to_idx[outlier_tid]
+        ranked = sorted(support.items(), key=lambda kv: kv[1])
+        rank = next(i for i, (idx, _) in enumerate(ranked) if idx == outlier_idx) + 1
+        pctile = rank / len(ranked) * 100
+        assert pctile <= 25.0, (
+            f"{artist}'s known outlier no longer separates from typical piers: "
+            f"support={support[outlier_idx]:.3f} rank={rank}/{len(ranked)} pctile={pctile:.1f}"
+        )
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@_requires_artifact
+def test_medoids_for_cluster_demotes_real_pc_outlier_when_competitive():
+    """Direct mechanism proof on 100% real production vectors: Parquet Courts'
+    ACTUAL current k-means cluster 0 contains "Into the garden" alongside two
+    real cluster-mates. Without support demotion, "Into the garden" wins the
+    single-medoid race for this cluster (reproducing the historical incident's
+    shape — an outlier-EP track outranking its healthier cluster-mates on raw
+    sim-to-centroid + duration score alone). With the live-default demotion
+    strength, a healthier cluster-mate wins instead. Deterministic and stable
+    against library growth (only depends on these 3 tracks' fixed embeddings,
+    not on k-means's cluster ASSIGNMENT, which does drift over time)."""
+    from src.playlist.artist_style import (
+        ArtistStyleConfig, _artist_indices_in_bundle, _medoids_for_cluster,
+        compute_within_artist_support,
+    )
+
+    bundle = _load_bundle_for_seed_lookup()
+    tid_to_idx = {str(t): i for i, t in enumerate(bundle.track_ids)}
+    outlier_idx = tid_to_idx[PC_OUTLIER_TID]
+    X_raw = bundle.X_sonic
+    X_norm = X_raw / (np.linalg.norm(X_raw, axis=1, keepdims=True) + 1e-12)
+    artist_idx = _artist_indices_in_bundle(bundle, PARQUET_COURTS, include_collaborations=False)
+    support = compute_within_artist_support(X_norm, artist_idx, ArtistStyleConfig().pier_support_k)
+
+    # PC's actual current cluster-0 members (pinned bundle indices, resolved by
+    # track_id so this survives any bundle re-decode/row-order change):
+    cluster0_tids = [
+        "0733fe8221f9440cb4b29769fb007e2b", "321d48ded8dc05b2f3117ba2a27202d7", PC_OUTLIER_TID,
+    ]
+    cluster0 = [tid_to_idx[t] for t in cluster0_tids]
+    assert outlier_idx in cluster0
+    centroid = X_norm[cluster0].mean(axis=0)
+    centroid = centroid / np.linalg.norm(centroid)
+    sv = np.array([support[i] for i in cluster0])
+
+    rng = np.random.default_rng(0)
+    without = _medoids_for_cluster(
+        X_norm, cluster0, centroid, bundle.track_ids, per_cluster=1, rng=rng, top_k=1,
+        support_weight=0.0, support_values=sv,
+    )
+    rng2 = np.random.default_rng(0)
+    with_demotion = _medoids_for_cluster(
+        X_norm, cluster0, centroid, bundle.track_ids, per_cluster=1, rng=rng2, top_k=1,
+        support_weight=ArtistStyleConfig().pier_support_demotion_strength, support_values=sv,
+    )
+    assert str(bundle.track_ids[without[0]]) == PC_OUTLIER_TID, (
+        "test fixture assumption broken: 'Into the garden' no longer wins this "
+        "cluster's medoid race even without demotion — re-derive against current data"
+    )
+    assert str(bundle.track_ids[with_demotion[0]]) != PC_OUTLIER_TID, (
+        "support demotion at its live default strength failed to route around "
+        "the outlier in its own real cluster"
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@_requires_artifact
+def test_pier_support_demotion_fixes_outlier_pc():
+    """With the Task 3 fix at its live defaults (pier_support_enabled=True,
+    demotion_strength=1.0, terminal_avoidance=True), "Into the garden" must
+    EITHER no longer be selected as a pier (a healthier same-cluster
+    alternative outranks it) OR, if still selected (e.g. its cluster has no
+    better alternative), must not be seated at either terminal position. Either
+    outcome stops the playlist from manufacturing its globally weakest edge at
+    the closing seat, as the pre-fix generation did."""
+    pier_ids = _select_piers(
+        PARQUET_COURTS, [], candidate_pool_overrides=_SIX_PIER_OVERRIDE,
+    )
+    if PC_OUTLIER_TID in pier_ids:
+        assert pier_ids[0] != PC_OUTLIER_TID and pier_ids[-1] != PC_OUTLIER_TID, (
+            f"'Into the garden' still seated at a terminal seat: {pier_ids}"
+        )
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@_requires_artifact
+def test_pier_support_demotion_fixes_outlier_swirlies():
+    """Swirlies equivalent of test_pier_support_demotion_fixes_outlier_pc:
+    "His Life of Academic Freedom" (a 2:07 noise miniature) must not be BOTH a
+    pier AND seated at a terminal position under the live-default fix."""
+    pier_ids = _select_piers("Swirlies", [])
+    if SWIRLIES_OUTLIER_TID in pier_ids:
+        assert pier_ids[0] != SWIRLIES_OUTLIER_TID and pier_ids[-1] != SWIRLIES_OUTLIER_TID, (
+            f"'His Life of Academic Freedom' still seated at a terminal seat: {pier_ids}"
+        )
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@_requires_artifact
+def test_pier_support_demotion_bet_non_regression():
+    """Non-regression on a healthy artist (Bill Evans Trio — no known
+    outlier-EP tracks): the Task 3 fix at its live defaults must not shrink
+    the pier count or crash, and it must never introduce a genuinely
+    low-support (outlier-tier) pier that wasn't there pre-fix.
+
+    Piers are NOT required to be byte-identical: BET's own probe data (see
+    report) shows even a "healthy" artist has non-uniform within-catalog
+    density — its lowest-support tracks are live/alternate-take recordings
+    (e.g. "Solar (Live At The Village Vanguard)", "... Remastered ... Take
+    2"), which read as mildly off-character against the studio catalog, and
+    the combined medoid score blends support with sim-to-centroid + duration
+    typicality, so a demotion-driven swap can go either way between two
+    already-typical (support close to 1.0) candidates — that's expected
+    noise, not a regression. What must NOT happen is a swap that drags a pier
+    down into outlier territory (the ~0.5-0.7 band the known outliers occupy)."""
+    with_fix = _select_piers(BET_ARTIST, [])
+    without_fix = _select_piers(BET_ARTIST, [], artist_style_overrides=_PRE_TASK3_OVERRIDES)
+    assert len(with_fix) == len(without_fix), (
+        f"support-aware demotion changed BET's pier COUNT (never-fail violation): "
+        f"with_fix={with_fix} without_fix={without_fix}"
+    )
+
+    from src.playlist.artist_style import (
+        ArtistStyleConfig, _artist_indices_in_bundle, compute_within_artist_support,
+    )
+    bundle = _load_bundle_for_seed_lookup()
+    tid_to_idx = {str(t): i for i, t in enumerate(bundle.track_ids)}
+    X_raw = bundle.X_sonic
+    X_norm = X_raw / (np.linalg.norm(X_raw, axis=1, keepdims=True) + 1e-12)
+    artist_idx = _artist_indices_in_bundle(bundle, BET_ARTIST, include_collaborations=False)
+    support = compute_within_artist_support(X_norm, artist_idx, ArtistStyleConfig().pier_support_k)
+
+    for tid in with_fix:
+        s = support.get(tid_to_idx.get(tid, -1), 1.0)
+        assert s >= 0.7, (
+            f"support-aware demotion selected an outlier-tier pier on a healthy "
+            f"artist: {tid} support={s:.3f} (with_fix={with_fix})"
+        )

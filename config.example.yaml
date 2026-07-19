@@ -227,6 +227,21 @@ playlists:
       # is >= this floor. Prevents degenerate/collapsed sonic neighbors (e.g. MuQ maps
       # near-silent audio to one point) from faking bridgeability. Lower = more lenient.
       pier_bridgeability_genre_floor: 0.30
+      # Support-aware pier demotion (Corridor Phase 2 Task 3): a candidate whose
+      # neighborhood WITHIN ITS OWN ARTIST'S CATALOG (not library-wide -- a probe found
+      # library-wide density doesn't separate off-character outlier-EP tracks; see
+      # docs/corridor_baseline/phase2_task3_probe_findings.md) is sparser than typical
+      # gets its medoid score demoted, never vetoed -- pier COUNT never shrinks.
+      # 0.0 strength = inert (today's pre-Task-3 behavior).
+      pier_support_enabled: true
+      pier_support_k: 10
+      pier_support_demotion_strength: 1.0
+      pier_support_floor: 0.50         # diagnostic-only; never filters candidates
+      # Arc-aware ordering: prefer NOT seating the lowest-support pier at either
+      # terminal (opening/closing) seat when an alternate sonic-order start avoids
+      # it -- a tie-break among orderings the existing greedy sequencer could
+      # already produce, never a new topology, never fails.
+      pier_support_terminal_avoidance: true
 
     # Construction scoring weights
     # score = alpha*seed_sim + beta*transition_sim + gamma*diversity - penalty
