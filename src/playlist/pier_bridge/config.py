@@ -434,15 +434,35 @@ class PierBridgeConfig:
     # dynamic probed {0.95, 0.97} on the 4 open cells (SADE/Aaliyah/AlexG/
     # Strokes); 0.95 gave the smaller mean |min_T delta| (0.114 vs 0.135 at
     # 0.97) AND matches the pre-existing flat pin (continuity with history) --
-    # kept at 0.95. narrow = midpoint(strict, dynamic) = 0.9675 and
-    # discover = dynamic - 0.02 = 0.93 are PROVISIONAL interpolations (no
-    # corpus cells exercise narrow/discover directly; the dial-range audit
-    # checks detent differentiation instead), documented as such per the
-    # brief.
+    # kept at 0.95.
+    #
+    # narrow/discover CALIBRATION (Phase 2 Task 4, .superpowers/sdd/
+    # p2-task-4-report.md): the midpoint(strict,dynamic)=0.9675 and
+    # dynamic-0.02=0.93 interpolations above were PROVISIONAL until this task
+    # -- superseded by a direct probe (3 artists: SADE/Swirlies/Alex G, via the
+    # GUI's close/wander detents so genre_mode moves with sonic_mode, matching
+    # real usage) bracketing each interpolation with 3 candidate widths.
+    # narrow {0.96, 0.9675, 0.975}: 0.975 won on BOTH mean|min_T| (0.6164 vs
+    # 0.9675's 0.6144, 0.96's 0.6102) AND worst-case min_T across the 3 artists
+    # (0.6005 vs 0.9675's 0.5939) -- below_floor=0 at every width. Pinned
+    # 0.975 (changed from the 0.9675 interpolation).
+    # discover {0.92, 0.93, 0.94}: 0.94 won decisively on both mean (0.6290 vs
+    # 0.6044 tied at 0.92/0.93) and worst-case (0.6228 vs 0.5490, Alex G/wander
+    # specifically) -- below_floor=0 at every width. Pinned 0.94 (changed from
+    # the 0.93 interpolation). Two of three probe artists (Swirlies, Alex G)
+    # hit segment_pool_max=800 post-cap at every tested discover width (the
+    # SAME cap-saturation pattern the Phase 1 per-mode-width report's dial
+    # audit found for open/wander) -- the win traces to which candidates enter
+    # the pre-cap top-800 ranking at the tighter 0.94 threshold, not to size
+    # differentiation; SADE (not cap-bound, sizes 566->495->424 across
+    # 0.92->0.93->0.94) stayed flat across the whole bracket, a legitimate
+    # beam-convergence saturation (its winning sequence's candidates all
+    # survive well within the tightest tested width). Full probe data + mini-
+    # corpus regression check: docs/corridor_baseline/phase2_task4_width_calibration.md.
     corridor_width_percentile_strict: float = 0.985
-    corridor_width_percentile_narrow: float = 0.9675
+    corridor_width_percentile_narrow: float = 0.975
     corridor_width_percentile_dynamic: float = 0.95
-    corridor_width_percentile_discover: float = 0.93
+    corridor_width_percentile_discover: float = 0.94
     # NOTE: sonic_mode "off" is NOT a field here -- resolve_corridor_width_percentile
     # hardcodes it to 0.0 (whole eligible universe, no sonic narrowing at all),
     # matching spec section 4 ("`off` = universe") exactly the way genre_mode

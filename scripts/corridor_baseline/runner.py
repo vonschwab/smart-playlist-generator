@@ -35,6 +35,12 @@ CORPUS = ["SADE", "Bill Evans Trio", "The Strokes", "Swirlies", "Aaliyah", "Alex
 DETENTS = {
     "home": {"sonic_mode": "strict", "genre_mode": "strict", "cohesion_mode": "dynamic", "pace_mode": "dynamic"},
     "open": {"sonic_mode": "dynamic", "genre_mode": "dynamic", "cohesion_mode": "dynamic", "pace_mode": "dynamic"},
+    # Phase 2 Task 4: narrow/discover width calibration probe -- the GUI's
+    # "range" dial detents (src/playlist_gui/policy.py::DIAL_TO_AXES) between
+    # home/open. cohesion_mode/pace_mode stay dynamic (matching home/open):
+    # the range dial only ever touches sonic_mode/genre_mode.
+    "close": {"sonic_mode": "narrow", "genre_mode": "narrow", "cohesion_mode": "dynamic", "pace_mode": "dynamic"},
+    "wander": {"sonic_mode": "discover", "genre_mode": "discover", "cohesion_mode": "dynamic", "pace_mode": "dynamic"},
 }
 SWEEP_CELLS = [("Bill Evans Trio", "open"), ("Swirlies", "home")]
 
