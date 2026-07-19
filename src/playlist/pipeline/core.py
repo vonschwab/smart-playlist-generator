@@ -119,6 +119,26 @@ def _banger_gate_inputs(
     return _banger_ranks, _banger_cutoff
 
 
+# Phase 2 Task 4 grep-verification (re-checks Phase 1 Task 8's own finding,
+# quoted in .superpowers/sdd/p1-task-8-report.md section "core.py's _build_pool
+# nested fn + banger relax-to-fill cascade -- NOT deleted"): this function, the
+# banger relax-to-fill cascade below (_banger_relaxation_steps/_loosen_sonic),
+# and the _build_pool nested closure (~line 810 at generate_playlist_ds's call
+# site) all remain genuinely LIVE and SHARED -- confirmed fresh via a repo-wide
+# grep, not re-derived from the old report. `candidate_pool_indices` (the sole
+# product of `_build_pool`) still has exactly one production call site
+# (`_run_pier_bridge`, generate_playlist_ds), which single-seed and multi-pier
+# runs both flow through identically (there is no separate single-seed
+# pipeline module on this branch -- generate_playlist_ds's own docstring says
+# so). Downstream, candidate_pool_indices still feeds `_dedupe_candidate_pool`,
+# mini-pier waypoint planning (`plan_pier_sequence`), and the dj_bridging
+# legacy-fallback `universe` -- none replaced by corridor's own eligible-
+# universe mechanism. The One-Each retry ladder below (this function's sole
+# caller) is gated on `pb_cfg.max_non_seed_tracks_per_artist == 1`, a field
+# still threaded end-to-end from the GUI (src/playlist_gui/policy.py) through
+# pier_bridge_overrides.py to both pier_bridge_builder.py's cap enforcement and
+# repair/edge_repair.py's repair-time enforcement -- reachable, not dead.
+# Nothing in this area is pier-bridge-orphaned; correctly left untouched.
 def _relaxed_one_each_candidate_attempts(
     candidate_cfg: Any,
     min_genre_similarity: Optional[float],
