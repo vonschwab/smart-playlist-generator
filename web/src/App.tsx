@@ -25,6 +25,7 @@ import { ExportM3U8Dialog } from "./components/ExportM3U8Dialog";
 import { RelaxationNotice } from "./components/RelaxationNotice";
 import { GeneratingIndicator } from "./components/GeneratingIndicator";
 import { defaultPlaylistName } from "./lib/playlistName";
+import SetupPage, { type SetupStatus } from "./components/SetupPage";
 
 // The last generated playlist, persisted so it survives a page reload.
 const PLAYLIST_KEY = "pg_current_playlist";
@@ -38,6 +39,21 @@ function loadStoredPlaylist(): PlaylistOut | null {
 }
 
 export default function App() {
+  // Setup gate (Task 5): fetched once on mount, alongside the rest of the
+  // app's fetch-on-mount state. `needs_setup` renders SetupPage instead of
+  // the generator tree; `needs_analyze`/`ready` fall through unchanged.
+  const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null);
+  const [setupLoading, setSetupLoading] = useState(true);
+  useEffect(() => {
+    fetch("/api/setup/status")
+      .then((r) => r.json())
+      .then((s: SetupStatus) => setSetupStatus(s))
+      // Treat a failed status check as "ready" rather than blocking the app
+      // behind a gate the server can't answer — never worse than pre-gate behavior.
+      .catch(() => setSetupStatus(null))
+      .finally(() => setSetupLoading(false));
+  }, []);
+
   const [mode, setMode] = useLocalStorage<Mode>("pg_mode", "artist");
   const [seedTracks, setSeedTracks] = useLocalStorage<SeedTrack[]>("pg_seed_tracks", []);
   const addSeed = useCallback((t: SeedTrack) => {
@@ -271,6 +287,17 @@ export default function App() {
     } catch (err) {
       setError(friendlyError(err)); setBusy(false);
     }
+  }
+
+  if (setupLoading) {
+    return (
+      <div className="h-dvh w-full bg-bg">
+        <GeneratingIndicator status="Checking setup…" />
+      </div>
+    );
+  }
+  if (setupStatus?.state === "needs_setup") {
+    return <SetupPage status={setupStatus} />;
   }
 
   return (
