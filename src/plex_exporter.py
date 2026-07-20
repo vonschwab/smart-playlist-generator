@@ -175,6 +175,10 @@ class PlexExporter:
         self._machine_id = machine_id
         return machine_id
 
+    def test_connection(self) -> str:
+        """Return the server machineIdentifier — a cheap auth+reachability probe."""
+        return self._get_machine_id()
+
     def _get_music_section_key(self) -> str:
         if self._section_key:
             return self._section_key
