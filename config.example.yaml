@@ -16,6 +16,13 @@ analyze:
     workers: 14                   # parallel decode workers (--energy-workers overrides)
   pace:
     energy_features: ["arousal_p50"]   # configurable; danceability/arousal_p10/p90 available
+  # Pre-flight connectivity check before an analyze run. When true (default),
+  # each CONFIGURED external service (Last.fm, Discogs, the enrichment LLM) is
+  # tested before any stage runs, and the run aborts fast with a fix hint if a
+  # configured service is unreachable (a NOT-configured service is skipped, not
+  # failed). Set to false to skip pre-flight — this is the ONLY bypass for GUI
+  # runs (the CLI also accepts --no-preflight).
+  preflight: true
 discogs:
   token: ''
 lastfm:
