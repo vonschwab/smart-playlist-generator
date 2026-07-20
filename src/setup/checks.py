@@ -50,6 +50,27 @@ def _worst(statuses: list[str]) -> str:
     return max(statuses, key=lambda s: _STATUS_RANK[s])
 
 
+def _load_config_dict(config_path: Path) -> dict:
+    """Parse a config.yaml path into a dict; empty dict if absent or malformed.
+
+    Mirrors doctor.py's tolerant `except Exception: pass` behavior — a bad
+    config (missing file, YAML syntax error, non-mapping top level, ...) must
+    never crash a check. Every config-parse site in this module routes
+    through here so the malformed-config path degrades the same way
+    everywhere instead of raising out of an individual check. Takes a path
+    (not a `home`) because call sites don't always mean `home.config_path` —
+    `check_satellite_data_paths` deliberately reads `anchor_dir/"config.yaml"`
+    regardless of where `home.config_path` points.
+    """
+    try:
+        if not config_path.exists():
+            return {}
+        loaded = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        return loaded if isinstance(loaded, dict) else {}
+    except Exception:
+        return {}
+
+
 def check_python_version() -> CheckResult:
     """doctor.py L75-88."""
     version = sys.version_info
@@ -152,8 +173,7 @@ def check_satellite_data_paths(home: MixarcHome) -> CheckResult:
             "satellite_paths", "fail", "Satellite has no config.yaml",
             fix_hint="python tools/create_satellite.py rewrites one from canonical",
         )
-    with open(cfg_path, encoding="utf-8") as fh:
-        cfg = yaml.safe_load(fh) or {}
+    cfg = _load_config_dict(cfg_path)
 
     floors = {"database_path": 1 * 1024 * 1024, "artifact_path": 10 * 1024 * 1024}
     raw_db = str(((cfg.get("library") or {}).get("database_path")) or "")
@@ -202,7 +222,7 @@ def check_database(home: MixarcHome) -> CheckResult:
     missing column degrades to omitting the sonic-feature count rather than
     failing the whole check.
     """
-    raw = yaml.safe_load(home.config_path.read_text()) if home.config_path.exists() else None
+    raw = _load_config_dict(home.config_path)
     db_path = Path(resolve_database_path(raw, anchor=home.anchor_dir))
 
     if not db_path.exists():

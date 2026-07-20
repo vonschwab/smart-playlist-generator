@@ -62,3 +62,21 @@ def test_run_all_checks_returns_ordered_list(tmp_path):
     ids = [r.id for r in results]
     assert ids[0] == "python_version"
     assert "config_file" in ids and "database" in ids
+
+
+def test_database_degrades_gracefully_on_malformed_config(tmp_path):
+    # A YAML syntax error (unclosed flow sequence) must not crash the check
+    # -- doctor.py tolerates a bad config.yaml (except Exception: pass) and
+    # this extraction must match, never raise out of check_database.
+    (tmp_path / "config.yaml").write_text("library: [unclosed\n", encoding="utf-8")
+    r = check_database(_home(tmp_path))
+    assert isinstance(r, CheckResult)
+    assert r.id == "database"
+    assert r.status in ("pass", "warn", "fail")
+
+
+def test_run_all_checks_does_not_raise_on_malformed_config(tmp_path):
+    (tmp_path / "config.yaml").write_text("library: [unclosed\n", encoding="utf-8")
+    results = run_all_checks(_home(tmp_path))
+    assert isinstance(results, list)
+    assert all(isinstance(r, CheckResult) for r in results)
