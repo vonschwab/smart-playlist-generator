@@ -13,6 +13,7 @@ import contextlib
 import json
 import logging
 import os
+import shutil
 import sys
 import time
 import uuid
@@ -1130,10 +1131,13 @@ def stage_genres(ctx: Dict) -> Dict:
 
 def stage_discogs(ctx: Dict) -> Dict:
     """
-    Fetch Discogs genres/styles for library albums (PRODUCTION REQUIRED).
-    Complements MusicBrainz data with additional genre sources.
+    Fetch Discogs genres/styles for library albums. Complements MusicBrainz
+    data with additional genre sources.
 
-    Requires: DISCOGS_TOKEN environment variable or discogs.token in config.yaml
+    Optional: DISCOGS_TOKEN environment variable or discogs.token in config.yaml.
+    Missing token skips loudly ({"skipped": True, "reason": ...}) instead of
+    raising — a fresh install without a token must not abort analysis. A
+    configured-but-broken client (bad token, unreachable API) still raises.
     Get token from: https://www.discogs.com/settings/developers (personal user token)
     """
     db_path = ctx["db_path"]
@@ -1397,8 +1401,10 @@ def stage_lastfm(ctx: Dict) -> Dict:
     """Fetch Last.fm top tags into the sidecar for releases that lack them.
 
     No LLM. Deterministic classification only (adjudicate=False); the `enrich`
-    stage owns AI adjudication. Missing API key raises (production-required,
-    like the discogs stage).
+    stage owns AI adjudication. Missing API key skips loudly
+    ({"skipped": True, "reason": ...}) instead of raising — like discogs, a
+    fresh install without a key must not abort analysis. A configured-but-broken
+    client (bad key, unreachable API) still raises.
     """
     import time
 
@@ -2385,9 +2391,16 @@ def _checkpoint_metadata_for_wsl(db_path) -> None:
 def stage_energy(ctx: Dict) -> Dict:
     """Run the WSL-only Essentia energy scan into <artifact>/energy/energy_sidecar.npz.
 
-    Default-on; skip-fast when up-to-date (like MERT). Hard-fail (RuntimeError)
-    if WSL/Essentia is unreachable. Standalone pace-axis sidecar — never folded
-    into the sonic blend, never writes metadata.db.
+    Default-on; skip-fast when up-to-date (like MERT). Skips loudly (no raise)
+    when energy is genuinely not configured: explicit `enabled: false`, a
+    non-Windows host, or Windows with wsl.exe absent from PATH (WSL2 never
+    installed) — the actual "fresh install, no WSL" case. Once wsl.exe is
+    found, any remaining setup problem (missing Essentia venv/models,
+    unreachable distro, etc.) is "configured-but-broken" and still hard-fails
+    (RuntimeError) via `_energy_preflight` below — a stage exception aborts
+    the whole analyze run, so only genuine absence may skip. Standalone
+    pace-axis sidecar — never folded into the sonic blend, never writes
+    metadata.db.
     """
     import yaml
     from src.analyze.energy_runner import load_energy_config, energy_paths
@@ -2399,17 +2412,20 @@ def stage_energy(ctx: Dict) -> Dict:
     # section (Dylan's canonical config.yaml has none — the EnergyConfig dataclass
     # defaults already describe his real WSL setup) must keep preflighting/raising
     # exactly as before, so "section absent" does NOT mean "not configured" here.
-    # Only an explicit `enabled: false`, or a non-Windows host (WSL can't exist
-    # there — the fresh/non-Windows-user case this policy targets), skips.
+    # Skips (no raise, never touches the raising preflight) only for: explicit
+    # `enabled: false`; a non-Windows host (WSL can't exist there); or Windows
+    # with wsl.exe genuinely absent from PATH. Once wsl.exe is present, any other
+    # failure is "configured-but-broken" and must keep raising via `_energy_preflight`.
     try:
         with open(ctx["config_path"], "r", encoding="utf-8") as _fh:
             _raw_cfg = yaml.safe_load(_fh) or {}
     except Exception:
         _raw_cfg = {}
     energy_enabled = bool(((_raw_cfg.get("analyze") or {}).get("energy") or {}).get("enabled", True))
-    if not energy_enabled or sys.platform != "win32":
+    wsl_absent = sys.platform == "win32" and shutil.which("wsl.exe") is None
+    if not energy_enabled or sys.platform != "win32" or wsl_absent:
         reason = ("energy analysis not configured — energy/arousal features unavailable "
-                   "(Windows+WSL+Essentia required)")
+                   "(needs Windows + WSL2 + the Essentia venv)")
         logger.info("stage_energy: %s", reason)
         return {"skipped": True, "pending": 0, "reason": reason}
 
@@ -2430,7 +2446,7 @@ def stage_energy(ctx: Dict) -> Dict:
 
     logger.info("stage_energy: %d/%d track(s) pending (workers=%d, distro=%s)",
                 pending, total, cfg.workers, cfg.distro)
-    _energy_preflight(cfg)  # raises RuntimeError if WSL/venv/models missing
+    _energy_preflight(cfg)  # raises RuntimeError if wsl.exe present but venv/models missing
     # Flush metadata.db's WAL so the WSL extractor's immutable snapshot read is complete.
     _checkpoint_metadata_for_wsl(ctx.get("db_path"))
     res = _energy_run(cfg, force=bool(args.force),

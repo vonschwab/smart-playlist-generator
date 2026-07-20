@@ -142,8 +142,11 @@ def test_energy_skips_on_non_windows(tmp_path, monkeypatch):
 
 def test_energy_absent_section_still_preflights_on_windows(tmp_path, monkeypatch):
     """Pins Dylan's non-regression case: no `analyze.energy` section, on
-    Windows, must still preflight and raise on WSL failure exactly as today."""
+    Windows, with wsl.exe present, must still preflight and raise on WSL
+    failure exactly as today (this is "configured-but-broken", never a skip).
+    """
     monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(al.shutil, "which", lambda name: r"C:\Windows\System32\wsl.exe")
     monkeypatch.setattr(al, "_energy_pending", lambda out_dir: (2, 2))
 
     def boom(cfg):
@@ -153,3 +156,55 @@ def test_energy_absent_section_still_preflights_on_windows(tmp_path, monkeypatch
     ctx = _energy_ctx(tmp_path)  # no analyze.energy section at all
     with pytest.raises(RuntimeError, match="WSL"):
         al.stage_energy(ctx)
+
+
+def test_energy_skips_when_wsl_absent(tmp_path, monkeypatch):
+    """The actual 'stranger with no WSL' case: Windows host, wsl.exe genuinely
+    not on PATH (WSL2 never installed). Must skip loudly with a 'not
+    configured' reason -- must NOT call the raising preflight, since that
+    would abort the whole analyze run for a merely-missing optional stage."""
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(al.shutil, "which", lambda name: None)
+    called = {"preflight": False}
+    monkeypatch.setattr(al, "_energy_preflight", lambda cfg: called.__setitem__("preflight", True))
+    ctx = _energy_ctx(tmp_path)  # no analyze.energy section — same as Dylan's config
+    res = al.stage_energy(ctx)
+    assert res["skipped"] is True
+    assert "not configured" in res["reason"]
+    assert called["preflight"] is False
+
+
+def test_energy_wsl_present_preflight_fails_raises(tmp_path, monkeypatch):
+    """WSL present (wsl.exe on PATH) but preflight fails for another reason
+    (missing Essentia venv/models, distro unreachable, etc.) -- this is
+    'configured-but-broken' and must keep raising, never silently skip."""
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(al.shutil, "which", lambda name: r"C:\Windows\System32\wsl.exe")
+    monkeypatch.setattr(al, "_energy_pending", lambda out_dir: (2, 2))
+
+    def boom(cfg):
+        raise RuntimeError("WSL energy environment not ready (distro=Ubuntu-22.04, ...)")
+
+    monkeypatch.setattr(al, "_energy_preflight", boom)
+    ctx = _energy_ctx(tmp_path)
+    with pytest.raises(RuntimeError, match="WSL"):
+        al.stage_energy(ctx)
+
+
+def test_energy_owner_path_not_skipped_when_wsl_present(tmp_path, monkeypatch):
+    """Owner's real path: Windows + wsl.exe present + no `analyze` section at
+    all -- must NOT short-circuit to skip; proceeds through preflight and the
+    rest of the stage exactly as before. Everything WSL-related is mocked so
+    this doesn't require a real WSL environment to run."""
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(al.shutil, "which", lambda name: r"C:\Windows\System32\wsl.exe")
+    monkeypatch.setattr(al, "_energy_pending", lambda out_dir: (2, 2))
+    called = {"preflight": False}
+    monkeypatch.setattr(al, "_energy_preflight", lambda cfg: called.__setitem__("preflight", True))
+    monkeypatch.setattr(al, "_checkpoint_metadata_for_wsl", lambda p: None)
+    monkeypatch.setattr(al, "_energy_run", lambda cfg, *, force, cancellation_check: {
+        "ok": 2, "missing": 0, "error": 0, "total": 2, "sidecar": "/x.npz"})
+    ctx = _energy_ctx(tmp_path)  # no analyze.energy section at all
+    res = al.stage_energy(ctx)
+    assert called["preflight"] is True
+    assert res["skipped"] is False
