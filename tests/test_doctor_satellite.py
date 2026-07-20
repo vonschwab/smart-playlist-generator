@@ -1,13 +1,14 @@
-"""Unit tests for doctor's satellite data-path check (stub-landmine gate)."""
+"""Unit tests for the satellite data-path check (stub-landmine gate).
 
-import importlib.util
-import pathlib
+Migrated (mixarc-sp2 Task 2) from loading tools/doctor.py's now-deleted
+DoctorChecks class to calling src.setup.checks.check_satellite_data_paths
+directly -- doctor.py is a thin printer now; this logic's single source of
+truth lives in src/setup/checks.py (extracted there in Task 1). Scenarios
+and assertions are unchanged; only the call surface moved.
+"""
 
-_DOCTOR = pathlib.Path(__file__).resolve().parents[1] / "tools" / "doctor.py"
-_spec = importlib.util.spec_from_file_location("doctor", _DOCTOR)
-assert _spec is not None and _spec.loader is not None
-doctor = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(doctor)
+from src.mixarc.paths import MixarcHome
+from src.setup.checks import check_satellite_data_paths
 
 
 def _make_satellite(tmp_path, db_bytes=2 * 1024 * 1024, art_bytes=11 * 1024 * 1024,
@@ -35,33 +36,35 @@ def _make_satellite(tmp_path, db_bytes=2 * 1024 * 1024, art_bytes=11 * 1024 * 10
 
 
 def _run_check(sat_root):
-    checks = doctor.DoctorChecks()
-    ok = checks.check_satellite_data_paths(root=sat_root)
-    return ok, checks
+    # source="repo" (anything but "platformdirs") so the check doesn't
+    # short-circuit to its no-op pass; the function reads root/"config.yaml"
+    # directly, same as the old root=sat_root parameter.
+    home = MixarcHome(config_path=sat_root / "config.yaml", anchor_dir=sat_root, source="repo")
+    return check_satellite_data_paths(home)
 
 
 def test_valid_satellite_passes(tmp_path):
     sat = _make_satellite(tmp_path)
-    ok, checks = _run_check(sat)
-    assert ok is True and checks.failed == 0
+    r = _run_check(sat)
+    assert r.status != "fail"
 
 
 def test_relative_db_path_fails(tmp_path):
     sat = _make_satellite(tmp_path, db_abs=False)
-    ok, checks = _run_check(sat)
-    assert ok is False and checks.failed >= 1
+    r = _run_check(sat)
+    assert r.status == "fail"
 
 
 def test_stub_sized_db_fails(tmp_path):
     sat = _make_satellite(tmp_path, db_bytes=0)
-    ok, checks = _run_check(sat)
-    assert ok is False and checks.failed >= 1
+    r = _run_check(sat)
+    assert r.status == "fail"
 
 
 def test_small_artifact_fails(tmp_path):
     sat = _make_satellite(tmp_path, art_bytes=1024)
-    ok, checks = _run_check(sat)
-    assert ok is False and checks.failed >= 1
+    r = _run_check(sat)
+    assert r.status == "fail"
 
 
 def test_db_inside_satellite_fails(tmp_path):
@@ -75,8 +78,8 @@ def test_db_inside_satellite_fails(tmp_path):
         f"playlists:\n  ds_pipeline:\n    artifact_path: {art}\n",
         encoding="utf-8",
     )
-    ok, checks = _run_check(sat)
-    assert ok is False and checks.failed >= 1
+    r = _run_check(sat)
+    assert r.status == "fail"
 
 
 def test_canonical_workspace_passes_trivially(tmp_path):
@@ -85,5 +88,5 @@ def test_canonical_workspace_passes_trivially(tmp_path):
     (canon / ".git" / "config").write_text(
         '[remote "origin"]\n\turl = https://github.com/x/y.git\n', encoding="utf-8"
     )
-    ok, checks = _run_check(canon)
-    assert ok is True and checks.failed == 0
+    r = _run_check(canon)
+    assert r.status != "fail"

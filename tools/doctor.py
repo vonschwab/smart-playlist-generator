@@ -14,17 +14,24 @@ Usage:
 Exit codes:
     0 - All checks passed
     1 - One or more checks failed
+
+This is a thin printer over src/setup/checks.py -- the single source of
+truth for what each check does now lives there (returning CheckResult),
+not here. This module only resolves a MixarcHome, runs the checks, and
+renders the results under the same section headers / ✓/⚠/✗ glyphs doctor
+has always used.
 """
 
 import argparse
-import importlib
-import sqlite3
 import sys
 from pathlib import Path
 
 # Ensure project root is on path
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
+
+from src.mixarc.paths import resolve_home  # noqa: E402
+from src.setup.checks import run_all_checks  # noqa: E402
 
 
 class Colors:
@@ -63,291 +70,34 @@ def section(title: str) -> None:
     print(f"\n{Colors.BOLD}[{title}]{Colors.RESET}")
 
 
-class DoctorChecks:
-    """Collection of environment validation checks."""
+# Section headers in doctor's historical order (old doctor.py L371-389).
+# Every CheckResult id produced by run_all_checks() is mapped to exactly one
+# of these so the on-screen grouping is unchanged even though the checks
+# themselves now live in src/setup/checks.py.
+_SECTION_ORDER = [
+    "Python Environment",
+    "Dependencies",
+    "Module Imports",
+    "Configuration",
+    "Database",
+    "Artifacts",
+]
 
-    def __init__(self, verbose: bool = False):
-        self.verbose = verbose
-        self.passed = 0
-        self.warned = 0
-        self.failed = 0
+_ID_TO_SECTION = {
+    "python_version": "Python Environment",
+    "module_imports": "Module Imports",
+    "config_file": "Configuration",
+    "satellite_paths": "Configuration",
+    "database": "Database",
+    "artifacts": "Artifacts",
+    "genre_similarity": "Artifacts",
+}
 
-    def check_python_version(self) -> bool:
-        """Check Python version is 3.11+."""
-        version = sys.version_info
-        if version >= (3, 11):
-            check_pass(f"Python {version.major}.{version.minor}.{version.micro}")
-            self.passed += 1
-            return True
-        else:
-            check_fail(
-                f"Python {version.major}.{version.minor} (need 3.11+)",
-                "Install Python 3.11 or newer"
-            )
-            self.failed += 1
-            return False
 
-    def check_dependency(self, module: str, pip_name: str = None) -> bool:
-        """Check if a Python module is importable."""
-        pip_name = pip_name or module
-        try:
-            importlib.import_module(module)
-            if self.verbose:
-                check_pass(f"{module}")
-            self.passed += 1
-            return True
-        except ImportError as e:
-            check_fail(f"{module} not found", f"pip install {pip_name}")
-            self.failed += 1
-            return False
-
-    def check_core_dependencies(self) -> int:
-        """Check all core dependencies."""
-        deps = [
-            ("numpy", "numpy"),
-            ("scipy", "scipy"),
-            ("yaml", "pyyaml"),
-            ("librosa", "librosa"),
-            ("mutagen", "mutagen"),
-            ("sklearn", "scikit-learn"),
-            ("tqdm", "tqdm"),
-            ("requests", "requests"),
-        ]
-        failed = 0
-        for module, pip_name in deps:
-            if not self.check_dependency(module, pip_name):
-                failed += 1
-        return failed
-
-    def check_config_file(self) -> bool:
-        """Check config.yaml exists."""
-        config_path = ROOT_DIR / "config.yaml"
-        if config_path.exists():
-            check_pass("config.yaml found")
-            self.passed += 1
-            return True
-        else:
-            example_path = ROOT_DIR / "config.example.yaml"
-            if example_path.exists():
-                check_fail(
-                    "config.yaml not found",
-                    "cp config.example.yaml config.yaml && edit config.yaml"
-                )
-            else:
-                check_fail("config.yaml not found", "Create config.yaml from template")
-            self.failed += 1
-            return False
-
-    def check_database(self) -> bool:
-        """Check database exists and has valid schema."""
-        # Try to load config for DB path
-        db_path = ROOT_DIR / "data" / "metadata.db"
-
-        try:
-            from src.config_loader import Config
-            config_path = ROOT_DIR / "config.yaml"
-            if config_path.exists():
-                config = Config(str(config_path))
-                db_path_str = config.get('library', 'database_path', default='data/metadata.db')
-                if db_path_str:
-                    db_path = ROOT_DIR / db_path_str
-        except Exception:
-            pass  # Use default path
-
-        if not db_path.exists():
-            check_warn(f"Database not found: {db_path}")
-            check_warn("Run: python scripts/scan_library.py")
-            self.warned += 1
-            return True  # Not fatal, just needs setup
-
-        try:
-            conn = sqlite3.connect(str(db_path))
-            cursor = conn.cursor()
-
-            # Check for tracks table
-            cursor.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='tracks'"
-            )
-            if not cursor.fetchone():
-                check_fail("Database missing 'tracks' table", "Run: python scripts/scan_library.py")
-                self.failed += 1
-                conn.close()
-                return False
-
-            # Count tracks
-            cursor.execute("SELECT COUNT(*) FROM tracks")
-            count = cursor.fetchone()[0]
-
-            # Check for sonic features
-            cursor.execute("SELECT COUNT(*) FROM tracks WHERE sonic_features IS NOT NULL")
-            sonic_count = cursor.fetchone()[0]
-
-            conn.close()
-
-            if count == 0:
-                check_warn("Database has no tracks")
-                check_warn("Run: python scripts/scan_library.py")
-                self.warned += 1
-            else:
-                check_pass(f"Database: {count:,} tracks ({sonic_count:,} with sonic features)")
-                self.passed += 1
-
-            # Integrity check — surfaces the index/table corruption class that a raw
-            # file-copy backup of an open DB can propagate (2026-07 idx_tracks_file_path
-            # incident). Not fatal (data is still readable), but the fix is a REINDEX.
-            try:
-                from src.db_backup import check_integrity
-                integ_ok, integ_detail = check_integrity(db_path)
-                if integ_ok:
-                    check_pass("Database integrity: ok")
-                    self.passed += 1
-                else:
-                    check_warn(f"Database integrity issue — run: sqlite3 metadata.db 'REINDEX;'  ({integ_detail})")
-                    self.warned += 1
-            except Exception as e:  # never let the health check itself break doctor
-                check_warn(f"Could not run integrity_check: {e}")
-                self.warned += 1
-
-            return True
-
-        except sqlite3.Error as e:
-            check_fail(f"Database error: {e}")
-            self.failed += 1
-            return False
-
-    def check_artifacts(self) -> bool:
-        """Check DS pipeline artifacts exist."""
-        artifacts_dir = ROOT_DIR / "data" / "artifacts"
-
-        if not artifacts_dir.exists():
-            check_warn("Artifacts directory not found")
-            check_warn("Run: python scripts/build_beat3tower_artifacts.py ...")
-            self.warned += 1
-            return True  # Not fatal
-
-        # Look for any .npz files
-        npz_files = list(artifacts_dir.rglob("*.npz"))
-        if not npz_files:
-            check_warn("No artifact files found (.npz)")
-            check_warn("Run: python scripts/build_beat3tower_artifacts.py ...")
-            self.warned += 1
-            return True
-
-        # Check the main artifact
-        main_artifact = artifacts_dir / "beat3tower_32k" / "data_matrices_step1.npz"
-        if main_artifact.exists():
-            size_mb = main_artifact.stat().st_size / (1024 * 1024)
-            check_pass(f"Main artifact: {main_artifact.name} ({size_mb:.1f} MB)")
-            self.passed += 1
-        else:
-            check_warn(f"Main artifact not at expected path: {main_artifact}")
-            check_warn(f"Found {len(npz_files)} artifact(s) in {artifacts_dir}")
-            self.warned += 1
-
-        return True
-
-    def check_satellite_data_paths(self, root: Path = ROOT_DIR) -> bool:
-        """Satellite clones must reach REAL data via absolute canonical paths.
-
-        A fresh clone's data/metadata.db is a tracked 0-byte stub; running with
-        it silently degrades generation (BPM gates disable inside a try/except).
-        Spec: docs/superpowers/specs/2026-07-06-simultaneous-sessions-design.md §2.
-        """
-        import importlib.util as _ilu
-
-        # Load the helper from THIS repo (doctor's own location), not from `root`:
-        # in tests `root` is a bare fake satellite dir that has no .claude/hooks.
-        wsi_path = ROOT_DIR / ".claude" / "hooks" / "workspace_identity.py"
-        if not wsi_path.exists():
-            # canonical fallback for odd layouts: nothing to enforce
-            check_pass("Workspace: canonical (no workspace_identity helper)")
-            self.passed += 1
-            return True
-        spec = _ilu.spec_from_file_location("workspace_identity", wsi_path)
-        assert spec is not None and spec.loader is not None
-        wsi = _ilu.module_from_spec(spec)
-        spec.loader.exec_module(wsi)
-
-        if not wsi.is_satellite(root):
-            check_pass("Workspace: canonical checkout (satellite checks n/a)")
-            self.passed += 1
-            return True
-
-        ok = True
-        cfg_path = root / "config.yaml"
-        if not cfg_path.exists():
-            check_fail("Satellite has no config.yaml",
-                       "python tools/create_satellite.py rewrites one from canonical")
-            self.failed += 1
-            return False
-        import yaml
-        with open(cfg_path, encoding="utf-8") as fh:
-            cfg = yaml.safe_load(fh) or {}
-
-        floors = {"database_path": 1 * 1024 * 1024, "artifact_path": 10 * 1024 * 1024}
-        raw_db = str(((cfg.get("library") or {}).get("database_path")) or "")
-        raw_art = str((((cfg.get("playlists") or {}).get("ds_pipeline") or {})
-                       .get("artifact_path")) or "")
-        for label, raw, floor in (
-            ("database_path", raw_db, floors["database_path"]),
-            ("artifact_path", raw_art, floors["artifact_path"]),
-        ):
-            p = Path(raw) if raw else None
-            if p is None or not p.is_absolute():
-                check_fail(f"Satellite {label} must be an ABSOLUTE canonical path (got {raw!r})",
-                           "Point it at the canonical checkout's data/ (create_satellite.py does this)")
-                self.failed += 1
-                ok = False
-                continue
-            resolved = p.resolve()
-            if resolved.is_relative_to(root.resolve()):
-                check_fail(f"Satellite {label} resolves INSIDE this clone ({resolved}) — that's the stub")
-                self.failed += 1
-                ok = False
-                continue
-            if not resolved.exists():
-                check_fail(f"Satellite {label} target missing: {resolved}")
-                self.failed += 1
-                ok = False
-                continue
-            size = resolved.stat().st_size
-            if size < floor:
-                check_fail(f"Satellite {label} target suspiciously small ({size} bytes < {floor}) — stub?")
-                self.failed += 1
-                ok = False
-                continue
-            check_pass(f"Satellite {label}: {resolved} ({size / (1024*1024):.0f} MB)")
-            self.passed += 1
-        return ok
-
-    def check_genre_similarity(self) -> bool:
-        """Check genre similarity file exists."""
-        genre_sim_path = ROOT_DIR / "data" / "genre_similarity.yaml"
-
-        if genre_sim_path.exists():
-            check_pass(f"Genre similarity matrix: {genre_sim_path.name}")
-            self.passed += 1
-            return True
-        else:
-            check_warn("Genre similarity file not found")
-            self.warned += 1
-            return True  # Not fatal
-
-    def check_playlist_module_imports(self) -> bool:
-        """Check core playlist module imports work."""
-        try:
-            # All three imports are availability checks; the noqa marks satisfy
-            # ruff F401 since the names aren't referenced after the import.
-            from src.config_loader import Config  # noqa: F401
-            from src.local_library_client import LocalLibraryClient  # noqa: F401
-            from src.playlist.pipeline import DSPipelineResult  # noqa: F401
-            check_pass("Core modules importable")
-            self.passed += 1
-            return True
-        except ImportError as e:
-            check_fail(f"Import error: {e}")
-            self.failed += 1
-            return False
+def _section_for(check_id: str) -> str:
+    if check_id.startswith("dep_"):
+        return "Dependencies"
+    return _ID_TO_SECTION.get(check_id, "Other")
 
 
 def main():
@@ -365,48 +115,50 @@ def main():
     print(f"\n{Colors.BOLD}Playlist Generator Doctor{Colors.RESET}")
     print("=" * 40)
 
-    doctor = DoctorChecks(verbose=args.verbose)
+    home = resolve_home(None)
+    results = run_all_checks(home)
 
-    # Run checks
-    section("Python Environment")
-    doctor.check_python_version()
+    buckets: dict[str, list] = {name: [] for name in _SECTION_ORDER}
+    for r in results:
+        buckets.setdefault(_section_for(r.id), []).append(r)
 
-    section("Dependencies")
-    doctor.check_core_dependencies()
-
-    section("Module Imports")
-    doctor.check_playlist_module_imports()
-
-    section("Configuration")
-    doctor.check_config_file()
-    doctor.check_satellite_data_paths()
-
-    section("Database")
-    doctor.check_database()
-
-    section("Artifacts")
-    doctor.check_artifacts()
-    doctor.check_genre_similarity()
+    for name in _SECTION_ORDER:
+        section(name)
+        for r in buckets[name]:
+            if r.status == "pass":
+                # Dependency passes were only ever printed in --verbose mode
+                # (old check_dependency() L90-102); everything else always
+                # prints its pass line, matching prior behavior exactly.
+                if r.id.startswith("dep_") and not args.verbose:
+                    continue
+                check_pass(r.summary)
+            elif r.status == "warn":
+                check_warn(r.summary)
+            else:
+                check_fail(r.summary, r.fix_hint)
 
     # Summary
     print("\n" + "=" * 40)
-    total = doctor.passed + doctor.warned + doctor.failed
+    passed = sum(1 for r in results if r.status == "pass")
+    warned = sum(1 for r in results if r.status == "warn")
+    failed = sum(1 for r in results if r.status == "fail")
+    total = passed + warned + failed
 
-    if doctor.failed == 0 and doctor.warned == 0:
+    if failed == 0 and warned == 0:
         print(f"{Colors.GREEN}{Colors.BOLD}All {total} checks passed!{Colors.RESET}")
         print("\nYour environment is ready. Run:")
         print("  python main_app.py --artist \"Your Artist\" --dry-run")
         sys.exit(0)
-    elif doctor.failed == 0:
-        print(f"{Colors.GREEN}✓ {doctor.passed} passed{Colors.RESET}, "
-              f"{Colors.YELLOW}⚠ {doctor.warned} warnings{Colors.RESET}")
+    elif failed == 0:
+        print(f"{Colors.GREEN}✓ {passed} passed{Colors.RESET}, "
+              f"{Colors.YELLOW}⚠ {warned} warnings{Colors.RESET}")
         print("\nEnvironment is functional but some setup may be needed.")
         print("See warnings above for setup instructions.")
         sys.exit(0)
     else:
-        print(f"{Colors.GREEN}✓ {doctor.passed} passed{Colors.RESET}, "
-              f"{Colors.YELLOW}⚠ {doctor.warned} warnings{Colors.RESET}, "
-              f"{Colors.RED}✗ {doctor.failed} failed{Colors.RESET}")
+        print(f"{Colors.GREEN}✓ {passed} passed{Colors.RESET}, "
+              f"{Colors.YELLOW}⚠ {warned} warnings{Colors.RESET}, "
+              f"{Colors.RED}✗ {failed} failed{Colors.RESET}")
         print("\nPlease fix the failed checks above before continuing.")
         sys.exit(1)
 
