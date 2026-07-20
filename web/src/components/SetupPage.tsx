@@ -5,7 +5,7 @@ import type { SetupStatus } from "../lib/types";
 // App.tsx gate that mounts it) is the permanent piece.
 export default function SetupPage({ status }: { status: SetupStatus }) {
   return (
-    <main data-testid="setup-page" className="mx-auto max-w-xl p-6 space-y-4">
+    <main data-testid="setup-page" className="mx-auto flex min-h-dvh max-w-xl flex-col justify-center gap-4 p-6">
       <h1 className="text-2xl font-semibold text-text">Welcome to MixArc</h1>
       <p className="text-muted">MixArc needs a one-time setup before it can build playlists.</p>
       <section className="rounded border border-border bg-panel p-4 space-y-2">

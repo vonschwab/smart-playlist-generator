@@ -293,7 +293,7 @@ export default function App() {
   if (setupLoading) {
     return (
       <div className="h-dvh w-full bg-bg">
-        <GeneratingIndicator status="Checking setup…" />
+        <GeneratingIndicator label="Checking setup…" />
       </div>
     );
   }

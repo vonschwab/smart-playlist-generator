@@ -1,6 +1,6 @@
 {
-  "name": "Playlist Generator",
-  "short_name": "Playlists",
+  "name": "MixArc",
+  "short_name": "MixArc",
   "display": "standalone",
   "background_color": "#0f1115",
   "theme_color": "#0f1115",

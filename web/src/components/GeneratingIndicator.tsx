@@ -4,7 +4,7 @@
 // the global rule stops the animation and the bars rest at staggered heights.
 const BARS = [0.55, 0.8, 1, 0.65, 0.85];
 
-export function GeneratingIndicator({ status }: { status?: string }) {
+export function GeneratingIndicator({ label = "Building your playlist…", status }: { label?: string; status?: string }) {
   return (
     <div
       data-testid="generating-indicator"
@@ -20,7 +20,7 @@ export function GeneratingIndicator({ status }: { status?: string }) {
         ))}
       </div>
       <div className="text-muted text-sm" role="status">
-        Building your playlist…
+        {label}
       </div>
       {status && (
         <div className="text-faint text-2xs font-mono max-w-full truncate">{status}</div>
