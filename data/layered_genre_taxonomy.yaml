@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.30.0-gui-20260709_113954-grown
+taxonomy_version: 0.31.0-gui-20260714_205808-grown
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -29743,7 +29743,8 @@ records:
     - punk
   source_policy: null
   possible_context_target: null
-  notes: Conditional alias to straight edge hardcore; require hardcore/punk context (bare term is a lifestyle label).
+  notes: Conditional alias to straight edge hardcore; require hardcore/punk context
+    (bare term is a lifestyle label).
 - name: sxe
   kind: alias
   role: alias
@@ -29888,6 +29889,48 @@ records:
     time period, and scene context—none of which define sonic or stylistic characteristics.
     It functions as a scene label or era marker, not a genre classification.'
 - name: great lyrics
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: 70's
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: future grooves
+  kind: reject
+  role: reject
+  status: rejected
+  facet_type: null
+  specificity_score: null
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: source_noise
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Rejected via taxonomy term adjudication.
+- name: sentimental
   kind: reject
   role: reject
   status: rejected
