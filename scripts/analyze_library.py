@@ -43,7 +43,7 @@ from src.ai_genre_enrichment.storage import SidecarStore
 from src.ai_genre_enrichment.discovery import discover_releases
 from src.ai_genre_enrichment.lastfm_enrichment import fetch_lastfm_tags
 from src.ai_genre_enrichment.tag_adjudicator import adjudicate_tags
-from src.ai_genre_enrichment.provider import resolve_enrichment_model
+from src.ai_genre_enrichment.provider import resolve_enrichment_model, get_enrichment_provider
 from src.ai_genre_enrichment.adjudication_store import AdjudicationStore
 from src.ai_genre_enrichment.adjudication_runner import build_todo, run_adjudication
 from src.ai_genre_enrichment.adjudication_apply import (
@@ -1775,6 +1775,11 @@ def stage_adjudicate(ctx: Dict) -> Dict:
     `--force` re-adjudicates everything. Returns a `paused` result on the rate wall
     (resumable). Writes only the sidecar `adjudications` table.
     """
+    provider = get_enrichment_provider(ctx.get("config_path"))
+    if provider in ("skip", "zero_touch"):
+        reason = ("adjudication skipped (ai_genre.provider=skip)" if provider == "skip"
+                  else "zero-touch deterministic fusion handles genres — LLM adjudication skipped")
+        return {"skipped": True, "reason": reason}
     args = ctx["args"]
     conn = sqlite3.connect(ctx["db_path"])
     store = AdjudicationStore(str(ENRICHMENT_DB_PATH))
@@ -1817,6 +1822,11 @@ def stage_adjudicate(ctx: Dict) -> Dict:
 
 def stage_apply(ctx: Dict) -> Dict:
     """Deterministic apply of checkpointed adjudications: materialize non-escalated, queue escalated."""
+    provider = get_enrichment_provider(ctx.get("config_path"))
+    if provider in ("skip", "zero_touch"):
+        reason = ("adjudication skipped (ai_genre.provider=skip)" if provider == "skip"
+                  else "zero-touch deterministic fusion handles genres — LLM adjudication skipped")
+        return {"skipped": True, "reason": reason}
     args = ctx["args"]
     std_pv = effective_prompt_version(thorough=False)
     tho_pv = effective_prompt_version(thorough=True)

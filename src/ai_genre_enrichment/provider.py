@@ -16,7 +16,7 @@ from .routing import WebMode
 
 OPENAI_DEFAULT_MODEL = "gpt-4o-mini"
 CLAUDE_DEFAULT_MODEL = "haiku"
-KNOWN_PROVIDERS = ("claude_code", "openai")
+KNOWN_PROVIDERS = ("claude_code", "openai", "anthropic_api", "zero_touch", "skip")
 
 
 @lru_cache(maxsize=8)
@@ -77,6 +77,23 @@ def create_enrichment_client(
     elif provider not in KNOWN_PROVIDERS:
         raise ValueError(
             f"Unknown ai_genre.provider {provider!r}; expected one of {KNOWN_PROVIDERS}"
+        )
+    if provider in ("skip", "zero_touch"):
+        raise ValueError(
+            f"provider '{provider}' has no enrichment client — "
+            "stages must skip instead of constructing one"
+        )
+    if provider == "anthropic_api":
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            raise ValueError(
+                "anthropic_api provider requires ANTHROPIC_API_KEY in the environment"
+            )
+        # Same client as claude_code; the Claude Code CLI authenticates via the
+        # API key env var (see class docstring re: SDK/CLI auth).
+        return ClaudeCodeEnrichmentClient(
+            model=model or _config_ai_genre(config_path)[1],
+            dry_run=dry_run,
+            max_retries=max_retries,
         )
     if provider == "openai":
         return OpenAIEnrichmentClient(
