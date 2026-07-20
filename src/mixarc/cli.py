@@ -60,3 +60,7 @@ def main(argv: list[str] | None = None) -> None:
     worker_cmd = shlex.split(worker_cmd_env) if worker_cmd_env else None
     run_server(host=args.host, port=args.port, open_browser=not args.no_browser,
                worker_cmd=worker_cmd, config_path=args.config)
+
+
+if __name__ == "__main__":
+    main()
