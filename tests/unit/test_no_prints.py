@@ -10,13 +10,15 @@ def test_no_print_statements():
     """Library code in src/ must not call print() — use the logging module instead.
 
     Scripts under scripts/ are user-facing CLIs and may print freely.
-    The lone src/ exception is playlist_gui/worker.py, which deliberately
-    writes NDJSON events to stdout as its IPC protocol with the GUI.
+    The src/ exceptions are playlist_gui/worker.py (NDJSON IPC with the GUI)
+    and mixarc/cli.py (console entry point's startup banner, which must print
+    regardless of log level).
     """
     root = Path(__file__).resolve().parent.parent
     sources = list((root.parent / "src").rglob("*.py"))
     exempt = {
         (root.parent / "src" / "playlist_gui" / "worker.py").resolve(),
+        (root.parent / "src" / "mixarc" / "cli.py").resolve(),
     }
     offenders = []
     for path in sources:
