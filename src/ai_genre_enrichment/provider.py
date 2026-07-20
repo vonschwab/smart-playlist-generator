@@ -83,17 +83,9 @@ def create_enrichment_client(
             f"provider '{provider}' has no enrichment client — "
             "stages must skip instead of constructing one"
         )
-    if provider == "anthropic_api":
-        if not os.environ.get("ANTHROPIC_API_KEY"):
-            raise ValueError(
-                "anthropic_api provider requires ANTHROPIC_API_KEY in the environment"
-            )
-        # Same client as claude_code; the Claude Code CLI authenticates via the
-        # API key env var (see class docstring re: SDK/CLI auth).
-        return ClaudeCodeEnrichmentClient(
-            model=model or _config_ai_genre(config_path)[1],
-            dry_run=dry_run,
-            max_retries=max_retries,
+    if provider == "anthropic_api" and not os.environ.get("ANTHROPIC_API_KEY"):
+        raise ValueError(
+            "anthropic_api provider requires ANTHROPIC_API_KEY in the environment"
         )
     if provider == "openai":
         return OpenAIEnrichmentClient(
@@ -104,6 +96,11 @@ def create_enrichment_client(
             api_key=api_key,
             max_retries=max_retries,
         )
+    # claude_code and anthropic_api share one construction path: both build a
+    # ClaudeCodeEnrichmentClient (the Claude Code CLI authenticates via the
+    # ANTHROPIC_API_KEY env var for anthropic_api — see class docstring re:
+    # SDK/CLI auth), and both are equally bound by the WebMode guard below —
+    # neither supports web search, so one guarded path keeps that in sync.
     if WebMode(web_mode) != WebMode.OFF:
         raise ValueError(
             "ai_genre.provider=claude_code does not support web search; "
