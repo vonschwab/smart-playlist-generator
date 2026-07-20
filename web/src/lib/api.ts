@@ -17,6 +17,7 @@ import type {
   EscalationQueueResponse,
   ReplaceSuggestionsResponse,
   SeedTrack,
+  SetupStatus,
   TaxonomyDecisionRequest,
   TaxonomyProposal,
   TaxonomyQueueResponse,
@@ -31,6 +32,9 @@ async function jsonOrThrow(resp: Response) {
 }
 
 export const api = {
+  async getSetupStatus(): Promise<SetupStatus> {
+    return jsonOrThrow(await fetch("/api/setup/status"));
+  },
   async generate(body: GenerateRequestBody): Promise<{ job_id: string }> {
     return jsonOrThrow(await fetch("/api/generate", {
       method: "POST",

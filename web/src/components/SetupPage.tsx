@@ -1,14 +1,4 @@
-// GET /api/setup/status shape (Task 4). Kept local to this component (rather
-// than lib/types.ts) so this task's diff stays scoped to its own files.
-export type SetupStatus = {
-  state: "needs_setup" | "needs_analyze" | "ready";
-  config_path: string;
-  config_exists: boolean;
-  music_directory: string | null;
-  db_path: string | null;
-  track_count: number | null;
-  detail: string;
-};
+import type { SetupStatus } from "../lib/types";
 
 // Minimal welcome/instructions gate shown when the app has no config.yaml yet.
 // SP-3 replaces the body below with a guided wizard; this component (and the

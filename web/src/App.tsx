@@ -16,7 +16,7 @@ import { useWorkerEvents } from "./lib/ws";
 import { useJobReconcile } from "./lib/useJobReconcile";
 import { useLocalStorage } from "./lib/useLocalStorage";
 import { useMediaQuery } from "./lib/useMediaQuery";
-import type { CandidateOut, GenerateRequestBody, JobOut, Mode, PlaylistOut, SeedTrack, TrackOut, WsEvent } from "./lib/types";
+import type { CandidateOut, GenerateRequestBody, JobOut, Mode, PlaylistOut, SeedTrack, SetupStatus, TrackOut, WsEvent } from "./lib/types";
 import { TrackContextMenu, type MenuTarget } from "./components/TrackContextMenu";
 import { ReplaceDialog } from "./components/ReplaceDialog";
 import { EditGenresDialog } from "./components/EditGenresDialog";
@@ -25,7 +25,7 @@ import { ExportM3U8Dialog } from "./components/ExportM3U8Dialog";
 import { RelaxationNotice } from "./components/RelaxationNotice";
 import { GeneratingIndicator } from "./components/GeneratingIndicator";
 import { defaultPlaylistName } from "./lib/playlistName";
-import SetupPage, { type SetupStatus } from "./components/SetupPage";
+import SetupPage from "./components/SetupPage";
 
 // The last generated playlist, persisted so it survives a page reload.
 const PLAYLIST_KEY = "pg_current_playlist";
@@ -45,11 +45,12 @@ export default function App() {
   const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null);
   const [setupLoading, setSetupLoading] = useState(true);
   useEffect(() => {
-    fetch("/api/setup/status")
-      .then((r) => r.json())
+    api.getSetupStatus()
       .then((s: SetupStatus) => setSetupStatus(s))
-      // Treat a failed status check as "ready" rather than blocking the app
-      // behind a gate the server can't answer — never worse than pre-gate behavior.
+      // A rejected fetch or non-ok response leaves setupStatus null, which the
+      // render below treats as "not needs_setup" — the app renders normally
+      // rather than blocking behind a gate the server can't answer. Never
+      // worse than pre-gate behavior.
       .catch(() => setSetupStatus(null))
       .finally(() => setSetupLoading(false));
   }, []);

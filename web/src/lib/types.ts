@@ -4,6 +4,18 @@ export type RangeDial = "home" | "close" | "open" | "wander";
 export type FlowDial = "normal" | "smooth";
 export type PaceDial = "locked_in" | "natural" | "free";
 
+// GET /api/setup/status shape (Task 4/5). Shared here (rather than kept local
+// to SetupPage) so lib/api.ts can wrap the endpoint like every other call.
+export interface SetupStatus {
+  state: "needs_setup" | "needs_analyze" | "ready";
+  config_path: string;
+  config_exists: boolean;
+  music_directory: string | null;
+  db_path: string | null;
+  track_count: number | null;
+  detail: string;
+}
+
 export interface GenerateRequestBody {
   mode: Mode;
   tracks: number;
