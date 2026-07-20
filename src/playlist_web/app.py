@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.config_loader import resolve_database_path
+from src.mixarc.paths import resolve_home
 from src.playlist_gui.policy import derive_runtime_config, resolve_dial_axes
 from src.playlist_gui.ui_state import UIStateModel
 
@@ -39,6 +40,7 @@ from .schemas import (
     TaxonomyValidateRequest,
     TrackGenresRequest,
 )
+from .setup_state import SetupState, derive_setup_state
 from .worker_bridge import (
     BridgeBusy,
     WorkerBridge,
@@ -137,7 +139,7 @@ def _genres_for_tracks(
     return out
 
 
-def _resolve_db_paths(config_path: str) -> tuple[Path, Path]:
+def _resolve_db_paths(config_path: str, anchor: Optional[Path] = None) -> tuple[Path, Path]:
     """DB_PATH / SIDECAR_DB_PATH for this app instance, from ``config_path``.
 
     Reads ``library.database_path`` the same way the CLI + worker do
@@ -147,6 +149,11 @@ def _resolve_db_paths(config_path: str) -> tuple[Path, Path]:
     full ``Config`` class) keeps this cheap and side-effect-free — ``Config``
     additionally validates unrelated required fields and publishes artifact
     settings process-wide, neither of which this path resolution needs.
+
+    ``anchor`` resolves a relative ``database_path`` against a MixArc home
+    (wheel-install data dir) instead of the repo root — passed through from
+    ``create_app``'s resolved ``home.anchor_dir`` (MixArc SP-1). Omitted, it
+    falls back to the repo root exactly as before.
 
     There is no config key for the enrichment sidecar DB (checked
     config.example.yaml and the sidecar readers — none resolve it from
@@ -163,18 +170,27 @@ def _resolve_db_paths(config_path: str) -> tuple[Path, Path]:
             "Failed to load config %s for DB path resolution; falling back "
             "to repo-root defaults: %s", config_path, exc,
         )
-    db_path = Path(resolve_database_path(cfg))
+    db_path = Path(resolve_database_path(cfg, anchor=anchor))
     sidecar_path = db_path.parent / "ai_genre_enrichment.db"
     return db_path, sidecar_path
 
 
 def create_app(
     worker_cmd: Optional[list[str]] = None,
-    config_path: str = DEFAULT_CONFIG,
+    config_path: str | None = None,
     seed_artist_resolver: Optional[Callable[[list[str]], list[str]]] = None,
 ) -> FastAPI:
+    # Config-less boot (MixArc SP-1): resolve_home() finds the right
+    # config.yaml (cli arg > $MIXARC_HOME > repo checkout > platformdirs) and
+    # never raises when nothing exists yet — a missing config becomes
+    # SetupState.NEEDS_SETUP, not a crash. `home.source == "repo"` for a
+    # normal repo checkout with a real config.yaml keeps this identical to
+    # the old DEFAULT_CONFIG-default behavior.
+    home = resolve_home(cli_config=config_path)
+    config_path = str(home.config_path)
+
     global DB_PATH, SIDECAR_DB_PATH
-    DB_PATH, SIDECAR_DB_PATH = _resolve_db_paths(config_path)
+    DB_PATH, SIDECAR_DB_PATH = _resolve_db_paths(config_path, anchor=home.anchor_dir)
 
     registry = JobRegistry()
     hub = WsHub()
@@ -187,7 +203,19 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        await bridge.start()
+        # Worker guard (MixArc SP-1): spawning the worker subprocess against
+        # a config-less / not-yet-analyzed home is pointless (every command
+        # would just fail once the app is used) — skip it and let
+        # /api/setup/status drive the frontend's setup flow instead. Warn,
+        # never raise: startup must still succeed so the setup page can load.
+        status = derive_setup_state(home)
+        if status.state != SetupState.NEEDS_SETUP:
+            await bridge.start()
+        else:
+            logger.warning(
+                "setup incomplete (%s) — worker not started (will start after setup)",
+                status.detail,
+            )
         yield
         await bridge.stop()
 
@@ -210,6 +238,10 @@ def create_app(
     @app.get("/api/health")
     async def health() -> dict:
         return {"status": "ok", "worker_running": bridge.running}
+
+    @app.get("/api/setup/status")
+    def setup_status() -> dict:
+        return derive_setup_state(home).to_dict()
 
     @app.post("/api/generate")
     async def generate(body: GenerateRequestBody) -> dict:

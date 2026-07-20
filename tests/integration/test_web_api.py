@@ -18,6 +18,14 @@ def test_health_ok():
     assert "worker_running" in body
 
 
+def test_setup_status_endpoint_no_config(tmp_path):
+    app = create_app(config_path=str(tmp_path / "config.yaml"))
+    client = TestClient(app)
+    r = client.get("/api/setup/status")
+    assert r.status_code == 200
+    assert r.json()["state"] == "needs_setup"
+
+
 def test_generate_runs_to_success_via_fake_worker():
     app = create_app(worker_cmd=FAKE)
     with TestClient(app) as client:  # triggers startup (bridge.start)
