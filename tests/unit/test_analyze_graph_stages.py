@@ -151,6 +151,54 @@ def test_stage_enrich_dedupes_adjudicates_and_materializes(tmp_path, monkeypatch
     assert result["tags_adjudicated"] == 1
 
 
+# ── SP-1 zero-touch gate (task 7b, 2026-07-20) ──────────────────────────────
+# stage_enrich's deterministic pre-pass always runs; only the Claude
+# adjudication of LEFTOVER unknown tags is gated for provider in
+# (zero_touch, skip) -- those tags are "whiffed honestly" as permanently
+# unmapped instead of costing an LLM call. claude_code (the owner's default)
+# must be completely unaffected -- pinned by the second test below.
+
+
+def test_stage_enrich_skips_adjudicate_tags_for_zero_touch_provider(tmp_path, monkeypatch):
+    monkeypatch.setenv("PG_AI_PROVIDER", "zero_touch")
+    db_path = _metadata_db(tmp_path)
+    sidecar = str(tmp_path / "side.db")
+    monkeypatch.setattr(al, "ENRICHMENT_DB_PATH", Path(sidecar))
+    _seed_sidecar_with_pages(sidecar)
+
+    rec = _RecordingAdjudicator()
+    monkeypatch.setattr(al, "adjudicate_tags", rec)
+
+    ctx = _ctx(tmp_path, db_path)
+    result = al.stage_enrich(ctx)
+    ctx["conn"].close()
+
+    assert result["skipped"] is False
+    assert rec.calls == []
+    assert result["tags_adjudicated"] == 0
+    # the deterministic pre-pass still ran and still materialized the release
+    assert result["releases_enriched"] == 1
+
+
+def test_stage_enrich_calls_adjudicate_tags_for_default_claude_code_provider(tmp_path, monkeypatch):
+    monkeypatch.delenv("PG_AI_PROVIDER", raising=False)
+    db_path = _metadata_db(tmp_path)
+    sidecar = str(tmp_path / "side.db")
+    monkeypatch.setattr(al, "ENRICHMENT_DB_PATH", Path(sidecar))
+    _seed_sidecar_with_pages(sidecar)
+
+    rec = _RecordingAdjudicator()
+    monkeypatch.setattr(al, "adjudicate_tags", rec)
+
+    ctx = _ctx(tmp_path, db_path)
+    result = al.stage_enrich(ctx)
+    ctx["conn"].close()
+
+    assert result["skipped"] is False
+    assert rec.calls == [["zzz unknown thing"]]
+    assert result["tags_adjudicated"] == 1
+
+
 def test_stage_enrich_no_pending_skips(tmp_path, monkeypatch):
     db_path = _metadata_db(tmp_path)
     sidecar = str(tmp_path / "side.db")

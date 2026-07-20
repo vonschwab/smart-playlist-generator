@@ -244,6 +244,11 @@ def test_hybrid_enrich_one_apply_can_include_provisional_lastfm_terms(tmp_path: 
         identity_confidence=0.95,
         evidence_summary="Last.fm tags.",
     )
+    # 4 lastfm tags at tag_position 0..3; SP-1 fusion rule 7 (2026-07-20)
+    # truncates Last.fm evidence to the top-3 by position before fusion, so
+    # "folk" (position 3) never enters evidence at all -- see
+    # test_collect_hybrid_evidence_truncates_lastfm_tags_to_top_three_by_position
+    # in test_ai_genre_hybrid_evidence.py for the isolated unit test.
     store.replace_source_tags(lastfm_page_id, ["indie folk", "avant-folk", "drone", "folk"])
     store.classify_source_tags(lastfm_page_id)
 
@@ -260,16 +265,17 @@ def test_hybrid_enrich_one_apply_can_include_provisional_lastfm_terms(tmp_path: 
     assert rc == 0
     output = json.loads(capsys.readouterr().out)
     # "indie folk" is local+lastfm corroborated (accepted). The lastfm-only
-    # terms avant-folk/drone/folk now publish straight into provisional_genres
-    # at capped confidence (basis="lastfm_only", <= LASTFM_ONLY_CONFIDENCE_CAP)
-    # under the 2026-07-04 zero-touch M1 always-publish policy flip — the
-    # needs_review bucket no longer exists (Task 2 deleted it). --include-provisional
-    # --apply therefore pulls in all three provisional terms alongside the one
+    # terms avant-folk/drone (top-3 by tag_position, "folk" truncated out)
+    # publish straight into provisional_genres at capped confidence
+    # (basis="lastfm_only", <= LASTFM_ONLY_CONFIDENCE_CAP) under the
+    # 2026-07-04 zero-touch M1 always-publish policy flip — the needs_review
+    # bucket no longer exists (Task 2 deleted it). --include-provisional
+    # --apply therefore pulls in both provisional terms alongside the one
     # accepted term.
-    assert output["applied_count"] == 4
+    assert output["applied_count"] == 3
     assert [item["term"] for item in output["accepted_genres"]] == ["indie folk"]
     provisional_terms = {item["term"] for item in output["provisional_genres"]}
-    assert provisional_terms == {"avant-folk", "drone", "folk"}
+    assert provisional_terms == {"avant-folk", "drone"}
     for item in output["provisional_genres"]:
         assert item["basis"] == "lastfm_only"
         assert item["confidence"] <= 0.40
@@ -284,7 +290,7 @@ def test_hybrid_enrich_one_apply_can_include_provisional_lastfm_terms(tmp_path: 
             )
         ]
 
-    assert genres == ["avant-folk", "drone", "folk", "indie folk"]
+    assert genres == ["avant-folk", "drone", "indie folk"]
 
 
 def test_hybrid_enrich_one_rejects_dry_run_apply_combo(tmp_path: Path, capsys):

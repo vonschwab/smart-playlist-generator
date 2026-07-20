@@ -384,6 +384,11 @@ def test_fuse_release_evidence_album_level_musicbrainz_discogs_still_flows(tmp_p
     # Positive control for Fix 1: album/release-level MB and Discogs genres
     # are untouched by the artist-level skip, and (per Fix 2) corroborate each
     # other into full weight since MusicBrainz is an anchor source.
+    #
+    # Uses "discogs_master" (the specific Style field), not "discogs_release"
+    # (the coarse Genre field) -- SP-1 fusion rule 6 (2026-07-20) drops
+    # discogs_release entirely; see
+    # test_fuse_release_evidence_drops_discogs_release_keeps_discogs_master.
     from types import SimpleNamespace
     from src.ai_genre_enrichment.hybrid_evidence import fuse_release_evidence
     from src.ai_genre_enrichment.storage import SidecarStore
@@ -397,7 +402,7 @@ def test_fuse_release_evidence_album_level_musicbrainz_discogs_still_flows(tmp_p
         album_id="alb1",
         existing_genres_by_source={
             "album:musicbrainz_release": ["dream pop"],
-            "album:discogs_release": ["dream pop"],
+            "album:discogs_master": ["dream pop"],
         },
     )
     report = fuse_release_evidence(store, release)
@@ -809,6 +814,68 @@ def test_official_release_alone_is_nudged_non_anchor():
     )
     published = {d.term: d for d in (report.accepted_genres + report.provisional_genres)}
     assert published["new age"].confidence <= 0.40
+
+
+# ── SP-1 zero-touch fusion rules (ship-approved 2026-07-06, wired 07-20) ────
+# Rule 6: split the two Discogs source labels instead of collapsing them —
+# discogs_release is the coarse "Genre" field (noisy store-bucket), discogs_
+# master is the specific "Style" field. Rule 7: rank Last.fm's own tag order
+# and only let the top-3 into fusion (the collection-side limit=20 in
+# scripts/analyze_library.py is an unrelated taxonomy-growth consumer).
+
+
+def test_fuse_release_evidence_drops_discogs_release_keeps_discogs_master(tmp_path):
+    from types import SimpleNamespace
+    from src.ai_genre_enrichment.hybrid_evidence import fuse_release_evidence
+    from src.ai_genre_enrichment.storage import SidecarStore
+
+    store = SidecarStore(str(tmp_path / "side.db"))
+    store.initialize()
+    release = SimpleNamespace(
+        release_key="boards of canada::music has the right to children",
+        normalized_artist="boards of canada",
+        normalized_album="music has the right to children",
+        album_id="alb1",
+        existing_genres_by_source={
+            "album:discogs_release": ["electronic"],
+            "album:discogs_master": ["idm"],
+        },
+    )
+    report = fuse_release_evidence(store, release)
+    published = {d.term: d for d in (report.accepted_genres + report.provisional_genres)}
+
+    assert "electronic" not in published
+    assert "idm" in published
+    assert published["idm"].sources == ["discogs"]
+
+
+def test_collect_hybrid_evidence_truncates_lastfm_tags_to_top_three_by_position(tmp_path: Path):
+    from src.ai_genre_enrichment.storage import SidecarStore
+
+    store = SidecarStore(tmp_path / "sidecar.db")
+    store.initialize()
+    page_id = store.upsert_source_page(
+        release_key="duster::stratosphere",
+        normalized_artist="duster",
+        normalized_album="stratosphere",
+        album_id="a1",
+        source_url="lastfm://artist/duster/album/stratosphere",
+        source_type="lastfm_tags",
+        identity_status="confirmed",
+        identity_confidence=0.9,
+        evidence_summary="Last.fm top tags.",
+    )
+    # replace_source_tags assigns tag_position by list order (0 = top-ranked).
+    ordered_tags = ["slowcore", "dream pop", "shoegaze", "ambient", "drone"]
+    store.replace_source_tags(page_id, ordered_tags)
+    store.classify_source_tags(page_id)
+
+    evidence = collect_hybrid_evidence(store, "duster::stratosphere")
+    lastfm_terms = {item.term for item in evidence if item.source_type == "lastfm_tags"}
+
+    assert lastfm_terms == {"slowcore", "dream pop", "shoegaze"}
+    assert "ambient" not in lastfm_terms
+    assert "drone" not in lastfm_terms
 
 
 def test_official_release_plus_musicbrainz_is_full_weight():

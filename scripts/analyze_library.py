@@ -1660,40 +1660,52 @@ def stage_enrich(ctx: Dict) -> Dict:
     enriched = 0
     skipped = 0
     assignments = 0
-    for i in range(0, len(unknown), chunk_size):
-        chunk = unknown[i:i + chunk_size]
-        try:
-            results = adjudicate_tags(chunk, model=model, client=injected_client)
-        except RuntimeError as exc:
-            exc_str = str(exc)
-            if any(pat in exc_str for pat in _TRANSIENT_CLAUDE_PATTERNS):
-                logger.warning(
-                    "enrich stage: transient Claude failure — pausing cleanly "
-                    "(cache preserved, re-run will resume). Reason: %s", exc_str,
-                )
-                return {
-                    "skipped": False,
-                    "paused": True,
-                    "pause_reason": exc_str,
-                    "releases_enriched": enriched,
-                    "releases_skipped_unchanged": skipped,
-                    "tags_adjudicated": tags_adjudicated,
-                    "chunks_used": chunks_used,
-                    "genre_assignments": assignments,
-                    "total": enriched,
-                }
-            raise
-        chunks_used += 1
-        for norm, decision in results.items():
-            classification = decision.get("classification")
-            if classification and classification != "review_only":
-                store.cache_adjudication(
-                    normalized_tag=norm,
-                    classification=classification,
-                    confidence=float(decision.get("confidence", 0.0)),
-                    classifier="ai",
-                )
-                tags_adjudicated += 1
+    provider = get_enrichment_provider(ctx.get("config_path"))
+    if provider in ("zero_touch", "skip"):
+        # SP-1 (ship-approved 2026-07-06): zero-touch/skip gate only the LLM
+        # adjudication of leftover unknown tags. The deterministic pre-pass
+        # above still ran; leftover unknowns are treated as permanently
+        # unmapped ("whiff honestly") instead of paying for a Claude call.
+        logger.info(
+            "enrich stage: provider=%s — skipping Claude adjudication of %d "
+            "leftover unknown tag(s); treated as permanently unmapped.",
+            provider, len(unknown),
+        )
+    else:
+        for i in range(0, len(unknown), chunk_size):
+            chunk = unknown[i:i + chunk_size]
+            try:
+                results = adjudicate_tags(chunk, model=model, client=injected_client)
+            except RuntimeError as exc:
+                exc_str = str(exc)
+                if any(pat in exc_str for pat in _TRANSIENT_CLAUDE_PATTERNS):
+                    logger.warning(
+                        "enrich stage: transient Claude failure — pausing cleanly "
+                        "(cache preserved, re-run will resume). Reason: %s", exc_str,
+                    )
+                    return {
+                        "skipped": False,
+                        "paused": True,
+                        "pause_reason": exc_str,
+                        "releases_enriched": enriched,
+                        "releases_skipped_unchanged": skipped,
+                        "tags_adjudicated": tags_adjudicated,
+                        "chunks_used": chunks_used,
+                        "genre_assignments": assignments,
+                        "total": enriched,
+                    }
+                raise
+            chunks_used += 1
+            for norm, decision in results.items():
+                classification = decision.get("classification")
+                if classification and classification != "review_only":
+                    store.cache_adjudication(
+                        normalized_tag=norm,
+                        classification=classification,
+                        confidence=float(decision.get("confidence", 0.0)),
+                        classifier="ai",
+                    )
+                    tags_adjudicated += 1
 
     # Per-release: re-classify (cache hits now), rebuild signatures, fuse, materialize.
     from src.ai_genre_enrichment.layered_taxonomy import load_default_layered_taxonomy

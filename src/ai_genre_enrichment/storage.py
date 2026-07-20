@@ -1990,6 +1990,7 @@ class SidecarStore:
                     p.identity_confidence,
                     t.normalized_tag AS term,
                     t.normalized_tag AS canonical_slug,
+                    t.tag_position,
                     COALESCE(d.reviewed_classification, c.classification) AS mapping_status,
                     c.confidence,
                     CASE

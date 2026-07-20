@@ -55,6 +55,12 @@ ANCHOR_SOURCE_TYPES = {"bandcamp_artist", "musicbrainz"}
 ECHO_SOURCE_TYPES = {"ai_enriched_accepted"}
 
 LASTFM_SOURCE_TYPES = {"lastfm_tags", "lastfm"}
+# SP-1 fusion rule 7 (ship-approved 2026-07-06): Last.fm's own tag ordering
+# carries real signal -- top tags are the strongest match. Only the top-N by
+# `tag_position` enter fusion; this is a FUSION-layer truncation only. It does
+# NOT touch the collection query's `limit=20` in scripts/analyze_library.py
+# (an unrelated taxonomy-growth tag-mining consumer that needs all 20 tags).
+LASTFM_FUSION_TAG_LIMIT = 3
 STRONG_SOURCE_TYPES = {"bandcamp_artist", "official_release", "ai_check_web"}
 MEDIUM_SOURCE_TYPES = {
     "local_metadata", "discogs", "musicbrainz", "ai_check_metadata",
@@ -137,7 +143,13 @@ def collect_hybrid_evidence(store: object, release_key: str) -> list[EvidenceTer
     if hasattr(store, "bandcamp_domain_artist_counts"):
         domain_counts = store.bandcamp_domain_artist_counts()
 
-    for row in store.hybrid_source_terms_for_release(release_key):
+    source_rows = list(store.hybrid_source_terms_for_release(release_key))
+    lastfm_rows = [row for row in source_rows if str(row.get("source_type")) in LASTFM_SOURCE_TYPES]
+    other_rows = [row for row in source_rows if str(row.get("source_type")) not in LASTFM_SOURCE_TYPES]
+    lastfm_rows.sort(key=lambda row: int(row.get("tag_position") or 0))
+    lastfm_rows = lastfm_rows[:LASTFM_FUSION_TAG_LIMIT]
+
+    for row in other_rows + lastfm_rows:
         mapping = str(row.get("mapping_status") or "")
         if mapping == "genre_style":
             mapping = "mapped"
@@ -487,7 +499,14 @@ def fuse_release_evidence(store: object, release: object) -> HybridGenreReport:
             continue
         elif "musicbrainz" in src:
             source_type, conf = "musicbrainz", 0.75
-        elif "discogs" in src:
+        elif src == "discogs_release":
+            # SP-1 fusion rule 6 (ship-approved 2026-07-06): discogs_release
+            # is Discogs' coarse "Genre" field -- a noisy store-bucket
+            # (e.g. "Electronic", "Rock") that carries little specific
+            # signal. Dropped entirely; discogs_master (the specific "Style"
+            # field) below is the useful half of the same page.
+            continue
+        elif src == "discogs_master":
             source_type, conf = "discogs", 0.78
         else:
             continue
