@@ -50,6 +50,7 @@ dev = [
     "ruff>=0.15",
     "mypy>=1.10",
     "pre-commit>=4.0",
+    "build>=1.0",
 ]
 
 [project.scripts]
@@ -58,6 +59,9 @@ mixarc = "src.mixarc.cli:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["src*"]
+
+[tool.setuptools.package-data]
+"src.playlist_web" = ["static_dist/**/*"]
 
 [tool.ruff]
 line-length = 120

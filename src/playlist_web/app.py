@@ -53,9 +53,26 @@ from .ws import WsHub
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_WORKER_CMD = [sys.executable, "-m", "src.playlist_gui.worker"]
 DEFAULT_CONFIG = str(ROOT / "config.yaml")
-WEB_DIST = ROOT / "web" / "dist"
 
 logger = logging.getLogger(__name__)
+
+
+def resolve_static_dir(root: Optional[Path] = None, packaged: Optional[Path] = None) -> Path:
+    """Locate the built front-end bundle.
+
+    Prefers the repo's `web/dist` (dev checkout); falls back to the
+    packaged `static_dist/` copied alongside this module by
+    `scripts/build_wheel.py` (wheel install, where there is no `web/`
+    source tree at all).
+    """
+    if root is None:
+        root = ROOT
+    repo_dist = root / "web" / "dist"
+    if repo_dist.exists():
+        return repo_dist
+    if packaged is None:
+        packaged = Path(__file__).resolve().parent / "static_dist"
+    return packaged
 
 # Import-time fallbacks only — create_app() rebinds these two module globals
 # from the config's library.database_path via resolve_database_path()
@@ -862,11 +879,12 @@ def create_app(
         except WebSocketDisconnect:
             hub.disconnect(ws)
 
-    if WEB_DIST.exists():
+    static_dir = resolve_static_dir()
+    if static_dir.exists():
         # Mount the whole dist root (html=True serves index.html at "/") so
         # root-level files — icons, manifest.webmanifest, /fonts — are served
         # too; the old /assets-only mount silently 404'd all of them. Mounted
         # last, so /api and /ws routes registered above keep precedence.
-        app.mount("/", StaticFiles(directory=WEB_DIST, html=True), name="dist")
+        app.mount("/", StaticFiles(directory=static_dir, html=True), name="dist")
 
     return app

@@ -127,6 +127,9 @@ node_modules/
 # Web frontend (Vite)
 web/node_modules/
 web/dist/
+# Packaged front-end bundle copied in by scripts/build_wheel.py — generated,
+# never committed (see src/playlist_web/app.py:resolve_static_dir).
+src/playlist_web/static_dist/
 # Playwright test output
 web/test-results/
 web/playwright-report/
