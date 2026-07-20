@@ -488,7 +488,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_DB_REL = "data/metadata.db"
 
 
-def resolve_database_path(config: "Config | dict | None") -> str:
+def resolve_database_path(config: "Config | dict | None", anchor: "Path | None" = None) -> str:
     """Absolute metadata.db path from config — the single source of truth.
 
     Accepts a Config object or a plain dict (the two shapes at call sites).
@@ -498,6 +498,10 @@ def resolve_database_path(config: "Config | dict | None") -> str:
     returns an absolute path string — never a bare relative path. This makes
     the DB location independent of where the process was launched, which is
     what lets a satellite clone (cwd != data root) read the real canonical DB.
+
+    `anchor` optionally overrides the base a relative path is resolved
+    against (e.g. a MixarcHome.anchor_dir for a wheel install); when omitted,
+    relative paths resolve against _REPO_ROOT exactly as before.
     """
     if isinstance(config, dict):
         raw = (config.get("library") or {}).get("database_path")
@@ -512,7 +516,8 @@ def resolve_database_path(config: "Config | dict | None") -> str:
     raw = (str(raw).strip() if raw else "") or _DEFAULT_DB_REL
     p = Path(raw)
     if not p.is_absolute():
-        p = _REPO_ROOT / p
+        base = Path(anchor) if anchor is not None else _REPO_ROOT
+        p = base / p
     return str(p.resolve())
 
 
