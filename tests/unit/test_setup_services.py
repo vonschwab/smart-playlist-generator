@@ -63,3 +63,37 @@ def test_all_services_dispatch():
     for s in services.SERVICES:
         r = services.test_connection(s, {})  # all not-configured → pass/warn, never raise
         assert isinstance(r, CheckResult)
+
+
+def test_lastfm_timeout_is_bounded(monkeypatch):
+    """Task-3-review Important gap: LastFMClient.get_user_info() has no
+    timeout/retry-count seam of its own -- its real client can retry up to
+    5x with exponential backoff on top of a 10s per-attempt timeout, i.e.
+    65+ seconds worst case. `test_connection` must bound EVERY probe (not
+    just lastfm) to a hard wall-clock budget instead of blocking on it.
+
+    Uses a tiny patched budget + a short sleep so this test stays fast
+    while still proving the wrapper returns well before the probe would
+    finish on its own.
+    """
+    import time
+
+    class HangingClient:
+        def __init__(self, *a, **k):
+            pass
+
+        def get_user_info(self):
+            time.sleep(1.0)  # stands in for the 65s+ real-world worst case
+            return {"name": "dylan"}
+
+    monkeypatch.setattr(services, "LastFMClient", HangingClient, raising=False)
+    monkeypatch.setattr(services, "_PROBE_TIMEOUT_SECONDS", 0.2, raising=False)
+
+    start = time.monotonic()
+    r = services.test_connection("lastfm", {"lastfm": {"api_key": "k", "username": "dylan"}})
+    elapsed = time.monotonic() - start
+
+    assert isinstance(r, CheckResult)  # never raises
+    assert r.status == "fail"
+    assert "timed out" in r.summary.lower()
+    assert elapsed < 0.9, f"wrapper should return near the 0.2s budget, took {elapsed:.2f}s"
