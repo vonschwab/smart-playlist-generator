@@ -1,7 +1,12 @@
 """Provider registry: new values accepted, default unchanged, skip semantics."""
 import pytest
 
-from src.ai_genre_enrichment.provider import KNOWN_PROVIDERS, get_enrichment_provider
+from src.ai_genre_enrichment.provider import (
+    KNOWN_PROVIDERS,
+    OPENAI_DEFAULT_MODEL,
+    get_enrichment_provider,
+    resolve_enrichment_model,
+)
 
 
 def test_new_values_known():
@@ -133,3 +138,26 @@ def test_anthropic_api_web_mode_off_still_requires_key(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     with pytest.raises(ValueError, match="ANTHROPIC_API_KEY"):
         create_enrichment_client(provider="anthropic_api", web_mode="off")
+
+
+def test_resolve_enrichment_model_anthropic_api_uses_claude_model(tmp_path, monkeypatch):
+    """Finding 2.1: resolve_enrichment_model special-cased only 'claude_code', so
+    'anthropic_api' fell through to OPENAI_DEFAULT_MODEL and that wrong model id then
+    won inside create_enrichment_client's ClaudeCodeEnrichmentClient construction.
+    anthropic_api must resolve to the same configured claude_model as claude_code."""
+    monkeypatch.delenv("PG_AI_PROVIDER", raising=False)
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(
+        "ai_genre:\n  provider: anthropic_api\n  claude_model: opus\n",
+        encoding="utf-8",
+    )
+    assert resolve_enrichment_model(config_path=str(cfg)) == "opus"
+    assert resolve_enrichment_model(config_path=str(cfg)) != OPENAI_DEFAULT_MODEL
+
+
+def test_resolve_enrichment_model_openai_still_uses_openai_default(tmp_path, monkeypatch):
+    """Non-regression: provider=openai must keep returning OPENAI_DEFAULT_MODEL."""
+    monkeypatch.delenv("PG_AI_PROVIDER", raising=False)
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("ai_genre:\n  provider: openai\n", encoding="utf-8")
+    assert resolve_enrichment_model(config_path=str(cfg)) == OPENAI_DEFAULT_MODEL

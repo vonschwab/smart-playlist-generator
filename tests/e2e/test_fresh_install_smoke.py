@@ -58,7 +58,21 @@ def test_fresh_install_boots_to_needs_setup(tmp_path):
                 with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/setup/status", timeout=2) as r:
                     body = json.load(r)
                     assert body["state"] == "needs_setup"
-                    break
+
+                # Finding 2.2: also confirm the bundled UI itself is served, not
+                # just the setup-status API — a wheel built without static_dist/
+                # (e.g. a package-data glob miss) would still pass the check
+                # above while mounting no front-end at all.
+                with urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=2) as r:
+                    assert r.status == 200
+                    html = r.read().decode("utf-8", errors="replace")
+                    lowered = html.lower()
+                    assert (
+                        "<!doctype html" in lowered
+                        or 'id="root"' in lowered
+                        or "<title" in lowered
+                    ), f"'/' did not look like the app's HTML shell: {html[:200]!r}"
+                break
             except AssertionError:
                 raise
             except Exception as exc:

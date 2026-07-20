@@ -878,6 +878,44 @@ def test_collect_hybrid_evidence_truncates_lastfm_tags_to_top_three_by_position(
     assert "drone" not in lastfm_terms
 
 
+def test_collect_hybrid_evidence_missing_tag_position_sorts_last_not_first(tmp_path: Path):
+    """Rolled-up minor item 9: `tag_position or 0` sorted a missing/None position as
+    rank 0 (first), so a position-less tag could displace a legitimately top-ranked
+    one out of the top-3 truncation. A missing position must sort LAST instead."""
+    from src.ai_genre_enrichment.storage import SidecarStore
+
+    store = SidecarStore(tmp_path / "sidecar.db")
+    store.initialize()
+    page_id = store.upsert_source_page(
+        release_key="duster::stratosphere",
+        normalized_artist="duster",
+        normalized_album="stratosphere",
+        album_id="a1",
+        source_url="lastfm://artist/duster/album/stratosphere",
+        source_type="lastfm_tags",
+        identity_status="confirmed",
+        identity_confidence=0.9,
+        evidence_summary="Last.fm top tags.",
+    )
+    # slowcore/dream pop/shoegaze get real positions 0/1/2 via list order;
+    # ambient's position is corrupted to NULL to simulate a source that failed
+    # to report a rank for one tag.
+    ordered_tags = ["slowcore", "dream pop", "shoegaze", "ambient"]
+    store.replace_source_tags(page_id, ordered_tags)
+    store.classify_source_tags(page_id)
+    with store.connect() as conn:
+        conn.execute(
+            "UPDATE ai_genre_source_tags SET tag_position = NULL WHERE normalized_tag = ?",
+            ("ambient",),
+        )
+
+    evidence = collect_hybrid_evidence(store, "duster::stratosphere")
+    lastfm_terms = {item.term for item in evidence if item.source_type == "lastfm_tags"}
+
+    assert lastfm_terms == {"slowcore", "dream pop", "shoegaze"}
+    assert "ambient" not in lastfm_terms
+
+
 def test_official_release_plus_musicbrainz_is_full_weight():
     report = fuse_hybrid_evidence(
         release_key="test::album",

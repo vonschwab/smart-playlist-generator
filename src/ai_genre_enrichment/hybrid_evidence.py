@@ -146,7 +146,15 @@ def collect_hybrid_evidence(store: object, release_key: str) -> list[EvidenceTer
     source_rows = list(store.hybrid_source_terms_for_release(release_key))
     lastfm_rows = [row for row in source_rows if str(row.get("source_type")) in LASTFM_SOURCE_TYPES]
     other_rows = [row for row in source_rows if str(row.get("source_type")) not in LASTFM_SOURCE_TYPES]
-    lastfm_rows.sort(key=lambda row: int(row.get("tag_position") or 0))
+    # A missing/None tag_position must sort LAST, not first — `or 0` previously
+    # made it rank-0 (displacing a legitimately top-ranked tag out of the top-3
+    # truncation below). See rolled-up minor item 9, final-review.md.
+    _MISSING_TAG_POSITION = 10**9
+    lastfm_rows.sort(
+        key=lambda row: row["tag_position"]
+        if row.get("tag_position") is not None
+        else _MISSING_TAG_POSITION
+    )
     lastfm_rows = lastfm_rows[:LASTFM_FUSION_TAG_LIMIT]
 
     for row in other_rows + lastfm_rows:

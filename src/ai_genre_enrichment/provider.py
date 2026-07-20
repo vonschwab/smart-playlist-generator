@@ -56,7 +56,7 @@ def resolve_enrichment_model(
     """Explicit model wins; otherwise the active provider's default."""
     if model:
         return model
-    if get_enrichment_provider(config_path) == "claude_code":
+    if get_enrichment_provider(config_path) in ("claude_code", "anthropic_api"):
         return _config_ai_genre(config_path)[1]
     return OPENAI_DEFAULT_MODEL
 
