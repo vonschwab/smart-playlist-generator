@@ -82,7 +82,9 @@ def test_stage_lastfm_fetches_stores_and_classifies(tmp_path, monkeypatch):
     assert "slowdive::souvlaki" in store.release_keys_with_source_type("lastfm_tags")
 
 
-def test_stage_lastfm_missing_key_raises(tmp_path, monkeypatch):
+def test_stage_lastfm_missing_key_skips(tmp_path, monkeypatch):
+    """Not-configured (no key) is a loud skip, not a raise — see
+    tests/unit/test_analyze_stage_policy.py for the full skip-vs-fail policy."""
     db_path = _metadata_db(tmp_path)
     sidecar = str(tmp_path / "side.db")
     monkeypatch.setattr(al, "ENRICHMENT_DB_PATH", Path(sidecar))
@@ -90,9 +92,10 @@ def test_stage_lastfm_missing_key_raises(tmp_path, monkeypatch):
     ctx = _ctx(tmp_path, db_path, lastfm_api_key=None)
     # also ensure config lookup can't supply a key
     monkeypatch.setattr(al, "_resolve_lastfm_api_key", lambda ctx: None)
-    with pytest.raises(RuntimeError, match="Last.fm API key"):
-        al.stage_lastfm(ctx)
+    result = al.stage_lastfm(ctx)
     ctx["conn"].close()
+    assert result["skipped"] is True
+    assert "not configured" in result["reason"]
 
 
 def _seed_sidecar_with_pages(sidecar: str):

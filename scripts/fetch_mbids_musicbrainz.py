@@ -98,7 +98,12 @@ def get_session(timeout: float, max_retries: int) -> requests.Session:
     adapter = HTTPAdapter(max_retries=retries)
     session.mount("https://", adapter)
     session.mount("http://", adapter)
-    session.headers.update({"User-Agent": "playlist-generator/mbid-fetch"})
+    from importlib.metadata import version
+    try:
+        _V = version("mixarc")
+    except Exception:
+        _V = "dev"
+    session.headers.update({"User-Agent": f"mixarc/{_V} (+https://github.com/vonschwab/smart-playlist-generator)"})
     session.request = lambda *args, **kwargs: requests.Session.request(
         session,
         *args,

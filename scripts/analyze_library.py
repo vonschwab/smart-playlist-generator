@@ -1156,13 +1156,11 @@ def stage_discogs(ctx: Dict) -> Dict:
     # Check if Discogs token is available - REQUIRED for production
     token = os.getenv("DISCOGS_TOKEN") or load_config_token(Path(config_path) if config_path else None)
     if not token:
-        msg = (
-            "Discogs token required for production pipeline. "
-            "Set DISCOGS_TOKEN environment variable or add discogs.token to config.yaml. "
-            "Get token from: https://www.discogs.com/settings/developers"
-        )
-        logger.error(msg)
-        raise RuntimeError(msg)
+        reason = ("Discogs not configured — discogs genre/style tags unavailable "
+                   "(set discogs.token in config.yaml to enable; get one from "
+                   "https://www.discogs.com/settings/developers)")
+        logger.info(reason)
+        return {"skipped": True, "reason": reason}
 
     # Try to create Discogs client
     try:
@@ -1407,10 +1405,9 @@ def stage_lastfm(ctx: Dict) -> Dict:
     args = ctx["args"]
     api_key = _resolve_lastfm_api_key(ctx)
     if not api_key:
-        raise RuntimeError(
-            "Last.fm API key required for the lastfm stage. Set LASTFM_API_KEY, "
-            "pass --lastfm-api-key, or add lastfm.api_key to config.yaml."
-        )
+        return {"skipped": True,
+                "reason": "Last.fm not configured — lastfm tags and popularity features unavailable "
+                          "(set lastfm.api_key in config.yaml to enable)"}
 
     store = SidecarStore(str(ENRICHMENT_DB_PATH))
     store.initialize()
@@ -2392,10 +2389,30 @@ def stage_energy(ctx: Dict) -> Dict:
     if WSL/Essentia is unreachable. Standalone pace-axis sidecar — never folded
     into the sonic blend, never writes metadata.db.
     """
+    import yaml
     from src.analyze.energy_runner import load_energy_config, energy_paths
 
     args = ctx["args"]
     out_dir = Path(ctx["out_dir"])
+
+    # Not-configured policy: energy is Windows+WSL-only. An absent `analyze.energy`
+    # section (Dylan's canonical config.yaml has none — the EnergyConfig dataclass
+    # defaults already describe his real WSL setup) must keep preflighting/raising
+    # exactly as before, so "section absent" does NOT mean "not configured" here.
+    # Only an explicit `enabled: false`, or a non-Windows host (WSL can't exist
+    # there — the fresh/non-Windows-user case this policy targets), skips.
+    try:
+        with open(ctx["config_path"], "r", encoding="utf-8") as _fh:
+            _raw_cfg = yaml.safe_load(_fh) or {}
+    except Exception:
+        _raw_cfg = {}
+    energy_enabled = bool(((_raw_cfg.get("analyze") or {}).get("energy") or {}).get("enabled", True))
+    if not energy_enabled or sys.platform != "win32":
+        reason = ("energy analysis not configured — energy/arousal features unavailable "
+                   "(Windows+WSL+Essentia required)")
+        logger.info("stage_energy: %s", reason)
+        return {"skipped": True, "pending": 0, "reason": reason}
+
     cfg = load_energy_config(ctx["config_path"])
     energy_workers = getattr(args, "energy_workers", None)
     if energy_workers is not None:
@@ -2443,7 +2460,9 @@ def stage_popularity(ctx: Dict) -> Dict:
         return {"skipped": True, "reason": "no_artifact"}
     api_key = _resolve_lastfm_api_key(ctx)
     if not api_key:
-        raise RuntimeError("stage_popularity requires a Last.fm API key (config lastfm.api_key / LASTFM_API_KEY)")
+        return {"skipped": True,
+                "reason": "Last.fm not configured — popularity features unavailable "
+                          "(set lastfm.api_key in config.yaml to enable)"}
 
     with open(ctx["config_path"], "r", encoding="utf-8") as _fh:
         cfg = yaml.safe_load(_fh) or {}
