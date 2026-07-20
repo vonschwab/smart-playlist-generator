@@ -34,6 +34,7 @@ from src.config_loader import Config
 from src.analyze.genre_similarity import build_genre_similarity_matrix
 from src.features.artifacts import load_artifact_bundle
 from src.genre.artifact_identity import dense_sidecar_mismatch_reason_from_paths
+from src.setup.services import test_connection
 from scripts.update_genres_v3_normalized import NormalizedGenreUpdater
 from scripts.update_sonic import SonicFeaturePipeline
 from scripts.scan_library import LibraryScanner
@@ -2608,6 +2609,8 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--force-all", action="store_true", help="MBID stage: process all tracks regardless of existing musicbrainz_id")
     parser.add_argument("--out-dir", help="Output directory for artifacts")
     parser.add_argument("--dry-run", action="store_true", help="Print plan and exit")
+    parser.add_argument("--no-preflight", action="store_true",
+                        help="Skip pre-flight connectivity checks for configured services")
     parser.add_argument("--progress", dest="progress", action="store_true", default=True,
                         help="Enable progress logging (default)")
     parser.add_argument("--no-progress", dest="progress", action="store_false",
@@ -2638,6 +2641,47 @@ def _analyze_log_settings(config) -> Tuple[bool, str, int, str]:
     retention_days = int(cfg.get('retention_days', 30))
     level_name = str(cfg.get('level', 'DEBUG')).upper()
     return enabled, directory, retention_days, level_name
+
+
+def _run_preflight(cfg, args: argparse.Namespace, stages: List[str]) -> None:
+    """Fail fast on scheduled-but-unreachable external services, before any
+    stage (incl. scan/sonic/muq) runs. Bypassed by `--no-preflight` or
+    `analyze.preflight: false` in config.yaml. A `pass` (including
+    "not configured") and `warn` never block; only `fail` aborts the run.
+    """
+    if getattr(args, "no_preflight", False) or not cfg.get("analyze", "preflight", default=True):
+        logger.info("pre-flight skipped")
+        return
+
+    services: List[str] = []
+    if "lastfm" in stages or "popularity" in stages:
+        services.append("lastfm")
+    if "discogs" in stages:
+        services.append("discogs")
+    if "adjudicate" in stages:
+        provider = get_enrichment_provider(args.config)
+        if provider in ("claude_code", "anthropic_api", "openai"):
+            services.append(provider)
+
+    failures = []
+    for service in services:
+        result = test_connection(service, cfg)
+        if result.status == "fail":
+            failures.append(result)
+
+    if failures:
+        for result in failures:
+            logger.error(
+                "pre-flight FAIL: %s — %s%s",
+                result.id, result.summary,
+                f" (fix: {result.fix_hint})" if result.fix_hint else "",
+            )
+        names = ", ".join(r.id for r in failures)
+        raise RuntimeError(
+            f"pre-flight failed: {names}. Fix them, or re-run with --no-preflight."
+        )
+
+    logger.info("pre-flight OK (%d services)", len(services))
 
 
 def run_pipeline(
@@ -2762,6 +2806,8 @@ def run_pipeline(
             pending_snapshot.append(f"{st}={pc:,}" + (f" {pl}" if pl else ""))
     if pending_snapshot:
         logger.info("  pending_estimates: %s", "; ".join(pending_snapshot))
+
+    _run_preflight(cfg, args, stages_requested)
 
     start_total = time.time()
     try:
