@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.35.1-cuban-roots-edge-upgrade
+taxonomy_version: 0.36.0-brazilian-grown
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -31166,6 +31166,174 @@ records:
   possible_context_target: null
   notes: Cuban jam-session style (Cachao) — improvised, Latin-jazz-adjacent. Bridges
     the existing latin jazz and afro-cuban nodes.
+- name: brazilian music
+  kind: umbrella
+  role: context
+  status: active
+  facet_type: null
+  specificity_score: 0.3
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Umbrella grouping the Brazilian styles within the brazilian/latin family
+    (which also hosts Spanish-language Latin). New + existing Brazilian genres wired
+    to it in PASS-2 (same-batch).
+- name: forró
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.62
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.65
+    confidence: 0.85
+    notes: null
+  - target: world music
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[MG] Northeastern Brazilian accordion-and-zabumba dance style; hugely popular
+    in Brazil. Bridge to sertanejo added in PASS-2 (same-batch).'
+- name: sertanejo
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.6
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.65
+    confidence: 0.85
+    notes: null
+  - target: country/roots
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.75
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[gap-fill — Music-Graph blindspot] Brazilian country music; the single biggest
+    genre in Brazil by streaming (sertanejo universitário, sertanejo raiz). Essential
+    public-library coverage. family_context to country/roots reflects its country-music
+    character. Bridge to forró in PASS-2 (same-batch).'
+- name: pagode
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: samba
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[gap-fill — Music-Graph blindspot] Party/romantic samba offshoot (pagode
+    romântico). Placed as a samba subgenre.'
+- name: axé
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.62
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.65
+    confidence: 0.85
+    notes: null
+  - target: samba
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[MG] Bahian carnival pop fusing samba-reggae, frevo, and forró. Bridges
+    the existing samba node; bridge to frevo added in PASS-2 (same-batch).'
+- name: frevo
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.72
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[MG] Fast Pernambuco carnival march/dance style. Bridge to axé added in
+    PASS-2 (same-batch).'
+- name: lambada
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.6
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  - target: world music
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[MG] Fast Pará/Northeastern dance style, internationally famous via the
+    late-1980s dance craze.'
 bridge_rules:
 - source: indie pop
   target: synth-pop
