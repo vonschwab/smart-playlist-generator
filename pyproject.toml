@@ -38,6 +38,7 @@ web = [
     "fastapi>=0.100.0",
     "uvicorn[standard]>=0.22.0",
     "httpx>=0.24.0",
+    "ruamel.yaml>=0.18",
 ]
 muq = [
     "muq",
