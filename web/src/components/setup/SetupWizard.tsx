@@ -3,6 +3,8 @@ import { useWizard, type WizardStepId } from "./useWizard";
 import { Welcome } from "./steps/Welcome";
 import { EnvironmentCheck } from "./steps/EnvironmentCheck";
 import { MusicFolder } from "./steps/MusicFolder";
+import Services from "./steps/Services";
+import GenreBackend from "./steps/GenreBackend";
 import { Review } from "./steps/Review";
 
 // Human labels for the rail. Order/ids come from WIZARD_STEPS (useWizard.ts) —
@@ -17,8 +19,8 @@ const STEP_LABELS: Record<WizardStepId, string> = {
   analyze: "Analyze",
 };
 
-// Tasks 7-8 replace this with the real services/genre/analyze step
-// components (Task 6 shipped the music step). Keeping a placeholder here
+// Task 8 replaces this with the real analyze step component (Task 6 shipped
+// the music step, Task 7 shipped services/genre). Keeping a placeholder here
 // (rather than leaving the switch non-exhaustive) means the rail and
 // Back/Next always work end-to-end even for steps that aren't built yet.
 function PlaceholderStep({ id }: { id: WizardStepId }) {
@@ -47,6 +49,12 @@ export default function SetupWizard({ status }: { status: SetupStatus }) {
       break;
     case "music":
       body = <MusicFolder draft={draft} setDraft={setDraft} />;
+      break;
+    case "services":
+      body = <Services draft={draft} setDraft={setDraft} />;
+      break;
+    case "genre":
+      body = <GenreBackend draft={draft} setDraft={setDraft} />;
       break;
     case "review":
       body = <Review draft={draft} />;
