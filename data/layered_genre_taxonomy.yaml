@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.36.1-brazilian-edge-upgrade
+taxonomy_version: 0.37.0-south-asian-grown
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -31409,6 +31409,267 @@ records:
   possible_context_target: null
   notes: '[MG] Fast Pará/Northeastern dance style, internationally famous via the
     late-1980s dance craze.'
+- name: south asian music
+  kind: umbrella
+  role: context
+  status: active
+  facet_type: null
+  specificity_score: 0.3
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Umbrella grouping South Asian (Indian subcontinent) styles under world music.
+    The region was entirely absent from MixArc. Cluster leaves wired to it in PASS-2
+    (same-batch).
+- name: indian classical
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.55
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[MG] The Indian classical art-music tradition (raga/tala based). A SEPARATE
+    tradition from Western classical, so placed under world music, NOT the classical/modern
+    composition family. Groups Hindustani + Carnatic (subgenres parent to it in PASS-2,
+    same-batch).'
+- name: hindustani classical
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.72
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[MG] North Indian classical tradition (khyal, dhrupad; Ravi Shankar, Ali
+    Akbar Khan). Parents to indian classical + bridges carnatic in PASS-2 (same-batch).'
+- name: hindustani
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: hindustani classical
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: carnatic
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.72
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[MG] South Indian classical tradition (kriti; M. S. Subbulakshmi). Parents
+    to indian classical + bridges hindustani in PASS-2 (same-batch).'
+- name: carnatic classical
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: carnatic
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: qawwali
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[MG] Sufi devotional music of the Indian subcontinent (Nusrat Fateh Ali
+    Khan). Bridges ghazal in PASS-2 (same-batch).'
+- name: bhangra
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.62
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: folk
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.75
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[MG] Punjabi folk dance music, now a global dance-pop genre (UK bhangra,
+    Punjabi pop). folk edge reflects its folk roots.'
+- name: filmi
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.58
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: pop
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[gap-fill / MG has ''bollywood''] Indian film-song music — the most-consumed
+    South Asian music globally. Canonical `filmi` (covers all Indian cinema, incl.
+    Tamil/Telugu) with `bollywood` (Hindi cinema) as the popular alias. Bridges indian
+    pop in PASS-2 (same-batch).'
+- name: bollywood
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: filmi
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: indian pop
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.58
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: pop
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[MG] Modern non-film Indian/South Asian pop (indipop, desi pop). Bridges
+    filmi in PASS-2 (same-batch).'
+- name: indipop
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: indian pop
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: ghazal
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.64
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[gap-fill — Music-Graph blindspot] Urdu/Hindi poetic song form (Mehdi Hassan,
+    Jagjit Singh); a South Asian semi-classical staple. Bridges qawwali in PASS-2
+    (same-batch).'
 bridge_rules:
 - source: indie pop
   target: synth-pop
