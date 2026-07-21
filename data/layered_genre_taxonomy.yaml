@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.41.1-maghreb
+taxonomy_version: 0.42.1-south-american-folk
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -32635,6 +32635,343 @@ records:
   source_policy: growth
   possible_context_target: null
   notes: '[gap-fill] Tunisian/Libyan branch of Andalusian classical.'
+- name: south american folk
+  kind: umbrella
+  role: context
+  status: active
+  facet_type: null
+  specificity_score: 0.3
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Umbrella for Andean + Southern-Cone folk traditions.
+- name: andean
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.64
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.85
+    notes: null
+  - target: south american folk
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[MG] Andean highland music (quena/panpipes, charango; Peru/Bolivia/Ecuador).'
+- name: andean folk
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: andean
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: musica andina
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: andean
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: nueva canción
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.62
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.85
+    notes: null
+  - target: folk
+    edge_type: family_context
+    weight: 0.3
+    confidence: 0.75
+    notes: null
+  - target: south american folk
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[gap-fill] Politically-conscious Latin American folk-song movement (Víctor
+    Jara, Mercedes Sosa, Violeta Parra).'
+- name: nueva cancion
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: nueva canción
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: huayno
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.72
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.85
+    notes: null
+  - target: south american folk
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: andean
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[gap-fill] Andean/Peruvian dance-song form; a core Andean style.'
+- name: cueca
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.72
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.85
+    notes: null
+  - target: south american folk
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: zamba
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[gap-fill] Chilean national courtship dance.'
+- name: zamba
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.72
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.85
+    notes: null
+  - target: south american folk
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: chacarera
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[gap-fill] Argentine slow folk dance (NOT Brazilian samba).'
+- name: chacarera
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.72
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.85
+    notes: null
+  - target: south american folk
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: zamba
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[gap-fill] Argentine up-tempo folk dance.'
+- name: candombe
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: south american folk
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: murga
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[gap-fill] Afro-Uruguayan drum-based genre (Montevideo).'
+- name: murga
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.72
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.85
+    notes: null
+  - target: south american folk
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: candombe
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[gap-fill] Uruguayan/Argentine carnival musical-theatre style.'
 bridge_rules:
 - source: indie pop
   target: synth-pop
