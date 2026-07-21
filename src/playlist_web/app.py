@@ -238,7 +238,7 @@ def create_app(
         yield
         await bridge.stop()
 
-    app = FastAPI(title="Playlist Generator Web", lifespan=lifespan)
+    app = FastAPI(title="MixArc", lifespan=lifespan)
     app.state.bridge = bridge
     app.state.registry = registry
 
