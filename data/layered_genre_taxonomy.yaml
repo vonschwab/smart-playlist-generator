@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.36.0-brazilian-grown
+taxonomy_version: 0.36.1-brazilian-edge-upgrade
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -3725,6 +3725,11 @@ records:
     confidence: 0.85
     notes: Jazz-influenced but Brazilian in origin; do not model as jazz subgenre
       alone.
+  - target: brazilian music
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -4858,6 +4863,11 @@ records:
     weight: 0.25
     confidence: 0.85
     notes: null
+  - target: brazilian music
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -4944,6 +4954,11 @@ records:
     edge_type: family_context
     weight: 0.78
     confidence: 0.85
+    notes: null
+  - target: brazilian music
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
     notes: null
   secondary_roles: []
   reject_reason: null
@@ -15724,6 +15739,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: brazilian music
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -22295,6 +22315,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: brazilian music
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -31205,6 +31230,16 @@ records:
     weight: 0.25
     confidence: 0.8
     notes: null
+  - target: brazilian music
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: sertanejo
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: null
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -31229,6 +31264,16 @@ records:
     edge_type: family_context
     weight: 0.25
     confidence: 0.75
+    notes: null
+  - target: brazilian music
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: forró
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
     notes: null
   secondary_roles: []
   reject_reason: null
@@ -31257,6 +31302,11 @@ records:
     weight: 0.55
     confidence: 0.85
     notes: null
+  - target: brazilian music
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -31282,6 +31332,21 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: brazilian music
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: frevo
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: null
+  - target: forró
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: null
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -31301,6 +31366,11 @@ records:
     edge_type: family_context
     weight: 0.6
     confidence: 0.85
+    notes: null
+  - target: brazilian music
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
     notes: null
   secondary_roles: []
   reject_reason: null
@@ -31325,6 +31395,11 @@ records:
   - target: world music
     edge_type: family_context
     weight: 0.25
+    confidence: 0.8
+    notes: null
+  - target: brazilian music
+    edge_type: family_context
+    weight: 0.45
     confidence: 0.8
     notes: null
   secondary_roles: []
