@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.33.1-classical-pilot-edge-upgrade
+taxonomy_version: 0.34.0-regional-mexican-grown
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -30483,6 +30483,255 @@ records:
   possible_context_target: null
   notes: Renaissance/early-baroque secular vocal-polyphony form -> format facet. The
     most era-bound of the forms, but still a form descriptor.
+- name: regional mexican
+  kind: umbrella
+  role: context
+  status: active
+  facet_type: null
+  specificity_score: 0.35
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.85
+    notes: null
+  - target: world music
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Regional Mexicano — the industry-standard umbrella for Mexican roots/popular
+    styles (mariachi, ranchera, banda, norteño, corrido). MixArc had broad Latin coverage
+    but none of this cluster, the biggest world/folk streaming category. Child leaves
+    are wired to this umbrella in PASS-2 (same-batch).
+- name: regional mexicano
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: regional mexican
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: mariachi
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.6
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: world music
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Iconic Mexican ensemble style (violins, trumpets, guitarrón, vihuela). Deeply
+    tied to ranchera (its core repertoire) — bridge added in PASS-2 (same-batch).
+- name: ranchera
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.6
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: world music
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Mexican song form/style (Vicente Fernández, José Alfredo Jiménez), usually
+    performed by mariachi or banda. Bridge to mariachi added in PASS-2 (same-batch).
+- name: banda
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.62
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: world music
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Sinaloan brass-band style (Banda El Recodo). Adjacent to norteño — bridge
+    added in PASS-2 (same-batch).
+- name: norteño
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.62
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: world music
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Accordion-and-bajo-sexto northern Mexican style (Los Tigres del Norte); the
+    main vehicle for corridos. Bridges to banda and corrido added in PASS-2 (same-batch).
+- name: norteno
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: norteño
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: corrido
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.6
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: world music
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Mexican narrative-ballad form (heroes, outlaws, events), typically set to
+    norteño/banda instrumentation. Bridge to norteño added in PASS-2 (same-batch).
+- name: corridos tumbados
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.74
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: trap
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Modern acoustic-guitar-plus-trap corrido fusion (Peso Pluma, Natanael Cano,
+    Fuerza Regida) — a live global phenomenon. Bridges corrido and trap; corrido/norteño
+    bridges added in PASS-2 (same-batch).
+- name: corrido tumbado
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: corridos tumbados
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: mexican cumbia
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: cumbia
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Mexican cumbia (cumbia sonidera / grupera lineage) — the Mexican adaptation
+    of Colombian cumbia. Bridges the existing `cumbia` node; wired to the regional
+    mexican umbrella in PASS-2 (same-batch).
 bridge_rules:
 - source: indie pop
   target: synth-pop
