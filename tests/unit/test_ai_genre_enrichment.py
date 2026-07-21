@@ -2957,7 +2957,11 @@ def test_discovery_uses_read_only_metadata_db_and_does_not_create_side_effect_ta
     assert bill.existing_genres_by_source["album:discogs_release"] == ["cool jazz"]
 
 
-def test_cli_dry_run_does_not_write_sidecar_run_log(tmp_path: Path):
+def test_cli_dry_run_does_not_write_sidecar_run_log(tmp_path: Path, monkeypatch):
+    # Pin the provider to the code default so an ambient public config.yaml
+    # (which defaults to zero_touch — no enrichment client) doesn't change the
+    # dry-run path. PG_AI_PROVIDER wins over config.
+    monkeypatch.setenv("PG_AI_PROVIDER", "claude_code")
     metadata_db = _metadata_db(tmp_path)
     sidecar_db = tmp_path / "sidecar.db"
 

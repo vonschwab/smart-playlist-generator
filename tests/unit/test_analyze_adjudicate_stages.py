@@ -46,6 +46,10 @@ def _resp(genres, escalate=False):
 
 
 def test_adjudicate_then_apply_materializes_and_queues(tmp_path, monkeypatch):
+    # Force the enrichment provider so the stage RUNS with the injected FakeClient,
+    # independent of any ambient config.yaml (a public config defaults to zero_touch,
+    # which makes stage_adjudicate skip). PG_AI_PROVIDER wins over config.
+    monkeypatch.setenv("PG_AI_PROVIDER", "claude_code")
     db = _metadata_db(tmp_path)
     side = tmp_path / "ai_genre_enrichment.db"
     SidecarStore(str(side)).initialize()
