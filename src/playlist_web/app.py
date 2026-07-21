@@ -35,6 +35,8 @@ from .schemas import (
     PlexExportRequest,
     ReplaceSuggestionsRequest,
     ReplaceSuggestionsResponse,
+    SetupConfigRequest,
+    SetupTestRequest,
     TaxonomyAdjudicateRequest,
     TaxonomyDecisionRequest,
     TaxonomyValidateRequest,
@@ -258,7 +260,33 @@ def create_app(
 
     @app.get("/api/setup/status")
     def setup_status() -> dict:
-        return derive_setup_state(home).to_dict()
+        from dataclasses import asdict
+
+        from src.setup.checks import run_all_checks
+
+        base = derive_setup_state(home).to_dict()
+        base["checks"] = [asdict(c) for c in run_all_checks(home)]
+        return base
+
+    @app.post("/api/setup/test/{service}")
+    def setup_test(service: str, body: SetupTestRequest) -> dict:
+        from dataclasses import asdict
+
+        from src.setup.services import test_connection
+
+        return asdict(test_connection(service, body.config))
+
+    @app.post("/api/setup/config")
+    def setup_config(body: SetupConfigRequest) -> dict:
+        from src.setup.config_writer import ConfigExistsError, write_config
+
+        draft = body.model_dump(exclude_none=True)
+        reconfigure = bool(draft.pop("reconfigure", False))
+        try:
+            path = write_config(home, draft, reconfigure=reconfigure)
+        except ConfigExistsError as exc:
+            raise HTTPException(status_code=409, detail=f"config.yaml already exists at {exc}")
+        return {"ok": True, "config_path": path}
 
     @app.get("/api/setup/browse")
     def setup_browse(path: Optional[str] = Query(default=None)) -> dict:

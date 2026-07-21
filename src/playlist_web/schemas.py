@@ -335,3 +335,24 @@ class TrackGenresRequest(BaseModel):
     """Batch lookup of display genres for staged seed tracks."""
 
     track_ids: list[str] = Field(default_factory=list)
+
+
+class SetupTestRequest(BaseModel):
+    """Body for POST /api/setup/test/{service} — the Services step's Test button."""
+
+    config: dict = Field(default_factory=dict)
+
+
+class SetupConfigRequest(BaseModel):
+    """Body for POST /api/setup/config — the wizard's final-step config write.
+
+    Field shape matches `src.setup.config_writer.write_config`'s expected
+    draft dict: flat `ai_genre_provider`, nested `lastfm`/`discogs`/`plex`.
+    """
+
+    music_directory: str
+    lastfm: Optional[dict] = None
+    discogs: Optional[dict] = None
+    plex: Optional[dict] = None
+    ai_genre_provider: Optional[str] = None
+    reconfigure: bool = False
