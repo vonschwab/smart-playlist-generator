@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.34.1-regional-mexican-edge-upgrade
+taxonomy_version: 0.34.2-world-music-umbrella-fix
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -514,11 +514,21 @@ records:
 - name: world music
   kind: umbrella
   role: context
-  status: review
+  status: active
   facet_type: null
   specificity_score: 0.15
   canonical_target: null
-  parent_edges: []
+  parent_edges:
+  - target: folk
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.85
+    notes: null
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.85
+    notes: null
   secondary_roles: []
   reject_reason: null
   alias_policy: null
