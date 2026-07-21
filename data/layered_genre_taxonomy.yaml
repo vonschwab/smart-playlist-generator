@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.34.0-regional-mexican-grown
+taxonomy_version: 0.34.1-regional-mexican-edge-upgrade
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -30543,6 +30543,16 @@ records:
     weight: 0.35
     confidence: 0.8
     notes: null
+  - target: regional mexican
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: ranchera
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: null
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -30567,6 +30577,16 @@ records:
     edge_type: family_context
     weight: 0.35
     confidence: 0.8
+    notes: null
+  - target: regional mexican
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: mariachi
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
     notes: null
   secondary_roles: []
   reject_reason: null
@@ -30593,6 +30613,16 @@ records:
     weight: 0.35
     confidence: 0.8
     notes: null
+  - target: regional mexican
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: norteño
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: null
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -30617,6 +30647,21 @@ records:
     edge_type: family_context
     weight: 0.35
     confidence: 0.8
+    notes: null
+  - target: regional mexican
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: banda
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: null
+  - target: corrido
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
     notes: null
   secondary_roles: []
   reject_reason: null
@@ -30658,6 +30703,16 @@ records:
     weight: 0.35
     confidence: 0.8
     notes: null
+  - target: regional mexican
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: norteño
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: null
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -30682,6 +30737,21 @@ records:
     edge_type: family_context
     weight: 0.4
     confidence: 0.8
+    notes: null
+  - target: regional mexican
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: corrido
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: null
+  - target: norteño
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
     notes: null
   secondary_roles: []
   reject_reason: null
@@ -30724,6 +30794,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: regional mexican
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
   secondary_roles: []
   reject_reason: null
   alias_policy: null
