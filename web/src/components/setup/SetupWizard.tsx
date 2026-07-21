@@ -35,7 +35,15 @@ function PlaceholderStep({ id }: { id: WizardStepId }) {
 // SP-3 first-run wizard shell (Layout B): a left rail listing every step,
 // the active step's component, and Back/Next navigation gated on `canNext`.
 // Below ~640px the rail collapses to a horizontal progress strip (`max-md:`).
-export default function SetupWizard({ status }: { status: SetupStatus }) {
+export default function SetupWizard({
+  status,
+  onSetupComplete,
+}: {
+  status: SetupStatus;
+  // I2: forwarded to the Analyze step, called only on a SUCCESSFUL terminal
+  // analyze job so App.tsx can re-fetch setup status without a reload.
+  onSetupComplete?: () => void;
+}) {
   const { step, steps, draft, setDraft, next, back, goTo, canNext } = useWizard();
   const currentIdx = steps.indexOf(step);
 
@@ -60,7 +68,7 @@ export default function SetupWizard({ status }: { status: SetupStatus }) {
       body = <Review draft={draft} goTo={goTo} />;
       break;
     case "analyze":
-      body = <Analyze />;
+      body = <Analyze onSetupComplete={onSetupComplete} />;
       break;
     default:
       body = <PlaceholderStep id={step} />;

@@ -53,3 +53,23 @@ def test_reconfigure_overwrites(tmp_path):
     write_config(home, {"music_directory": "/m"})
     p = write_config(home, {"music_directory": "/new"}, reconfigure=True)
     assert _load(p)["library"]["music_directory"] == "/new"
+
+
+def test_raises_on_missing_music_directory(tmp_path):
+    """C1: a rail-jump can reach Review with no music_directory in the draft
+    at all — write_config must refuse rather than write an empty config."""
+    home = _home(tmp_path)
+    with pytest.raises(ValueError, match="music_directory is required"):
+        write_config(home, {"ai_genre_provider": "zero_touch"})
+
+
+def test_raises_on_empty_music_directory(tmp_path):
+    home = _home(tmp_path)
+    with pytest.raises(ValueError, match="music_directory is required"):
+        write_config(home, {"music_directory": ""})
+
+
+def test_raises_on_whitespace_music_directory(tmp_path):
+    home = _home(tmp_path)
+    with pytest.raises(ValueError, match="music_directory is required"):
+        write_config(home, {"music_directory": "   "})

@@ -27,7 +27,7 @@ afterEach(() => {
 });
 
 describe("Analyze", () => {
-  it("shows a failure state — not the success text — when the analyze job's terminal state is a FAILURE", async () => {
+  it("shows a failure state — not the success text — when the analyze job's terminal state is a FAILURE, and does NOT call onSetupComplete", async () => {
     vi.spyOn(api, "analyzeLibrary").mockResolvedValue({ job_id: "job-fail" });
     vi.spyOn(api, "job").mockResolvedValue({
       job_id: "job-fail",
@@ -35,8 +35,9 @@ describe("Analyze", () => {
       stage: "muq",
       error: "MuQ extraction crashed: out of memory",
     } as any);
+    const onSetupComplete = vi.fn();
 
-    render(<Analyze />);
+    render(<Analyze onSetupComplete={onSetupComplete} />);
 
     // Fire the WS "done" event once jobId has landed in state (analyzeLibrary
     // resolves asynchronously); waitFor retries this until the event isn't
@@ -48,12 +49,39 @@ describe("Analyze", () => {
 
     expect(screen.queryByText(/Analysis finished/)).toBeNull();
     expect(screen.getByRole("alert").textContent).toMatch(/Analysis failed/);
+    expect(onSetupComplete).not.toHaveBeenCalled();
   });
 
-  it("shows the success handoff when the analyze job's terminal state is a SUCCESS", async () => {
+  it("shows the success handoff and calls onSetupComplete when the analyze job's terminal state is a SUCCESS", async () => {
     vi.spyOn(api, "analyzeLibrary").mockResolvedValue({ job_id: "job-ok" });
     vi.spyOn(api, "job").mockResolvedValue({
       job_id: "job-ok",
+      status: "success",
+      stage: "verify",
+      error: null,
+    } as any);
+    const onSetupComplete = vi.fn();
+
+    render(<Analyze onSetupComplete={onSetupComplete} />);
+
+    // Fire the "done" event exactly once, after jobId has landed — unlike
+    // the FAILURE test above (which only asserts on rendered text, so a
+    // waitFor-retriggered re-fire is harmless), this test asserts a call
+    // COUNT, so it must not risk firing the WS event more than once.
+    await waitFor(() => expect(wsHandler).not.toBeNull());
+    act(() => wsHandler?.({ type: "done", job_id: "job-ok" }));
+    await waitFor(() => screen.getByText(/Analysis finished/));
+
+    expect(screen.queryByRole("alert")).toBeNull();
+    // Automatic handoff (I2) replaces the old "Reload MixArc" instruction.
+    expect(screen.queryByText(/reload mixarc/i)).toBeNull();
+    expect(onSetupComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it("works without an onSetupComplete prop (optional, doesn't crash the success path)", async () => {
+    vi.spyOn(api, "analyzeLibrary").mockResolvedValue({ job_id: "job-ok2" });
+    vi.spyOn(api, "job").mockResolvedValue({
+      job_id: "job-ok2",
       status: "success",
       stage: "verify",
       error: null,
@@ -62,10 +90,8 @@ describe("Analyze", () => {
     render(<Analyze />);
 
     await waitFor(() => {
-      act(() => wsHandler?.({ type: "done", job_id: "job-ok" }));
+      act(() => wsHandler?.({ type: "done", job_id: "job-ok2" }));
       expect(screen.getByText(/Analysis finished/)).toBeTruthy();
     });
-
-    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

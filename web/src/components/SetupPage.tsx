@@ -6,10 +6,16 @@ import SetupWizard from "./setup/SetupWizard";
 // static instructions body with the guided wizard shell; this component
 // keeps the `data-testid="setup-page"` contract web/tests/setup-gate.spec.ts
 // asserts on.
-export default function SetupPage({ status }: { status: SetupStatus }) {
+export default function SetupPage({
+  status,
+  onSetupComplete,
+}: {
+  status: SetupStatus;
+  onSetupComplete?: () => void;
+}) {
   return (
     <main data-testid="setup-page" className="min-h-dvh bg-bg">
-      <SetupWizard status={status} />
+      <SetupWizard status={status} onSetupComplete={onSetupComplete} />
     </main>
   );
 }

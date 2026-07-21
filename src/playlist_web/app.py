@@ -262,10 +262,19 @@ def create_app(
     def setup_status() -> dict:
         from dataclasses import asdict
 
-        from src.setup.checks import run_all_checks
-
-        base = derive_setup_state(home).to_dict()
-        base["checks"] = [asdict(c) for c in run_all_checks(home)]
+        status = derive_setup_state(home)
+        base = status.to_dict()
+        # I1: `checks` (incl. a full metadata.db PRAGMA integrity_check) is
+        # only ever rendered by the wizard's Environment step, which only
+        # mounts for a needs_setup user. Every other state (needs_analyze,
+        # ready) pays nothing for it — this endpoint is fetched once on
+        # every app load, so an already-configured user must not carry the
+        # full doctor-style health sweep on their steady-state hot path.
+        if status.state == SetupState.NEEDS_SETUP:
+            from src.setup.checks import run_all_checks
+            base["checks"] = [asdict(c) for c in run_all_checks(home)]
+        else:
+            base["checks"] = []
         return base
 
     @app.post("/api/setup/test/{service}")
@@ -286,6 +295,12 @@ def create_app(
             path = write_config(home, draft, reconfigure=reconfigure)
         except ConfigExistsError as exc:
             raise HTTPException(status_code=409, detail=f"config.yaml already exists at {exc}")
+        except ValueError as exc:
+            # C1: write_config's own required-field guard (e.g. an
+            # empty/whitespace music_directory reaching this route via a
+            # rail-jump that skipped the Music step) — authoritative even
+            # for a non-wizard caller of this endpoint.
+            raise HTTPException(status_code=400, detail=str(exc))
         return {"ok": True, "config_path": path}
 
     @app.get("/api/setup/browse")

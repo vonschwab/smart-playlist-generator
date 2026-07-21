@@ -28,6 +28,10 @@ export function Review({ draft, goTo }: ReviewProps) {
   const [writing, setWriting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
+  // C1: the rail has no order gate, so Review can be reached without ever
+  // visiting Music library. This is client-side defense in depth — the
+  // authoritative guard is config_writer.write_config's own ValueError.
+  const missingMusicDir = !draft.music_directory;
 
   async function submit(reconfigure: boolean) {
     setWriting(true);
@@ -64,6 +68,20 @@ export function Review({ draft, goTo }: ReviewProps) {
         <Row label="AI genre provider" value={draft.ai_genre_provider ?? "default"} />
       </dl>
 
+      {missingMusicDir && (
+        <div role="alert" className="flex flex-col gap-2 rounded border border-warn bg-panel p-3 text-sm">
+          <p className="text-text">Choose a music folder first.</p>
+          <button
+            type="button"
+            data-testid="review-goto-music"
+            onClick={() => goTo("music")}
+            className={`${btnGhost} self-start`}
+          >
+            Go to Music library
+          </button>
+        </div>
+      )}
+
       {conflict && (
         <div role="alert" className="flex flex-col gap-2 rounded border border-warn bg-panel p-3 text-sm">
           <p className="text-text">A config already exists at this location.</p>
@@ -88,7 +106,7 @@ export function Review({ draft, goTo }: ReviewProps) {
       <button
         type="button"
         data-testid="wizard-write-config"
-        disabled={writing}
+        disabled={writing || missingMusicDir}
         onClick={() => submit(false)}
         className={`${btnPrimary} self-start`}
       >

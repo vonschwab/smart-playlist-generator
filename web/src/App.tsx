@@ -54,6 +54,15 @@ export default function App() {
       .catch(() => setSetupStatus(null))
       .finally(() => setSetupLoading(false));
   }, []);
+  // I2: the wizard's Analyze step calls this ONLY on a successful terminal
+  // analyze job (never mid-wizard, never on Review's config write) — a
+  // re-fetch right after config write would flip state to needs_analyze,
+  // which still isn't "needs_setup" but would be wrong regardless; the only
+  // safe trigger is "the wizard is fully done." This re-fetch is what lets
+  // needs_setup -> ready happen without the user manually reloading MixArc.
+  const refetchSetupStatus = useCallback(() => {
+    api.getSetupStatus().then((s: SetupStatus) => setSetupStatus(s)).catch(() => {});
+  }, []);
 
   const [mode, setMode] = useLocalStorage<Mode>("pg_mode", "artist");
   const [seedTracks, setSeedTracks] = useLocalStorage<SeedTrack[]>("pg_seed_tracks", []);
@@ -298,7 +307,7 @@ export default function App() {
     );
   }
   if (setupStatus?.state === "needs_setup") {
-    return <SetupPage status={setupStatus} />;
+    return <SetupPage status={setupStatus} onSetupComplete={refetchSetupStatus} />;
   }
 
   return (

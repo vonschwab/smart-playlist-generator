@@ -11,9 +11,13 @@ import type { WsEvent } from "../../../lib/types";
 // pattern ToolsPanel uses for its long-running jobs (just without the stage
 // picker — the wizard always requests the full default stage set). There's
 // no in-wizard "finish": analysis is long-running (can be hours on a big
-// library), so this is a handoff, not a wait. The app's own reload picks up
-// `state: "ready"` once the job's `publish`/`artifacts` stages land.
-export function Analyze() {
+// library), so this is a handoff, not a wait. On a SUCCESSFUL terminal job,
+// `onSetupComplete` (threaded from App.tsx) re-fetches /api/setup/status —
+// once that lands as `state: "ready"` the App-level gate swaps this whole
+// wizard out for the normal app, with no manual reload (I2). A FAILED
+// terminal job must NOT call it — the user needs to see the error, not get
+// silently bounced.
+export function Analyze({ onSetupComplete }: { onSetupComplete?: () => void } = {}) {
   const [jobId, setJobId] = useState<string | null>(null);
   const [progress, setProgress] = useState("");
   const [done, setDone] = useState(false);
@@ -44,11 +48,18 @@ export function Analyze() {
     api
       .job(jid)
       .then((j) => {
-        if (j.error) setFailed(j.error);
-        else setDone(true);
+        if (j.error) {
+          setFailed(j.error);
+        } else {
+          setDone(true);
+          // I2: only a genuine success triggers the no-reload handoff — a
+          // failure must leave the user looking at the error, not get
+          // yanked back to the (still needs_analyze) main app.
+          onSetupComplete?.();
+        }
       })
       .catch((e) => setFailed(friendlyError(e)));
-  }, []);
+  }, [onSetupComplete]);
 
   useWorkerEvents((e: WsEvent) => {
     if (!jobId || e.job_id !== jobId) return;
@@ -75,7 +86,7 @@ export function Analyze() {
         </p>
       ) : done ? (
         <p className="text-sm text-text">
-          Analysis finished. Reload MixArc to start generating playlists.
+          Analysis finished — taking you to MixArc…
         </p>
       ) : (
         <>

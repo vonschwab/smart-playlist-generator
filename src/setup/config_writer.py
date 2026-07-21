@@ -25,6 +25,17 @@ def _yaml():
 
 
 def write_config(home, draft: dict, *, reconfigure: bool = False) -> str:
+    # C1: the rail lets a user reach Review without ever visiting the Music
+    # step (goTo has no order gate — only Next is gated on
+    # computeCanNext). Without this guard an empty/missing music_directory
+    # writes a "successful" config.yaml that derive_setup_state then flags
+    # as needs_setup again, with no diagnostic pointing at the real cause.
+    # This is the authoritative guard — client-side disabling in Review.tsx
+    # is defense in depth, not a substitute.
+    music_directory = draft.get("music_directory")
+    if not music_directory or not str(music_directory).strip():
+        raise ValueError("music_directory is required")
+
     target = Path(home.config_path)
     if target.exists() and not reconfigure:
         raise ConfigExistsError(str(target))
