@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.45.1-european-folk
+taxonomy_version: 0.46.0-world-facets
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -33813,6 +33813,121 @@ records:
   source_policy: growth
   possible_context_target: null
   notes: '[gap-fill] Southern Italian fast folk dance.'
+- name: raga
+  kind: facet
+  role: modifier
+  status: active
+  facet_type: format
+  specificity_score: 0.35
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Indian melodic-framework/mode system -> format facet (combines with indian
+    classical / raga rock, not a genre itself).
+- name: tabla
+  kind: facet
+  role: modifier
+  status: active
+  facet_type: instrumentation
+  specificity_score: 0.3
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: North Indian hand-drum pair -> instrumentation facet.
+- name: sitar
+  kind: facet
+  role: modifier
+  status: active
+  facet_type: instrumentation
+  specificity_score: 0.3
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Indian plucked string instrument -> instrumentation facet.
+- name: oud
+  kind: facet
+  role: modifier
+  status: active
+  facet_type: instrumentation
+  specificity_score: 0.3
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Arab/Middle Eastern lute -> instrumentation facet.
+- name: ud
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: oud
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: kora
+  kind: facet
+  role: modifier
+  status: active
+  facet_type: instrumentation
+  specificity_score: 0.3
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: West African 21-string harp-lute (Mande griot) -> instrumentation facet.
+- name: mbira
+  kind: facet
+  role: modifier
+  status: active
+  facet_type: instrumentation
+  specificity_score: 0.3
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Southern African thumb piano (Shona) -> instrumentation facet.
+- name: kalimba
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: mbira
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
 bridge_rules:
 - source: indie pop
   target: synth-pop
