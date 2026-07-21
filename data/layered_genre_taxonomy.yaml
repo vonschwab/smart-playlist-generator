@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.32.0-jazz-pilot-grown
+taxonomy_version: 0.32.1-jazz-pilot-edge-upgrade
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -19065,6 +19065,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: early jazz
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -19654,6 +19659,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: early jazz
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -29985,6 +29995,11 @@ records:
     weight: 0.5
     confidence: 0.85
     notes: null
+  - target: early jazz
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -30010,6 +30025,16 @@ records:
   - target: dixieland
     edge_type: family_context
     weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: new orleans jazz
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: early jazz
+    edge_type: family_context
+    weight: 0.45
     confidence: 0.8
     notes: null
   secondary_roles: []
@@ -30039,6 +30064,16 @@ records:
     weight: 0.4
     confidence: 0.8
     notes: null
+  - target: new orleans jazz
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: early jazz
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -30066,6 +30101,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: early jazz
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
   secondary_roles: []
   reject_reason: null
   alias_policy: null
