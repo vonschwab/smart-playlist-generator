@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.31.0-gui-20260714_205808-grown
+taxonomy_version: 0.32.0-jazz-pilot-grown
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -29944,6 +29944,321 @@ records:
   source_policy: growth
   possible_context_target: null
   notes: Rejected via taxonomy term adjudication.
+- name: early jazz
+  kind: umbrella
+  role: context
+  status: active
+  facet_type: null
+  specificity_score: 0.34
+  canonical_target: null
+  parent_edges:
+  - target: jazz
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Era-umbrella for the traditional/proto jazz cluster (ragtime, new orleans
+    jazz, hot jazz, chicago jazz, dixieland, stride). Music-Graph exposes 'Early Jazz'
+    as a top-level AllMusic style; in MixArc it is a low-specificity era context,
+    not a leaf. Child edges (new orleans jazz, hot jazz, chicago jazz, ragtime, and
+    the existing dixieland/stride leaves) are added in the PASS-2 edge-upgrade.
+- name: new orleans jazz
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.6
+  canonical_target: null
+  parent_edges:
+  - target: jazz
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  - target: dixieland
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Foundational New Orleans small-combo jazz (Oliver/early Armstrong). Music-Graph
+    clusters it tightly with Dixieland/Chicago Jazz/Swing/Big Band — MixArc had the
+    Dixieland revival but not this origin style. (PASS-1 trim: `early jazz` parent
+    removed — same-batch; restored PASS-2 as family_context 0.45/0.80.)'
+- name: hot jazz
+  kind: genre
+  role: leaf
+  status: review
+  facet_type: null
+  specificity_score: 0.58
+  canonical_target: null
+  parent_edges:
+  - target: jazz
+    edge_type: family_context
+    weight: 0.58
+    confidence: 0.85
+    notes: null
+  - target: dixieland
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '1920s hot small-combo style (Armstrong Hot Five/Seven). A distinct Music-Graph/AllMusic
+    node but heavily overlapping new orleans jazz and dixieland, so kept `review`
+    rather than `active`. (PASS-1 trim: `new orleans jazz` and `early jazz` parents
+    removed — same-batch; restored PASS-2 as family_context 0.50/0.85 and 0.45/0.80.)'
+- name: chicago jazz
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: jazz
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  - target: dixieland
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '1920s Chicago development of New Orleans jazz (Austin High Gang, Beiderbecke).
+    Music-Graph groups it in the traditional-jazz cluster with New Orleans/Dixieland/Mainstream.
+    (PASS-1 trim: `new orleans jazz` and `early jazz` parents removed — same-batch;
+    restored PASS-2 as family_context 0.50/0.85 and 0.45/0.80.)'
+- name: ragtime
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.58
+  canonical_target: null
+  parent_edges:
+  - target: jazz
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: stride
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Proto-jazz syncopated piano/ensemble form (Joplin), pre-1917. Weak family_context
+    to jazz because it PREDATES jazz proper (mirrors the ska->reggae family_context
+    precedent). Music-Graph pairs Ragtime with Stride, so a similar_to->stride bridge
+    is added. (PASS-1 trim: `early jazz` parent removed — same-batch; restored PASS-2
+    as family_context 0.45/0.80.)'
+- name: brazilian jazz
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.62
+  canonical_target: null
+  parent_edges:
+  - target: jazz
+    edge_type: family_context
+    weight: 0.58
+    confidence: 0.85
+    notes: null
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: latin jazz
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: bossa nova
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Brazilian samba/bossa-derived jazz fusion. Music-Graph clusters samba with
+    Latin-Jazz and Bossa Nova; placed across the brazilian/latin family and latin
+    jazz, with a bossa nova bridge.
+- name: crossover jazz
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.56
+  canonical_target: null
+  parent_edges:
+  - target: jazz
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: smooth jazz
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: jazz pop
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.75
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Pop/R&B-facing jazz crossover, adjacent to smooth jazz and jazz pop (fusion-era
+    commercial jazz). Kept moderate specificity so smooth jazz still dominates when
+    both source tags are present.
+- name: progressive jazz
+  kind: subgenre
+  role: leaf
+  status: review
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: jazz
+    edge_type: family_context
+    weight: 0.58
+    confidence: 0.85
+    notes: null
+  - target: orchestral jazz
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: third stream
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Stan Kenton-era orchestral/compositional jazz development. Ambiguous term
+    (also used loosely for any 'advanced' jazz), so `review`. Placed near orchestral
+    jazz with a third stream bridge.
+- name: folk jazz
+  kind: genre
+  role: leaf
+  status: review
+  facet_type: null
+  specificity_score: 0.6
+  canonical_target: null
+  parent_edges:
+  - target: jazz
+    edge_type: family_context
+    weight: 0.58
+    confidence: 0.85
+    notes: null
+  - target: folk
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Folk/jazz crossover (Jan Garbarek, British folk-jazz, Tim Buckley-adjacent).
+    `review` because usage is loose. Spans the jazz and folk families.
+- name: electric jazz
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: jazz fusion
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: mainstream jazz
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: straight ahead jazz
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: trad jazz
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: dixieland
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: cuban jazz
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: afro cuban jazz
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
 bridge_rules:
 - source: indie pop
   target: synth-pop
