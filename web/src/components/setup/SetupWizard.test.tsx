@@ -29,4 +29,11 @@ describe("SetupWizard", () => {
     fireEvent.click(screen.getByTestId("wizard-next")); // -> music
     expect(screen.getByTestId("wizard-next").hasAttribute("disabled")).toBe(true);
   });
+  it("carries the zero_touch default to Review even when the Genre step is never visited", () => {
+    render(<SetupWizard status={status} />);
+    // The rail has no order gate -- jump straight from Welcome to Review.
+    fireEvent.click(screen.getByTestId("rail-step-review"));
+    expect(screen.getByTestId("step-review")).toBeTruthy();
+    expect(screen.getByText("zero_touch")).toBeTruthy();
+  });
 });

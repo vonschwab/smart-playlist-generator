@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../../lib/api";
 import type { CheckResult } from "../../lib/types";
 
@@ -58,6 +58,14 @@ export default function ServiceCard({
   const [expanded, setExpanded] = useState(hasValues);
   const [testing, setTesting] = useState(false);
   const [result, setResult] = useState<CheckResult | null>(null);
+
+  // Resync when the parent clears every field's value out from under us --
+  // e.g. Services.tsx's "Skip all" resets the draft slice this card reads
+  // from. Without this, the fields go blank but the card stays visually
+  // expanded instead of collapsing back to "+ Add".
+  useEffect(() => {
+    if (!hasValues) setExpanded(false);
+  }, [hasValues]);
 
   const setField = (key: string, v: string) => onChange({ ...values, [key]: v });
 

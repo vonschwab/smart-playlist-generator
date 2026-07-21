@@ -44,9 +44,17 @@ function computeCanNext(step: WizardStepId, draft: WizardDraft): boolean {
   return true;
 }
 
+// Public/stranger-safe default: seeded on the draft itself (not as a
+// mount-effect of the Genre step) so it survives a rail-jump that skips that
+// step entirely -- e.g. welcome -> ... -> review straight from the left rail,
+// which has no order gate. `claude_code` (the config_loader fallback for an
+// *unset* provider) needs an auth session a public user won't have, so the
+// draft must never reach submit with this field empty.
+const DEFAULT_AI_GENRE_PROVIDER = "zero_touch";
+
 export function useWizard(): UseWizardResult {
   const [step, setStep] = useState<WizardStepId>(WIZARD_STEPS[0]);
-  const [draft, setDraft] = useState<WizardDraft>({});
+  const [draft, setDraft] = useState<WizardDraft>({ ai_genre_provider: DEFAULT_AI_GENRE_PROVIDER });
 
   const canNext = computeCanNext(step, draft);
 

@@ -1,4 +1,3 @@
-import { useEffect } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type { WizardDraft } from "../useWizard";
 
@@ -40,19 +39,12 @@ const DEFAULT_PROVIDER = "zero_touch";
 
 // Step 5/7: pick which of the four AI genre-enrichment backends to use later
 // (the actual enrichment run happens post-analyze, not here — this just
-// records the choice). `zero_touch` is the sensible no-click default: the
-// effect below writes it into the draft on mount if the user hasn't picked
-// anything yet, so Review/submit see a real value even if this step is never
-// touched.
+// records the choice). `zero_touch` is the sensible no-click default; it's
+// seeded directly on the draft by useWizard's initial state (so it survives
+// a rail-jump that skips this step entirely), not by a mount effect here.
+// This component just reads/sets `draft.ai_genre_provider` -- purely
+// controlled off the draft.
 export default function GenreBackend({ draft, setDraft }: GenreBackendProps) {
-  useEffect(() => {
-    if (!draft.ai_genre_provider) {
-      setDraft((d) => (d.ai_genre_provider ? d : { ...d, ai_genre_provider: DEFAULT_PROVIDER }));
-    }
-    // Mount-only default; every subsequent change comes from the user's own pick.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const selected = draft.ai_genre_provider ?? DEFAULT_PROVIDER;
 
   return (
