@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Playlist Generator Doctor
-=========================
+MixArc Doctor
+=============
 
 Validates environment, dependencies, database, and artifacts.
 Run this first before using the playlist generator.
@@ -103,7 +103,7 @@ def _section_for(check_id: str) -> str:
 def main():
     """Run all doctor checks."""
     parser = argparse.ArgumentParser(
-        description="Validate Playlist Generator environment"
+        description="Validate MixArc environment"
     )
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     parser.add_argument("--no-color", action="store_true", help="Disable color output")
@@ -112,7 +112,7 @@ def main():
     if args.no_color or not sys.stdout.isatty():
         Colors.disable()
 
-    print(f"\n{Colors.BOLD}Playlist Generator Doctor{Colors.RESET}")
+    print(f"\n{Colors.BOLD}MixArc Doctor{Colors.RESET}")
     print("=" * 40)
 
     home = resolve_home(None)

@@ -1,4 +1,4 @@
-"""Read-only SQLite MCP server for the Playlist Generator project databases.
+"""Read-only SQLite MCP server for the MixArc project databases.
 
 Why this exists: we kept hitting SQLite syntax/schema errors from guessing column
 names. This server gives structured ``list_tables`` / ``describe_table`` /

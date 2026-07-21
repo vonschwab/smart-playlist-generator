@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 
 test("generate loop renders tracks, stats, and logs", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByText("Playlist Generator")).toBeVisible();
+  await expect(page.getByText("MixArc")).toBeVisible();
 
   // Fill seed input and click Generate
   await page.getByTestId("seed-input").fill("Acetone");

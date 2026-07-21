@@ -24,9 +24,7 @@ function Ensure-Venv {
 function Install-Deps {
     Write-Info "Installing dependencies (editable)..."
     python -m pip install -U pip
-    pip install -r requirements.txt
-    if (Test-Path "requirements-gui.txt") { pip install -r requirements-gui.txt }
-    pip install -e .
+    pip install -e ".[web,dev]"
 }
 
 function Run-Pytest {

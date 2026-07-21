@@ -1,4 +1,0 @@
-# DEPRECATED: GUI dependencies are now declared in pyproject.toml under the [gui] extra.
-# Prefer:  pip install -e .[gui]
-# This file is kept for back-compat with existing scripts/CI that reference it.
--e .[gui]

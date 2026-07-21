@@ -315,7 +315,7 @@ export default function App() {
       <Shell
         topBar={
           <>
-            <div className="font-bold text-sm"><span className="text-accent">◆</span> Playlist Generator</div>
+            <div className="font-bold text-sm"><span className="text-accent">◆</span> MixArc</div>
             <div className="flex items-center gap-1 ml-4">
               {(["generate", "tools"] as const).map((t) => (
                 <button

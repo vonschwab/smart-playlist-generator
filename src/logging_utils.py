@@ -1,5 +1,5 @@
 """
-Unified logging utilities for Playlist Generator.
+Unified logging utilities for MixArc.
 
 All entrypoints should call configure_logging() once at startup.
 """

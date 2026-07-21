@@ -12,7 +12,7 @@ for (const width of WIDTHS) {
   test(`responsive @ ${width}px: no collapse, no overflow`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.goto("/");
-    await expect(page.getByText("Playlist Generator")).toBeVisible();
+    await expect(page.getByText("MixArc")).toBeVisible();
 
     // 1) The Artist input must never collapse (the original bug).
     const seed = page.getByTestId("seed-input");

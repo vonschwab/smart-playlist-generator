@@ -1,4 +1,0 @@
-# DEPRECATED: dependencies are now declared in pyproject.toml.
-# Prefer:  pip install -e .
-# This file is kept for back-compat with existing scripts/CI that reference it.
--e .

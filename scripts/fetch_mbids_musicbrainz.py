@@ -103,7 +103,7 @@ def get_session(timeout: float, max_retries: int) -> requests.Session:
         _V = version("mixarc")
     except Exception:
         _V = "dev"
-    session.headers.update({"User-Agent": f"mixarc/{_V} (+https://github.com/vonschwab/smart-playlist-generator)"})
+    session.headers.update({"User-Agent": f"mixarc/{_V} (+https://github.com/vonschwab/mixarc)"})
     session.request = lambda *args, **kwargs: requests.Session.request(
         session,
         *args,

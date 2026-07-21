@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Data Science Playlist Generator - Main Application
+MixArc - Main Application
 Automatically generates playlists using beat3tower sonic analysis and genre metadata
 """
 import logging
@@ -40,7 +40,7 @@ class PlaylistApp:
         self.logger = logging.getLogger(__name__)
 
         # Initialize library client
-        self.logger.info("Initializing Playlist Generator")
+        self.logger.info("Initializing MixArc")
         self.library = LocalLibraryClient(db_path=resolve_database_path(self.config))
 
         # Initialize Last.FM client (history-only). Only create if credentials exist.

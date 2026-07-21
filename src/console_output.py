@@ -1,5 +1,5 @@
 """
-Console output formatting for Playlist Generator.
+Console output formatting for MixArc.
 
 Provides beautiful, organized console output with clear visual hierarchy.
 All user-facing output should go through this module.

@@ -45,9 +45,9 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/vonschwab/smart-playlist-generator"
-Repository = "https://github.com/vonschwab/smart-playlist-generator"
-Issues = "https://github.com/vonschwab/smart-playlist-generator/issues"
+Homepage = "https://github.com/vonschwab/mixarc"
+Repository = "https://github.com/vonschwab/mixarc"
+Issues = "https://github.com/vonschwab/mixarc/issues"
 
 [project.optional-dependencies]
 ai = [

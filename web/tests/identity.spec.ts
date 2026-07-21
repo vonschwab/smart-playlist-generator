@@ -5,7 +5,7 @@ import { test, expect } from "@playwright/test";
 
 test("the served app declares its identity", async ({ page, request }) => {
   await page.goto("/");
-  await expect(page).toHaveTitle("Playlist Generator");
+  await expect(page).toHaveTitle("MixArc");
 
   const themeColor = page.locator('meta[name="theme-color"]');
   await expect(themeColor).toHaveAttribute("content", "#0f1115");
@@ -23,5 +23,5 @@ test("the served app declares its identity", async ({ page, request }) => {
   expect(manifest.status()).toBe(200);
   const body = await manifest.json();
   expect(body.display).toBe("standalone");
-  expect(body.name).toBe("Playlist Generator");
+  expect(body.name).toBe("MixArc");
 });

@@ -17,7 +17,7 @@ def test_doctor_runs_and_reports(tmp_path):
     r = _run_doctor()
     assert r.returncode in (0, 1)  # 0 unless the live env has a hard fail
     out = r.stdout
-    assert "Playlist Generator Doctor" in out
+    assert "MixArc Doctor" in out
     assert ("passed" in out) or ("checks passed" in out)
 
 

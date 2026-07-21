@@ -1,5 +1,5 @@
 """
-Playlist Generator - Source Code Package
+MixArc - Source Code Package
 
 Data Science-powered music playlist generation using beat3tower sonic analysis
 and normalized genre metadata.

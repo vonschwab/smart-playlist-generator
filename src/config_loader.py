@@ -8,7 +8,7 @@ from typing import Any
 
 
 class Config:
-    """Configuration manager for Playlist Generator"""
+    """Configuration manager for MixArc"""
 
     def __init__(self, config_path: str = "config.yaml"):
         self.config_path = config_path

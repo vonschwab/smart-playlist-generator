@@ -82,7 +82,7 @@ test("mobile audit sweep @ 390x844", async ({ page }) => {
   const measurements: unknown[] = [];
 
   await page.goto("/");
-  await expect(page.getByText("Playlist Generator")).toBeVisible();
+  await expect(page.getByText("MixArc")).toBeVisible();
   await shot(page, "01-playlist-initial");
   measurements.push(await measure(page, "playlist-initial"));
 

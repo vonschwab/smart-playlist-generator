@@ -9,7 +9,7 @@ stored anywhere. Publishing is wheel-only (the wheel bundles the built web UI).
 2. On PyPI → your account → **Publishing** → **Add a pending publisher**, enter exactly:
    - PyPI Project Name: `mixarc`
    - Owner: `vonschwab`
-   - Repository name: `smart-playlist-generator`
+   - Repository name: `mixarc`
    - Workflow name: `publish.yml`
    - Environment name: *(leave blank)*
 3. Repeat step 2 on TestPyPI (https://test.pypi.org) so the rehearsal can publish there.

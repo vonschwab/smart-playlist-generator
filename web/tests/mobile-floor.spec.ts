@@ -72,7 +72,7 @@ async function fieldsUnder16px(page: Page) {
 
 test("initial view: every target >=24px, every field >=16px font", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByText("Playlist Generator")).toBeVisible();
+  await expect(page.getByText("MixArc")).toBeVisible();
   expect(await undersized(page)).toEqual([]);
   expect(await fieldsUnder16px(page)).toEqual([]);
 });

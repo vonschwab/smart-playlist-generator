@@ -1,7 +1,7 @@
 # src/setup/services.py
 """Uniform `test_connection()` probes for each optional external service.
 
-One place to construct-and-probe each integration Playlist Generator can
+One place to construct-and-probe each integration MixArc can
 talk to, reusing the client's cheapest existing identity/reachability call
 (no new API surface on the wire). A later pre-flight task wires these into
 `analyze_library.py`.
@@ -108,7 +108,7 @@ def _user_agent() -> str:
         v = version("mixarc")
     except Exception:
         v = "dev"
-    return f"mixarc/{v} (+https://github.com/vonschwab/smart-playlist-generator)"
+    return f"mixarc/{v} (+https://github.com/vonschwab/mixarc)"
 
 
 def _run_with_timeout(service: str, fn: Any) -> CheckResult:
