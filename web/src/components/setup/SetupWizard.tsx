@@ -2,6 +2,7 @@ import type { SetupStatus } from "../../lib/types";
 import { useWizard, type WizardStepId } from "./useWizard";
 import { Welcome } from "./steps/Welcome";
 import { EnvironmentCheck } from "./steps/EnvironmentCheck";
+import { MusicFolder } from "./steps/MusicFolder";
 import { Review } from "./steps/Review";
 
 // Human labels for the rail. Order/ids come from WIZARD_STEPS (useWizard.ts) —
@@ -16,10 +17,10 @@ const STEP_LABELS: Record<WizardStepId, string> = {
   analyze: "Analyze",
 };
 
-// Tasks 6-8 replace this with the real music/services/genre/analyze step
-// components. Keeping a placeholder here (rather than leaving the switch
-// non-exhaustive) means the rail and Back/Next always work end-to-end even
-// for steps that aren't built yet.
+// Tasks 7-8 replace this with the real services/genre/analyze step
+// components (Task 6 shipped the music step). Keeping a placeholder here
+// (rather than leaving the switch non-exhaustive) means the rail and
+// Back/Next always work end-to-end even for steps that aren't built yet.
 function PlaceholderStep({ id }: { id: WizardStepId }) {
   return (
     <div data-testid={`step-${id}`} className="flex max-w-xl flex-col gap-2">
@@ -33,7 +34,7 @@ function PlaceholderStep({ id }: { id: WizardStepId }) {
 // the active step's component, and Back/Next navigation gated on `canNext`.
 // Below ~640px the rail collapses to a horizontal progress strip (`max-md:`).
 export default function SetupWizard({ status }: { status: SetupStatus }) {
-  const { step, steps, draft, next, back, goTo, canNext } = useWizard();
+  const { step, steps, draft, setDraft, next, back, goTo, canNext } = useWizard();
   const currentIdx = steps.indexOf(step);
 
   let body: React.ReactNode;
@@ -43,6 +44,9 @@ export default function SetupWizard({ status }: { status: SetupStatus }) {
       break;
     case "environment":
       body = <EnvironmentCheck status={status} />;
+      break;
+    case "music":
+      body = <MusicFolder draft={draft} setDraft={setDraft} />;
       break;
     case "review":
       body = <Review draft={draft} />;
