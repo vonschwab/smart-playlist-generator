@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ _SPEC.loader.exec_module(assemble)
 
 # ---- to_posix ----------------------------------------------------------------
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows backslash normalization is a no-op on POSIX")
 def test_to_posix_normalizes_windows_backslashes():
     assert assemble.to_posix(r"C:\Users\Dylan\Desktop\PG3_SAT2\docs\x.json") == \
         "C:/Users/Dylan/Desktop/PG3_SAT2/docs/x.json"

@@ -1,10 +1,20 @@
 import sqlite3
+import sys
 import types
 
 import numpy as np
 import pytest
 
 import scripts.analyze_library as al
+
+# The energy stage only runs on Windows+WSL (SP-1); on Linux/macOS it always
+# skips before touching _energy_pending/_energy_preflight/_energy_run. These
+# tests assert the Windows RUN behavior of that stage. The cross-platform
+# SKIP behavior is covered separately by test_analyze_stage_policy.py.
+_windows_only = pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="energy stage runs only on Windows+WSL; cross-platform skip behavior covered by test_analyze_stage_policy",
+)
 
 
 def _ctx(tmp_path, force=False, energy_workers=None):
@@ -22,6 +32,7 @@ def _make_artifact(tmp_path, ids=("a", "b")):
              track_ids=np.array(list(ids), dtype=object))
 
 
+@_windows_only
 def test_stage_energy_skips_when_no_artifact(tmp_path):
     res = al.stage_energy(_ctx(tmp_path))
     assert res["skipped"] is True
@@ -38,6 +49,7 @@ def test_stage_energy_skips_when_nothing_pending(tmp_path, monkeypatch):
     assert called["preflight"] is False  # never touches WSL when up-to-date
 
 
+@_windows_only
 def test_stage_energy_runs_and_returns_counts(tmp_path, monkeypatch):
     _make_artifact(tmp_path)
     monkeypatch.setattr(al, "_energy_pending", lambda out_dir: (2, 2))
@@ -52,6 +64,7 @@ def test_stage_energy_runs_and_returns_counts(tmp_path, monkeypatch):
     assert res["ok"] == 2 and res["pending"] == 2
 
 
+@_windows_only
 def test_stage_energy_preflight_failure_propagates(tmp_path, monkeypatch):
     _make_artifact(tmp_path)
     monkeypatch.setattr(al, "_energy_pending", lambda out_dir: (2, 2))
@@ -93,6 +106,7 @@ def test_checkpoint_metadata_for_wsl_best_effort(tmp_path):
     al._checkpoint_metadata_for_wsl(str(tmp_path / "nope.db"))   # no raise
 
 
+@_windows_only
 def test_stage_energy_checkpoints_before_extract(tmp_path, monkeypatch):
     _make_artifact(tmp_path)
     db = tmp_path / "metadata.db"

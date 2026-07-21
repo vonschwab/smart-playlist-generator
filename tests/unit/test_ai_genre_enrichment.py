@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import sqlite3
 import sys
 import types
@@ -3218,6 +3219,10 @@ def test_extract_lastfm_tags_from_metadata(tmp_path: Path) -> None:
     assert "seen live" not in tags
 
 
+@pytest.mark.skipif(
+    not os.environ.get("LASTFM_API_KEY"),
+    reason="requires a Last.fm API key (absent in CI)",
+)
 def test_extract_lastfm_command(tmp_path: Path) -> None:
     metadata_db = tmp_path / "metadata.db"
     conn = sqlite3.connect(metadata_db)
