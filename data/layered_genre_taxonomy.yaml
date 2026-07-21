@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.37.1-south-asian-edge-upgrade
+taxonomy_version: 0.38.0-southern-african-grown
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -31750,6 +31750,183 @@ records:
   notes: '[gap-fill — Music-Graph blindspot] Urdu/Hindi poetic song form (Mehdi Hassan,
     Jagjit Singh); a South Asian semi-classical staple. Bridges qawwali in PASS-2
     (same-batch).'
+- name: south african music
+  kind: umbrella
+  role: context
+  status: active
+  facet_type: null
+  specificity_score: 0.3
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Umbrella grouping South African styles under world music. MixArc had the
+    modern SA electronic styles (amapiano, gqom) but no roots and no cluster anchor.
+    New + existing leaves wired to it in PASS-2.
+- name: marabi
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: jazz
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[MG] 1920s-30s South African keyboard/township proto-jazz — the root of
+    SA jazz and mbaqanga. Bridges the jazz family; bridge to kwela in PASS-2 (same-batch).'
+- name: kwela
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.64
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[gap-fill — Music-Graph blindspot] Pennywhistle-driven South African street
+    jive (1950s). Evolved from marabi into mbaqanga — bridges added in PASS-2 (same-batch).'
+- name: mbaqanga
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.62
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[MG] Electric Zulu township jive (Mahlathini, Soul Brothers). ''Township
+    jive'' is the common synonym (aliased). Bridges kwela and maskandi in PASS-2 (same-batch).'
+- name: township jive
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: mbaqanga
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: isicathamiya
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.74
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[MG] Zulu a cappella close-harmony vocal style (Ladysmith Black Mambazo).
+    Bridge to mbaqanga in PASS-2 (same-batch).'
+- name: kwaito
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.62
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: electronic
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.75
+    notes: null
+  - target: amapiano
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[gap-fill — Music-Graph blindspot] 1990s South African house-derived genre
+    (slowed-down house + rap/chant); the direct forebear of amapiano. Bridges the
+    existing amapiano node; bridge to mbaqanga in PASS-2.'
+- name: maskandi
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.72
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: folk
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.75
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[gap-fill — Music-Graph blindspot] Zulu folk-guitar troubadour style (Phuzekhemisi).
+    Bridge to mbaqanga in PASS-2 (same-batch).'
 bridge_rules:
 - source: indie pop
   target: synth-pop
