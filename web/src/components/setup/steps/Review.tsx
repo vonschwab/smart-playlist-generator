@@ -1,9 +1,57 @@
-import type { WizardDraft } from "../useWizard";
+import { useState } from "react";
+import { api } from "../../../lib/api";
+import { friendlyError } from "../../../lib/errors";
+import { btnGhost, btnPrimary } from "../../../lib/ui";
+import type { SetupConfigDraft } from "../../../lib/types";
+import type { WizardDraft, WizardStepId } from "../useWizard";
+
+interface ReviewProps {
+  draft: WizardDraft;
+  goTo: (id: WizardStepId) => void;
+}
 
 // Step 6/7: read-only summary of the accumulated draft, right before the
 // analyze step submits it. Every field is optional in the draft, so each row
 // falls back to a plain "not set"/"skipped" rather than rendering blank.
-export function Review({ draft }: { draft: WizardDraft }) {
+//
+// The confirm button (`wizard-write-config`) is where the draft actually
+// leaves the browser: POST /api/setup/config via api.writeConfig. Two error
+// shapes matter here:
+//  - 409 "config.yaml already exists..." (ConfigExistsError, app.py) — the
+//    only signal the client has for this is jsonOrThrow's Error message
+//    (status codes don't survive that helper), so we match on "already
+//    exists" and offer a reconfigure retry with `reconfigure: true`.
+//  - anything else (validation, disk, network) — shown inline, draft is left
+//    completely untouched so the user can fix a field and retry.
+export function Review({ draft, goTo }: ReviewProps) {
+  const [writing, setWriting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [conflict, setConflict] = useState(false);
+
+  async function submit(reconfigure: boolean) {
+    setWriting(true);
+    setError(null);
+    const body: SetupConfigDraft = {
+      ...draft,
+      music_directory: draft.music_directory ?? "",
+      reconfigure,
+    };
+    try {
+      await api.writeConfig(body);
+      goTo("analyze");
+    } catch (e) {
+      const msg = friendlyError(e);
+      if (!reconfigure && /already exists/i.test(msg)) {
+        setConflict(true);
+      } else {
+        setConflict(false);
+        setError(msg);
+      }
+    } finally {
+      setWriting(false);
+    }
+  }
+
   return (
     <div data-testid="step-review" className="flex max-w-xl flex-col gap-3">
       <h2 className="text-lg font-semibold text-text">Review</h2>
@@ -15,6 +63,37 @@ export function Review({ draft }: { draft: WizardDraft }) {
         <Row label="Plex" value={draft.plex ? "configured" : "skipped"} />
         <Row label="AI genre provider" value={draft.ai_genre_provider ?? "default"} />
       </dl>
+
+      {conflict && (
+        <div role="alert" className="flex flex-col gap-2 rounded border border-warn bg-panel p-3 text-sm">
+          <p className="text-text">A config already exists at this location.</p>
+          <button
+            type="button"
+            data-testid="wizard-reconfigure"
+            disabled={writing}
+            onClick={() => submit(true)}
+            className={`${btnGhost} self-start`}
+          >
+            Overwrite it and continue
+          </button>
+        </div>
+      )}
+
+      {error && (
+        <p role="alert" className="text-sm text-danger">
+          {error}
+        </p>
+      )}
+
+      <button
+        type="button"
+        data-testid="wizard-write-config"
+        disabled={writing}
+        onClick={() => submit(false)}
+        className={`${btnPrimary} self-start`}
+      >
+        {writing ? "Writing…" : "Write config"}
+      </button>
     </div>
   );
 }
