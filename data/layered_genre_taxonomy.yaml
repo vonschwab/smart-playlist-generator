@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.40.1-east-african
+taxonomy_version: 0.41.1-maghreb
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -32435,6 +32435,206 @@ records:
   source_policy: growth
   possible_context_target: null
   notes: '[gap-fill] Tanzanian hip-hop/R&B/dancehall pop.'
+- name: maghreb music
+  kind: umbrella
+  role: context
+  status: active
+  facet_type: null
+  specificity_score: 0.3
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Umbrella for North African / Maghreb (Arab-Berber) styles.
+- name: raï
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: maghreb music
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: chaabi
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[MG] Algerian folk-pop protest style (Khaled, Cheb Mami).'
+- name: rai
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: raï
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: gnawa
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.68
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: maghreb music
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[MG] Moroccan Sufi ritual trance music (guembri, qraqeb).'
+- name: gnaoua
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: gnawa
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: chaabi
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.64
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: maghreb music
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: raï
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[gap-fill] Algerian/Moroccan urban popular street music.'
+- name: andalusian classical
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.68
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: maghreb music
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[gap-fill] Arab-Andalusian art-music tradition (nuba suites) across the
+    Maghreb.'
+- name: andalusian music
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: andalusian classical
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: malouf
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.74
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: maghreb music
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: andalusian classical
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[gap-fill] Tunisian/Libyan branch of Andalusian classical.'
 bridge_rules:
 - source: indie pop
   target: synth-pop
