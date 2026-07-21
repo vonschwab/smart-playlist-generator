@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.34.2-world-music-umbrella-fix
+taxonomy_version: 0.35.0-cuban-roots-grown
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -30817,6 +30817,260 @@ records:
   notes: Mexican cumbia (cumbia sonidera / grupera lineage) — the Mexican adaptation
     of Colombian cumbia. Bridges the existing `cumbia` node; wired to the regional
     mexican umbrella in PASS-2 (same-batch).
+- name: cuban music
+  kind: umbrella
+  role: context
+  status: active
+  facet_type: null
+  specificity_score: 0.3
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.85
+    notes: null
+  - target: world music
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Umbrella grouping the Cuban/Afro-Cuban styles. MixArc had the modern derivatives
+    (salsa, timba, rumba, afro-cuban) but no cluster anchor. New + existing Cuban
+    leaves are wired to it in PASS-2 (same-batch).
+- name: son cubano
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.62
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: world music
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.8
+    notes: null
+  - target: salsa
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: afro cuban
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: The foundational Cuban genre (son montuno) — the root from which salsa, timba,
+    and much of Latin dance music descend. Bridges the existing salsa and afro-cuban
+    nodes. Canonical `son cubano` (bare `son` is too noisy to alias).
+- name: mambo
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.6
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: world music
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Big-band Cuban dance style (Pérez Prado, Machito). Descends from danzón;
+    sits beside cha-cha-chá — bridges added in PASS-2 (same-batch).
+- name: bolero
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.58
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: world music
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Romantic Cuban/Latin ballad style (trova bolero, bolero-son). Context disambiguates
+    from Ravel's classical Boléro (rare as a library tag). Bridge to son cubano added
+    in PASS-2 (same-batch).
+- name: cha-cha-chá
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.6
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: world music
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Cuban dance style (Enrique Jorrín) derived from danzón. Bridges to danzón
+    and mambo added in PASS-2 (same-batch).
+- name: chachacha
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: cha-cha-chá
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: cha cha
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: cha-cha-chá
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: danzón
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: world music
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: The formal, older Cuban ballroom dance — ancestor of mambo and cha-cha-chá.
+    Bridges to both added in PASS-2 (same-batch).
+- name: guaracha
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.64
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: world music
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Up-tempo, satirical Cuban son-family style. Bridge to son cubano added in
+    PASS-2 (same-batch). (Not the modern EDM 'guaracha electrónica' — that is a deferred
+    separate term.)
+- name: descarga
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: world music
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.8
+    notes: null
+  - target: latin jazz
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: afro cuban
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Cuban jam-session style (Cachao) — improvised, Latin-jazz-adjacent. Bridges
+    the existing latin jazz and afro-cuban nodes.
 bridge_rules:
 - source: indie pop
   target: synth-pop
