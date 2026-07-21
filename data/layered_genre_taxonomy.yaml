@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.43.1-colombian-urbano
+taxonomy_version: 0.44.1-east-se-asian
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -6137,6 +6137,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: east asian pop
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -15619,6 +15624,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: east asian pop
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -22204,6 +22214,11 @@ records:
   - target: pop
     edge_type: family_context
     weight: 0.6
+    confidence: 0.8
+    notes: null
+  - target: east asian pop
+    edge_type: family_context
+    weight: 0.45
     confidence: 0.8
     notes: null
   secondary_roles: []
@@ -33214,6 +33229,288 @@ records:
   source_policy: growth
   possible_context_target: null
   notes: '[gap-fill] Reggaeton dance-floor substyle/scene.'
+- name: east asian pop
+  kind: umbrella
+  role: context
+  status: active
+  facet_type: null
+  specificity_score: 0.3
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.85
+    notes: null
+  - target: pop
+    edge_type: family_context
+    weight: 0.35
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Umbrella for East Asian (Chinese/Japanese) pop styles.
+- name: southeast asian music
+  kind: umbrella
+  role: context
+  status: active
+  facet_type: null
+  specificity_score: 0.3
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Umbrella for Southeast Asian styles.
+- name: mandopop
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.6
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.85
+    notes: null
+  - target: pop
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.85
+    notes: null
+  - target: east asian pop
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: cantopop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[gap-fill] Mandarin-language Chinese/Taiwanese pop.'
+- name: mandarin pop
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: mandopop
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: cantopop
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.6
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.85
+    notes: null
+  - target: pop
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.85
+    notes: null
+  - target: east asian pop
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: mandopop
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[gap-fill] Cantonese-language Hong Kong pop.'
+- name: canto pop
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: cantopop
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: gamelan
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: southeast asian music
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[MG] Indonesian (Javanese/Balinese) tuned-percussion ensemble tradition.'
+- name: dangdut
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.64
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: pop
+    edge_type: family_context
+    weight: 0.25
+    confidence: 0.75
+    notes: null
+  - target: southeast asian music
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[gap-fill] Indonesian popular music (Bollywood/Arab/Malay-influenced).'
+- name: luk thung
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.66
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: mor lam
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: null
+  - target: southeast asian music
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[gap-fill] Thai country/folk-pop (''song of the fields'').'
+- name: look tung
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: luk thung
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: mor lam
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.72
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: luk thung
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: null
+  - target: southeast asian music
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[gap-fill] Lao/Isan (NE Thai) folk vocal style.'
+- name: molam
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: mor lam
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
 bridge_rules:
 - source: indie pop
   target: synth-pop
