@@ -1,10 +1,20 @@
-# Playlist Generator
+# MixArc
 
-A local playlist generator that builds intentional, arc-shaped playlists from your own music
-library — fusing a learned sonic-similarity embedding with a real genre taxonomy graph, not a
-shuffle and not a generic "similar artists" API call.
+Build intentional, arc-shaped playlists from your own music library — a learned sonic-similarity
+embedding fused with a real genre taxonomy graph. Not a shuffle, not a "similar artists" API.
 
-## Overview
+## Install & run
+
+```bash
+pipx install mixarc      # or: pip install mixarc
+mixarc                   # opens a browser wizard to set up your library
+```
+
+The first run opens a setup wizard: pick your music folder, optionally connect Last.fm / Discogs /
+Plex, choose a genre backend, and MixArc analyzes your library and starts building playlists. It's a
+local, single-user app — your library never leaves your machine.
+
+## What it does
 
 Point it at a folder of music and a seed (an artist, a genre, or a set of tracks in the GUI). It
 builds a playlist that:
@@ -22,6 +32,24 @@ builds a playlist that:
 - **Respects diversity as a hard rule.** Per-artist caps, minimum spacing, and collaboration-aware
   identity resolution (so "Bill Evans Trio" and "Bill Evans feat. X" count as the same artist) are
   enforced, not just recommended.
+
+## Requirements
+
+- Python 3.11+
+- A local folder of music files
+- ~8 GB RAM for sonic analysis; SSD recommended for feature extraction
+- A GPU is not required for MuQ extraction but speeds it up considerably
+- Optional: Last.fm / Discogs / Plex accounts enrich genres & popularity (never required)
+
+## Run from source (developers)
+
+```bash
+pip install -e ".[web,dev]"
+python tools/serve_web.py
+pytest -m "not slow"
+```
+Deeper design docs: `docs/TECHNICAL_PLAYLIST_GENERATION_FLOW.md`. For the full install-extras
+matrix, the 15-stage analyze pipeline, and CLI generation examples, see **Quick Start** below.
 
 ## Features
 
@@ -133,13 +161,6 @@ python tools/serve_web.py
 
 See [docs/GOLDEN_COMMANDS.md](docs/GOLDEN_COMMANDS.md) for the full command reference and
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how it all fits together.
-
-## Requirements
-
-- Python 3.11+
-- ~8 GB RAM for sonic analysis
-- SSD recommended for feature extraction
-- A GPU is not required for MuQ extraction but speeds it up considerably
 
 ## Playlist modes
 
@@ -286,4 +307,4 @@ no re-scan or artifact rebuild.
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).

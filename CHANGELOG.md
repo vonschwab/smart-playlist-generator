@@ -1,11 +1,14 @@
 # Changelog
 
-**Latest Release:** Version 6.0.0
+**Latest Release:** Version 0.1.0 (first public release)
 
 For full release notes see [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
 ## Summary
 
+- **v0.1.0** — First public PyPI release of **MixArc** (`pipx install mixarc`): the setup wizard,
+  `mixarc` console app, and the full v6.0-era engine below, packaged for anyone. (Public versioning
+  restarts at 0.1.0; the internal engine lineage continues from v6.0.0.)
 - **v6.0.0** — MuQ (contrastive `MuQ-MuLan-large`, 512-d, `center_l2`) became the sole sonic embedding, replacing the hand-built towers and a short-lived MERT era (tower/MERT code paths and the `transition_weights`/`tower_weights` knobs removed; MERT data archived to `data/archive/mert_2026/`; MuQ screened 84% vs MERT's 73% on trusted triplets); weak-edge recovery cascade (variable-bridge add-only → tail-DP → break-glass edge repair → edge delete, least-to-most destructive); collapse prevention (anti-center scoring plus structural mini-piers for bridge-interior sag); artist-mode tag steering (soft pool + pier lean toward the seed artist's own published genres); manual artist links (alias merge + sibling spacing via `data/artist_aliases.yaml`); enriched-genre authority + layered taxonomy graph (grown to v0.30, auto-propagated to publish + artifacts); multisource Claude enrichment with publish/pause safety and a delta migration; Genre Review GUI panel + graph-canonical chips; pace rebuilt on BPM + onset-rate bands plus a soft rhythm penalty; four mode axes (cohesion/genre/sonic/pace); browser GUI as sole front-end; deprecated-code removal
 - **v5.0** — Pace mode (rhythm axis independent of timbre/harmony); transition weight alignment fixing beam-reporter mismatch; IDF-weighted genre admission; uncapped seeded candidate pool; opt-in per-edge audit and edge repair; scoped blacklisting (artist/album) in GUI
 - **v4.0** — Native GUI overhaul: CLI parity, responsive generation controls, Analyze Library summaries, shared request validation, worker reliability
