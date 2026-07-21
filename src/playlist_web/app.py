@@ -260,6 +260,15 @@ def create_app(
     def setup_status() -> dict:
         return derive_setup_state(home).to_dict()
 
+    @app.get("/api/setup/browse")
+    def setup_browse(path: Optional[str] = Query(default=None)) -> dict:
+        from src.setup.browse import list_directory
+
+        try:
+            return list_directory(path)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=400, detail=f"Not a directory: {exc}")
+
     @app.post("/api/generate")
     async def generate(body: GenerateRequestBody) -> dict:
         axes = resolve_dial_axes(body.range_dial, body.flow_dial, body.pace_dial)
