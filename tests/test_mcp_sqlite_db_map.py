@@ -7,6 +7,13 @@ a 0-byte placeholder; the MCP must follow config's absolute path instead.
 import importlib.util
 import pathlib
 
+import pytest
+
+# The read-only SQLite MCP tool imports the `mcp` SDK, which is an optional dev
+# dependency (not in pyproject). Skip this test where mcp isn't installed (e.g. CI)
+# rather than fail collection.
+pytest.importorskip("mcp")
+
 _MOD = pathlib.Path(__file__).resolve().parents[1] / "tools" / "mcp_sqlite_readonly.py"
 _spec = importlib.util.spec_from_file_location("mcp_sqlite_readonly", _MOD)
 assert _spec is not None and _spec.loader is not None
