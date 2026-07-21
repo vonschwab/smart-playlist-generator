@@ -5,7 +5,9 @@ import type {
   ArtistSearchResponse,
   BlacklistFetchResponse,
   BlacklistRequest,
+  BrowseResponse,
   CanonicalGenre,
+  CheckResult,
   EditGenresRequest,
   EditGenresResponse,
   EnrichToolRequest,
@@ -17,6 +19,7 @@ import type {
   EscalationQueueResponse,
   ReplaceSuggestionsResponse,
   SeedTrack,
+  SetupConfigDraft,
   SetupStatus,
   TaxonomyDecisionRequest,
   TaxonomyProposal,
@@ -200,5 +203,23 @@ export const api = {
   async artistsSearch(q: string, limit = 20): Promise<ArtistSearchResponse> {
     const params = new URLSearchParams({ q, limit: String(limit) });
     return jsonOrThrow(await fetch(`/api/artists/search?${params}`));
+  },
+  async browseDir(path?: string): Promise<BrowseResponse> {
+    const q = path ? `?path=${encodeURIComponent(path)}` : "";
+    return jsonOrThrow(await fetch(`/api/setup/browse${q}`));
+  },
+  async testService(service: string, config: object): Promise<CheckResult> {
+    return jsonOrThrow(await fetch(`/api/setup/test/${service}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ config }),
+    }));
+  },
+  async writeConfig(draft: SetupConfigDraft): Promise<{ ok: boolean; config_path: string }> {
+    return jsonOrThrow(await fetch(`/api/setup/config`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(draft),
+    }));
   },
 };

@@ -14,6 +14,40 @@ export interface SetupStatus {
   db_path: string | null;
   track_count: number | null;
   detail: string;
+  checks?: CheckResult[];
+}
+
+// Result of a single setup-wizard check (env/DB/service probe).
+export interface CheckResult {
+  id: string;
+  status: "pass" | "warn" | "fail";
+  summary: string;
+  fix_hint: string | null;
+}
+
+// GET /api/setup/browse — one entry in a directory listing.
+export interface BrowseEntry {
+  name: string;
+  path: string;
+  audio_count: number;
+}
+
+// GET /api/setup/browse response.
+export interface BrowseResponse {
+  path: string;
+  parent: string | null;
+  entries: BrowseEntry[];
+  is_music_dir: boolean;
+}
+
+// POST /api/setup/config body — the wizard's accumulated draft.
+export interface SetupConfigDraft {
+  music_directory: string;
+  lastfm?: { api_key: string; username: string };
+  discogs?: { token: string };
+  plex?: Record<string, unknown>;
+  ai_genre_provider?: string;
+  reconfigure?: boolean;
 }
 
 export interface GenerateRequestBody {
