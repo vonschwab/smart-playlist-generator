@@ -54,14 +54,24 @@ class DeadWebSocket {
   close() {}
 }
 
-function startGenerate() {
+// Flush SP-1's setup gate: App shows a "Checking setup…" spinner until
+// api.getSetupStatus() resolves (mocked to {} -> not needs_setup). The
+// generator tree (seed-input) isn't mounted until that microtask flushes.
+async function flushSetupGate() {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+}
+
+async function startGenerate() {
   render(<App />);
+  await flushSetupGate();
   fireEvent.change(screen.getByTestId("seed-input"), { target: { value: "Acetone" } });
   fireEvent.click(screen.getByRole("button", { name: "▸ Generate" }));
 }
 
 async function generateToCompletion() {
-  startGenerate();
+  await startGenerate();
   await act(async () => {
     await vi.advanceTimersByTimeAsync(0);
   });
@@ -102,6 +112,7 @@ describe("playlist persistence across a reload", () => {
     cleanup();
     fixtures.api.generate.mockClear();
     render(<App />);
+    await flushSetupGate();
 
     expect(screen.getByText("Sundown")).toBeTruthy();
     expect(fixtures.api.generate).not.toHaveBeenCalled();
@@ -110,7 +121,7 @@ describe("playlist persistence across a reload", () => {
 
 describe("loading indicator", () => {
   it("shows while generating and hides once the playlist arrives", async () => {
-    startGenerate();
+    await startGenerate();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
@@ -123,8 +134,12 @@ describe("loading indicator", () => {
     expect(screen.getByText("Sundown")).toBeTruthy();
   });
 
-  it("is absent on first load", () => {
+  it("is absent on first load", async () => {
     render(<App />);
+    // After the setup gate resolves (its own "Checking setup…" spinner also
+    // uses generating-indicator), the GENERATION indicator must be absent
+    // since nothing has been generated yet.
+    await flushSetupGate();
     expect(screen.queryByTestId("generating-indicator")).toBeNull();
   });
 });

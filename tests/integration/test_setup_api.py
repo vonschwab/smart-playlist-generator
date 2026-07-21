@@ -59,7 +59,8 @@ def test_test_service_not_configured_is_pass(tmp_path):
 
 def test_config_writes_then_409_without_reconfigure(tmp_path):
     c = _client(tmp_path)
-    music = tmp_path / "music"; music.mkdir()
+    music = tmp_path / "music"
+    music.mkdir()
     body = {"music_directory": str(music), "ai_genre_provider": "zero_touch"}
     r1 = c.post("/api/setup/config", json=body)
     assert r1.status_code == 200 and r1.json()["ok"] is True

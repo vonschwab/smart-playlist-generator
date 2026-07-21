@@ -69,6 +69,12 @@ class DeadWebSocket {
 
 async function generateAndWaitForRecovery() {
   render(<App />);
+  // Flush SP-1's setup gate: App shows a "Checking setup…" spinner until
+  // api.getSetupStatus() resolves (mocked to {} -> not needs_setup). The
+  // generator tree (seed-input) isn't mounted until that microtask flushes.
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
   fireEvent.change(screen.getByTestId("seed-input"), { target: { value: "Acetone" } });
   fireEvent.click(screen.getByRole("button", { name: "▸ Generate" }));
   // Let api.generate resolve and the pending job id land in state.

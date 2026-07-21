@@ -1,6 +1,4 @@
 """Folder browse: lists subdirs + audio counts; bad path 400; permission-denied graceful."""
-from pathlib import Path
-
 from src.setup.browse import list_directory
 
 
