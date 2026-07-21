@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.32.1-jazz-pilot-edge-upgrade
+taxonomy_version: 0.33.1-classical-pilot-edge-upgrade
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -30299,6 +30299,190 @@ records:
   source_policy: null
   possible_context_target: null
   notes: Spelling variant (growth).
+- name: early music
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.52
+  canonical_target: null
+  parent_edges:
+  - target: classical/modern composition
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  - target: baroque
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Standard, unambiguous umbrella term for pre-Classical Western art music (medieval
+    + renaissance + early baroque; period-instrument performance). Fills the medieval-era
+    gap left by the `medieval` reject (source_noise) without touching it. Music-Graph
+    exposes the medieval/renaissance eras as classical supergenres; MixArc groups
+    them under this cleaner term.
+- name: renaissance
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.6
+  canonical_target: null
+  parent_edges:
+  - target: classical/modern composition
+    edge_type: family_context
+    weight: 0.6
+    confidence: 0.85
+    notes: null
+  - target: baroque
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: early music
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Renaissance-era art music (~1400-1600): vocal polyphony (Palestrina, Josquin,
+    Byrd), madrigals, consort music, modal harmony. Active (not review): the era is
+    a distinct sound and the resolver disambiguates the bare word by classical context.
+    Parented to early music in PASS-2 (same-batch forward ref trimmed here).'
+- name: avant-garde classical
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: classical/modern composition
+    edge_type: family_context
+    weight: 0.65
+    confidence: 0.85
+    notes: null
+  - target: experimental/avant-garde
+    edge_type: family_context
+    weight: 0.4
+    confidence: 0.8
+    notes: null
+  - target: modern classical
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: contemporary classical
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: 'Post-war avant-garde art music (Cage, Stockhausen, Xenakis, Ligeti): aleatoric,
+    electronic, extended-technique, graphic-score works. Bridges the classical/modern-composition
+    and experimental/avant-garde families. Music-Graph has ''avant garde classical''.'
+- name: concerto
+  kind: facet
+  role: modifier
+  status: active
+  facet_type: format
+  specificity_score: 0.3
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Musical form (soloist + orchestra), spans all eras -> format facet, not a
+    genre. Combines with an era/style (e.g. a baroque concerto).
+- name: sonata
+  kind: facet
+  role: modifier
+  status: active
+  facet_type: format
+  specificity_score: 0.3
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Musical form (work for 1-2 instruments, often piano), spans all eras -> format
+    facet.
+- name: cantata
+  kind: facet
+  role: modifier
+  status: active
+  facet_type: format
+  specificity_score: 0.3
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Vocal form (voices + instruments, sacred or secular) -> format facet.
+- name: oratorio
+  kind: facet
+  role: modifier
+  status: active
+  facet_type: format
+  specificity_score: 0.3
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Large sacred narrative vocal-choral form (Handel's Messiah) -> format facet.
+- name: requiem
+  kind: facet
+  role: modifier
+  status: active
+  facet_type: format
+  specificity_score: 0.3
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Requiem mass — sacred choral-orchestral form for the dead (Mozart, Verdi,
+    Faure) -> format facet.
+- name: madrigal
+  kind: facet
+  role: modifier
+  status: active
+  facet_type: format
+  specificity_score: 0.3
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Renaissance/early-baroque secular vocal-polyphony form -> format facet. The
+    most era-bound of the forms, but still a form descriptor.
 bridge_rules:
 - source: indie pop
   target: synth-pop
