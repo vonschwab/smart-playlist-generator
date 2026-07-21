@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../../lib/api";
 import { friendlyError } from "../../../lib/errors";
 import { useJobReconcile } from "../../../lib/useJobReconcile";
@@ -18,6 +18,7 @@ export function Analyze() {
   const [progress, setProgress] = useState("");
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
   const started = useRef(false);
 
   useEffect(() => {
@@ -31,18 +32,33 @@ export function Analyze() {
       .catch((e) => setError(friendlyError(e)));
   }, []);
 
+  // A WS/reconcile "terminal" signal only means the job stopped running — it
+  // does NOT mean it succeeded (a "done" event fires for a failed job too).
+  // Mirrors ToolsPanel's finishAnalyze: fetch the canonical job record and
+  // branch on its `error` field, exactly like finishAnalyze does. Unlike
+  // finishAnalyze, a fetch failure here has no prior "last known good" state
+  // to fall back to, so it surfaces as a failure too rather than being
+  // swallowed — swallowing it would strand the user on "Working…" forever.
+  const finish = useCallback((jid: string) => {
+    setProgress("");
+    api
+      .job(jid)
+      .then((j) => {
+        if (j.error) setFailed(j.error);
+        else setDone(true);
+      })
+      .catch((e) => setFailed(friendlyError(e)));
+  }, []);
+
   useWorkerEvents((e: WsEvent) => {
     if (!jobId || e.job_id !== jobId) return;
     if (e.type === "progress") setProgress((e["detail"] as string | undefined) ?? "");
-    if (e.type === "done") {
-      setDone(true);
-      setProgress("");
-    }
+    if (e.type === "done") finish(jobId);
   });
 
   // Backstop for the WS-done race (see useJobReconcile) — also catches the
   // case where this step's own subscription missed the event entirely.
-  useJobReconcile(jobId, () => setDone(true));
+  useJobReconcile(jobId, finish);
 
   return (
     <div data-testid="step-analyze" className="flex max-w-xl flex-col gap-3">
@@ -51,6 +67,11 @@ export function Analyze() {
       {error ? (
         <p role="alert" className="text-sm text-danger">
           Couldn't start analysis: {error}
+        </p>
+      ) : failed ? (
+        <p role="alert" className="text-sm text-danger">
+          Analysis failed: {failed}. Check the logs for details, or retry from Tools &gt;
+          Analyze Library after reloading MixArc.
         </p>
       ) : done ? (
         <p className="text-sm text-text">

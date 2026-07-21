@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api } from "../../../lib/api";
+import type { ApiError } from "../../../lib/api";
 import { friendlyError } from "../../../lib/errors";
 import { btnGhost, btnPrimary } from "../../../lib/ui";
 import type { SetupConfigDraft } from "../../../lib/types";
@@ -17,10 +18,10 @@ interface ReviewProps {
 // The confirm button (`wizard-write-config`) is where the draft actually
 // leaves the browser: POST /api/setup/config via api.writeConfig. Two error
 // shapes matter here:
-//  - 409 "config.yaml already exists..." (ConfigExistsError, app.py) — the
-//    only signal the client has for this is jsonOrThrow's Error message
-//    (status codes don't survive that helper), so we match on "already
-//    exists" and offer a reconfigure retry with `reconfigure: true`.
+//  - 409 (ConfigExistsError, app.py) — jsonOrThrow (lib/api.ts) attaches the
+//    HTTP status to the thrown Error, so we branch on `err.status === 409`
+//    and offer a reconfigure retry with `reconfigure: true`. Robust against
+//    the server's exact wording, unlike matching the message text.
 //  - anything else (validation, disk, network) — shown inline, draft is left
 //    completely untouched so the user can fix a field and retry.
 export function Review({ draft, goTo }: ReviewProps) {
@@ -40,12 +41,11 @@ export function Review({ draft, goTo }: ReviewProps) {
       await api.writeConfig(body);
       goTo("analyze");
     } catch (e) {
-      const msg = friendlyError(e);
-      if (!reconfigure && /already exists/i.test(msg)) {
+      if (!reconfigure && (e as ApiError)?.status === 409) {
         setConflict(true);
       } else {
         setConflict(false);
-        setError(msg);
+        setError(friendlyError(e));
       }
     } finally {
       setWriting(false);

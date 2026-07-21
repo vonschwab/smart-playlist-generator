@@ -26,10 +26,17 @@ import type {
   TaxonomyQueueResponse,
 } from "./types";
 
+// Thrown by jsonOrThrow on a non-ok response. `status` lets callers branch on
+// the HTTP status code (e.g. 409 conflict) instead of substring-matching the
+// message text, which couples them to the server's exact wording.
+export type ApiError = Error & { status?: number };
+
 async function jsonOrThrow(resp: Response) {
   if (!resp.ok) {
     const body = await resp.json().catch(() => ({}));
-    throw new Error(body.detail || `HTTP ${resp.status}`);
+    const err: ApiError = new Error(body.detail || `HTTP ${resp.status}`);
+    err.status = resp.status;
+    throw err;
   }
   return resp.json();
 }

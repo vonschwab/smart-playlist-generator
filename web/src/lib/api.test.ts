@@ -24,3 +24,21 @@ describe("setup api", () => {
     expect(r.ok).toBe(true);
   });
 });
+
+describe("jsonOrThrow error shape", () => {
+  it("attaches the HTTP status to the thrown Error so callers can branch without string-matching", async () => {
+    mockFetch({ detail: "config.yaml already exists" }, false, 409);
+    await expect(api.writeConfig({ music_directory: "/m" })).rejects.toMatchObject({
+      message: "config.yaml already exists",
+      status: 409,
+    });
+  });
+
+  it("falls back to a generic HTTP status message when the body has no detail", async () => {
+    mockFetch({}, false, 500);
+    await expect(api.writeConfig({ music_directory: "/m" })).rejects.toMatchObject({
+      message: "HTTP 500",
+      status: 500,
+    });
+  });
+});
