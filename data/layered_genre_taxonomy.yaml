@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.44.1-east-se-asian
+taxonomy_version: 0.45.1-european-folk
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -19794,6 +19794,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: european folk
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -20887,6 +20892,11 @@ records:
     weight: 0.4
     confidence: 0.6
     notes: similar_to (growth)
+  - target: european folk
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
   secondary_roles: []
   reject_reason: null
   alias_policy: null
@@ -20956,6 +20966,16 @@ records:
     edge_type: family_context
     weight: 0.6
     confidence: 0.85
+    notes: null
+  - target: european folk
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: scottish folk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
     notes: null
   secondary_roles: []
   reject_reason: null
@@ -33511,6 +33531,288 @@ records:
   source_policy: null
   possible_context_target: null
   notes: Spelling variant (growth).
+- name: european folk
+  kind: umbrella
+  role: context
+  status: active
+  facet_type: null
+  specificity_score: 0.3
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: folk
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Umbrella for European (non-Anglo-American) folk traditions.
+- name: scottish folk
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.64
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.85
+    notes: null
+  - target: folk
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: celtic folk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: irish folk
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: european folk
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[gap-fill] Scottish traditional music (pipes, fiddle, ballads).'
+- name: nordic folk
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.64
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: folk
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  - target: european folk
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[MG] Scandinavian/Nordic traditional music (fiddle, nyckelharpa, joik-adjacent).'
+- name: scandinavian folk
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: nordic folk
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: klezmer
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.68
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: folk
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: european folk
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[MG] Ashkenazi Jewish instrumental celebration music (clarinet, violin).'
+- name: polka
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.6
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.85
+    notes: null
+  - target: folk
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: european folk
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[MG] Central European dance style (Czech origin), widespread across Europe/Americas.'
+- name: balkan folk
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.64
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: folk
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: european folk
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[gap-fill] Southeastern European brass/odd-meter folk (Balkan brass, sevdah-adjacent).'
+- name: balkan music
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: balkan folk
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: rebetiko
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.7
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: folk
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.85
+    notes: null
+  - target: european folk
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[gap-fill] Greek urban ''blues'' (bouzouki-driven, early 20th c.).'
+- name: rebetika
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: rebetiko
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: tarantella
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.72
+  canonical_target: null
+  parent_edges:
+  - target: world music
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: folk
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: european folk
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[gap-fill] Southern Italian fast folk dance.'
 bridge_rules:
 - source: indie pop
   target: synth-pop
