@@ -323,14 +323,6 @@ def check_artifacts(home: MixarcHome) -> CheckResult:
     )
 
 
-def check_genre_similarity(home: MixarcHome) -> CheckResult:
-    """doctor.py L323-334."""
-    genre_sim_path = home.anchor_dir / "data" / "genre_similarity.yaml"
-    if genre_sim_path.exists():
-        return CheckResult("genre_similarity", "pass", f"Genre similarity matrix: {genre_sim_path.name}")
-    return CheckResult("genre_similarity", "warn", "Genre similarity file not found")
-
-
 def run_all_checks(home: MixarcHome) -> list[CheckResult]:
     """All checks in doctor's documented section order (doctor.py L371-389)."""
     results: list[CheckResult] = [check_python_version()]
@@ -340,5 +332,4 @@ def run_all_checks(home: MixarcHome) -> list[CheckResult]:
     results.append(check_satellite_data_paths(home))
     results.append(check_database(home))
     results.append(check_artifacts(home))
-    results.append(check_genre_similarity(home))
     return results

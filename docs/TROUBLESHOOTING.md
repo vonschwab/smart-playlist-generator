@@ -8,7 +8,7 @@ config key reference, [`CONFIG.md`](CONFIG.md); for playlist-quality knob tuning
 
 > **Start here.** Run `python tools/doctor.py --verbose` before digging further — it checks
 > Python version, core dependencies, module imports, `config.yaml`, the database + `tracks`
-> table, artifact `.npz` files, and `data/genre_similarity.yaml` in one pass.
+> table, and artifact `.npz` files in one pass.
 
 ---
 

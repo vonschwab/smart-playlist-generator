@@ -19,7 +19,6 @@ For the listener-facing feature catalog, see `README.md`. Newest, most authorita
 - `data/archive/mert_2026/mert_shards/` — MERT embedding shards + `manifest.json` — retired rollback data, superseded by MuQ; **ARCHIVED (never delete)** by SP-B Task 11 (2026-07-02); **irreplaceable** (~55h CPU to regenerate). See `data/archive/mert_2026/README.md`.
 - `data/archive/mert_2026/mert_sidecar.npz` — merged MERT embeddings (+ historical `.bak.*`) — retired rollback data; **ARCHIVED (never delete)**; **irreplaceable** (regenerated from shards via `--merge-only`, but shards are the ground truth)
 - `data/archive/mert_2026/mert_transform_calibration.npz` — fitted MERT transform params — retired rollback data, **ARCHIVED**; re-fittable from sidecar, but keep
-- `data/genre_similarity.yaml` — genre taxonomy overrides
 - `config.yaml` — gitignored; copy from `config.example.yaml`
 
 ## Session discipline

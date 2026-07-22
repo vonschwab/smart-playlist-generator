@@ -90,7 +90,6 @@ _ID_TO_SECTION = {
     "satellite_paths": "Configuration",
     "database": "Database",
     "artifacts": "Artifacts",
-    "genre_similarity": "Artifacts",
 }
 
 
