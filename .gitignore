@@ -155,6 +155,9 @@ docs/POOL_STARVATION_RESEARCH_2026-07-12.md
 docs/TIME_OPTIMIZATION.md
 docs/AI_GENRE_ENRICHMENT_DEVELOPMENT_BIBLE.md
 docs/CORRIDOR_FEATURE_PRESERVATION_CONTRACT.md
+# Personal satellite-bootstrap scaffolding (multi-session dev; safety hooks stay tracked)
+tools/create_satellite.py
+tests/test_create_satellite.py
 # Internal-harness tests paired with the removed research/corridor scripts
 tests/unit/test_corridor_baseline_*.py
 tests/unit/test_genre_audition_*.py

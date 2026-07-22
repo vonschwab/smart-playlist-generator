@@ -49,8 +49,8 @@ def resolve_transition_calib(
         center, scale = TRANSITION_CALIB_BY_VARIANT[key]
         return float(center), float(scale), 1.0
     raise ValueError(
-        f"No transition calibration for sonic variant {variant!r}. Derive its band via "
-        f"`python scripts/research/calibrate_transition_sigmoid.py {key}` and add an entry to "
+        f"No transition calibration for sonic variant {variant!r}. Derive its band by fitting a "
+        f"transition sigmoid for {key!r} and add an entry to "
         "TRANSITION_CALIB_BY_VARIANT, or pass an explicit override — a configured sonic space "
         "the transition rescale can't calibrate is a startup error, not a silent fallback."
     )
