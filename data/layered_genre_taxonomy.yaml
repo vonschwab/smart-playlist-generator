@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.51.1-african2
+taxonomy_version: 0.52.0-world-facets2
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -34812,6 +34812,91 @@ records:
   source_policy: growth
   possible_context_target: null
   notes: '[MG] Cape Verdean melancholic ballad style (Cesária Évora); fado-adjacent.'
+- name: koto
+  kind: facet
+  role: modifier
+  status: active
+  facet_type: instrumentation
+  specificity_score: 0.3
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Japanese 13-string zither -> instrumentation facet.
+- name: djembe
+  kind: facet
+  role: modifier
+  status: active
+  facet_type: instrumentation
+  specificity_score: 0.3
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: West African goblet hand-drum -> instrumentation facet.
+- name: balafon
+  kind: facet
+  role: modifier
+  status: active
+  facet_type: instrumentation
+  specificity_score: 0.3
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: West African wooden xylophone -> instrumentation facet.
+- name: didgeridoo
+  kind: facet
+  role: modifier
+  status: active
+  facet_type: instrumentation
+  specificity_score: 0.3
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: Aboriginal Australian drone wind instrument -> instrumentation facet.
+- name: bagpipes
+  kind: facet
+  role: modifier
+  status: active
+  facet_type: instrumentation
+  specificity_score: 0.3
+  canonical_target: null
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: European/Celtic reeded bag instrument -> instrumentation facet.
+- name: bagpipe
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: bagpipes
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
 bridge_rules:
 - source: indie pop
   target: synth-pop
