@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.47.1-brazilian2
+taxonomy_version: 0.48.1-cuban2
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -34137,6 +34137,192 @@ records:
   source_policy: growth
   possible_context_target: null
   notes: '[gap-fill] Bahian slow romantic dance style; bridges brega (same-batch).'
+- name: guajira
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.72
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: world music
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.8
+    notes: null
+  - target: son cubano
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: cuban music
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[gap-fill] Rural Cuban song style (guajiro/campesino tradition).'
+- name: trova
+  kind: genre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.64
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: world music
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.8
+    notes: null
+  - target: bolero
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: cuban music
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[gap-fill] Cuban singer-songwriter troubadour tradition (trova bolero).'
+- name: nueva trova
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.68
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: world music
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.8
+    notes: null
+  - target: nueva canción
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: cuban music
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: trova
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[gap-fill] Post-revolution Cuban socially-conscious trova (Silvio Rodríguez,
+    Pablo Milanés); bridges trova (same-batch).'
+- name: pachanga
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.72
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: world music
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.8
+    notes: null
+  - target: son cubano
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: mambo
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: cuban music
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[gap-fill] Fast Cuban dance style (late 1950s).'
+- name: songo
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.74
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: world music
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.8
+    notes: null
+  - target: timba
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: salsa
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: cuban music
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[gap-fill] Modern Cuban dance-band groove (Los Van Van; forebear of timba).'
 bridge_rules:
 - source: indie pop
   target: synth-pop
