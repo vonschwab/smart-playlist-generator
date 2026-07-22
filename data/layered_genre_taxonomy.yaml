@@ -1,5 +1,5 @@
 schema_version: 1
-taxonomy_version: 0.48.1-cuban2
+taxonomy_version: 0.49.1-mexican2
 description: Conservative structured seed taxonomy for the Playlist Generator layered
   genre graph. Reviewed for schema consistency, fixture coverage, and conservative
   source-backed genre/facet policy; designed as sidecar/import input only.
@@ -34323,6 +34323,100 @@ records:
   source_policy: growth
   possible_context_target: null
   notes: '[gap-fill] Modern Cuban dance-band groove (Los Van Van; forebear of timba).'
+- name: narcocorridos
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.74
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: world music
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: corridos tumbados
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: regional mexican
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  - target: corrido
+    edge_type: family_context
+    weight: 0.55
+    confidence: 0.85
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[gap-fill] Drug-trade-themed corrido subgenre; a corrido subtype (family_context
+    corrido).'
+- name: narcocorrido
+  kind: alias
+  role: alias
+  status: alias_only
+  facet_type: null
+  specificity_score: null
+  canonical_target: narcocorridos
+  parent_edges: []
+  secondary_roles: []
+  reject_reason: null
+  alias_policy:
+    type: plain
+  source_policy: null
+  possible_context_target: null
+  notes: Spelling variant (growth).
+- name: sonidero
+  kind: subgenre
+  role: leaf
+  status: active
+  facet_type: null
+  specificity_score: 0.72
+  canonical_target: null
+  parent_edges:
+  - target: brazilian/latin
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.85
+    notes: null
+  - target: world music
+    edge_type: family_context
+    weight: 0.5
+    confidence: 0.8
+    notes: null
+  - target: cumbia
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: mexican cumbia
+    edge_type: bridge_to
+    weight: 0.4
+    confidence: 0.6
+    notes: similar_to (growth)
+  - target: regional mexican
+    edge_type: family_context
+    weight: 0.45
+    confidence: 0.8
+    notes: null
+  secondary_roles: []
+  reject_reason: null
+  alias_policy: null
+  source_policy: growth
+  possible_context_target: null
+  notes: '[gap-fill] Mexican cumbia sound-system DJ/scene style (cumbia sonidera).'
 bridge_rules:
 - source: indie pop
   target: synth-pop
