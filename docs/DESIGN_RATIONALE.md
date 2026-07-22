@@ -159,7 +159,7 @@ The sonic similarity space has been replaced twice, each time because measuremen
   the fixers by destructiveness means the playlist is perturbed as little as possible — a swap is
   preferred to a deletion, and deletion is a genuine last resort guarded "never-worse" and against
   breaching a bystander artist's `min_gap`.
-- **Status:** live. **Known open limits** (tracked in `CLEANUP_LIST.md`): a *deadzone* (every
+- **Status:** live. **Known open limits:** a *deadzone* (every
   trigger floor is 0.30, so an ugly-but-legal edge at T ≈ 0.46 gets no attention — the corridor
   project's relative-trigger work below narrows but does not eliminate this), and an
   edge-repair-vs-reporter **T-mismatch** (repair has flagged edges the reporter scores as healthy)
@@ -178,8 +178,8 @@ which of a seed artist's own tracks become piers. Full detail: `TECHNICAL_PLAYLI
   — candidates whose similarity to *both* adjacent piers clears a self-calibrating percentile floor,
   drawn from a library-wide eligible universe computed once per generation. "The path defines the
   pool," not the other way around.
-- **Why:** `docs/POOL_STARVATION_RESEARCH_2026-07-12.md` traced a shipped T=0.028 edge (SADE +
-  `home`) to three validated mechanisms, dose-response confirmed on 6 artists: (M1) the seed-ball
+- **Why:** research into a shipped T=0.028 edge (SADE +
+  `home`) traced it to three validated mechanisms, dose-response confirmed on 6 artists: (M1) the seed-ball
   pool was frozen before mini-piers got promoted to anchors, so a promoted anchor's own real
   1,200-neighbor neighborhood was never provisioned; (M2) a pool-level per-artist cap deleted
   14–60% of post-floor survivors that the beam's own `min_gap` enforcement re-does anyway; (M3)
@@ -188,9 +188,9 @@ which of a seed artist's own tracks become piers. Full detail: `TECHNICAL_PLAYLI
   specific anchor pair and nothing upstream would ever learn.
 - **Evidence:** the failures were overwhelmingly *manufactured*, not library scarcity — the library
   held 0.6+-quality bridges for every broken edge examined. `docs/superpowers/specs/
-  2026-07-12-corridor-first-pooling-design.md` was approved on this evidence, gated by
-  `CORRIDOR_FEATURE_PRESERVATION_CONTRACT.md`'s non-degradation bar (every transform/gate/soft-term
-  rehomed, zero features lost, an automated no-knob-goes-inert sweep).
+  2026-07-12-corridor-first-pooling-design.md` was approved on this evidence, gated by a
+  non-degradation bar (every transform/gate/soft-term rehomed, zero features lost, an automated
+  no-knob-goes-inert sweep).
 - **Status:** live and sole (Phase 1 Task 8 flip, 2026-07-17) — the legacy `SegmentCandidatePoolBuilder`
   KNN-union and its 1,129-line implementation are deleted, not flagged off.
 
@@ -230,7 +230,7 @@ which of a seed artist's own tracks become piers. Full detail: `TECHNICAL_PLAYLI
   force-include; support-triggered pre-beam widening).
 - **Why:** Phase 1 left one known weakness — an apparent "outlier-anchor ramp exclusion" pattern,
   naturally hypothesized as corridor's sonic admission excluding the better connector. Task 1's
-  mechanism probes (`docs/corridor_baseline/phase2_mechanism_probes.md`) reproduced both deep-dived
+  mechanism probes reproduced both deep-dived
   cases directly against the production corridor functions and found the hypothesis **false** for
   both: Parquet Courts segment 4's known-good fix ("Theresa's Sound-World") was already a corridor
   member (41st of 43,241 by similarity), simply not ranked highly enough by the beam, and unused
@@ -271,8 +271,7 @@ which of a seed artist's own tracks become piers. Full detail: `TECHNICAL_PLAYLI
   a medoid slot and landing at the playlist's most exposed position, purely because clustering had
   no notion of "typical for this artist." The first estimator attempt — a whole-library
   top-100-neighbor density mirroring the existing pier-bridgeability veto — **failed** to separate
-  the known outliers from normal candidates (`docs/corridor_baseline/phase2_task3_probe_findings.md`)
-  and was not shipped.
+  the known outliers from normal candidates and was not shipped.
 - **Evidence:** `compute_within_artist_support` cleanly separated both known outliers (bottom
   ~10–20th percentile of their artist's candidates) and stayed stable across `k=5..20` — a
   fundamentally different reference frame (within-catalog typicality vs. library-wide density).

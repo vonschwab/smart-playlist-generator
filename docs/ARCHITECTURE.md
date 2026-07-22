@@ -16,8 +16,7 @@ are and how they fit. Two companions go deeper:
 > (this is what a new install copies). (3) **`config.yaml`** (gitignored) is the *live* config on
 > one machine. This doc describes the **shipped** behavior and names the key so you can see the
 > rollback. A few validated levers are on in the live config but not yet in the shipped template
-> — those divergences are tracked in [`WIRING_STATUS.md`](WIRING_STATUS.md) and `CLEANUP_LIST.md`
-> and called out where they matter.
+> — those divergences are called out where they matter.
 
 ---
 

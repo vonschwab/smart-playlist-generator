@@ -2,8 +2,7 @@
 
 Key-by-key reference for `config.yaml`. For the system-level picture (what each subsystem *is*
 and how the pieces fit), see [`ARCHITECTURE.md`](ARCHITECTURE.md); for tuning recipes and worked
-examples, see [`PLAYLIST_ORDERING_TUNING.md`](PLAYLIST_ORDERING_TUNING.md); for the live-vs-shipped
-delta on any given machine, see [`WIRING_STATUS.md`](WIRING_STATUS.md).
+examples, see [`PLAYLIST_ORDERING_TUNING.md`](PLAYLIST_ORDERING_TUNING.md).
 
 > **Reading the defaults in this doc.** Three layers set behavior, and they deliberately differ.
 > (1) **Dataclass defaults** (mostly `src/playlist/pier_bridge/config.py`) are the *rollback*
@@ -253,13 +252,12 @@ optimizing for speed instead. There's a 90s hard ceiling as a design target, not
 enforced code path (see `feedback_generation_time_budget` — a playlist must never take >90s in
 practice, even with the soft budget disabled).
 
-> **Two known shipped-vs-live gaps.** These are tracked in [`CLEANUP_LIST.md`](CLEANUP_LIST.md) —
-> read that file before assuming either is "already fixed."
+> **Two known shipped-vs-live gaps.**
 >
 > 1. **`edge_repair:` is entirely absent from `config.example.yaml`.** The live `config.yaml` runs
 >    it (`enabled: true`), but a fresh clone gets the dataclass rollback (`edge_repair_enabled:
 >    False`) — the break-glass repair pass is off out of the box. This is a template gap, not a
->    deliberate design choice; `CLEANUP_LIST.md` has the fix (add the block with the live values).
+>    deliberate design choice.
 > 2. **`artist_style.enabled: false` in `config.example.yaml`, but `true` in the live
 >    `config.yaml`.** A fresh clone running `--artist` playlists gets the **legacy seed-selection
 >    pier path** (no medoid clustering of the artist's catalog into style-representative piers) —
@@ -299,7 +297,7 @@ medoid per cluster as a pier, instead of picking piers by the legacy heuristic.
 | ~~`pool_balance_mode`~~ | ~~`equal`~~ | **RETIRED 2026-07** (corridor Phase 1 Task 8), same reason. `proportional_capped` was never implemented anyway. |
 | `internal_connector_priority` / `_max_per_segment` | `true` / `2` | Prefer the artist's own tracks as bridge connectors, up to this cap. |
 | `bridge_floor.{strict,narrow,dynamic}` | `0.10` / `0.05` / `0.02` | Per-cohesion-mode floor for style-cluster bridges. |
-| `bridge_score_weights.{dynamic,narrow}` | `{bridge:0.6,transition:0.4}` / `{bridge:0.7,transition:0.3}` | Per-mode edge-score weights for artist-style bridges. **Shadows** the global `pier_bridge.weight_bridge_<mode>` / `weight_transition_<mode>` keys for artist playlists — two sources, one wins silently; see `CLEANUP_LIST.md` if reconciling them. |
+| `bridge_score_weights.{dynamic,narrow}` | `{bridge:0.6,transition:0.4}` / `{bridge:0.7,transition:0.3}` | Per-mode edge-score weights for artist-style bridges. **Shadows** the global `pier_bridge.weight_bridge_<mode>` / `weight_transition_<mode>` keys for artist playlists — two sources, one wins silently. |
 | `medoid_energy_weight` | `0.0` | Off. Biases each cluster's medoid toward an evenly-spaced arousal slot (artist energy-spread; validated as the winning lever over "popularity," still opt-in). |
 | `energy_feature` | `arousal_p50` | `arousal_p10` \| `arousal_p50` \| `arousal_p90` \| `danceability`. |
 | `energy_slot_lo_pct` / `_hi_pct` | `10.0` / `90.0` | Robust-percentile span for arousal slot targets. |
@@ -433,7 +431,3 @@ now has a single `"muq"` entry). If you see either key referenced in an older do
   the selected-edge audit log.
 - [`DESIGN_RATIONALE.md`](DESIGN_RATIONALE.md) — why each lever above exists, with the
   experiments and rejected alternatives.
-- [`WIRING_STATUS.md`](WIRING_STATUS.md) — canonizes the *live* state (what's actually on, on
-  Dylan's machine, right now) vs. the shipped defaults documented here.
-- [`CLEANUP_LIST.md`](CLEANUP_LIST.md) — tracks both shipped-vs-live template gaps called out
-  above, plus other parked/deferred config-surface issues.

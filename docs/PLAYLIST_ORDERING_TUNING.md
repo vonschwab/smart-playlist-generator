@@ -117,8 +117,8 @@ min-sim floor) — use when a mode feels too loose/generic. Lowering it widens (
 floor) — use when a mode craters (a segment can't find a path, or the widening ladder fires on
 nearly every segment). `narrow`/`discover` are now pinned from real 18-generation probes (Phase 2
 Task 4, `.superpowers/sdd/p2-task-4-report.md`), not interpolation — but if you retune them further,
-re-run the 12-cell corpus (`scripts/corridor_baseline/capture_corpus.py`) to confirm the change
-before trusting it — see the known-issues note in `docs/corridor_baseline/phase1_contract_report.md`.
+re-run the 12-cell corpus to confirm the change
+before trusting it.
 
 **The widening ladder.** Three knobs govern the sole segment-level recovery mechanism (replaces
 every legacy relaxation tier for corridor segments — see the flow doc §5.0 point 4 for the full
@@ -363,7 +363,7 @@ repair's weak-`T` arm by itself once `edge_repair_relative_epsilon > 0` (the rel
 know about that intent) — the true "fully legacy, anti-alignment-only" rollback is
 `edge_repair_relative_epsilon: 0.0`, not `t_floor: 0` alone.
 
-**Known limits (documented, not yet resolved — see `CLEANUP_LIST.md`):**
+**Known limits (documented, not yet resolved):**
 - **The fixer deadzone (0.30 – ~0.75).** Every trigger floor sits at 0.30, so an *ugly-but-legal*
   edge (e.g. a rough pier on-ramp at T ≈ 0.46) gets no fixer attention. If your worst edges cluster
   in this band, the deliberate levers are raising the floors or making them percentile-relative to
@@ -745,8 +745,7 @@ optionally by segment length via `autoscale.per_step_scale`, off by default).
 
 **Calibration note (Phase 2 Task 4, 2026-07-18):** Task 7's contract sweep flagged the shipped
 `weight: 0.25` default as too weak against corridor's tighter beam ("effectively runs at 3.0" in
-that sweep's own experiment). A dedicated probe (`docs/corridor_baseline/
-phase2_task4_progress_arc_probe.md`, `progress_arc` forced on across weight `{0.25, 0.5, 1.0, 2.0,
+that sweep's own experiment). A dedicated probe (`progress_arc` forced on across weight `{0.25, 0.5, 1.0, 2.0,
 3.0}` on the project's two canonical sweep cells — Bill Evans Trio/open, Swirlies/home — vs an
 arc-disabled baseline) found the "audible" threshold is **cell-dependent, not a single number**:
 because the effective weight scales with pier-to-pier `ab_distance`, one cell (Swirlies/home) was

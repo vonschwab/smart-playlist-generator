@@ -29,7 +29,6 @@ than duplicating it.
 | [`DESIGN_RATIONALE.md`](DESIGN_RATIONALE.md) | Why each current method was chosen over the alternative that was tried. |
 | [`PLAYLIST_ORDERING_TUNING.md`](PLAYLIST_ORDERING_TUNING.md) | Knob-by-knob tuning recipes for everything in Phases 5–6. |
 | [`CONFIG.md`](CONFIG.md) | Full config key reference. |
-| [`WIRING_STATUS.md`](WIRING_STATUS.md) / [`CLEANUP_LIST.md`](CLEANUP_LIST.md) | Shipped-vs-live divergences and open gaps. |
 
 ---
 
@@ -221,7 +220,7 @@ using a single seed track:
 
 > **Shipped-vs-live gap.** `config.example.yaml:173` ships `artist_style.enabled: false` — a
 > fresh clone runs the **legacy per-seed pier path** below, not medoid clustering, for artist
-> mode. The live config in this repo has it `true`. Tracked in `CLEANUP_LIST.md`.
+> mode. The live config in this repo has it `true`.
 
 ### 3.2 Legacy / non-artist-style pier resolution
 
@@ -749,7 +748,7 @@ ugly-but-legal edge gets no fixer attention), and the edge-repair-vs-reporter `T
 are in [`PLAYLIST_ORDERING_TUNING.md`](PLAYLIST_ORDERING_TUNING.md) Knob 4. Dataclass rollback
 defaults are **off** for variable-bridge and edge-repair, **on** for tail-DP and edge-delete;
 `config.example.yaml` turns all but edge-repair on (edge-repair is live-only — a shipped-template
-gap tracked in `CLEANUP_LIST.md`).
+gap).
 
 **Time budget.** `generation_budget_s` (dataclass default 60.0, `pier_bridge/config.py:347`; live
 `0` = disabled) bounds the whole generation, computed once as a shared deadline

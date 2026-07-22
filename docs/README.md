@@ -20,8 +20,6 @@ authoritative implementation walkthrough.
 
 ## Why & current state
 - **[DESIGN_RATIONALE.md](DESIGN_RATIONALE.md)** — the "why" canon: what was tried, what won, what was rejected, with evidence
-- **[WIRING_STATUS.md](WIRING_STATUS.md)** — living tracker of what's actually live vs shipped-default vs off vs known-broken
-- **[CLEANUP_LIST.md](CLEANUP_LIST.md)** — parked features + open tech-debt / bugs
 
 ## Sonic
 The current sonic space is **MuQ** (contrastive, sole embedding) — see `ARCHITECTURE.md`
@@ -30,7 +28,6 @@ investigations — neighbour QA, 2DFTM harmony — are retained locally under `d
 
 ## Genre (authority + taxonomy graph + enrichment)
 - **[AI_GENRE_ENRICHMENT.md](AI_GENRE_ENRICHMENT.md)** — enrichment usage
-- **[AI_GENRE_ENRICHMENT_DEVELOPMENT_BIBLE.md](AI_GENRE_ENRICHMENT_DEVELOPMENT_BIBLE.md)** — hybrid deterministic/LLM genre model
 - **[LAYERED_GENRE_GRAPH_SPEC.md](LAYERED_GENRE_GRAPH_SPEC.md)** — SP3a layered taxonomy graph spec
 - The `genre-data-authority` skill is the map of which layer to read/write (the authority is `release_effective_genres` via `src/genre/authority.py`).
 

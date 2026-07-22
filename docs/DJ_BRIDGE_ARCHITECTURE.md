@@ -475,5 +475,4 @@ ceiling.
 | `src/playlist/config.py` | `_resolve_mode_number_with_source` — the per-`cohesion_mode` knob resolver |
 
 See also: [`ARCHITECTURE.md`](ARCHITECTURE.md) (map), [`PLAYLIST_ORDERING_TUNING.md`](PLAYLIST_ORDERING_TUNING.md)
-(knob-by-knob tuning), [`CONFIG.md`](CONFIG.md) (full key reference), `DESIGN_RATIONALE.md` (why),
-[`CLEANUP_LIST.md`](CLEANUP_LIST.md) (tracked gaps, incl. the `edge_repair` config.example gap).
+(knob-by-knob tuning), [`CONFIG.md`](CONFIG.md) (full key reference), `DESIGN_RATIONALE.md` (why).
